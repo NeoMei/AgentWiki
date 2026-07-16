@@ -1,0 +1,26 @@
+{
+  "name": "agentwiki",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "node scripts/dev-runner.mjs",
+    "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build",
+    "test": "pnpm test:runtime && pnpm --filter @agentwiki/server test && pnpm --filter @agentwiki/client test",
+    "typecheck": "pnpm --filter @agentwiki/server typecheck && pnpm --filter @agentwiki/client exec tsc --noEmit",
+    "lint": "eslint \"apps/{server,client}/src/**/*.{ts,tsx}\"",
+    "test:runtime": "node --test scripts/*.test.mjs",
+    "postinstall": "pnpm --filter @agentwiki/server exec prisma generate",
+    "server:dev": "pnpm --filter server start:dev",
+    "client:dev": "pnpm --filter client dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.7.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.64.0"
+  }
+}

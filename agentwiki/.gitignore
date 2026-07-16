@@ -1,0 +1,16 @@
+node_modules/
+.stale-node-modules/
+.icloud-placeholders/
+
+dist/
+apps/*/dist/
+packages/*/dist/
+
+.env
+apps/*/.env
+
+.DS_Store
+*.log
+
+.codebase-memory/*
+!.codebase-memory/graph.db.zst
