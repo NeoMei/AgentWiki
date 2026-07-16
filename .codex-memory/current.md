@@ -1,0 +1,54 @@
+<!-- codex-memory:template=current:v1 -->
+
+# 当前目标
+
+- 在本机继续开发 AgentWiki；Node.js 26 唯一运行时适配、迁移接手和本地开发环境初始化已完成，当前可以直接接收开发任务。
+
+# 范围 / 不做
+
+- 当前产品栈：React/Vite + NestJS + Prisma/PostgreSQL；远端采用源码直部署和用户级 systemd，不使用 Docker 运行应用。
+- 不恢复公开 Agent 注册、任意服务器本地路径摄取、旧 DocumentGeneration 双轨、Agent 直接写正式知识或 Agent 自批。
+- 不宣称未经验证的四层记忆或时间衰减。
+
+# 当前状态
+
+- P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
+- Markdown 编辑页使用单一工作区，以 Edit/Preview 状态切换和 `Ctrl/⌘ + E` 快捷键替代双栏；桌面与移动端均已验证。
+- 全局语言上下文支持中文/英文切换、浏览器持久化和 `html lang` 同步；导航、认证、空间、页面、Agent、来源/运行、审核、图谱、成员、Profile、集成、产品页和指南均已接入。
+- 远端 PostgreSQL 18.4 已在可恢复备份后部署全部迁移，当前 13/13，无待执行迁移。
+- 远端直接运行 `agentwiki-api.service`、`agentwiki-worker.service`、`agentwiki-frontend.service`；三项均为 active，Docker 服务为 inactive。
+- `/api/health` 验证 PostgreSQL 与 Redis；远端业务 smoke 完成注册、Space、Page、Search、Agent Credential/Grant、MCP 只读及审计、Source → Run → Review → Publish → provenance，临时数据已删除。
+- 当前门禁：ESLint、双端类型检查、16 个 Jest 套件 58 项服务端测试、4 项 Vitest 客户端测试、Nest/Vite 生产构建全部通过。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
+- 本机仅以 Node 26.5.0 + pnpm 11.9.0 作为 AgentWiki 运行时；PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
+- `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
+- Node 26 完整门禁已通过：锁文件安装、ESLint（0 error）、双端类型检查、7 项运行时测试、58 项 Jest、4 项 Vitest、Nest/Vite 生产构建及 Prisma 迁移状态。
+- codebase-memory 已对主产品 `agentwiki/` 重新完成 full 索引并持久化：1558 个节点、3604 条边；参考仓库未混入主图谱。
+
+# 稳定约束
+
+- Agent 是人类拥有的独立实体；权限为当前 Credential Scope、Space Grant、Agent 状态和 Space 策略的交集。`review:decide` 不签发给 Agent。
+- JWT 与 WebSocket 握手必须重新确认当前未删除的人类 User；正式知识必须保留 Source/Version/Run/Evidence/ChangeSet/Approval provenance。
+- 自动知识默认进入 ChangeSet；Worker 使用可续租 fenced lease，在多个阶段复核凭证与授权。
+- 记忆只声明 episodic/semantic；private 仅目标 Agent，space 可由同 Space 授权 Agent 召回。
+- 远端发布必须先备份，再执行迁移和业务 smoke；应用保持直部署并由三个用户级 systemd 服务管理。
+- Markdown 编辑器不得恢复为并排双栏；编辑与预览使用同一工作区状态切换。界面新增用户可见文案时必须同时提供中文和英文，并保持语言选择持久化。
+
+# 关键索引
+
+- 产品代码：`agentwiki/`
+- 当前设计：`design/CURRENT_DESIGN.md`
+- 全量整改与发布记录：`design/REMEDIATION_TODO.md`
+- 运维与备份：`design/OPERATIONS.md`
+- systemd 单元：`agentwiki/deploy/systemd/`
+- 直部署脚本：`agentwiki/deploy.sh`
+- 本机代码图谱：`agentwiki/.codebase-memory/graph.db.zst`
+- 本机开发配置：`agentwiki/.env`、`agentwiki/apps/server/.env`（数据库主机已切到 `127.0.0.1`）
+- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node26-contract.test.mjs`
+- 本机 Git 元数据：`/Users/neomei/.local/share/AgentWiki.git`（工作树仍为当前项目路径，避免 iCloud 占位对象阻塞 Git）
+- 迁移前备份：`C:\Users\1\AgentWikiBackups\agentwiki-pre-migrate-20260716-003650.dump`
+
+# 风险 / 下一步
+
+- 当前无阻塞项，可以直接接收本机开发任务。在 Node 26 + pnpm 11.9.0 环境下进入 `agentwiki/` 后直接运行 `pnpm dev`，不再使用 Node 20 PATH 或手工密钥映射。
+- 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
+- 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。
