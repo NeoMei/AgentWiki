@@ -5,9 +5,10 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
-import { Save, ArrowLeft, History, Users } from 'lucide-react';
+import { Save, ArrowLeft, History, Users, Bot } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
+import { AgentAssistPanel } from './AgentAssistPanel';
 import 'highlight.js/styles/github.css';
 
 interface Page {
@@ -67,6 +68,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('preview');
+  const [assistOpen, setAssistOpen] = useState(false);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
 
   activePageIdRef.current = id;
@@ -399,6 +401,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             <Save size={18} />
           </IconButton>
           <ModeToggleButton mode={mode} onToggle={() => setMode(mode === 'edit' ? 'preview' : 'edit')} />
+          <IconButton
+            label={t('editor.assist')}
+            onClick={() => setAssistOpen((open) => !open)}
+            active={assistOpen}
+            testId="assist-toggle"
+          >
+            <Bot size={18} />
+          </IconButton>
         </div>
       </div>
 
@@ -422,7 +432,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       )}
 
-      <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} pages={spacePages} />
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} pages={spacePages} />
+        </div>
+        {assistOpen && page ? (
+          <AgentAssistPanel pageId={page.id} pageTitle={title || page.title} spaceId={page.spaceId} />
+        ) : null}
+      </div>
     </div>
   );
 };
