@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
-import { ArrowLeft, Edit, Clock, User, Trash2, FileText, Database } from 'lucide-react';
+import { ArrowLeft, Clock, User, Trash2, FileText, Database } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
+import { ModeToggleButton } from '../../components/ModeToggleButton';
 
 interface Page {
   id: string;
@@ -116,21 +117,14 @@ export const PagePreview: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            to={`/pages/${id}/edit`}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            <Edit size={18} />
-            {t('common.edit')}
-          </Link>
+          <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100 disabled:opacity-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
             title={t('page.delete')}
           >
             <Trash2 size={18} />
-            {deleting ? t('common.deleting') : ''}
           </button>
         </div>
       </div>

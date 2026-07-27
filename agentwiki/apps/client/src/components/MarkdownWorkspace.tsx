@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, PenLine } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { PageLinkTarget } from './markdownLinks';
+import { ModeToggleButton } from './ModeToggleButton';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -124,24 +124,8 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
-      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-gray-200 bg-gray-50/80 px-3 py-2">
-        <button
-          type="button"
-          onClick={() => onModeChange(isEdit ? 'preview' : 'edit')}
-          aria-pressed={isEdit}
-          aria-label={isEdit ? t('common.preview') : t('common.edit')}
-          className="inline-flex items-center gap-2 rounded-lg bg-gray-200/70 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-300/70"
-        >
-          {isEdit ? <PenLine size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-          {isEdit ? t('common.edit') : t('common.preview')}
-          <span className={`ml-1 inline-flex h-4 w-7 items-center rounded-full transition ${isEdit ? 'bg-blue-600' : 'bg-gray-400'}`}>
-            <span className={`h-3 w-3 rounded-full bg-white transition ${isEdit ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-          </span>
-        </button>
-        <div className="hidden items-center gap-3 text-xs text-gray-400 sm:flex">
-          <span>{t('editor.markdown')}</span>
-          <span>{isEdit ? t('editor.clickToEdit') : t('editor.readOnly')}</span>
-        </div>
+      <div className="flex items-center justify-end gap-2 border-b border-gray-200 bg-gray-50/80 px-2 py-1.5">
+        <ModeToggleButton mode={mode} onToggle={() => onModeChange(isEdit ? 'preview' : 'edit')} />
       </div>
 
       <div
