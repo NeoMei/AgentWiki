@@ -19,33 +19,40 @@ const Harness = ({ initial = '# Title\n\nFirst paragraph.\n\nSecond paragraph.',
 
 const renderWYS = (props?: any) => render(<LanguageProvider><Harness {...props} /></LanguageProvider>);
 
-describe('MarkdownWorkspace WYSIWYG', () => {
+describe('MarkdownWorkspace live-preview editing', () => {
   afterEach(cleanup);
   beforeEach(() => localStorage.setItem('agentwiki.language.v1', 'en'));
 
-  it('edit mode renders all blocks as preview by default, not a raw textarea', () => {
+  it('renders the whole document as preview by default, with no add-block button', () => {
     renderWYS();
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
     expect(screen.getByText('First paragraph.')).toBeInTheDocument();
     expect(screen.getByText('Second paragraph.')).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/add a block|添加一个块/i)).not.toBeInTheDocument();
   });
 
-  it('clicking a block turns only that block into an editor; others stay rendered', () => {
+  it('clicking an element edits only that element in place; others stay rendered', () => {
     renderWYS();
-    fireEvent.click(screen.getByTestId('md-block-1'));
+    fireEvent.click(screen.getByText('First paragraph.'));
     const editors = screen.getAllByRole('textbox');
     expect(editors).toHaveLength(1);
     expect(editors[0]).toHaveValue('First paragraph.');
-    // other blocks still rendered as preview
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
     expect(screen.getByText('Second paragraph.')).toBeInTheDocument();
   });
 
-  it('editing a block updates the full markdown and exit restores preview', () => {
+  it('clicking a heading edits its markdown source in place', () => {
+    renderWYS();
+    fireEvent.click(screen.getByRole('heading', { name: 'Title' }));
+    const editor = screen.getByRole('textbox');
+    expect(editor).toHaveValue('# Title');
+  });
+
+  it('editing updates the document and leaving the element restores preview', () => {
     const onChange = vi.fn();
     renderWYS({ onChange });
-    fireEvent.click(screen.getByTestId('md-block-1'));
+    fireEvent.click(screen.getByText('First paragraph.'));
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: 'First paragraph edited.' } });
     expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst paragraph edited.\n\nSecond paragraph.');
@@ -54,9 +61,9 @@ describe('MarkdownWorkspace WYSIWYG', () => {
     expect(screen.getByText('First paragraph edited.')).toBeInTheDocument();
   });
 
-  it('blurring the block editor exits back to preview', () => {
+  it('blurring the element editor exits back to preview', () => {
     renderWYS();
-    fireEvent.click(screen.getByTestId('md-block-2'));
+    fireEvent.click(screen.getByText('Second paragraph.'));
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: 'Second updated.' } });
     fireEvent.blur(editor);
@@ -64,19 +71,26 @@ describe('MarkdownWorkspace WYSIWYG', () => {
     expect(screen.getByText('Second updated.')).toBeInTheDocument();
   });
 
-  it('preview mode renders everything read-only and blocks are not editable', () => {
+  it('clicking empty space below the content appends a new editable element', () => {
+    const onChange = vi.fn();
+    renderWYS({ onChange });
+    fireEvent.click(screen.getByTestId('md-editor-surface'));
+    const editor = screen.getByRole('textbox');
+    fireEvent.change(editor, { target: { value: 'Appended line.' } });
+    expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\nAppended line.');
+  });
+
+  it('preview mode renders read-only and elements are not editable', () => {
     renderWYS();
-    fireEvent.click(screen.getByRole('button', { name: /Preview/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Preview|预览/ }));
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('md-block-1'));
+    fireEvent.click(screen.getByText('First paragraph.'));
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
-  it('mode switch is a single toggle button, not two tabs', () => {
+  it('mode switch is a single toggle button', () => {
     renderWYS();
-    const toggle = screen.getByRole('button', { name: /Preview|Edit/ });
+    const toggle = screen.getByRole('button', { name: /Preview|Edit|预览|编辑/ });
     expect(toggle).toHaveAttribute('aria-pressed');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: /Edit|Preview/ })).toBeInTheDocument();
   });
 });

@@ -73,7 +73,7 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
         tabIndex={clickable ? 0 : undefined}
         onClick={clickable ? () => setEditingIndex(index) : undefined}
         onKeyDown={clickable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setEditingIndex(index); } } : undefined}
-        className={`rounded-md px-3 py-2 transition ${clickable ? 'cursor-text hover:bg-gray-50' : ''}`}
+        className={`-mx-1 rounded px-1 transition ${clickable ? 'cursor-text hover:bg-blue-50/50' : ''}`}
       >
         <Markdown pages={pages}>{block}</Markdown>
       </div>
@@ -104,35 +104,39 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
         </div>
       </div>
 
-      <div className="h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white px-6 py-6 md:px-10 md:py-8" aria-label={isEdit ? t('editor.editMode') : t('editor.previewMode')}>
+      <div
+        data-testid="md-editor-surface"
+        onClick={isEdit ? (event) => {
+          // Clicking empty space below the content starts a new trailing element.
+          if (event.target === event.currentTarget || (event.target as HTMLElement).dataset.emptyArea === 'true') {
+            setEditingIndex(blocks.length);
+          }
+        } : undefined}
+        className={`h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white px-6 py-6 md:px-10 md:py-8 ${isEdit ? 'cursor-text' : ''}`}
+        aria-label={isEdit ? t('editor.editMode') : t('editor.previewMode')}
+      >
         <div className="mx-auto max-w-4xl space-y-1">
           {blocks.length ? (
             blocks.map((block, index) => renderBlock(block, index))
           ) : (
-            <p className="py-12 text-center text-sm text-gray-400">{isEdit ? t('editor.placeholder') : t('editor.emptyPreview')}</p>
+            <p data-empty-area="true" className="py-12 text-center text-sm text-gray-400">{isEdit ? t('editor.placeholder') : t('editor.emptyPreview')}</p>
           )}
-          {isEdit && blocks.length > 0 && editingIndex === null ? (
-            <button
-              type="button"
-              onClick={() => setEditingIndex(blocks.length)}
-              className="mt-2 w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-sm text-gray-400 hover:border-blue-300 hover:text-blue-600"
-            >
-              {t('editor.addBlock')}
-            </button>
-          ) : null}
-          {isEdit && editingIndex === blocks.length && blocks.length > 0 ? (
+          {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
+          {isEdit && editingIndex === blocks.length ? (
             <textarea
               ref={editorRef}
               value=""
               onChange={(event) => onChange(blocks.concat(event.target.value).join('\n\n'))}
               onBlur={() => setEditingIndex(null)}
               onKeyDown={(event) => { if (event.key === 'Escape') setEditingIndex(null); }}
+              data-testid="md-block-editor"
               rows={3}
               className="w-full resize-y rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
               aria-label={t('editor.editMode')}
               spellCheck
             />
           ) : null}
+          {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
         </div>
       </div>
     </section>
