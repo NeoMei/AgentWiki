@@ -32,6 +32,20 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
   const handleDragStart = (event: React.DragEvent) => {
     event.dataTransfer.setData('text/agentwiki-page-id', node.id);
     event.dataTransfer.effectAllowed = 'move';
+    // Show the whole card following the cursor so it is clear what is moving.
+    const row = event.currentTarget as HTMLElement;
+    const ghost = row.cloneNode(true) as HTMLElement;
+    ghost.style.width = `${row.offsetWidth}px`;
+    ghost.style.position = 'absolute';
+    ghost.style.top = '-1000px';
+    ghost.style.left = '-1000px';
+    ghost.style.background = 'white';
+    ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    ghost.style.borderRadius = '6px';
+    ghost.style.opacity = '0.9';
+    document.body.appendChild(ghost);
+    event.dataTransfer.setDragImage(ghost, 16, 16);
+    requestAnimationFrame(() => ghost.remove());
   };
   const handleDragOver = (event: React.DragEvent) => {
     if (!onMove) return;
@@ -63,7 +77,16 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
       data-testid={`tree-item-${node.id}`}
       className={dropHint === 'into' ? 'rounded-md ring-2 ring-blue-400' : ''}
     >
-      {dropHint === 'before' ? <div className="h-0.5 rounded bg-blue-400" data-testid="drop-before" /> : null}
+      {dropHint === 'before' ? <div className="h-0.5 rounded bg-blue-400" style={{ marginLeft: `${depth * 14 + 4}px` }} data-testid="drop-before" /> : null}
+      {dropHint === 'into' ? (
+        <div
+          className="my-0.5 rounded border border-dashed border-blue-300 bg-blue-50/60 px-2 py-1 text-xs text-blue-500"
+          style={{ marginLeft: `${(depth + 1) * 14 + 4}px` }}
+          data-testid="drop-into-preview"
+        >
+          {node.title} →
+        </div>
+      ) : null}
       <div
         className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition ${isCurrent ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'}`}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
@@ -107,6 +130,7 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
           ))}
         </ul>
       ) : null}
+      {dropHint === 'after' ? <div className="h-0.5 rounded bg-blue-400" style={{ marginLeft: `${depth * 14 + 4}px` }} data-testid="drop-after" /> : null}
     </li>
   );
 };
