@@ -27,6 +27,23 @@ vi.mock('../../context/AuthContext', () => ({
 }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 
+// The WYSIWYG editor renders content as preview blocks; clicking a block swaps
+// it into a textarea. This helper performs that interaction to set content.
+const editContent = (next: string) => {
+  fireEvent.click(screen.getByTestId('md-block-0'));
+  const blockEditor = screen.getByTestId('md-block-editor');
+  fireEvent.change(blockEditor, { target: { value: next } });
+  fireEvent.blur(blockEditor);
+};
+
+const contentEditorValue = () => {
+  fireEvent.click(screen.getByTestId('md-block-0'));
+  const blockEditor = screen.getByTestId('md-block-editor');
+  const value = (blockEditor as HTMLTextAreaElement).value;
+  fireEvent.blur(blockEditor);
+  return value;
+};
+
 const page = (overrides: Record<string, unknown> = {}) => ({
   id: 'page-1',
   title: 'Original title',
@@ -84,14 +101,13 @@ describe('PageEditor remote update safety', () => {
 
     renderEditor();
     const title = await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
     fireEvent.change(title, { target: { value: 'My local title' } });
-    fireEvent.change(content, { target: { value: 'My local content' } });
+    editContent('My local content');
 
     await act(async () => window.dispatchEvent(new Event('focus')));
     expect(await screen.findByRole('alert')).toHaveTextContent('A newer remote version is available');
     expect(title).toHaveValue('My local title');
-    expect(content).toHaveValue('My local content');
+    expect(contentEditorValue()).toBe('My local content');
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
     await act(async () => window.dispatchEvent(new Event('focus')));
@@ -99,7 +115,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Accept remote version' }));
 
     expect(title).toHaveValue('Remote v3');
-    expect(content).toHaveValue('Remote content v3');
+    expect(contentEditorValue()).toBe('Remote content v3');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
@@ -114,14 +130,13 @@ describe('PageEditor remote update safety', () => {
 
     renderEditor();
     const title = await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
     fireEvent.change(title, { target: { value: 'My local title' } });
-    fireEvent.change(content, { target: { value: 'My local content' } });
+    editContent('My local content');
 
     await act(async () => window.dispatchEvent(new Event('focus')));
     fireEvent.click(await screen.findByRole('button', { name: 'Keep local draft' }));
     expect(title).toHaveValue('My local title');
-    expect(content).toHaveValue('My local content');
+    expect(contentEditorValue()).toBe('My local content');
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
@@ -142,8 +157,7 @@ describe('PageEditor remote update safety', () => {
     await act(async () => window.dispatchEvent(new Event('focus')));
 
     const title = await screen.findByDisplayValue('Remote title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
-    expect(content).toHaveValue('Remote content');
+    expect(contentEditorValue()).toBe('Remote content');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     fireEvent.change(title, { target: { value: 'Local after refresh' } });
@@ -159,8 +173,7 @@ describe('PageEditor remote update safety', () => {
     vi.mocked(api.get).mockResolvedValueOnce({ data: page() } as any);
     renderEditor();
     await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
-    fireEvent.change(content, { target: { value: 'Local content' } });
+    editContent('Local content');
 
     await act(async () => socketMock.handlers.get('contentUpdated')?.({
       content: 'Remote live content',
@@ -168,7 +181,7 @@ describe('PageEditor remote update safety', () => {
       version: 10,
     }));
     fireEvent.click(await screen.findByRole('button', { name: 'Accept remote version' }));
-    fireEvent.change(content, { target: { value: 'Local after accept' } });
+    editContent('Local after accept');
 
     await act(async () => socketMock.handlers.get('contentUpdated')?.({
       content: 'Remote live content',
@@ -183,7 +196,7 @@ describe('PageEditor remote update safety', () => {
       version: 11,
     }));
     expect(await screen.findByRole('alert')).toHaveTextContent('A newer remote version is available');
-    expect(content).toHaveValue('Local after accept');
+    expect(contentEditorValue()).toBe('Local after accept');
   });
 
   it('does not treat a language change as navigation or overwrite a dirty draft', async () => {
@@ -192,14 +205,13 @@ describe('PageEditor remote update safety', () => {
       .mockResolvedValueOnce({ data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) } as any);
     renderEditor();
     const title = await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
     fireEvent.change(title, { target: { value: 'Local title' } });
-    fireEvent.change(content, { target: { value: 'Local content' } });
+    editContent('Local content');
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
 
     await waitFor(() => expect(title).toHaveValue('Local title'));
-    expect(content).toHaveValue('Local content');
+    expect(contentEditorValue()).toBe('Local content');
     expect(screen.getByText(/未保存/)).toBeInTheDocument();
   });
 
@@ -212,16 +224,15 @@ describe('PageEditor remote update safety', () => {
     });
     renderEditor();
     const title = await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
     fireEvent.change(title, { target: { value: 'Local title' } });
-    fireEvent.change(content, { target: { value: 'Local content' } });
+    editContent('Local content');
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText(/Page changed after this editor loaded it/)).toBeInTheDocument();
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(title).toHaveValue('Local title');
-    expect(content).toHaveValue('Local content');
+    expect(contentEditorValue()).toBe('Local content');
     expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
   });
 
@@ -233,16 +244,15 @@ describe('PageEditor remote update safety', () => {
       .mockResolvedValueOnce({ data: page({ content: 'Second edit', updatedAt: '2026-07-27T08:02:00.000Z' }) } as any);
     renderEditor();
     await screen.findByDisplayValue('Original title');
-    const content = screen.getByRole('textbox', { name: 'Edit mode' });
-    fireEvent.change(content, { target: { value: 'First edit' } });
+    editContent('First edit');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    fireEvent.change(content, { target: { value: 'Second edit' } });
+    editContent('Second edit');
 
     await act(async () => firstSave.resolve({
       data: page({ content: 'First edit', updatedAt: '2026-07-27T08:01:00.000Z' }),
     }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-    expect(content).toHaveValue('Second edit');
+    expect(contentEditorValue()).toBe('Second edit');
     expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

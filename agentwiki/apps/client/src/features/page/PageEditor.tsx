@@ -249,8 +249,7 @@ export const PageEditor: React.FC = () => {
     };
   }, [id, user?.id, page?.id, offerRemotePage]);
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
+  const handleContentChange = (newContent: string) => {
     setContent(newContent);
     contentRef.current = newContent;
     editRevisionRef.current += 1;
