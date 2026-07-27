@@ -3,7 +3,10 @@ import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
+import { Range } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
+import { syntaxTree } from '@codemirror/language';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { PageLinkTarget } from './markdownLinks';
@@ -46,6 +49,51 @@ const livePreviewStyle = HighlightStyle.define([
 // Obsidian-style live preview: a single CodeMirror document where the line the
 // cursor is on shows raw markdown and every other line is rendered with
 // formatting (headings, bold, lists…). Preview mode is fully read-only render.
+
+// Hide markdown markers (and the single space after a heading's `#` run) on
+// every line except the one the cursor/selection is on, so non-active lines
+// align flush with body text — like Obsidian. Active line keeps full source.
+const hiddenMarksPlugin = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) {
+    this.decorations = this.compute(view);
+  }
+  update(update: ViewUpdate) {
+    this.decorations = this.compute(update.view);
+  }
+  compute(view: EditorView): DecorationSet {
+    const ranges: Range<Decoration>[] = [];
+    const activeLines = new Set<number>();
+    for (const range of view.state.selection.ranges) {
+      const from = view.state.doc.lineAt(range.from).number;
+      const to = view.state.doc.lineAt(range.to).number;
+      for (let n = from; n <= to; n += 1) activeLines.add(n);
+    }
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        const line = view.state.doc.lineAt(node.from).number;
+        if (activeLines.has(line)) return;
+        const name = node.name;
+        // HeaderMark / EmphasisMark / QuoteMark / CodeMark etc. carry the
+        // literal marker characters (##, **, >, `).
+        if (name === 'HeaderMark') {
+          // include the single following space so "## 标题" -> "标题" flush left
+          const after = view.state.doc.sliceString(node.to, node.to + 1);
+          const end = after === ' ' ? node.to + 1 : node.to;
+          ranges.push(Decoration.replace({}).range(node.from, end));
+          return false;
+        }
+        if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'QuoteMark' || name === 'LinkMark' || name === 'URL') {
+          ranges.push(Decoration.replace({}).range(node.from, node.to));
+          return false;
+        }
+        return undefined;
+      },
+    });
+    return Decoration.set(ranges, true);
+  }
+}, { decorations: (value) => value.decorations });
+
 export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({ value, mode, onChange, onModeChange, pages = [] }, ref) => {
   const { t } = useLanguage();
   const isEdit = mode === 'edit';
@@ -57,13 +105,6 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
-      {/* Hide markdown markers (#, **, > …) on every line except the one the
-          cursor is on, so non-active lines render as pure formatted text like
-          Obsidian's live preview. */}
-      <style>{`
-        .cm-line:not(.cm-activeLine) .cm-md-marker { font-size: 0 !important; }
-        .cm-line:not(.cm-activeLine) .cm-md-marker::after { content: ''; }
-      `}</style>
       <div className="flex items-center justify-end gap-2 border-b border-gray-200 bg-gray-50/80 px-2 py-1.5">
         <ModeToggleButton mode={mode} onToggle={() => onModeChange(isEdit ? 'preview' : 'edit')} />
       </div>
@@ -77,7 +118,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           <CodeMirror
             value={value}
             onChange={(next) => onChange(next)}
-            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle)]}
+            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), hiddenMarksPlugin]}
             placeholder={t('editor.placeholder')}
             aria-label={t('editor.editMode')}
             basicSetup={{
