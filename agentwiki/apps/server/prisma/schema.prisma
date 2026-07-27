@@ -13,7 +13,6 @@ model User {
   email    String  @unique
   name     String?
   type     String  @default("human")
-  apiKey   String? @unique // Deprecated legacy credential; new keys use ApiKeyCredential.
   password String?
 
   spaces            SpaceMember[]

@@ -1,4 +1,8 @@
-import { MemoryService } from './memory.service';
+import {
+  canonicalizeMemoryContent,
+  canonicalMemoryHash,
+  MemoryService,
+} from './memory.service';
 
 describe('MemoryService', () => {
   const prisma = {
@@ -103,5 +107,25 @@ describe('MemoryService', () => {
     }
     expect(hitsAt3 / cases.length).toBeGreaterThanOrEqual(0.9);
     expect(reciprocalRank / cases.length).toBeGreaterThanOrEqual(0.8);
+  });
+});
+
+describe('canonical memory hashing', () => {
+  it('collapses and trims only explicit ASCII whitespace and lowercases only ASCII A-Z', () => {
+    expect(canonicalizeMemoryContent(' \tA\r\nB\f\v ')).toBe('a b');
+  });
+
+  it('preserves FEFF, U+0130 and NBSP code points', () => {
+    expect(canonicalizeMemoryContent('\uFEFF A \uFEFF')).toBe('\uFEFF a \uFEFF');
+    expect(canonicalizeMemoryContent('İ A')).toBe('İ a');
+    expect(canonicalizeMemoryContent('A\u00a0B')).toBe('a\u00a0b');
+    expect(canonicalizeMemoryContent('A\u00a0B')).not.toBe(canonicalizeMemoryContent('A B'));
+  });
+
+  it('hashes the locale-independent canonical representation', () => {
+    expect(canonicalMemoryHash(' \tA\r\nB\f\v ')).toBe('0cc9cd4dd26c5137b675a0d819cb9ab0');
+    expect(canonicalMemoryHash('\uFEFF A \uFEFF')).toBe('6ff7fce6bd22edeac246eed56dbe39f5');
+    expect(canonicalMemoryHash('İ A')).toBe('f768706201e258a59afff4ab3e0dc686');
+    expect(canonicalMemoryHash('A\u00a0B')).toBe('7570c04097240e0563415b8d354c4607');
   });
 });

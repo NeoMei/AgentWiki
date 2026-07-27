@@ -7,6 +7,19 @@ import { ConsolidateMemoryDto, CreateMemoryDto } from '../core/dto/memory.dto';
 import { createHash } from 'crypto';
 import { LlmService } from '../integrations/llm/llm.service';
 
+const ASCII_WHITESPACE_PATTERN = String.raw`[ \x09-\x0D]+`;
+
+export function canonicalizeMemoryContent(content: string) {
+  return content
+    .replace(new RegExp(ASCII_WHITESPACE_PATTERN, 'g'), ' ')
+    .replace(/^ +| +$/g, '')
+    .replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32));
+}
+
+export function canonicalMemoryHash(content: string) {
+  return createHash('md5').update(canonicalizeMemoryContent(content)).digest('hex');
+}
+
 @Injectable()
 export class MemoryService {
   constructor(private prisma: PrismaService, private config: ConfigService, private llm: LlmService) {}
@@ -248,8 +261,6 @@ export class MemoryService {
   }
 
   private hash(content: string) {
-    // Keep the application hash identical to the backfill expression in the
-    // migration so pre-existing memories participate in deduplication too.
-    return createHash('md5').update(content.toLowerCase().replace(/\s+/g, ' ').trim()).digest('hex');
+    return canonicalMemoryHash(content);
   }
 }
