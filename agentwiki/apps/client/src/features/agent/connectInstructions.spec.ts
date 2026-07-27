@@ -31,7 +31,8 @@ describe('buildAgentConnectInstructions', () => {
   it('points agents at the server for their authorization instead of embedding scope rules', () => {
     const text = buildAgentConnectInstructions(base, false);
     expect(text).toContain('/integrations/mcp');
-    expect(text).toContain('source of truth');
+    expect(text).toContain('list_spaces');
+    expect(text).toContain('internal id');
   });
 
   it('strips trailing slash from baseUrl', () => {
