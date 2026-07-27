@@ -49,14 +49,18 @@ describe('MarkdownWorkspace live-preview editing', () => {
     expect(editor).toHaveValue('# Title');
   });
 
-  it('editing updates the document and leaving the element restores preview', () => {
+  it('keeps focus while typing and commits on Escape, restoring preview', () => {
     const onChange = vi.fn();
     renderWYS({ onChange });
     fireEvent.click(screen.getByText('First paragraph.'));
     const editor = screen.getByRole('textbox');
+    // Typing must not re-mount the editor or fire onChange mid-edit (would
+    // interrupt input after the first character).
     fireEvent.change(editor, { target: { value: 'First paragraph edited.' } });
-    expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst paragraph edited.\n\nSecond paragraph.');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor);
     fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst paragraph edited.\n\nSecond paragraph.');
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByText('First paragraph edited.')).toBeInTheDocument();
   });
@@ -77,6 +81,9 @@ describe('MarkdownWorkspace live-preview editing', () => {
     fireEvent.click(screen.getByTestId('md-editor-surface'));
     const editor = screen.getByRole('textbox');
     fireEvent.change(editor, { target: { value: 'Appended line.' } });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor);
+    fireEvent.blur(editor);
     expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\nAppended line.');
   });
 

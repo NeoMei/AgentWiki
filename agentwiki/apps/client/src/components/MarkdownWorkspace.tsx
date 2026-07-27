@@ -23,23 +23,70 @@ const splitBlocks = (value: string): string[] => {
   return parts.length === 1 && parts[0] === '' ? [] : parts;
 };
 
+interface InlineEditorProps {
+  initialValue: string;
+  onCommit: (next: string) => void;
+  onCancel: () => void;
+  'aria-label': string;
+}
+
+// Uncontrolled editor that mirrors the preview typography exactly, so an
+// element looks like it simply became editable in place. It keeps focus while
+// typing (no re-mount on each keystroke) and commits only on blur or Enter.
+const InlineEditor: React.FC<InlineEditorProps> = ({ initialValue, onCommit, onCancel, 'aria-label': ariaLabel }) => {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [initialValue]);
+
+  const commit = () => {
+    const el = ref.current;
+    if (el && el.value !== initialValue) onCommit(el.value);
+    else onCancel();
+  };
+
+  return (
+    <textarea
+      ref={ref}
+      data-testid="md-block-editor"
+      defaultValue={initialValue}
+      onInput={(event) => {
+        const el = event.currentTarget;
+        el.style.height = 'auto';
+        el.style.height = `${el.scrollHeight}px`;
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); commit(); }
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); commit(); }
+      }}
+      rows={1}
+      className="block w-full resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-0"
+      aria-label={ariaLabel}
+      spellCheck
+    />
+  );
+};
+
 export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mode, onChange, onModeChange, pages = [] }) => {
   const { t } = useLanguage();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const blocks = useMemo(() => splitBlocks(value), [value]);
 
   useEffect(() => {
     if (mode === 'preview') setEditingIndex(null);
   }, [mode]);
-
-  useEffect(() => {
-    if (editingIndex !== null && editorRef.current) {
-      editorRef.current.focus();
-      const length = editorRef.current.value.length;
-      editorRef.current.setSelectionRange(length, length);
-    }
-  }, [editingIndex]);
 
   const commitBlock = (index: number, nextBlock: string) => {
     const next = blocks.slice();
@@ -50,18 +97,12 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
   const renderBlock = (block: string, index: number) => {
     if (mode === 'edit' && editingIndex === index) {
       return (
-        <textarea
+        <InlineEditor
           key={index}
-          ref={editorRef}
-          data-testid="md-block-editor"
-          value={block}
-          onChange={(event) => commitBlock(index, event.target.value)}
-          onBlur={() => setEditingIndex(null)}
-          onKeyDown={(event) => { if (event.key === 'Escape') setEditingIndex(null); }}
-          rows={Math.min(20, Math.max(2, block.split('\n').length + 1))}
-          className="w-full resize-y rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
+          initialValue={block}
           aria-label={t('editor.editMode')}
-          spellCheck
+          onCommit={(next) => { commitBlock(index, next); setEditingIndex(null); }}
+          onCancel={() => setEditingIndex(null)}
         />
       );
     }
@@ -123,17 +164,11 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
           )}
           {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
           {isEdit && editingIndex === blocks.length ? (
-            <textarea
-              ref={editorRef}
-              value=""
-              onChange={(event) => onChange(blocks.concat(event.target.value).join('\n\n'))}
-              onBlur={() => setEditingIndex(null)}
-              onKeyDown={(event) => { if (event.key === 'Escape') setEditingIndex(null); }}
-              data-testid="md-block-editor"
-              rows={3}
-              className="w-full resize-y rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
+            <InlineEditor
+              initialValue=""
+              onCommit={(next) => { onChange(blocks.concat(next).join('\n\n')); setEditingIndex(null); }}
+              onCancel={() => setEditingIndex(null)}
               aria-label={t('editor.editMode')}
-              spellCheck
             />
           ) : null}
           {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
