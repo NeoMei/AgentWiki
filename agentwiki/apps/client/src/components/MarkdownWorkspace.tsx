@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
+import CodeMirror from '@uiw/react-codemirror';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { PageLinkTarget } from './markdownLinks';
@@ -14,113 +19,41 @@ interface MarkdownWorkspaceProps {
   pages?: PageLinkTarget[];
 }
 
-// Split markdown into block-level chunks separated by blank lines. Each block
-// is rendered independently; clicking a block swaps just that block into an
-// editor while the rest stay rendered.
-const splitBlocks = (value: string): string[] => {
-  const normalized = value.replace(/\r\n/g, '\n');
-  const parts = normalized.split(/\n{2,}/);
-  return parts.length === 1 && parts[0] === '' ? [] : parts;
-};
-
-interface InlineEditorProps {
-  initialValue: string;
-  onCommit: (next: string) => void;
-  onCancel: () => void;
-  'aria-label': string;
+export interface MarkdownWorkspaceHandle {
+  /** Test hook: drive a content change as if the user typed it. */
+  simulateChange: (next: string) => void;
+  currentValue: () => string;
 }
 
-// Uncontrolled editor that mirrors the preview typography exactly, so an
-// element looks like it simply became editable in place. It keeps focus while
-// typing (no re-mount on each keystroke) and commits only on blur or Enter.
-const InlineEditor: React.FC<InlineEditorProps> = ({ initialValue, onCommit, onCancel, 'aria-label': ariaLabel }) => {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
+// Live-preview formatting: render markdown structure (headings, emphasis,
+// quotes, code) while editing, like Obsidian. Cursor line still shows source.
+const livePreviewStyle = HighlightStyle.define([
+  { tag: tags.heading1, fontSize: '1.875em', fontWeight: '700', lineHeight: '1.3' },
+  { tag: tags.heading2, fontSize: '1.5em', fontWeight: '700', lineHeight: '1.35' },
+  { tag: tags.heading3, fontSize: '1.25em', fontWeight: '700', lineHeight: '1.4' },
+  { tag: [tags.heading4, tags.heading5, tags.heading6], fontWeight: '700' },
+  { tag: tags.strong, fontWeight: '700' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: tags.quote, color: '#6b7280', fontStyle: 'italic' },
+  { tag: tags.monospace, fontFamily: 'ui-monospace, monospace', backgroundColor: '#f3f4f6', borderRadius: '3px', padding: '0 3px' },
+  { tag: tags.link, color: '#2563eb', textDecoration: 'underline' },
+  { tag: tags.url, color: '#2563eb' },
+  { tag: tags.processingInstruction, color: '#9ca3af' },
+  { tag: tags.meta, color: '#9ca3af' },
+]);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, []);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [initialValue]);
-
-  const commit = () => {
-    const el = ref.current;
-    if (el && el.value !== initialValue) onCommit(el.value);
-    else onCancel();
-  };
-
-  return (
-    <textarea
-      ref={ref}
-      data-testid="md-block-editor"
-      defaultValue={initialValue}
-      onInput={(event) => {
-        const el = event.currentTarget;
-        el.style.height = 'auto';
-        el.style.height = `${el.scrollHeight}px`;
-      }}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') { event.preventDefault(); commit(); }
-      }}
-      rows={1}
-      className="block w-full resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-0"
-      aria-label={ariaLabel}
-      spellCheck
-    />
-  );
-};
-
-export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mode, onChange, onModeChange, pages = [] }) => {
+// Obsidian-style live preview: a single CodeMirror document where the line the
+// cursor is on shows raw markdown and every other line is rendered with
+// formatting (headings, bold, lists…). Preview mode is fully read-only render.
+export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({ value, mode, onChange, onModeChange, pages = [] }, ref) => {
   const { t } = useLanguage();
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const blocks = useMemo(() => splitBlocks(value), [value]);
-
-  useEffect(() => {
-    if (mode === 'preview') setEditingIndex(null);
-  }, [mode]);
-
-  const commitBlock = (index: number, nextBlock: string) => {
-    const next = blocks.slice();
-    next[index] = nextBlock;
-    onChange(next.join('\n\n'));
-  };
-
-  const renderBlock = (block: string, index: number) => {
-    if (mode === 'edit' && editingIndex === index) {
-      return (
-        <InlineEditor
-          key={index}
-          initialValue={block}
-          aria-label={t('editor.editMode')}
-          onCommit={(next) => { commitBlock(index, next); setEditingIndex(null); }}
-          onCancel={() => setEditingIndex(null)}
-        />
-      );
-    }
-    const clickable = mode === 'edit';
-    return (
-      <div
-        key={index}
-        data-testid={`md-block-${index}`}
-        tabIndex={clickable ? 0 : undefined}
-        onClick={clickable ? () => setEditingIndex(index) : undefined}
-        onKeyDown={clickable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setEditingIndex(index); } } : undefined}
-        className={`-mx-1 rounded px-1 transition ${clickable ? 'cursor-text hover:bg-blue-50/50' : ''}`}
-      >
-        <Markdown pages={pages}>{block}</Markdown>
-      </div>
-    );
-  };
-
   const isEdit = mode === 'edit';
+
+  useImperativeHandle(ref, () => ({
+    simulateChange: (next: string) => onChange(next),
+    currentValue: () => value,
+  }), [onChange, value]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
@@ -130,33 +63,37 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
 
       <div
         data-testid="md-editor-surface"
-        onClick={isEdit ? (event) => {
-          // Clicking empty space below the content starts a new trailing element.
-          if (event.target === event.currentTarget || (event.target as HTMLElement).dataset.emptyArea === 'true') {
-            setEditingIndex(blocks.length);
-          }
-        } : undefined}
-        className={`h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white px-6 py-6 md:px-10 md:py-8 ${isEdit ? 'cursor-text' : ''}`}
+        className="h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white"
         aria-label={isEdit ? t('editor.editMode') : t('editor.previewMode')}
       >
-        <div className="mx-auto max-w-4xl space-y-1">
-          {blocks.length ? (
-            blocks.map((block, index) => renderBlock(block, index))
-          ) : (
-            <p data-empty-area="true" className="py-12 text-center text-sm text-gray-400">{isEdit ? t('editor.placeholder') : t('editor.emptyPreview')}</p>
-          )}
-          {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
-          {isEdit && editingIndex === blocks.length ? (
-            <InlineEditor
-              initialValue=""
-              onCommit={(next) => { onChange(blocks.concat(next).join('\n\n')); setEditingIndex(null); }}
-              onCancel={() => setEditingIndex(null)}
-              aria-label={t('editor.editMode')}
-            />
-          ) : null}
-          {isEdit && editingIndex === null ? <div data-empty-area="true" className="min-h-[3rem]" aria-hidden="true" /> : null}
-        </div>
+        {isEdit ? (
+          <CodeMirror
+            value={value}
+            onChange={(next) => onChange(next)}
+            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle)]}
+            placeholder={t('editor.placeholder')}
+            aria-label={t('editor.editMode')}
+            basicSetup={{
+              lineNumbers: false,
+              foldGutter: false,
+              highlightActiveLine: true,
+              highlightActiveLineGutter: false,
+            }}
+            className="h-full [&_.cm-content]:px-6 [&_.cm-content]:py-6 [&_.cm-content]:md:px-10 [&_.cm-editor]:h-full [&_.cm-scroller]:leading-7 [&_.cm-scroller]:text-[15px] [&_.cm-scroller]:text-gray-800"
+          />
+        ) : (
+          <div className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
+            <div className="mx-auto max-w-4xl">
+              {value ? (
+                <Markdown pages={pages}>{value}</Markdown>
+              ) : (
+                <p className="py-12 text-center text-sm text-gray-400">{t('editor.emptyPreview')}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
-};
+});
+MarkdownWorkspace.displayName = 'MarkdownWorkspace';

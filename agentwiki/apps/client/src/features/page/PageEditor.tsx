@@ -4,7 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { MarkdownMode, MarkdownWorkspace } from '../../components/MarkdownWorkspace';
+import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
 import { Save, ArrowLeft, History, Users } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 
@@ -35,7 +35,7 @@ const pageRevision = (page: Page) => JSON.stringify([
   page.format,
 ]);
 
-export const PageEditor: React.FC = () => {
+export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<MarkdownWorkspaceHandle | null> }> = ({ workspaceRef } = {}) => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -419,7 +419,7 @@ export const PageEditor: React.FC = () => {
         </div>
       )}
 
-      <MarkdownWorkspace value={content} mode={mode} onChange={handleContentChange} onModeChange={setMode} pages={spacePages} />
+      <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} onModeChange={setMode} pages={spacePages} />
     </div>
   );
 };

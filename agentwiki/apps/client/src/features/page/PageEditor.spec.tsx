@@ -32,21 +32,16 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 let pageQueue: any[] = [];
 const queuePages = (...responses: any[]) => { pageQueue = responses; };
 
-// The WYSIWYG editor renders content as preview blocks; clicking a block swaps
-// it into a textarea. This helper performs that interaction to set content.
+// Drive editor content through the workspace handle (CodeMirror does not
+// expose a simple per-line editable DOM in jsdom).
+let workspaceRef: { current: import('../../components/MarkdownWorkspace').MarkdownWorkspaceHandle | null };
+
 const editContent = (next: string) => {
-  fireEvent.click(screen.getByTestId('md-block-0'));
-  const blockEditor = screen.getByTestId('md-block-editor');
-  fireEvent.change(blockEditor, { target: { value: next } });
-  fireEvent.blur(blockEditor);
+  act(() => workspaceRef.current?.simulateChange(next));
 };
 
 const contentEditorValue = () => {
-  fireEvent.click(screen.getByTestId('md-block-0'));
-  const blockEditor = screen.getByTestId('md-block-editor');
-  const value = (blockEditor as HTMLTextAreaElement).value;
-  fireEvent.blur(blockEditor);
-  return value;
+  return workspaceRef.current?.currentValue() ?? '';
 };
 
 const page = (overrides: Record<string, unknown> = {}) => ({
@@ -73,7 +68,7 @@ const renderEditor = (withLanguageSwitcher = false) => render(
   <LanguageProvider>
     {withLanguageSwitcher ? <LanguageSwitcher /> : null}
     <MemoryRouter initialEntries={['/pages/page-1/edit']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Routes><Route path="/pages/:id/edit" element={<PageEditor />} /></Routes>
+      <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>
     </MemoryRouter>
   </LanguageProvider>,
 );
@@ -91,6 +86,7 @@ describe('PageEditor remote update safety', () => {
 
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
+    workspaceRef = { current: null };
     socketMock.handlers.clear();
     socketMock.socket.emit.mockClear();
     socketMock.socket.disconnect.mockClear();
