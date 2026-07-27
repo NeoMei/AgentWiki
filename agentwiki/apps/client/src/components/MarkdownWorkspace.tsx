@@ -10,7 +10,6 @@ import { syntaxTree } from '@codemirror/language';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
-import { ModeToggleButton } from './ModeToggleButton';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -18,7 +17,7 @@ interface MarkdownWorkspaceProps {
   value: string;
   mode: MarkdownMode;
   onChange: (next: string) => void;
-  onModeChange: (mode: MarkdownMode) => void;
+  onModeChange?: (mode: MarkdownMode) => void;
   pages?: PageLinkTarget[];
 }
 
@@ -133,7 +132,7 @@ const buildHiddenMarksPlugin = (pages: PageLinkTarget[]) => ViewPlugin.fromClass
   }
 }, { decorations: (value) => value.decorations });
 
-export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({ value, mode, onChange, onModeChange, pages = [] }, ref) => {
+export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({ value, mode, onChange, pages = [] }, ref) => {
   const { t } = useLanguage();
   const isEdit = mode === 'edit';
 
@@ -144,10 +143,6 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
-      <div className="flex items-center justify-end gap-2 border-b border-gray-200 bg-gray-50/80 px-2 py-1.5">
-        <ModeToggleButton mode={mode} onToggle={() => onModeChange(isEdit ? 'preview' : 'edit')} />
-      </div>
-
       <div
         data-testid="md-editor-surface"
         className="h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white"

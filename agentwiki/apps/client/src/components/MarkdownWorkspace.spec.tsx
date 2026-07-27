@@ -3,17 +3,20 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace } from './MarkdownWorkspace';
+import { ModeToggleButton } from './ModeToggleButton';
 
 const Harness = ({ initial = '# Title\n\nFirst paragraph.', onChange = () => {} }: any) => {
   const [value, setValue] = useState(initial);
   const [mode, setMode] = useState<MarkdownMode>('edit');
   return (
-    <MarkdownWorkspace
-      value={value}
-      mode={mode}
-      onChange={(next: string) => { setValue(next); onChange(next); }}
-      onModeChange={setMode}
-    />
+    <>
+      <ModeToggleButton mode={mode} onToggle={() => setMode(mode === 'edit' ? 'preview' : 'edit')} />
+      <MarkdownWorkspace
+        value={value}
+        mode={mode}
+        onChange={(next: string) => { setValue(next); onChange(next); }}
+      />
+    </>
   );
 };
 

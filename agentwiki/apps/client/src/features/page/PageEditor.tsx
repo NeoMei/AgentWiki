@@ -6,6 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
 import { Save, ArrowLeft, History, Users } from 'lucide-react';
+import { IconButton } from '../../components/IconButton';
+import { ModeToggleButton } from '../../components/ModeToggleButton';
 import 'highlight.js/styles/github.css';
 
 interface Page {
@@ -384,18 +386,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               </div>
             </div>
           )}
-          <Link to={`/pages/${id}/versions`} className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-md hover:bg-gray-200">
+          <Link to={`/pages/${id}/versions`} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={18} />
-            {t('editor.versions')}
           </Link>
-          <button
+          <IconButton
+            label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
             disabled={saving || !isDirty || !!remoteUpdate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            primary
+            testId="save-button"
           >
             <Save size={18} />
-            {saving ? t('common.saving') : t('common.save')}
-          </button>
+          </IconButton>
+          <ModeToggleButton mode={mode} onToggle={() => setMode(mode === 'edit' ? 'preview' : 'edit')} />
         </div>
       </div>
 
@@ -419,7 +422,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       )}
 
-      <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} onModeChange={setMode} pages={spacePages} />
+      <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} pages={spacePages} />
     </div>
   );
 };
