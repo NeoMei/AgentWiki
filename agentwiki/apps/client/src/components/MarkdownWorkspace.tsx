@@ -39,8 +39,8 @@ const livePreviewStyle = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: 'ui-monospace, monospace', backgroundColor: '#f3f4f6', borderRadius: '3px', padding: '0 3px' },
   { tag: tags.link, color: '#2563eb', textDecoration: 'underline' },
   { tag: tags.url, color: '#2563eb' },
-  { tag: tags.processingInstruction, color: '#9ca3af' },
-  { tag: tags.meta, color: '#9ca3af' },
+  { tag: tags.processingInstruction, color: '#9ca3af', class: 'cm-md-marker' },
+  { tag: tags.meta, color: '#9ca3af', class: 'cm-md-marker' },
 ]);
 
 // Obsidian-style live preview: a single CodeMirror document where the line the
@@ -57,6 +57,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
+      {/* Hide markdown markers (#, **, > …) on every line except the one the
+          cursor is on, so non-active lines render as pure formatted text like
+          Obsidian's live preview. */}
+      <style>{`
+        .cm-line:not(.cm-activeLine) .cm-md-marker { font-size: 0 !important; }
+        .cm-line:not(.cm-activeLine) .cm-md-marker::after { content: ''; }
+      `}</style>
       <div className="flex items-center justify-end gap-2 border-b border-gray-200 bg-gray-50/80 px-2 py-1.5">
         <ModeToggleButton mode={mode} onToggle={() => onModeChange(isEdit ? 'preview' : 'edit')} />
       </div>
