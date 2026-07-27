@@ -13,22 +13,41 @@ export class ReviewService {
   ) {}
 
   async propose(
-    principal: { userId: string; agentId?: string },
+    principal: { userId: string; agentId?: string; scopes?: string[] },
     spaceId: string,
     title: string,
     item: { type: string; payload: Record<string, unknown> },
   ) {
-    return this.prisma.changeSet.create({
+    // Agent proposals can skip manual review only when the space, the agent and
+    // the credential all opt in to scoped auto-publish. Anything less stays in
+    // pending_review for a human to approve.
+    const [space, agent] = await Promise.all([
+      this.prisma.space.findUnique({ where: { id: spaceId }, select: { approvalPolicy: true } }),
+      principal.agentId
+        ? this.prisma.agent.findUnique({ where: { id: principal.agentId }, select: { approvalMode: true } })
+        : Promise.resolve(null),
+    ]);
+    const autoPublish = !!principal.agentId &&
+      space?.approvalPolicy === 'scoped-auto-publish' &&
+      agent?.approvalMode === 'scoped-auto-publish' &&
+      (principal.scopes || []).includes('review:auto-publish');
+
+    const changeSet = await this.prisma.changeSet.create({
       data: {
         spaceId,
         title,
-        status: 'pending_review',
+        status: autoPublish ? 'approved' : 'pending_review',
+        ...(autoPublish ? { reviewedAt: new Date() } : {}),
         createdByUserId: principal.agentId ? undefined : principal.userId,
         createdByAgentId: principal.agentId,
-        items: { create: { type: item.type, payload: item.payload as Prisma.InputJsonValue } },
+        items: { create: { type: item.type, status: autoPublish ? 'accepted' : 'pending', payload: item.payload as Prisma.InputJsonValue } },
       },
       include: { items: true },
     });
+
+    if (!autoPublish) return { ...changeSet, autoPublished: false };
+    const published = await this.publish(changeSet.id);
+    return { ...published, autoPublished: true };
   }
 
   list(spaceIds: string[]) {
@@ -112,6 +131,28 @@ export class ReviewService {
       await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'rejected', comment } });
     });
     return this.get(id);
+  }
+
+  /**
+   * One-shot human review: accept every remaining pending item, approve and
+   * publish in a single action. This is the fast path for a reviewer who trusts
+   * the whole set; the per-item accept → approve → publish steps remain for
+   * selective review.
+   */
+  async reviewPublish(id: string, reviewerId: string, comment?: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.changeSet.updateMany({
+        where: { id, status: 'pending_review' },
+        data: { status: 'approved', reviewedAt: new Date() },
+      });
+      if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not pending review');
+      await tx.changeItem.updateMany({
+        where: { changeSetId: id, status: 'pending' },
+        data: { status: 'accepted' },
+      });
+      await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'approved', comment } });
+    });
+    return this.publish(id);
   }
 
   async publish(id: string) {

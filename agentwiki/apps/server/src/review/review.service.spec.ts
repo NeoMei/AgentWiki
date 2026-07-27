@@ -424,3 +424,82 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.page.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ title: 'After', sourceChangeSetId: 'cs-update', createdByAgentId: 'agent-1' }) }));
   });
 });
+
+describe('one-shot review-publish and agent auto-publish', () => {
+  const prisma = {
+    changeItem: { count: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    changeSet: { updateMany: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
+    approval: { create: jest.fn() },
+    space: { findUnique: jest.fn() },
+    agent: { findUnique: jest.fn() },
+    page: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
+    pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+    evidence: { updateMany: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
+  const service = new ReviewService(prisma, search);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
+    prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it('reviewPublish accepts pending items, approves and publishes in one call', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-1', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x' } }],
+      approvals: [], space: {}, run: null,
+    });
+    prisma.page.create.mockResolvedValue({ id: 'page-1' });
+    await service.reviewPublish('cs-1', 'reviewer-1');
+    expect(prisma.changeItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { changeSetId: 'cs-1', status: 'pending' },
+      data: { status: 'accepted' },
+    }));
+    expect(prisma.approval.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ changeSetId: 'cs-1', reviewerId: 'reviewer-1', decision: 'approved' }),
+    }));
+    expect(prisma.page.create).toHaveBeenCalled();
+  });
+
+  it('reviewPublish refuses a change set not pending review', async () => {
+    prisma.changeSet.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.reviewPublish('cs-1', 'reviewer-1')).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('propose auto-publishes when space, agent and credential all allow it', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-auto', status: 'approved' });
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-auto', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
+      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x' } }],
+      approvals: [], space: {}, run: null,
+    });
+    prisma.page.create.mockResolvedValue({ id: 'page-1' });
+    const result = await service.propose(
+      { userId: 'owner-1', agentId: 'agent-1', scopes: ['review:auto-publish'] },
+      'space-1', 'Auto', { type: 'create_page', payload: { title: 'A', content: 'x' } },
+    );
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'approved' }),
+    }));
+    expect(result.autoPublished).toBe(true);
+  });
+
+  it('propose stays pending_review when auto-publish conditions are not met', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review' });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-p', status: 'pending_review', items: [] });
+    const result = await service.propose(
+      { userId: 'owner-1', agentId: 'agent-1', scopes: ['review:auto-publish'] },
+      'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
+    );
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review' }),
+    }));
+    expect(result.autoPublished).toBeFalsy();
+  });
+});

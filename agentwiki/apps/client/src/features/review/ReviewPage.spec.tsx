@@ -100,7 +100,7 @@ describe('ReviewPage detail refresh', () => {
 
     renderReview();
     await expand();
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve accepted' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve only' }));
 
     expect(await screen.findByRole('button', { name: 'Publish' })).toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(2);
@@ -114,7 +114,7 @@ describe('ReviewPage detail refresh', () => {
 
     renderReview();
     await expand();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve accepted' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
 
     expect(await screen.findByText('Approval was rejected')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
@@ -133,7 +133,7 @@ describe('ReviewPage detail refresh', () => {
 
     renderReview();
     await expand();
-    const approve = screen.getByRole('button', { name: 'Approve accepted' });
+    const approve = screen.getByRole('button', { name: 'Approve only' });
     fireEvent.click(approve);
     fireEvent.click(approve);
     expect(api.post).toHaveBeenCalledTimes(1);

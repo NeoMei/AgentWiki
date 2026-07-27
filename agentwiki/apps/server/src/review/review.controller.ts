@@ -57,6 +57,13 @@ export class ReviewController {
     return this.review.publish(id);
   }
 
+  @Post('change-sets/:id/review-publish')
+  async reviewPublish(@Param('id') id: string, @Req() req: Request, @Body() dto: ReviewDecisionDto) {
+    this.assertHuman(req);
+    await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
+    return this.review.reviewPublish(id, (req.user as any).userId, dto.comment);
+  }
+
   @Post('change-sets/:id/revert')
   async revert(@Param('id') id: string, @Req() req: Request) {
     this.assertHuman(req);
