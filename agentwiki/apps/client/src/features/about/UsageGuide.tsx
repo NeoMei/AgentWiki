@@ -30,6 +30,42 @@ export const UsageGuide: React.FC = () => {
             <p>{zh ? '在 Agent 的 Access 页授予具体 Space 和 viewer/editor 角色，再创建带最小 Scope 的 agk_… 凭证。明文只显示一次；凭证可过期、轮换或撤销，Agent 可暂停。' : 'Grant specific Spaces and viewer/editor roles on the Agent Access tab, then create a least-privilege agk_… credential. The secret appears once and can expire, rotate or be revoked.'}</p>
             <p>{zh ? '个人自动化使用 Profile 的 awk_… Personal Access Token；它与 Agent 凭证是两类身份。' : 'Personal automation uses an awk_… Personal Access Token from Profile; this is separate from Agent credentials.'}</p>
           </Card>
+          <Card title={zh ? '接入一个 Agent（分步）' : 'Connect an Agent (step by step)'}>
+            <p>{zh ? '下面四步把一个 Agent 接入 AgentWiki，全程可用 REST 复现。先把人类账号的 JWT 记为 $TOKEN（登录或注册返回的 access_token），并准备好目标 Space 的 ID。' : 'These four steps connect an Agent to AgentWiki, fully reproducible over REST. Save your human JWT as $TOKEN (the access_token returned by login/register) and have the target Space ID ready.'}</p>
+            <ol className="list-decimal pl-5 space-y-3">
+              <li>
+                <strong>{zh ? '创建 Agent。' : 'Create the Agent.'}</strong>{' '}
+                {zh ? '得到 agent id；approvalMode 用 always-review（默认，写入必审批）或 scoped-auto-publish。' : 'You get an agent id. approvalMode is always-review (default, writes need approval) or scoped-auto-publish.'}
+                <pre className="mt-2 text-xs bg-gray-100 border rounded-lg p-3 overflow-x-auto">{`curl -X POST $BASE/agents \\
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  -d '{"name":"My Agent","approvalMode":"always-review"}'`}</pre>
+              </li>
+              <li>
+                <strong>{zh ? '授予 Space 角色。' : 'Grant the Space role.'}</strong>{' '}
+                {zh ? '把 Agent 加入目标 Space，role 取 viewer（只读）或 editor（可写）。' : 'Add the Agent to the target Space with role viewer (read-only) or editor (can write).'}
+                <pre className="mt-2 text-xs bg-gray-100 border rounded-lg p-3 overflow-x-auto">{`curl -X PUT $BASE/agents/AGENT_ID/grants/SPACE_ID \\
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  -d '{"role":"editor"}'`}</pre>
+              </li>
+              <li>
+                <strong>{zh ? '创建最小 Scope 凭据。' : 'Create a least-privilege credential.'}</strong>{' '}
+                {zh ? '返回的 apiKey（agk_…）明文只显示这一次，请立即保存。Scope 只给实际需要的，如 pages:read、pages:write。' : 'The returned apiKey (agk_…) is shown only once — store it now. Grant only the scopes you need, e.g. pages:read, pages:write.'}
+                <pre className="mt-2 text-xs bg-gray-100 border rounded-lg p-3 overflow-x-auto">{`curl -X POST $BASE/agents/AGENT_ID/credentials \\
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  -d '{"name":"default","scopes":["pages:read","pages:write"]}'`}</pre>
+              </li>
+              <li>
+                <strong>{zh ? '用凭据调用 API。' : 'Call the API with the credential.'}</strong>{' '}
+                {zh ? '凭据放在 Authorization: Bearer 或 x-api-key。读操作直接返回；写操作会生成 ChangeSet 进入审批，而不是直接落库。' : 'Send the credential as Authorization: Bearer or x-api-key. Reads return directly; writes create a ChangeSet for review instead of writing directly.'}
+                <pre className="mt-2 text-xs bg-gray-100 border rounded-lg p-3 overflow-x-auto">{`curl "$BASE/pages/PAGE_ID" -H "Authorization: Bearer agk_…"     # 读 read
+curl -X PATCH "$BASE/pages/PAGE_ID" \\
+  -H "Authorization: Bearer agk_…" -H "Content-Type: application/json" \\
+  -d '{"content":"# New","expectedUpdatedAt":"<page.updatedAt>"}'   # 写 write → ChangeSet`}</pre>
+              </li>
+            </ol>
+            <p>{zh ? '权限是四者的交集：凭据 Scope、Space Grant 角色、Agent 状态（active 才可用）、Space 审批策略。越权访问返回 403，例如没有 graph:read 时访问图谱。写入后由人类在 Review 页接受、批准并发布，内容才会真正更新。' : 'Effective permission is the intersection of credential scope, Space grant role, Agent status (must be active), and Space approval policy. Out-of-scope access returns 403 — for example reading the graph without graph:read. After a write, a human accepts, approves and publishes in Review before content actually changes.'}</p>
+            <p className="text-xs text-gray-500">{zh ? '提示：把 $BASE 设为部署地址（如 http://localhost:3000/api）。expectedUpdatedAt 必须等于页面当前 updatedAt，用于乐观锁防覆盖；不匹配会返回 409。' : 'Tip: set $BASE to your deployment (e.g. http://localhost:3000/api). expectedUpdatedAt must equal the page\u2019s current updatedAt for the optimistic lock; a mismatch returns 409.'}</p>
+          </Card>
           <Card title={zh ? '来源、运行和审批' : 'Sources, runs and review'}>
             <p className="flex gap-2"><Database size={18} className="shrink-0 mt-1" /><span>{zh ? '进入 Space → Sources，可添加文本、最大 10 MB 文件、安全 URL 或允许域名内的 HTTPS Git 仓库。服务器本地路径不对普通用户开放。' : 'In Space → Sources, add text, files up to 10 MB, safe URLs or allowlisted HTTPS Git repositories. Ordinary users cannot submit server-local paths.'}</span></p>
             <p>{zh ? '启动后在 Runs 查看各阶段状态，并可取消或重试。' : 'Use Runs to track fetch, extraction, compilation and indexing stages, and cancel or retry when appropriate.'}</p>
