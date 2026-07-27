@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
 
-const REDIS_AOF_TIMEOUT_MS = 1_000;
+// Must exceed one `appendfsync everysec` fsync period (worst case ~1s), or the
+// durability probe times out spuriously even when persistence is healthy.
+const REDIS_AOF_TIMEOUT_MS = 5_000;
 const REDIS_DURABILITY_PROBE_PREFIX = 'audit:durability-probe';
 
 @Injectable()

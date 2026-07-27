@@ -116,7 +116,7 @@ describe('RedisService strict hash operations', () => {
       'audit:pending', 'audit-1', '{"id":"audit-1"}',
     )).resolves.toBeUndefined();
     expect(calls).toEqual(['HSET', 'WAITAOF']);
-    expect(client.call).toHaveBeenCalledWith('WAITAOF', 1, 0, 1_000);
+    expect(client.call).toHaveBeenCalledWith('WAITAOF', 1, 0, 5_000);
   });
 
   it('rejects an unconfirmed fsync while retaining the written hash field', async () => {
@@ -163,8 +163,8 @@ describe('RedisService strict hash operations', () => {
     expect(client.hscan).toHaveBeenCalledWith(probeKey, '0', 'COUNT', 1);
     expect(client.hdel).toHaveBeenCalledWith(probeKey, probeField);
     expect(client.call).toHaveBeenCalledTimes(2);
-    expect(client.call).toHaveBeenNthCalledWith(1, 'WAITAOF', 1, 0, 1_000);
-    expect(client.call).toHaveBeenNthCalledWith(2, 'WAITAOF', 1, 0, 1_000);
+    expect(client.call).toHaveBeenNthCalledWith(1, 'WAITAOF', 1, 0, 5_000);
+    expect(client.call).toHaveBeenNthCalledWith(2, 'WAITAOF', 1, 0, 5_000);
     expect(hashes.size).toBe(0);
   });
 
@@ -221,7 +221,7 @@ describe('RedisService strict hash operations', () => {
     const service = serviceWithClient(client);
 
     await expect(service.assertAofDurability()).rejects.toThrow(
-      'Redis did not confirm a local AOF fsync within 1000ms',
+      'Redis did not confirm a local AOF fsync within 5000ms',
     );
     expect(operations).toEqual([
       'INFO', 'HSET', 'WAITAOF', 'HSCAN', 'HDEL', 'WAITAOF', 'HDEL', 'WAITAOF',
