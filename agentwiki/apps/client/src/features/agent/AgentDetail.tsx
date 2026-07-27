@@ -138,7 +138,6 @@ export const AgentDetail: React.FC = () => {
                           baseUrl: `${window.location.origin}/api`,
                           apiKey: newKey,
                           agentName: agent.name,
-                          scopes: credential.scopes,
                         }, language === 'zh-CN');
                         void navigator.clipboard.writeText(text);
                         setCopiedInstructions(true);
@@ -155,7 +154,6 @@ export const AgentDetail: React.FC = () => {
                     baseUrl: `${window.location.origin}/api`,
                     apiKey: newKey,
                     agentName: agent.name,
-                    scopes: credential.scopes,
                   }, language === 'zh-CN')}</pre>
                 </div>
               </div>

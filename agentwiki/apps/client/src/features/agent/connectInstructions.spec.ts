@@ -5,43 +5,38 @@ const base = {
   baseUrl: 'http://localhost:3000/api',
   apiKey: 'agk_testkey123',
   agentName: 'opencode-local',
-  scopes: ['pages:read', 'pages:write', 'graph:read'],
 };
 
 describe('buildAgentConnectInstructions', () => {
-  it('zh: contains endpoint, credential, scopes, tools and self-verify steps', () => {
+  it('zh: contains identity, endpoint, credential, and self-discovery endpoint', () => {
     const text = buildAgentConnectInstructions(base, true);
+    expect(text).toContain('opencode-local');
     expect(text).toContain('http://localhost:3000/api/mcp');
     expect(text).toContain('Bearer agk_testkey123');
-    expect(text).toContain('opencode-local');
-    expect(text).toContain('pages:read, pages:write, graph:read');
-    expect(text).toContain('search_pages');
-    expect(text).toContain('propose_page');
+    expect(text).toContain('http://localhost:3000/api/integrations/mcp');
     expect(text).toContain('initialize');
-    expect(text).toContain('ChangeSet');
-    expect(text).toContain('报告');
+    expect(text).toContain('授权由 AgentWiki 服务端统一判定');
   });
 
-  it('en: contains endpoint, credential, scopes, tools and self-verify steps', () => {
+  it('en: contains identity, endpoint, credential, and self-discovery endpoint', () => {
     const text = buildAgentConnectInstructions(base, false);
+    expect(text).toContain('opencode-local');
     expect(text).toContain('http://localhost:3000/api/mcp');
     expect(text).toContain('Bearer agk_testkey123');
-    expect(text).toContain('opencode-local');
-    expect(text).toContain('pages:read, pages:write, graph:read');
+    expect(text).toContain('http://localhost:3000/api/integrations/mcp');
     expect(text).toContain('initialize');
-    expect(text).toContain('ChangeSet');
-    expect(text).toContain('Report');
+    expect(text).toContain('decided and enforced by the AgentWiki server');
+  });
+
+  it('points agents at the server for their authorization instead of embedding scope rules', () => {
+    const text = buildAgentConnectInstructions(base, false);
+    expect(text).toContain('/integrations/mcp');
+    expect(text).toContain('source of truth');
   });
 
   it('strips trailing slash from baseUrl', () => {
     const text = buildAgentConnectInstructions({ ...base, baseUrl: 'http://x.test/api/' }, false);
     expect(text).toContain('http://x.test/api/mcp');
     expect(text).not.toContain('api//mcp');
-  });
-
-  it('omits tool hints gracefully when scopes have no mapping', () => {
-    const text = buildAgentConnectInstructions({ ...base, scopes: ['runs:read'] }, false);
-    expect(text).toContain('runs:read');
-    expect(text).toContain('Call the tools allowed by your scopes');
   });
 });
