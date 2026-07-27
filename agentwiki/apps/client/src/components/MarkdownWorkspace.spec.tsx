@@ -54,7 +54,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   it('preview mode renders formatted markdown read-only, no code editor', () => {
     renderWYS();
     fireEvent.click(screen.getByTestId('mode-toggle'));
-    expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Title/ })).toBeInTheDocument();
     expect(screen.getByText('First paragraph.')).toBeInTheDocument();
     expect(document.querySelector('.cm-editor')).toBeFalsy();
   });
