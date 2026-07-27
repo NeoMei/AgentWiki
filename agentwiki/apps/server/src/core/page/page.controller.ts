@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger, Req, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { PageService } from './page.service';
-import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
+import { CreatePageDto, ReorderPagesDto, UpdatePageDto } from '../dto/page.dto';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { ReviewService } from '../../review/review.service';
@@ -68,7 +68,7 @@ export class PageController {
   @Patch('reorder/:spaceId')
   async reorderPages(
     @Param('spaceId') spaceId: string,
-    @Body() body: { items: Array<{ id: string; parentId: string | null; sortOrder: number }> },
+    @Body() body: ReorderPagesDto,
     @Req() req: Request,
   ) {
     if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
