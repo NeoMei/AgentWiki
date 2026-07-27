@@ -115,23 +115,23 @@ export const PagePreview: React.FC = () => {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-1 self-start mt-1">
-            <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              aria-label={t('page.delete')}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              title={t('page.delete')}
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
         </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
-      <div className="bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
+      <div className="relative bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
+        <div className="absolute right-4 top-4 flex items-center gap-1">
+          <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            aria-label={t('page.delete')}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            title={t('page.delete')}
+          >
+            <Trash2 size={18} />
+          </button>
+        </div>
         <div className="prose prose-sm max-w-none
           [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
           [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
