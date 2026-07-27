@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
+import { ChangeSetStatusBadge } from './ChangeSetStatusBadge';
 import { useLanguage } from '../../context/LanguageContext';
 
 const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
@@ -69,6 +70,7 @@ export const ReviewPage: React.FC = () => {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
   const zhRef = useRef(zh);
@@ -149,7 +151,10 @@ export const ReviewPage: React.FC = () => {
       void expandChangeSet(changeSetId);
     }
   }, [changeSetId, expandChangeSet]);
-  const visibleItems = useMemo(() => changeSetId ? items.filter((item) => item.id === changeSetId) : items, [items, changeSetId]);
+  const visibleItems = useMemo(() => {
+    const base = changeSetId ? items.filter((item) => item.id === changeSetId) : items;
+    return statusFilter === 'all' ? base : base.filter((item) => item.status === statusFilter);
+  }, [items, changeSetId, statusFilter]);
 
   const beginMutation = (id: string) => {
     if (mutatingIdsRef.current.has(id)) return false;
@@ -208,6 +213,25 @@ export const ReviewPage: React.FC = () => {
     <div className="max-w-5xl mx-auto">
       <div className="mb-6"><h1 className="text-2xl font-semibold">{zh ? '审核' : 'Review'}</h1><p className="text-sm text-gray-500 mt-1">{zh ? '在可追溯的候选变更成为已发布知识前进行审批。' : 'Approve traceable candidate changes before they become published knowledge.'}</p></div>
       {error ? <div className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</div> : null}
+      <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label={zh ? '按状态筛选' : 'Filter by status'}>
+        {[
+          ['all', zh ? '全部' : 'All'],
+          ['pending_review', zh ? '待审核' : 'Pending'],
+          ['approved', zh ? '已批准' : 'Approved'],
+          ['published', zh ? '已发布' : 'Published'],
+          ['rejected', zh ? '已拒绝' : 'Rejected'],
+          ['reverted', zh ? '已回滚' : 'Reverted'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setStatusFilter(value)}
+            aria-pressed={statusFilter === value}
+            className={`h-7 px-3 rounded-full text-xs border transition ${statusFilter === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="border rounded-[14px] bg-white divide-y">
         {visibleItems.map((changeSet) => (
           <div key={changeSet.id}>
@@ -219,8 +243,11 @@ export const ReviewPage: React.FC = () => {
               }
             }} className="w-full p-4 flex items-center gap-3 text-left">
               {expanded === changeSet.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <div className="flex-1"><p className="font-medium">{changeSet.title}</p><p className="text-xs text-gray-400 mt-1">{changeSet.space.name} · {changeSet.run?.source?.type || 'manual'} · {changeSet.status}</p></div>
-              <span className="text-xs bg-amber-50 text-amber-700 rounded-full px-2 py-1">{changeSet.items.length} {zh ? '项变更' : 'changes'}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2"><p className="font-medium truncate">{changeSet.title}</p><ChangeSetStatusBadge status={changeSet.status} /></div>
+                <p className="text-xs text-gray-400 mt-1">{changeSet.space.name} · {changeSet.run?.source?.type || 'manual'}</p>
+              </div>
+              <span className="text-xs bg-amber-50 text-amber-700 rounded-full px-2 py-1 shrink-0">{changeSet.items.length} {zh ? '项变更' : 'changes'}</span>
             </button>
             {expanded === changeSet.id ? (
               <div className="px-5 md:px-11 pb-5">
@@ -248,7 +275,7 @@ export const ReviewPage: React.FC = () => {
             ) : null}
           </div>
         ))}
-        {!visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
+        {!visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
       </div>
     </div>
   );
