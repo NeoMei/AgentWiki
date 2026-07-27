@@ -437,7 +437,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} pages={spacePages} />
         </div>
         {assistOpen && page ? (
-          <AgentAssistPanel pageId={page.id} pageTitle={title || page.title} spaceId={page.spaceId} />
+          <AgentAssistPanel
+            pageId={page.id}
+            pageTitle={title || page.title}
+            spaceId={page.spaceId}
+            snapshot={() => ({ title, content, updatedAt: page.updatedAt })}
+          />
         ) : null}
       </div>
     </div>

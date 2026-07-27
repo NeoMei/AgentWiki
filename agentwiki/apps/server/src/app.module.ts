@@ -10,6 +10,7 @@ import { SearchModule } from './core/search/search.module';
 import { KnowledgeModule } from './core/knowledge/knowledge.module';
 import { CollaborationModule } from './core/collaboration/collaboration.module';
 import { AuthorizationModule } from './core/authorization/authorization.module';
+import { AssistModule } from './assist/assist.module';
 import { SecurityModule } from './core/security/security.module';
 import { AgentModule } from './core/agent/agent.module';
 import { KnowledgePipelineModule } from './knowledge-pipeline/knowledge-pipeline.module';
@@ -37,6 +38,7 @@ import { HealthController } from './health.controller';
     SearchModule,
     KnowledgeModule,
     CollaborationModule,
+    AssistModule,
   ],
   controllers: [HealthController],
 })

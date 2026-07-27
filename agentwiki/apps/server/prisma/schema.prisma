@@ -27,6 +27,7 @@ model User {
   requestedRuns     IngestRun[]
   createdChangeSets ChangeSet[]
   approvals         Approval[]
+  assistTasks       AssistTask[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -91,6 +92,37 @@ model Space {
   ingestRuns    IngestRun[]
   changeSets    ChangeSet[]
   agentMemories AgentMemory[]
+  assistTasks   AssistTask[]
+}
+
+model AssistTask {
+  id           String   @id @default(cuid())
+  status       String   @default("queued")
+  intent       String
+  pageSnapshot Json?
+  result       Json?
+  error        String?
+  attempts     Int      @default(0)
+  maxAttempts  Int      @default(3)
+
+  space           Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId         String
+  page            Page?  @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  pageId          String?
+  requestedByUser User?  @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  requestedByUserId String?
+
+  lockedAt       DateTime?
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt  DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([spaceId, status, createdAt])
+  @@index([status, leaseExpiresAt])
 }
 
 model Agent {
@@ -235,6 +267,7 @@ model Page {
   outgoingRelations   KnowledgeRelation[] @relation("RelationSourcePage")
   incomingRelations   KnowledgeRelation[] @relation("RelationTargetPage")
   searchDocument      PageSearchDocument?
+  assistTasks         AssistTask[]
 
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
