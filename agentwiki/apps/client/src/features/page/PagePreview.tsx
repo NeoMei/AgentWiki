@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
 import api from '../../api/client';
 import { ArrowLeft, Edit, Clock, User, Trash2, FileText, Database } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
+import { Markdown } from '../../components/Markdown';
 
 interface Page {
   id: string;
@@ -31,6 +29,7 @@ export const PagePreview: React.FC = () => {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
   const [page, setPage] = useState<Page | null>(null);
+  const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -58,6 +57,13 @@ export const PagePreview: React.FC = () => {
       .then(res => setRelatedPages(res.data || []))
       .catch(() => setRelatedPages([]));
   }, [id]);
+
+  useEffect(() => {
+    if (!page?.spaceId) return;
+    api.get(`/pages?spaceId=${page.spaceId}&take=200`)
+      .then((res) => setSpacePages(res.data?.data || res.data?.items || []))
+      .catch(() => setSpacePages([]));
+  }, [page?.spaceId]);
 
   const handleDelete = async () => {
     if (!page || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
@@ -154,12 +160,7 @@ export const PagePreview: React.FC = () => {
           [&_input[type=checkbox]]:mr-2
         ">
           {page.content ? (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-            >
-              {page.content}
-            </ReactMarkdown>
+            <Markdown pages={spacePages}>{page.content}</Markdown>
           ) : (
             <p className="text-gray-400">{t('page.emptyContent')}</p>
           )}

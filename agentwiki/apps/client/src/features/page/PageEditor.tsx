@@ -55,6 +55,7 @@ export const PageEditor: React.FC = () => {
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
+  const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -124,6 +125,13 @@ export const PageEditor: React.FC = () => {
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
+
+  useEffect(() => {
+    if (!page?.spaceId) return;
+    api.get(`/pages?spaceId=${page.spaceId}&take=200`)
+      .then((res) => setSpacePages(res.data?.data || res.data?.items || []))
+      .catch(() => setSpacePages([]));
+  }, [page?.spaceId]);
 
   useEffect(() => {
     tRef.current = t;
@@ -411,7 +419,7 @@ export const PageEditor: React.FC = () => {
         </div>
       )}
 
-      <MarkdownWorkspace value={content} mode={mode} onChange={handleContentChange} onModeChange={setMode} />
+      <MarkdownWorkspace value={content} mode={mode} onChange={handleContentChange} onModeChange={setMode} pages={spacePages} />
     </div>
   );
 };

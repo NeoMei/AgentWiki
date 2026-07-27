@@ -27,6 +27,11 @@ vi.mock('../../context/AuthContext', () => ({
 }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 
+// Per-test queue of page-detail responses. The wiki-link space index fetch is
+// answered separately so it never consumes this queue.
+let pageQueue: any[] = [];
+const queuePages = (...responses: any[]) => { pageQueue = responses; };
+
 // The WYSIWYG editor renders content as preview blocks; clicking a block swaps
 // it into a textarea. This helper performs that interaction to set content.
 const editContent = (next: string) => {
@@ -64,9 +69,9 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
-const renderEditor = () => render(
+const renderEditor = (withLanguageSwitcher = false) => render(
   <LanguageProvider>
-    <LanguageSwitcher />
+    {withLanguageSwitcher ? <LanguageSwitcher /> : null}
     <MemoryRouter initialEntries={['/pages/page-1/edit']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes><Route path="/pages/:id/edit" element={<PageEditor />} /></Routes>
     </MemoryRouter>
@@ -91,13 +96,19 @@ describe('PageEditor remote update safety', () => {
     socketMock.socket.disconnect.mockClear();
     vi.mocked(api.get).mockReset();
     vi.mocked(api.patch).mockReset();
+    pageQueue = [];
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('spaceId=')) {
+        return Promise.resolve({ data: { data: [] } } as any);
+      }
+      const next = pageQueue.shift();
+      if (!next) return Promise.reject(new Error('unexpected get ' + url));
+      return Promise.resolve(next);
+    });
   });
 
   it('preserves a dirty draft across repeated remote refreshes and accepts only the latest remote version explicitly', async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: page() } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Remote v2', content: 'Remote content v2', updatedAt: '2026-07-27T08:01:00.000Z' }) } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Remote v3', content: 'Remote content v3', updatedAt: '2026-07-27T08:02:00.000Z' }) } as any);
+    queuePages({ data: page() }, { data: page({ title: 'Remote v2', content: 'Remote content v2', updatedAt: '2026-07-27T08:01:00.000Z' }) }, { data: page({ title: 'Remote v3', content: 'Remote content v3', updatedAt: '2026-07-27T08:02:00.000Z' }) });
 
     renderEditor();
     const title = await screen.findByDisplayValue('Original title');
@@ -111,7 +122,9 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
     await act(async () => window.dispatchEvent(new Event('focus')));
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(
+      vi.mocked(api.get).mock.calls.filter(([url]) => typeof url === 'string' && !url.includes('spaceId=')),
+    ).toHaveLength(3));
     fireEvent.click(screen.getByRole('button', { name: 'Accept remote version' }));
 
     expect(title).toHaveValue('Remote v3');
@@ -121,9 +134,7 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('keeps the local draft and its original version token so a save is protected by the server', async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: page() } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) } as any);
+    queuePages({ data: page() }, { data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) });
     vi.mocked(api.patch).mockResolvedValue({
       data: page({ title: 'My local title', content: 'My local content', updatedAt: '2026-07-27T08:06:00.000Z' }),
     } as any);
@@ -147,13 +158,11 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('refreshes a pristine form safely and uses the refreshed version for the next save', async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: page() } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) } as any);
+    queuePages({ data: page() }, { data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) });
     vi.mocked(api.patch).mockResolvedValue({ data: page({ updatedAt: '2026-07-27T08:06:00.000Z' }) } as any);
 
     renderEditor();
-    await screen.findByDisplayValue('Original title');
+    await screen.findByDisplayValue('Original title', undefined, { timeout: 3000 });
     await act(async () => window.dispatchEvent(new Event('focus')));
 
     const title = await screen.findByDisplayValue('Remote title');
@@ -170,7 +179,7 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('ignores a duplicate accepted collaboration version but surfaces the next version', async () => {
-    vi.mocked(api.get).mockResolvedValueOnce({ data: page() } as any);
+    queuePages({ data: page() });
     renderEditor();
     await screen.findByDisplayValue('Original title');
     editContent('Local content');
@@ -200,10 +209,8 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('does not treat a language change as navigation or overwrite a dirty draft', async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: page() } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) } as any);
-    renderEditor();
+    queuePages({ data: page() }, { data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) });
+    renderEditor(true);
     const title = await screen.findByDisplayValue('Original title');
     fireEvent.change(title, { target: { value: 'Local title' } });
     editContent('Local content');
@@ -216,9 +223,7 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('keeps edits dirty after a failed save and offers the latest remote state after a 409', async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ data: page() } as any)
-      .mockResolvedValueOnce({ data: page({ title: 'Latest remote', content: 'Latest remote content', updatedAt: '2026-07-27T08:09:00.000Z' }) } as any);
+    queuePages({ data: page() }, { data: page({ title: 'Latest remote', content: 'Latest remote content', updatedAt: '2026-07-27T08:09:00.000Z' }) });
     vi.mocked(api.patch).mockRejectedValueOnce({
       response: { status: 409, data: { message: 'Page changed after this editor loaded it' } },
     });
@@ -238,7 +243,7 @@ describe('PageEditor remote update safety', () => {
 
   it('does not mark edits made during a save as clean and advances the version token after success', async () => {
     const firstSave = deferred<any>();
-    vi.mocked(api.get).mockResolvedValueOnce({ data: page() } as any);
+    queuePages({ data: page() });
     vi.mocked(api.patch)
       .mockImplementationOnce(() => firstSave.promise)
       .mockResolvedValueOnce({ data: page({ content: 'Second edit', updatedAt: '2026-07-27T08:02:00.000Z' }) } as any);

@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import remarkGfm from 'remark-gfm';
 import { Eye, PenLine } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { Markdown } from './Markdown';
+import { PageLinkTarget } from './markdownLinks';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -12,26 +11,8 @@ interface MarkdownWorkspaceProps {
   mode: MarkdownMode;
   onChange: (next: string) => void;
   onModeChange: (mode: MarkdownMode) => void;
+  pages?: PageLinkTarget[];
 }
-
-const markdownClass = `prose prose-sm max-w-none
-  [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
-  [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
-  [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4
-  [&_p]:mb-3 [&_p]:leading-7
-  [&_ul]:ml-6 [&_ul]:list-disc [&_ul]:mb-3
-  [&_ol]:ml-6 [&_ol]:list-decimal [&_ol]:mb-3
-  [&_li]:mb-1 [&_a]:text-blue-600 [&_a]:hover:underline
-  [&_strong]:font-bold [&_em]:italic
-  [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-gray-600 [&_blockquote]:italic [&_blockquote]:my-4
-  [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
-  [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
-  [&_pre_code]:bg-transparent [&_pre_code]:p-0
-  [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4
-  [&_th]:border [&_th]:border-gray-300 [&_th]:px-3 [&_th]:py-2 [&_th]:bg-gray-50 [&_th]:font-semibold [&_th]:text-left
-  [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
-  [&_hr]:border-gray-300 [&_hr]:my-6 [&_del]:line-through
-  [&_input[type=checkbox]]:mr-2`;
 
 // Split markdown into block-level chunks separated by blank lines. Each block
 // is rendered independently; clicking a block swaps just that block into an
@@ -42,7 +23,7 @@ const splitBlocks = (value: string): string[] => {
   return parts.length === 1 && parts[0] === '' ? [] : parts;
 };
 
-export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mode, onChange, onModeChange }) => {
+export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mode, onChange, onModeChange, pages = [] }) => {
   const { t } = useLanguage();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -92,9 +73,9 @@ export const MarkdownWorkspace: React.FC<MarkdownWorkspaceProps> = ({ value, mod
         tabIndex={clickable ? 0 : undefined}
         onClick={clickable ? () => setEditingIndex(index) : undefined}
         onKeyDown={clickable ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setEditingIndex(index); } } : undefined}
-        className={`${markdownClass} rounded-md px-3 py-2 transition ${clickable ? 'cursor-text hover:bg-gray-50' : ''}`}
+        className={`rounded-md px-3 py-2 transition ${clickable ? 'cursor-text hover:bg-gray-50' : ''}`}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{block}</ReactMarkdown>
+        <Markdown pages={pages}>{block}</Markdown>
       </div>
     );
   };
