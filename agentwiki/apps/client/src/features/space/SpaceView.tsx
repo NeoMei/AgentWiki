@@ -1,16 +1,35 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
-import { FileText, Plus, X, Trash2, Edit } from 'lucide-react';
+import { FileText, Plus, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
+import { PageTree, PageTreeNode } from '../../components/PageTree';
 
 interface Page {
   id: string;
   title: string;
   slug: string;
   updatedAt: string;
+  parentId?: string | null;
 }
+
+const flattenTree = (nodes: PageTreeNode[]): Page[] => {
+  const out: Page[] = [];
+  const walk = (list: PageTreeNode[], parentId: string | null) => {
+    for (const node of list) {
+      out.push({ id: node.id, title: node.title, slug: '', updatedAt: node.updatedAt || '', parentId });
+      if (node.children?.length) walk(node.children, node.id);
+    }
+  };
+  walk(nodes, null);
+  return out;
+};
+
+const removeFromTree = (nodes: PageTreeNode[], id: string): PageTreeNode[] =>
+  nodes
+    .filter((node) => node.id !== id)
+    .map((node) => (node.children?.length ? { ...node, children: removeFromTree(node.children, id) } : node));
 
 interface Space {
   id: string;
@@ -21,27 +40,29 @@ interface Space {
 export const SpaceView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
 
   const [space, setSpace] = useState<Space | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
+  const [pageTree, setPageTree] = useState<PageTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newPageTitle, setNewPageTitle] = useState('');
   const [newPageParent, setNewPageParent] = useState('');
-  const [deletingPage, setDeletingPage] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!id) return;
     try {
       const [spaceRes, pagesRes] = await Promise.all([
         api.get(`/spaces/${id}`),
-        api.get(`/pages?spaceId=${id}`),
+        api.get(`/pages/hierarchy/${id}`),
       ]);
       setSpace(spaceRes.data);
-      setPages(pagesRes.data.data || []);
+      const tree: PageTreeNode[] = Array.isArray(pagesRes.data) ? pagesRes.data : pagesRes.data.data || [];
+      setPageTree(tree);
+      setPages(flattenTree(tree));
     } catch (err: any) {
       setError(err.response?.data?.message || t('page.loadSpaceFailed'));
     } finally {
@@ -72,14 +93,12 @@ export const SpaceView: React.FC = () => {
 
   const handleDeletePage = async (pageId: string, pageTitle: string) => {
     if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
-    setDeletingPage(pageId);
     try {
       await api.delete(`/pages/${pageId}`);
-      setPages(prev => prev.filter(p => p.id !== pageId));
+      setPages((prev) => prev.filter((p) => p.id !== pageId));
+      setPageTree((prev) => removeFromTree(prev, pageId));
     } catch (err: any) {
       setError(err.response?.data?.message || t('page.deleteFailed'));
-    } finally {
-      setDeletingPage(null);
     }
   };
 
@@ -127,38 +146,15 @@ export const SpaceView: React.FC = () => {
           <p className="text-gray-500">{t('page.empty')}</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {pages.map((page) => (
-            <div
-              key={page.id}
-              className="group flex items-center gap-3 p-4 bg-white rounded-lg shadow-sm hover:shadow-md transition border border-gray-100"
-            >
-              <Link to={`/pages/${page.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                <FileText size={20} className="text-gray-400 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium truncate group-hover:text-blue-600 transition">{page.title}</h3>
-                  <p className="text-sm text-gray-400">{t('page.updated', { date: new Date(page.updatedAt).toLocaleDateString(language) })}</p>
-                </div>
-              </Link>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                <Link
-                  to={`/pages/${page.id}/edit`}
-                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                  title={t('page.edit')}
-                >
-                  <Edit size={16} />
-                </Link>
-                <button
-                  onClick={() => handleDeletePage(page.id, page.title)}
-                  disabled={deletingPage === page.id}
-                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
-                  title={t('page.delete')}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
+          <PageTree
+            nodes={pageTree}
+            emptyText={t('page.empty')}
+            onEdit={(node) => navigate(`/pages/${node.id}/edit`)}
+            onDelete={(node) => handleDeletePage(node.id, node.title)}
+            editLabel={t('page.edit')}
+            deleteLabel={t('page.delete')}
+          />
         </div>
       )}
 
