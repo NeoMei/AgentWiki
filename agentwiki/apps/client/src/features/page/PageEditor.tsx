@@ -66,7 +66,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
-  const [mode, setMode] = useState<MarkdownMode>('edit');
+  const [mode, setMode] = useState<MarkdownMode>('preview');
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
 
   activePageIdRef.current = id;

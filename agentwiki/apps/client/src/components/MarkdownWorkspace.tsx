@@ -30,9 +30,9 @@ export interface MarkdownWorkspaceHandle {
 // Live-preview formatting: render markdown structure (headings, emphasis,
 // quotes, code) while editing, like Obsidian. Cursor line still shows source.
 const livePreviewStyle = HighlightStyle.define([
-  { tag: tags.heading1, fontSize: '1.875em', fontWeight: '700', lineHeight: '1.3' },
-  { tag: tags.heading2, fontSize: '1.5em', fontWeight: '700', lineHeight: '1.35' },
-  { tag: tags.heading3, fontSize: '1.25em', fontWeight: '700', lineHeight: '1.4' },
+  { tag: tags.heading1, fontSize: '30px', fontWeight: '700', lineHeight: '1.3' },
+  { tag: tags.heading2, fontSize: '24px', fontWeight: '700', lineHeight: '1.35' },
+  { tag: tags.heading3, fontSize: '20px', fontWeight: '700', lineHeight: '1.4' },
   { tag: [tags.heading4, tags.heading5, tags.heading6], fontWeight: '700' },
   { tag: tags.strong, fontWeight: '700' },
   { tag: tags.emphasis, fontStyle: 'italic' },
@@ -161,7 +161,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
               highlightActiveLine: true,
               highlightActiveLineGutter: false,
             }}
-            className="h-full [&_.cm-content]:px-6 [&_.cm-content]:py-6 [&_.cm-content]:md:px-10 [&_.cm-editor]:h-full [&_.cm-scroller]:leading-7 [&_.cm-scroller]:text-[15px] [&_.cm-scroller]:text-gray-800"
+            className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:leading-7 [&_.cm-scroller]:text-[15px] [&_.cm-scroller]:text-gray-800 [&_.cm-content]:mx-auto [&_.cm-content]:max-w-4xl [&_.cm-content]:px-6 [&_.cm-content]:py-6 [&_.cm-content]:md:px-10 [&_.cm-content]:md:py-8"
           />
         ) : (
           <div className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
