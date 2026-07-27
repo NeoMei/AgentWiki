@@ -205,6 +205,7 @@ export class PageService {
   async findHierarchy(spaceId: string) {
     const pages = await this.prisma.page.findMany({
       where: { spaceId, deletedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: {
         ...PAGE_PUBLIC_FIELDS,
         author: { select: AUTHOR_SELECT },
@@ -224,6 +225,45 @@ export class PageService {
       }
     }
     return roots;
+  }
+
+  /**
+   * Apply a drag-reordered page tree: set each page's parent and its position
+   * among siblings. Validates that every page belongs to the space and that no
+   * parent assignment creates a cycle.
+   */
+  async reorder(
+    spaceId: string,
+    items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
+  ) {
+    const ids = items.map((item) => item.id);
+    const existing = await this.prisma.page.findMany({
+      where: { id: { in: ids }, spaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing.length !== ids.length) {
+      throw new BadRequestException('Some pages do not belong to this space');
+    }
+    // Cycle check: walking up from each new parent must not return to the page.
+    const parentOf = new Map(items.map((item) => [item.id, item.parentId]));
+    for (const item of items) {
+      let cursor: string | null = item.parentId;
+      const seen = new Set<string>([item.id]);
+      while (cursor) {
+        if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
+        seen.add(cursor);
+        cursor = parentOf.get(cursor) ?? null;
+      }
+    }
+    await this.prisma.$transaction(
+      items.map((item) =>
+        this.prisma.page.updateMany({
+          where: { id: item.id, spaceId },
+          data: { parentId: item.parentId, sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+    return this.findHierarchy(spaceId);
   }
 
   async update(id: string, data: UpdatePageDto, userId?: string) {

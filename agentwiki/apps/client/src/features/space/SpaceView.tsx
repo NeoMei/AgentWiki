@@ -6,6 +6,79 @@ import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { PageTree, PageTreeNode } from '../../components/PageTree';
 
+// Compute the new parent/sortOrder for every page after a drag move.
+export const applyMove = (
+  nodes: PageTreeNode[],
+  dragId: string,
+  targetId: string,
+  position: 'into' | 'before' | 'after',
+): Array<{ id: string; parentId: string | null; sortOrder: number }> => {
+  const parentOf = new Map<string, string | null>();
+  const childrenOf = new Map<string | null, PageTreeNode[]>();
+  const register = (list: PageTreeNode[], parent: string | null) => {
+    childrenOf.set(parent, list);
+    for (const node of list) {
+      parentOf.set(node.id, parent);
+      if (node.children?.length) register(node.children, node.id);
+    }
+  };
+  register(nodes, null);
+
+  const findNode = (list: PageTreeNode[], id: string): PageTreeNode | null => {
+    for (const node of list) {
+      if (node.id === id) return node;
+      const found = node.children ? findNode(node.children, id) : null;
+      if (found) return found;
+    }
+    return null;
+  };
+  const dragNode = findNode(nodes, dragId);
+  if (!dragNode) return [];
+
+  // detach drag node from its siblings
+  for (const list of childrenOf.values()) {
+    const index = list.findIndex((node) => node.id === dragId);
+    if (index >= 0) list.splice(index, 1);
+  }
+
+  const newParent = position === 'into' ? targetId : parentOf.get(targetId) ?? null;
+  // prevent dropping into its own subtree
+  let cursor: string | null = newParent;
+  while (cursor) {
+    if (cursor === dragId) return [];
+    cursor = parentOf.get(cursor) ?? null;
+  }
+  dragNode.children = dragNode.children || [];
+  const siblings = childrenOf.get(newParent) || [];
+  childrenOf.set(newParent, siblings);
+  if (position === 'into') siblings.push(dragNode);
+  else {
+    const index = siblings.findIndex((node) => node.id === targetId);
+    siblings.splice(position === 'before' ? index : index + 1, 0, dragNode);
+  }
+  parentOf.set(dragId, newParent);
+  // keep each node's own children array in sync with the rebuilt map so the
+  // emit walk below sees the moved node under its new parent
+  if (position === 'into') {
+    const target = findNode(nodes, targetId);
+    if (target) target.children = siblings;
+  } else {
+    dragNode.children = dragNode.children;
+  }
+
+  // flatten in order, assigning sequential sortOrder per sibling group
+  const items: Array<{ id: string; parentId: string | null; sortOrder: number }> = [];
+  const emit = (list: PageTreeNode[], parent: string | null) => {
+    list.forEach((node, index) => {
+      items.push({ id: node.id, parentId: parent, sortOrder: index });
+      const childList = childrenOf.get(node.id) || node.children || [];
+      if (childList.length) emit(childList, node.id);
+    });
+  };
+  emit(childrenOf.get(null) || [], null);
+  return items;
+};
+
 interface Page {
   id: string;
   title: string;
@@ -102,6 +175,20 @@ export const SpaceView: React.FC = () => {
     }
   };
 
+  const handleMove = async (dragId: string, targetId: string | null, position: 'into' | 'before' | 'after') => {
+    if (!id || !targetId) return;
+    const items = applyMove(pageTree, dragId, targetId, position);
+    if (!items.length) return;
+    try {
+      const res = await api.patch(`/pages/reorder/${id}`, { items });
+      const tree: PageTreeNode[] = Array.isArray(res.data) ? res.data : res.data.data || [];
+      setPageTree(tree);
+      setPages(flattenTree(tree));
+    } catch (err: any) {
+      setError(err.response?.data?.message || t('page.loadSpaceFailed'));
+    }
+  };
+
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
     <div className="text-center py-8">
@@ -154,6 +241,7 @@ export const SpaceView: React.FC = () => {
             onDelete={(node) => handleDeletePage(node.id, node.title)}
             editLabel={t('page.edit')}
             deleteLabel={t('page.delete')}
+            onMove={handleMove}
           />
         </div>
       )}

@@ -201,6 +201,7 @@ model Page {
   parent   Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
   parentId String?
   children Page[]  @relation("PageChildren")
+  sortOrder Int    @default(0)
 
   space    Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId  String

@@ -65,6 +65,16 @@ export class PageController {
     return this.pageService.findHierarchy(spaceId);
   }
 
+  @Patch('reorder/:spaceId')
+  async reorderPages(
+    @Param('spaceId') spaceId: string,
+    @Body() body: { items: Array<{ id: string; parentId: string | null; sortOrder: number }> },
+    @Req() req: Request,
+  ) {
+    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor'], 'pages:write');
+    return this.pageService.reorder(spaceId, body.items || []);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor', 'viewer'], 'pages:read');

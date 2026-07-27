@@ -122,3 +122,60 @@ describe('PageService', () => {
     });
   });
 });
+
+describe('page ordering', () => {
+  let service: PageService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (arg: any) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    );
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        PageService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: SearchService, useValue: mockSearch },
+      ],
+    }).compile();
+    service = module.get<PageService>(PageService);
+  });
+
+  it('findHierarchy queries pages ordered by sortOrder then createdAt', async () => {
+    mockPrisma.page.findMany.mockResolvedValue([]);
+    await service.findHierarchy('space-1');
+    expect(mockPrisma.page.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    }));
+  });
+
+  it('reorder updates parent and sortOrder for each item', async () => {
+    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+    mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
+    await service.reorder('space-1', [
+      { id: 'a', parentId: null, sortOrder: 0 },
+      { id: 'b', parentId: 'a', sortOrder: 1 },
+    ]);
+    expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'b', spaceId: 'space-1' },
+      data: { parentId: 'a', sortOrder: 1 },
+    }));
+  });
+
+  it('reorder rejects items outside the space', async () => {
+    mockPrisma.page.findMany.mockResolvedValueOnce([]);
+    await expect(
+      service.reorder('space-1', [{ id: 'b', parentId: null, sortOrder: 0 }]),
+    ).rejects.toMatchObject({ message: expect.stringContaining('do not belong') });
+  });
+
+  it('reorder rejects a cycle in the new parent assignment', async () => {
+    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+    await expect(
+      service.reorder('space-1', [
+        { id: 'a', parentId: 'b', sortOrder: 0 },
+        { id: 'b', parentId: 'a', sortOrder: 0 },
+      ]),
+    ).rejects.toMatchObject({ message: expect.stringContaining('cycle') });
+  });
+});
