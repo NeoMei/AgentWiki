@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, X, Trash2, Shield, Loader2 } from 'lucide-react';
+import { Users, Plus, X, Trash2, Shield, Loader2, Bot } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface Member {
   id: string;
   role: string;
-  userId: string;
-  user: { id: string; email: string; name: string | null; type: string };
+  type: 'human' | 'agent';
+  userId?: string;
+  agentId?: string;
+  user?: { id: string; email: string; name: string | null; type: string };
+  agent?: { id: string; name: string; status: string };
   createdAt: string;
 }
 
@@ -139,18 +142,39 @@ export const SpaceMembers: React.FC = () => {
         ) : (
           members.map(m => {
             const roleCfg = ROLE_LABELS[m.role] || ROLE_LABELS.viewer;
+            if (m.type === 'agent') {
+              return (
+                <div key={m.id} className="flex items-center gap-3 p-4" data-testid={`member-agent-${m.agentId}`}>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white font-medium flex-shrink-0">
+                    <Bot size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{m.agent?.name}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{zh ? '智能体' : 'Agent'}</span>
+                    </div>
+                    <p className="text-sm text-gray-500 truncate">{zh ? '通过 Agent 授权接入' : 'Connected via agent grant'}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
+                      {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={m.id} className="flex items-center gap-3 p-4">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-medium flex-shrink-0">
-                  {(m.user.name || m.user.email)[0].toUpperCase()}
+                  {(m.user?.name || m.user?.email || '?')[0].toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium truncate">
-                      {m.user.name || m.user.email}
+                      {m.user?.name || m.user?.email}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 truncate">{m.user.email}</p>
+                  <p className="text-sm text-gray-500 truncate">{m.user?.email}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {m.role === 'owner' ? (
@@ -160,7 +184,7 @@ export const SpaceMembers: React.FC = () => {
                   ) : (
                     <select
                       value={m.role}
-                      onChange={e => handleRoleChange(m.userId, e.target.value)}
+                      onChange={e => handleRoleChange(m.userId!, e.target.value)}
                       disabled={updatingId === m.userId}
                       className="text-xs border rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
@@ -170,7 +194,7 @@ export const SpaceMembers: React.FC = () => {
                   )}
                   {m.role !== 'owner' && (
                     <button
-                      onClick={() => handleRemove(m.userId, m.user.name || m.user.email)}
+                      onClick={() => handleRemove(m.userId!, m.user?.name || m.user?.email || '')}
                       disabled={updatingId === m.userId}
                       className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
                       title={zh ? '移除成员' : 'Remove member'}
