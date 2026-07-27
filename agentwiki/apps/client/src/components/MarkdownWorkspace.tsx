@@ -3,13 +3,13 @@ import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
 import { Range } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
-import { PageLinkTarget } from './markdownLinks';
+import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { ModeToggleButton } from './ModeToggleButton';
 
 export type MarkdownMode = 'edit' | 'preview';
@@ -53,7 +53,28 @@ const livePreviewStyle = HighlightStyle.define([
 // Hide markdown markers (and the single space after a heading's `#` run) on
 // every line except the one the cursor/selection is on, so non-active lines
 // align flush with body text — like Obsidian. Active line keeps full source.
-const hiddenMarksPlugin = ViewPlugin.fromClass(class {
+class WikiLinkWidget extends WidgetType {
+  constructor(readonly name: string, readonly href: string | null) { super(); }
+  eq(other: WikiLinkWidget) { return other.name === this.name && other.href === this.href; }
+  toDOM() {
+    const a = document.createElement('a');
+    a.textContent = this.name;
+    if (this.href) {
+      a.href = this.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'text-blue-600 underline cursor-pointer';
+    } else {
+      a.className = 'text-gray-400';
+    }
+    return a;
+  }
+  ignoreEvent() { return false; }
+}
+
+const WIKILINK_RE = /\[\[([^\][]+)\]\]/g;
+
+const buildHiddenMarksPlugin = (pages: PageLinkTarget[]) => ViewPlugin.fromClass(class {
   decorations: DecorationSet;
   constructor(view: EditorView) {
     this.decorations = this.compute(view);
@@ -90,6 +111,24 @@ const hiddenMarksPlugin = ViewPlugin.fromClass(class {
         return undefined;
       },
     });
+    // Wiki-links: replace [[Name]] with a resolved link on non-active lines.
+    const doc = view.state.doc;
+    for (let n = 1; n <= doc.lines; n += 1) {
+      if (activeLines.has(n)) continue;
+      const text = doc.line(n).text;
+      WIKILINK_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = WIKILINK_RE.exec(text))) {
+        const pageName = match[1];
+        const href = resolveWikiHref(pageName, pages);
+        if (!href) continue;
+        const lineFrom = doc.line(n).from;
+        ranges.push(
+          Decoration.replace({ widget: new WikiLinkWidget(pageName, href) })
+            .range(lineFrom + match.index, lineFrom + match.index + match[0].length),
+        );
+      }
+    }
     return Decoration.set(ranges, true);
   }
 }, { decorations: (value) => value.decorations });
@@ -118,7 +157,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           <CodeMirror
             value={value}
             onChange={(next) => onChange(next)}
-            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), hiddenMarksPlugin]}
+            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), buildHiddenMarksPlugin(pages)]}
             placeholder={t('editor.placeholder')}
             aria-label={t('editor.editMode')}
             basicSetup={{
