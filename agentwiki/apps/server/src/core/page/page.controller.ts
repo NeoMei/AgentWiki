@@ -71,6 +71,7 @@ export class PageController {
     @Body() body: { items: Array<{ id: string; parentId: string | null; sortOrder: number }> },
     @Req() req: Request,
   ) {
+    if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor'], 'pages:write');
     return this.pageService.reorder(spaceId, body.items || []);
   }
