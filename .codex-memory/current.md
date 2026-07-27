@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 在本机继续开发 AgentWiki；Node.js 26 唯一运行时适配、迁移接手和本地开发环境初始化已完成，当前可以直接接收开发任务。
+- AgentWiki 维护收尾已于 2026-07-27 完成；本机已验证 Node.js 26.5.0 唯一运行时、规范产品源码和代码图谱，当前可以直接接收开发任务。
 
 # 范围 / 不做
 
@@ -21,9 +21,9 @@
 - 当前门禁：ESLint、双端类型检查、16 个 Jest 套件 58 项服务端测试、4 项 Vitest 客户端测试、Nest/Vite 生产构建全部通过。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
 - 本机仅以 Node 26.5.0 + pnpm 11.9.0 作为 AgentWiki 运行时；PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
 - `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
-- Node 26 完整门禁已通过：锁文件安装、ESLint（0 error）、双端类型检查、7 项运行时测试、58 项 Jest、4 项 Vitest、Nest/Vite 生产构建及 Prisma 迁移状态。
-- codebase-memory 已对主产品 `agentwiki/` 重新完成 full 索引并持久化：1565 个节点、3624 条边；其中服务端源码为 676 个节点/98 个文件，客户端源码为 241 个节点/40 个文件；参考仓库与生成依赖均未混入主图谱。
-- 维护收尾 Task 1 的干净图谱重建与 Task 2 的任务文档、仓库卫生回填已完成；Task 3 的独立最终验证仍待后续执行。
+- 2026-07-27 fresh Node 26 门禁：`test:runtime` 7/7、ESLint 0 error/10 warnings、双端类型检查、Jest 16 suites/58 tests、Vitest 4 files/4 tests、shared/Nest/Vite 生产构建均退出 0；中间任务和源码 TODO 扫描均无匹配。
+- codebase-memory 规范项目名为 `agentwiki`，主产品 `agentwiki/` 已纳入 `codex/node26-compatibility` 版本控制；规范图为 1565 nodes / 3624 edges，`node_modules`、`dist`、`.stale-node-modules` 和参考仓库路径污染均为 0，Authorization/Review/Memory/Mcp 四项服务各发现 1 个定义。
+- 维护收尾 Task 1-4 均已完成；`.codex-memory/tasks/index.md` 无活跃任务。
 
 # 稳定约束
 
@@ -50,6 +50,7 @@
 
 # 风险 / 下一步
 
-- 当前无阻塞项，可以直接接收本机开发任务。在 Node 26 + pnpm 11.9.0 环境下进入 `agentwiki/` 后直接运行 `pnpm dev`，不再使用 Node 20 PATH 或手工密钥映射。
+- 当前无活跃任务或阻塞项，可以直接接收本机开发任务。在 Node 26 + pnpm 11.9.0 环境下进入 `agentwiki/` 后直接运行 `pnpm dev`，不再使用 Node 20 PATH 或手工密钥映射。
+- 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

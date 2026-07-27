@@ -241,7 +241,7 @@ Expected: the commit adds the complete canonical product tree and the worktree r
 - Consumes: all maintenance commits.
 - Produces: fresh evidence that there are no active tasks, no source TODO markers, no generated dependency graph nodes, and no product regressions.
 
-- [ ] **Step 1: Verify task-state scans**
+- [x] **Step 1: Verify task-state scans**
 
 ```bash
 rg -n --glob '*.md' --glob '!decisions/TEMPLATE.md' --glob '!agentwiki/docs/superpowers/plans/2026-07-27-maintenance-closeout.md' '^\s*[-*]\s+\[ \]' .codex-memory decisions design agentwiki/docs
@@ -250,7 +250,7 @@ rg -n --glob '!**/node_modules*/**' --glob '!**/dist/**' --glob '*.{ts,tsx,js,mj
 
 Expected: 除当前执行计划和模板外无未完成任务；第二个命令无匹配。
 
-- [ ] **Step 2: Run product gates under Node 26**
+- [x] **Step 2: Run product gates under Node 26**
 
 From `agentwiki/`, run:
 
@@ -265,22 +265,25 @@ pnpm build
 
 Expected: Node reports major 26 and every gate exits 0.
 
-- [ ] **Step 3: Verify Git state and commit history**
+- [x] **Step 3: Verify graph state, Git state, and commit history**
 
 ```bash
+codebase-memory-mcp cli list_projects
 git --git-dir=/Users/neomei/.local/share/AgentWiki.git --work-tree='/Users/neomei/项目/codexprojects/AgentWiki ' status --short --untracked-files=all
-git --git-dir=/Users/neomei/.local/share/AgentWiki.git --work-tree='/Users/neomei/项目/codexprojects/AgentWiki ' log -4 --oneline --decorate
+git --git-dir=/Users/neomei/.local/share/AgentWiki.git --work-tree='/Users/neomei/项目/codexprojects/AgentWiki ' log -6 --oneline --decorate
 ```
 
-Expected: no tracked or untracked project changes remain, and both maintenance commits are present on `codex/node26-compatibility`.
+Use MCP `query_graph(project="agentwiki")` to verify that `node_modules`, `dist`, `.stale-node-modules`, and reference-repository paths have zero matches, then use `search_graph` to rediscover `AuthorizationService`, `ReviewService`, `MemoryService`, and `McpService`.
 
-- [ ] **Step 4: Record verification completion**
+Expected: `agentwiki` is the only live AgentWiki graph project; graph pollution queries return zero; all four services are discoverable. Git has no visible untracked file or unrelated tracked change, and all maintenance commits are present on `codex/node26-compatibility`. The maintenance plan itself may be modified before its final verification commit.
+
+- [x] **Step 4: Record verification completion**
 
 Complete Task 4 in this fixed order:
 
 1. Mark all four Task 4 steps as `- [x]`.
 2. Update `.codex-memory/current.md` with final verification evidence; even if the measured data is unchanged, record the fresh verification date and result.
-3. Amend `docs: close completed project tasks` so the completed plan and final current-memory evidence are tracked together.
+3. Create a new `docs: record maintenance verification` commit containing the completed plan and final current-memory evidence.
 4. Run the final global task-state review and Git worktree check:
 
 ```bash
