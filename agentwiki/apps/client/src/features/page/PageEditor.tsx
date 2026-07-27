@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
@@ -14,6 +14,7 @@ interface Page {
   content: string;
   format: string;
   spaceId: string;
+  updatedAt: string;
 }
 
 interface ActiveUser {
@@ -22,13 +23,36 @@ interface ActiveUser {
   color: string;
 }
 
+interface RemotePageUpdate {
+  page: Page;
+  revision: string;
+}
+
+const pageRevision = (page: Page) => JSON.stringify([
+  page.updatedAt,
+  page.title,
+  page.content,
+  page.format,
+]);
+
 export const PageEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { t } = useLanguage();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
+  const tRef = useRef(t);
+  const pageRef = useRef<Page | null>(null);
+  const baselineRevisionRef = useRef<string | null>(null);
+  const isDirtyRef = useRef(false);
+  const editRevisionRef = useRef(0);
+  const activePageIdRef = useRef(id);
+  const loadSequenceRef = useRef(0);
+  const mountedRef = useRef(true);
+  const dismissedRemoteRevisionRef = useRef<string | null>(null);
+  const requestControllersRef = useRef(new Set<AbortController>());
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
   const [title, setTitle] = useState('');
@@ -40,10 +64,80 @@ export const PageEditor: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
+  const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
+
+  activePageIdRef.current = id;
+
+  const updateDirty = useCallback((dirty: boolean) => {
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
+  }, []);
+
+  const adoptRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage)) => {
+    pageRef.current = nextPage;
+    baselineRevisionRef.current = revision;
+    setPage(nextPage);
+    setTitle(nextPage.title);
+    setContent(nextPage.content || '');
+    contentRef.current = nextPage.content || '';
+    dismissedRemoteRevisionRef.current = null;
+    setRemoteUpdate(null);
+    updateDirty(false);
+  }, [updateDirty]);
+
+  const offerRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage), forcePrompt = false) => {
+    if (nextPage.id !== activePageIdRef.current) return;
+    const baseline = pageRef.current;
+    if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
+    if (isDirtyRef.current) {
+      if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
+        setRemoteUpdate({ page: nextPage, revision });
+      }
+      return;
+    }
+    adoptRemotePage(nextPage, revision);
+  }, [adoptRemotePage]);
+
+  const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
+    if (!id) return;
+    const requestedId = id;
+    const sequence = ++loadSequenceRef.current;
+    const controller = new AbortController();
+    requestControllersRef.current.add(controller);
+    if (showLoading) setLoading(true);
+    try {
+      const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
+      if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
+      setError(null);
+      offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
+    } catch (err: any) {
+      if (controller.signal.aborted || !mountedRef.current || activePageIdRef.current !== requestedId) return;
+      if (showLoading) setError(err.response?.data?.message || tRef.current('editor.loadFailed'));
+    } finally {
+      requestControllersRef.current.delete(controller);
+      if (showLoading && mountedRef.current && sequence === loadSequenceRef.current && activePageIdRef.current === requestedId) {
+        setLoading(false);
+      }
+    }
+  }, [id, offerRemotePage]);
 
   useEffect(() => {
     contentRef.current = content;
   }, [content]);
+
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestControllersRef.current.forEach((controller) => controller.abort());
+      requestControllersRef.current.clear();
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
@@ -68,24 +162,39 @@ export const PageEditor: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty]);
 
-  // Load page data
+  // Load page data and reset state when navigating to another page.
+  useEffect(() => {
+    loadSequenceRef.current += 1;
+    requestControllersRef.current.forEach((controller) => controller.abort());
+    requestControllersRef.current.clear();
+    pageRef.current = null;
+    baselineRevisionRef.current = null;
+    dismissedRemoteRevisionRef.current = null;
+    setPage(null);
+    setTitle('');
+    setContent('');
+    contentRef.current = '';
+    setError(null);
+    setRemoteUpdate(null);
+    updateDirty(false);
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    void loadPage(true);
+  }, [id, loadPage, updateDirty]);
+
+  // Refresh persisted state on focus and periodically without replacing dirty fields.
   useEffect(() => {
     if (!id) return;
-    const fetchPage = async () => {
-      try {
-        const res = await api.get(`/pages/${id}`);
-        setPage(res.data);
-        setTitle(res.data.title);
-        setContent(res.data.content || '');
-        contentRef.current = res.data.content || '';
-      } catch (err: any) {
-        setError(err.response?.data?.message || t('editor.loadFailed'));
-      } finally {
-        setLoading(false);
-      }
+    const refresh = () => { void loadPage(false); };
+    window.addEventListener('focus', refresh);
+    const timer = window.setInterval(refresh, 30_000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.clearInterval(timer);
     };
-    fetchPage();
-  }, [id]);
+  }, [id, loadPage]);
 
   // WebSocket collaboration
   useEffect(() => {
@@ -120,10 +229,15 @@ export const PageEditor: React.FC = () => {
       setActiveUsers(prev => prev.filter(u => u.userId !== data.userId));
     });
 
-    socket.on('contentUpdated', (data: { content: string; userId: string }) => {
+    socket.on('contentUpdated', (data: { content: string; userId: string; version: number }) => {
       if (data.userId !== socket.id && data.content !== contentRef.current) {
-        setContent(data.content);
-        contentRef.current = data.content;
+        const baseline = pageRef.current;
+        if (baseline) {
+          offerRemotePage(
+            { ...baseline, content: data.content },
+            `socket:${data.version}:${data.content}`,
+          );
+        }
       }
     });
 
@@ -133,13 +247,14 @@ export const PageEditor: React.FC = () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [id, user?.id, page?.id]);
+  }, [id, user?.id, page?.id, offerRemotePage]);
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setContent(newContent);
     contentRef.current = newContent;
-    setIsDirty(true);
+    editRevisionRef.current += 1;
+    updateDirty(true);
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
@@ -155,24 +270,63 @@ export const PageEditor: React.FC = () => {
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(e.target.value);
-    setIsDirty(true);
+    editRevisionRef.current += 1;
+    updateDirty(true);
   };
 
   const handleSave = async () => {
-    if (!id) return;
+    const baseline = pageRef.current;
+    if (!id || !baseline?.updatedAt || remoteUpdate) return;
+    const requestedId = id;
+    const submittedEditRevision = editRevisionRef.current;
+    const submittedTitle = title;
+    const submittedContent = content;
     setSaving(true);
     setSaveStatus(null);
     try {
-      await api.patch(`/pages/${id}`, { title, content });
+      const response = await api.patch(`/pages/${requestedId}`, {
+        title: submittedTitle,
+        content: submittedContent,
+        expectedUpdatedAt: baseline.updatedAt,
+      });
+      if (!mountedRef.current || activePageIdRef.current !== requestedId) return;
+      const savedPage: Page = {
+        ...baseline,
+        ...response.data,
+        title: submittedTitle,
+        content: submittedContent,
+      };
+      pageRef.current = savedPage;
+      baselineRevisionRef.current = pageRevision(savedPage);
+      setPage(savedPage);
       setSaveStatus({ kind: 'success', text: t('editor.saved') });
-      setIsDirty(false);
-      setTimeout(() => setSaveStatus(null), 3000);
+      if (editRevisionRef.current === submittedEditRevision) updateDirty(false);
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = setTimeout(() => setSaveStatus(null), 3000);
     } catch (err: any) {
+      if (!mountedRef.current || activePageIdRef.current !== requestedId) return;
       setSaveStatus({ kind: 'error', text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }) });
-      setTimeout(() => setSaveStatus(null), 5000);
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = setTimeout(() => setSaveStatus(null), 5000);
+      if (err.response?.status === 409) {
+        dismissedRemoteRevisionRef.current = null;
+        void loadPage(false, true);
+      }
     } finally {
-      setSaving(false);
+      if (mountedRef.current && activePageIdRef.current === requestedId) setSaving(false);
     }
+  };
+
+  const acceptRemote = () => {
+    if (!remoteUpdate || saving) return;
+    editRevisionRef.current += 1;
+    adoptRemotePage(remoteUpdate.page, remoteUpdate.revision);
+  };
+
+  const keepLocal = () => {
+    if (!remoteUpdate || saving) return;
+    dismissedRemoteRevisionRef.current = remoteUpdate.revision;
+    setRemoteUpdate(null);
   };
 
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
@@ -229,7 +383,7 @@ export const PageEditor: React.FC = () => {
           </Link>
           <button
             onClick={handleSave}
-            disabled={saving || !isDirty}
+            disabled={saving || !isDirty || !!remoteUpdate}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
             <Save size={18} />
@@ -241,6 +395,20 @@ export const PageEditor: React.FC = () => {
       {saveStatus && (
         <div className={`mb-2 p-2 rounded-md text-sm text-center ${saveStatus.kind === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
           {saveStatus.text}
+        </div>
+      )}
+
+      {remoteUpdate && (
+        <div role="alert" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>{t('editor.remoteConflict')}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={acceptRemote} disabled={saving} className="rounded-lg bg-amber-700 px-3 py-2 font-medium text-white disabled:opacity-50">
+              {t('editor.acceptRemote')}
+            </button>
+            <button type="button" onClick={keepLocal} disabled={saving} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-medium disabled:opacity-50">
+              {t('editor.keepLocal')}
+            </button>
+          </div>
         </div>
       )}
 

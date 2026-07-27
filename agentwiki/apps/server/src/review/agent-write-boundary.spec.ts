@@ -19,7 +19,7 @@ describe('Agent write review boundary', () => {
     const authorization = { assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }) } as any;
     const review = { propose: jest.fn().mockResolvedValue({ id: 'change-2' }) } as any;
     const controller = new PageController(pages, authorization, review);
-    await controller.update('page-1', { content: 'Updated' }, { user: { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] } } as any);
+    await controller.update('page-1', { content: 'Updated', expectedUpdatedAt: updatedAt.toISOString() }, { user: { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] } } as any);
     expect(review.propose).toHaveBeenCalledWith(expect.anything(), 'space-1', expect.any(String), { type: 'update_page', payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString(), changes: { content: 'Updated' } } });
     expect(pages.update).not.toHaveBeenCalled();
   });

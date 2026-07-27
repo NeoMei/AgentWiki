@@ -1,8 +1,14 @@
 import { test, expect, request as playwrightRequest, APIRequestContext } from '@playwright/test';
 import path from 'node:path';
 import os from 'node:os';
+import { resolveE2ETarget } from '../src/config/localTargets';
 
-const apiBaseUrl = process.env.AGENTWIKI_API_URL || 'http://100.64.35.78:3000/api/';
+const apiBaseUrl = resolveE2ETarget({
+  configured: process.env.AGENTWIKI_API_URL,
+  fallback: 'http://127.0.0.1:3000/api/',
+  allowRemote: process.env.ALLOW_REMOTE_E2E,
+  label: 'Playwright API target',
+});
 const artifacts = path.join(os.tmpdir(), 'agentwiki-qa');
 
 let api: APIRequestContext;

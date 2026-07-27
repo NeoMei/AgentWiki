@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, MaxLength, MinLength } from 'class-validator';
+import { IsISO8601, IsString, IsOptional, IsIn, MaxLength, MinLength } from 'class-validator';
 
 export class CreatePageDto {
   @IsString()
@@ -31,6 +31,9 @@ export class CreatePageDto {
 }
 
 export class UpdatePageDto {
+  @IsISO8601({ strict: true })
+  expectedUpdatedAt: string;
+
   @IsOptional()
   @IsString()
   @MinLength(1)

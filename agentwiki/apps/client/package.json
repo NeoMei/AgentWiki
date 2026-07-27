@@ -3,11 +3,11 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "vite --config vite.config.ts",
+    "build": "tsc && vite build --config vite.config.ts",
     "test": "vitest run",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "preview": "vite preview"
+    "preview": "vite preview --config vite.config.ts"
   },
   "dependencies": {
     "@agentwiki/shared": "workspace:*",

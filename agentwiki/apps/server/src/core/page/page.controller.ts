@@ -94,8 +94,13 @@ export class PageController {
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
       const current = await this.pageService.findOne(id);
+      const { expectedUpdatedAt, ...changes } = dto;
       return this.review.propose(user, page.spaceId, `Proposed update: ${id}`, {
-        type: 'update_page', payload: { pageId: id, expectedUpdatedAt: current.updatedAt.toISOString(), changes: dto },
+        type: 'update_page', payload: {
+          pageId: id,
+          expectedUpdatedAt: expectedUpdatedAt || current.updatedAt.toISOString(),
+          changes,
+        },
       });
     }
     return this.pageService.update(id, dto, user?.userId);

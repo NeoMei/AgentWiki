@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
+import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
 
 export interface PaginatedResult<T> {
@@ -226,34 +227,60 @@ export class PageService {
   }
 
   async update(id: string, data: UpdatePageDto, userId?: string) {
-    const page = await this.findOne(id);
-    if (data.parentId !== undefined) await this.assertValidParent(page.spaceId, data.parentId, id);
+    const { expectedUpdatedAt, ...changes } = data;
+    const expectedVersion = new Date(expectedUpdatedAt);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const page = await tx.page.findUnique({
+        where: { id, deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          slug: true,
+          format: true,
+          parentId: true,
+          spaceId: true,
+          authorId: true,
+        },
+      });
+      if (!page) throw new NotFoundException('Page not found');
+      if (changes.parentId !== undefined) await this.assertValidParent(page.spaceId, changes.parentId, id, tx);
 
-    await this.prisma.pageVersion.create({
-      data: {
-        pageId: page.id,
-        title: page.title,
-        content: page.content ?? '',
-        authorId: userId ?? page.authorId,
-        slug: page.slug,
-        format: page.format,
-        parentId: page.parentId,
-      },
-    });
+      await tx.pageVersion.create({
+        data: {
+          pageId: page.id,
+          title: page.title,
+          content: page.content ?? '',
+          authorId: userId ?? page.authorId,
+          slug: page.slug,
+          format: page.format,
+          parentId: page.parentId,
+        },
+      });
 
-    const updated = await this.prisma.page.update({
-      where: { id },
-      data: {
-        ...data,
-        lastChangeSetId: null,
-        lastModifiedByUserId: userId ?? page.authorId,
-        lastModifiedByAgentId: null,
-        lastModifiedAt: new Date(),
-      },
-      select: {
-        ...PAGE_PUBLIC_FIELDS,
-        author: { select: AUTHOR_SELECT },
-      },
+      const mutation = await tx.page.updateMany({
+        where: { id, deletedAt: null, updatedAt: expectedVersion },
+        data: {
+          ...changes,
+          lastChangeSetId: null,
+          lastModifiedByUserId: userId ?? page.authorId,
+          lastModifiedByAgentId: null,
+          lastModifiedAt: new Date(),
+        },
+      });
+      if (mutation.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed after this editor loaded it');
+      }
+
+      const result = await tx.page.findUnique({
+        where: { id, deletedAt: null },
+        select: {
+          ...PAGE_PUBLIC_FIELDS,
+          author: { select: AUTHOR_SELECT },
+        },
+      });
+      if (!result) throw new NotFoundException('Page not found');
+      return result;
     });
 
     await this.searchService.indexPage(id);
@@ -329,7 +356,12 @@ export class PageService {
     return page;
   }
 
-  private async assertValidParent(spaceId: string, parentId?: string, currentPageId?: string) {
+  private async assertValidParent(
+    spaceId: string,
+    parentId?: string,
+    currentPageId?: string,
+    database: Pick<PrismaService, 'page'> = this.prisma,
+  ) {
     if (!parentId) return;
     if (parentId === currentPageId) throw new BadRequestException('A page cannot be its own parent');
     let cursor: string | null = parentId;
@@ -338,7 +370,7 @@ export class PageService {
       if (cursor === currentPageId) throw new BadRequestException('Page hierarchy cannot contain a cycle');
       if (visited.has(cursor)) throw new BadRequestException('Existing page hierarchy contains a cycle');
       visited.add(cursor);
-      const parent: { spaceId: string; parentId: string | null } | null = await this.prisma.page.findUnique({
+      const parent: { spaceId: string; parentId: string | null } | null = await database.page.findUnique({
         where: { id: cursor, deletedAt: null },
         select: { spaceId: true, parentId: true },
       });
