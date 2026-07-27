@@ -87,7 +87,7 @@ export const Markdown: React.FC<MarkdownProps> = ({ children, pages = [], classN
       components={{
         a: ({ href, children: linkChildren, ...rest }: any) => {
           if (isInternalPageHref(href)) {
-            return <Link to={href!} className="text-blue-600 hover:underline" {...rest}>{linkChildren}</Link>;
+            return <Link to={href!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{linkChildren}</Link>;
           }
           if (isExternalHref(href)) {
             return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{linkChildren}</a>;

@@ -54,7 +54,8 @@ describe('Markdown rendering', () => {
     renderMd('See [[MyFirstPage]] for details');
     const link = screen.getByRole('link', { name: 'MyFirstPage' });
     expect(link).toHaveAttribute('href', '/pages/abc123');
-    expect(link).not.toHaveAttribute('target');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
   it('leaves unresolvable [[wiki-link]] as literal text', () => {
@@ -63,11 +64,12 @@ describe('Markdown rendering', () => {
     expect(screen.getByText(/\[\[没有此页\]\]/)).toBeInTheDocument();
   });
 
-  it('renders explicit internal /pages/{id} links as SPA links without target', () => {
+  it('renders internal /pages/{id} links opening in a new tab', () => {
     renderMd('[jump](/pages/abc123)');
     const link = screen.getByRole('link', { name: 'jump' });
     expect(link).toHaveAttribute('href', '/pages/abc123');
-    expect(link).not.toHaveAttribute('target');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
   it('handles multiple wiki-links in one paragraph', () => {
