@@ -69,7 +69,6 @@ const InlineEditor: React.FC<InlineEditorProps> = ({ initialValue, onCommit, onC
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); commit(); }
-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); commit(); }
       }}
       rows={1}
       className="block w-full resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-[15px] leading-7 text-gray-800 outline-none focus:ring-0"

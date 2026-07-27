@@ -101,3 +101,24 @@ describe('MarkdownWorkspace live-preview editing', () => {
     expect(toggle).toHaveAttribute('aria-pressed');
   });
 });
+
+describe('multi-line editing', () => {
+  afterEach(cleanup);
+  beforeEach(() => localStorage.setItem('agentwiki.language.v1', 'en'));
+
+  it('Enter inserts a newline instead of committing, and multi-line content is preserved', () => {
+    const onChange = vi.fn();
+    renderWYS({ onChange });
+    fireEvent.click(screen.getByText('First paragraph.'));
+    const editor = screen.getByRole('textbox') as HTMLTextAreaElement;
+    // Simulate typing two lines: change value then press Enter (should NOT commit).
+    fireEvent.change(editor, { target: { value: 'First line\nSecond line' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    // still editing, not committed
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    // commit on blur; multi-line preserved
+    fireEvent.blur(editor);
+    expect(onChange).toHaveBeenLastCalledWith('# Title\n\nFirst line\nSecond line\n\nSecond paragraph.');
+  });
+});

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { isExternalHref, isInternalPageHref, PageLinkTarget, resolveWikiHref } from './markdownLinks';
 
 export const markdownClass = `prose prose-sm max-w-none
@@ -81,7 +82,7 @@ interface MarkdownProps {
 export const Markdown: React.FC<MarkdownProps> = ({ children, pages = [], className }) => (
   <div className={className ?? markdownClass}>
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkWikilink(pages)]}
+      remarkPlugins={[remarkGfm, remarkBreaks, remarkWikilink(pages)]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         a: ({ href, children: linkChildren, ...rest }: any) => {
