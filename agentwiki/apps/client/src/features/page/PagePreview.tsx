@@ -115,17 +115,18 @@ export const PagePreview: React.FC = () => {
               </span>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-            title={t('page.delete')}
-          >
-            <Trash2 size={18} />
-          </button>
+          <div className="flex items-center gap-1 self-start mt-1">
+            <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              aria-label={t('page.delete')}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              title={t('page.delete')}
+            >
+              <Trash2 size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
