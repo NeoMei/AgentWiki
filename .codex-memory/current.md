@@ -22,7 +22,8 @@
 - 本机仅以 Node 26.5.0 + pnpm 11.9.0 作为 AgentWiki 运行时；PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
 - `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
 - Node 26 完整门禁已通过：锁文件安装、ESLint（0 error）、双端类型检查、7 项运行时测试、58 项 Jest、4 项 Vitest、Nest/Vite 生产构建及 Prisma 迁移状态。
-- codebase-memory 已对主产品 `agentwiki/` 重新完成 full 索引并持久化：1558 个节点、3604 条边；参考仓库未混入主图谱。
+- codebase-memory 已对主产品 `agentwiki/` 重新完成 full 索引并持久化：1565 个节点、3624 条边；其中服务端源码为 676 个节点/98 个文件，客户端源码为 241 个节点/40 个文件；参考仓库与生成依赖均未混入主图谱。
+- 维护收尾 Task 1 的干净图谱重建与 Task 2 的任务文档、仓库卫生回填已完成；Task 3 的独立最终验证仍待后续执行。
 
 # 稳定约束
 

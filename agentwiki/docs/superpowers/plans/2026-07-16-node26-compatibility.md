@@ -18,6 +18,8 @@
 - Run every verification command with `node --version` reporting major 26.
 - Run package, test, build, and runtime commands from `agentwiki/`; run the listed `git add` and `git commit` commands from the repository root.
 
+> **完成记录（2026-07-27）：** 本计划全部步骤已完成；已验证的 Node 26.5.0 + pnpm 11.9.0 基线、测试、构建、迁移、开发服务健康检查和图谱证据见 `.codex-memory/current.md`。
+
 ---
 
 ### Task 1: Declare and enforce the Node 26 runtime contract
@@ -37,7 +39,7 @@
 - Consumes: Node 26 at `node`, pnpm 11.9.0, current workspace manifests.
 - Produces: `engines.node = ">=26 <27"`, `.node-version = 26`, Node 26 Docker defaults, a remote deployment preflight, and `pnpm test:runtime`.
 
-- [ ] **Step 1: Write the failing runtime-contract test**
+- [x] **Step 1: Write the failing runtime-contract test**
 
 Create `scripts/node26-contract.test.mjs`:
 
@@ -81,7 +83,7 @@ test('Docker and direct deployment enforce Node 26', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the contract test and verify the expected failure**
+- [x] **Step 2: Run the contract test and verify the expected failure**
 
 Run:
 
@@ -93,7 +95,7 @@ node --test scripts/node26-contract.test.mjs
 
 Expected: Node reports `v26.x`; the test fails because `engines`, `packageManager`, `.node-version`, Node 26 type declarations, Docker defaults, and deployment preflight are absent.
 
-- [ ] **Step 3: Add the repository and type-level runtime declarations**
+- [x] **Step 3: Add the repository and type-level runtime declarations**
 
 Add `.node-version`:
 
@@ -131,7 +133,7 @@ pnpm install --lockfile-only
 pnpm install --frozen-lockfile
 ```
 
-- [ ] **Step 4: Change Docker defaults to Node 26**
+- [x] **Step 4: Change Docker defaults to Node 26**
 
 In both Dockerfiles use:
 
@@ -145,7 +147,7 @@ In both `docker-compose.yml` build argument locations use:
 NODE_IMAGE: ${NODE_IMAGE:-node:26-alpine}
 ```
 
-- [ ] **Step 5: Add local and remote deployment preflight checks**
+- [x] **Step 5: Add local and remote deployment preflight checks**
 
 Immediately after `set -euo pipefail` in `deploy.sh`, add:
 
@@ -181,7 +183,7 @@ if [ "\$node_major" != "\$required_node_major" ]; then
 fi
 ```
 
-- [ ] **Step 6: Verify the runtime contract turns green**
+- [x] **Step 6: Verify the runtime contract turns green**
 
 Run:
 
@@ -192,7 +194,7 @@ pnpm install --frozen-lockfile
 
 Expected: the contract test passes and the frozen install exits 0 without an unsupported-engine warning.
 
-- [ ] **Step 7: Commit the runtime contract**
+- [x] **Step 7: Commit the runtime contract**
 
 ```bash
 git add agentwiki/.node-version agentwiki/scripts/node26-contract.test.mjs agentwiki/package.json agentwiki/apps/server/package.json agentwiki/pnpm-lock.yaml agentwiki/apps/server/Dockerfile agentwiki/apps/client/Dockerfile agentwiki/docker-compose.yml agentwiki/deploy.sh
@@ -210,7 +212,7 @@ git commit -m "build: require Node 26 across AgentWiki"
 - Consumes: root `.env`, `APP_SECRET` or `JWT_SECRET`, pnpm workspace scripts.
 - Produces: `resolveDevEnvironment(env): Record<string, string>`, `startDevelopmentStack(options): { children, stop, completion }`, and a reliable `pnpm dev` entrypoint.
 
-- [ ] **Step 1: Write failing tests for environment resolution and supervision**
+- [x] **Step 1: Write failing tests for environment resolution and supervision**
 
 Create `scripts/dev-runner.test.mjs`:
 
@@ -289,7 +291,7 @@ test('forwards an explicit shutdown signal to every child', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the runner tests and verify they fail for the missing module**
+- [x] **Step 2: Run the runner tests and verify they fail for the missing module**
 
 Run:
 
@@ -299,7 +301,7 @@ node --test scripts/dev-runner.test.mjs
 
 Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `scripts/dev-runner.mjs`.
 
-- [ ] **Step 3: Implement the minimal Node 26 development supervisor**
+- [x] **Step 3: Implement the minimal Node 26 development supervisor**
 
 Create `scripts/dev-runner.mjs`:
 
@@ -392,7 +394,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 ```
 
-- [ ] **Step 4: Make the root scripts use the supervisor and include its tests**
+- [x] **Step 4: Make the root scripts use the supervisor and include its tests**
 
 Change the root scripts to:
 
@@ -402,7 +404,7 @@ Change the root scripts to:
 "test": "pnpm test:runtime && pnpm --filter @agentwiki/server test && pnpm --filter @agentwiki/client test"
 ```
 
-- [ ] **Step 5: Verify runner tests and failure behavior**
+- [x] **Step 5: Verify runner tests and failure behavior**
 
 Run:
 
@@ -413,7 +415,7 @@ env -u JWT_SECRET -u APP_SECRET node scripts/dev-runner.mjs
 
 Expected: all runtime tests pass; the second command exits non-zero with `JWT_SECRET or APP_SECRET is required` and starts no child processes.
 
-- [ ] **Step 6: Commit the development supervisor**
+- [x] **Step 6: Commit the development supervisor**
 
 ```bash
 git add agentwiki/scripts/dev-runner.mjs agentwiki/scripts/dev-runner.test.mjs agentwiki/package.json
@@ -429,7 +431,7 @@ git commit -m "dev: supervise AgentWiki processes on Node 26"
 - Consumes: Vitest's default `forks` pool and existing jsdom setup.
 - Produces: forked workers with `--no-experimental-webstorage`, allowing jsdom to provide test-local `localStorage`.
 
-- [ ] **Step 1: Reproduce the existing Node 26 regression**
+- [x] **Step 1: Reproduce the existing Node 26 regression**
 
 Run:
 
@@ -440,7 +442,7 @@ pnpm --filter @agentwiki/client test
 
 Expected: Node reports `v26.x`; all four files fail because `localStorage.getItem` or `localStorage.setItem` is unavailable, with the Node warning about `--localstorage-file`.
 
-- [ ] **Step 2: Add the minimal worker configuration**
+- [x] **Step 2: Add the minimal worker configuration**
 
 Extend the existing `test` object in `apps/client/vitest.config.ts`:
 
@@ -459,7 +461,7 @@ test: {
 },
 ```
 
-- [ ] **Step 3: Verify the client tests turn green without persistent Node storage**
+- [x] **Step 3: Verify the client tests turn green without persistent Node storage**
 
 Run:
 
@@ -469,7 +471,7 @@ pnpm --filter @agentwiki/client test
 
 Expected: 4/4 files and 4/4 tests pass; there is no Node `localStorage` warning and no `--localstorage-file` is used.
 
-- [ ] **Step 4: Commit the Vitest compatibility change**
+- [x] **Step 4: Commit the Vitest compatibility change**
 
 ```bash
 git add agentwiki/apps/client/vitest.config.ts
@@ -488,7 +490,7 @@ git commit -m "test: isolate jsdom storage on Node 26"
 - Consumes: the implemented Node 26 contract and `pnpm dev` behavior.
 - Produces: one consistent operator/developer instruction set with no active AgentWiki Node 20 requirement.
 
-- [ ] **Step 1: Update migration and development instructions**
+- [x] **Step 1: Update migration and development instructions**
 
 In `MIGRATION_README.md`, change the main AgentWiki runtime row to:
 
@@ -509,13 +511,13 @@ Add a concise runtime baseline subsection near the technical stack in `DEVELOPME
 - 本地从 `agentwiki/` 运行 `pnpm dev`，由开发启动器统一加载环境并管理 API、Worker、Vite。
 ```
 
-- [ ] **Step 2: Update operations and current project memory**
+- [x] **Step 2: Update operations and current project memory**
 
 In `design/OPERATIONS.md`, state before the deploy steps that `/usr/bin/node` must report Node 26 and that `deploy.sh` rejects other majors before dependency installation, build, migration, or service restart.
 
 In `.codex-memory/current.md`, replace the Node 20 workaround with the final Node 26-only state, record that bare `pnpm dev` is supported, and record the Node 26 test/build result after Task 5 verification.
 
-- [ ] **Step 3: Check documentation consistency**
+- [x] **Step 3: Check documentation consistency**
 
 Run:
 
@@ -525,7 +527,7 @@ rg -n '(node:20-alpine|node@20|推荐 20|/opt/homebrew/opt/node@20)' agentwiki M
 
 Expected: no active AgentWiki runtime instruction or configuration remains; reference-project descriptions in `MIGRATION_README.md` may still mention their own Node versions.
 
-- [ ] **Step 4: Commit documentation and memory**
+- [x] **Step 4: Commit documentation and memory**
 
 ```bash
 git add MIGRATION_README.md DEVELOPMENT_HANDBOOK.md design/OPERATIONS.md .codex-memory/current.md
@@ -542,7 +544,7 @@ git commit -m "docs: document Node 26-only development"
 - Consumes: all changes from Tasks 1-4, local PostgreSQL, local Redis.
 - Produces: a passing Node 26 development baseline, live health evidence, and a refreshed knowledge graph.
 
-- [ ] **Step 1: Confirm the actual command runtime**
+- [x] **Step 1: Confirm the actual command runtime**
 
 Run:
 
@@ -554,7 +556,7 @@ pnpm --version
 
 Expected: Node `v26.x`, major `26`, pnpm `11.9.0`. Stop immediately if any value differs.
 
-- [ ] **Step 2: Run the static and automated gates**
+- [x] **Step 2: Run the static and automated gates**
 
 Run:
 
@@ -569,7 +571,7 @@ pnpm --filter server exec prisma migrate status
 
 Expected: install exit 0; lint has zero errors; type checks pass; runtime tests pass; server reports 16/16 suites and 58/58 tests; client reports 4/4 tests; build exits 0; Prisma reports 13 migrations and an up-to-date schema.
 
-- [ ] **Step 3: Start and smoke-test the complete development stack**
+- [x] **Step 3: Start and smoke-test the complete development stack**
 
 Run `pnpm dev`, then from a second terminal run:
 
@@ -581,7 +583,7 @@ ps -Ao pid,ppid,command | rg 'dist/worker|entryFile worker' | rg -v 'rg '
 
 Expected: frontend HTTP 200; health JSON reports `status`, `database`, and `redis` as `ok`; a live ingestion Worker process is present. Send `Ctrl-C` and verify all three development children exit.
 
-- [ ] **Step 4: Validate deployment configuration within local limits**
+- [x] **Step 4: Validate deployment configuration within local limits**
 
 Run:
 
@@ -592,13 +594,13 @@ rg -n 'node:26-alpine|REQUIRED_NODE_MAJOR="26"|/usr/bin/node' apps/server/Docker
 
 Expected: Bash syntax passes and every runtime location reports Node 26. If Docker is installed, additionally run `docker compose config` and build both images; otherwise record Docker execution as unavailable rather than passed.
 
-- [ ] **Step 5: Refresh and validate codebase-memory**
+- [x] **Step 5: Refresh and validate codebase-memory**
 
 Run a full persistent `index_repository` for the `agentwiki/` path, then call `get_architecture` and search for `startDevelopmentStack` and the review publish path.
 
 Expected: the index status is `indexed`, `.codebase-memory/graph.db.zst` is non-empty, the new runner symbols are discoverable, and the existing review pipeline remains connected.
 
-- [ ] **Step 6: Record final evidence and commit generated project artifacts**
+- [x] **Step 6: Record final evidence and commit generated project artifacts**
 
 Update `.codex-memory/current.md` with the exact Node 26 version, gate counts, live health result, and refreshed graph counts. Then run:
 
