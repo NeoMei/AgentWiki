@@ -25,6 +25,8 @@ export const IconButton: React.FC<{
         ? 'bg-blue-600 text-white hover:bg-blue-700'
         : danger
           ? 'text-gray-400 hover:bg-red-50 hover:text-red-600'
+          : active
+            ? 'bg-blue-50 text-blue-600'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
     }`}
   >
