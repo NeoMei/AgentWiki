@@ -1,4 +1,3 @@
-import { HttpException } from '@nestjs/common';
 import { AuthorizationService } from './authorization.service';
 import { PrismaService } from '../../database/prisma.service';
 

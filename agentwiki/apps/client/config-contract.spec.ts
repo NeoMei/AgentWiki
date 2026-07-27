@@ -10,7 +10,7 @@ describe('local development target contract', () => {
 
   it('binds Vite locally and defaults both proxies to the local API', () => {
     expect(typeof viteConfig).toBe('object');
-    const config = viteConfig as any;
+    const config = viteConfig as { server?: { host?: string; proxy?: Record<string, { target?: string }> } };
     expect(config.server?.host).toBe('127.0.0.1');
     expect(config.server?.proxy?.['/api']?.target).toBe('http://127.0.0.1:3000');
     expect(config.server?.proxy?.['/socket.io']?.target).toBe('http://127.0.0.1:3000');
@@ -24,7 +24,7 @@ describe('local development target contract', () => {
   });
 
   it('defaults Playwright and its API fixture to loopback targets', () => {
-    expect((playwrightConfig as any).use?.baseURL).toBe('http://127.0.0.1:5173');
+    expect((playwrightConfig as { use?: { baseURL?: string } }).use?.baseURL).toBe('http://127.0.0.1:5173');
     const e2eSource = readFileSync(new URL('./e2e/editor-language.spec.ts', import.meta.url), 'utf8');
     expect(e2eSource).toContain("'http://127.0.0.1:3000/api/'");
     expect(e2eSource).not.toContain('100.64.35.78');
@@ -52,7 +52,7 @@ describe('local development target contract', () => {
     vi.stubEnv('ALLOW_REMOTE_E2E', 'true');
     vi.resetModules();
 
-    const configured = (await import('./playwright.config.ts')).default as any;
+    const configured = (await import('./playwright.config.ts')).default as { use?: { baseURL?: string } };
     expect(configured.use?.baseURL).toBe('https://qa.example.test:7443');
   });
 });
