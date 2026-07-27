@@ -15,7 +15,8 @@ export class HealthController {
       await this.prisma.$queryRaw`SELECT 1`;
       const redisHealthy = await this.redis.ping();
       if (!redisHealthy) throw new Error('Redis unavailable');
-      return { status: 'ok', database: 'ok', redis: 'ok' };
+      await this.redis.assertAofDurability();
+      return { status: 'ok', database: 'ok', redis: 'ok', auditPersistence: 'ok' };
     } catch {
       throw new ServiceUnavailableException({ status: 'unavailable' });
     }

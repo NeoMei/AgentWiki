@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
@@ -318,6 +318,8 @@ export class ReviewService {
   async revert(id: string) {
     const changeSet = await this.get(id);
     if (changeSet.status !== 'published') throw new BadRequestException('Only published change sets can be reverted');
+    const publishedAt = changeSet.publishedAt;
+    if (!publishedAt) throw new BusinessException('CHANGESET_CONFLICT', 'Published change set is missing its publication timestamp');
     const affectedPageIds = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.changeSet.updateMany({ where: { id, status: 'published' }, data: { status: 'reverting' } });
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
@@ -325,22 +327,57 @@ export class ReviewService {
       for (const item of changeSet.items) {
         if (!item.publishedResourceId) continue;
         if (item.type === 'create_page') {
-          await tx.page.updateMany({ where: { id: item.publishedResourceId }, data: { deletedAt: new Date() } });
+          const reverted = await tx.page.updateMany({
+            where: {
+              id: item.publishedResourceId,
+              spaceId: changeSet.spaceId,
+              sourceChangeSetId: id,
+              lastChangeSetId: id,
+              deletedAt: null,
+              updatedAt: { lte: publishedAt },
+            },
+            data: { deletedAt: new Date() },
+          });
+          this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'update_page') {
           const payload = item.payload as any;
           if (!payload.before) throw new BadRequestException('Update change is missing its prior page state');
-          await tx.page.updateMany({ where: { id: item.publishedResourceId, spaceId: changeSet.spaceId }, data: payload.before });
+          const reverted = await tx.page.updateMany({
+            where: {
+              id: item.publishedResourceId,
+              spaceId: changeSet.spaceId,
+              lastChangeSetId: id,
+              deletedAt: null,
+              updatedAt: { lte: publishedAt },
+            },
+            data: payload.before,
+          });
+          this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
           const payload = item.payload as any;
-          await tx.page.updateMany({
-            where: { id: item.publishedResourceId, spaceId: changeSet.spaceId },
+          const reverted = await tx.page.updateMany({
+            where: {
+              id: item.publishedResourceId,
+              spaceId: changeSet.spaceId,
+              lastChangeSetId: id,
+              deletedAt: { not: null },
+              updatedAt: { lte: publishedAt },
+            },
             data: { deletedAt: payload.before?.deletedAt || null },
           });
+          this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'create_relation') {
-          await tx.knowledgeRelation.deleteMany({ where: { id: item.publishedResourceId } });
+          const reverted = await tx.knowledgeRelation.deleteMany({
+            where: {
+              id: item.publishedResourceId,
+              sourceChangeSetId: id,
+              lastModifiedAt: { lte: publishedAt },
+            },
+          });
+          this.assertRevertMutation(reverted.count, item.type);
           const payload = item.payload as any;
           if (payload.evidenceId) {
             await tx.evidence.updateMany({ where: { id: payload.evidenceId, targetRelationId: item.publishedResourceId }, data: { targetRelationId: null } });
@@ -348,9 +385,17 @@ export class ReviewService {
         } else if (item.type === 'archive_relation') {
           const payload = item.payload as any;
           if (!payload.before) throw new BadRequestException('Archived relation is missing its prior state');
-          await tx.knowledgeRelation.create({ data: { id: item.publishedResourceId, ...payload.before } });
+          const reverted = await tx.knowledgeRelation.createMany({
+            data: { ...payload.before, id: item.publishedResourceId },
+            skipDuplicates: true,
+          });
+          this.assertRevertMutation(reverted.count, item.type);
           if (payload.before.evidenceId) {
-            await tx.evidence.updateMany({ where: { id: payload.before.evidenceId }, data: { targetRelationId: item.publishedResourceId } });
+            const relinked = await tx.evidence.updateMany({
+              where: { id: payload.before.evidenceId, targetRelationId: null },
+              data: { targetRelationId: item.publishedResourceId },
+            });
+            this.assertRevertMutation(relinked.count, item.type);
           }
         }
         await tx.changeItem.update({ where: { id: item.id }, data: { status: 'reverted' } });
@@ -361,6 +406,12 @@ export class ReviewService {
     });
     await Promise.allSettled(affectedPageIds.map((pageId) => this.search.indexPage(pageId)));
     return this.get(id);
+  }
+
+  private assertRevertMutation(count: number, itemType: string) {
+    if (count !== 1) {
+      throw new BusinessException('CHANGESET_CONFLICT', `Cannot revert ${itemType}: the published resource was changed later`);
+    }
   }
 
   private async assertValidParent(
