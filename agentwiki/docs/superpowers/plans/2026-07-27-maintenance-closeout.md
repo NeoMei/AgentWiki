@@ -161,13 +161,84 @@ Expected: the commit contains task-state, memory, and hygiene documentation only
 
 ---
 
-### Task 3: Verify the completed maintenance state
+### Task 3: Track the canonical AgentWiki product source
 
 **Files:**
-- Verify only: repository and product files changed by Tasks 1-2
+- Modify: `.gitignore`
+- Modify: `agentwiki/.gitignore`
+- Add: `AGENTS.md`
+- Add: `agentwiki/` product source, configuration, migrations, tests, and deployment units that are not ignored
+- Add: `decisions/TEMPLATE.md`
+- Add: `design/` current project design artifacts that are not already tracked
 
 **Interfaces:**
-- Consumes: both maintenance commits.
+- Consumes: the verified main product tree and the reference/local-file boundary established in project memory.
+- Produces: a repository where all canonical AgentWiki source is versioned while reference repositories, local recovery helpers, secrets, logs, and generated JavaScript remain local and ignored.
+
+- [x] **Step 1: Extend repository-root local/reference ignores**
+
+Append these exact entries to the root `.gitignore`:
+
+```gitignore
+0
+docmost/
+mnemon/
+openwiki/
+outline/
+swarmvault/
+docker-compose-remote.yml
+ssh_login.*
+ssh_test*.js
+```
+
+Expected: the frozen reference repositories, the local sentinel file, the compose file containing a local database password, and SSH helpers containing local credentials disappear from `git status` without deletion.
+
+- [x] **Step 2: Ignore verified product-tree runtime/generated files**
+
+Append these exact entries to `agentwiki/.gitignore`:
+
+```gitignore
+*.err
+apps/client/vite.config.js
+packages/shared/src/index.js
+```
+
+Expected: the server error log and JavaScript emitted from tracked TypeScript sources are ignored; `vite.config.ts` and `packages/shared/src/index.ts` remain visible for version control.
+
+- [x] **Step 3: Stage the canonical project set**
+
+```bash
+git add .gitignore AGENTS.md agentwiki decisions design
+git diff --cached --check
+git diff --cached --name-only
+```
+
+Expected: the staged set contains main product source/config/migrations/tests, project instructions, decisions, and design documents. It contains no reference-repository path, `.env`, `.DS_Store`, `.git-icloud-incomplete-*`, `.stale-node-modules`, `node_modules`, `dist`, local SSH helper, `docker-compose-remote.yml`, `server.err`, `vite.config.js`, or `packages/shared/src/index.js`.
+
+- [x] **Step 4: Review the staged source for credentials and generated-file leakage**
+
+Run focused scans against staged file paths for private-key headers, credential-bearing local filenames, dependency/build directories, and generated JavaScript twins. Inspect any match and unstage it unless it is a documented placeholder or a deliberate source file.
+
+Expected: no real credential, recovery directory, reference repository, dependency tree, runtime log, or generated duplicate remains staged.
+
+- [x] **Step 5: Commit the canonical project source**
+
+```bash
+git commit -m "chore: track AgentWiki product source"
+git status --short --untracked-files=all
+```
+
+Expected: the commit adds the complete canonical product tree and the worktree reports no visible untracked project files; ignored local/reference files remain present on disk.
+
+---
+
+### Task 4: Verify the completed maintenance state
+
+**Files:**
+- Verify only: repository and product files changed by Tasks 1-3
+
+**Interfaces:**
+- Consumes: all maintenance commits.
 - Produces: fresh evidence that there are no active tasks, no source TODO markers, no generated dependency graph nodes, and no product regressions.
 
 - [ ] **Step 1: Verify task-state scans**
@@ -205,9 +276,9 @@ Expected: no tracked or untracked project changes remain, and both maintenance c
 
 - [ ] **Step 4: Record verification completion**
 
-Complete Task 3 in this fixed order:
+Complete Task 4 in this fixed order:
 
-1. Mark all four Task 3 steps as `- [x]`.
+1. Mark all four Task 4 steps as `- [x]`.
 2. Update `.codex-memory/current.md` with final verification evidence; even if the measured data is unchanged, record the fresh verification date and result.
 3. Amend `docs: close completed project tasks` so the completed plan and final current-memory evidence are tracked together.
 4. Run the final global task-state review and Git worktree check:
@@ -217,4 +288,4 @@ rg -n --glob '*.md' --glob '!decisions/TEMPLATE.md' '^\s*[-*]\s+\[ \]' .codex-me
 git --git-dir=/Users/neomei/.local/share/AgentWiki.git --work-tree='/Users/neomei/项目/codexprojects/AgentWiki ' status --short --untracked-files=all
 ```
 
-Expected: the task scan has zero matches and the worktree is clean. This final review includes `2026-07-27-maintenance-closeout.md` after its Task 3 checkboxes are complete.
+Expected: the task scan has zero matches and the worktree is clean. This final review includes `2026-07-27-maintenance-closeout.md` after its Task 4 checkboxes are complete.

@@ -1,0 +1,1 @@
+ALTER TABLE "IngestRun" ADD COLUMN "requestedScopes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

@@ -1,0 +1,22 @@
+[Unit]
+Description=AgentWiki API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/agentwiki/apps/server
+EnvironmentFile=%h/agentwiki/.env
+EnvironmentFile=-%h/agentwiki/apps/server/.env
+Environment=NODE_ENV=production
+Environment=PROCESS_ROLE=api
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

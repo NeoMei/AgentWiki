@@ -2,3 +2,12 @@
 **/.DS_Store
 .git-icloud-incomplete-*/
 .superpowers/
+0
+docmost/
+mnemon/
+openwiki/
+outline/
+swarmvault/
+docker-compose-remote.yml
+ssh_login.*
+ssh_test*.js

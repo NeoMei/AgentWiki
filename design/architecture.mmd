@@ -1,0 +1,38 @@
+flowchart TB
+    Human["Human user"]
+    External["External Agent / MCP client"]
+    UI["React + Vite client"]
+    API["NestJS REST API"]
+    MCP["MCP adapter"]
+    Auth["Authentication + Scope"]
+    Policy["Space authorization policy"]
+    Domain["Domain services"]
+    Queue["PostgreSQL lease queue"]
+    Worker["Ingest / compile workers"]
+    DB[("PostgreSQL")]
+    Redis[("Redis rate limit / cache")]
+    LLM["Configured LLM provider"]
+
+    Human --> UI --> API
+    External --> API
+    External --> MCP --> Domain
+    API --> Auth --> Policy --> Domain
+    Domain --> DB
+    Domain --> Queue --> Worker
+    Worker --> DB
+    Worker --> LLM
+    API --> Redis
+
+    subgraph DomainModels["Space-scoped domain"]
+        Wiki["Pages / Graph"]
+        Sources["Sources / Runs / Evidence"]
+        Review["ChangeSets / Approval"]
+        Agents["Agents / Grants / Credentials / Audit"]
+        Memory["Agent Memory"]
+    end
+
+    Domain --> Wiki
+    Domain --> Sources
+    Domain --> Review
+    Domain --> Agents
+    Domain --> Memory

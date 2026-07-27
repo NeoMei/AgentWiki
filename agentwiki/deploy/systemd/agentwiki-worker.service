@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentWiki ingestion worker
+After=network-online.target agentwiki-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/agentwiki/apps/server
+EnvironmentFile=%h/agentwiki/.env
+EnvironmentFile=-%h/agentwiki/apps/server/.env
+Environment=NODE_ENV=production
+Environment=PROCESS_ROLE=worker
+Environment=INGEST_CONCURRENCY=2
+Environment=INGEST_LEASE_MS=300000
+Environment=INGEST_QUEUE_POLL_MS=1000
+Environment=INGEST_RECOVERY_POLL_MS=30000
+ExecStart=/usr/bin/node dist/worker.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

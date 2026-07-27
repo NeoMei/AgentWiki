@@ -2,6 +2,9 @@ node_modules/
 **/node_modules 2/
 .stale-node-modules/
 .icloud-placeholders/
+*.err
+apps/client/vite.config.js
+packages/shared/src/index.js
 
 dist/
 apps/*/dist/

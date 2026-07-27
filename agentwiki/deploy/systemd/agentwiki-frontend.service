@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentWiki frontend
+After=network-online.target agentwiki-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/agentwiki/apps/client
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/pnpm exec vite preview --host :: --port 5173
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

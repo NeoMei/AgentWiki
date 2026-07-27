@@ -1,0 +1,518 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表 - 支持人类用户和Agent
+model User {
+  id       String  @id @default(cuid())
+  email    String  @unique
+  name     String?
+  type     String  @default("human")
+  apiKey   String? @unique // Deprecated legacy credential; new keys use ApiKeyCredential.
+  password String?
+
+  spaces            SpaceMember[]
+  pages             Page[]               @relation("PageAuthor")
+  modifiedPages     Page[]               @relation("PageLastModifiedByUser")
+  modifiedRelations KnowledgeRelation[]  @relation("RelationLastModifiedByUser")
+  pageVersions      PageVersion[]
+  apiKeys           ApiKeyCredential[]
+  auditEvents       SecurityAuditEvent[]
+  ownedAgents       Agent[]
+  createdSources    Source[]
+  requestedRuns     IngestRun[]
+  createdChangeSets ChangeSet[]
+  approvals         Approval[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+}
+
+model ApiKeyCredential {
+  id         String    @id @default(cuid())
+  name       String    @default("Personal access token")
+  prefix     String
+  keyHash    String    @unique
+  scopes     String[]  @default(["*"])
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([prefix])
+  @@index([userId, revokedAt])
+}
+
+model SecurityAuditEvent {
+  id        String  @id @default(cuid())
+  action    String
+  outcome   String
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+
+  actorUser    User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUserId  String?
+  actorAgent   Agent?  @relation(fields: [actorAgentId], references: [id], onDelete: SetNull)
+  actorAgentId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+}
+
+model Space {
+  id             String  @id @default(cuid())
+  name           String
+  slug           String  @unique
+  description    String?
+  visibility     String  @default("private")
+  approvalPolicy String  @default("always-review")
+
+  members SpaceMember[]
+  pages   Page[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+  agentGrants   AgentGrant[]
+  sources       Source[]
+  ingestRuns    IngestRun[]
+  changeSets    ChangeSet[]
+  agentMemories AgentMemory[]
+}
+
+model Agent {
+  id            String  @id @default(cuid())
+  name          String
+  description   String?
+  status        String  @default("active")
+  approvalMode  String  @default("always-review")
+  memoryEnabled Boolean @default(false)
+
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  credentials       AgentCredential[]
+  grants            AgentGrant[]
+  auditEvents       AgentAuditEvent[]
+  securityEvents    SecurityAuditEvent[]
+  createdSources    Source[]
+  requestedRuns     IngestRun[]
+  createdChangeSets ChangeSet[]
+  memories          AgentMemory[]
+  createdPages      Page[]               @relation("PageCreatedByAgent")
+  modifiedPages     Page[]               @relation("PageLastModifiedByAgent")
+  createdRelations  KnowledgeRelation[]  @relation("RelationCreatedByAgent")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  revokedAt DateTime?
+
+  @@index([ownerId, status])
+}
+
+model AgentCredential {
+  id         String    @id @default(cuid())
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  scopes     String[]
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([prefix])
+  @@index([agentId, revokedAt])
+}
+
+model AgentGrant {
+  id   String @id @default(cuid())
+  role String @default("viewer")
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, spaceId])
+  @@index([spaceId])
+}
+
+model AgentAuditEvent {
+  id           String  @id @default(cuid())
+  action       String
+  outcome      String
+  resourceType String?
+  resourceId   String?
+  metadata     Json?
+
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId String
+
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model SpaceMember {
+  id   String @id @default(cuid())
+  role String @default("viewer")
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String
+  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, spaceId])
+}
+
+model Page {
+  id        String @id @default(cuid())
+  title     String
+  slug      String
+  content   String @default("")
+  format    String @default("markdown")
+  embedding Json?
+
+  parent   Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  parentId String?
+  children Page[]  @relation("PageChildren")
+
+  space    Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId  String
+  author   User   @relation("PageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId String
+
+  tags Tag[]
+
+  versions PageVersion[]
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+  sourceChangeSetId     String?
+  createdByAgentId      String?
+  lastChangeSetId       String?
+  lastModifiedByUserId  String?
+  lastModifiedByAgentId String?
+  lastModifiedAt        DateTime  @default(now())
+  sourceId              String?
+  sourceVersionId       String?
+  sourcePath            String?
+
+  sourceChangeSet     ChangeSet?          @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  lastChangeSet       ChangeSet?          @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
+  createdByAgent      Agent?              @relation("PageCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  lastModifiedByUser  User?               @relation("PageLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+  lastModifiedByAgent Agent?              @relation("PageLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  source              Source?             @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceVersion       SourceVersion?      @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  outgoingRelations   KnowledgeRelation[] @relation("RelationSourcePage")
+  incomingRelations   KnowledgeRelation[] @relation("RelationTargetPage")
+  searchDocument      PageSearchDocument?
+
+  @@unique([spaceId, slug])
+  @@unique([spaceId, sourceId, sourcePath])
+  @@index([sourceId, sourceVersionId])
+}
+
+model PageSearchDocument {
+  pageId      String   @id
+  text        String
+  contentHash String
+  indexedAt   DateTime @default(now())
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([contentHash])
+}
+
+model Tag {
+  id    String  @id @default(cuid())
+  name  String
+  color String?
+
+  pages Page[]
+
+  @@unique([name])
+}
+
+model PageVersion {
+  id       String  @id @default(cuid())
+  pageId   String
+  title    String
+  content  String
+  authorId String?
+  slug     String?
+  format   String?
+  parentId String?
+
+  page   Page? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([pageId])
+  @@index([authorId])
+}
+
+model KnowledgeRelation {
+  id                   String   @id @default(cuid())
+  relation             String
+  sourcePageId         String
+  targetPageId         String
+  strength             Float    @default(1.0)
+  confidence           Float    @default(1.0)
+  origin               String   @default("manual")
+  sourceChangeSetId    String?
+  createdByAgentId     String?
+  evidenceId           String?
+  lastModifiedByUserId String?
+  lastModifiedAt       DateTime @default(now())
+
+  sourcePage         Page       @relation("RelationSourcePage", fields: [sourcePageId], references: [id], onDelete: Cascade)
+  targetPage         Page       @relation("RelationTargetPage", fields: [targetPageId], references: [id], onDelete: Cascade)
+  sourceChangeSet    ChangeSet? @relation(fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  createdByAgent     Agent?     @relation("RelationCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  evidence           Evidence?  @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  lastModifiedByUser User?      @relation("RelationLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([sourcePageId, targetPageId, relation])
+}
+
+model Source {
+  id               String          @id @default(cuid())
+  type             String
+  name             String
+  uri              String?
+  status           String          @default("active")
+  contentHash      String
+  config           Json?
+  space            Space           @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId          String
+  createdByUser    User?           @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId  String?
+  createdByAgent   Agent?          @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  createdByAgentId String?
+  versions         SourceVersion[]
+  runs             IngestRun[]
+  pages            Page[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  archivedAt       DateTime?
+
+  @@unique([spaceId, type, contentHash])
+  @@index([spaceId, status])
+}
+
+model SourceVersion {
+  id          String               @id @default(cuid())
+  version     Int
+  content     String?
+  contentHash String
+  metadata    Json?
+  source      Source               @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId    String
+  evidences   Evidence[]
+  files       SourceFileSnapshot[]
+  pages       Page[]
+  createdAt   DateTime             @default(now())
+
+  @@unique([sourceId, version])
+  @@unique([sourceId, contentHash])
+  @@index([contentHash])
+}
+
+model SourceFileSnapshot {
+  id              String        @id @default(cuid())
+  path            String
+  contentHash     String
+  size            Int
+  commit          String?
+  sourceVersion   SourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  sourceVersionId String
+  createdAt       DateTime      @default(now())
+
+  @@unique([sourceVersionId, path])
+  @@index([contentHash])
+}
+
+model IngestRun {
+  id                      String     @id @default(cuid())
+  idempotencyKey          String?
+  status                  String     @default("queued")
+  stage                   String     @default("queued")
+  attempts                Int        @default(0)
+  maxAttempts             Int        @default(3)
+  error                   String?
+  result                  Json?
+  cancelRequested         Boolean    @default(false)
+  lockedAt                DateTime?
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  nextAttemptAt           DateTime?
+  source                  Source     @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId                String
+  space                   Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId                 String
+  requestedByUser         User?      @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  requestedByUserId       String?
+  requestedByAgent        Agent?     @relation(fields: [requestedByAgentId], references: [id], onDelete: SetNull)
+  requestedByAgentId      String?
+  requestedScopes         String[]   @default([])
+  requestedCredentialId   String?
+  requestedCredentialType String?
+  artifacts               Artifact[]
+  evidences               Evidence[]
+  changeSet               ChangeSet?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
+  completedAt             DateTime?
+
+  @@unique([sourceId, idempotencyKey])
+  @@index([spaceId, status, createdAt])
+  @@index([sourceId, createdAt])
+  @@index([status, leaseExpiresAt])
+}
+
+model Artifact {
+  id        String    @id @default(cuid())
+  type      String
+  content   String
+  metadata  Json?
+  run       IngestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId     String
+  createdAt DateTime  @default(now())
+
+  @@index([runId, type])
+}
+
+model Evidence {
+  id               String              @id @default(cuid())
+  quote            String?
+  location         Json?
+  confidence       Float               @default(1.0)
+  targetPageId     String?
+  targetRelationId String?
+  sourceVersion    SourceVersion       @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  sourceVersionId  String
+  run              IngestRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId            String
+  createdAt        DateTime            @default(now())
+  agentMemories    AgentMemory[]
+  relations        KnowledgeRelation[]
+
+  @@index([runId])
+  @@index([targetPageId])
+  @@index([targetRelationId])
+}
+
+model ChangeSet {
+  id               String              @id @default(cuid())
+  title            String
+  status           String              @default("draft")
+  space            Space               @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId          String
+  run              IngestRun?          @relation(fields: [runId], references: [id], onDelete: SetNull)
+  runId            String?             @unique
+  createdByUser    User?               @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId  String?
+  createdByAgent   Agent?              @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  createdByAgentId String?
+  items            ChangeItem[]
+  approvals        Approval[]
+  originPages      Page[]              @relation("PageOriginChangeSet")
+  changedPages     Page[]              @relation("PageLastChangeSet")
+  relations        KnowledgeRelation[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  reviewedAt       DateTime?
+  publishedAt      DateTime?
+  revertedAt       DateTime?
+
+  @@index([spaceId, status, createdAt])
+}
+
+model ChangeItem {
+  id                  String    @id @default(cuid())
+  type                String
+  payload             Json
+  status              String    @default("pending")
+  publishedResourceId String?
+  changeSet           ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  changeSetId         String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([changeSetId, status])
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  decision    String
+  comment     String?
+  changeSet   ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  changeSetId String
+  reviewer    User      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewerId  String
+  createdAt   DateTime  @default(now())
+
+  @@index([changeSetId, createdAt])
+}
+
+model AgentMemory {
+  id               String    @id @default(cuid())
+  type             String
+  content          String
+  importance       Float     @default(0.5)
+  tags             String[]  @default([])
+  entities         Json?
+  contentHash      String
+  visibility       String    @default("private")
+  embedding        Float[]   @default([])
+  embeddingModel   String?
+  status           String    @default("active")
+  sourceEvidence   Evidence? @relation(fields: [sourceEvidenceId], references: [id], onDelete: SetNull)
+  sourceEvidenceId String?
+  sourceMemoryIds  String[]  @default([])
+  expiresAt        DateTime?
+  lastAccessedAt   DateTime?
+  agent            Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId          String
+  space            Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId          String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  archivedAt       DateTime?
+  deletedAt        DateTime?
+
+  @@unique([agentId, spaceId, type, contentHash])
+  @@index([agentId, spaceId, status])
+  @@index([expiresAt])
+}
