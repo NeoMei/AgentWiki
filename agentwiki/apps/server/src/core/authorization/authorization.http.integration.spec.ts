@@ -32,6 +32,7 @@ describe('HTTP authentication and space authorization', () => {
   const prisma = {
     spaceMember: { findUnique: jest.fn() },
     agentGrant: { findUnique: jest.fn() },
+    space: { findUnique: jest.fn() },
   } as any;
   const jwt = {
     verify: jest.fn((token: string) => {
@@ -73,7 +74,10 @@ describe('HTTP authentication and space authorization', () => {
   });
 
   afterAll(async () => { await app.close(); });
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
+  });
 
   it('allows a human member and rejects a non-member through the real HTTP guard chain', async () => {
     prisma.spaceMember.findUnique.mockImplementation(({ where }: any) => where.userId_spaceId.userId === 'member'

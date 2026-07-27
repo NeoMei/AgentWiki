@@ -22,6 +22,19 @@ export class AuthorizationService {
     requiredScope?: string,
   ) {
     const principal = this.normalize(principalInput);
+    // Distinguish "space id does not exist" from "no permission". Callers (and
+    // agents) often pass a display name; a 404 with a self-describing message
+    // turns a dead-end permission error into a self-correcting one.
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!space || space.deletedAt) {
+      throw new BusinessException(
+        'SPACE_NOT_FOUND',
+        `Space not found: "${spaceId}". spaceId must be the space's internal id (CUID), not its display name. Call list_spaces or GET /api/integrations/mcp to see the spaces you can access and their ids.`,
+      );
+    }
     if (principal.agentId) {
       this.assertScope(principal, requiredScope);
       const grant = await this.prisma.agentGrant.findUnique({
@@ -176,6 +189,37 @@ export class AuthorizationService {
       select: { spaceId: true },
     });
     return memberships.map((membership) => membership.spaceId);
+  }
+
+  /**
+   * Returns the spaces a principal can access with id, display name and role.
+   * This is the in-band discovery path agents use to resolve a space's internal
+   * id before calling space-scoped tools.
+   */
+  async listAccessibleSpaces(
+    principalInput: PrincipalInput,
+    requiredScope = 'spaces:read',
+  ): Promise<Array<{ id: string; name: string; role: SpaceRole }>> {
+    const principal = this.normalize(principalInput);
+    if (principal.agentId) {
+      this.assertScope(principal, requiredScope);
+      const grants = await this.prisma.agentGrant.findMany({
+        where: { agentId: principal.agentId, agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+        select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      return grants
+        .filter((grant) => !grant.space.deletedAt)
+        .map((grant) => ({ id: grant.space.id, name: grant.space.name, role: grant.role as SpaceRole }));
+    }
+    const memberships = await this.prisma.spaceMember.findMany({
+      where: { userId: principal.userId, space: { deletedAt: null } },
+      select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return memberships
+      .filter((membership) => !membership.space.deletedAt)
+      .map((membership) => ({ id: membership.space.id, name: membership.space.name, role: membership.role as SpaceRole }));
   }
 
   private normalize(principal: PrincipalInput): Principal {

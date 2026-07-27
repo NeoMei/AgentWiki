@@ -7,10 +7,14 @@ describe('AuthorizationService', () => {
     page: { findUnique: jest.fn() },
     knowledgeRelation: { findUnique: jest.fn() },
     agentGrant: { findUnique: jest.fn(), findMany: jest.fn() },
+    space: { findUnique: jest.fn(), findMany: jest.fn() },
   };
   const service = new AuthorizationService(prisma as unknown as PrismaService);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
+  });
 
   it('denies users who are not members of a space', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue(null);
@@ -60,5 +64,55 @@ describe('AuthorizationService', () => {
         'pages:write',
       ),
     ).resolves.toMatchObject({ role: 'editor' });
+  });
+});
+
+describe('space discovery and self-describing errors', () => {
+  const prisma = {
+    spaceMember: { findUnique: jest.fn(), findMany: jest.fn() },
+    page: { findUnique: jest.fn() },
+    knowledgeRelation: { findUnique: jest.fn() },
+    agentGrant: { findUnique: jest.fn(), findMany: jest.fn() },
+    space: { findUnique: jest.fn(), findMany: jest.fn() },
+  };
+  const service = new AuthorizationService(prisma as unknown as PrismaService);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns 404 semantics with a self-describing message when the space id does not exist', async () => {
+    prisma.space.findUnique.mockResolvedValue(null);
+    await expect(
+      service.assertSpaceAccess({ userId: 'user-1', agentId: 'agent-1', scopes: ['pages:write'] }, 'MySpace', ['owner', 'editor'], 'pages:write'),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: expect.stringContaining('MySpace'),
+    });
+    await expect(
+      service.assertSpaceAccess({ userId: 'user-1', agentId: 'agent-1', scopes: ['pages:write'] }, 'MySpace', ['owner', 'editor'], 'pages:write'),
+    ).rejects.toMatchObject({ message: expect.stringContaining('internal id') });
+  });
+
+  it('still returns 403 when the space exists but the agent lacks a grant', async () => {
+    prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    await expect(
+      service.assertSpaceAccess({ userId: 'user-1', agentId: 'agent-1', scopes: ['pages:write'] }, 'space-1', ['owner', 'editor'], 'pages:write'),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('lists accessible spaces with id, name and role for an agent', async () => {
+    prisma.agentGrant.findMany.mockResolvedValue([
+      { role: 'editor', space: { id: 'space-1', name: 'MySpace', deletedAt: null } },
+    ]);
+    const result = await service.listAccessibleSpaces({ userId: 'user-1', agentId: 'agent-1', scopes: ['spaces:read'] });
+    expect(result).toEqual([{ id: 'space-1', name: 'MySpace', role: 'editor' }]);
+  });
+
+  it('lists accessible spaces for a human member', async () => {
+    prisma.spaceMember.findMany.mockResolvedValue([
+      { role: 'owner', space: { id: 'space-2', name: 'Team', deletedAt: null } },
+    ]);
+    const result = await service.listAccessibleSpaces('user-1');
+    expect(result).toEqual([{ id: 'space-2', name: 'Team', role: 'owner' }]);
   });
 });

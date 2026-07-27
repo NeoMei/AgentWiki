@@ -17,6 +17,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   AUTH_RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many requests' },
   AUTH_SCOPE_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Required scope is missing' },
   SPACE_ACCESS_DENIED: { status: HttpStatus.FORBIDDEN, message: 'Space access denied' },
+  SPACE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Space not found' },
   RESOURCE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Resource not found' },
   RESOURCE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Resource conflict' },
   SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Source is invalid' },

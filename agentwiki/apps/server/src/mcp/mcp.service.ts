@@ -62,9 +62,17 @@ export class McpService {
     const registerTool = (name: string, definition: any, handler: (args: any) => Promise<unknown>) =>
       server.registerTool(name, definition, (args: any) =>
         this.executeMcpCall(`tool.${name}`, principal, requestContext, args, () => handler(args)));
+    const SPACE_ID = 'The space\'s internal id (CUID), not its display name. Call list_spaces first to discover the spaces you can access and their ids.';
+    registerTool('list_spaces', {
+      description: 'List the spaces you can access, with each space\'s internal id, display name and your role. Use this to resolve a space name to the spaceId other tools require.',
+      inputSchema: {},
+    }, async () => {
+      const spaces = await this.authorization.listAccessibleSpaces(principal, 'spaces:read');
+      return this.text(spaces);
+    });
     registerTool('list_pages', {
       description: 'List pages in an authorized AgentWiki space.',
-      inputSchema: { spaceId: z.string(), skip: z.number().int().min(0).optional(), take: z.number().int().min(1).max(100).optional() },
+      inputSchema: { spaceId: z.string().describe(SPACE_ID), skip: z.number().int().min(0).optional(), take: z.number().int().min(1).max(100).optional() },
     }, async ({ spaceId, skip, take }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
       return this.text(await this.pages.findAll([spaceId], spaceId, skip || 0, take || 20));
@@ -78,7 +86,7 @@ export class McpService {
     });
     registerTool('search_pages', {
       description: 'Search pages in authorized spaces.',
-      inputSchema: { query: z.string().min(1), spaceId: z.string().optional(), limit: z.number().int().min(1).max(50).optional() },
+      inputSchema: { query: z.string().min(1), spaceId: z.string().optional().describe(SPACE_ID), limit: z.number().int().min(1).max(50).optional() },
     }, async ({ query, spaceId, limit }: any) => {
       if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
       const ids = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
@@ -86,21 +94,21 @@ export class McpService {
     });
     registerTool('list_graph', {
       description: 'Read the authorized knowledge graph for a space.',
-      inputSchema: { spaceId: z.string() },
+      inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'graph:read');
       return this.text(await this.knowledge.getGraph(spaceId));
     });
     registerTool('propose_page', {
       description: 'Propose a page change set. This never bypasses review.',
-      inputSchema: { spaceId: z.string(), title: z.string().min(1), content: z.string() },
+      inputSchema: { spaceId: z.string().describe(SPACE_ID), title: z.string().min(1), content: z.string() },
     }, async ({ spaceId, title, content }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'pages:write');
       return this.text(await this.review.propose(principal, spaceId, `Proposed page: ${title}`, { type: 'create_page', payload: { title, content } }));
     });
     registerTool('propose_relation', {
       description: 'Propose a knowledge relation change set.',
-      inputSchema: { spaceId: z.string(), sourcePageId: z.string(), targetPageId: z.string(), relation: z.string(), confidence: z.number().min(0).max(1).optional() },
+      inputSchema: { spaceId: z.string().describe(SPACE_ID), sourcePageId: z.string(), targetPageId: z.string(), relation: z.string(), confidence: z.number().min(0).max(1).optional() },
     }, async ({ spaceId, sourcePageId, targetPageId, relation, confidence }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'graph:write');
       const source = await this.authorization.assertPageAccess(principal, sourcePageId, ['owner', 'editor'], 'graph:write');
@@ -110,7 +118,7 @@ export class McpService {
     });
     registerTool('list_sources', {
       description: 'List knowledge sources in a space.',
-      inputSchema: { spaceId: z.string() },
+      inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'sources:read');
       return this.text(await this.sources.list(spaceId));
@@ -126,14 +134,14 @@ export class McpService {
     });
     registerTool('recall_memory', {
       description: 'Recall explainable Agent memory for the authenticated Agent.',
-      inputSchema: { agentId: z.string(), spaceId: z.string(), query: z.string(), limit: z.number().int().min(1).max(20).optional() },
+      inputSchema: { agentId: z.string(), spaceId: z.string().describe(SPACE_ID), query: z.string(), limit: z.number().int().min(1).max(20).optional() },
     }, async ({ agentId, spaceId, query, limit }: any) => {
       await this.authorization.assertAgentMemoryAccess(principal, agentId, spaceId, 'memory:read');
       return this.text(await this.memories.recall(agentId, spaceId, query, limit));
     });
     registerTool('list_reviews', {
       description: 'List change sets visible to the authenticated principal.',
-      inputSchema: { spaceId: z.string().optional() },
+      inputSchema: { spaceId: z.string().optional().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'review:read');
       const ids = spaceId ? [spaceId] : await this.authorization.getAccessibleSpaceIds(principal, 'review:read');
