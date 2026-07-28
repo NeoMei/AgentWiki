@@ -26,5 +26,9 @@ describe('ProductPage workspace intent', () => {
     expect(screen.getByText('登录后进入工作台。')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('邮箱')).toHaveFocus();
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '使用指南' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '工作台' })).toBeInTheDocument();
   });
 });

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Bot, ChevronDown, ClipboardCheck, FolderOpen, Info, LogOut, Plug, Search, User, BookOpen } from 'lucide-react';
+import { Bot, ChevronDown, ClipboardCheck, LogOut, Plug, Search, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import api from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { GlobalNavigation } from './GlobalNavigation';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -29,17 +30,20 @@ export const Navbar: React.FC = () => {
   const navClass = (path: string) => `flex items-center gap-1.5 text-sm transition ${active(path) ? 'text-blue-600 font-medium' : 'text-gray-600 hover:text-blue-600'}`;
 
   return (
-    <nav className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-40">
-      <div className="flex items-center gap-4 sm:gap-6 min-w-0">
-        <Link to="/dashboard" className="text-xl font-bold text-blue-600 shrink-0">AgentWiki</Link>
-        <Link to="/dashboard" className={navClass('/dashboard')} title={t('nav.spaces')}><FolderOpen size={18} /><span className="hidden sm:inline">{t('nav.spaces')}</span></Link>
+    <nav className="bg-white border-b px-2 sm:px-4 py-3 flex items-center justify-between gap-1 sticky top-0 z-40">
+      <div className="flex items-center gap-1 sm:gap-2 lg:gap-4 min-w-0">
+        <Link to="/" aria-label="AgentWiki" className="text-xl font-bold text-blue-600 shrink-0">
+          <span className="hidden lg:inline">AgentWiki</span>
+          <span className="lg:hidden">AW</span>
+        </Link>
+        <GlobalNavigation density="workspace" />
         <Link to="/agents" className={navClass('/agents')} title={t('nav.agents')}><Bot size={18} /><span className="hidden sm:inline">{t('nav.agents')}</span></Link>
         <Link to="/review" className={navClass('/review')}>
           <ClipboardCheck size={18} /><span className="hidden sm:inline">{t('nav.review')}</span>
           {reviewCount > 0 ? <span className="min-w-5 h-5 px-1 rounded-full bg-red-600 text-white text-[11px] flex items-center justify-center">{reviewCount > 99 ? '99+' : reviewCount}</span> : null}
         </Link>
       </div>
-      <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-1 sm:gap-4">
         <Link to="/search" className={`p-2 rounded transition ${active('/search') ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`} title={t('common.search')}><Search size={20} /></Link>
         <LanguageSwitcher compact />
         <div className="relative" ref={menuRef}>
@@ -51,8 +55,6 @@ export const Navbar: React.FC = () => {
             <p className="px-3 py-2 text-xs text-gray-400 truncate">{user?.email}</p>
             <Link onClick={() => setMenuOpen(false)} to="/profile" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><User size={16} /> {t('nav.profile')}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/settings/integrations" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Plug size={16} /> {t('nav.integrations')}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/guide" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><BookOpen size={16} /> {t('nav.guide')}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Info size={16} /> {t('nav.about')}</Link>
             <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"><LogOut size={16} /> {t('nav.logout')}</button>
           </div> : null}
         </div>

@@ -10,7 +10,7 @@ vi.mock('../../context/AuthContext', () => ({
 
 const renderGuide = () => render(
   <LanguageProvider>
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={['/guide']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <UsageGuide />
     </MemoryRouter>
   </LanguageProvider>,
@@ -22,6 +22,10 @@ describe('UsageGuide Agent connection flow', () => {
   it('presents a generic Agent flow with OpenCode as the verified example', () => {
     renderGuide();
 
+    expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('heading', { name: '生成 Key 与接入指令' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
     expect(screen.getByText(/Codex、Claude Code、OpenCode/)).toBeInTheDocument();

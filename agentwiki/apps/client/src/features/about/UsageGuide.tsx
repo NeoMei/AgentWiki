@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { GlobalNavigation } from '../../components/GlobalNavigation';
 
 type ScreenshotFocus = 'top' | 'center' | 'bottom';
 type ScreenshotFit = 'cover' | 'contain';
@@ -64,18 +65,16 @@ export const UsageGuide: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
+          <Link to="/" aria-label="AgentWiki" className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
               <Bot size={18} className="text-white" />
             </div>
-            <span className="text-lg font-bold text-gray-900">{zh ? '使用指南' : 'Usage Guide'}</span>
-          </div>
-          <div className="flex items-center gap-3">
+            <span className="hidden md:inline text-lg font-bold text-gray-900">AgentWiki</span>
+          </Link>
+          <div className="flex items-center gap-1 sm:gap-3">
+            <GlobalNavigation density="public" />
             <LanguageSwitcher />
-            <Link to="/" className="text-sm text-gray-600 hover:text-gray-900 transition">
-              {zh ? '返回首页' : 'Back to home'}
-            </Link>
           </div>
         </div>
       </nav>
