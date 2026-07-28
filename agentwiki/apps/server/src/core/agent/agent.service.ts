@@ -83,10 +83,7 @@ export class AgentService {
   async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = Array.from(new Set(dto.scopes));
-    if (scopes.length === 0 || scopes.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
+    const scopes = this.normalizeCredentialScopes(dto.scopes);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
     const credential = await this.prisma.agentCredential.create({
       data: {
@@ -104,6 +101,14 @@ export class AgentService {
     });
     await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
     return { ...credential, apiKey: rawKey };
+  }
+
+  normalizeCredentialScopes(scopes: string[]): string[] {
+    const normalized = Array.from(new Set(scopes));
+    if (normalized.length === 0 || normalized.some((scope) => !VALID_SCOPES.has(scope))) {
+      throw new BadRequestException('Credential contains an invalid or empty scope list');
+    }
+    return normalized;
   }
 
   async listCredentials(ownerId: string, agentId: string) {

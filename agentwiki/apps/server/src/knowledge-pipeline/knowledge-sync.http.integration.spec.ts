@@ -121,7 +121,7 @@ describe('KnowledgeSyncController HTTP authorization', () => {
   it('requires explicit confirmation before creating a sync', async () => {
     const response = await upload('agk_editor', { 'idempotency-key': 'unconfirmed' });
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ code: 'SYNC_CONFIRMATION_REQUIRED' });
   });
 

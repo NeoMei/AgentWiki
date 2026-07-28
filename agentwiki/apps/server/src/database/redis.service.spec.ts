@@ -57,6 +57,49 @@ describe('RedisService strict hash operations', () => {
     return { client, hashes, operations };
   };
 
+  it('stores a one-time value only when absent', async () => {
+    const client = { set: jest.fn().mockResolvedValue('OK') };
+    const service = serviceWithClient(client);
+
+    await expect(service.setOnce('install:hash', 'payload', 600)).resolves.toBe(true);
+    expect(client.set).toHaveBeenCalledWith('install:hash', 'payload', 'EX', 600, 'NX');
+  });
+
+  it('atomically returns and deletes a one-time value', async () => {
+    const client = { getdel: jest.fn().mockResolvedValue('payload') };
+    const service = serviceWithClient(client);
+
+    await expect(service.getDel('install:hash')).resolves.toBe('payload');
+  });
+
+  it('strictly reads revocation state', async () => {
+    const client = { get: jest.fn().mockResolvedValue('payload') };
+    const service = serviceWithClient(client);
+
+    await expect(service.getStrict('install:hash')).resolves.toBe('payload');
+  });
+
+  it('strictly deletes revocation state', async () => {
+    const client = { del: jest.fn().mockResolvedValue(1) };
+    const service = serviceWithClient(client);
+
+    await expect(service.deleteStrict('install:hash')).resolves.toBe(1);
+  });
+
+  it('surfaces Redis errors for security state', async () => {
+    const failure = new Error('redis unavailable');
+    const service = serviceWithClient({ getdel: jest.fn().mockRejectedValue(failure) });
+
+    await expect(service.getDel('install:hash')).rejects.toBe(failure);
+  });
+
+  it('surfaces strict revocation read errors', async () => {
+    const failure = new Error('redis unavailable');
+    const service = serviceWithClient({ get: jest.fn().mockRejectedValue(failure) });
+
+    await expect(service.getStrict('install:hash')).rejects.toBe(failure);
+  });
+
   it.each([
     ['setHashField', 'hset', ['audit:pending', 'audit-1', '{"id":"audit-1"}']],
     ['scanHashFields', 'hscan', ['audit:pending', '0', 10]],
