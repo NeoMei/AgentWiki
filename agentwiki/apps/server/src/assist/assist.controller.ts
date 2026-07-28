@@ -34,14 +34,14 @@ export class AssistController {
   @Get('tasks')
   async listTasks(@Query('pageId') pageId: string, @Req() req: Request) {
     if (!pageId) throw new BadRequestException('pageId is required');
-    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'editor', 'viewer'], 'pages:read');
+    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     return this.assist.listForPage(pageId);
   }
 
   @Get('tasks/:id')
   async getTask(@Param('id') id: string, @Req() req: Request) {
     const task = await this.assist.get(id);
-    if (task) await this.authorization.assertSpaceAccess(req.user as any, task.spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+    if (task) await this.authorization.assertSpaceAccess(req.user as any, task.spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     return task;
   }
 }

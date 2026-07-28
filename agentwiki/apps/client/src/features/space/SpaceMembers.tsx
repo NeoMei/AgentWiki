@@ -4,6 +4,7 @@ import api from '../../api/client';
 import { Users, Plus, X, Trash2, Shield, Loader2, Bot } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface Member {
   id: string;
@@ -27,6 +28,7 @@ export const SpaceMembers: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
+  const { user } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +36,11 @@ export const SpaceMembers: React.FC = () => {
   const [addForm, setAddForm] = useState({ email: '', role: 'viewer' });
   const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Only owners and admins can manage members; admins cannot grant the owner role.
+  const myRole = members.find((m) => m.type === 'human' && m.userId === user?.id)?.role;
+  const canManage = myRole === 'owner' || myRole === 'admin';
+  const canGrantOwner = myRole === 'owner';
 
   const fetchMembers = async () => {
     if (!id) return;
@@ -123,13 +130,15 @@ export const SpaceMembers: React.FC = () => {
             {zh ? '管理可以访问此空间的用户及其角色。' : 'Manage who can access this space and their roles.'}
           </p>
         </div>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          <Plus size={18} />
-          {zh ? '添加成员' : 'Add member'}
-        </button>
+        {canManage ? (
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            <Plus size={18} />
+            {zh ? '添加成员' : 'Add member'}
+          </button>
+        ) : null}
       </div>
 
       {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm">{error}</div>}
@@ -182,6 +191,10 @@ export const SpaceMembers: React.FC = () => {
                     <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
                       {zh ? '所有者' : roleCfg.label}
                     </span>
+                  ) : !canManage ? (
+                    <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
+                      {m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
+                    </span>
                   ) : (
                     <select
                       value={m.role}
@@ -189,12 +202,13 @@ export const SpaceMembers: React.FC = () => {
                       disabled={updatingId === m.userId}
                       className="text-xs border rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
+                      {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
                       <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                       <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                       <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
                     </select>
                   )}
-                  {m.role !== 'owner' && (
+                  {canManage && m.role !== 'owner' ? (
                     <button
                       onClick={() => handleRemove(m.userId!, m.user?.name || m.user?.email || '')}
                       disabled={updatingId === m.userId}
@@ -203,7 +217,7 @@ export const SpaceMembers: React.FC = () => {
                     >
                       <Trash2 size={16} />
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );
@@ -263,6 +277,7 @@ export const SpaceMembers: React.FC = () => {
                   onChange={e => setAddForm({ ...addForm, role: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
+                  {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
                   <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                   <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                   <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>

@@ -37,7 +37,7 @@ export class SourceController {
 
   @Get('spaces/:spaceId/sources')
   async list(@Param('spaceId') spaceId: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor', 'viewer'], 'sources:read');
+    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
     return this.sources.list(spaceId);
   }
 
@@ -69,7 +69,7 @@ export class SourceController {
 
   @Get('spaces/:spaceId/runs')
   async listRuns(@Param('spaceId') spaceId: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor', 'viewer'], 'runs:read');
+    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'runs:read');
     return this.sources.listRuns(spaceId);
   }
 

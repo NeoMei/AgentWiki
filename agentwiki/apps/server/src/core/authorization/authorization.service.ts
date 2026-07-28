@@ -18,7 +18,7 @@ export class AuthorizationService {
   async assertSpaceAccess(
     principalInput: PrincipalInput,
     spaceId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope?: string,
   ) {
     const principal = this.normalize(principalInput);
@@ -68,7 +68,7 @@ export class AuthorizationService {
   async assertPageAccess(
     principal: PrincipalInput,
     pageId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope?: string,
   ) {
     const page = await this.prisma.page.findUnique({
@@ -83,7 +83,7 @@ export class AuthorizationService {
   async assertRelationAccess(
     principal: PrincipalInput,
     relationId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope?: string,
   ) {
     const relation = await this.prisma.knowledgeRelation.findUnique({
@@ -104,7 +104,7 @@ export class AuthorizationService {
   async assertSourceAccess(
     principal: PrincipalInput,
     sourceId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope = 'sources:read',
   ) {
     const source = await this.prisma.source.findUnique({
@@ -119,7 +119,7 @@ export class AuthorizationService {
   async assertIngestRunAccess(
     principal: PrincipalInput,
     runId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope = 'runs:read',
   ) {
     const run = await this.prisma.ingestRun.findUnique({
@@ -134,7 +134,7 @@ export class AuthorizationService {
   async assertChangeSetAccess(
     principal: PrincipalInput,
     changeSetId: string,
-    allowedRoles: SpaceRole[] = ['owner', 'editor', 'viewer'],
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope = 'review:read',
   ) {
     const changeSet = await this.prisma.changeSet.findUnique({

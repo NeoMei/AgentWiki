@@ -33,13 +33,13 @@ export class KnowledgeController {
 
   @Get('relations/:pageId')
   async getRelations(@Param('pageId') pageId: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'editor', 'viewer'], 'graph:read');
+    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
     return this.knowledgeService.getRelations(pageId);
   }
 
   @Get('related/:pageId')
   async getRelatedPages(@Param('pageId') pageId: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'editor', 'viewer'], 'graph:read');
+    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
     return this.knowledgeService.getRelatedPages(pageId);
   }
 
@@ -59,7 +59,7 @@ export class KnowledgeController {
 
   @Get('graph/:spaceId')
   async getGraph(@Param('spaceId') spaceId: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor', 'viewer'], 'graph:read');
+    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
     return this.knowledgeService.getGraph(spaceId);
   }
 }

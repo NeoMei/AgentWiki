@@ -47,7 +47,7 @@ export class PageController {
     this.logger.log('Listing pages');
     const principal = req.user as any;
     if (spaceId) {
-      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     }
     const accessibleSpaceIds = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
     return this.pageService.findAll(
@@ -60,7 +60,7 @@ export class PageController {
 
   @Get('hierarchy/:spaceId')
   async findHierarchy(@Param('spaceId') spaceId: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+    await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     this.logger.log('Finding page hierarchy for space: ' + spaceId);
     return this.pageService.findHierarchy(spaceId);
   }
@@ -78,14 +78,14 @@ export class PageController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor', 'viewer'], 'pages:read');
+    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     this.logger.log('Finding page: ' + id);
     return this.pageService.findOne(id);
   }
 
   @Get(':id/versions')
   async getVersionHistory(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor', 'viewer'], 'pages:read');
+    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     this.logger.log('Getting version history for page: ' + id);
     return this.pageService.getVersionHistory(id);
   }

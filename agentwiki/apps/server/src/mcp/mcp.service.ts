@@ -74,21 +74,21 @@ export class McpService {
       description: 'List pages in an authorized AgentWiki space.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID), skip: z.number().int().min(0).optional(), take: z.number().int().min(1).max(100).optional() },
     }, async ({ spaceId, skip, take }: any) => {
-      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       return this.text(await this.pages.findAll([spaceId], spaceId, skip || 0, take || 20));
     });
     registerTool('get_page', {
       description: 'Read a page and its provenance.',
       inputSchema: { pageId: z.string() },
     }, async ({ pageId }: any) => {
-      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'editor', 'viewer'], 'pages:read');
+      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       return this.text(await this.pages.findOne(pageId));
     });
     registerTool('search_pages', {
       description: 'Search pages in authorized spaces.',
       inputSchema: { query: z.string().min(1), spaceId: z.string().optional().describe(SPACE_ID), limit: z.number().int().min(1).max(50).optional() },
     }, async ({ query, spaceId, limit }: any) => {
-      if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+      if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       const ids = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
       return this.text(await this.search.searchPages(query, spaceId, limit || 10, ids));
     });
@@ -96,7 +96,7 @@ export class McpService {
       description: 'Read the authorized knowledge graph for a space.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
-      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'graph:read');
+      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
       return this.text(await this.knowledge.getGraph(spaceId));
     });
     registerTool('propose_page', {
@@ -120,7 +120,7 @@ export class McpService {
       description: 'List knowledge sources in a space.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
-      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'sources:read');
+      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
       return this.text(await this.sources.list(spaceId));
     });
     registerTool('start_source_run', {
@@ -143,7 +143,7 @@ export class McpService {
       description: 'List change sets visible to the authenticated principal.',
       inputSchema: { spaceId: z.string().optional().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
-      if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'review:read');
+      if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'review:read');
       const ids = spaceId ? [spaceId] : await this.authorization.getAccessibleSpaceIds(principal, 'review:read');
       return this.text(await this.review.list(ids));
     });
@@ -170,7 +170,7 @@ export class McpService {
       mimeType: 'application/json',
     }, async (uri: URL, variables: Record<string, string | string[]>) => {
       const pageId = String(variables.pageId);
-      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'editor', 'viewer'], 'pages:read');
+      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await this.pages.findOne(pageId)) }] };
     });
     return server;

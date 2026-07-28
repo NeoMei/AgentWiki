@@ -28,7 +28,7 @@ export class SearchController {
     this.logger.log('Search requested');
     const principal = req.user as any;
     if (spaceId) {
-      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], 'pages:read');
+      await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     }
     const accessibleSpaceIds = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
     const results = await this.searchService.searchPages(

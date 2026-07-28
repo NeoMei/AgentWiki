@@ -42,7 +42,7 @@ export class SpaceController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'editor', 'viewer'], 'spaces:read');
+    await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read');
     this.logger.log('Finding space: ' + id);
     return this.spaceService.findOne(id);
   }
@@ -64,7 +64,7 @@ export class SpaceController {
 
   @Get(':id/members')
   async listMembers(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'editor', 'viewer'], 'spaces:read');
+    await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read');
     return this.spaceService.listMembers(id);
   }
 
