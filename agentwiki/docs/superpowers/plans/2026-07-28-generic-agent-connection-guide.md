@@ -28,7 +28,7 @@
 - Consumes: the existing `UsageGuide` component and five verified screenshot paths.
 - Produces: bilingual guide copy whose primary actor is a local Agent, with OpenCode labeled as the example.
 
-- [ ] **Step 1: Write the failing semantic test**
+- [x] **Step 1: Write the failing semantic test**
 
 Replace the current test title and OpenCode-only heading assertion with assertions that require both the generic workflow and the concrete example:
 
@@ -49,7 +49,7 @@ it('presents a generic Agent flow with OpenCode as the verified example', () => 
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify the new semantics fail**
+- [x] **Step 2: Run the focused test and verify the new semantics fail**
 
 Run:
 
@@ -59,7 +59,7 @@ pnpm --filter @agentwiki/client test -- src/features/about/UsageGuide.spec.tsx
 
 Expected: FAIL because the current heading still says `把接入指令交给 OpenCode` and the generic-client explanation is absent.
 
-- [ ] **Step 3: Update the bilingual guide copy**
+- [x] **Step 3: Update the bilingual guide copy**
 
 Use the following meaning in Step 5:
 
@@ -89,7 +89,7 @@ Update Step 6 to describe the generic success criteria while keeping the OpenCod
 </p>
 ```
 
-- [ ] **Step 4: Run the focused test and verify it passes**
+- [x] **Step 4: Run the focused test and verify it passes**
 
 Run:
 
@@ -99,7 +99,7 @@ pnpm --filter @agentwiki/client test -- src/features/about/UsageGuide.spec.tsx
 
 Expected: `UsageGuide.spec.tsx` passes.
 
-- [ ] **Step 5: Run the client quality gate**
+- [x] **Step 5: Run the client quality gate**
 
 Run:
 
@@ -113,7 +113,7 @@ git diff --check
 
 Expected: all commands exit 0 with no failed test or lint error.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add agentwiki/apps/client/src/features/about/UsageGuide.tsx \
