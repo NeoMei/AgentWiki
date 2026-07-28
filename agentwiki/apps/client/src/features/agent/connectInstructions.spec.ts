@@ -40,4 +40,13 @@ describe('buildAgentConnectInstructions', () => {
     expect(text).toContain('http://x.test/api/mcp');
     expect(text).not.toContain('api//mcp');
   });
+
+  it('uses a credential-specific MCP name and rejects stale AgentWiki connections', () => {
+    const text = buildAgentConnectInstructions(base, true);
+
+    expect(text).toContain('agentwiki-testkey1');
+    expect(text).toContain('opencode mcp add agentwiki-testkey1');
+    expect(text).toContain('不得复用已有的 AgentWiki 连接');
+    expect(text).toContain('确认返回的 Agent 名称是「opencode-local」');
+  });
 });
