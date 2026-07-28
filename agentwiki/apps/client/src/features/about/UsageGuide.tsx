@@ -2,7 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bot, ArrowRight, Shield, Key, GitBranch,
-  FileText, Network, Search, Users, CheckCircle2
+  FileText, Network, Search, Users, CheckCircle2,
+  MousePointerClick, Settings, UserPlus, CreditCard
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -109,104 +110,154 @@ export const UsageGuide: React.FC = () => {
             {zh ? '如何接入 Agent' : 'How to Connect an Agent'}
           </h2>
 
-          <div className="bg-white border border-gray-200 rounded-xl p-8 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{zh ? '四步接入流程' : 'Four-Step Connection Process'}</h3>
-
-            <div className="space-y-6">
-              {/* Step 1 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">1</div>
+          <div className="space-y-8">
+            {/* Step 1 */}
+            <div className="bg-white border border-gray-200 rounded-xl p-8">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg font-bold">1</div>
                 <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-2">{zh ? '创建 Agent' : 'Create the Agent'}</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {zh ? '在顶部导航栏点击 Agents，创建新 Agent。每个 Agent 拥有独立身份。' : 'Click Agents in the top nav to create a new Agent. Each Agent has an independent identity.'}
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '创建 Agent' : 'Create the Agent'}</h3>
+                  <p className="text-gray-600">
+                    {zh ? '在顶部导航栏点击「智能体」，进入 Agent 列表页面，点击「创建智能体」按钮。填写 Agent 名称和描述，选择审批模式（默认 always-review）。' : 'Click "Agents" in the top nav, enter the Agent list page, and click "Create Agent". Fill in the name and description, choose approval mode (default: always-review).'}
                   </p>
-                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700">
-                   <div className="text-gray-500 mb-1"># API 方式</div>
-                   <div>curl -X POST $BASE/agents \</div>
-                   <div className="pl-4">-H "Authorization: Bearer $TOKEN" \</div>
-                    <div className="pl-4">{"-d '{\"name\":\"My Agent\"}'"}</div>
-                 </div>
                 </div>
               </div>
+              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
+                  <MousePointerClick size={20} />
+                  <span className="text-sm font-medium">{zh ? '截图位置：Agent 列表页面' : 'Screenshot: Agent List Page'}</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {zh ? '展示 Agent 列表和创建按钮的位置' : 'Shows Agent list and create button location'}
+                </p>
+              </div>
+            </div>
 
-              {/* Step 2 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center text-sm font-bold">2</div>
+            {/* Step 2 */}
+            <div className="bg-white border border-gray-200 rounded-xl p-8">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center text-lg font-bold">2</div>
                 <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-2">{zh ? '授予空间权限' : 'Grant Space Access'}</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {zh ? '在 Space → Members 页面，找到 Agent 并点击盾牌图标，选择预设角色（查看者/编辑者/审核者/完全授权）。' : 'In Space → Members, find the Agent and click the shield icon to select a preset role (Viewer/Editor/Reviewer/Full).'}
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '授予空间权限' : 'Grant Space Access'}</h3>
+                  <p className="text-gray-600 mb-3">
+                    {zh ? '进入目标 Space → Members 页面，找到刚创建的 Agent。点击右侧的盾牌图标，展开权限面板。' : 'Go to target Space → Members page, find the newly created Agent. Click the shield icon on the right to expand the permissions panel.'}
                   </p>
-                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700">
-                   <div className="text-gray-500 mb-1"># API 方式</div>
-                   <div>curl -X PUT $BASE/agents/AGENT_ID/grants/SPACE_ID \</div>
-                   <div className="pl-4">-H "Authorization: Bearer $TOKEN" \</div>
-                    <div className="pl-4">{"-d '{\"role\":\"editor\",\"scopes\":[\"pages:read\",\"pages:write\"]}'"}</div>
-                 </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
+                    <strong>{zh ? '提示：' : 'Tip: '}</strong>
+                    {zh ? '可以选择预设角色快速配置权限：查看者（只读）、编辑者（可写）、审核者（可审批）、完全授权（所有权限）。' : 'You can use preset roles for quick setup: Viewer (read-only), Editor (can write), Reviewer (can approve), Full (all permissions).'}
+                  </div>
                 </div>
               </div>
+              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
+                  <UserPlus size={20} />
+                  <span className="text-sm font-medium">{zh ? '截图位置：Space Members 页面' : 'Screenshot: Space Members Page'}</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {zh ? '展示 Agent 成员行和盾牌图标的位置' : 'Shows Agent member row and shield icon location'}
+                </p>
+              </div>
+            </div>
 
-              {/* Step 3 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-bold">3</div>
+            {/* Step 3 */}
+            <div className="bg-white border border-gray-200 rounded-xl p-8">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center text-lg font-bold">3</div>
                 <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-2">{zh ? '创建凭证' : 'Create Credential'}</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {zh ? '在 Agent 详情页创建凭证（agk_...），只勾选需要的权限范围。明文只显示一次，请立即保存。' : 'Create a credential (agk_...) on the Agent detail page. Check only needed scopes. The secret appears once — save it immediately.'}
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '配置权限范围' : 'Configure Scopes'}</h3>
+                  <p className="text-gray-600 mb-3">
+                    {zh ? '在展开的权限面板中，勾选 Agent 需要的权限范围。不勾选则继承全局凭据的全部权限。' : 'In the expanded permissions panel, check the scopes the Agent needs. Leave unchecked to inherit all credential scopes.'}
                   </p>
-                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700">
-                   <div className="text-gray-500 mb-1"># API 方式</div>
-                   <div>curl -X POST $BASE/agents/AGENT_ID/credentials \</div>
-                   <div className="pl-4">-H "Authorization: Bearer $TOKEN" \</div>
-                    <div className="pl-4">{"-d '{\"name\":\"default\",\"scopes\":[\"pages:read\",\"pages:write\"]}'"}</div>
-                 </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
+                    {scopes.slice(0, 6).map(s => (
+                      <div key={s.value} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="w-4 h-4 rounded border-2 border-blue-600 bg-blue-600 flex items-center justify-center">
+                          <CheckCircle2 size={12} className="text-white" />
+                        </div>
+                        <code className="text-xs text-blue-600 font-mono">{s.value}</code>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-
-              {/* Step 4 */}
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-bold">4</div>
-                <div className="flex-1">
-                  <h4 className="font-semibold text-gray-900 mb-2">{zh ? '开始使用' : 'Start Using'}</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    {zh ? '用凭证调用 API。读操作直接返回；写操作进入审批流程，人类审核后才发布。' : 'Call the API with the credential. Reads return directly; writes enter review flow and publish after human approval.'}
-                  </p>
-                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700">
-                   <div className="text-gray-500 mb-1"># 读取页面</div>
-                   <div>curl "$BASE/pages/PAGE_ID" \</div>
-                   <div className="pl-4">-H "Authorization: Bearer agk_..."</div>
-                   <div className="text-gray-500 mb-1 mt-3"># 写入页面（需审批）</div>
-                   <div>curl -X PATCH "$BASE/pages/PAGE_ID" \</div>
-                   <div className="pl-4">-H "Authorization: Bearer agk_..." \</div>
-                    <div className="pl-4">{"-d '{\"content\":\"# New content\"}'"}</div>
-                 </div>
+              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
+                  <Settings size={20} />
+                  <span className="text-sm font-medium">{zh ? '截图位置：权限配置面板' : 'Screenshot: Permission Configuration Panel'}</span>
                 </div>
+                <p className="text-xs text-gray-400">
+                  {zh ? '展示权限复选框和预设角色按钮' : 'Shows permission checkboxes and preset role buttons'}
+                </p>
+              </div>
+            </div>
+
+            {/* Step 4 */}
+            <div className="bg-white border border-gray-200 rounded-xl p-8">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-600 text-white flex items-center justify-center text-lg font-bold">4</div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '创建凭证' : 'Create Credential'}</h3>
+                  <p className="text-gray-600 mb-3">
+                    {zh ? '在 Agent 详情页点击「创建凭据」，填写名称并选择全局权限范围。生成的 agk_... 密钥只显示一次，请立即保存。' : 'On the Agent detail page, click "Create Credential", fill in the name and select global scopes. The generated agk_... secret appears only once — save it immediately.'}
+                  </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-700">
+                    <strong>{zh ? '重要：' : 'Important: '}</strong>
+                    {zh ? '密钥只显示一次！请复制到安全的地方保存。丢失后无法找回，只能重新创建。' : 'The secret appears only once! Copy it to a safe place. It cannot be recovered if lost — you must create a new one.'}
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
+                  <CreditCard size={20} />
+                  <span className="text-sm font-medium">{zh ? '截图位置：Agent 详情页' : 'Screenshot: Agent Detail Page'}</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {zh ? '展示创建凭据按钮和密钥显示区域' : 'Shows create credential button and secret display area'}
+                </p>
               </div>
             </div>
           </div>
+        </section>
 
-          {/* Permission Model */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-            <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <Shield className="text-blue-600" size={18} />
-              {zh ? '权限模型' : 'Permission Model'}
-            </h4>
-            <p className="text-sm text-gray-700 mb-3">
-              {zh ? 'Agent 的有效权限是三层交集：' : 'Effective Agent permission is the intersection of three layers:'}
+        {/* Permission Model */}
+        <section className="mb-16">
+          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
+            <Shield className="text-blue-600" size={24} />
+            {zh ? '权限模型' : 'Permission Model'}
+          </h2>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
+            <p className="text-gray-700 mb-6">
+              {zh ? 'Agent 的有效权限是三层交集，确保最小权限原则：' : 'Effective Agent permission is the intersection of three layers, ensuring least-privilege:'}
             </p>
-            <div className="grid md:grid-cols-3 gap-3 text-sm">
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <div className="font-medium text-gray-900 mb-1">{zh ? '凭据范围' : 'Credential Scopes'}</div>
-                <div className="text-gray-600 text-xs">{zh ? '全局能力上限' : 'Global capability ceiling'}</div>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg p-5 border-2 border-blue-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Key className="text-blue-600" size={18} />
+                  <div className="font-semibold text-gray-900">{zh ? '凭据范围' : 'Credential Scopes'}</div>
+                </div>
+                <div className="text-sm text-gray-600">{zh ? '全局能力上限' : 'Global capability ceiling'}</div>
+                <div className="text-xs text-gray-500 mt-2">{zh ? '创建凭据时设置' : 'Set when creating credential'}</div>
               </div>
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <div className="font-medium text-gray-900 mb-1">{zh ? '空间授权' : 'Space Grants'}</div>
-                <div className="text-gray-600 text-xs">{zh ? '每个空间的权限' : 'Per-space permissions'}</div>
+              <div className="bg-white rounded-lg p-5 border-2 border-purple-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="text-purple-600" size={18} />
+                  <div className="font-semibold text-gray-900">{zh ? '空间授权' : 'Space Grants'}</div>
+                </div>
+                <div className="text-sm text-gray-600">{zh ? '每个空间的权限' : 'Per-space permissions'}</div>
+                <div className="text-xs text-gray-500 mt-2">{zh ? '在 Members 页面配置' : 'Configured in Members page'}</div>
               </div>
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <div className="font-medium text-gray-900 mb-1">{zh ? '角色门禁' : 'Role Gate'}</div>
-                <div className="text-gray-600 text-xs">{zh ? '编辑者/查看者' : 'Editor/Viewer'}</div>
+              <div className="bg-white rounded-lg p-5 border-2 border-green-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="text-green-600" size={18} />
+                  <div className="font-semibold text-gray-900">{zh ? '角色门禁' : 'Role Gate'}</div>
+                </div>
+                <div className="text-sm text-gray-600">{zh ? '编辑者/查看者' : 'Editor/Viewer'}</div>
+                <div className="text-xs text-gray-500 mt-2">{zh ? '根据 scope 自动推导' : 'Auto-derived from scopes'}</div>
+              </div>
+            </div>
+            <div className="mt-6 text-center text-sm text-gray-600">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200">
+                <span>{zh ? '有效权限 = 凭据 ∩ 授权 ∩ 角色' : 'Effective = Credential ∩ Grant ∩ Role'}</span>
               </div>
             </div>
           </div>
@@ -285,19 +336,17 @@ export const UsageGuide: React.FC = () => {
           </h2>
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <p className="text-sm text-gray-600 mb-4">
-              {zh ? 'AgentWiki 提供 MCP (Model Context Protocol) 服务器，让 Agent 通过标准协议访问知识库。' : 'AgentWiki provides an MCP (Model Context Protocol) server for Agents to access the knowledge base via standard protocol.'}
+              {zh ? 'AgentWiki 提供 MCP (Model Context Protocol) 服务器，让 Agent 通过标准协议访问知识库。在 Settings → Integrations 页面查看配置示例。' : 'AgentWiki provides an MCP (Model Context Protocol) server for Agents to access the knowledge base via standard protocol. See configuration examples in Settings → Integrations page.'}
             </p>
-           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700">
-             <div className="text-gray-500 mb-2"># MCP 配置示例</div>
-             <div>{`{`}</div>
-             <div className="pl-4">"mcpServers": {"{"}</div>
-             <div className="pl-8">"agentwiki": {"{"}</div>
-             <div className="pl-12">"url": "https://wiki.example.com/api/mcp",</div>
-             <div className="pl-12">"headers": {"{"} "Authorization": "Bearer agk_..." {"}"}</div>
-             <div className="pl-8">{"}"}</div>
-             <div className="pl-4">{"}"}</div>
-             <div>{`}`}</div>
-           </div>
+            <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+              <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
+                <Settings size={20} />
+                <span className="text-sm font-medium">{zh ? '截图位置：Settings → Integrations 页面' : 'Screenshot: Settings → Integrations Page'}</span>
+              </div>
+              <p className="text-xs text-gray-400">
+                {zh ? '展示 MCP 配置示例和可用工具列表' : 'Shows MCP configuration example and available tools list'}
+              </p>
+            </div>
           </div>
         </section>
 
