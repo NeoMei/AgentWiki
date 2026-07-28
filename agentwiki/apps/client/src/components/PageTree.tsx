@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Edit, FileText, Trash2 } from 'lucide-react';
 
@@ -28,24 +28,36 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
   const isCollapsed = collapsed.has(node.id);
   const isCurrent = node.id === currentPageId;
   const [dropHint, setDropHint] = useState<MovePosition | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
 
   const handleDragStart = (event: React.DragEvent) => {
     event.dataTransfer.setData('text/agentwiki-page-id', node.id);
     event.dataTransfer.effectAllowed = 'move';
-    // Show the whole card following the cursor so it is clear what is moving.
-    const row = event.currentTarget as HTMLElement;
-    const ghost = row.cloneNode(true) as HTMLElement;
-    ghost.style.width = `${row.offsetWidth}px`;
-    ghost.style.position = 'absolute';
-    ghost.style.top = '-1000px';
-    ghost.style.left = '-1000px';
-    ghost.style.background = 'white';
-    ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-    ghost.style.borderRadius = '6px';
-    ghost.style.opacity = '0.9';
-    document.body.appendChild(ghost);
-    event.dataTransfer.setDragImage(ghost, 16, 16);
-    requestAnimationFrame(() => ghost.remove());
+    // Drag image is just this single row (not the whole subtree) so the card
+    // matches what will actually move.
+    const row = rowRef.current;
+    if (row) {
+      const ghost = row.cloneNode(true) as HTMLElement;
+      ghost.style.width = `${row.offsetWidth}px`;
+      ghost.style.position = 'absolute';
+      ghost.style.top = '-1000px';
+      ghost.style.left = '-1000px';
+      ghost.style.background = 'white';
+      ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+      ghost.style.borderRadius = '6px';
+      ghost.style.opacity = '0.9';
+      document.body.appendChild(ghost);
+      event.dataTransfer.setDragImage(ghost, 16, 16);
+      requestAnimationFrame(() => ghost.remove());
+    }
+  };
+  const positionFromY = (event: React.DragEvent): MovePosition => {
+    // Measure against the single row only (not the li with its subtree), so the
+    // before/into/after zones map to where the user actually points.
+    const rect = rowRef.current?.getBoundingClientRect();
+    if (!rect) return 'into';
+    const ratio = (event.clientY - rect.top) / rect.height;
+    return ratio < 0.35 ? 'before' : ratio > 0.65 ? 'after' : 'into';
   };
   const handleDragOver = (event: React.DragEvent) => {
     if (!onMove) return;
@@ -53,44 +65,30 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
     setDropHint(positionFromY(event));
     event.dataTransfer.dropEffect = 'move';
   };
-  const positionFromY = (event: React.DragEvent): MovePosition => {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const ratio = (event.clientY - rect.top) / rect.height;
-    return ratio < 0.3 ? 'before' : ratio > 0.7 ? 'after' : 'into';
-  };
   const handleDrop = (event: React.DragEvent) => {
     if (!onMove) return;
     event.preventDefault();
     const dragId = event.dataTransfer.getData('text/agentwiki-page-id');
-    // Compute position from the drop event directly; React state from the
-    // preceding dragover has not flushed yet and would wrongly read as into.
     if (dragId && dragId !== node.id) onMove(dragId, node.id, positionFromY(event));
     setDropHint(null);
   };
   return (
     <li
-      draggable={!!onMove}
-      onDragStart={onMove ? handleDragStart : undefined}
-      onDragOver={onMove ? handleDragOver : undefined}
-      onDragLeave={onMove ? () => setDropHint(null) : undefined}
-      onDrop={onMove ? handleDrop : undefined}
       data-testid={`tree-item-${node.id}`}
-      className={dropHint === 'into' ? 'rounded-md ring-2 ring-blue-400' : ''}
+      className="relative"
     >
-      {dropHint === 'before' ? <div className="h-0.5 rounded bg-blue-400" style={{ marginLeft: `${depth * 14 + 4}px` }} data-testid="drop-before" /> : null}
-      {dropHint === 'into' ? (
-        <div
-          className="my-0.5 rounded border border-dashed border-blue-300 bg-blue-50/60 px-2 py-1 text-xs text-blue-500"
-          style={{ marginLeft: `${(depth + 1) * 14 + 4}px` }}
-          data-testid="drop-into-preview"
-        >
-          {node.title} →
-        </div>
-      ) : null}
       <div
-        className={`group flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition ${isCurrent ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'}`}
+        ref={rowRef}
+        draggable={!!onMove}
+        onDragStart={onMove ? handleDragStart : undefined}
+        onDragOver={onMove ? handleDragOver : undefined}
+        onDragLeave={onMove ? () => setDropHint(null) : undefined}
+        onDrop={onMove ? handleDrop : undefined}
+        className={`group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition ${isCurrent ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700 hover:bg-gray-100'} ${dropHint === 'into' ? 'ring-2 ring-blue-400' : ''}`}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
       >
+        {dropHint === 'before' ? <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-before" /> : null}
+        {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
         {hasChildren ? (
           <button
             type="button"
@@ -130,7 +128,6 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
           ))}
         </ul>
       ) : null}
-      {dropHint === 'after' ? <div className="h-0.5 rounded bg-blue-400" style={{ marginLeft: `${depth * 14 + 4}px` }} data-testid="drop-after" /> : null}
     </li>
   );
 };
