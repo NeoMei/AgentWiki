@@ -81,7 +81,7 @@ describe('SourceService pipeline lifecycle', () => {
       },
       page: { findMany: jest.fn().mockResolvedValue([]) },
       knowledgeRelation: { findMany: jest.fn().mockResolvedValue([]) },
-      sourceVersion: { findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null), create: jest.fn().mockResolvedValue({ id: 'version-1' }) },
+      sourceVersion: { findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null), findUnique: jest.fn(), create: jest.fn().mockResolvedValue({ id: 'version-1' }) },
       sourceFileSnapshot: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
       space: { findUnique: jest.fn().mockResolvedValue({ approvalPolicy: 'always-review' }) },
       agent: { findUnique: jest.fn() },
@@ -116,6 +116,63 @@ describe('SourceService pipeline lifecycle', () => {
     ].map((call: any[]) => call[0].data.stage);
     expect(stages).toEqual(expect.arrayContaining(['extracting', 'compiling', 'indexing', 'partial']));
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
+  });
+
+  it('compiles the pinned OKF version with linked pages and explicit evidence without creating a second version', async () => {
+    const { service, prisma, run } = makeHarness();
+    const envelope = {
+      okfVersion: '0.1', sourceKey: 'workspace-docs', name: 'Workspace docs', kind: 'code',
+      producer: { name: 'agentwiki-local-sync', version: '0.1.0' },
+      documents: [
+        {
+          path: 'a.md', title: 'A', content: '# A\n[Read B](b.md)\nexport class App {}', contentHash: 'a'.repeat(64),
+          evidence: [{ sourcePath: 'src/app.ts', sourceHash: 'b'.repeat(64), quote: 'export class App' }],
+        },
+        { path: 'b.md', title: 'B', content: '# B', contentHash: 'c'.repeat(64), evidence: [] },
+      ],
+      contentHash: 'd'.repeat(64),
+    };
+    const pinnedVersion = { id: 'version-pinned', version: 1, contentHash: envelope.contentHash, content: JSON.stringify(envelope) };
+    run.source = { id: 'source-1', type: 'okf', name: 'Workspace docs', uri: '' };
+    (run as any).inputSourceVersion = pinnedVersion;
+    prisma.sourceVersion.findUnique.mockResolvedValue(pinnedVersion);
+
+    await expect(service.processRun('run-1')).resolves.toBeUndefined();
+
+    expect(prisma.sourceVersion.create).not.toHaveBeenCalled();
+    expect(prisma.artifact.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([
+        expect.objectContaining({ type: 'compiled_page', metadata: expect.objectContaining({ sourcePath: 'a.md' }) }),
+        expect.objectContaining({ type: 'relation_candidate' }),
+      ]),
+    }));
+    expect(prisma.evidence.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          quote: 'export class App',
+          location: expect.objectContaining({ sourcePath: 'a.md', originalSourcePath: 'src/app.ts' }),
+        }),
+      ]),
+    }));
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review' }),
+    }));
+  });
+
+  it('fails a pinned OKF run when the version is deleted instead of reading a newer version', async () => {
+    const { service, prisma, run } = makeHarness();
+    const pinnedVersion = {
+      id: 'version-pinned', version: 1, contentHash: 'a'.repeat(64),
+      content: JSON.stringify({ documents: [] }),
+    };
+    run.source = { id: 'source-1', type: 'okf', name: 'Workspace docs', uri: '' };
+    (run as any).inputSourceVersion = pinnedVersion;
+    prisma.sourceVersion.findUnique.mockResolvedValue(null);
+
+    await expect(service.processRun('run-1')).rejects.toThrow('Pinned source version no longer exists');
+
+    expect(prisma.sourceVersion.findFirst).not.toHaveBeenCalled();
+    expect(prisma.sourceVersion.create).not.toHaveBeenCalled();
   });
 
   it('keeps a completed run completed when audit persistence fails', async () => {
