@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { PageService } from './page.service';
 import { PrismaService } from '../../database/prisma.service';
 import { SearchService } from '../search/search.service';
@@ -177,5 +178,32 @@ describe('page ordering', () => {
         { id: 'b', parentId: 'a', sortOrder: 0 },
       ]),
     ).rejects.toMatchObject({ message: expect.stringContaining('cycle') });
+  });
+
+  it('reorder rejects a parent outside the space', async () => {
+    mockPrisma.page.findMany
+      .mockResolvedValueOnce([{ id: 'a' }])
+      .mockResolvedValueOnce([{ id: 'a', parentId: null }]);
+
+    await expect(
+      service.reorder('space-1', [{ id: 'a', parentId: 'other-space-page', sortOrder: 0 }]),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reorder rejects a cycle completed through an existing parent assignment', async () => {
+    mockPrisma.page.findMany
+      .mockResolvedValueOnce([{ id: 'a' }])
+      .mockResolvedValueOnce([
+        { id: 'a', parentId: null },
+        { id: 'b', parentId: 'a' },
+      ]);
+
+    await expect(
+      service.reorder('space-1', [{ id: 'a', parentId: 'b', sortOrder: 0 }]),
+    ).rejects.toMatchObject({ message: expect.stringContaining('cycle') });
+
+    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
   });
 });

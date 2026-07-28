@@ -137,16 +137,20 @@ export class AgentService {
   // Space-level grant management: the controller already verified the caller is
   // an owner/admin of this space, so we do not require agent ownership here.
   async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
-    const createData = scopes !== undefined
-      ? { agentId, spaceId, role, scopes }
+    const normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
+    if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
+      throw new BadRequestException('Grant contains an invalid scope');
+    }
+    const createData = normalizedScopes !== undefined
+      ? { agentId, spaceId, role, scopes: normalizedScopes }
       : { agentId, spaceId, role };
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
       create: createData,
-      update: scopes !== undefined ? { role, scopes } : { role },
+      update: normalizedScopes !== undefined ? { role, scopes: normalizedScopes } : { role },
       include: { space: { select: { id: true, name: true } } },
     });
-    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes });
+    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes: normalizedScopes });
     return grant;
   }
 

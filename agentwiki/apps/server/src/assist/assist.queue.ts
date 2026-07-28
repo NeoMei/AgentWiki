@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
@@ -18,6 +18,7 @@ export interface OpencodeRunner {
 
 @Injectable()
 export class AssistQueue implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AssistQueue.name);
   private timer?: NodeJS.Timeout;
   private active = 0;
   private ticking = false;
@@ -38,8 +39,8 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     this.workerEnabled = role === 'worker' || role === 'all';
     if (!this.workerEnabled) return;
     await this.recoverExpiredLeases();
-    this.timer = setInterval(() => void this.tick(), Number(this.config.get('ASSIST_QUEUE_POLL_MS') || 2_000));
-    void this.tick();
+    this.timer = setInterval(() => void this.safeTick(), Number(this.config.get('ASSIST_QUEUE_POLL_MS') || 2_000));
+    void this.safeTick();
   }
 
   // Re-queue tasks whose worker died mid-run (lease expired without completion).
@@ -55,7 +56,15 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  enqueue() { if (this.workerEnabled) void this.tick(); }
+  enqueue() { if (this.workerEnabled) void this.safeTick(); }
+
+  private async safeTick() {
+    try {
+      await this.tick();
+    } catch (error) {
+      this.logger.error('Assist queue tick failed', error instanceof Error ? error.stack || error.message : String(error));
+    }
+  }
 
   private async tick() {
     if (this.ticking || this.stopped) return;
@@ -82,7 +91,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         this.active += 1;
         void this.processOne(candidate).catch(() => undefined).finally(() => {
           this.active -= 1;
-          void this.tick();
+          void this.safeTick();
         });
       }
     } finally {
@@ -93,13 +102,14 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
   private async processOne(task: { id: string; intent: string; pageSnapshot: unknown }) {
     try {
       const result = await this.runner.run({ intent: task.intent, pageSnapshot: task.pageSnapshot });
-      await this.prisma.assistTask.update({
-        where: { id: task.id },
+      const completion = await this.prisma.assistTask.updateMany({
+        where: { id: task.id, status: 'running', leaseOwner: this.workerId },
         data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
       });
+      if (completion.count === 0) return;
     } catch (error: any) {
-      await this.prisma.assistTask.update({
-        where: { id: task.id },
+      const completion = await this.prisma.assistTask.updateMany({
+        where: { id: task.id, status: 'running', leaseOwner: this.workerId },
         data: {
           status: 'failed',
           error: String(error?.message || error || 'opencode failed'),
@@ -108,6 +118,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
           leaseExpiresAt: null,
         },
       });
+      if (completion.count === 0) return;
     }
   }
 }

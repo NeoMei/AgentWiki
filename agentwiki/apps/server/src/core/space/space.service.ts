@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
 
@@ -219,29 +220,28 @@ export class SpaceService {
   async updateMemberRoleAs(spaceId: string, userId: string, role: string, callerRole: string) {
     await this.findOne(spaceId);
 
-    const member = await this.prisma.spaceMember.findUnique({
-      where: { userId_spaceId: { userId, spaceId } },
-    });
-    if (!member) throw new NotFoundException('Member not found');
-    // Admins manage non-owner members only and can never touch the owner role.
-    if (callerRole !== 'owner' && (member.role === 'owner' || role === 'owner')) {
-      throw new ForbiddenException('Only an owner can manage the owner role');
-    }
-    if (member.role === 'owner' && role !== 'owner') {
-      // Ensure at least one owner remains
-      const owners = await this.prisma.spaceMember.findMany({
-        where: { spaceId, role: 'owner' },
+    return this.prisma.$transaction(async (tx) => {
+      const member = await tx.spaceMember.findUnique({
+        where: { userId_spaceId: { userId, spaceId } },
       });
-      if (owners.length <= 1) {
-        throw new BadRequestException('Cannot remove the last owner; assign another owner first');
+      if (!member) throw new NotFoundException('Member not found');
+      // Admins manage non-owner members only and can never touch the owner role.
+      if (callerRole !== 'owner' && (member.role === 'owner' || role === 'owner')) {
+        throw new ForbiddenException('Only an owner can manage the owner role');
       }
-    }
+      if (member.role === 'owner' && role !== 'owner') {
+        const owners = await tx.spaceMember.count({ where: { spaceId, role: 'owner' } });
+        if (owners <= 1) {
+          throw new BadRequestException('Cannot remove the last owner; assign another owner first');
+        }
+      }
 
-    return this.prisma.spaceMember.update({
-      where: { userId_spaceId: { userId, spaceId } },
-      data: { role },
-      select: MEMBER_SELECT,
-    });
+      return tx.spaceMember.update({
+        where: { userId_spaceId: { userId, spaceId } },
+        data: { role },
+        select: MEMBER_SELECT,
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async removeMember(spaceId: string, userId: string) {
@@ -251,25 +251,25 @@ export class SpaceService {
   async removeMemberAs(spaceId: string, userId: string, callerRole: string) {
     await this.findOne(spaceId);
 
-    const member = await this.prisma.spaceMember.findUnique({
-      where: { userId_spaceId: { userId, spaceId } },
-    });
-    if (!member) throw new NotFoundException('Member not found');
-    if (callerRole !== 'owner' && member.role === 'owner') {
-      throw new ForbiddenException('Only an owner can remove an owner');
-    }
-    if (member.role === 'owner') {
-      const owners = await this.prisma.spaceMember.findMany({
-        where: { spaceId, role: 'owner' },
+    return this.prisma.$transaction(async (tx) => {
+      const member = await tx.spaceMember.findUnique({
+        where: { userId_spaceId: { userId, spaceId } },
       });
-      if (owners.length <= 1) {
-        throw new BadRequestException('Cannot remove the last owner');
+      if (!member) throw new NotFoundException('Member not found');
+      if (callerRole !== 'owner' && member.role === 'owner') {
+        throw new ForbiddenException('Only an owner can remove an owner');
       }
-    }
+      if (member.role === 'owner') {
+        const owners = await tx.spaceMember.count({ where: { spaceId, role: 'owner' } });
+        if (owners <= 1) {
+          throw new BadRequestException('Cannot remove the last owner');
+        }
+      }
 
-    return this.prisma.spaceMember.delete({
-      where: { userId_spaceId: { userId, spaceId } },
-    });
+      return tx.spaceMember.delete({
+        where: { userId_spaceId: { userId, spaceId } },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
 }

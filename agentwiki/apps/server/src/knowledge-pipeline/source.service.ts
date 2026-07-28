@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -40,6 +40,8 @@ interface CompiledPage {
 
 @Injectable()
 export class SourceService {
+  private readonly logger = new Logger(SourceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -458,7 +460,7 @@ export class SourceService {
           },
         },
       });
-      await this.auditRun(run, partial ? 'partial' : 'success');
+      await this.safeAuditRun(run, partial ? 'partial' : 'success');
     } catch (error: any) {
       const current = await this.prisma.ingestRun.findUnique({ where: { id } });
       const cancelled = current?.cancelRequested || error.message === 'Run cancelled';
@@ -479,7 +481,7 @@ export class SourceService {
           },
         });
       }
-      await this.auditRun(run, cancelled ? 'cancelled' : 'failure', error.message);
+      await this.safeAuditRun(run, cancelled ? 'cancelled' : 'failure', error.message);
       throw error;
     } finally {
       if (cleanup) rmSync(cleanup, { recursive: true, force: true });
@@ -762,7 +764,9 @@ export class SourceService {
         grant.agent.owner.deletedAt || grant.space.deletedAt || !credential?.scopes.includes('runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
-      return credential.scopes;
+      return grant.scopes.length > 0
+        ? credential.scopes.filter((scope) => grant.scopes.includes(scope))
+        : credential.scopes;
     }
     const membership = run.requestedByUserId ? await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: run.requestedByUserId, spaceId: run.spaceId } },
@@ -800,5 +804,13 @@ export class SourceService {
     return this.prisma.securityAuditEvent.create({
       data: { actorUserId: run.requestedByUserId, action: 'ingest.run.process', outcome, metadata: { runId: run.id, ...(error ? { error } : {}) } },
     });
+  }
+
+  private async safeAuditRun(run: any, outcome: string, error?: string) {
+    try {
+      await this.auditRun(run, outcome, error);
+    } catch (auditError) {
+      this.logger.error('Ingest run audit failed', auditError instanceof Error ? auditError.stack || auditError.message : String(auditError));
+    }
   }
 }

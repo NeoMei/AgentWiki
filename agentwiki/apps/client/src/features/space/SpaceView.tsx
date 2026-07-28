@@ -13,6 +13,8 @@ export const applyMove = (
   targetId: string,
   position: 'into' | 'before' | 'after',
 ): Array<{ id: string; parentId: string | null; sortOrder: number }> => {
+  // Deep clone so we never mutate React state directly.
+  const clone = JSON.parse(JSON.stringify(nodes)) as PageTreeNode[];
   const parentOf = new Map<string, string | null>();
   const childrenOf = new Map<string | null, PageTreeNode[]>();
   const register = (list: PageTreeNode[], parent: string | null) => {
@@ -22,7 +24,7 @@ export const applyMove = (
       if (node.children?.length) register(node.children, node.id);
     }
   };
-  register(nodes, null);
+  register(clone, null);
 
   const findNode = (list: PageTreeNode[], id: string): PageTreeNode | null => {
     for (const node of list) {
@@ -32,7 +34,7 @@ export const applyMove = (
     }
     return null;
   };
-  const dragNode = findNode(nodes, dragId);
+  const dragNode = findNode(clone, dragId);
   if (!dragNode) return [];
 
   // detach drag node from its siblings
@@ -60,7 +62,7 @@ export const applyMove = (
   // keep each node's own children array in sync with the rebuilt map so the
   // emit walk below sees the moved node under its new parent
   if (position === 'into') {
-    const target = findNode(nodes, targetId);
+    const target = findNode(clone, targetId);
     if (target) target.children = siblings;
   }
 
@@ -118,6 +120,7 @@ export const SpaceView: React.FC = () => {
   const [pageTree, setPageTree] = useState<PageTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newPageTitle, setNewPageTitle] = useState('');
@@ -156,7 +159,7 @@ export const SpaceView: React.FC = () => {
       setShowCreate(false);
       navigate(`/pages/${res.data.id}/edit`);
     } catch (err: any) {
-      setError(err.response?.data?.message || t('page.createFailed'));
+      setActionError(err.response?.data?.message || t('page.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -169,7 +172,7 @@ export const SpaceView: React.FC = () => {
       setPages((prev) => prev.filter((p) => p.id !== pageId));
       setPageTree((prev) => removeFromTree(prev, pageId));
     } catch (err: any) {
-      setError(err.response?.data?.message || t('page.deleteFailed'));
+      setActionError(err.response?.data?.message || t('page.deleteFailed'));
     }
   };
 
@@ -183,7 +186,9 @@ export const SpaceView: React.FC = () => {
       setPageTree(tree);
       setPages(flattenTree(tree));
     } catch (err: any) {
-      setError(err.response?.data?.message || t('page.loadSpaceFailed'));
+      setActionError(err.response?.data?.message || t('page.loadSpaceFailed'));
+      // Rollback: refetch from server to restore correct state
+      fetchData();
     }
   };
 
@@ -198,6 +203,14 @@ export const SpaceView: React.FC = () => {
 
   return (
     <div>
+      {actionError && (
+        <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm flex items-center justify-between">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="ml-2 text-red-400 hover:text-red-600">
+            <X size={16} />
+          </button>
+        </div>
+      )}
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
           <Link to="/" className="hover:text-blue-600">{t('nav.spaces')}</Link>

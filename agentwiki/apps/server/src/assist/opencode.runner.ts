@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { spawn } from 'child_process';
 import { AssistRunResult, OpencodeRunner } from './assist.queue';
 
+const MAX_OUTPUT_BYTES = 2_000_000;
+const TERMINATION_GRACE_MS = 5_000;
+
 // Runs a one-shot opencode CLI invocation with the shared service LLM key.
 // The prompt carries the edit intent, a page snapshot and the instruction to
 // propose changes via propose_page so a human reviews before publishing.
@@ -52,19 +55,69 @@ export class OpencodeCliRunner implements OpencodeRunner {
       const child = spawn(bin, args, { env });
       let out = '';
       let err = '';
-      const timer = setTimeout(() => {
-        child.kill('SIGTERM');
-        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5_000).unref();
-        reject(new Error('opencode timed out'));
-      }, timeoutMs);
-      child.stdout.on('data', (d) => { out += d.toString(); });
-      child.stderr.on('data', (d) => { err += d.toString(); });
-      child.on('error', (e) => { clearTimeout(timer); reject(new Error(`opencode failed to start: ${e.message}`)); });
-      child.on('close', (code) => {
+      let outputBytes = 0;
+      let closed = false;
+      let settled = false;
+      let forceKillTimer: NodeJS.Timeout | undefined;
+
+      const settle = (error?: Error, value?: string) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve(value || '');
+      };
+      const stopReading = () => {
+        child.stdout.removeListener('data', onStdout);
+        child.stderr.removeListener('data', onStderr);
+      };
+      const cleanup = () => {
         clearTimeout(timer);
-        if (code === 0) resolve(out);
-        else reject(new Error(`opencode exited ${code}: ${err.slice(0, 300)}`));
-      });
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        stopReading();
+        child.removeListener('error', onError);
+        child.removeListener('close', onClose);
+      };
+      const terminate = (error: Error) => {
+        clearTimeout(timer);
+        stopReading();
+        child.kill('SIGTERM');
+        forceKillTimer = setTimeout(() => {
+          if (!closed) child.kill('SIGKILL');
+          cleanup();
+        }, TERMINATION_GRACE_MS);
+        forceKillTimer.unref();
+        settle(error);
+      };
+      const appendOutput = (destination: 'stdout' | 'stderr', data: Buffer | string) => {
+        const chunk = data.toString();
+        const chunkBytes = Buffer.byteLength(chunk);
+        if (outputBytes + chunkBytes > MAX_OUTPUT_BYTES) {
+          terminate(new Error('opencode output exceeded 2 MB'));
+          return;
+        }
+        outputBytes += chunkBytes;
+        if (destination === 'stdout') out += chunk;
+        else err += chunk;
+      };
+      function onStdout(data: Buffer | string) { appendOutput('stdout', data); }
+      function onStderr(data: Buffer | string) { appendOutput('stderr', data); }
+      function onError(error: Error) {
+        closed = true;
+        cleanup();
+        settle(new Error(`opencode failed to start: ${error.message}`));
+      }
+      function onClose(code: number | null) {
+        closed = true;
+        cleanup();
+        if (code === 0) settle(undefined, out);
+        else settle(new Error(`opencode exited ${code}: ${err.slice(0, 300)}`));
+      }
+
+      const timer = setTimeout(() => terminate(new Error('opencode timed out')), timeoutMs);
+      child.stdout.on('data', onStdout);
+      child.stderr.on('data', onStderr);
+      child.on('error', onError);
+      child.on('close', onClose);
     });
   }
 

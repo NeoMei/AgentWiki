@@ -244,11 +244,24 @@ export class PageService {
     if (existing.length !== ids.length) {
       throw new BadRequestException('Some pages do not belong to this space');
     }
-    // Cycle check: walking up from each new parent must not return to the page.
-    const parentOf = new Map(items.map((item) => [item.id, item.parentId]));
-    for (const item of items) {
-      let cursor: string | null = item.parentId;
-      const seen = new Set<string>([item.id]);
+
+    const spacePages = await this.prisma.page.findMany({
+      where: { spaceId, deletedAt: null },
+      select: { id: true, parentId: true },
+    });
+    const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
+    for (const item of items) parentOf.set(item.id, item.parentId);
+
+    for (const parentId of parentOf.values()) {
+      if (parentId !== null && !parentOf.has(parentId)) {
+        throw new BadRequestException('Parent pages must belong to this space');
+      }
+    }
+
+    // Cycle check uses the complete persisted hierarchy plus this batch.
+    for (const [pageId, parentId] of parentOf) {
+      let cursor: string | null = parentId;
+      const seen = new Set<string>([pageId]);
       while (cursor) {
         if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
         seen.add(cursor);

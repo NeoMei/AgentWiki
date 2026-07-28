@@ -150,6 +150,8 @@ export class ReviewService {
         where: { changeSetId: id, status: 'pending' },
         data: { status: 'accepted' },
       });
+      const accepted = await tx.changeItem.count({ where: { changeSetId: id, status: 'accepted' } });
+      if (accepted === 0) throw new BadRequestException('At least one change item must be accepted before publishing');
       await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'approved', comment } });
     });
     return this.publish(id);
@@ -334,8 +336,8 @@ export class ReviewService {
               sourcePageId,
               targetPageId,
               relation: payload.relation,
-              strength: payload.strength || 1,
-              confidence: payload.confidence || 1,
+              strength: payload.strength ?? 1,
+              confidence: payload.confidence ?? 1,
               origin: 'compiled',
               sourceChangeSetId: id,
               createdByAgentId: changeSet.createdByAgentId,

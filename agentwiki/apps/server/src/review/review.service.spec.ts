@@ -50,6 +50,30 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'accepted' } }));
   });
 
+  it('preserves zero strength and confidence when publishing a relation', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-relation', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'relation', type: 'create_relation', status: 'accepted',
+        payload: { sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'supports', strength: 0, confidence: 0 },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
+      knowledgeRelation: { create: jest.fn().mockResolvedValue({ id: 'relation-1' }) },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-relation');
+
+    expect(tx.knowledgeRelation.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ strength: 0, confidence: 0 }),
+    }));
+  });
+
   it('loses a concurrent approval race without creating a duplicate approval', async () => {
     prisma.changeItem.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
     prisma.changeSet.updateMany.mockResolvedValue({ count: 0 });
@@ -467,6 +491,17 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('reviewPublish refuses a change set not pending review', async () => {
     prisma.changeSet.updateMany.mockResolvedValue({ count: 0 });
     await expect(service.reviewPublish('cs-1', 'reviewer-1')).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('reviewPublish refuses to approve and publish when no item is accepted', async () => {
+    prisma.changeItem.count.mockResolvedValue(0);
+
+    await expect(service.reviewPublish('cs-empty', 'reviewer-1')).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.changeItem.count).toHaveBeenCalledWith({
+      where: { changeSetId: 'cs-empty', status: 'accepted' },
+    });
+    expect(prisma.approval.create).not.toHaveBeenCalled();
   });
 
   it('propose auto-publishes when space, agent and credential all allow it', async () => {

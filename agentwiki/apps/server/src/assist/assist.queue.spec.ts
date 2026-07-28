@@ -20,8 +20,8 @@ describe('AssistQueue task processing', () => {
     const queue = new AssistQueue(prisma, config, runner);
     await (queue as any).processOne({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } });
     expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ intent: 'polish' }));
-    expect(prisma.assistTask.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 't1' },
+    expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
       data: expect.objectContaining({ status: 'done' }),
     }));
   });
@@ -30,9 +30,32 @@ describe('AssistQueue task processing', () => {
     runner.run.mockRejectedValue(new Error('llm down'));
     const queue = new AssistQueue(prisma, config, runner);
     await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
-    expect(prisma.assistTask.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
       data: expect.objectContaining({ status: 'failed' }),
     }));
+  });
+
+  it('does not complete a task after its lease has been taken over', async () => {
+    prisma.assistTask.updateMany.mockResolvedValue({ count: 0 });
+    runner.run.mockResolvedValue({ summary: 'stale result' });
+    const queue = new AssistQueue(prisma, config, runner);
+
+    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
+
+    expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
+    }));
+    expect(prisma.assistTask.update).not.toHaveBeenCalled();
+  });
+
+  it('absorbs and logs tick failures', async () => {
+    const queue = new AssistQueue(prisma, config, runner);
+    jest.spyOn(queue as any, 'tick').mockRejectedValue(new Error('database unavailable'));
+    const log = jest.spyOn((queue as any).logger, 'error').mockImplementation();
+
+    await expect((queue as any).safeTick()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith('Assist queue tick failed', expect.any(String));
   });
 
   it('re-queues running tasks whose lease expired', async () => {

@@ -151,6 +151,31 @@ describe('space discovery and self-describing errors', () => {
     ]);
     const result = await service.listAccessibleSpaces({ userId: 'user-1', agentId: 'agent-1', scopes: ['spaces:read'] });
     expect(result).toEqual([{ id: 'space-1', name: 'MySpace', role: 'editor' }]);
+    expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { scopes: { has: 'spaces:read' } },
+          { scopes: { isEmpty: true } },
+        ],
+      }),
+    }));
+  });
+
+  it('filters accessible space ids by grant scope while inheriting empty grant scopes', async () => {
+    prisma.agentGrant.findMany.mockResolvedValue([{ spaceId: 'space-1' }]);
+
+    await expect(service.getAccessibleSpaceIds(
+      { userId: 'user-1', agentId: 'agent-1', scopes: ['pages:read'] },
+      'pages:read',
+    )).resolves.toEqual(['space-1']);
+    expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { scopes: { has: 'pages:read' } },
+          { scopes: { isEmpty: true } },
+        ],
+      }),
+    }));
   });
 
   it('lists accessible spaces for a human member', async () => {

@@ -41,6 +41,26 @@ describe('SourceService safety and idempotency', () => {
       requestedCredentialId: 'revoked-credential', requestedCredentialType: 'agent',
     })).rejects.toThrow('Run requester is no longer authorized');
   });
+
+  it('returns only the intersection of credential and non-empty grant scopes', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'editor',
+        scopes: ['runs:write', 'pages:read'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        scopes: ['runs:write', 'review:auto-publish'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).resolves.toEqual(['runs:write']);
+  });
 });
 
 describe('SourceService pipeline lifecycle', () => {
@@ -96,6 +116,20 @@ describe('SourceService pipeline lifecycle', () => {
     ].map((call: any[]) => call[0].data.stage);
     expect(stages).toEqual(expect.arrayContaining(['extracting', 'compiling', 'indexing', 'partial']));
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
+  });
+
+  it('keeps a completed run completed when audit persistence fails', async () => {
+    const { service, prisma } = makeHarness();
+    jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
+    prisma.securityAuditEvent.create.mockRejectedValue(new Error('audit database unavailable'));
+
+    await expect(service.processRun('run-1')).resolves.toBeUndefined();
+
+    const terminalStatuses = prisma.ingestRun.update.mock.calls
+      .map((call: any[]) => call[0].data.status)
+      .filter(Boolean);
+    expect(terminalStatuses).toContain('completed');
+    expect(terminalStatuses).not.toContain('queued');
   });
 
   it('honors cancellation between stages and removes an unpublished candidate set', async () => {

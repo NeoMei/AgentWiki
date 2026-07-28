@@ -182,6 +182,12 @@ export class AuthorizationService {
           agentId: principal.agentId,
           agent: { status: 'active', revokedAt: null },
           space: { deletedAt: null },
+          ...(requiredScope ? {
+            OR: [
+              { scopes: { has: requiredScope } },
+              { scopes: { isEmpty: true } },
+            ],
+          } : {}),
         },
         select: { spaceId: true },
       });
@@ -207,7 +213,17 @@ export class AuthorizationService {
     if (principal.agentId) {
       this.assertScope(principal, requiredScope);
       const grants = await this.prisma.agentGrant.findMany({
-        where: { agentId: principal.agentId, agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+        where: {
+          agentId: principal.agentId,
+          agent: { status: 'active', revokedAt: null },
+          space: { deletedAt: null },
+          ...(requiredScope ? {
+            OR: [
+              { scopes: { has: requiredScope } },
+              { scopes: { isEmpty: true } },
+            ],
+          } : {}),
+        },
         select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
         orderBy: { createdAt: 'asc' },
       });

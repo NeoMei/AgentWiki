@@ -1,4 +1,5 @@
 import { SpaceService } from './space.service';
+import { Prisma } from '@prisma/client';
 
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
@@ -39,13 +40,17 @@ describe('SpaceService.listMembers includes agents', () => {
 describe('admin role and member management', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
-    spaceMember: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    spaceMember: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     user: { findFirst: jest.fn() },
     agentGrant: { findMany: jest.fn().mockResolvedValue([]) },
+    $transaction: jest.fn(),
   } as any;
   const service = new SpaceService(prisma);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+  });
 
   it('allows adding a member with the admin role', async () => {
     prisma.user.findFirst.mockResolvedValue({ id: 'u2', email: 'b@x.com', type: 'human' });
@@ -61,7 +66,35 @@ describe('admin role and member management', () => {
   it('rejects an admin changing another owner or granting owner', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
     await expect(
-      service.updateMemberRoleAs('space-1', 'u1', 'admin', 'owner'),
+      service.updateMemberRoleAs('space-1', 'u1', 'editor', 'admin'),
     ).rejects.toThrow();
+  });
+
+  it('checks and updates the last owner in one serializable transaction', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
+    prisma.spaceMember.count.mockResolvedValue(2);
+    prisma.spaceMember.update.mockResolvedValue({ id: 'm1', role: 'editor' });
+
+    await service.updateMemberRoleAs('space-1', 'u1', 'editor', 'owner');
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(prisma.spaceMember.count).toHaveBeenCalledWith({ where: { spaceId: 'space-1', role: 'owner' } });
+    expect(prisma.spaceMember.update).toHaveBeenCalled();
+  });
+
+  it('checks and removes an owner in one serializable transaction', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
+    prisma.spaceMember.count.mockResolvedValue(2);
+    prisma.spaceMember.delete.mockResolvedValue({ id: 'm1', role: 'owner' });
+
+    await service.removeMemberAs('space-1', 'u1', 'owner');
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    expect(prisma.spaceMember.count).toHaveBeenCalledWith({ where: { spaceId: 'space-1', role: 'owner' } });
+    expect(prisma.spaceMember.delete).toHaveBeenCalled();
   });
 });

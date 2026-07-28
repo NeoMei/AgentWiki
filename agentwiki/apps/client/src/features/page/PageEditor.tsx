@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -174,6 +174,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty]);
 
+  // Guard SPA navigation when there are unsaved changes.
+  const guardNavigate = useCallback((target: string) => {
+    if (isDirty && !window.confirm(t('editor.unsavedWarning'))) return;
+    // Use a full navigation so React Router unmounts and state resets cleanly.
+    window.location.assign(target);
+  }, [isDirty, t]);
+
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
     loadSequenceRef.current += 1;
@@ -344,7 +351,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   if (error) return (
     <div className="text-center py-8">
       <p className="text-red-500 mb-2">{error}</p>
-      <Link to={page?.spaceId ? `/spaces/${page.spaceId}` : '/'} className="text-blue-600 hover:underline">{t('common.back')}</Link>
+      <button onClick={() => guardNavigate(page?.spaceId ? `/spaces/${page.spaceId}` : '/')} className="text-blue-600 hover:underline">{t('common.back')}</button>
     </div>
   );
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
@@ -353,13 +360,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <Link
-            to={page.spaceId ? `/spaces/${page.spaceId}` : '/'}
+          <button
+            onClick={() => guardNavigate(page.spaceId ? `/spaces/${page.spaceId}` : '/')}
             className="p-2 hover:bg-gray-100 rounded"
             title={t('editor.backToSpace')}
           >
             <ArrowLeft size={20} />
-          </Link>
+          </button>
           <input
             type="text"
             value={title}
@@ -388,9 +395,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               </div>
             </div>
           )}
-          <Link to={`/pages/${id}/versions`} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <button onClick={() => guardNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={18} />
-          </Link>
+          </button>
           <IconButton
             label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
