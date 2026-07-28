@@ -51,7 +51,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
       setResult(response.data);
       setCopied(false);
       setNow(Date.now());
-    } catch (requestError: any) {
+    } catch {
       setError(t('agent.localSync.failed'));
     } finally {
       setGenerating(false);

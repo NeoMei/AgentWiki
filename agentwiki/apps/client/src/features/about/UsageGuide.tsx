@@ -8,16 +8,6 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 
-const GuideScreenshot: React.FC<{ src: string; alt: string }> = ({ src, alt }) => (
-  <div className="h-56 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm sm:h-72">
-    <img
-      src={src}
-      alt={alt}
-      className="h-full w-full object-contain object-center"
-      loading="lazy"
-    />
-  </div>
-);
 
 export const UsageGuide: React.FC = () => {
   useAuth();
@@ -120,11 +110,10 @@ export const UsageGuide: React.FC = () => {
                   <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold text-white ${step.tone}`}>{index + 1}</div>
                   <div>
                     <h3 className="mb-2 text-xl font-semibold text-gray-900">{step.title}</h3>
-                    <p className="text-gray-600">{step.body}</p>
-                  </div>
-                </div>
-                {step.screenshot && step.alt ? <GuideScreenshot src={step.screenshot} alt={step.alt} /> : null}
-              </article>
+               <p className="text-gray-600">{step.body}</p>
+              </div>
+            </div>
+          </article>
             ))}
           </div>
         </section>
