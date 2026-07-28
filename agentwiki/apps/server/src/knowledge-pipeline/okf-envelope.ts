@@ -41,7 +41,7 @@ export class OkfEnvelopeError extends Error {
 }
 
 const safePath = (value: string) => {
-  if (!value || value.length > 512 || value.includes('\\') || value.startsWith('/')) return false;
+  if (!value || value.length > 512 || value.includes('\\') || value.includes('\0') || value.startsWith('/')) return false;
   const normalized = posix.normalize(value);
   return normalized === value && !normalized.startsWith('../') && normalized !== '..';
 };

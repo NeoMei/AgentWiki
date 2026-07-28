@@ -37,9 +37,21 @@ describe('parseOkfEnvelope', () => {
     ['/absolute.md'],
     ['../escape.md'],
     ['folder\\windows.md'],
+    ['folder\0nul.md'],
   ])('rejects unsafe document path %s', (path) => {
     const input = valid();
     input.documents[0].path = path;
+    expect(() => parse(input)).toThrow('relative POSIX path');
+  });
+
+  it.each([
+    ['/absolute.ts'],
+    ['../escape.ts'],
+    ['src\\windows.ts'],
+    ['src/\0nul.ts'],
+  ])('rejects unsafe evidence sourcePath %s', (sourcePath) => {
+    const input = valid();
+    input.documents[0].evidence[0].sourcePath = sourcePath;
     expect(() => parse(input)).toThrow('relative POSIX path');
   });
 
