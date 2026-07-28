@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 首页、使用指南与工作台的统一顶层导航已于 2026-07-28 完成实现和真实浏览器验收；当前进入最终发布收尾。
+- 首页、使用指南与工作台的统一顶层导航已于 2026-07-28 完成实现、真实浏览器验收并推送 GitHub；当前无活跃开发任务。
 
 # 范围 / 不做
 
@@ -55,7 +55,7 @@
 
 # 风险 / 下一步
 
-- 当前统一导航任务仅剩推送远端和清理临时 worktree；无代码缺陷阻塞。部署前仍需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
+- 当前无活跃任务或代码缺陷阻塞。部署前仍需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

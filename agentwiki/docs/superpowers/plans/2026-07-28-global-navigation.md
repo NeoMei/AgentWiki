@@ -510,7 +510,7 @@ At desktop and 390×844 mobile viewports verify Home, Guide, and Workspace remai
 
 Update `.codex-memory/current.md` with the final navigation rules and tested states. Mark all plan checkboxes complete after their evidence exists.
 
-- [ ] **Step 6: Commit, merge, and push**
+- [x] **Step 6: Commit, merge, and push**
 
 ```bash
 git add .codex-memory/current.md \
