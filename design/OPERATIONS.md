@@ -329,6 +329,20 @@ ORDER BY 1, 2, 3;
 -- END LEGACY_PROVENANCE_VALIDATION
 ```
 
+## Incident response
+
+1. Pause or revoke the affected Agent and revoke its credentials.
+2. Use Agent and security audit events plus `x-request-id` to bound affected resources.
+3. Revert published ChangeSets; do not edit away provenance.
+4. Rotate exposed secrets and invalidate sessions as needed.
+5. Preserve audit evidence, record the timeline, and add a regression test before re-enabling access.
+
+## Data lifecycle
+
+- Memory privacy deletion overwrites content, tags and entity metadata before retaining a tombstone.
+- Local-path legacy Sources are archived and cannot be rerun.
+- Source versions and Evidence are retained with published knowledge so provenance remains verifiable.
+- Audit retention and backup retention must be configured to meet the deploying organization's policy; no UI claim should promise indefinite retention.
 ## Local knowledge sync operations
 
 ### Server configuration
@@ -389,17 +403,3 @@ Before a release, record the prior npm package version, client build, and `LOCAL
 
 Do not roll back the database as a response to a package-only problem. Existing Source, Run, Evidence, ChangeSet, and Page provenance are audit data; recover knowledge through the normal review/revert flow rather than deleting it during rollback.
 
-## Incident response
-
-1. Pause or revoke the affected Agent and revoke its credentials.
-2. Use Agent and security audit events plus `x-request-id` to bound affected resources.
-3. Revert published ChangeSets; do not edit away provenance.
-4. Rotate exposed secrets and invalidate sessions as needed.
-5. Preserve audit evidence, record the timeline, and add a regression test before re-enabling access.
-
-## Data lifecycle
-
-- Memory privacy deletion overwrites content, tags and entity metadata before retaining a tombstone.
-- Local-path legacy Sources are archived and cannot be rerun.
-- Source versions and Evidence are retained with published knowledge so provenance remains verifiable.
-- Audit retention and backup retention must be configured to meet the deploying organization's policy; no UI claim should promise indefinite retention.
