@@ -1,13 +1,176 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Bot, ArrowRight, Shield, Key, GitBranch,
+  Bot, ArrowRight, Shield, Key,
   FileText, Network, Search, Users, CheckCircle2,
-  MousePointerClick, Settings, UserPlus, CreditCard
+  MousePointerClick, Settings, UserPlus, CreditCard,
+  Plus, MoreVertical
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+
+// Mock UI Components for screenshots
+const MockNavbar: React.FC = () => (
+  <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-lg">
+    <div className="flex items-center gap-4">
+      <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+        <Bot size={16} className="text-white" />
+      </div>
+      <span className="font-bold text-gray-900">AgentWiki</span>
+      <div className="flex items-center gap-3 ml-6">
+        <span className="text-sm text-gray-600">知识空间</span>
+        <span className="text-sm text-blue-600 font-medium">智能体</span>
+        <span className="text-sm text-gray-600">审核</span>
+      </div>
+    </div>
+    <div className="flex items-center gap-3">
+      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">N</div>
+    </div>
+  </div>
+);
+
+const MockAgentList: React.FC = () => (
+  <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="font-semibold text-gray-900">智能体</h3>
+      <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1">
+        <Plus size={14} /> 创建智能体
+      </button>
+    </div>
+    <div className="space-y-3">
+      {['MyAgent', 'CodeHelper', 'DocWriter'].map((name, i) => (
+        <div key={i} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white">
+              <Bot size={18} />
+            </div>
+            <div>
+              <div className="font-medium text-gray-900">{name}</div>
+              <div className="text-xs text-gray-500">active</div>
+            </div>
+          </div>
+          <MoreVertical size={16} className="text-gray-400" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const MockSpaceMembers: React.FC = () => (
+  <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="flex items-center justify-between mb-4">
+      <div>
+        <h3 className="font-semibold text-gray-900">成员</h3>
+        <p className="text-xs text-gray-500">管理可以访问此空间的用户及其角色。</p>
+      </div>
+      <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1">
+        <Plus size={14} /> 添加成员
+      </button>
+    </div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-medium">N</div>
+          <div>
+            <div className="font-medium text-gray-900">NeoMei</div>
+            <div className="text-xs text-gray-500">ffdeml@gmail.com</div>
+          </div>
+        </div>
+        <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700 font-medium">所有者</span>
+      </div>
+      <div className="flex items-center justify-between p-3 border-2 border-blue-300 rounded-lg bg-blue-50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white">
+            <Bot size={18} />
+          </div>
+          <div>
+            <div className="font-medium text-gray-900">MyAgent</div>
+            <div className="text-xs text-gray-500">通过 Agent 授权接入</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">编辑者</span>
+          <button className="p-1.5 text-blue-600 bg-blue-100 rounded">
+            <Shield size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const MockScopePanel: React.FC = () => (
+  <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="flex items-center justify-between mb-4">
+      <h4 className="font-medium text-gray-900">本空间权限（收窄全局凭据）</h4>
+      <button className="text-xs text-blue-600 flex items-center gap-1">
+        <CheckCircle2 size={12} /> 全选
+      </button>
+    </div>
+    <div className="flex flex-wrap gap-2 mb-4">
+      {['查看者', '编辑者', '审核者', '完全授权'].map((role, i) => (
+        <button key={i} className={`px-3 py-1 rounded-full text-xs border ${i === 1 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+          {role}
+        </button>
+      ))}
+    </div>
+    <div className="grid grid-cols-3 gap-2">
+      {[
+        { value: 'pages:read', checked: true },
+        { value: 'pages:write', checked: true },
+        { value: 'sources:read', checked: true },
+        { value: 'sources:write', checked: false },
+        { value: 'runs:read', checked: false },
+        { value: 'runs:write', checked: false },
+        { value: 'review:read', checked: false },
+        { value: 'review:auto-publish', checked: false },
+        { value: 'memory:read', checked: false },
+        { value: 'memory:write', checked: false },
+        { value: 'graph:read', checked: true },
+        { value: 'graph:write', checked: true },
+      ].map((s, i) => (
+        <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${s.checked ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-500'}`}>
+          <div className={`w-3 h-3 rounded border ${s.checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+            {s.checked && <CheckCircle2 size={10} className="text-white" />}
+          </div>
+          <span className="font-mono text-xs">{s.value}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const MockCredentialPage: React.FC = () => (
+  <div className="bg-white border border-gray-200 rounded-lg p-6">
+    <div className="flex items-center gap-3 mb-6">
+      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white">
+        <Bot size={24} />
+      </div>
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">MyAgent</h3>
+        <div className="flex items-center gap-2">
+          <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">active</span>
+          <span className="text-sm text-gray-500">test agent</span>
+        </div>
+      </div>
+    </div>
+    <div className="border-t border-gray-200 pt-4">
+      <h4 className="font-semibold text-gray-900 mb-3">凭据</h4>
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-3">
+        <div className="text-sm font-medium text-gray-900 mb-1">Default credential</div>
+        <div className="flex flex-wrap gap-1.5">
+          {['spaces:read', 'pages:read', 'pages:write'].map((s, i) => (
+            <span key={i} className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">{s}</span>
+          ))}
+        </div>
+      </div>
+      <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1">
+        <Plus size={14} /> 创建凭据
+      </button>
+    </div>
+  </div>
+);
 
 export const UsageGuide: React.FC = () => {
   useAuth();
@@ -122,14 +285,15 @@ export const UsageGuide: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                  <MousePointerClick size={20} />
-                  <span className="text-sm font-medium">{zh ? '截图位置：Agent 列表页面' : 'Screenshot: Agent List Page'}</span>
+              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <MockNavbar />
+                <div className="p-6 bg-gray-50">
+                  <MockAgentList />
                 </div>
-                <p className="text-xs text-gray-400">
-                  {zh ? '展示 Agent 列表和创建按钮的位置' : 'Shows Agent list and create button location'}
-                </p>
+              </div>
+              <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
+                <MousePointerClick size={12} />
+                {zh ? 'Agent 列表页面 — 点击右上角「创建智能体」' : 'Agent List Page — Click "Create Agent" in top right'}
               </div>
             </div>
 
@@ -148,14 +312,14 @@ export const UsageGuide: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                  <UserPlus size={20} />
-                  <span className="text-sm font-medium">{zh ? '截图位置：Space Members 页面' : 'Screenshot: Space Members Page'}</span>
+              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <div className="p-6 bg-gray-50">
+                  <MockSpaceMembers />
                 </div>
-                <p className="text-xs text-gray-400">
-                  {zh ? '展示 Agent 成员行和盾牌图标的位置' : 'Shows Agent member row and shield icon location'}
-                </p>
+              </div>
+              <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
+                <UserPlus size={12} />
+                {zh ? 'Space Members 页面 — 点击 Agent 行的盾牌图标' : 'Space Members Page — Click shield icon on Agent row'}
               </div>
             </div>
 
@@ -168,26 +332,16 @@ export const UsageGuide: React.FC = () => {
                   <p className="text-gray-600 mb-3">
                     {zh ? '在展开的权限面板中，勾选 Agent 需要的权限范围。不勾选则继承全局凭据的全部权限。' : 'In the expanded permissions panel, check the scopes the Agent needs. Leave unchecked to inherit all credential scopes.'}
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
-                    {scopes.slice(0, 6).map(s => (
-                      <div key={s.value} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="w-4 h-4 rounded border-2 border-blue-600 bg-blue-600 flex items-center justify-center">
-                          <CheckCircle2 size={12} className="text-white" />
-                        </div>
-                        <code className="text-xs text-blue-600 font-mono">{s.value}</code>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
-              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                  <Settings size={20} />
-                  <span className="text-sm font-medium">{zh ? '截图位置：权限配置面板' : 'Screenshot: Permission Configuration Panel'}</span>
+              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <div className="p-6 bg-gray-50">
+                  <MockScopePanel />
                 </div>
-                <p className="text-xs text-gray-400">
-                  {zh ? '展示权限复选框和预设角色按钮' : 'Shows permission checkboxes and preset role buttons'}
-                </p>
+              </div>
+              <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
+                <Settings size={12} />
+                {zh ? '权限配置面板 — 勾选需要的权限或使用预设角色' : 'Permission Panel — Check needed scopes or use preset roles'}
               </div>
             </div>
 
@@ -206,14 +360,14 @@ export const UsageGuide: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                  <CreditCard size={20} />
-                  <span className="text-sm font-medium">{zh ? '截图位置：Agent 详情页' : 'Screenshot: Agent Detail Page'}</span>
+              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <div className="p-6 bg-gray-50">
+                  <MockCredentialPage />
                 </div>
-                <p className="text-xs text-gray-400">
-                  {zh ? '展示创建凭据按钮和密钥显示区域' : 'Shows create credential button and secret display area'}
-                </p>
+              </div>
+              <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
+                <CreditCard size={12} />
+                {zh ? 'Agent 详情页 — 点击「创建凭据」按钮' : 'Agent Detail Page — Click "Create Credential" button'}
               </div>
             </div>
           </div>
@@ -257,7 +411,7 @@ export const UsageGuide: React.FC = () => {
             </div>
             <div className="mt-6 text-center text-sm text-gray-600">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200">
-                <span>{zh ? '有效权限 = 凭据 ∩ 授权 ∩ 角色' : 'Effective = Credential ∩ Grant ∩ Role'}</span>
+                <span>{zh ? '有效权限 = 凭据 ∩ 授权 ∩ 角色' : 'Effective = Credential ∩ Grant  Role'}</span>
               </div>
             </div>
           </div>
@@ -323,28 +477,6 @@ export const UsageGuide: React.FC = () => {
               </h3>
               <p className="text-sm text-gray-600">
                 {zh ? 'WebSocket 实时同步编辑状态，结合版本历史安全恢复冲突。' : 'WebSocket real-time sync with version history for safe conflict recovery.'}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* MCP Integration */}
-        <section className="mb-16">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <GitBranch className="text-cyan-600" size={24} />
-            {zh ? 'MCP 集成' : 'MCP Integration'}
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <p className="text-sm text-gray-600 mb-4">
-              {zh ? 'AgentWiki 提供 MCP (Model Context Protocol) 服务器，让 Agent 通过标准协议访问知识库。在 Settings → Integrations 页面查看配置示例。' : 'AgentWiki provides an MCP (Model Context Protocol) server for Agents to access the knowledge base via standard protocol. See configuration examples in Settings → Integrations page.'}
-            </p>
-            <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-              <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                <Settings size={20} />
-                <span className="text-sm font-medium">{zh ? '截图位置：Settings → Integrations 页面' : 'Screenshot: Settings → Integrations Page'}</span>
-              </div>
-              <p className="text-xs text-gray-400">
-                {zh ? '展示 MCP 配置示例和可用工具列表' : 'Shows MCP configuration example and available tools list'}
               </p>
             </div>
           </div>
