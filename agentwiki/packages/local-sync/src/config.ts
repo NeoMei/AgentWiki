@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
@@ -93,10 +93,6 @@ async function writeJsonAtomically(path: string, value: unknown): Promise<void> 
   }
 }
 
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
-}
-
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
@@ -128,8 +124,9 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
   }
 
   const pathHash = createHash('sha256').update(sourcePath).digest('hex');
-  const keyPath = agentwikiPath(home, SOURCE_KEYS_DIRECTORY, pathHash);
-  await mkdir(dirname(keyPath), { recursive: true, mode: 0o700 });
+  const keyDirectory = agentwikiPath(home, SOURCE_KEYS_DIRECTORY);
+  const keyPath = join(keyDirectory, pathHash);
+  await mkdir(keyDirectory, { recursive: true, mode: 0o700 });
 
   try {
     const key = (await readFile(keyPath, 'utf8')).trim();
@@ -139,22 +136,22 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
   }
 
   const sourceKey = randomUUID();
+  const temporaryPath = join(keyDirectory, `.${pathHash}.${randomUUID()}.tmp`);
+  await writeFile(temporaryPath, `${sourceKey}\n`, { encoding: 'utf8', mode: 0o600 });
+
   try {
-    const handle = await open(keyPath, 'wx', 0o600);
-    try {
-      await handle.writeFile(`${sourceKey}\n`, 'utf8');
-    } finally {
-      await handle.close();
-    }
+    await link(temporaryPath, keyPath);
     return sourceKey;
-  } catch (error: any) {
-    if (error?.code !== 'EEXIST') throw error;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const key = (await readFile(keyPath, 'utf8')).trim();
-      if (key) return key;
-      await sleep(50);
+  } catch (error: unknown) {
+    if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST')) {
+      throw error;
     }
+
+    const key = (await readFile(keyPath, 'utf8')).trim();
+    if (key) return key;
     throw new Error('Source key file exists but is empty');
+  } finally {
+    await unlink(temporaryPath).catch(() => undefined);
   }
 }
 
