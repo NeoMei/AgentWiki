@@ -32,8 +32,11 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
 
   useEffect(() => {
     if (!result) return;
+    const expiry = Date.parse(result.expiresAt);
+    if (expiry <= Date.now()) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
+    const timeout = window.setTimeout(() => window.clearInterval(timer), Math.max(0, expiry - Date.now()));
+    return () => { window.clearInterval(timer); window.clearTimeout(timeout); };
   }, [result]);
 
   const generate = async () => {
@@ -49,7 +52,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
       setCopied(false);
       setNow(Date.now());
     } catch (requestError: any) {
-      setError(requestError.response?.data?.message || t('agent.localSync.failed'));
+      setError(t('agent.localSync.failed'));
     } finally {
       setGenerating(false);
     }
@@ -92,9 +95,13 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
             <button
               type="button"
               disabled={expired}
-              onClick={() => {
-                void navigator.clipboard.writeText(result.instructions);
-                setCopied(true);
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(result.instructions);
+                  setCopied(true);
+                } catch {
+                  setError(t('agent.localSync.failed'));
+                }
               }}
               className="flex h-9 items-center gap-1 rounded-lg border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
             >

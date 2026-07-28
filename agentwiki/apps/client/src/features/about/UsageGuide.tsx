@@ -38,8 +38,6 @@ export const UsageGuide: React.FC = () => {
         ? '在 Agent 详情页生成并复制完整接入指令。指令包含 10 分钟有效的一次性安装码，不会向提示词暴露永久 Key。'
         : 'Generate and copy the complete instruction on the Agent detail page. It contains a single-use installation code valid for 10 minutes, never a permanent key in the prompt.',
       tone: 'bg-purple-600',
-      screenshot: '/screenshots/local-sync-install.png',
-      alt: zh ? '本地同步接入指令' : 'Local sync connection instructions',
     },
     {
       title: zh ? '本地 Agent 自动安装并自检' : 'Let your local Agent install and run doctor',
@@ -47,17 +45,13 @@ export const UsageGuide: React.FC = () => {
         ? '将整段指令粘贴给任意具备本地工具能力的 Agent，它会完成连接与 doctor 自检。Codex、Claude Code、OpenCode 等都可使用同一流程；OpenCode 只是下面截图中的演示示例。'
         : 'Paste the complete instruction to any local Agent with tool access. It connects and runs doctor itself. Codex, Claude Code, OpenCode, and others follow the same flow; OpenCode is only the example shown in the screenshots.',
       tone: 'bg-green-600',
-      screenshot: '/screenshots/local-sync-doctor.png',
-      alt: zh ? '本地同步 doctor 自检结果' : 'Local sync doctor result',
     },
     {
       title: zh ? '扫描、预览并确认同步' : 'Scan, preview, and confirm sync',
       body: zh
-        ? '请 Agent 扫描代码或文档目录。它会说明使用的提供方，展示本地变更预览，并明确询问“是否同步到 AgentWiki？”。确认后，结果会进入发布或审核流程。'
-        : 'Ask the Agent to scan a code or document directory. It discloses the provider, shows a local change preview, and explicitly asks “Sync to AgentWiki?”. Once confirmed, the result enters publishing or review.',
+        ? '请 Agent 扫描代码或文档目录。它会说明使用的提供方，展示本地变更预览，并明确询问"是否同步到 AgentWiki？"。确认后，结果会进入发布或审核流程。'
+        : 'Ask the Agent to scan a code or document directory. It discloses the provider, shows a local change preview, and explicitly asks "Sync to AgentWiki?". Once confirmed, the result enters publishing or review.',
       tone: 'bg-amber-600',
-      screenshot: '/screenshots/local-sync-preview.png',
-      alt: zh ? '本地同步预览和确认' : 'Local sync preview and confirmation',
     },
   ];
 

@@ -34,7 +34,5 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByText(/OpenCode 只是下面截图中的演示示例/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '扫描、预览并确认同步' })).toBeInTheDocument();
     expect(screen.getByText(/是否同步到 AgentWiki/)).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: '本地同步接入指令' }))
-      .toHaveAttribute('src', '/screenshots/local-sync-install.png');
   });
 });

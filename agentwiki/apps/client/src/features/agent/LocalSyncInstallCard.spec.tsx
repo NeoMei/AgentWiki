@@ -91,7 +91,7 @@ describe('LocalSyncInstallCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法生成安装码');
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
 
   it('disables an expired instruction and offers regeneration', async () => {
