@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
@@ -6,6 +6,7 @@ import { SourceService } from './source.service';
 
 @Injectable()
 export class IngestQueue implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(IngestQueue.name);
   private timer?: NodeJS.Timeout;
   private active = 0;
   private ticking = false;
@@ -22,11 +23,19 @@ export class IngestQueue implements OnModuleInit, OnModuleDestroy {
     if (!this.workerEnabled) return;
     await this.sources.recoverInterruptedRuns();
     this.lastRecoveryAt = Date.now();
-    this.timer = setInterval(() => void this.tick(), Number(this.config.get('INGEST_QUEUE_POLL_MS') || 1_000));
-    void this.tick();
+    this.timer = setInterval(() => void this.safeTick(), Number(this.config.get('INGEST_QUEUE_POLL_MS') || 1_000));
+    void this.safeTick();
   }
 
-  enqueue() { if (this.workerEnabled) void this.tick(); }
+  enqueue() { if (this.workerEnabled) void this.safeTick(); }
+
+  private async safeTick() {
+    try {
+      await this.tick();
+    } catch (error) {
+      this.logger.error('Ingest queue tick failed', error instanceof Error ? error.stack || error.message : String(error));
+    }
+  }
 
   private async tick() {
     if (this.ticking || this.stopped) return;
@@ -59,7 +68,7 @@ export class IngestQueue implements OnModuleInit, OnModuleDestroy {
         this.active += 1;
         void this.sources.processRun(candidate.id, this.workerId).catch(() => undefined).finally(() => {
           this.active -= 1;
-          void this.tick();
+          void this.safeTick();
         });
       }
     } finally {
