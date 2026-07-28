@@ -13,6 +13,7 @@ describe('LocalSyncInstallationService', () => {
   const agents = {
     getOwned: jest.fn(),
     createCredential: jest.fn(),
+    revokeCredential: jest.fn(),
     normalizeCredentialScopes: jest.fn(),
   };
   const config = { get: jest.fn() };
@@ -43,6 +44,7 @@ describe('LocalSyncInstallationService', () => {
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
     agents.normalizeCredentialScopes.mockImplementation((scopes: string[]) => [...new Set(scopes)]);
     agents.createCredential.mockResolvedValue({ id: 'credential-1', apiKey: 'agk_secret' });
+    agents.revokeCredential.mockResolvedValue({ success: true });
     audit.record.mockResolvedValue(undefined);
     service = new LocalSyncInstallationService(redis as any, agents as any, config as any, audit as any);
   });
@@ -235,5 +237,32 @@ describe('LocalSyncInstallationService', () => {
       metadata: expect.objectContaining({ credentialId: 'credential-1' }),
     }));
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain('agk_secret');
+  });
+
+  it('revokes the created credential when installation audit recording fails', async () => {
+    redis.getDel.mockResolvedValue(JSON.stringify(payload));
+    audit.record.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1')).rejects.toThrow('audit unavailable');
+
+    expect(agents.revokeCredential).toHaveBeenCalledWith(
+      'owner-1',
+      'agent-1',
+      'credential-1',
+    );
+  });
+
+  it('rejects a server URL containing shell metacharacters before issuing a code', async () => {
+    await expect(service.create(
+      'owner-1',
+      'agent-1',
+      ['sources:read'],
+      '0.1.0',
+      'https://wiki.test/api;rm -rf /',
+    )).rejects.toMatchObject({
+      businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED',
+      message: 'Server URL contains unsafe characters',
+    });
+    expect(redis.setOnce).not.toHaveBeenCalled();
   });
 });

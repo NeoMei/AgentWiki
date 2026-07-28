@@ -54,6 +54,7 @@ export class LocalSyncInstallationService {
     const normalizedScopes = this.agents.normalizeCredentialScopes(scopes);
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
+    this.assertSafeServerUrl(canonicalServerUrl);
     const expiresAt = new Date(Date.now() + INSTALLATION_TTL_SECONDS * 1_000).toISOString();
 
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
@@ -141,18 +142,23 @@ export class LocalSyncInstallationService {
       scopes,
     });
 
-    await this.audit.record({
-      action: 'local-sync.installation.exchange',
-      outcome: 'success',
-      actorAgentId: payload.agentId,
-      ipAddress,
-      metadata: {
-        credentialId: credential.id,
-        installationId,
-        pluginVersion: payload.pluginVersion,
-        scopes,
-      },
-    });
+    try {
+      await this.audit.record({
+        action: 'local-sync.installation.exchange',
+        outcome: 'success',
+        actorAgentId: payload.agentId,
+        ipAddress,
+        metadata: {
+          credentialId: credential.id,
+          installationId,
+          pluginVersion: payload.pluginVersion,
+          scopes,
+        },
+      });
+    } catch (error) {
+      await this.agents.revokeCredential(payload.ownerId, payload.agentId, credential.id);
+      throw error;
+    }
 
     return {
       apiKey: credential.apiKey,
@@ -168,6 +174,30 @@ export class LocalSyncInstallationService {
     const supported = this.config.get<string>('LOCAL_SYNC_PACKAGE_VERSION');
     if (!supported || pluginVersion !== supported) {
       throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
+    }
+  }
+
+  private assertSafeServerUrl(serverUrl: string): void {
+    try {
+      const parsed = new URL(serverUrl);
+      const shellSafeUrlPart = /^[a-zA-Z0-9._~:/-]*$/;
+      if (
+        !['http:', 'https:'].includes(parsed.protocol)
+        || parsed.username
+        || parsed.password
+        || parsed.search
+        || parsed.hash
+        || !shellSafeUrlPart.test(parsed.hostname)
+        || !shellSafeUrlPart.test(parsed.pathname)
+        || !shellSafeUrlPart.test(parsed.port)
+      ) {
+        throw new Error('Unsafe server URL');
+      }
+    } catch {
+      throw new BusinessException(
+        'LOCAL_SYNC_VERSION_UNSUPPORTED',
+        'Server URL contains unsafe characters',
+      );
     }
   }
 
