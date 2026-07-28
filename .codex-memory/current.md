@@ -25,6 +25,7 @@
 - codebase-memory 规范项目名为 `agentwiki`，主产品 `agentwiki/` 已纳入 `codex/node26-compatibility` 版本控制；规范图为 1565 nodes / 3624 edges，`node_modules`、`dist`、`.stale-node-modules` 和参考仓库路径污染均为 0，Authorization/Review/Memory/Mcp 四项服务各发现 1 个定义。
 - 最终审查整改 `final-review-remediation` 已完成：后端安全（回滚版本条件、认证限流、审计持久化、Compose healthcheck、Redis ACL fail-closed）经独立复审 Approved；旧数据与凭据（PAT 前向清除、Memory 哈希 ASCII-only 规范化、13/13→17/17 桥接迁移、provenance 可信校验、Evidence 幂等身份）经独立复审 Approved；前端（编辑器草稿保护、Review 详情新鲜度、E2E 仅 loopback + 显式 opt-in、服务端乐观锁 `expectedUpdatedAt`）已落地。
 - 2026-07-27 最终门禁：服务端 21 suites/111 tests、客户端 8 files/37 tests、双端 tsc、Nest/Vite 构建、ESLint 0 error/0 warning（scripts 与 spec 已声明 Node globals）、真实 PostgreSQL 乐观锁往返（正确 token=1 / 过期=0）全部通过；迁移 17/17。
+- 2026-07-28 使用指南已补全为六步 Agent 接入流程，并通过真实 OpenCode 1.18.7 完成 MCP initialize、身份校验、`list_spaces`、`propose_page`、`list_pages`；演示页面以 `scoped-auto-publish` 正式发布，OpenCode 结果、页面来源与 MCP 活动记录均使用真实截图。重复接入时改用凭据专属 MCP 连接名并强制校验服务端 Agent 身份，避免误用旧连接；临时凭据已撤销且验证返回 401。客户端门禁为 19 files / 86 tests、ESLint、TypeScript/Vite 构建全部通过。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
