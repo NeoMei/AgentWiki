@@ -10,7 +10,7 @@
 
 ## 活跃任务
 
-- 无。
+- [local-knowledge-sync](active/local-knowledge-sync/brief.md)：本地扫描代码和文档、生成 OKF Wiki、确认后同步到 AgentWiki。
 
 ## 最近完成
 
