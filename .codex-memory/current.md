@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 最终整分支审查整改已于 2026-07-27 完成并通过终审；当前无活跃开发任务，可直接接收新任务。
+- 首页、使用指南与工作台的统一顶层导航已于 2026-07-28 完成实现和真实浏览器验收；当前进入最终发布收尾。
 
 # 范围 / 不做
 
@@ -26,6 +26,7 @@
 - 最终审查整改 `final-review-remediation` 已完成：后端安全（回滚版本条件、认证限流、审计持久化、Compose healthcheck、Redis ACL fail-closed）经独立复审 Approved；旧数据与凭据（PAT 前向清除、Memory 哈希 ASCII-only 规范化、13/13→17/17 桥接迁移、provenance 可信校验、Evidence 幂等身份）经独立复审 Approved；前端（编辑器草稿保护、Review 详情新鲜度、E2E 仅 loopback + 显式 opt-in、服务端乐观锁 `expectedUpdatedAt`）已落地。
 - 2026-07-27 最终门禁：服务端 21 suites/111 tests、客户端 8 files/37 tests、双端 tsc、Nest/Vite 构建、ESLint 0 error/0 warning（scripts 与 spec 已声明 Node globals）、真实 PostgreSQL 乐观锁往返（正确 token=1 / 过期=0）全部通过；迁移 17/17。
 - 2026-07-28 使用指南已补全为六步通用 Agent 接入流程，明确 AgentWiki 不绑定具体客户端，Codex、Claude Code、OpenCode 等本地 Agent 使用同一套服务端接入方式；OpenCode 1.18.7 仅作为真实演示，已完成 MCP initialize、身份校验、`list_spaces`、`propose_page`、`list_pages`。演示页面以 `scoped-auto-publish` 正式发布，OpenCode 结果、页面来源与 MCP 活动记录均使用真实截图。重复接入时改用凭据专属 MCP 连接名并强制校验服务端 Agent 身份，避免误用旧连接；临时凭据已撤销且验证返回 401。客户端门禁为 19 files / 86 tests、ESLint、TypeScript/Vite 构建全部通过。
+- 2026-07-28 首页、使用指南和工作台统一复用 `GlobalNavigation`：Logo 固定返回首页，三入口始终可达；未登录工作台入口携带 `intent=workspace` 返回登录卡片、自动聚焦邮箱并明确提示，已登录入口直达 `/dashboard`。桌面与 390x844 移动端真实浏览器验证无横向溢出、无控制台错误；已登录闭环 `工作台 → 使用指南 → 工作台 → 首页 → 工作台` 通过。客户端门禁为 23 files / 92 tests，ESLint、TypeScript、Vite 生产构建与 diff check 全部通过。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -36,6 +37,7 @@
 - 记忆只声明 episodic/semantic；private 仅目标 Agent，space 可由同 Space 授权 Agent 召回。
 - 远端发布必须先备份，再执行迁移和业务 smoke；应用保持直部署并由三个用户级 systemd 服务管理。
 - Markdown 编辑器不得恢复为并排双栏；编辑与预览使用同一工作区状态切换。界面新增用户可见文案时必须同时提供中文和英文，并保持语言选择持久化。
+- 首页 `/`、使用指南 `/guide`、工作台 `/dashboard` 必须共享一致的顶层导航；Logo 固定返回首页，未登录访问工作台必须使用明确的登录意图和提示，不能静默跳转。
 
 # 关键索引
 
@@ -53,7 +55,7 @@
 
 # 风险 / 下一步
 
-- 当前无活跃任务或代码缺陷阻塞。部署前需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
+- 当前统一导航任务仅剩推送远端和清理临时 worktree；无代码缺陷阻塞。部署前仍需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

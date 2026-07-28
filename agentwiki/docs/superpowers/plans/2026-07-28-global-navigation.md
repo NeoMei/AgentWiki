@@ -35,7 +35,7 @@
 - Produces: `GlobalNavigation({ density?: 'public' | 'workspace' }): JSX.Element`.
 - Produces translation keys: `nav.primary`, `nav.home`, `nav.dashboard`, and `auth.workspacePrompt`.
 
-- [ ] **Step 1: Add failing tests for destinations and active state**
+- [x] **Step 1: Add failing tests for destinations and active state**
 
 Create `GlobalNavigation.spec.tsx` with a mutable Auth mock and route harness:
 
@@ -84,7 +84,7 @@ describe('GlobalNavigation', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/components/GlobalNavigation.spec.tsx
@@ -92,7 +92,7 @@ pnpm --filter @agentwiki/client exec vitest run src/components/GlobalNavigation.
 
 Expected: FAIL because `GlobalNavigation.tsx` does not exist.
 
-- [ ] **Step 3: Add bilingual navigation messages**
+- [x] **Step 3: Add bilingual navigation messages**
 
 Add the following entries to both language maps in `messages.ts`:
 
@@ -110,7 +110,7 @@ Add the following entries to both language maps in `messages.ts`:
 'auth.workspacePrompt': '登录后进入工作台。',
 ```
 
-- [ ] **Step 4: Implement the shared component**
+- [x] **Step 4: Implement the shared component**
 
 Create `GlobalNavigation.tsx`:
 
@@ -156,7 +156,7 @@ export const GlobalNavigation: React.FC<GlobalNavigationProps> = ({ density = 'p
 };
 ```
 
-- [ ] **Step 5: Run the focused test and verify GREEN**
+- [x] **Step 5: Run the focused test and verify GREEN**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/components/GlobalNavigation.spec.tsx
@@ -164,7 +164,7 @@ pnpm --filter @agentwiki/client exec vitest run src/components/GlobalNavigation.
 
 Expected: 1 file and 2 tests pass.
 
-- [ ] **Step 6: Commit the shared component**
+- [x] **Step 6: Commit the shared component**
 
 ```bash
 git add agentwiki/apps/client/src/components/GlobalNavigation.tsx \
@@ -188,7 +188,7 @@ git commit -m "feat: add shared global navigation"
 - Produces: login target `/?intent=workspace#login` and login card anchor `id="login"`.
 - Produces: exported `ProtectedRoute({ children }): JSX.Element` for focused routing tests.
 
-- [ ] **Step 1: Add a failing ProductPage intent test**
+- [x] **Step 1: Add a failing ProductPage intent test**
 
 Create `ProductPage.spec.tsx`:
 
@@ -224,7 +224,7 @@ describe('ProductPage workspace intent', () => {
 });
 ```
 
-- [ ] **Step 2: Export and test `ProtectedRoute` redirect semantics**
+- [x] **Step 2: Export and test `ProtectedRoute` redirect semantics**
 
 Create `App.spec.tsx` with a hoisted token mock:
 
@@ -254,7 +254,7 @@ it('redirects signed-out protected routes to the workspace login intent', () => 
 });
 ```
 
-- [ ] **Step 3: Run both tests and verify RED**
+- [x] **Step 3: Run both tests and verify RED**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.spec.tsx src/App.spec.tsx
@@ -262,7 +262,7 @@ pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.s
 
 Expected: FAIL because the prompt/focus behavior is absent and `ProtectedRoute` is not exported with the new target.
 
-- [ ] **Step 4: Implement ProductPage intent behavior**
+- [x] **Step 4: Implement ProductPage intent behavior**
 
 Update imports and state in `ProductPage.tsx`:
 
@@ -297,7 +297,7 @@ Attach the anchor/ref and prompt to the signed-out card, and attach the input re
 <input ref={emailInputRef} type="email" ... />
 ```
 
-- [ ] **Step 5: Implement the protected redirect**
+- [x] **Step 5: Implement the protected redirect**
 
 Update `App.tsx`:
 
@@ -308,7 +308,7 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 ```
 
-- [ ] **Step 6: Run both tests and verify GREEN**
+- [x] **Step 6: Run both tests and verify GREEN**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.spec.tsx src/App.spec.tsx
@@ -316,7 +316,7 @@ pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.s
 
 Expected: 2 files and 2 tests pass.
 
-- [ ] **Step 7: Commit the intent flow**
+- [x] **Step 7: Commit the intent flow**
 
 ```bash
 git add agentwiki/apps/client/src/App.tsx \
@@ -342,7 +342,7 @@ git commit -m "feat: explain signed-out workspace redirects"
 - Consumes: `GlobalNavigation` from Task 1.
 - Produces: three headers with the same top-level routes and a home-bound AgentWiki Logo.
 
-- [ ] **Step 1: Add failing integration assertions**
+- [x] **Step 1: Add failing integration assertions**
 
 Extend `ProductPage.spec.tsx`:
 
@@ -399,7 +399,7 @@ describe('Navbar global destinations', () => {
 });
 ```
 
-- [ ] **Step 2: Run the three integration tests and verify RED**
+- [x] **Step 2: Run the three integration tests and verify RED**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.spec.tsx src/features/about/UsageGuide.spec.tsx src/components/Navbar.spec.tsx
@@ -407,7 +407,7 @@ pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.s
 
 Expected: FAIL because the three surfaces still own inconsistent navigation.
 
-- [ ] **Step 3: Integrate ProductPage and UsageGuide**
+- [x] **Step 3: Integrate ProductPage and UsageGuide**
 
 In both files import `GlobalNavigation`. Make each Logo a Link to `/`, then render:
 
@@ -420,7 +420,7 @@ In both files import `GlobalNavigation`. Make each Logo a Link to `/`, then rend
 
 Remove ProductPage's token-based Guide/Dashboard conditional and UsageGuide's standalone Back-to-home link. Keep the existing content and auth cards unchanged.
 
-- [ ] **Step 4: Integrate the authenticated Navbar**
+- [x] **Step 4: Integrate the authenticated Navbar**
 
 Use `GlobalNavigation density="workspace"` after an AgentWiki Logo link whose `to` is `/`. Keep only the contextual Agent and Review links beside it:
 
@@ -436,7 +436,7 @@ Use `GlobalNavigation density="workspace"` after an AgentWiki Logo link whose `t
 
 Delete the `/dashboard` Spaces link and remove Guide/About from the personal menu. Remove now-unused `FolderOpen`, `Info`, and `BookOpen` imports.
 
-- [ ] **Step 5: Run the integration tests and verify GREEN**
+- [x] **Step 5: Run the integration tests and verify GREEN**
 
 ```bash
 pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.spec.tsx src/features/about/UsageGuide.spec.tsx src/components/Navbar.spec.tsx
@@ -444,7 +444,7 @@ pnpm --filter @agentwiki/client exec vitest run src/features/about/ProductPage.s
 
 Expected: 3 files pass with no duplicate Home, Guide, or Workspace entry.
 
-- [ ] **Step 6: Commit the three-surface integration**
+- [x] **Step 6: Commit the three-surface integration**
 
 ```bash
 git add agentwiki/apps/client/src/components/Navbar.tsx \
@@ -468,7 +468,7 @@ git commit -m "feat: unify home guide and workspace navigation"
 - Consumes: the completed navigation implementation.
 - Produces: verified desktop/mobile navigation behavior and updated project handoff state.
 
-- [ ] **Step 1: Run the complete client quality gate under Node 26**
+- [x] **Step 1: Run the complete client quality gate under Node 26**
 
 ```bash
 pnpm --filter @agentwiki/client test
@@ -480,7 +480,7 @@ git diff --check
 
 Expected: all commands exit 0. Existing React Router future warnings and Vite chunk-size warnings may remain, but no test, lint, type, or build failure is allowed.
 
-- [ ] **Step 2: Verify signed-in desktop navigation with the Browser plugin**
+- [x] **Step 2: Verify signed-in desktop navigation with the Browser plugin**
 
 Use the existing authenticated local browser session at `http://localhost:5173` and execute:
 
@@ -492,7 +492,7 @@ Use the existing authenticated local browser session at `http://localhost:5173` 
 
 At every route verify: correct URL/title, meaningful DOM, one active global item, no framework overlay, and no relevant console error/warning.
 
-- [ ] **Step 3: Verify signed-out workspace intent**
+- [x] **Step 3: Verify signed-out workspace intent**
 
 Use a signed-out browser state and execute:
 
@@ -502,11 +502,11 @@ Use a signed-out browser state and execute:
 
 Verify the login card is in view, the email field is focused, and `登录后进入工作台。` is visible. Switch to English and verify `Sign in to enter the workspace.`.
 
-- [ ] **Step 4: Verify responsive navigation**
+- [x] **Step 4: Verify responsive navigation**
 
 At desktop and 390×844 mobile viewports verify Home, Guide, and Workspace remain operable without horizontal overflow, clipping, overlap, or duplicated destinations. Capture focused screenshots outside the repository.
 
-- [ ] **Step 5: Update project state and plan checkboxes**
+- [x] **Step 5: Update project state and plan checkboxes**
 
 Update `.codex-memory/current.md` with the final navigation rules and tested states. Mark all plan checkboxes complete after their evidence exists.
 
