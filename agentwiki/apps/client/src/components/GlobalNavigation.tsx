@@ -11,15 +11,16 @@ export interface GlobalNavigationProps {
 export const GlobalNavigation: React.FC<GlobalNavigationProps> = ({ density = 'public' }) => {
   const { token } = useAuth();
   const { t } = useLanguage();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const workspaceIntent = pathname === '/' && new URLSearchParams(search).get('intent') === 'workspace';
   const labelClass = density === 'workspace' ? 'hidden xl:inline' : 'hidden sm:inline';
   const items = [
-    { label: t('nav.home'), to: '/', active: pathname === '/', icon: Home },
+    { label: t('nav.home'), to: '/', active: pathname === '/' && !workspaceIntent, icon: Home },
     { label: t('nav.guide'), to: '/guide', active: pathname === '/guide', icon: BookOpen },
     {
       label: t('nav.dashboard'),
       to: token ? '/dashboard' : '/?intent=workspace#login',
-      active: pathname === '/dashboard',
+      active: pathname === '/dashboard' || workspaceIntent,
       icon: LayoutDashboard,
     },
   ];

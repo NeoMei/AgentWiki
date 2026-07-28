@@ -43,4 +43,11 @@ describe('GlobalNavigation', () => {
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/dashboard');
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('aria-current', 'page');
   });
+
+  it('keeps workspace active while a signed-out user is shown the login intent', () => {
+    renderNavigation('/?intent=workspace#login');
+
+    expect(screen.getByRole('link', { name: '首页' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('aria-current', 'page');
+  });
 });
