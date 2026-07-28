@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Bot, ArrowRight, Shield, Key,
   FileText, Network, Search, Users, CheckCircle2,
-  MousePointerClick, Settings, UserPlus, CreditCard,
-  Plus, MoreVertical
+  MousePointerClick, UserPlus
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -173,14 +172,12 @@ export const UsageGuide: React.FC = () => {
                   <p className="text-gray-600 mb-3">
                     {zh ? '在展开的权限面板中，勾选 Agent 需要的权限范围。不勾选则继承全局凭据的全部权限。' : 'In the expanded permissions panel, check the scopes the Agent needs. Leave unchecked to inherit all credential scopes.'}
                   </p>
-                  <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                    <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                      <Settings size={20} />
-                      <span className="text-sm font-medium">{zh ? '截图位置：权限配置面板' : 'Screenshot: Permission Configuration Panel'}</span>
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      {zh ? '展示权限复选框和预设角色按钮' : 'Shows permission checkboxes and preset role buttons'}
-                    </p>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                    <img 
+                      src="/screenshots/step3-permission-panel.png" 
+                      alt={zh ? '权限配置面板' : 'Permission Panel'}
+                      className="w-full h-auto"
+                    />
                   </div>
                 </div>
               </div>
@@ -199,14 +196,12 @@ export const UsageGuide: React.FC = () => {
                     <strong>{zh ? '重要：' : 'Important: '}</strong>
                     {zh ? '密钥只显示一次！请复制到安全的地方保存。丢失后无法找回，只能重新创建。' : 'The secret appears only once! Copy it to a safe place. It cannot be recovered if lost — you must create a new one.'}
                   </div>
-                  <div className="bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mt-4">
-                    <div className="inline-flex items-center gap-2 text-gray-500 mb-2">
-                      <CreditCard size={20} />
-                      <span className="text-sm font-medium">{zh ? '截图位置：Agent 详情页' : 'Screenshot: Agent Detail Page'}</span>
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      {zh ? '展示创建凭据按钮和密钥显示区域' : 'Shows create credential button and secret display area'}
-                    </p>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                    <img 
+                      src="/screenshots/step4-agent-detail.png" 
+                      alt={zh ? 'Agent 详情页' : 'Agent Detail Page'}
+                      className="w-full h-auto"
+                    />
                   </div>
                 </div>
               </div>
