@@ -178,6 +178,7 @@ model AgentCredential {
 model AgentGrant {
   id   String @id @default(cuid())
   role String @default("viewer")
+  scopes String[] @default([])
 
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String

@@ -23,4 +23,5 @@ export class CreateAgentCredentialDto {
 
 export class UpsertAgentGrantDto {
   @IsIn(['viewer', 'editor']) role: 'viewer' | 'editor';
+  @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(50, { each: true }) scopes?: string[];
 }

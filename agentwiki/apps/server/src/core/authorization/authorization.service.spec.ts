@@ -65,6 +65,51 @@ describe('AuthorizationService', () => {
       ),
     ).resolves.toMatchObject({ role: 'editor' });
   });
+
+  it('restricts agent to per-space grant scopes when set', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'editor',
+      scopes: ['pages:read'],
+      agent: { status: 'active', revokedAt: null },
+      space: { deletedAt: null },
+    });
+    // credential has pages:write but grant only allows pages:read → denied
+    await expect(
+      service.assertSpaceAccess(
+        { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:read', 'pages:write'] },
+        'space-1',
+        ['owner', 'editor'],
+        'pages:write',
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    // pages:read is within grant scopes → allowed
+    await expect(
+      service.assertSpaceAccess(
+        { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:read', 'pages:write'] },
+        'space-1',
+        ['owner', 'editor'],
+        'pages:read',
+      ),
+    ).resolves.toMatchObject({ role: 'editor' });
+  });
+
+  it('falls back to credential scope when grant scopes are empty', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'editor',
+      scopes: [],
+      agent: { status: 'active', revokedAt: null },
+      space: { deletedAt: null },
+    });
+    // empty grant scopes = inherit all credential scopes → pages:write allowed
+    await expect(
+      service.assertSpaceAccess(
+        { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] },
+        'space-1',
+        ['owner', 'editor'],
+        'pages:write',
+      ),
+    ).resolves.toMatchObject({ role: 'editor' });
+  });
 });
 
 describe('space discovery and self-describing errors', () => {

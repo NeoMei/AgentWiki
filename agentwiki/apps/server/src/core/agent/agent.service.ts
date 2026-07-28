@@ -129,21 +129,24 @@ export class AgentService {
     return { success: true };
   }
 
-  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor') {
+  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
     await this.getOwned(ownerId, agentId);
-    return this.upsertGrantForSpace(agentId, spaceId, role);
+    return this.upsertGrantForSpace(agentId, spaceId, role, scopes);
   }
 
   // Space-level grant management: the controller already verified the caller is
   // an owner/admin of this space, so we do not require agent ownership here.
-  async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor') {
+  async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
+    const createData = scopes !== undefined
+      ? { agentId, spaceId, role, scopes }
+      : { agentId, spaceId, role };
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
-      create: { agentId, spaceId, role },
-      update: { role },
+      create: createData,
+      update: scopes !== undefined ? { role, scopes } : { role },
       include: { space: { select: { id: true, name: true } } },
     });
-    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role });
+    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes });
     return grant;
   }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, X, Trash2, Shield, Loader2, Bot } from 'lucide-react';
+import { Users, Plus, X, Trash2, Shield, Loader2, Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ interface Member {
   id: string;
   role: string;
   type: 'human' | 'agent';
+  scopes?: string[];
   userId?: string;
   agentId?: string;
   user?: { id: string; email: string; name: string | null; type: string };
@@ -36,6 +37,7 @@ export const SpaceMembers: React.FC = () => {
   const [addForm, setAddForm] = useState({ email: '', role: 'viewer' });
   const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
 
   // Only owners and admins can manage members; admins cannot grant the owner role.
   const myRole = members.find((m) => m.type === 'human' && m.userId === user?.id)?.role;
@@ -136,6 +138,44 @@ export const SpaceMembers: React.FC = () => {
     }
   };
 
+  const ALL_SCOPES = [
+    { value: 'pages:read', label: '读页面' },
+    { value: 'pages:write', label: '写页面' },
+    { value: 'sources:read', label: '读代码源' },
+    { value: 'sources:write', label: '写代码源' },
+    { value: 'runs:read', label: '读扫描' },
+    { value: 'runs:write', label: '写扫描' },
+    { value: 'review:read', label: '读审核' },
+    { value: 'review:auto-publish', label: '直接发布' },
+    { value: 'memory:read', label: '读记忆' },
+    { value: 'memory:write', label: '写记忆' },
+    { value: 'graph:read', label: '读图谱' },
+    { value: 'graph:write', label: '写图谱' },
+  ];
+
+  const toggleScopes = (agentId: string) => {
+    setExpandedScopes(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) next.delete(agentId);
+      else next.add(agentId);
+      return next;
+    });
+  };
+
+  const handleScopeToggle = async (agentId: string, currentScopes: string[], scope: string, currentRole: string) => {
+    const has = currentScopes.includes(scope);
+    const newScopes = has ? currentScopes.filter(s => s !== scope) : [...currentScopes, scope];
+    setUpdatingId(agentId);
+    try {
+      await api.put('/agents/' + agentId + '/grants/' + id, { role: currentRole, scopes: newScopes });
+      await fetchMembers();
+    } catch {
+      setError(zh ? '权限更新失败' : 'Failed to update scopes');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   if (loading)
     return (
       <div className="flex items-center justify-center py-8 text-gray-500">
@@ -183,7 +223,8 @@ export const SpaceMembers: React.FC = () => {
             const roleCfg = ROLE_LABELS[m.role] || ROLE_LABELS.viewer;
             if (m.type === 'agent') {
               return (
-                <div key={m.id} className="flex items-center gap-3 p-4" data-testid={`member-agent-${m.agentId}`}>
+                <div key={m.id} data-testid={`member-agent-${m.agentId}`}>
+                <div className="flex items-center gap-3 p-4">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white font-medium flex-shrink-0">
                     <Bot size={18} />
                   </div>
@@ -191,10 +232,25 @@ export const SpaceMembers: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">{m.agent?.name}</span>
                       <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{zh ? '智能体' : 'Agent'}</span>
+                      {m.scopes && m.scopes.length > 0 ? (
+                        <span className="text-xs text-gray-400">{m.scopes.length} {zh ? '个权限' : 'scopes'}</span>
+                      ) : null}
                     </div>
-                    <p className="text-sm text-gray-500 truncate">{zh ? '通过 Agent 授权接入' : 'Connected via agent grant'}</p>
+                    <p className="text-sm text-gray-500 truncate">
+                      {zh ? '通过 Agent 授权接入' : 'Connected via agent grant'}
+                      {m.scopes && m.scopes.length === 0 ? (zh ? ' · 权限受全局凭据控制' : ' · scopes follow global credential') : null}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {!canManage ? null : (
+                      <button
+                        onClick={() => toggleScopes(m.agentId!)}
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded"
+                        title={zh ? '管理权限' : 'Manage scopes'}
+                      >
+                        {expandedScopes.has(m.agentId!) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+                    )}
                     {!canManage ? (
                       <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
                         {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
@@ -221,6 +277,36 @@ export const SpaceMembers: React.FC = () => {
                       </>
                     )}
                   </div>
+                </div>
+                {canManage && expandedScopes.has(m.agentId!) ? (
+                  <div className="px-4 pb-4 pl-17 ml-13">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <p className="text-xs font-medium text-gray-500 mb-2">
+                        {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {ALL_SCOPES.map(s => {
+                          const checked = (m.scopes || []).includes(s.value);
+                          return (
+                            <label key={s.value} className={`flex items-center gap-1 px-2 py-1 rounded border text-xs cursor-pointer transition-colors ${checked ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={updatingId === m.agentId}
+                                onChange={() => handleScopeToggle(m.agentId!, m.scopes || [], s.value, m.role)}
+                                className="w-3 h-3"
+                              />
+                              {(zh ? s.label : s.value)}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">
+                        {zh ? '不选则继承全局凭据全部权限；选中后只保留选中的权限。' : 'Leave empty to inherit all credential scopes; selecting restricts to checked scopes only.'}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 </div>
               );
             }

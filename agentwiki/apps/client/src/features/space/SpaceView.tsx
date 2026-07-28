@@ -62,8 +62,6 @@ export const applyMove = (
   if (position === 'into') {
     const target = findNode(nodes, targetId);
     if (target) target.children = siblings;
-  } else {
-    dragNode.children = dragNode.children;
   }
 
   // flatten in order, assigning sequential sortOrder per sibling group

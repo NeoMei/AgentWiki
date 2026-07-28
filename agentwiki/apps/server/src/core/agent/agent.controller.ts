@@ -70,7 +70,7 @@ export class AgentController {
     // Space owner/admin manages grants for any agent in their space, regardless
     // of who owns the agent (the controller already enforced the space role).
     await this.authorization.assertSpaceAccess(ownerId, spaceId, ['owner', 'admin']);
-    return this.agents.upsertGrantForSpace(id, spaceId, dto.role);
+    return this.agents.upsertGrantForSpace(id, spaceId, dto.role, dto.scopes);
   }
 
   @Delete(':id/grants/:spaceId')
