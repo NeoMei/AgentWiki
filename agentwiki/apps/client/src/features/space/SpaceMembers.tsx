@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, X, Trash2, Shield, Loader2, Bot, ChevronDown, ChevronRight } from 'lucide-react';
+import { Users, Plus, X, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare, Square } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -165,6 +165,17 @@ export const SpaceMembers: React.FC = () => {
   const handleScopeToggle = async (agentId: string, currentScopes: string[], scope: string, currentRole: string) => {
     const has = currentScopes.includes(scope);
     const newScopes = has ? currentScopes.filter(s => s !== scope) : [...currentScopes, scope];
+    await handleScopeUpdate(agentId, newScopes, currentRole);
+  };
+
+  const handleAllScopes = async (agentId: string, currentScopes: string[], currentRole: string) => {
+    const allScopeValues = ALL_SCOPES.map(s => s.value);
+    const allSelected = allScopeValues.every(v => currentScopes.includes(v));
+    const newScopes = allSelected ? [] : allScopeValues;
+    await handleScopeUpdate(agentId, newScopes, currentRole);
+  };
+
+  const handleScopeUpdate = async (agentId: string, newScopes: string[], currentRole: string) => {
     setUpdatingId(agentId);
     try {
       await api.put('/agents/' + agentId + '/grants/' + id, { role: currentRole, scopes: newScopes });
@@ -245,10 +256,10 @@ export const SpaceMembers: React.FC = () => {
                     {!canManage ? null : (
                       <button
                         onClick={() => toggleScopes(m.agentId!)}
-                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded"
-                        title={zh ? '管理权限' : 'Manage scopes'}
+                        className={`p-1.5 rounded transition-colors ${expandedScopes.has(m.agentId!) ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+                        title={zh ? '权限设置' : 'Scope settings'}
                       >
-                        {expandedScopes.has(m.agentId!) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        {expandedScopes.has(m.agentId!) ? <ShieldCheck size={16} /> : <Shield size={16} />}
                       </button>
                     )}
                     {!canManage ? (
@@ -281,9 +292,22 @@ export const SpaceMembers: React.FC = () => {
                 {canManage && expandedScopes.has(m.agentId!) ? (
                   <div className="px-4 pb-4 pl-17 ml-13">
                     <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                      <p className="text-xs font-medium text-gray-500 mb-2">
-                        {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-medium text-gray-500">
+                          {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
+                        </p>
+                        <button
+                          onClick={() => handleAllScopes(m.agentId!, m.scopes || [], m.role)}
+                          disabled={updatingId === m.agentId}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                        >
+                          {ALL_SCOPES.every(s => (m.scopes || []).includes(s.value)) ? (
+                            <><Square size={13} />{zh ? '取消全选' : 'Deselect all'}</>
+                          ) : (
+                            <><CheckSquare size={13} />{zh ? '全选' : 'Select all'}</>
+                          )}
+                        </button>
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         {ALL_SCOPES.map(s => {
                           const checked = (m.scopes || []).includes(s.value);
