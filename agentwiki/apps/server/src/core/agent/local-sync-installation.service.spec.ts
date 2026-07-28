@@ -254,23 +254,15 @@ describe('LocalSyncInstallationService', () => {
     );
   });
 
-  it('cleans up a recently created credential when credential creation audit fails', async () => {
+  it('does not revoke a credential when creation fails before persistence', async () => {
     redis.getDel.mockResolvedValue(JSON.stringify(payload));
-    agents.createCredential.mockRejectedValue(new Error('credential audit unavailable'));
-    agents.listCredentials.mockResolvedValue([{
-      id: 'credential-created-before-audit-failure',
-      createdAt: new Date('2030-01-01T00:00:00.000Z'),
-    }]);
+    agents.createCredential.mockRejectedValue(new Error('credential constraint violation'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
-      .rejects.toThrow('credential audit unavailable');
+      .rejects.toThrow('credential constraint violation');
 
-    expect(agents.listCredentials).toHaveBeenCalledWith('owner-1', 'agent-1');
-    expect(agents.revokeCredential).toHaveBeenCalledWith(
-      'owner-1',
-      'agent-1',
-      'credential-created-before-audit-failure',
-    );
+    expect(agents.listCredentials).not.toHaveBeenCalled();
+    expect(agents.revokeCredential).not.toHaveBeenCalled();
   });
 
   it('rejects a server URL containing shell metacharacters before issuing a code', async () => {

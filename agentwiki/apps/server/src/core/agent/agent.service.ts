@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
@@ -11,6 +11,8 @@ const VALID_SCOPES = new Set([
 
 @Injectable()
 export class AgentService {
+  private readonly logger = new Logger(AgentService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(ownerId: string, dto: CreateAgentDto) {
@@ -99,7 +101,11 @@ export class AgentService {
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
-    await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    try {
+      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    } catch (error) {
+      this.logger.warn(`Credential ${credential.id} was persisted but its audit event failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return { ...credential, apiKey: rawKey };
   }
 

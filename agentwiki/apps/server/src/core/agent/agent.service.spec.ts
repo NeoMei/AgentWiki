@@ -47,6 +47,33 @@ describe('AgentService grant scope validation', () => {
     }));
   });
 
+  it('returns the persisted credential when its audit write fails', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ownerId: 'owner-1',
+      status: 'active',
+      revokedAt: null,
+    });
+    prisma.agentCredential.create.mockResolvedValue({
+      id: 'credential-1',
+      name: 'Sync',
+      prefix: 'agk_prefix',
+      scopes: ['sources:read'],
+      expiresAt: null,
+      lastUsedAt: null,
+      createdAt: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    prisma.agentAuditEvent.create.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(service.createCredential('owner-1', 'agent-1', {
+      name: 'Sync',
+      scopes: ['sources:read'],
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'credential-1',
+      apiKey: expect.stringMatching(/^agk_/),
+    }));
+  });
+
   it('rejects invalid grant scopes before persisting the grant', async () => {
     await expect(service.upsertGrantForSpace(
       'agent-1',
