@@ -485,9 +485,13 @@ async function convertDocuments(
   run: CommandRunner,
   skippedFiles: PreparedKnowledge['skippedFiles'],
 ): Promise<void> {
+  const conversionDir = join(staging, '_converted');
+  await mkdir(conversionDir, { recursive: true, mode: 0o700 });
   for (const document of documents) {
     try {
-      await runChecked(run, 'markitdown', [document.inputPath, '-o', `${document.inputPath}.md`], {
+      const outputPath = join(conversionDir, `${document.relativePath}.md`);
+      await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
+      await runChecked(run, 'markitdown', [document.inputPath, '-o', outputPath], {
         cwd: staging,
         env: markItDownEnvironment(),
       });

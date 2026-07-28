@@ -215,21 +215,25 @@ describe('local knowledge preparation', () => {
     const { home, source } = await fixture();
     await writeFile(join(source, 'guide.md'), '# Original Markdown\n');
     await writeFile(join(source, 'guide.pdf'), 'PDF fixture');
+    await writeFile(join(source, 'guide.pdf.md'), '# Pre-existing PDF Markdown\n');
     const run = vi.fn<CommandRunner>(async (command, args, options) => {
       if (command === 'markitdown') {
+        expect(args[2]).toContain('_converted');
         expect(args[2]).toMatch(/guide\.pdf\.md$/u);
         await writeFile(args[2], '# Converted PDF\n');
       }
       if (command === 'openwiki') {
         if (typeof options?.cwd !== 'string') throw new Error('OpenWiki staging directory is required');
         expect(await readFile(join(options.cwd, 'guide.md'), 'utf8')).toBe('# Original Markdown\n');
+        expect(await readFile(join(options.cwd, 'guide.pdf.md'), 'utf8')).toBe('# Pre-existing PDF Markdown\n');
         await mkdir(join(options.cwd, 'openwiki'), { recursive: true });
         await writeFile(join(options.cwd, 'openwiki', 'generated.md'), '# Generated\n');
       }
       return commandResult();
     });
 
-    await prepareKnowledgeSync({ path: source, allowRemoteModel: true }, dependencies(home, run));
+    const prepared = await prepareKnowledgeSync({ path: source, allowRemoteModel: true }, dependencies(home, run));
+    expect(prepared.skippedFiles.find((f) => f.path === 'guide.pdf' || f.path === 'guide.pdf.md')).toBeUndefined();
   });
 
   it('enforces configured staging file-count and total-size limits', async () => {
