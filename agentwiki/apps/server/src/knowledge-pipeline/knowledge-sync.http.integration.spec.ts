@@ -148,14 +148,14 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     const headers = { 'idempotency-key': 'stable-key', 'x-agentwiki-user-confirmed': 'true' };
     syncs.createSync
       .mockResolvedValueOnce({ status: 'queued', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-original' })
-      .mockResolvedValueOnce({ status: 'noop', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-original' });
+      .mockResolvedValueOnce({ status: 'existing', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-original' });
     const first = await upload('agk_editor', headers);
     const second = await upload('agk_editor', headers);
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     await expect(first.json()).resolves.toMatchObject({ runId: 'run-original' });
-    await expect(second.json()).resolves.toMatchObject({ runId: 'run-original' });
+    await expect(second.json()).resolves.toMatchObject({ status: 'existing', runId: 'run-original' });
     expect(syncs.createSync).toHaveBeenCalledTimes(2);
     expect(queue.enqueue).toHaveBeenCalledTimes(1);
   });

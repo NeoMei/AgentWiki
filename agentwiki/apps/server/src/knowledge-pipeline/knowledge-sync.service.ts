@@ -19,7 +19,7 @@ export interface KnowledgeSyncState {
 }
 
 export interface KnowledgeSyncResult {
-  status: 'queued' | 'noop';
+  status: 'queued' | 'noop' | 'existing';
   sourceId: string;
   sourceVersionId: string;
   runId: string | null;
@@ -147,7 +147,7 @@ export class KnowledgeSyncService {
       select: { id: true, inputSourceVersionId: true },
     });
     if (idempotentRun?.inputSourceVersionId) {
-      return { status: 'queued', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
+      return { status: 'existing', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
     }
 
     let version = await tx.sourceVersion.findFirst({
@@ -164,7 +164,7 @@ export class KnowledgeSyncService {
         if (FINISHED_RUN_STATUSES.includes(latestRun.status)) {
           return { status: 'noop', sourceId: source.id, sourceVersionId: version.id, runId: null };
         }
-        return { status: 'queued', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
+        return { status: 'existing', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
       }
     } else {
       const latestVersion = await tx.sourceVersion.findFirst({
@@ -224,7 +224,7 @@ export class KnowledgeSyncService {
       select: { id: true, inputSourceVersionId: true },
     });
     if (idempotentRun?.inputSourceVersionId) {
-      return { status: 'queued', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
+      return { status: 'existing', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
     }
 
     const version = await this.prisma.sourceVersion.findFirst({
@@ -242,7 +242,7 @@ export class KnowledgeSyncService {
       return { status: 'noop', sourceId: source.id, sourceVersionId: version.id, runId: null };
     }
     if (!RETRYABLE_SYNC_RUN_STATUSES.includes(latestRun.status)) {
-      return { status: 'queued', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
+      return { status: 'existing', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
     }
     return undefined;
   }

@@ -81,7 +81,7 @@ describe('KnowledgeSyncService', () => {
     prisma.ingestRun.findUnique.mockResolvedValue({ id: 'run-1', sourceId: 'source-1', inputSourceVersionId: 'version-1' });
 
     await expect(service.createSync('space-1', agentPrincipal, okfBuffer, 'request-1', true))
-      .resolves.toMatchObject({ status: 'queued', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-1' });
+      .resolves.toMatchObject({ status: 'existing', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-1' });
 
     expect(prisma.sourceVersion.create).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe('KnowledgeSyncService', () => {
     prisma.ingestRun.findFirst.mockResolvedValueOnce({ id: 'run-active', status: 'extracting', inputSourceVersionId: 'version-1' });
 
     await expect(service.createSync('space-1', agentPrincipal, okfBuffer, 'request-2', true))
-      .resolves.toMatchObject({ status: 'queued', runId: 'run-active' });
+      .resolves.toMatchObject({ status: 'existing', runId: 'run-active' });
 
     prisma.ingestRun.findFirst.mockResolvedValueOnce({ id: 'run-failed', status: 'failed', inputSourceVersionId: 'version-1' });
     await service.createSync('space-1', agentPrincipal, okfBuffer, 'request-3', true);
