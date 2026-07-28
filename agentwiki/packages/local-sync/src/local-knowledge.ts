@@ -11,14 +11,17 @@ import {
   rm,
   stat,
 } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { getOrCreateSourceKey } from './config.js';
 
-const MAX_INPUT_FILES = 10_000;
-const MAX_INPUT_BYTES = 100 * 1024 * 1024;
-const MAX_INPUT_FILE_BYTES = 1024 * 1024;
+const DEFAULT_STAGING_LIMITS = {
+  maxInputFiles: 10_000,
+  maxInputBytes: 100 * 1024 * 1024,
+  maxInputFileBytes: 1024 * 1024,
+};
 const MAX_DOCUMENTS = 500;
 const MAX_ENVELOPE_BYTES = 10 * 1024 * 1024;
 const MAX_ARCHITECTURE_BYTES = 50 * 1024;
@@ -98,6 +101,13 @@ export interface LocalKnowledgeDeps {
   home: string;
   run: CommandRunner;
   now: () => Date;
+  limits?: Partial<StagingLimits>;
+}
+
+export interface StagingLimits {
+  maxInputFiles: number;
+  maxInputBytes: number;
+  maxInputFileBytes: number;
 }
 
 export interface KnowledgeSyncStateLike {
@@ -120,6 +130,11 @@ interface SourceCounts {
   code: number;
   documents: number;
   unsupported: number;
+}
+
+interface ConvertibleDocument {
+  inputPath: string;
+  relativePath: string;
 }
 
 /**
@@ -183,14 +198,16 @@ export async function prepareKnowledgeSync(input: PrepareInput, deps?: LocalKnow
 
   const root = await resolveRoot(input.path);
   const files = await sourceFilesForStaging(root, dependencies.run);
+  const stagingLimits = { ...DEFAULT_STAGING_LIMITS, ...dependencies.limits };
   const counts = classifyFiles(files);
   const skippedFiles: PreparedKnowledge['skippedFiles'] = [];
   const sourceKey = await getOrCreateSourceKey(dependencies.home, root);
   const staging = await mkdtemp(join(tmpdir(), 'agentwiki-local-sync-'));
 
   try {
-    const staged = await stageFiles(root, files, staging, skippedFiles);
-    await convertDocuments(staged.convertible, staging, dependencies.run);
+    const staged = await stageFiles(root, files, staging, skippedFiles, stagingLimits);
+    await convertDocuments(staged.convertible, staging, dependencies.run, skippedFiles);
+    await initializeStagingGitRepository(staging, dependencies.run);
     await runChecked(dependencies.run, 'openwiki', ['code', '--update', '--print'], {
       cwd: staging,
       env: { ...process.env, ...(await loadProviderEnvironment(dependencies.home)), DO_NOT_TRACK: '1' },
@@ -333,7 +350,10 @@ function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
     const host = new URL(value).hostname.toLowerCase();
-    return host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.');
+    const ipAddress = host.replace(/^\[|\]$/gu, '');
+    return host === 'localhost'
+      || (isIP(ipAddress) === 4 && ipAddress.split('.')[0] === '127')
+      || (isIP(ipAddress) === 6 && ipAddress === '::1');
   } catch {
     return false;
   }
@@ -410,8 +430,9 @@ async function stageFiles(
   files: SourceFile[],
   staging: string,
   skippedFiles: PreparedKnowledge['skippedFiles'],
-): Promise<{ convertible: string[] }> {
-  const convertible: string[] = [];
+  limits: StagingLimits,
+): Promise<{ convertible: ConvertibleDocument[] }> {
+  const convertible: ConvertibleDocument[] = [];
   let stagedCount = 0;
   let stagedBytes = 0;
   for (const file of files) {
@@ -423,15 +444,15 @@ async function stageFiles(
     try {
       const filePath = await safeSourcePath(root, file);
       const details = await stat(filePath);
-      if (details.size > MAX_INPUT_FILE_BYTES) {
+      if (details.size > limits.maxInputFileBytes) {
         skippedFiles.push({ path: file.relativePath, reason: 'File exceeds 1 MiB limit' });
         continue;
       }
-      if (stagedCount >= MAX_INPUT_FILES) {
+      if (stagedCount >= limits.maxInputFiles) {
         skippedFiles.push({ path: file.relativePath, reason: 'Staging file limit of 10,000 reached' });
         continue;
       }
-      if (stagedBytes + details.size > MAX_INPUT_BYTES) {
+      if (stagedBytes + details.size > limits.maxInputBytes) {
         skippedFiles.push({ path: file.relativePath, reason: 'Staging size limit of 100 MiB reached' });
         continue;
       }
@@ -440,7 +461,9 @@ async function stageFiles(
       await copyFile(filePath, destination);
       stagedCount += 1;
       stagedBytes += details.size;
-      if (CONVERTIBLE_DOCUMENT_EXTENSIONS.has(extension)) convertible.push(destination);
+      if (CONVERTIBLE_DOCUMENT_EXTENSIONS.has(extension)) {
+        convertible.push({ inputPath: destination, relativePath: file.relativePath });
+      }
     } catch (error: unknown) {
       skippedFiles.push({ path: file.relativePath, reason: errorMessage(error) });
     }
@@ -456,14 +479,32 @@ async function safeSourcePath(root: string, file: SourceFile): Promise<string> {
   return target;
 }
 
-async function convertDocuments(paths: string[], staging: string, run: CommandRunner): Promise<void> {
-  for (const inputPath of paths) {
-    const outputPath = `${inputPath.slice(0, inputPath.lastIndexOf('.'))}.md`;
-    await runChecked(run, 'markitdown', [inputPath, '-o', outputPath], {
-      cwd: staging,
-      env: markItDownEnvironment(),
-    });
+async function convertDocuments(
+  documents: ConvertibleDocument[],
+  staging: string,
+  run: CommandRunner,
+  skippedFiles: PreparedKnowledge['skippedFiles'],
+): Promise<void> {
+  for (const document of documents) {
+    try {
+      await runChecked(run, 'markitdown', [document.inputPath, '-o', `${document.inputPath}.md`], {
+        cwd: staging,
+        env: markItDownEnvironment(),
+      });
+    } catch (error: unknown) {
+      skippedFiles.push({ path: document.relativePath, reason: errorMessage(error) });
+    }
   }
+}
+
+async function initializeStagingGitRepository(staging: string, run: CommandRunner): Promise<void> {
+  try {
+    await lstat(join(staging, '.git'));
+    return;
+  } catch (error: unknown) {
+    if (!isNotFound(error)) throw error;
+  }
+  await runChecked(run, 'git', ['init'], { cwd: staging, stdio: 'pipe' });
 }
 
 function markItDownEnvironment(): NodeJS.ProcessEnv {
