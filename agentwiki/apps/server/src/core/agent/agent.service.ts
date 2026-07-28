@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
@@ -11,6 +11,8 @@ const VALID_SCOPES = new Set([
 
 @Injectable()
 export class AgentService {
+  private readonly logger = new Logger(AgentService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(ownerId: string, dto: CreateAgentDto) {
@@ -83,10 +85,7 @@ export class AgentService {
   async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = Array.from(new Set(dto.scopes));
-    if (scopes.length === 0 || scopes.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
+    const scopes = this.normalizeCredentialScopes(dto.scopes);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
     const credential = await this.prisma.agentCredential.create({
       data: {
@@ -102,8 +101,20 @@ export class AgentService {
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
-    await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    try {
+      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    } catch (error) {
+      this.logger.warn(`Credential ${credential.id} was persisted but its audit event failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return { ...credential, apiKey: rawKey };
+  }
+
+  normalizeCredentialScopes(scopes: string[]): string[] {
+    const normalized = Array.from(new Set(scopes));
+    if (normalized.length === 0 || normalized.some((scope) => !VALID_SCOPES.has(scope))) {
+      throw new BadRequestException('Credential contains an invalid or empty scope list');
+    }
+    return normalized;
   }
 
   async listCredentials(ownerId: string, agentId: string) {

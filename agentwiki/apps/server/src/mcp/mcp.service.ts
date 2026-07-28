@@ -7,6 +7,7 @@ import { PageService } from '../core/page/page.service';
 import { SearchService } from '../core/search/search.service';
 import { SpaceService } from '../core/space/space.service';
 import { SourceService } from '../knowledge-pipeline/source.service';
+import { KnowledgeSyncService } from '../knowledge-pipeline/knowledge-sync.service';
 import { ReviewService } from '../review/review.service';
 import { MemoryService } from '../memory/memory.service';
 import { IngestQueue } from '../knowledge-pipeline/ingest.queue';
@@ -34,6 +35,7 @@ export class McpService {
     private ingestQueue: IngestQueue,
     private audit: AuditService,
     private prisma: PrismaService,
+    private syncs: KnowledgeSyncService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -122,6 +124,17 @@ export class McpService {
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
       return this.text(await this.sources.list(spaceId));
+    });
+    registerTool('get_knowledge_sync_state', {
+      description: 'Return path and content hashes from the last confirmed local knowledge sync. No page content is returned.',
+      inputSchema: {
+        spaceId: z.string().describe(SPACE_ID),
+        sourceKey: z.string().min(1).max(128),
+      },
+    }, async ({ spaceId, sourceKey }: { spaceId: string; sourceKey: string }) => {
+      await this.authorization.assertSpaceAccess(principal, spaceId,
+        ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
+      return this.text(await this.syncs.getState(spaceId, sourceKey));
     });
     registerTool('start_source_run', {
       description: 'Start ingestion for an existing source.',

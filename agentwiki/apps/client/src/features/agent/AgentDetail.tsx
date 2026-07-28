@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Check, Copy, KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import api from '../../api/client';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
+import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useLanguage } from '../../context/LanguageContext';
 import { buildAgentConnectInstructions } from './connectInstructions';
 
@@ -122,6 +123,8 @@ export const AgentDetail: React.FC = () => {
               ))}
             </div>
           </section>
+
+          <LocalSyncInstallCard agentId={agent.id} />
 
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><KeyRound size={18} /> {t('agent.credentials')}</h2>
