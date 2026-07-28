@@ -29,9 +29,9 @@ const RouteLoading: React.FC = () => {
   return <div className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
 };
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token } = useAuth();
-  return token ? <>{children}</> : <Navigate to="/" />;
+  return token ? <>{children}</> : <Navigate to="/?intent=workspace#login" replace />;
 };
 
 const AppRoutes: React.FC = () => {

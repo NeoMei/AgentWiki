@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -21,7 +21,10 @@ export const ProductPage: React.FC = () => {
   const { token, login } = useAuth();
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
+  const location = useLocation();
   const navigate = useNavigate();
+  const loginCardRef = useRef<HTMLDivElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,6 +33,13 @@ export const ProductPage: React.FC = () => {
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const workspaceIntent = new URLSearchParams(location.search).get('intent') === 'workspace';
+
+  useEffect(() => {
+    if (!workspaceIntent || token) return;
+    loginCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    emailInputRef.current?.focus({ preventScroll: true });
+  }, [token, workspaceIntent]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,7 +167,12 @@ export const ProductPage: React.FC = () => {
 
             {/* Right: Auth Card */}
             {!token ? (
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8">
+              <div id="login" ref={loginCardRef} className="bg-white rounded-xl shadow-lg border border-gray-200 p-8">
+                {workspaceIntent ? (
+                  <div role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-center text-sm text-blue-700">
+                    {t('auth.workspacePrompt')}
+                  </div>
+                ) : null}
                 {/* Tab Switcher */}
                 <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6">
                   <button
@@ -195,6 +210,7 @@ export const ProductPage: React.FC = () => {
                   )}
                   <div>
                     <input
+                      ref={emailInputRef}
                       type="email"
                       placeholder={t('common.email')}
                       value={email}
