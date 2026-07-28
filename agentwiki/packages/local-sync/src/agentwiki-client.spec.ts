@@ -96,4 +96,20 @@ describe('AgentWikiClient', () => {
         message: expect.not.stringContaining('agk_'),
       });
   });
+
+  it('redacts API keys when reading a response body throws', async () => {
+    const response = {
+      ok: true,
+      status: 200,
+      text: vi.fn().mockRejectedValue(new Error('response stream failed for agk_response_secret')),
+    } as unknown as Response;
+    const request = vi.fn().mockResolvedValue(response);
+
+    await expect(new AgentWikiClient(request as typeof fetch).access(connection, 'agk_client_secret'))
+      .rejects.toMatchObject({
+        code: 'RESPONSE_BODY_ERROR',
+        status: 200,
+        message: expect.not.stringContaining('agk_'),
+      });
+  });
 });

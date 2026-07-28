@@ -156,7 +156,13 @@ export class AgentWikiClient {
       throw new AgentWikiClientError(message, 0, 'NETWORK_ERROR');
     }
 
-    const body = await responseBody(response);
+    let body: unknown;
+    try {
+      body = await responseBody(response);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AgentWikiClientError(message, response.status, 'RESPONSE_BODY_ERROR');
+    }
     if (!response.ok) {
       const { code, message } = errorDetails(body, response.status);
       throw new AgentWikiClientError(message, response.status, code);
