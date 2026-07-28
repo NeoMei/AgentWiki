@@ -143,12 +143,19 @@ async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } finally {
+    const donePath = `${lockPath}.${token}.done`;
     try {
-      if (await readFile(lockPath, 'utf8') === token) {
-        await unlink(lockPath);
+      await rename(lockPath, donePath);
+      const content = await readFile(donePath, 'utf8');
+      if (content === token) {
+        await unlink(donePath);
+      } else {
+        await unlink(donePath).catch(() => {});
       }
-    } catch {
-      // The lock may already have been removed after a failed filesystem operation.
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        // Stale-lock cleanup will eventually resolve failed cleanup.
+      }
     }
   }
 }

@@ -52,6 +52,13 @@ Verification: `pnpm --filter @agentwiki/local-sync test`, `typecheck`, and `buil
 
 Verification: `pnpm --filter @agentwiki/local-sync test` (1 file, 6 tests), `typecheck`, and `build` all passed. pnpm emitted only the pre-existing Node 24 versus monorepo Node 26 engine warning.
 
+## Final Lock TOCTOU Remediation (2026-07-29)
+
+- Replaced `withLock` cleanup's non-atomic read-then-unlink sequence with an atomic rename of the lock into a token-scoped `.done` path.
+- Cleanup now only reads and deletes the renamed path, so it never touches a lock recreated at the original path by another process.
+
+Verification: `pnpm --filter @agentwiki/local-sync test` (1 file, 6 tests), `typecheck`, and `build` all passed. pnpm emitted only the pre-existing Node 24 versus monorepo Node 26 engine warning.
+
 ## Critical Remediation: Stale-Lock Ownership (2026-07-29)
 
 - Each `withLock` holder now writes a unique `${process.pid}-${randomUUID()}` ownership token into the lock file after exclusive creation.
