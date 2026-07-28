@@ -131,6 +131,12 @@ export class AgentService {
 
   async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor') {
     await this.getOwned(ownerId, agentId);
+    return this.upsertGrantForSpace(agentId, spaceId, role);
+  }
+
+  // Space-level grant management: the controller already verified the caller is
+  // an owner/admin of this space, so we do not require agent ownership here.
+  async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor') {
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
       create: { agentId, spaceId, role },
@@ -143,6 +149,10 @@ export class AgentService {
 
   async removeGrant(ownerId: string, agentId: string, spaceId: string) {
     await this.getOwned(ownerId, agentId);
+    return this.removeGrantForSpace(agentId, spaceId);
+  }
+
+  async removeGrantForSpace(agentId: string, spaceId: string) {
     await this.prisma.agentGrant.deleteMany({ where: { agentId, spaceId } });
     await this.audit(agentId, 'grant.remove', 'success', 'Space', spaceId);
     return { success: true };

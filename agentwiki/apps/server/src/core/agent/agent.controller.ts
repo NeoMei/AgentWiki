@@ -67,15 +67,17 @@ export class AgentController {
     @Body() dto: UpsertAgentGrantDto,
   ) {
     const ownerId = (req.user as any).userId;
-    await this.authorization.assertSpaceAccess(ownerId, spaceId, ['owner']);
-    return this.agents.upsertGrant(ownerId, id, spaceId, dto.role);
+    // Space owner/admin manages grants for any agent in their space, regardless
+    // of who owns the agent (the controller already enforced the space role).
+    await this.authorization.assertSpaceAccess(ownerId, spaceId, ['owner', 'admin']);
+    return this.agents.upsertGrantForSpace(id, spaceId, dto.role);
   }
 
   @Delete(':id/grants/:spaceId')
   async removeGrant(@Req() req: Request, @Param('id') id: string, @Param('spaceId') spaceId: string) {
     const ownerId = (req.user as any).userId;
-    await this.authorization.assertSpaceAccess(ownerId, spaceId, ['owner']);
-    return this.agents.removeGrant(ownerId, id, spaceId);
+    await this.authorization.assertSpaceAccess(ownerId, spaceId, ['owner', 'admin']);
+    return this.agents.removeGrantForSpace(id, spaceId);
   }
 
   @Get(':id/activity')

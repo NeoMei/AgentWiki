@@ -107,6 +107,35 @@ export const SpaceMembers: React.FC = () => {
     }
   };
 
+  const handleAgentRoleChange = async (agentId: string, role: string) => {
+    if (!id) return;
+    setUpdatingId(agentId);
+    setError(null);
+    try {
+      await api.put('/agents/' + agentId + '/grants/' + id, { role });
+      await fetchMembers();
+    } catch (err: any) {
+      setError(err.response?.data?.message || (zh ? '智能体角色更新失败' : 'Failed to update agent role'));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleRemoveAgent = async (agentId: string, name: string) => {
+    if (!id) return;
+    if (!window.confirm(zh ? `确定移除智能体 ${name || '此智能体'} 的授权吗？` : `Remove agent ${name || 'this agent'}'s grant?`)) return;
+    setUpdatingId(agentId);
+    setError(null);
+    try {
+      await api.delete('/agents/' + agentId + '/grants/' + id);
+      await fetchMembers();
+    } catch (err: any) {
+      setError(err.response?.data?.message || (zh ? '移除智能体授权失败' : 'Failed to remove agent grant'));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   if (loading)
     return (
       <div className="flex items-center justify-center py-8 text-gray-500">
@@ -166,9 +195,31 @@ export const SpaceMembers: React.FC = () => {
                     <p className="text-sm text-gray-500 truncate">{zh ? '通过 Agent 授权接入' : 'Connected via agent grant'}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
-                      {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
-                    </span>
+                    {!canManage ? (
+                      <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
+                        {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
+                      </span>
+                    ) : (
+                      <>
+                        <select
+                          value={m.role}
+                          onChange={e => handleAgentRoleChange(m.agentId!, e.target.value)}
+                          disabled={updatingId === m.agentId}
+                          className="text-xs border rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
+                          <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
+                        </select>
+                        <button
+                          onClick={() => handleRemoveAgent(m.agentId!, m.agent?.name || '')}
+                          disabled={updatingId === m.agentId}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                          title={zh ? '移除授权' : 'Remove grant'}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
