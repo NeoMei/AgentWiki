@@ -3,6 +3,7 @@
 ## 状态
 
 - 已确认方向：本地扫描、本地生成知识、用户明确确认后同步。
+- 已确认交付形态：发布跨 Agent 的本地插件包，由 AgentWiki 生成一次性接入指令完成安装和授权。
 - 本规格等待用户书面复核；复核通过后再编写实现计划。
 
 ## 目标
@@ -29,6 +30,81 @@ OpenWiki 上游当前支持代码模式、Personal Mode、本地连接器，并�
 - Graphify：覆盖面很强且提供 MCP，但会与 codebase-memory 形成第二套代码图谱引擎；只有 codebase-memory 无法满足已验证需求时再评估。
 - Docling：复杂 PDF 和版面解析更强，但比 MarkItDown 重；只有真实文档样本证明 MarkItDown 不够时再引入。
 - DeepWiki Open：偏代码仓库 Wiki 应用，不能覆盖本次通用本地资料范围，并与 OpenWiki 职责重叠。
+
+## 本地插件包
+
+本地能力统一发布为公开 npm 包 `@agentwiki/local-sync`，源码、标签和发行说明同时保存在 AgentWiki 的 GitHub 仓库。它是运行在用户机器上的插件包，不是 AgentWiki 服务端插件，也不绑定某一种 Agent。
+
+建议在现有 monorepo 中放置于 `packages/local-sync/`，包含一套跨 Agent 核心：
+
+- Agent Skill：规定扫描、数据边界披露、预览、确认和同步行为。
+- stdio MCP Server：向 Codex、Claude Code、OpenCode 等本地 Agent 提供相同工具。
+- CLI：提供 `connect`、`doctor`、`scan`、`preview`、`sync`、`upgrade` 和 `uninstall` 命令。
+- 适配器：检测并调用本机已有的 OpenWiki、codebase-memory MCP 和 MarkItDown。
+- 客户端配置适配器：只处理不同 Agent 的 Skill 安装位置和 MCP 注册格式，核心逻辑不复制。
+
+插件包不捆绑 OpenWiki、codebase-memory 或 MarkItDown 可执行文件。它只检测版本并调用本机已安装工具；缺失时列出影响和安装选项，未经用户确认不安装系统工具。
+
+第一版要求 Node.js 20 或更高版本和 `npx`。安装指令固定到明确版本，不使用 `latest`，避免用户在不知情时运行发生变化的安装代码。npm 发布启用 provenance，GitHub Release 提供对应源代码、校验和与变更记录。发布前需要取得 `@agentwiki` npm scope；在正式发布前，文档必须把包标为未发布，不能展示无法执行的安装命令。
+
+## 安装与接入
+
+Agent 详情页提供“生成本地同步插件接入指令”。用户只需把完整指令交给任意支持命令执行和 MCP 的本地 Agent。以 `0.1.0` 为例，指令中的核心命令为：
+
+```bash
+npx -y @agentwiki/local-sync@0.1.0 connect \
+  --server https://your-agentwiki.example \
+  --code AW-XXXX-XXXX \
+  --agent auto
+```
+
+`connect` 按以下顺序执行：
+
+1. 检查 Node.js、目标 Agent 配置位置和 AgentWiki 服务端兼容版本。
+2. 自动识别 Codex、Claude Code、OpenCode 等受支持客户端；无法可靠识别时报告可选值，不猜测写入位置。
+3. 安装标准 Agent Skill，并注册本地 stdio MCP Server。
+4. 用一次性安装码换取该 Agent 的长期 Credential。
+5. 保存非敏感配置和 Credential，收紧本地文件权限。
+6. 运行 `doctor`，向用户报告连接、权限和依赖状态。
+
+安装过程不得扫描本地目录、调用 OpenWiki 模型或同步任何知识。安装成功只表示插件和 AgentWiki 连接可用，不表示用户已授权某个目录。
+
+### 一次性安装码
+
+- 只有已登录且有权管理该 Agent 的人类用户可以生成。
+- 安装码绑定 Agent、服务器、请求的全局 Credential Scope 和插件兼容版本。
+- 有效期 10 分钟、只能成功兑换一次；服务端只保存安装码哈希。
+- 使用现有 Redis TTL 保存短期状态，并通过原子取出删除操作避免并发重复兑换，不为临时码引入数据库表。
+- 兑换接口限流，并在签发 Credential 前重新检查 Agent 状态、操作者权限和可签发 Scope 上限。
+- 长期 API Key 只在兑换成功响应中返回一次，不出现在生成的指令、CLI 参数、进程列表或日志里。
+
+安装码本身会短暂出现在命令参数中，因此它不能拥有永久权限；短有效期、单次使用、服务端哈希存储和兑换限流共同限制泄露风险。用户可以在 AgentWiki 中使未使用安装码立即失效。
+
+### 本地配置与凭据
+
+- `~/.agentwiki/local-sync.json`：服务端地址、Agent 客户端类型、插件版本和非敏感同步配置。
+- `~/.agentwiki/credentials.json`：长期 Agent Credential；POSIX 权限必须为 `0600`，Windows 只允许当前用户读取。
+- `~/.agentwiki/sync-state.json`：本地路径与不透明 `sourceKey` 的映射及同步哈希。
+
+Credential 不写入项目目录、Agent Skill、MCP 配置明文参数或 shell 历史。MCP 子进程从受限凭据文件读取；`doctor` 和错误日志只显示掩码后的 Key 前缀。
+
+### 诊断、升级与卸载
+
+`doctor` 至少验证 AgentWiki 连通性、Agent 状态、Space Grant、有效 Scope、插件兼容版本，以及 OpenWiki、codebase-memory 和 MarkItDown 的安装与版本。缺失依赖只报告和给出安装选择，不静默安装。
+
+升级必须显式指定目标版本：
+
+```bash
+npx -y @agentwiki/local-sync@0.2.0 upgrade --agent auto
+```
+
+卸载也固定到已安装版本：
+
+```bash
+npx -y @agentwiki/local-sync@0.1.0 uninstall --agent auto
+```
+
+卸载移除 Skill、MCP 注册和插件运行配置；`sync-state.json` 默认保留，避免重装后失去来源映射，只有用户明确选择“同时删除同步历史”才删除。是否删除本地 Credential 也需明确确认。服务端 Credential 撤销仍在 AgentWiki 由有权管理员执行，Agent 页面应同时提供“撤销凭据”和对应卸载指令。
 
 ## 系统边界
 
@@ -145,6 +221,22 @@ OpenWiki 云模型确认和 AgentWiki 同步确认是两个独立边界：前者
 
 ## AgentWiki 接口
 
+### 安装码接口
+
+`POST /api/agents/:agentId/local-sync-installations`
+
+- 使用人类 JWT 认证，并复用 Agent 管理权限检查。
+- 输入请求 Scope 和目标插件版本。
+- 返回一次性安装码、过期时间、服务端地址和完整的固定版本接入指令。
+- Scope 不能超过操作者可授予范围，也不能绕过 Agent 的现有授权模型。
+
+`POST /api/integrations/local-sync/exchange`
+
+- 使用一次性安装码作为短期 bearer proof，不使用人类 JWT。
+- 原子消费安装码，重新验证 Agent 状态和 Scope 上限，仅成功签发一次长期 Agent Credential。
+- 返回 Credential、Agent 标识、服务端兼容范围和必要的非敏感连接配置。
+- 对过期、已使用、已撤销、Agent 暂停和频繁尝试返回稳定错误码。
+
 ### MCP 读取工具
 
 `get_knowledge_sync_state`
@@ -181,7 +273,7 @@ OpenWiki 云模型确认和 AgentWiki 同步确认是两个独立边界：前者
 - 每次内容变化创建新的 SourceVersion；内容哈希未变化时返回 no-op，不创建运行。
 - OKF `documents[]` 映射为现有 `FetchedSegment[]`，复用分块、Evidence、实体、关系、ChangeSet 和发布逻辑。
 - 页面 `sourcePath` 使用 OKF 相对路径，从而支持后续更新和删除差异。
-- 同步请求记录 Agent、Credential、Space、sourceKey、包哈希、用户确认声明和 Idempotency-Key；不记录本地绝对路径。
+- 同步请求记录 Agent ID、Credential ID、Space、sourceKey、包哈希、用户确认声明和 Idempotency-Key；不记录 Credential secret 或本地绝对路径。
 
 ## 错误处理
 
@@ -196,9 +288,11 @@ OpenWiki 云模型确认和 AgentWiki 同步确认是两个独立边界：前者
 
 ## 用户接入体验
 
-AgentWiki 生成的接入指令增加“本地知识同步”能力说明。用户仍只需把整段指令交给本地 Agent。Agent 完成连接后应报告：
+AgentWiki 在 Agent 详情页生成带一次性安装码的完整接入指令。用户仍只需把整段指令交给本地 Agent；OpenCode 只是演示客户端，Codex、Claude Code 和其他满足能力要求的 Agent 使用同一流程。Agent 完成连接后应报告：
 
 - AgentWiki 连接状态。
+- 已接入的本地 Agent 类型和插件版本。
+- 安装的 Skill 与 MCP 注册位置。
 - 是否发现 OpenWiki、codebase-memory MCP 和 MarkItDown。
 - 当前可以扫描的来源类型。
 - 缺失工具的安装选项。
@@ -209,6 +303,11 @@ AgentWiki 生成的接入指令增加“本地知识同步”能力说明。用�
 
 ### 自动化测试
 
+- 一次性安装码过期、重复兑换、并发兑换、撤销、限流和 Scope 上限。
+- 长期 Credential 不出现在接入指令、CLI 参数、日志和 MCP 配置中。
+- 本地凭据文件权限正确，日志只显示掩码 Key。
+- Codex、Claude Code 和 OpenCode 配置适配器安装、重复安装、升级和卸载保持幂等。
+- `doctor` 能识别服务端不兼容、Agent 暂停、Space 无授权和本地依赖缺失。
 - OKF Envelope 路径、大小、重复项、哈希和 Front Matter 校验。
 - `sourceKey` 更新同一 Source，内容变化创建 SourceVersion，相同内容 no-op。
 - OKF 文档映射为多 Page，Markdown 链接映射为 Relation。
@@ -227,18 +326,23 @@ AgentWiki 生成的接入指令增加“本地知识同步”能力说明。用�
 
 验收路径：
 
-1. codebase-memory 在本地生成结构化证据。
-2. MarkItDown 在本地转换 PDF 和 DOCX。
-3. OpenWiki 生成 OKF 包。
-4. 用户确认前，AgentWiki 中不存在新增 Source、Version 或 Run。
-5. 用户拒绝时不产生服务端数据。
-6. 用户确认后，AgentWiki 创建 SourceVersion、Run、Evidence 和 ChangeSet。
-7. 人工发布后，多页面 Wiki、内部关系和来源证据均可读取。
-8. 修改一个文件后重复同步，只生成对应更新；再次无修改同步返回 no-op。
+1. 分别由 Codex、Claude Code 和 OpenCode 执行 AgentWiki 生成的固定版本接入指令。
+2. 安装码兑换一次后无法复用，插件完成 Skill/MCP 配置并通过 `doctor`。
+3. codebase-memory 在本地生成结构化证据。
+4. MarkItDown 在本地转换 PDF 和 DOCX。
+5. OpenWiki 生成 OKF 包。
+6. 用户确认前，AgentWiki 中不存在新增 Source、Version 或 Run。
+7. 用户拒绝时不产生服务端数据。
+8. 用户确认后，AgentWiki 创建 SourceVersion、Run、Evidence 和 ChangeSet。
+9. 人工发布后，多页面 Wiki、内部关系和来源证据均可读取。
+10. 修改一个文件后重复同步，只生成对应更新；再次无修改同步返回 no-op。
+11. 显式升级后配置仍可用；卸载后 Skill/MCP 注册已移除且同步映射默认保留，服务端撤销后旧 Credential 返回 401。
 
 ## 不做
 
 - 不让 AgentWiki 服务端访问用户本地路径。
+- 不在第一版提供 macOS、Windows 或 Linux 原生独立安装包；统一使用版本固定的 npm 包。
+- 不静默安装 OpenWiki、codebase-memory、MarkItDown 或其他系统依赖。
 - 不在 AgentWiki 服务端运行 OpenWiki、codebase-memory 或 MarkItDown。
 - 不默认上传完整代码仓库或完整原始文档。
 - 不处理图片、音频和视频。
