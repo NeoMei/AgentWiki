@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { type AgentWikiClient, AgentWikiClientError, type KnowledgeSyncResult } from './agentwiki-client.js';
+import { type AgentWikiClient, redactSecrets, type KnowledgeSyncResult } from './agentwiki-client.js';
 import {
   claimPreview,
   completePreview,
@@ -84,12 +84,12 @@ function hash(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function isRetryable(error: unknown): boolean {
-  return error instanceof AgentWikiClientError && (error.status === 0 || error.status >= 500);
+export function formatMcpOutput(result: unknown): string {
+  return redactSecrets(JSON.stringify(result, null, 2));
 }
 
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
-  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  return { content: [{ type: 'text', text: formatMcpOutput(result) }] };
 }
 
 /**
@@ -182,12 +182,7 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
         await deps.completePreview(deps.home, input.previewId);
         return result;
       } catch (error) {
-        if (isRetryable(error)) {
-          await deps.releasePreview(deps.home, input.previewId);
-        } else {
-          await rm(preview.envelopePath, { force: true });
-          await deps.completePreview(deps.home, input.previewId);
-        }
+        await deps.releasePreview(deps.home, input.previewId);
         throw error;
       }
     },

@@ -52,9 +52,9 @@ function previewPath(home: string, previewId: string, suffix: '.json' | '.inflig
   return agentwikiPath(home, PREVIEWS_DIRECTORY, `${previewId}${suffix}`);
 }
 
-function assertPreviewId(previewId: string): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(previewId)) {
-    throw new Error('Preview ID must contain only letters, numbers, underscores, or hyphens');
+export function assertPreviewId(previewId: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(previewId)) {
+    throw new Error('Preview ID must be a UUID');
   }
 }
 

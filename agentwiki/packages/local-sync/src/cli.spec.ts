@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createLocalSyncCommands, type CommandDependencies } from './cli.js';
+import { createLocalSyncCommands, runCli, runDoctor, type CommandDependencies } from './cli.js';
+import { formatMcpOutput } from './mcp.js';
+import { saveConfig, saveCredentials } from './config.js';
 
 const temporaryPaths: string[] = [];
 
@@ -146,5 +148,91 @@ describe('local sync command orchestration', () => {
     expect(completed).toEqual([previewId]);
     await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(JSON.stringify(result)).not.toContain('ChangeSet');
+  });
+
+  it('releases a claimed preview after every upload failure so it can be retried', async () => {
+    const directory = await temporaryDirectory('agentwiki-preview-');
+    const path = join(directory, 'knowledge.okf.json');
+    const bytes = envelopeBytes();
+    await writeFile(path, bytes);
+    const previewId = randomUUID();
+    const { deps, client, previews, completed, released } = dependencies();
+    previews.set(previewId, {
+      id: previewId,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      envelopePath: path,
+      envelopeHash: createHash('sha256').update(bytes).digest('hex'),
+      spaceId: 'space-1',
+    });
+    client.upload.mockRejectedValueOnce(new Error('validation failed'));
+
+    await expect(createLocalSyncCommands(deps).sync({ previewId, confirmed: true }))
+      .rejects.toThrow('validation failed');
+    expect(released).toEqual([previewId]);
+    expect(completed).toEqual([]);
+    expect([...await readFile(path)]).toEqual([...bytes]);
+  });
+
+  it('redacts secrets in MCP output before serializing it', () => {
+    const output = formatMcpOutput({ apiKey: 'agk_mcp_secret', nested: { token: 'awk_nested_secret' } });
+
+    expect(output).not.toContain('agk_mcp_secret');
+    expect(output).not.toContain('awk_nested_secret');
+    expect(output).toContain('[REDACTED]');
+  });
+
+  it('rejects a non-UUID preview ID before it can leave the previews directory', async () => {
+    const home = await temporaryDirectory('agentwiki-home-');
+    await saveCredentials(home, {
+      version: 1,
+      credentials: { escape: { apiKey: 'agk_should_not_be_read' } },
+    });
+
+    await expect(runCli(['preview', '--id', '../credentials'], home))
+      .rejects.toThrow('Preview ID must be a UUID');
+  });
+
+  it('doctor checks required tool availability without invoking OpenWiki or scanning paths', async () => {
+    const home = await temporaryDirectory('agentwiki-doctor-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.1.0', client: 'codex' as const, mcpName: 'agentwiki-local-test',
+    };
+    await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
+    await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });
+    await mkdir(join(home, '.openwiki'), { recursive: true });
+    await writeFile(join(home, '.openwiki', '.env'), 'OPENWIKI_PROVIDER=ollama\n');
+    const run = vi.fn((command: string, args: string[]) => ({
+      status: 0,
+      stdout: command === 'openwiki' ? 'openwiki 0.2.0\n'
+        : command === 'markitdown' ? 'markitdown 0.1.0\n'
+          : `${command} 1.0.0\n`,
+      stderr: '',
+    }));
+    const client = {
+      access: vi.fn().mockResolvedValue({
+        access: [{
+          id: connection.agentId,
+          name: 'Local agent',
+          status: 'active',
+          grants: [{ role: 'editor', space: { id: 'space-1', name: 'Space' } }],
+          credentials: [{ id: connection.credentialId, scopes: ['knowledge:write'], active: true }],
+        }],
+      }),
+    };
+
+    const report = await runDoctor(home, connection, {
+      client: client as never,
+      readApiKey: async () => 'agk_doctor_secret',
+      run,
+    });
+
+    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(report.checks.length);
+    expect(run).toHaveBeenCalledWith('openwiki', ['--version'], expect.anything());
+    expect(run).toHaveBeenCalledWith('markitdown', ['--version'], expect.anything());
+    expect(run).toHaveBeenCalledWith('git', ['--version'], expect.anything());
+    expect(run).toHaveBeenCalledWith('codebase-memory-mcp', ['--version'], expect.anything());
+    expect(run).not.toHaveBeenCalledWith('openwiki', expect.arrayContaining(['code', '--update']), expect.anything());
+    expect(client.access).toHaveBeenCalledWith(connection, 'agk_doctor_secret');
   });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,38 +74,40 @@ describe('secure local state', () => {
 
   it('claims a preview once and completes it after upload', async () => {
     const home = await createHome();
+    const previewId = randomUUID();
 
     await savePreview(home, {
-      id: 'preview-1',
+      id: previewId,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       envelopePath: '/tmp/a.okf.json',
       envelopeHash: 'abc',
     });
 
-    await expect(claimPreview(home, 'preview-1')).resolves.toMatchObject({ id: 'preview-1' });
-    await expect(claimPreview(home, 'preview-1')).rejects.toThrow('already in progress');
-    await completePreview(home, 'preview-1');
-    await expect(claimPreview(home, 'preview-1')).rejects.toThrow('not found or expired');
+    await expect(claimPreview(home, previewId)).resolves.toMatchObject({ id: previewId });
+    await expect(claimPreview(home, previewId)).rejects.toThrow('already in progress');
+    await completePreview(home, previewId);
+    await expect(claimPreview(home, previewId)).rejects.toThrow('not found or expired');
   });
 
   it('releases a claimed preview so it can be claimed again', async () => {
     const home = await createHome();
+    const previewId = randomUUID();
 
     await savePreview(home, {
-      id: 'preview-release',
+      id: previewId,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       envelopePath: '/tmp/a.okf.json',
       envelopeHash: 'abc',
     });
 
-    await claimPreview(home, 'preview-release');
-    await releasePreview(home, 'preview-release');
-    await expect(claimPreview(home, 'preview-release')).resolves.toMatchObject({ id: 'preview-release' });
+    await claimPreview(home, previewId);
+    await releasePreview(home, previewId);
+    await expect(claimPreview(home, previewId)).resolves.toMatchObject({ id: previewId });
   });
 
   it('cleans up an expired inflight preview and reports it as unavailable', async () => {
     const home = await createHome();
-    const previewId = 'preview-expired-inflight';
+    const previewId = randomUUID();
     const previewDirectory = join(home, '.agentwiki', 'previews');
     const inflightPath = join(previewDirectory, `${previewId}.inflight`);
 

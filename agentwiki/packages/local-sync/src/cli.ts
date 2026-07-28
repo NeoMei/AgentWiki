@@ -3,7 +3,7 @@
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
@@ -14,9 +14,12 @@ import {
   registerMcp,
   removeMcp,
   type AgentClient,
+  type CommandResult,
+  type CommandRunner,
 } from './agent-clients.js';
 import { AgentWikiClient, redactSecrets } from './agentwiki-client.js';
 import {
+  assertPreviewId,
   claimPreview,
   completePreview,
   loadConfig,
@@ -27,7 +30,7 @@ import {
   savePreview,
   type LocalSyncConnection,
 } from './config.js';
-import { inspectLocalSource, prepareKnowledgeSync } from './local-knowledge.js';
+import { inspectLocalSource, inspectOpenWikiProvider, prepareKnowledgeSync } from './local-knowledge.js';
 import {
   createLocalSyncCommands,
   serveLocalSyncMcp,
@@ -35,7 +38,7 @@ import {
   type LocalSyncCommands,
 } from './mcp.js';
 
-export { createLocalSyncCommands, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
+export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
 
 const PACKAGE_VERSION = '0.1.0';
 
@@ -43,7 +46,7 @@ export function formatOutput(value: unknown): string {
   return redactSecrets(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
 }
 
-function runner(command: string, args: string[]) {
+function runner(command: string, args: string[]): CommandResult {
   return spawnSync(command, args, { stdio: 'pipe' });
 }
 
@@ -111,11 +114,18 @@ async function connect(home: string, values: Record<string, string | boolean | u
     config.defaultConnectionId = connectionId;
     const credentials = await loadCredentials(home);
     credentials.credentials[exchange.credentialId] = { apiKey: exchange.apiKey };
-    await saveCredentials(home, credentials);
     await saveConfig(home, config);
+    await saveCredentials(home, credentials);
     return { connected: connectionId, doctor: await createLocalSyncCommands(await connectionDependencies(home, connectionId)).status() };
   } catch (error) {
     if (!exchanged) await removeMcp(clientKind, mcpName, runner, home).catch(() => undefined);
+    if (exchanged) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `${redactSecrets(message)}\nRecovery: agentwiki-local-sync doctor --connection ${connectionId}`,
+        { cause: error },
+      );
+    }
     throw error;
   }
 }
@@ -140,10 +150,164 @@ async function uninstall(home: string, values: Record<string, string | boolean |
 }
 
 async function renderPreview(home: string, id: string): Promise<unknown> {
+  assertPreviewId(id);
   const path = join(home, '.agentwiki', 'previews', `${id}.json`);
   const preview = JSON.parse(await readFile(path, 'utf8')) as { expiresAt: string };
   if (Date.parse(preview.expiresAt) <= Date.now()) throw new Error(`Preview ${id} was not found or expired`);
   return preview;
+}
+
+export interface DoctorCheck {
+  name: string;
+  status: 'pass' | 'fail';
+  detail: string;
+}
+
+export interface DoctorReport {
+  connection: Record<string, unknown>;
+  checks: DoctorCheck[];
+}
+
+export interface DoctorDependencies {
+  client: Pick<AgentWikiClient, 'access'>;
+  readApiKey: () => Promise<string>;
+  run: CommandRunner;
+}
+
+function check(name: string, passed: boolean, detail: string): DoctorCheck {
+  return { name, status: passed ? 'pass' : 'fail', detail: redactSecrets(detail) };
+}
+
+function commandText(value: string | Buffer | undefined): string {
+  return typeof value === 'string' ? value : value?.toString('utf8') ?? '';
+}
+
+function versionAtLeast(output: string, minimum: [number, number, number]): boolean {
+  const match = output.match(/(?:^|\s|v)(\d+)\.(\d+)(?:\.(\d+))?/u);
+  if (!match) return false;
+  const actual: [number, number, number] = [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+  return actual[0] > minimum[0]
+    || (actual[0] === minimum[0] && actual[1] > minimum[1])
+    || (actual[0] === minimum[0] && actual[1] === minimum[1] && actual[2] >= minimum[2]);
+}
+
+function inspectCommand(
+  name: string,
+  command: string,
+  args: string[],
+  run: CommandRunner,
+  minimum?: [number, number, number],
+): DoctorCheck {
+  try {
+    const result = run(command, args, { stdio: 'pipe' });
+    const output = commandText(result.stdout).trim();
+    const available = !result.error && result.status === 0;
+    const versionOk = minimum === undefined || versionAtLeast(output, minimum);
+    const minimumText = minimum ? ` >= ${minimum.join('.')}` : '';
+    return check(name, available && versionOk, available && versionOk
+      ? `${command}${output ? ` ${output}` : ''}`
+      : `${command}${minimumText} is unavailable or below the required version`);
+  } catch {
+    return check(name, false, `${command} is unavailable`);
+  }
+}
+
+async function inspectMcpRegistration(connection: LocalSyncConnection, home: string, run: CommandRunner): Promise<DoctorCheck> {
+  try {
+    if (connection.client !== 'opencode') {
+      const result = run(connection.client, ['mcp', 'get', connection.mcpName], { stdio: 'pipe' });
+      return check('mcp-registration', !result.error && result.status === 0,
+        !result.error && result.status === 0 ? `${connection.client} MCP entry is registered` : `${connection.client} MCP entry is missing`);
+    }
+
+    const parsed = JSON.parse(await readFile(join(home, '.config', 'opencode', 'opencode.json'), 'utf8')) as Record<string, unknown>;
+    const mcp = parsed.mcp;
+    const entries = typeof mcp === 'object' && mcp !== null
+      ? ('servers' in mcp && typeof mcp.servers === 'object' && mcp.servers !== null ? mcp.servers : mcp)
+      : undefined;
+    const registered = typeof entries === 'object' && entries !== null && connection.mcpName in entries;
+    return check('mcp-registration', registered, registered ? 'opencode MCP entry is registered' : 'opencode MCP entry is missing');
+  } catch {
+    return check('mcp-registration', false, `${connection.client} MCP entry is missing`);
+  }
+}
+
+async function inspectFilePermissions(home: string): Promise<DoctorCheck> {
+  const paths = [join(home, '.agentwiki', 'local-sync.json'), join(home, '.agentwiki', 'credentials.json')];
+  try {
+    const modes = await Promise.all(paths.map(async (path) => (await stat(path)).mode & 0o777));
+    const secure = modes.every((mode) => (mode & 0o077) === 0);
+    return check('file-permissions', secure, secure ? 'Local config and credentials are owner-only' : 'Local config or credentials are too broadly readable');
+  } catch {
+    return check('file-permissions', false, 'Local config or credentials are missing');
+  }
+}
+
+async function inspectProviderBoundary(home: string): Promise<DoctorCheck> {
+  const names = ['OPENWIKI_PROVIDER', 'OPENWIKI_MODEL_ID', 'OPENWIKI_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_COMPATIBLE_BASE_URL', 'ANTHROPIC_BASE_URL', 'OLLAMA_HOST'];
+  const environment: Record<string, string | undefined> = {};
+  try {
+    const contents = await readFile(join(home, '.openwiki', '.env'), 'utf8');
+    for (const line of contents.split(/\r?\n/u)) {
+      const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/u);
+      if (match && names.includes(match[1])) environment[match[1]] = match[2].replace(/^(['"])(.*)\1$/u, '$2');
+    }
+  } catch {
+    // The provider defaults are still meaningful when no local OpenWiki env file exists.
+  }
+  for (const name of names) environment[name] = process.env[name] ?? environment[name];
+  const provider = inspectOpenWikiProvider(environment);
+  return check('provider-boundary', provider.local,
+    provider.local ? `OpenWiki provider ${provider.provider} is local` : `OpenWiki provider ${provider.provider} requires explicit remote-model consent`);
+}
+
+export async function runDoctor(
+  home: string,
+  connection: LocalSyncConnection,
+  dependencies: DoctorDependencies,
+): Promise<DoctorReport> {
+  const checks = [
+    check('node', versionAtLeast(process.version, [20, 0, 0]), `Node ${process.version}`),
+    inspectCommand('openwiki', 'openwiki', ['--version'], dependencies.run, [0, 2, 0]),
+    inspectCommand('markitdown', 'markitdown', ['--version'], dependencies.run, [0, 1, 0]),
+    inspectCommand('git', 'git', ['--version'], dependencies.run),
+    inspectCommand('codebase-memory', 'codebase-memory-mcp', ['--version'], dependencies.run),
+    await inspectMcpRegistration(connection, home, dependencies.run),
+    await inspectFilePermissions(home),
+    await inspectProviderBoundary(home),
+  ];
+
+  try {
+    const access = await dependencies.client.access(connection, await dependencies.readApiKey());
+    const agent = access.access.find((candidate) => candidate.id === connection.agentId);
+    checks.push(
+      check('identity', agent?.status === 'active', agent?.status === 'active' ? 'Agent identity is active' : 'Configured AgentWiki identity is unavailable or inactive'),
+      check('space-grants', (agent?.grants.length ?? 0) > 0, (agent?.grants.length ?? 0) > 0 ? 'Agent has Space grants' : 'Agent has no Space grants'),
+      check('credential-scopes', Boolean(agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.scopes.length > 0)),
+        agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.scopes.length > 0)
+          ? 'Active credential has scopes'
+          : 'Configured credential is inactive or has no scopes'),
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    checks.push(
+      check('identity', false, `Unable to verify AgentWiki identity: ${detail}`),
+      check('space-grants', false, 'Unable to verify Space grants'),
+      check('credential-scopes', false, 'Unable to verify credential scopes'),
+    );
+  }
+
+  return {
+    connection: {
+      connectionId: connection.id,
+      serverUrl: connection.serverUrl,
+      agentId: connection.agentId,
+      client: connection.client,
+      pluginVersion: connection.pluginVersion,
+      mcpName: connection.mcpName,
+    },
+    checks,
+  };
 }
 
 export async function runCli(argv = process.argv.slice(2), home = homedir()): Promise<unknown> {
@@ -162,8 +326,13 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
   if (command === 'uninstall') return uninstall(home, values);
   if (command === 'preview') return renderPreview(home, required(values, 'id'));
 
-  const commands = createLocalSyncCommands(await connectionDependencies(home, typeof values.connection === 'string' ? values.connection : undefined));
-  if (command === 'doctor') return { node: process.version, connection: await commands.status() };
+  const dependencies = await connectionDependencies(home, typeof values.connection === 'string' ? values.connection : undefined);
+  const commands = createLocalSyncCommands(dependencies);
+  if (command === 'doctor') return runDoctor(home, dependencies.connection, {
+    client: dependencies.client,
+    readApiKey: dependencies.readApiKey,
+    run: runner,
+  });
   if (command === 'inspect') return commands.inspect({ path: required(values, 'path') });
   if (command === 'scan') return commands.prepare({
     path: required(values, 'path'), spaceId: required(values, 'space'),
