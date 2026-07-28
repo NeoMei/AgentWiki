@@ -48,6 +48,17 @@ describe('secure local state', () => {
     expect(first).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('returns one source key when concurrent callers use the same path', async () => {
+    const home = await createHome();
+
+    const [first, second] = await Promise.all([
+      getOrCreateSourceKey(home, '/private/concurrent-project'),
+      getOrCreateSourceKey(home, '/private/concurrent-project'),
+    ]);
+
+    expect(second).toBe(first);
+  });
+
   it('claims a preview once and completes it after upload', async () => {
     const home = await createHome();
 

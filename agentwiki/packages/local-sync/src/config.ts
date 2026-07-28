@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, rename, rm, stat as statFile, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
 const PREVIEWS_DIRECTORY = 'previews';
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
+const LOCK_STALE_MS = 30_000;
+const LOCK_MAX_RETRIES = 50;
+const LOCK_RETRY_DELAY_MS = 100;
 
 export interface LocalSyncConnection {
   id: string;
@@ -98,8 +101,60 @@ async function writeJsonAtomically(path: string, value: unknown): Promise<void> 
   }
 }
 
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  await mkdir(join(lockPath, '..'), { recursive: true, mode: 0o700 });
+
+  let acquired = false;
+  for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt += 1) {
+    try {
+      const handle = await open(lockPath, 'wx');
+      await handle.close();
+      acquired = true;
+      break;
+    } catch (error: unknown) {
+      if (!isAlreadyExists(error)) {
+        throw error;
+      }
+
+      try {
+        const lockStat = await statFile(lockPath);
+        if (Date.now() - lockStat.mtimeMs > LOCK_STALE_MS) {
+          await unlink(lockPath);
+          continue;
+        }
+      } catch {
+        // The lock may have been released or could not be inspected; retry below.
+      }
+
+      await sleep(LOCK_RETRY_DELAY_MS);
+    }
+  }
+
+  if (!acquired) {
+    throw new Error(`Timed out waiting for lock ${lockPath}`);
+  }
+
+  try {
+    return await fn();
+  } finally {
+    try {
+      await unlink(lockPath);
+    } catch {
+      // The lock may already have been removed after a failed filesystem operation.
+    }
+  }
+}
+
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function isAlreadyExists(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
 }
 
 function isExpired(preview: PreviewFile): boolean {
@@ -128,18 +183,19 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
     throw new Error('Source path must be absolute');
   }
 
-  const state = await loadJson<SourceKeyState>(syncStatePath(home), {});
-  const existing = state[sourcePath];
-  if (existing) {
-    return existing;
-  }
+  const statePath = syncStatePath(home);
+  return withLock(`${statePath}.lock`, async () => {
+    const state = await loadJson<SourceKeyState>(statePath, {});
+    const existing = state[sourcePath];
+    if (existing) {
+      return existing;
+    }
 
-  const sourceKey = randomUUID();
-  state[sourcePath] = sourceKey;
-  await writeJsonAtomically(syncStatePath(home), state);
-
-  const persistedState = await loadJson<SourceKeyState>(syncStatePath(home), {});
-  return persistedState[sourcePath] ?? sourceKey;
+    const sourceKey = randomUUID();
+    state[sourcePath] = sourceKey;
+    await writeJsonAtomically(statePath, state);
+    return sourceKey;
+  });
 }
 
 export async function savePreview(home: string, preview: PreviewFile): Promise<void> {
