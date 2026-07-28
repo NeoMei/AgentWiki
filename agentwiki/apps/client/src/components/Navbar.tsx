@@ -31,8 +31,8 @@ export const Navbar: React.FC = () => {
   return (
     <nav className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-40">
       <div className="flex items-center gap-4 sm:gap-6 min-w-0">
-        <Link to="/" className="text-xl font-bold text-blue-600 shrink-0">AgentWiki</Link>
-        <Link to="/" className={navClass('/')} title={t('nav.spaces')}><FolderOpen size={18} /><span className="hidden sm:inline">{t('nav.spaces')}</span></Link>
+        <Link to="/dashboard" className="text-xl font-bold text-blue-600 shrink-0">AgentWiki</Link>
+        <Link to="/dashboard" className={navClass('/dashboard')} title={t('nav.spaces')}><FolderOpen size={18} /><span className="hidden sm:inline">{t('nav.spaces')}</span></Link>
         <Link to="/agents" className={navClass('/agents')} title={t('nav.agents')}><Bot size={18} /><span className="hidden sm:inline">{t('nav.agents')}</span></Link>
         <Link to="/review" className={navClass('/review')}>
           <ClipboardCheck size={18} /><span className="hidden sm:inline">{t('nav.review')}</span>
@@ -52,8 +52,8 @@ export const Navbar: React.FC = () => {
             <Link onClick={() => setMenuOpen(false)} to="/profile" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><User size={16} /> {t('nav.profile')}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/settings/integrations" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Plug size={16} /> {t('nav.integrations')}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/guide" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><BookOpen size={16} /> {t('nav.guide')}</Link>
-            <Link onClick={() => setMenuOpen(false)} to="/about" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Info size={16} /> {t('nav.about')}</Link>
-            <button onClick={() => { logout(); navigate('/login'); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"><LogOut size={16} /> {t('nav.logout')}</button>
+            <Link onClick={() => setMenuOpen(false)} to="/" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Info size={16} /> {t('nav.about')}</Link>
+            <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"><LogOut size={16} /> {t('nav.logout')}</button>
           </div> : null}
         </div>
       </div>

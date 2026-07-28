@@ -1,17 +1,56 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import {
   BookOpen, Network, Search, Bot, FileText, Users,
-  ArrowRight, Zap, Brain, Code2
+  ArrowRight, Zap, Brain, Code2, Eye, EyeOff
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 
+const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
+  if (pwd.length < 8) return t('auth.passwordMin');
+  if (!/[A-Z]/.test(pwd)) return t('auth.passwordUppercase');
+  if (!/[0-9]/.test(pwd)) return t('auth.passwordNumber');
+  return null;
+};
+
 export const ProductPage: React.FC = () => {
-  const { token } = useAuth();
-  const { language } = useLanguage();
+  const { token, login } = useAuth();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
+  const navigate = useNavigate();
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (authMode === 'register') {
+      const pwdErr = validatePassword(password, t);
+      if (pwdErr) { setPasswordError(pwdErr); return; }
+    }
+    setIsSubmitting(true);
+    setAuthError('');
+    try {
+      const payload: Record<string, string> = { email, password };
+      if (authMode === 'register' && name) payload.name = name;
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const res = await api.post(endpoint, payload);
+      login(res.data.access_token, res.data.user);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setAuthError(err.response?.data?.message || (authMode === 'login' ? t('auth.loginFailed') : t('auth.registrationFailed')));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const features = [
     {
@@ -74,20 +113,67 @@ export const ProductPage: React.FC = () => {
           <p className="text-xl text-gray-600 leading-relaxed max-w-3xl">
             {zh ? '一个为人类和 AI Agent 共同设计的知识库系统。用 Markdown 写文档，用知识图谱连接信息，用语义搜索快速定位，让 Agent 成为你的知识管理伙伴。' : 'A knowledge system designed for people and AI Agents. Write in Markdown, connect information through a knowledge graph, search semantically, and make Agents part of your knowledge workflow.'}
           </p>
-          <div className="flex items-center gap-4 mt-8">
-            {token ? (
-              <Link to="/" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+          <div className="flex flex-col gap-6 mt-8 lg:flex-row lg:items-start">
+            <div className="flex items-center gap-4">
+              <Link to="/guide" className="inline-flex items-center gap-2 px-5 py-3 bg-white text-gray-700 rounded-lg border hover:bg-gray-50 transition">
+                <BookOpen size={18} /> {zh ? '使用指南' : 'Guide'}
+              </Link>
+            </div>
+            {!token ? (
+              <div className="w-full max-w-sm bg-white rounded-xl shadow-lg border p-6">
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${authMode === 'login' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                  >
+                    {t('auth.signIn')}
+                  </button>
+                  <button
+                    onClick={() => { setAuthMode('register'); setAuthError(''); }}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${authMode === 'register' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                  >
+                    {t('auth.register')}
+                  </button>
+                </div>
+                {authError && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded-md text-xs text-center">{authError}</div>}
+                <form onSubmit={handleAuth} className="space-y-3">
+                  {authMode === 'register' && (
+                    <input
+                      type="text" placeholder={t('common.name')} value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  )}
+                  <input
+                    type="email" placeholder={t('common.email')} value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'} placeholder={t('common.password')} value={password}
+                      onChange={(e) => { setPassword(e.target.value); setPasswordError(''); }}
+                      className="w-full px-3 py-2 pr-10 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600">
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {authMode === 'register' && passwordError && <div className="text-red-500 text-xs">{passwordError}</div>}
+                  <button type="submit" disabled={isSubmitting}
+                    className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition text-sm font-medium">
+                    {isSubmitting ? '...' : (authMode === 'login' ? t('auth.signIn') : t('auth.register'))}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <Link to="/dashboard" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
                 {zh ? '进入工作台' : 'Open workspace'} <ArrowRight size={18} />
               </Link>
-            ) : (
-              <>
-                <Link to="/login" className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
-                  {zh ? '开始使用' : 'Get started'} <ArrowRight size={18} />
-                </Link>
-                <Link to="/guide" className="inline-flex items-center gap-2 px-6 py-3 bg-white text-gray-700 rounded-lg border hover:bg-gray-50 transition">
-                  <BookOpen size={18} /> {zh ? '使用指南' : 'Guide'}
-                </Link>
-              </>
             )}
           </div>
         </div>
@@ -165,8 +251,8 @@ export const ProductPage: React.FC = () => {
             {zh ? '进入工作台' : 'Open workspace'} <ArrowRight size={18} />
           </Link>
         ) : (
-          <Link to="/register" className="inline-flex items-center gap-2 px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
-            {zh ? '免费注册' : 'Register free'} <ArrowRight size={18} />
+          <Link to="/dashboard" className="inline-flex items-center gap-2 px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+            {zh ? '进入工作台' : 'Open workspace'} <ArrowRight size={18} />
           </Link>
         )}
       </div>

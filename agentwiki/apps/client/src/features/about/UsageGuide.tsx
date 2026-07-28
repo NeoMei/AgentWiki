@@ -18,7 +18,7 @@ export const UsageGuide: React.FC = () => {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-7">
           <div><h1 className="text-3xl font-bold flex items-center gap-3"><BookOpen className="text-blue-600" />{zh ? '使用指南' : 'Usage guide'}</h1><p className="text-gray-500 mt-2">{zh ? '当前版本中真实可用的入口、权限和工作流' : 'Available entry points, permissions and workflows in the current release'}</p></div>
-          <div className="flex items-center gap-3"><LanguageSwitcher /><Link to={token ? '/' : '/about'} className="text-sm text-blue-600">{zh ? `返回${token ? '工作台' : '产品页'}` : `Back to ${token ? 'workspace' : 'product page'}`}</Link></div>
+          <div className="flex items-center gap-3"><LanguageSwitcher /><Link to={token ? '/dashboard' : '/'} className="text-sm text-blue-600">{zh ? `返回${token ? '工作台' : '首页'}` : `Back to ${token ? 'workspace' : 'home'}`}</Link></div>
         </div>
         <div className="space-y-4">
           <Card title={zh ? '人类 Wiki 工作流' : 'Human wiki workflow'}>

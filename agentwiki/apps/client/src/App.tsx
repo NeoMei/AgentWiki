@@ -4,8 +4,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Login } from './features/auth/Login';
-import { Register } from './features/auth/Register';
 import { Dashboard } from './features/dashboard/Dashboard';
 import { SpaceView } from './features/space/SpaceView';
 import { SearchResults } from './features/search/SearchResults';
@@ -33,16 +31,14 @@ const RouteLoading: React.FC = () => {
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token } = useAuth();
-  return token ? <>{children}</> : <Navigate to="/login" />;
+  return token ? <>{children}</> : <Navigate to="/" />;
 };
 
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/spaces/:id" element={<SpaceView />} />
         <Route path="/pages/:id" element={<Suspense fallback={<RouteLoading />}><PagePreview /></Suspense>} />
         <Route path="/pages/:id/edit" element={<Suspense fallback={<RouteLoading />}><PageEditor /></Suspense>} />
@@ -60,7 +56,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/settings/integrations" element={<Suspense fallback={<RouteLoading />}><IntegrationsPage /></Suspense>} />
       </Route>
-      <Route path="/about" element={<ProductPage />} />
+      <Route path="/" element={<ProductPage />} />
       <Route path="/guide" element={<UsageGuide />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

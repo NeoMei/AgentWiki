@@ -23,11 +23,11 @@ api.interceptors.response.use(
       // Don't redirect or clear token on auth pages — the login/register
       // forms handle 401 errors themselves and a redirect here would cause
       // a reload loop or swallow the error message.
-      const isAuthPage = currentPath === '/login' || currentPath === '/register';
-      if (!isAuthPage) {
+      const isLanding = currentPath === '/' || currentPath === '/guide';
+      if (!isLanding) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        window.location.href = '/';
       }
     }
     return Promise.reject(error);
