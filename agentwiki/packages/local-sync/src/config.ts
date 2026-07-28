@@ -1,12 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { chmod, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
 const PREVIEWS_DIRECTORY = 'previews';
+const SOURCE_KEYS_DIRECTORY = 'source-keys';
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
-const LOCK_MAX_RETRIES = 100;
-const LOCK_RETRY_DELAY_MS = 100;
 
 export interface LocalSyncConnection {
   id: string;
@@ -36,8 +35,6 @@ export interface PreviewFile {
   envelopeHash: string;
 }
 
-type SourceKeyState = Record<string, string>;
-
 function agentwikiPath(home: string, ...segments: string[]): string {
   return join(home, AGENTWIKI_DIRECTORY, ...segments);
 }
@@ -48,10 +45,6 @@ function configPath(home: string): string {
 
 function credentialsPath(home: string): string {
   return agentwikiPath(home, 'credentials.json');
-}
-
-function syncStatePath(home: string): string {
-  return agentwikiPath(home, 'sync-state.json');
 }
 
 function previewPath(home: string, previewId: string, suffix: '.json' | '.inflight'): string {
@@ -104,61 +97,6 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err: any) {
-    // ESRCH = process doesn't exist. EPERM = exists but no permission (treat as alive).
-    return err?.code === 'EPERM';
-  }
-}
-
-async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
-  const lockDir = dirname(lockPath);
-  await mkdir(lockDir, { recursive: true, mode: 0o700 });
-
-  let acquired = false;
-  for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt += 1) {
-    try {
-      const handle = await open(lockPath, 'wx');
-      await handle.writeFile(String(process.pid), 'utf8');
-      await handle.close();
-      acquired = true;
-      break;
-    } catch (error: any) {
-      if (error?.code !== 'EEXIST') throw error;
-      // Lock exists — check if holder is alive
-      try {
-        const content = await readFile(lockPath, 'utf8');
-        const lockPid = parseInt(content.trim(), 10);
-        if (!Number.isNaN(lockPid) && isProcessAlive(lockPid)) {
-          await sleep(LOCK_RETRY_DELAY_MS);
-          continue;
-        }
-        // PID is dead — safe to reclaim
-        await unlink(lockPath);
-      } catch (err: any) {
-        if (err?.code === 'ENOENT') continue; // someone else cleaned it up
-        throw err;
-      }
-    }
-  }
-
-  if (!acquired) {
-    throw new Error(`Timed out waiting for lock ${lockPath}`);
-  }
-
-  try {
-    return await fn();
-  } finally {
-    // We are alive (we're executing this code). process.kill(ourPid, 0)
-    // succeeds for any concurrent checker, so no one reclaimed our lock.
-    // Safe to unlink — this can never delete another live holder's lock.
-    try { await unlink(lockPath); } catch {}
-  }
-}
-
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
@@ -189,19 +127,35 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
     throw new Error('Source path must be absolute');
   }
 
-  const statePath = syncStatePath(home);
-  return withLock(`${statePath}.lock`, async () => {
-    const state = await loadJson<SourceKeyState>(statePath, {});
-    const existing = state[sourcePath];
-    if (existing) {
-      return existing;
-    }
+  const pathHash = createHash('sha256').update(sourcePath).digest('hex');
+  const keyPath = agentwikiPath(home, SOURCE_KEYS_DIRECTORY, pathHash);
+  await mkdir(dirname(keyPath), { recursive: true, mode: 0o700 });
 
-    const sourceKey = randomUUID();
-    state[sourcePath] = sourceKey;
-    await writeJsonAtomically(statePath, state);
+  try {
+    const key = (await readFile(keyPath, 'utf8')).trim();
+    if (key) return key;
+  } catch (error: unknown) {
+    if (!isNotFound(error)) throw error;
+  }
+
+  const sourceKey = randomUUID();
+  try {
+    const handle = await open(keyPath, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${sourceKey}\n`, 'utf8');
+    } finally {
+      await handle.close();
+    }
     return sourceKey;
-  });
+  } catch (error: any) {
+    if (error?.code !== 'EEXIST') throw error;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const key = (await readFile(keyPath, 'utf8')).trim();
+      if (key) return key;
+      await sleep(50);
+    }
+    throw new Error('Source key file exists but is empty');
+  }
 }
 
 export async function savePreview(home: string, preview: PreviewFile): Promise<void> {

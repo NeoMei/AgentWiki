@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -57,6 +57,18 @@ describe('secure local state', () => {
     ]);
 
     expect(second).toBe(first);
+  });
+
+  it('stores source keys under a path hash without persisting the source path', async () => {
+    const home = await createHome();
+    const sourcePath = '/private/hashed-project';
+
+    await getOrCreateSourceKey(home, sourcePath);
+
+    const entries = await readdir(join(home, '.agentwiki', 'source-keys'));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(await readFile(join(home, '.agentwiki', 'source-keys', entries[0]), 'utf8')).not.toContain(sourcePath);
   });
 
   it('claims a preview once and completes it after upload', async () => {
