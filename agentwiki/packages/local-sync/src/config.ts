@@ -108,10 +108,12 @@ function sleep(delayMs: number): Promise<void> {
 async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
   await mkdir(join(lockPath, '..'), { recursive: true, mode: 0o700 });
 
+  const token = `${process.pid}-${randomUUID()}`;
   let acquired = false;
   for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt += 1) {
     try {
       const handle = await open(lockPath, 'wx');
+      await handle.writeFile(token, 'utf8');
       await handle.close();
       acquired = true;
       break;
@@ -142,7 +144,9 @@ async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
     return await fn();
   } finally {
     try {
-      await unlink(lockPath);
+      if (await readFile(lockPath, 'utf8') === token) {
+        await unlink(lockPath);
+      }
     } catch {
       // The lock may already have been removed after a failed filesystem operation.
     }
