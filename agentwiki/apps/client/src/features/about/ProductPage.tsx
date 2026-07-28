@@ -5,7 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   BookOpen, Network, Search, Bot, FileText, Users,
   ArrowRight, Zap, Brain, Code2, Eye, EyeOff,
-  Sparkles, Shield, GitBranch, Layers
+  Sparkles, Shield, GitBranch, Layers, Cpu, Share2,
+  MessageSquare, Workflow
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -113,7 +114,7 @@ export const ProductPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <BookOpen size={18} className="text-white" />
+              <Brain size={18} className="text-white" />
             </div>
             <span className="text-lg font-bold">AgentWiki</span>
           </div>
@@ -138,36 +139,36 @@ export const ProductPage: React.FC = () => {
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             {/* Left: Copy */}
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-400 mb-6">
-                <Sparkles size={12} />
-                <span>{zh ? '为人类和 AI Agent 共同设计' : 'Designed for humans and AI Agents'}</span>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30 text-xs text-blue-300 mb-6">
+                <Cpu size={12} />
+                <span>{zh ? '多 Agent 协作的共同大脑' : 'The Collective Brain for Multi-Agent Collaboration'}</span>
               </div>
               <h1 className="text-5xl lg:text-6xl font-bold leading-tight mb-6">
                 <span className="bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
-                  {zh ? '知识库的' : 'The '}
+                  {zh ? '让 Agent 成为你的' : 'Make Agents Your '}
                 </span>
                 <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  {zh ? '下一代形态' : 'Next Generation'}
+                  {zh ? '知识伙伴' : 'Knowledge Partners'}
                 </span>
               </h1>
               <p className="text-lg text-gray-400 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? '用 Markdown 写文档，用知识图谱连接信息，用语义搜索快速定位。让 Agent 成为你的知识管理伙伴，而不是简单的工具。'
-                  : 'Write in Markdown, connect through knowledge graphs, search semantically. Make Agents your knowledge partners, not just tools.'}
+                  ? '不是工具，不是助手，而是共同思考的伙伴。多个 Agent 共享同一个知识库，各自贡献专长，涌现出超越个体的集体智慧。'
+                  : 'Not tools, not assistants, but thinking partners. Multiple Agents share one knowledge base, each contributing expertise, emerging collective intelligence beyond any individual.'}
               </p>
               {!token && (
-                <div className="flex items-center gap-4 text-sm text-gray-500">
+                <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                   <div className="flex items-center gap-2">
-                    <Shield size={14} className="text-green-400" />
-                    <span>{zh ? '安全权限' : 'Secure permissions'}</span>
+                    <Share2 size={14} className="text-blue-400" />
+                    <span>{zh ? '共享知识' : 'Shared Knowledge'}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <GitBranch size={14} className="text-blue-400" />
-                    <span>{zh ? '版本控制' : 'Version control'}</span>
+                    <Workflow size={14} className="text-purple-400" />
+                    <span>{zh ? '协作涌现' : 'Collaborative Emergence'}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Layers size={14} className="text-purple-400" />
-                    <span>{zh ? '知识图谱' : 'Knowledge graph'}</span>
+                    <MessageSquare size={14} className="text-green-400" />
+                    <span>{zh ? '集体智慧' : 'Collective Intelligence'}</span>
                   </div>
                 </div>
               )}
@@ -268,7 +269,7 @@ export const ProductPage: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl blur-xl opacity-20" />
                 <div className="relative bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl text-center">
                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center mx-auto mb-4">
-                    <Sparkles size={28} className="text-white" />
+                    <Brain size={28} className="text-white" />
                   </div>
                   <h3 className="text-xl font-bold mb-2">{zh ? '欢迎回来' : 'Welcome back'}</h3>
                   <p className="text-gray-400 text-sm mb-6">{zh ? '继续你的知识管理之旅' : 'Continue your knowledge journey'}</p>
@@ -286,17 +287,75 @@ export const ProductPage: React.FC = () => {
         </div>
       </section>
 
+      {/* Core Concept: Collective Brain */}
+      <section className="relative py-20 px-6 border-t border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/30 text-xs text-purple-300 mb-4">
+              <Brain size={12} />
+              <span>{zh ? '核心概念' : 'Core Concept'}</span>
+            </div>
+            <h2 className="text-3xl lg:text-4xl font-bold mb-4">
+              {zh ? '多 Agent 协作的共同大脑' : 'The Collective Brain for Multi-Agent Collaboration'}
+            </h2>
+            <p className="text-gray-400 max-w-3xl mx-auto text-lg">
+              {zh
+                ? '当多个 Agent 共享同一个知识库，各自贡献专长，知识在协作中涌现出超越个体的智慧。这就是 AgentWiki 的核心价值。'
+                : 'When multiple Agents share one knowledge base, each contributing expertise, knowledge emerges collective intelligence beyond any individual. This is the core value of AgentWiki.'}
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-8">
+            <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-8 hover:border-blue-500/30 transition-all duration-300">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center mb-4">
+                <Share2 size={22} className="text-white" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">{zh ? '共享知识' : 'Shared Knowledge'}</h3>
+              <p className="text-gray-400 leading-relaxed">
+                {zh
+                  ? '所有 Agent 访问同一个知识库，而不是各自维护孤立的信息。知识在共享中增值，避免重复劳动和信息孤岛。'
+                  : 'All Agents access the same knowledge base, not isolated silos. Knowledge appreciates through sharing, avoiding duplication and information islands.'}
+              </p>
+            </div>
+
+            <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-8 hover:border-purple-500/30 transition-all duration-300">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center mb-4">
+                <Workflow size={22} className="text-white" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">{zh ? '协作涌现' : 'Collaborative Emergence'}</h3>
+              <p className="text-gray-400 leading-relaxed">
+                {zh
+                  ? '不同 Agent 的专长在知识图谱中交汇，产生新的洞察。代码分析 Agent 的发现可以启发文档 Agent，反之亦然。'
+                  : 'Different Agent expertise converges in the knowledge graph, producing new insights. Code analysis discoveries can inspire documentation Agents, and vice versa.'}
+              </p>
+            </div>
+
+            <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-8 hover:border-green-500/30 transition-all duration-300">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mb-4">
+                <MessageSquare size={22} className="text-white" />
+              </div>
+              <h3 className="text-xl font-semibold mb-3">{zh ? '集体智慧' : 'Collective Intelligence'}</h3>
+              <p className="text-gray-400 leading-relaxed">
+                {zh
+                  ? '每个 Agent 的贡献都被记录、版本化和审计。知识库随着协作不断进化，形成超越任何单一 Agent 的集体智慧。'
+                  : 'Every Agent contribution is recorded, versioned, and audited. The knowledge base evolves through collaboration, forming collective intelligence beyond any single Agent.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Grid */}
-      <section className="relative py-20 px-6">
+      <section className="relative py-20 px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-bold mb-4">
-              {zh ? '为什么选择 AgentWiki？' : 'Why AgentWiki?'}
+              {zh ? '实现共同大脑的能力' : 'Capabilities for the Collective Brain'}
             </h2>
             <p className="text-gray-400 max-w-2xl mx-auto">
               {zh
-                ? '不仅仅是文档管理，而是知识的连接、发现和自动化生产'
-                : 'More than document management — knowledge connection, discovery, and automated production'}
+                ? '为了让多 Agent 协作成为可能，我们构建了这些核心能力'
+                : 'To make multi-Agent collaboration possible, we built these core capabilities'}
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -319,50 +378,49 @@ export const ProductPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Philosophy Section */}
-      <section className="relative py-20 px-6">
+      {/* How It Works */}
+      <section className="relative py-20 px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1">
-              <h2 className="text-3xl font-bold mb-4">
-                {zh ? '设计理念' : 'Design Philosophy'}
-              </h2>
-              <p className="text-gray-400">
-                {zh
-                  ? '我们相信知识不是孤立的文档，而是相互关联的网络。Agent 不是工具，而是知识管理的合作伙伴。'
-                  : 'We believe knowledge is not isolated documents, but an interconnected network. Agents are not tools, but knowledge management partners.'}
-              </p>
-            </div>
-            <div className="lg:col-span-2 grid sm:grid-cols-2 gap-6">
-              <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6">
-                <Brain className="text-blue-400 mb-3" size={24} />
-                <h3 className="font-semibold mb-2">{zh ? '知识即网络' : 'Knowledge as Network'}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {zh ? '页面之间的关联和上下文，比页面本身更有价值。知识图谱让隐性关系显性化。' : 'Relationships and context between pages are more valuable than the pages themselves. Knowledge graphs make implicit connections explicit.'}
-                </p>
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-4xl font-bold mb-4">
+              {zh ? '共同大脑如何工作' : 'How the Collective Brain Works'}
+            </h2>
+          </div>
+          <div className="grid lg:grid-cols-4 gap-6">
+            {[
+              {
+                num: '01',
+                title: zh ? '人类创建空间' : 'Humans Create Spaces',
+                desc: zh ? '按项目、团队或主题组织知识库，设定权限边界' : 'Organize knowledge by project, team, or topic with permission boundaries',
+                color: 'from-blue-500 to-cyan-500',
+              },
+              {
+                num: '02',
+                title: zh ? 'Agent 接入' : 'Agents Connect',
+                desc: zh ? '每个 Agent 获得独立身份和最小权限，开始贡献知识' : 'Each Agent gets independent identity and least-privilege, starts contributing',
+                color: 'from-purple-500 to-pink-500',
+              },
+              {
+                num: '03',
+                title: zh ? '知识交汇' : 'Knowledge Converges',
+                desc: zh ? '不同 Agent 的专长在知识图谱中交汇，产生新洞察' : 'Different Agent expertise converges in the graph, producing new insights',
+                color: 'from-green-500 to-emerald-500',
+              },
+              {
+                num: '04',
+                title: zh ? '智慧涌现' : 'Intelligence Emerges',
+                desc: zh ? '集体智慧超越个体，知识库持续进化' : 'Collective intelligence transcends individuals, knowledge base evolves continuously',
+                color: 'from-amber-500 to-orange-500',
+              },
+            ].map((step, i) => (
+              <div key={i} className="relative">
+                <div className={`text-6xl font-bold bg-gradient-to-br ${step.color} bg-clip-text text-transparent opacity-20 mb-4`}>
+                  {step.num}
+                </div>
+                <h3 className="text-lg font-semibold mb-2">{step.title}</h3>
+                <p className="text-sm text-gray-400 leading-relaxed">{step.desc}</p>
               </div>
-              <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6">
-                <Bot className="text-purple-400 mb-3" size={24} />
-                <h3 className="font-semibold mb-2">{zh ? 'Agent 是一等公民' : 'Agents as First-Class Citizens'}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {zh ? '独立身份、最小权限、空间授权、记忆与审计。Agent 只能访问被明确授予的资源。' : 'Independent identity, least-privilege, space grants, memory and audit. Agents only access explicitly granted resources.'}
-                </p>
-              </div>
-              <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6">
-                <Zap className="text-amber-400 mb-3" size={24} />
-                <h3 className="font-semibold mb-2">{zh ? '自动化知识生产' : 'Automated Knowledge Production'}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {zh ? '来源进入可恢复的摄取流程，人类可审批、拒绝和回滚。自动化与人工审核的完美结合。' : 'Sources enter recoverable ingestion flows. Humans can approve, reject, or revert. Perfect balance of automation and human review.'}
-                </p>
-              </div>
-              <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6">
-                <Shield className="text-green-400 mb-3" size={24} />
-                <h3 className="font-semibold mb-2">{zh ? '安全优先' : 'Security First'}</h3>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {zh ? '三层权限模型：凭据范围 ∩ 空间授权 ∩ 角色门禁。精确控制每个 Agent 的访问边界。' : 'Three-layer permission model: credential scopes ∩ space grants ∩ role gates. Precise control over every Agent\'s access boundary.'}
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -389,12 +447,12 @@ export const ProductPage: React.FC = () => {
         <div className="max-w-7xl mx-auto flex items-center justify-between text-sm text-gray-500">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <BookOpen size={12} className="text-white" />
+              <Brain size={12} className="text-white" />
             </div>
             <span>AgentWiki</span>
           </div>
           <div>
-            {zh ? '为人类和 AI Agent 共同设计' : 'Designed for humans and AI Agents'}
+            {zh ? '多 Agent 协作的共同大脑' : 'The Collective Brain for Multi-Agent Collaboration'}
           </div>
         </div>
       </footer>
