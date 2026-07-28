@@ -68,6 +68,19 @@ describe('agent client adapters', () => {
     expect(runner).toHaveBeenCalledWith('claude', expect.arrayContaining(['--scope', 'user']), expect.anything());
   });
 
+  it('uses Claude user scope when removing an MCP connection', async () => {
+    const home = await createHome();
+    const runner = vi.fn<CommandRunner>(() => result());
+
+    await removeMcp('claude', 'agentwiki-local-a1', runner, home);
+
+    expect(runner).toHaveBeenCalledWith(
+      'claude',
+      ['mcp', 'remove', '--scope', 'user', 'agentwiki-local-a1'],
+      expect.anything(),
+    );
+  });
+
   it('patches only its OpenCode v1 MCP entry and preserves unrelated config', async () => {
     const home = await createHome();
     const runner = runnerWithOpenCodeVersion('1.18.7');

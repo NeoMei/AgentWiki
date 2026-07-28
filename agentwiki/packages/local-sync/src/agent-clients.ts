@@ -225,7 +225,7 @@ export async function removeMcp(
     return;
   }
   if (client === 'claude') {
-    run(runner, 'claude', ['mcp', 'remove', name]);
+    run(runner, 'claude', ['mcp', 'remove', '--scope', 'user', name]);
     return;
   }
 
