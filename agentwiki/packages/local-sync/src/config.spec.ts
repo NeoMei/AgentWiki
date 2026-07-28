@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   claimPreview,
   completePreview,
   getOrCreateSourceKey,
+  releasePreview,
   saveCredentials,
   savePreview,
 } from './config.js';
@@ -61,5 +62,44 @@ describe('secure local state', () => {
     await expect(claimPreview(home, 'preview-1')).rejects.toThrow('already in progress');
     await completePreview(home, 'preview-1');
     await expect(claimPreview(home, 'preview-1')).rejects.toThrow('not found or expired');
+  });
+
+  it('releases a claimed preview so it can be claimed again', async () => {
+    const home = await createHome();
+
+    await savePreview(home, {
+      id: 'preview-release',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      envelopePath: '/tmp/a.okf.json',
+      envelopeHash: 'abc',
+    });
+
+    await claimPreview(home, 'preview-release');
+    await releasePreview(home, 'preview-release');
+    await expect(claimPreview(home, 'preview-release')).resolves.toMatchObject({ id: 'preview-release' });
+  });
+
+  it('cleans up an expired inflight preview and reports it as unavailable', async () => {
+    const home = await createHome();
+    const previewId = 'preview-expired-inflight';
+    const previewDirectory = join(home, '.agentwiki', 'previews');
+    const inflightPath = join(previewDirectory, `${previewId}.inflight`);
+
+    await savePreview(home, {
+      id: previewId,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      envelopePath: '/tmp/a.okf.json',
+      envelopeHash: 'abc',
+    });
+    await claimPreview(home, previewId);
+    await writeFile(inflightPath, JSON.stringify({
+      id: previewId,
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      envelopePath: '/tmp/a.okf.json',
+      envelopeHash: 'abc',
+    }));
+
+    await expect(claimPreview(home, previewId)).rejects.toThrow('not found or expired');
+    await expect(stat(inflightPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

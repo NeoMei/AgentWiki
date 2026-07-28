@@ -137,7 +137,9 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
   const sourceKey = randomUUID();
   state[sourcePath] = sourceKey;
   await writeJsonAtomically(syncStatePath(home), state);
-  return sourceKey;
+
+  const persistedState = await loadJson<SourceKeyState>(syncStatePath(home), {});
+  return persistedState[sourcePath] ?? sourceKey;
 }
 
 export async function savePreview(home: string, preview: PreviewFile): Promise<void> {
@@ -159,13 +161,19 @@ export async function claimPreview(home: string, previewId: string): Promise<Pre
       throw error;
     }
 
+    let inflight: PreviewFile;
     try {
-      await readFile(inflightPath);
+      inflight = JSON.parse(await readFile(inflightPath, 'utf8')) as PreviewFile;
     } catch (inflightError: unknown) {
       if (!isNotFound(inflightError)) {
         throw inflightError;
       }
       throw new Error(`Preview ${previewId} was not found or expired`, { cause: inflightError });
+    }
+
+    if (isExpired(inflight)) {
+      await rm(inflightPath, { force: true });
+      throw new Error(`Preview ${previewId} was not found or expired`, { cause: error });
     }
 
     throw new Error(`Preview ${previewId} is already in progress`, { cause: error });
