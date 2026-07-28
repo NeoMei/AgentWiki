@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../filters/business-error';
 import { PrismaService } from '../../database/prisma.service';
 
-export type SpaceRole = 'owner' | 'editor' | 'viewer';
+export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
   userId: string;
   agentId?: string;

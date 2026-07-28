@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
 
@@ -192,7 +192,7 @@ export class SpaceService {
     ];
   }
 
-  async addMember(spaceId: string, email: string, role: 'owner' | 'editor' | 'viewer' = 'viewer') {
+  async addMember(spaceId: string, email: string, role: 'owner' | 'admin' | 'editor' | 'viewer' = 'viewer') {
     await this.findOne(spaceId);
 
     const user = await this.prisma.user.findFirst({
@@ -212,12 +212,20 @@ export class SpaceService {
   }
 
   async updateMemberRole(spaceId: string, userId: string, role: 'owner' | 'editor' | 'viewer') {
+    return this.updateMemberRoleAs(spaceId, userId, role, 'owner');
+  }
+
+  async updateMemberRoleAs(spaceId: string, userId: string, role: string, callerRole: string) {
     await this.findOne(spaceId);
 
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId, spaceId } },
     });
     if (!member) throw new NotFoundException('Member not found');
+    // Admins manage non-owner members only and can never touch the owner role.
+    if (callerRole !== 'owner' && (member.role === 'owner' || role === 'owner')) {
+      throw new ForbiddenException('Only an owner can manage the owner role');
+    }
     if (member.role === 'owner' && role !== 'owner') {
       // Ensure at least one owner remains
       const owners = await this.prisma.spaceMember.findMany({
@@ -236,12 +244,19 @@ export class SpaceService {
   }
 
   async removeMember(spaceId: string, userId: string) {
+    return this.removeMemberAs(spaceId, userId, 'owner');
+  }
+
+  async removeMemberAs(spaceId: string, userId: string, callerRole: string) {
     await this.findOne(spaceId);
 
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId, spaceId } },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (callerRole !== 'owner' && member.role === 'owner') {
+      throw new ForbiddenException('Only an owner can remove an owner');
+    }
     if (member.role === 'owner') {
       const owners = await this.prisma.spaceMember.findMany({
         where: { spaceId, role: 'owner' },

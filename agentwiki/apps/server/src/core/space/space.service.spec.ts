@@ -35,3 +35,33 @@ describe('SpaceService.listMembers includes agents', () => {
     }));
   });
 });
+
+describe('admin role and member management', () => {
+  const prisma = {
+    space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+    spaceMember: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    user: { findFirst: jest.fn() },
+    agentGrant: { findMany: jest.fn().mockResolvedValue([]) },
+  } as any;
+  const service = new SpaceService(prisma);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('allows adding a member with the admin role', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2', email: 'b@x.com', type: 'human' });
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+    prisma.spaceMember.create.mockResolvedValue({ id: 'm2', role: 'admin' });
+    const result = await service.addMember('space-1', 'b@x.com', 'admin' as any);
+    expect(prisma.spaceMember.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ role: 'admin' }),
+    }));
+    expect(result.role).toBe('admin');
+  });
+
+  it('rejects an admin changing another owner or granting owner', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
+    await expect(
+      service.updateMemberRoleAs('space-1', 'u1', 'admin', 'owner'),
+    ).rejects.toThrow();
+  });
+});

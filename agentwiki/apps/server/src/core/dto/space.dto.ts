@@ -57,11 +57,11 @@ export class AddMemberDto {
   email: string;
 
   @IsOptional()
-  @IsIn(['owner', 'editor', 'viewer'])
-  role?: 'owner' | 'editor' | 'viewer';
+  @IsIn(['owner', 'admin', 'editor', 'viewer'])
+  role?: 'owner' | 'admin' | 'editor' | 'viewer';
 }
 
 export class UpdateMemberRoleDto {
-  @IsIn(['owner', 'editor', 'viewer'])
-  role: 'owner' | 'editor' | 'viewer';
+  @IsIn(['owner', 'admin', 'editor', 'viewer'])
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
 }

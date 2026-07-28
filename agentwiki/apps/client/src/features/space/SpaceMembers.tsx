@@ -18,6 +18,7 @@ interface Member {
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   owner: { label: 'Owner', color: 'bg-purple-100 text-purple-700' },
+  admin: { label: 'Admin', color: 'bg-indigo-100 text-indigo-700' },
   editor: { label: 'Editor', color: 'bg-blue-100 text-blue-700' },
   viewer: { label: 'Viewer', color: 'bg-gray-100 text-gray-700' },
 };
@@ -157,7 +158,7 @@ export const SpaceMembers: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
-                      {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
+                      {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
                     </span>
                   </div>
                 </div>
@@ -188,6 +189,7 @@ export const SpaceMembers: React.FC = () => {
                       disabled={updatingId === m.userId}
                       className="text-xs border rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
+                      <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                       <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                       <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
                     </select>
@@ -261,6 +263,7 @@ export const SpaceMembers: React.FC = () => {
                   onChange={e => setAddForm({ ...addForm, role: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
+                  <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                   <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                   <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
                 </select>
