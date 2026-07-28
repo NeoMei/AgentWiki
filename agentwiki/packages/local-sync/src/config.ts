@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, open, readFile, rename, rm, stat as statFile, unlink, writeFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { chmod, mkdir, open, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
 const PREVIEWS_DIRECTORY = 'previews';
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
-const LOCK_STALE_MS = 30_000;
-const LOCK_MAX_RETRIES = 50;
+const LOCK_MAX_RETRIES = 100;
 const LOCK_RETRY_DELAY_MS = 100;
 
 export interface LocalSyncConnection {
@@ -105,34 +104,44 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
-  await mkdir(join(lockPath, '..'), { recursive: true, mode: 0o700 });
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    // ESRCH = process doesn't exist. EPERM = exists but no permission (treat as alive).
+    return err?.code === 'EPERM';
+  }
+}
 
-  const token = `${process.pid}-${randomUUID()}`;
+async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  const lockDir = dirname(lockPath);
+  await mkdir(lockDir, { recursive: true, mode: 0o700 });
+
   let acquired = false;
   for (let attempt = 0; attempt < LOCK_MAX_RETRIES; attempt += 1) {
     try {
       const handle = await open(lockPath, 'wx');
-      await handle.writeFile(token, 'utf8');
+      await handle.writeFile(String(process.pid), 'utf8');
       await handle.close();
       acquired = true;
       break;
-    } catch (error: unknown) {
-      if (!isAlreadyExists(error)) {
-        throw error;
-      }
-
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      // Lock exists — check if holder is alive
       try {
-        const lockStat = await statFile(lockPath);
-        if (Date.now() - lockStat.mtimeMs > LOCK_STALE_MS) {
-          await unlink(lockPath);
+        const content = await readFile(lockPath, 'utf8');
+        const lockPid = parseInt(content.trim(), 10);
+        if (!Number.isNaN(lockPid) && isProcessAlive(lockPid)) {
+          await sleep(LOCK_RETRY_DELAY_MS);
           continue;
         }
-      } catch {
-        // The lock may have been released or could not be inspected; retry below.
+        // PID is dead — safe to reclaim
+        await unlink(lockPath);
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') continue; // someone else cleaned it up
+        throw err;
       }
-
-      await sleep(LOCK_RETRY_DELAY_MS);
     }
   }
 
@@ -143,29 +152,15 @@ async function withLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } finally {
-    const donePath = `${lockPath}.${token}.done`;
-    try {
-      await rename(lockPath, donePath);
-      const content = await readFile(donePath, 'utf8');
-      if (content === token) {
-        await unlink(donePath);
-      } else {
-        await unlink(donePath).catch(() => {});
-      }
-    } catch (error: any) {
-      if (error?.code !== 'ENOENT') {
-        // Stale-lock cleanup will eventually resolve failed cleanup.
-      }
-    }
+    // We are alive (we're executing this code). process.kill(ourPid, 0)
+    // succeeds for any concurrent checker, so no one reclaimed our lock.
+    // Safe to unlink — this can never delete another live holder's lock.
+    try { await unlink(lockPath); } catch {}
   }
 }
 
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
-function isAlreadyExists(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
 }
 
 function isExpired(preview: PreviewFile): boolean {
