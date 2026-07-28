@@ -21,7 +21,8 @@ export class McpController {
       list_spaces: 'spaces:read',
       list_pages: 'pages:read', get_page: 'pages:read', search_pages: 'pages:read',
       list_graph: 'graph:read', propose_page: 'pages:write', propose_relation: 'graph:write',
-      list_sources: 'sources:read', start_source_run: 'runs:write', recall_memory: 'memory:read',
+      list_sources: 'sources:read', get_knowledge_sync_state: 'sources:read',
+      start_source_run: 'runs:write', recall_memory: 'memory:read',
       list_reviews: 'review:read', approve_change_set: 'review:decide (human only)',
     };
     return {
