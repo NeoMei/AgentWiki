@@ -22,6 +22,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   RESOURCE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Resource conflict' },
   SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Source is invalid' },
   SOURCE_TOO_LARGE: { status: HttpStatus.BAD_REQUEST, message: 'Source exceeds size limit' },
+  SYNC_CONFIRMATION_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Explicit confirmation is required before synchronization' },
   RUN_NOT_RETRYABLE: { status: HttpStatus.CONFLICT, message: 'Run cannot be retried' },
   CHANGESET_INVALID_STATE: { status: HttpStatus.CONFLICT, message: 'Change set state does not allow this operation' },
   CHANGESET_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Change set conflicts with newer resource state' },
