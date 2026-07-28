@@ -14,7 +14,7 @@ const BASE_SCOPES = [
 ];
 
   const LOCAL_SYNC_VERSION = '0.1.0';
-  const NPM_URL = `https://www.npmjs.com/package/@agentwiki/local-sync/v/${LOCAL_SYNC_VERSION}`;
+  const PACKAGE_URL = `https://github.com/NeoMei/AgentWiki/tree/master/agentwiki/packages/local-sync`;
 
 interface InstallationResult {
   installationId: string;
@@ -81,7 +81,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
           <p className="text-xs text-gray-500">{t('agent.localSync.version', { version: LOCAL_SYNC_VERSION })}</p>
         </div>
         <a
-          href={NPM_URL}
+          href={PACKAGE_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
