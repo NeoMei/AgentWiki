@@ -242,6 +242,25 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/local-sync:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.1.1
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@26.1.1)(jsdom@26.1.0)(lightningcss@1.32.0)(terser@5.48.0)
+
   packages/shared:
     devDependencies:
       typescript:

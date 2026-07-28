@@ -1,0 +1,39 @@
+{
+  "name": "@agentwiki/local-sync",
+  "version": "0.1.0",
+  "description": "Local OpenWiki and AgentWiki synchronization for coding agents",
+  "type": "module",
+  "bin": {
+    "agentwiki-local-sync": "./dist/cli.js"
+  },
+  "main": "./dist/mcp.js",
+  "types": "./dist/mcp.d.ts",
+  "files": [
+    "dist",
+    "skill",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "vitest run",
+    "prepack": "pnpm build && pnpm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.7"
+  }
+}
