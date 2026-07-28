@@ -13,6 +13,7 @@ describe('LocalSyncInstallationService', () => {
   const agents = {
     getOwned: jest.fn(),
     createCredential: jest.fn(),
+    listCredentials: jest.fn(),
     revokeCredential: jest.fn(),
     normalizeCredentialScopes: jest.fn(),
   };
@@ -44,6 +45,7 @@ describe('LocalSyncInstallationService', () => {
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
     agents.normalizeCredentialScopes.mockImplementation((scopes: string[]) => [...new Set(scopes)]);
     agents.createCredential.mockResolvedValue({ id: 'credential-1', apiKey: 'agk_secret' });
+    agents.listCredentials.mockResolvedValue([]);
     agents.revokeCredential.mockResolvedValue({ success: true });
     audit.record.mockResolvedValue(undefined);
     service = new LocalSyncInstallationService(redis as any, agents as any, config as any, audit as any);
@@ -249,6 +251,25 @@ describe('LocalSyncInstallationService', () => {
       'owner-1',
       'agent-1',
       'credential-1',
+    );
+  });
+
+  it('cleans up a recently created credential when credential creation audit fails', async () => {
+    redis.getDel.mockResolvedValue(JSON.stringify(payload));
+    agents.createCredential.mockRejectedValue(new Error('credential audit unavailable'));
+    agents.listCredentials.mockResolvedValue([{
+      id: 'credential-created-before-audit-failure',
+      createdAt: new Date('2030-01-01T00:00:00.000Z'),
+    }]);
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toThrow('credential audit unavailable');
+
+    expect(agents.listCredentials).toHaveBeenCalledWith('owner-1', 'agent-1');
+    expect(agents.revokeCredential).toHaveBeenCalledWith(
+      'owner-1',
+      'agent-1',
+      'credential-created-before-audit-failure',
     );
   });
 

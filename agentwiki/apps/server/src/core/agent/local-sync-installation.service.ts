@@ -137,12 +137,12 @@ export class LocalSyncInstallationService {
       throw new BadRequestException('Agent must be active to exchange a local sync installation');
     }
     const scopes = this.agents.normalizeCredentialScopes(payload.scopes);
-    const credential = await this.agents.createCredential(payload.ownerId, payload.agentId, {
-      name: 'Local sync plugin',
-      scopes,
-    });
-
+    let credential: Awaited<ReturnType<AgentService['createCredential']>> | undefined;
     try {
+      credential = await this.agents.createCredential(payload.ownerId, payload.agentId, {
+        name: 'Local sync plugin',
+        scopes,
+      });
       await this.audit.record({
         action: 'local-sync.installation.exchange',
         outcome: 'success',
@@ -155,19 +155,38 @@ export class LocalSyncInstallationService {
           scopes,
         },
       });
+
+      return {
+        apiKey: credential.apiKey,
+        agentId: payload.agentId,
+        credentialId: credential.id,
+        serverUrl: payload.serverUrl,
+        pluginVersion: payload.pluginVersion,
+        scopes,
+      };
     } catch (error) {
-      await this.agents.revokeCredential(payload.ownerId, payload.agentId, credential.id);
+      try {
+        if (credential) {
+          await this.agents.revokeCredential(payload.ownerId, payload.agentId, credential.id);
+        } else {
+          const [latestCredential] = await this.agents.listCredentials(
+            payload.ownerId,
+            payload.agentId,
+          );
+          const createdAt = latestCredential ? new Date(latestCredential.createdAt).getTime() : NaN;
+          if (createdAt >= Date.now() - 30_000 && createdAt <= Date.now()) {
+            await this.agents.revokeCredential(
+              payload.ownerId,
+              payload.agentId,
+              latestCredential!.id,
+            );
+          }
+        }
+      } catch {
+        // Preserve the original credential creation or audit failure after attempting cleanup.
+      }
       throw error;
     }
-
-    return {
-      apiKey: credential.apiKey,
-      agentId: payload.agentId,
-      credentialId: credential.id,
-      serverUrl: payload.serverUrl,
-      pluginVersion: payload.pluginVersion,
-      scopes,
-    };
   }
 
   private assertSupportedVersion(pluginVersion: string): void {
