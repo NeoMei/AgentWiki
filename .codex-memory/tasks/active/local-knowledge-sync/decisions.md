@@ -16,3 +16,7 @@
 - 长期 Credential 不进入命令参数、项目目录、Skill 或 MCP 明文配置；本地凭据文件仅当前用户可读。
 - npm 是第一版分发渠道，GitHub Release 提供源码与审计信息；安装、升级和卸载均固定明确版本，不使用 `latest`。
 - 卸载默认保留 `sync-state.json`，防止重装后同一本地来源被识别成新来源；删除同步历史和本地 Credential 都需要用户明确选择。
+- 实施拆为服务端、本地插件、产品接入三份连续计划，每份都有独立测试和提交门禁。
+- OpenWiki 始终在临时 staging 仓库运行，避免扫描时改写用户仓库中的 `AGENTS.md`、`CLAUDE.md` 或 `openwiki/`；代码文件由 `git ls-files -co --exclude-standard` 复制当前工作树内容。
+- 一次性安装记录以完整 `sha256(code)` 作为可撤销的 installationId 和 Redis key，不保存明文码，也不引入反向索引。
+- CLI 的 `scan` 复用 MCP prepare-and-diff 核心，`preview` 只展示已保存预览；保持公开命令清晰而不复制扫描逻辑。

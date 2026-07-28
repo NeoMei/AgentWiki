@@ -9,8 +9,9 @@
 ## 当前状态
 
 - 高层方向和本地插件安装体验已由用户确认。
-- 正式设计已写入 `agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`，已补全插件打包、一次性安装码、自动配置、凭据存储、诊断、升级和卸载，等待用户最终书面复核。
-- 尚未进入实现计划或代码修改。
+- 正式设计已写入 `agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`，用户已最终批准。
+- 服务端、本地插件、产品接入三份实施计划已完成并自检；尚未开始产品代码修改。
+- 下一步从服务端计划开始执行，再依次进入插件和产品接入。
 
 ## 范围
 
