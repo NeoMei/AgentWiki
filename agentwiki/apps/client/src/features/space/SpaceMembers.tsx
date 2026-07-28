@@ -109,20 +109,6 @@ export const SpaceMembers: React.FC = () => {
     }
   };
 
-  const handleAgentRoleChange = async (agentId: string, role: string) => {
-    if (!id) return;
-    setUpdatingId(agentId);
-    setError(null);
-    try {
-      await api.put('/agents/' + agentId + '/grants/' + id, { role });
-      await fetchMembers();
-    } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '智能体角色更新失败' : 'Failed to update agent role'));
-    } finally {
-      setUpdatingId(null);
-    }
-  };
-
   const handleRemoveAgent = async (agentId: string, name: string) => {
     if (!id) return;
     if (!window.confirm(zh ? `确定移除智能体 ${name || '此智能体'} 的授权吗？` : `Remove agent ${name || 'this agent'}'s grant?`)) return;
@@ -153,6 +139,40 @@ export const SpaceMembers: React.FC = () => {
     { value: 'graph:write', label: '写图谱' },
   ];
 
+  // Role presets: one click fills the corresponding scopes.
+  const ROLE_PRESETS: Array<{ key: string; label: string; enLabel: string; scopes: string[] }> = [
+    {
+      key: 'viewer',
+      label: '查看者',
+      enLabel: 'Viewer',
+      scopes: ['pages:read', 'graph:read'],
+    },
+    {
+      key: 'editor',
+      label: '编辑者',
+      enLabel: 'Editor',
+      scopes: ['pages:read', 'pages:write', 'sources:read', 'graph:read', 'graph:write'],
+    },
+    {
+      key: 'reviewer',
+      label: '审核者',
+      enLabel: 'Reviewer',
+      scopes: ['pages:read', 'pages:write', 'review:read', 'review:auto-publish', 'graph:read'],
+    },
+    {
+      key: 'full',
+      label: '完全授权',
+      enLabel: 'Full',
+      scopes: ALL_SCOPES.map(s => s.value),
+    },
+  ];
+
+  // Derive display role from scopes: any write scope => editor, else viewer.
+  const deriveRole = (scopes: string[]): string => {
+    if (!scopes || scopes.length === 0) return 'editor'; // empty = inherit all, treat as editor
+    return scopes.some(s => s.endsWith(':write') || s === 'review:auto-publish') ? 'editor' : 'viewer';
+  };
+
   const toggleScopes = (agentId: string) => {
     setExpandedScopes(prev => {
       const next = new Set(prev);
@@ -162,23 +182,29 @@ export const SpaceMembers: React.FC = () => {
     });
   };
 
-  const handleScopeToggle = async (agentId: string, currentScopes: string[], scope: string, currentRole: string) => {
+  const handleScopeToggle = async (agentId: string, currentScopes: string[], scope: string) => {
     const has = currentScopes.includes(scope);
     const newScopes = has ? currentScopes.filter(s => s !== scope) : [...currentScopes, scope];
-    await handleScopeUpdate(agentId, newScopes, currentRole);
+    await handleScopeUpdate(agentId, newScopes);
   };
 
-  const handleAllScopes = async (agentId: string, currentScopes: string[], currentRole: string) => {
+  const handleAllScopes = async (agentId: string, currentScopes: string[]) => {
     const allScopeValues = ALL_SCOPES.map(s => s.value);
     const allSelected = allScopeValues.every(v => currentScopes.includes(v));
     const newScopes = allSelected ? [] : allScopeValues;
-    await handleScopeUpdate(agentId, newScopes, currentRole);
+    await handleScopeUpdate(agentId, newScopes);
   };
 
-  const handleScopeUpdate = async (agentId: string, newScopes: string[], currentRole: string) => {
+  const handlePreset = async (agentId: string, scopes: string[]) => {
+    await handleScopeUpdate(agentId, scopes);
+  };
+
+  const handleScopeUpdate = async (agentId: string, newScopes: string[]) => {
+    // Auto-derive role from scopes so the role badge stays in sync.
+    const derivedRole = deriveRole(newScopes);
     setUpdatingId(agentId);
     try {
-      await api.put('/agents/' + agentId + '/grants/' + id, { role: currentRole, scopes: newScopes });
+      await api.put('/agents/' + agentId + '/grants/' + id, { role: derivedRole, scopes: newScopes });
       await fetchMembers();
     } catch {
       setError(zh ? '权限更新失败' : 'Failed to update scopes');
@@ -253,40 +279,34 @@ export const SpaceMembers: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {!canManage ? null : (
-                      <button
-                        onClick={() => toggleScopes(m.agentId!)}
-                        className={`p-1.5 rounded transition-colors ${expandedScopes.has(m.agentId!) ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
-                        title={zh ? '权限设置' : 'Scope settings'}
-                      >
-                        {expandedScopes.has(m.agentId!) ? <ShieldCheck size={16} /> : <Shield size={16} />}
-                      </button>
-                    )}
-                    {!canManage ? (
-                      <span className={'text-xs px-2 py-1 rounded-full font-medium ' + roleCfg.color}>
-                        {m.role === 'owner' ? (zh ? '所有者' : 'Owner') : m.role === 'admin' ? (zh ? '管理员' : 'Admin') : m.role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
-                      </span>
-                    ) : (
-                      <>
-                        <select
-                          value={m.role}
-                          onChange={e => handleAgentRoleChange(m.agentId!, e.target.value)}
-                          disabled={updatingId === m.agentId}
-                          className="text-xs border rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
-                          <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                        </select>
-                        <button
-                          onClick={() => handleRemoveAgent(m.agentId!, m.agent?.name || '')}
-                          disabled={updatingId === m.agentId}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
-                          title={zh ? '移除授权' : 'Remove grant'}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </>
-                    )}
+                    {(() => {
+                      const dr = deriveRole(m.scopes || []);
+                      const drCfg = dr === 'editor' ? ROLE_LABELS.editor : ROLE_LABELS.viewer;
+                      return <>
+                        <span className={'text-xs px-2 py-1 rounded-full font-medium ' + drCfg.color}>
+                          {dr === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '查看者' : 'Viewer')}
+                        </span>
+                        {canManage ? (
+                          <>
+                            <button
+                              onClick={() => toggleScopes(m.agentId!)}
+                              className={`p-1.5 rounded transition-colors ${expandedScopes.has(m.agentId!) ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+                              title={zh ? '权限设置' : 'Scope settings'}
+                            >
+                              {expandedScopes.has(m.agentId!) ? <ShieldCheck size={16} /> : <Shield size={16} />}
+                            </button>
+                            <button
+                              onClick={() => handleRemoveAgent(m.agentId!, m.agent?.name || '')}
+                              disabled={updatingId === m.agentId}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                              title={zh ? '移除授权' : 'Remove grant'}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        ) : null}
+                      </>;
+                    })()}
                   </div>
                 </div>
                 {canManage && expandedScopes.has(m.agentId!) ? (
@@ -297,7 +317,7 @@ export const SpaceMembers: React.FC = () => {
                           {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
                         </p>
                         <button
-                          onClick={() => handleAllScopes(m.agentId!, m.scopes || [], m.role)}
+                          onClick={() => handleAllScopes(m.agentId!, m.scopes || [])}
                           disabled={updatingId === m.agentId}
                           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
                         >
@@ -308,6 +328,22 @@ export const SpaceMembers: React.FC = () => {
                           )}
                         </button>
                       </div>
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        <span className="text-xs text-gray-400">{(zh ? '快捷预设' : 'Presets')}:</span>
+                        {ROLE_PRESETS.map(p => {
+                          const active = JSON.stringify((m.scopes || []).slice().sort()) === JSON.stringify(p.scopes.slice().sort());
+                          return (
+                            <button
+                              key={p.key}
+                              onClick={() => handlePreset(m.agentId!, p.scopes)}
+                              disabled={updatingId === m.agentId}
+                              className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'}`}
+                            >
+                              {zh ? p.label : p.enLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         {ALL_SCOPES.map(s => {
                           const checked = (m.scopes || []).includes(s.value);
@@ -317,7 +353,7 @@ export const SpaceMembers: React.FC = () => {
                                 type="checkbox"
                                 checked={checked}
                                 disabled={updatingId === m.agentId}
-                                onChange={() => handleScopeToggle(m.agentId!, m.scopes || [], s.value, m.role)}
+                                onChange={() => handleScopeToggle(m.agentId!, m.scopes || [], s.value)}
                                 className="w-3 h-3"
                               />
                               {(zh ? s.label : s.value)}
