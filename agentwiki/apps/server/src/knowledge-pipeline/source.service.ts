@@ -307,7 +307,7 @@ export class SourceService {
         (segment.evidence || []).map((evidence) => ({
           runId: id,
           sourceVersionId: version!.id,
-          quote: evidence.quote,
+          quote: this.redactSecrets(evidence.quote),
           location: {
             sourcePath: segment.sourcePath,
             originalSourcePath: evidence.sourcePath,

@@ -126,7 +126,7 @@ describe('SourceService pipeline lifecycle', () => {
       documents: [
         {
           path: 'a.md', title: 'A', content: '# A\n[Read B](b.md)\nexport class App {}', contentHash: 'a'.repeat(64),
-          evidence: [{ sourcePath: 'src/app.ts', sourceHash: 'b'.repeat(64), quote: 'export class App' }],
+          evidence: [{ sourcePath: 'src/app.ts', sourceHash: 'b'.repeat(64), quote: 'export class App\ntoken=top-secret' }],
         },
         { path: 'b.md', title: 'B', content: '# B', contentHash: 'c'.repeat(64), evidence: [] },
       ],
@@ -149,8 +149,12 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.evidence.createMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.arrayContaining([
         expect.objectContaining({
-          quote: 'export class App',
-          location: expect.objectContaining({ sourcePath: 'a.md', originalSourcePath: 'src/app.ts' }),
+          quote: 'export class App\ntoken=[REDACTED]',
+          location: expect.objectContaining({
+            sourcePath: 'a.md',
+            originalSourcePath: 'src/app.ts',
+            sourceHash: 'b'.repeat(64),
+          }),
         }),
       ]),
     }));
