@@ -118,6 +118,49 @@ pnpm dev
 pnpm build
 ```
 
+## Local knowledge sync
+
+Local knowledge sync lets a coding Agent turn a local repository or document folder
+into reviewable AgentWiki knowledge. It installs a small local MCP server and shared
+Agent Skill; it does **not** scan or upload files during installation.
+
+### Install
+
+1. In AgentWiki, create an Agent, grant it access to the target Space, then open the
+   Agent details page and select **Generate local sync instructions**.
+2. Paste the complete generated instruction into your local coding Agent. It installs
+   the exact plugin version, creates the MCP connection, and runs `doctor`.
+3. Ask the Agent to inspect and scan a local folder. Review its local preview and
+   explicitly confirm the sync before anything is sent to AgentWiki.
+
+The generated installation code is single-use and expires after 10 minutes. It is not
+a reusable API key. The local package must first be published to npm; until then the
+generated command is intentionally not a usable public installation path.
+
+See the in-app [Usage Guide](/guide) for the complete guided flow and screenshots.
+
+### Data and security boundary
+
+- **Stays local by default:** source files, source paths, the local preview, connection
+  metadata, and the locally stored credential. The credential is written under
+  `~/.agentwiki/` with owner-only permissions.
+- **Sent only after confirmation:** the prepared knowledge envelope, its relative paths
+  and provenance, and the target Space selection. `scan` and preview generation do not
+  upload data; `sync --confirm` is the upload step.
+- **Remote model boundary:** OpenWiki provider settings are inspected before preparation.
+  A non-local provider is disclosed and requires explicit consent before local content
+  can be processed through it. Do not include secrets in source material or in a
+  codebase-memory summary.
+
+### Supported Agents
+
+| Agent | Connection method | Status |
+| --- | --- | --- |
+| Codex | User MCP entry installed with `codex mcp add` | Supported |
+| Claude Code | User MCP entry installed with `claude mcp add --scope user` | Supported |
+| OpenCode | User MCP entry in its user configuration | Supported |
+| Other MCP-compatible Agents | Register the package's stdio MCP command manually | Compatible; validate with `doctor` |
+
 ## Connecting an Agent
 
 AgentWiki Agents use separate API credentials with scoped permissions. Here's how to connect one:
