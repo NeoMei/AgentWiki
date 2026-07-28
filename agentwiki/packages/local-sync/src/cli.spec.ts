@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -71,6 +71,34 @@ afterEach(async () => {
 });
 
 describe('local sync command orchestration', () => {
+  it('upgrades only the selected connection MCP command to an exact version', async () => {
+    const home = await temporaryDirectory('agentwiki-upgrade-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.1.0', client: 'codex' as const, mcpName: 'agentwiki-local-test',
+    };
+    await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
+
+    const bin = join(home, 'bin');
+    const callsPath = join(home, 'calls.txt');
+    await mkdir(bin);
+    await writeFile(join(bin, 'codex'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${callsPath}'\n`);
+    await chmod(join(bin, 'codex'), 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}:${originalPath ?? ''}`;
+    try {
+      await expect(runCli(['upgrade', '--version', '0.1.1'], home)).resolves.toMatchObject({ upgraded: true, version: '0.1.1' });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+    await expect(readFile(callsPath, 'utf8')).resolves.toBe([
+      `mcp remove ${connection.mcpName}`,
+      `mcp add ${connection.mcpName} -- npx -y @agentwiki/local-sync@0.1.1 mcp --connection ${connection.id}`,
+      '',
+    ].join('\n'));
+    await expect(readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8')).resolves.toContain('"pluginVersion": "0.1.1"');
+  });
+
   it('prepare returns a diff and saves an upload-free preview', async () => {
     const { deps, client, previews } = dependencies();
     const commands = createLocalSyncCommands(deps);
@@ -202,7 +230,7 @@ describe('local sync command orchestration', () => {
     await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });
     await mkdir(join(home, '.openwiki'), { recursive: true });
     await writeFile(join(home, '.openwiki', '.env'), 'OPENWIKI_PROVIDER=ollama\n');
-    const run = vi.fn((command: string, args: string[]) => ({
+    const run = vi.fn((command: string) => ({
       status: 0,
       stdout: command === 'openwiki' ? 'openwiki 0.2.0\n'
         : command === 'markitdown' ? 'markitdown 0.1.0\n'

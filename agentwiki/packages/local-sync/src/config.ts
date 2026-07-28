@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, link, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
 const PREVIEWS_DIRECTORY = 'previews';
@@ -149,7 +149,7 @@ export async function getOrCreateSourceKey(home: string, sourcePath: string): Pr
 
     const key = (await readFile(keyPath, 'utf8')).trim();
     if (key) return key;
-    throw new Error('Source key file exists but is empty');
+      throw new Error('Source key file exists but is empty', { cause: error });
   } finally {
     await unlink(temporaryPath).catch(() => undefined);
   }

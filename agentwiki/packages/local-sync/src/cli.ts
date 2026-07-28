@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { readFile, rm, stat } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
@@ -35,7 +36,6 @@ import {
   createLocalSyncCommands,
   serveLocalSyncMcp,
   type CommandDependencies,
-  type LocalSyncCommands,
 } from './mcp.js';
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
@@ -147,6 +147,34 @@ async function uninstall(home: string, values: Record<string, string | boolean |
   }
   if (values['delete-sync-state'] === true) await rm(join(home, '.agentwiki', 'sync-state.json'), { force: true });
   return { removed: connections.map((connection) => connection.id), reminder: 'Server-side credential revocation remains authoritative.' };
+}
+
+function exactVersion(value: string): string {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(value)) {
+    throw new Error('--version must be an exact package version');
+  }
+  return value;
+}
+
+async function upgrade(home: string, values: Record<string, string | boolean | undefined>): Promise<unknown> {
+  const version = exactVersion(required(values, 'version'));
+  const config = await loadConfig(home);
+  const connectionId = typeof values.connection === 'string' ? values.connection : config.defaultConnectionId;
+  if (!connectionId || !config.connections[connectionId]) throw new Error('No local sync connection is configured');
+
+  const connection = config.connections[connectionId];
+  if (connection.pluginVersion === version) return { upgraded: false, connectionId, version, message: 'Connection already uses this exact version.' };
+
+  await removeMcp(connection.client, connection.mcpName, runner, home);
+  try {
+    await registerMcp(connection.client, connection.mcpName, connection.id, version, runner, home);
+  } catch (error) {
+    await registerMcp(connection.client, connection.mcpName, connection.id, connection.pluginVersion, runner, home).catch(() => undefined);
+    throw error;
+  }
+  connection.pluginVersion = version;
+  await saveConfig(home, config);
+  return { upgraded: true, connectionId, version };
 }
 
 async function renderPreview(home: string, id: string): Promise<unknown> {
@@ -317,7 +345,7 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
     options: {
       server: { type: 'string' }, code: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
       path: { type: 'string' }, space: { type: 'string' }, 'allow-remote-model': { type: 'boolean', default: false },
-      id: { type: 'string' }, preview: { type: 'string' }, confirm: { type: 'boolean', default: false },
+      id: { type: 'string' }, preview: { type: 'string' }, version: { type: 'string' }, confirm: { type: 'boolean', default: false },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
     strict: true,
@@ -342,7 +370,7 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
     if (values.confirm !== true) throw new Error('Explicit user confirmation is required');
     return commands.sync({ previewId: required(values, 'preview'), confirmed: true });
   }
-  if (command === 'upgrade') return { upgraded: false, message: 'Re-run connect with the target exact package version to upgrade this connection.' };
+  if (command === 'upgrade') return upgrade(home, values);
   if (command === 'mcp') {
     await serveLocalSyncMcp(commands);
     return undefined;
@@ -361,4 +389,4 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) void main();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) void main();
