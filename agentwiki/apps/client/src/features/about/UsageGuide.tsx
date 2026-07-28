@@ -9,6 +9,29 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 
+type ScreenshotFocus = 'top' | 'center' | 'bottom';
+
+const screenshotFocusClass: Record<ScreenshotFocus, string> = {
+  top: 'object-top',
+  center: 'object-center',
+  bottom: 'object-bottom',
+};
+
+const GuideScreenshot: React.FC<{
+  src: string;
+  alt: string;
+  focus?: ScreenshotFocus;
+}> = ({ src, alt, focus = 'center' }) => (
+  <div className="h-56 sm:h-72 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+    <img
+      src={src}
+      alt={alt}
+      className={`h-full w-full object-cover ${screenshotFocusClass[focus]}`}
+      loading="lazy"
+    />
+  </div>
+);
+
 export const UsageGuide: React.FC = () => {
   useAuth();
   const { language } = useLanguage();
@@ -122,13 +145,11 @@ export const UsageGuide: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                <img 
-                  src="/screenshots/step1-agent-list.png" 
-                  alt={zh ? 'Agent 列表页面' : 'Agent List Page'}
-                  className="w-full h-auto"
-                />
-              </div>
+              <GuideScreenshot
+                src="/screenshots/step1-agent-list.png"
+                alt={zh ? 'Agent 列表页面' : 'Agent List Page'}
+                focus="top"
+              />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
                 <MousePointerClick size={12} />
                 {zh ? 'Agent 列表页面 — 点击右上角「创建智能体」' : 'Agent List Page — Click "Create Agent" in top right'}
@@ -150,13 +171,10 @@ export const UsageGuide: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                <img 
-                  src="/screenshots/step2-space-members.png" 
-                  alt={zh ? 'Space Members 页面' : 'Space Members Page'}
-                  className="w-full h-auto"
-                />
-              </div>
+              <GuideScreenshot
+                src="/screenshots/step2-space-members.png"
+                alt={zh ? 'Space Members 页面' : 'Space Members Page'}
+              />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
                 <UserPlus size={12} />
                 {zh ? 'Space Members 页面 — 点击 Agent 行的盾牌图标' : 'Space Members Page — Click shield icon on Agent row'}
@@ -172,13 +190,10 @@ export const UsageGuide: React.FC = () => {
                   <p className="text-gray-600 mb-3">
                     {zh ? '在展开的权限面板中，勾选 Agent 需要的权限范围。不勾选则继承全局凭据的全部权限。' : 'In the expanded permissions panel, check the scopes the Agent needs. Leave unchecked to inherit all credential scopes.'}
                   </p>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                    <img 
-                      src="/screenshots/step3-permission-panel.png" 
-                      alt={zh ? '权限配置面板' : 'Permission Panel'}
-                      className="w-full h-auto"
-                    />
-                  </div>
+                  <GuideScreenshot
+                    src="/screenshots/step3-permission-panel.png"
+                    alt={zh ? '权限配置面板' : 'Permission Panel'}
+                  />
                 </div>
               </div>
             </div>
@@ -196,13 +211,11 @@ export const UsageGuide: React.FC = () => {
                     <strong>{zh ? '重要：' : 'Important: '}</strong>
                     {zh ? '密钥只显示一次！请复制到安全的地方保存。丢失后无法找回，只能重新创建。' : 'The secret appears only once! Copy it to a safe place. It cannot be recovered if lost — you must create a new one.'}
                   </div>
-                  <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                    <img 
-                      src="/screenshots/step4-agent-detail.png" 
-                      alt={zh ? 'Agent 详情页' : 'Agent Detail Page'}
-                      className="w-full h-auto"
-                    />
-                  </div>
+                  <GuideScreenshot
+                    src="/screenshots/step4-agent-detail.png"
+                    alt={zh ? 'Agent 详情页' : 'Agent Detail Page'}
+                    focus="bottom"
+                  />
                 </div>
               </div>
             </div>
