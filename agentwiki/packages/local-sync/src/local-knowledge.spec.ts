@@ -74,6 +74,20 @@ describe('OpenWiki provider disclosure', () => {
       OPENAI_COMPATIBLE_BASE_URL: 'http://[::1]:11434/v1',
     }).local).toBe(true);
   });
+
+  it('classifies ollama with loopback host as local', () => {
+    expect(inspectOpenWikiProvider({
+      OPENWIKI_PROVIDER: 'ollama',
+      OLLAMA_HOST: '127.0.0.1:11434',
+    }).local).toBe(true);
+  });
+
+  it('classifies ollama with remote host as remote', () => {
+    expect(inspectOpenWikiProvider({
+      OPENWIKI_PROVIDER: 'ollama',
+      OLLAMA_HOST: 'gpu-server.example.com:11434',
+    }).local).toBe(false);
+  });
 });
 
 describe('local knowledge preparation', () => {

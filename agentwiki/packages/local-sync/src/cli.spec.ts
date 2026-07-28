@@ -116,8 +116,8 @@ describe('local sync command orchestration', () => {
     await expect(createLocalSyncCommands(deps).sync({ previewId, confirmed: true }))
       .rejects.toThrow('Prepared knowledge changed; generate a new preview');
     expect(client.upload).not.toHaveBeenCalled();
-    expect(completed).toEqual([previewId]);
-    expect(released).toEqual([]);
+    expect(released).toEqual([previewId]);
+    expect(completed).toEqual([]);
   });
 
   it.each(['queued', 'noop'] as const)('uploads a matching preview once and reports %s without approving a ChangeSet', async (status) => {

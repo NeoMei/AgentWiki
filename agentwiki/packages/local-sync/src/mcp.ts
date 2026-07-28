@@ -161,12 +161,12 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
       try {
         bytes = await readFile(preview.envelopePath);
       } catch (error) {
-        await deps.completePreview(deps.home, input.previewId);
+        await deps.releasePreview(deps.home, input.previewId);
         throw new Error('Prepared knowledge changed; generate a new preview', { cause: error });
       }
       if (hash(bytes) !== preview.envelopeHash || !preview.spaceId) {
         await rm(preview.envelopePath, { force: true });
-        await deps.completePreview(deps.home, input.previewId);
+        await deps.releasePreview(deps.home, input.previewId);
         throw new Error('Prepared knowledge changed; generate a new preview');
       }
 

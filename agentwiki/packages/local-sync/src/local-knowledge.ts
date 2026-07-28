@@ -147,12 +147,15 @@ export function inspectOpenWikiProvider(environment: Record<string, string | und
   const provider = environment.OPENWIKI_PROVIDER?.trim() || 'openai';
   const model = environment.OPENWIKI_MODEL_ID?.trim() || undefined;
   const baseUrl = providerBaseUrl(provider, environment);
+  const local = provider === 'ollama'
+    ? isLoopbackUrl(baseUrl ?? '127.0.0.1:11434')
+    : isLoopbackUrl(baseUrl);
 
   return {
     provider,
     ...(model ? { model } : {}),
     ...(baseUrl ? { baseUrl } : {}),
-    local: isLoopbackUrl(baseUrl) || provider === 'ollama',
+    local,
   };
 }
 
@@ -348,8 +351,9 @@ function providerBaseUrl(provider: string, environment: Record<string, string | 
 
 function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
+  const normalized = value.includes('://') ? value : `http://${value}`;
   try {
-    const host = new URL(value).hostname.toLowerCase();
+    const host = new URL(normalized).hostname.toLowerCase();
     const ipAddress = host.replace(/^\[|\]$/gu, '');
     return host === 'localhost'
       || (isIP(ipAddress) === 4 && ipAddress.split('.')[0] === '127')
