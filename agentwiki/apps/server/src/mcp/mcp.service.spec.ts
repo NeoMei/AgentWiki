@@ -94,6 +94,25 @@ describe('McpService knowledge-sync tool', () => {
     expect(syncs.getState).toHaveBeenCalledWith('space-1', 'repo-7f4e');
   });
 
+  it('does not read sync state when sources:read authorization fails', async () => {
+    authorization.assertSpaceAccess.mockRejectedValueOnce(new Error('SPACE_ACCESS_DENIED'));
+    const service = new (McpService as any)(
+      { get: jest.fn() },
+      authorization,
+      {}, {}, {}, {}, {}, {}, {}, {},
+      audit,
+      prisma,
+      syncs,
+    );
+    const server = (service as any).createServer(principal);
+    const tool = server._registeredTools.get_knowledge_sync_state;
+
+    await expect(tool.handler({ spaceId: 'space-1', sourceKey: 'repo-7f4e' }))
+      .rejects.toThrow('SPACE_ACCESS_DENIED');
+
+    expect(syncs.getState).not.toHaveBeenCalled();
+  });
+
   it('advertises the knowledge-sync state tool as sources:read', async () => {
     const controller = new McpController(
       {} as any,

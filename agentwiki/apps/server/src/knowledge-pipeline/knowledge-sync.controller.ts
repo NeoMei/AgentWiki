@@ -20,7 +20,11 @@ export class KnowledgeSyncController {
   async state(@Param('spaceId') spaceId: string, @Param('sourceKey') sourceKey: string, @Req() req: Request) {
     await this.authorization.assertSpaceAccess(req.user as any, spaceId,
       ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
-    return this.syncs.getState(spaceId, sourceKey);
+    const state = await this.syncs.getState(spaceId, sourceKey);
+    return {
+      ...state,
+      documents: state.documents.map(({ path, contentHash }) => ({ path, contentHash })),
+    };
   }
 
   @Post('spaces/:spaceId/knowledge-syncs')

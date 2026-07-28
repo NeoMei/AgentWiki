@@ -28,7 +28,12 @@ describe('KnowledgeSyncController HTTP authorization', () => {
       sourceId: 'source-1',
       sourceVersionId: 'version-1',
       syncedAt: '2026-07-29T00:00:00.000Z',
-      documents: [{ path: 'docs/guide.md', contentHash: 'hash-1' }],
+      documents: [{
+        path: 'docs/guide.md',
+        contentHash: 'hash-1',
+        content: 'sensitive document content',
+        body: 'sensitive document body',
+      }],
     }),
   };
   const principals: Record<string, any> = {
@@ -139,8 +144,11 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     expect(syncs.createSync).toHaveBeenCalledWith('space-1', principals.agk_editor, expect.any(Buffer), 'valid-upload', true);
   });
 
-  it('returns the original run for a repeated idempotency key', async () => {
+  it('does not enqueue a repeated idempotency key more than once', async () => {
     const headers = { 'idempotency-key': 'stable-key', 'x-agentwiki-user-confirmed': 'true' };
+    syncs.createSync
+      .mockResolvedValueOnce({ status: 'queued', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-original' })
+      .mockResolvedValueOnce({ status: 'noop', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-original' });
     const first = await upload('agk_editor', headers);
     const second = await upload('agk_editor', headers);
 
@@ -148,6 +156,8 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     expect(second.status).toBe(201);
     await expect(first.json()).resolves.toMatchObject({ runId: 'run-original' });
     await expect(second.json()).resolves.toMatchObject({ runId: 'run-original' });
+    expect(syncs.createSync).toHaveBeenCalledTimes(2);
+    expect(queue.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('returns sync paths and hashes without document content', async () => {
@@ -158,6 +168,8 @@ describe('KnowledgeSyncController HTTP authorization', () => {
 
     expect(response.status).toBe(200);
     expect(state).toMatchObject({ documents: [{ path: 'docs/guide.md', contentHash: 'hash-1' }] });
-    expect(JSON.stringify(state)).not.toContain('document content');
+    expect(state.documents).toEqual([{ path: 'docs/guide.md', contentHash: 'hash-1' }]);
+    expect(JSON.stringify(state)).not.toContain('sensitive document content');
+    expect(JSON.stringify(state)).not.toContain('sensitive document body');
   });
 });
