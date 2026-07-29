@@ -119,8 +119,13 @@ export class PageController {
 
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor'], 'pages:write');
-    if ((req.user as any).agentId) throw new ForbiddenException('Agent page deletion proposals are not enabled');
+    const user = req.user as any;
+    const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
+    if (user.agentId) {
+      return this.review.propose(user, page.spaceId, `Proposed delete: ${id}`, {
+        type: 'archive_page', payload: { pageId: id },
+      });
+    }
     this.logger.log('Removing page: ' + id);
     return this.pageService.remove(id);
   }

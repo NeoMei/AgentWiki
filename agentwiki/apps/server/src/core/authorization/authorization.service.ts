@@ -91,6 +91,7 @@ export class AuthorizationService {
   ) {
     const relation = await this.prisma.knowledgeRelation.findUnique({
       where: { id: relationId },
+      include: { sourcePage: { select: { spaceId: true } } },
     });
     if (!relation) throw new BusinessException('RESOURCE_NOT_FOUND', 'Relation not found');
     const source = await this.assertPageAccess(principal, relation.sourcePageId, allowedRoles, requiredScope);
