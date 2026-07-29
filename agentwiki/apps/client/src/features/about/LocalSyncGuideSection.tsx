@@ -98,7 +98,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{zh ? '确认同步并查看结果' : 'Confirm synchronization and inspect the result'}</h3>
             <p className="mt-2 text-sm leading-6 text-gray-600">
-              {zh ? 'Agent 必须询问“是否同步到 AgentWiki？”。只有你在当前对话明确同意后才会上传。Agent 会报告 Source、Run 和审核状态，但不会替你审批；最终发布方式由权限和 Space 审批策略决定。' : 'The Agent must ask whether to sync to AgentWiki. Upload starts only after your explicit confirmation in the current conversation. The Agent reports the Source, Run, and review status but never approves for you; publishing remains controlled by permissions and the Space review policy.'}
+              {zh ? 'Agent 必须询问“是否同步到 AgentWiki？”。只有你在当前对话明确同意后才会上传。Agent 会报告 Source、Run、ChangeSet 和审核状态，但不会替你审批；最终发布方式由权限和 Space 审批策略决定。' : 'The Agent must ask whether to sync to AgentWiki. Upload starts only after your explicit confirmation in the current conversation. The Agent reports the Source, Run, ChangeSet, and review status but never approves for you; publishing remains controlled by permissions and the Space review policy.'}
             </p>
           </div>
         </div>
@@ -126,10 +126,10 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
       <summary className="cursor-pointer select-none font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
         {zh ? '高级命令' : 'Advanced commands'}
       </summary>
-      <div className="mt-4 overflow-x-auto">
-        <dl className="min-w-[32rem] space-y-3">
+      <div className="mt-4">
+        <dl className="space-y-3">
           {commands.map(([command, zhDescription, enDescription]) => (
-            <div key={command} className="grid grid-cols-[9rem_1fr] gap-3 border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+            <div key={command} className="grid grid-cols-1 gap-2 border-b border-gray-100 pb-3 last:border-0 last:pb-0 sm:grid-cols-[9rem_1fr] sm:gap-3">
               <dt><code className="rounded bg-gray-100 px-2 py-1 text-xs text-indigo-700">{command}</code></dt>
               <dd className="text-sm text-gray-600">{zh ? zhDescription : enDescription}</dd>
             </div>
