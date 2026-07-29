@@ -1,10 +1,10 @@
 # AgentWiki Local Sync
 
-> **Not yet published.** `@agentwiki/local-sync` is not available from npm until the
+> **Not yet published.** `@neomei/agentwiki-local-sync` is not available from npm until the
 > AgentWiki release process publishes it. Do not use a registry install command before
 > that happens.
 
-`@agentwiki/local-sync` lets a local coding agent prepare knowledge from a local
+`@neomei/agentwiki-local-sync` lets a local coding agent prepare knowledge from a local
 repository or document folder, review the proposed AgentWiki change, and upload it only
 after an explicit confirmation in the current conversation. It installs a shared Agent
 Skill plus a per-connection stdio MCP server.
@@ -28,7 +28,7 @@ path. It pins an exact package version, binds a specific AgentWiki credential, a
 the target client. It has the following form:
 
 ```bash
-npx -y @agentwiki/local-sync@<exact-version> connect \
+npx -y @neomei/agentwiki-local-sync@<exact-version> connect \
   --server https://agentwiki.example/api \
   --code AW-<one-time-code> \
   --agent codex

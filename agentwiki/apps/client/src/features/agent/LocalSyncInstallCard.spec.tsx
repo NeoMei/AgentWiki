@@ -8,7 +8,7 @@ vi.mock('../../api/client', () => ({
   default: { post: vi.fn() },
 }));
 
-const instruction = '# 接入\nnpx -y @agentwiki/local-sync@0.1.0 connect --code AW-ABCD-EFGH';
+const instruction = '# 接入\nnpx -y @neomei/agentwiki-local-sync@0.1.0 connect --code AW-ABCD-EFGH';
 
 const renderCard = () => render(
   <LanguageProvider>
@@ -18,7 +18,7 @@ const renderCard = () => render(
 
 const generate = async () => {
   fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
-  await screen.findByText(/@agentwiki\/local-sync@0\.1\.0/);
+  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.1\.0/);
 };
 
 describe('LocalSyncInstallCard', () => {

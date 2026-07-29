@@ -140,7 +140,7 @@ function assertPrivateMode(details, label) {
 export async function runVerifier(environment = process.env) {
   requireOptIn(environment);
   const apiUrl = assertLoopbackUrl(environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api');
-  await stat(CLI_PATH).catch(() => fail(`Built local-sync CLI is required at ${CLI_PATH}; run pnpm --filter @agentwiki/local-sync build first`));
+  await stat(CLI_PATH).catch(() => fail(`Built local-sync CLI is required at ${CLI_PATH}; run pnpm --filter @neomei/agentwiki-local-sync build first`));
 
   const root = await mkdtemp(join(tmpdir(), 'agentwiki-local-sync-e2e-'));
   const home = join(root, 'home');

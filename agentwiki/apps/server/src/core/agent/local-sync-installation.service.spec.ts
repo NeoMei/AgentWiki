@@ -82,7 +82,7 @@ describe('LocalSyncInstallationService', () => {
       serverUrl: 'https://wiki.test/api',
     }));
     expect(stored).not.toHaveProperty('code');
-    expect(result.instructions).toContain('@agentwiki/local-sync@0.1.0 connect');
+    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.1.0 connect');
     expect(result.instructions).toContain(result.code);
     expect(result.instructions).toContain('doctor');
     expect(result.instructions).toContain('does not scan or sync');

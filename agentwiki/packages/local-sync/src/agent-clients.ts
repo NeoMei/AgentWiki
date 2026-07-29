@@ -55,7 +55,7 @@ function run(runner: CommandRunner, command: string, args: string[]): CommandRes
 
 function mcpCommand(version: string, connectionId: string): string[] {
   assertExactVersion(version);
-  return ['npx', '-y', `@agentwiki/local-sync@${version}`, 'mcp', '--connection', connectionId];
+  return ['npx', '-y', `@neomei/agentwiki-local-sync@${version}`, 'mcp', '--connection', connectionId];
 }
 
 function assertExactVersion(version: string): void {

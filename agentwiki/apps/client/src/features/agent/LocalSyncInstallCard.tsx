@@ -14,7 +14,7 @@ const BASE_SCOPES = [
 ];
 
   const LOCAL_SYNC_VERSION = '0.1.0';
-  const PACKAGE_URL = `https://github.com/NeoMei/AgentWiki/tree/master/agentwiki/packages/local-sync`;
+  const PACKAGE_URL = `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/${LOCAL_SYNC_VERSION}`;
 
 interface InstallationResult {
   installationId: string;
@@ -77,7 +77,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
           <PlugZap size={16} className="text-white" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-900">@agentwiki/local-sync</p>
+          <p className="truncate text-sm font-medium text-gray-900">@neomei/agentwiki-local-sync</p>
           <p className="text-xs text-gray-500">{t('agent.localSync.version', { version: LOCAL_SYNC_VERSION })}</p>
         </div>
         <a

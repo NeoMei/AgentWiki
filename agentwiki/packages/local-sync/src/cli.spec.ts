@@ -93,7 +93,7 @@ describe('local sync command orchestration', () => {
     }
     await expect(readFile(callsPath, 'utf8')).resolves.toBe([
       `mcp remove ${connection.mcpName}`,
-      `mcp add ${connection.mcpName} -- npx -y @agentwiki/local-sync@0.1.1 mcp --connection ${connection.id}`,
+      `mcp add ${connection.mcpName} -- npx -y @neomei/agentwiki-local-sync@0.1.1 mcp --connection ${connection.id}`,
       '',
     ].join('\n'));
     await expect(readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8')).resolves.toContain('"pluginVersion": "0.1.1"');

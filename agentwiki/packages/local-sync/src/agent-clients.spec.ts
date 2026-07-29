@@ -54,7 +54,7 @@ describe('agent client adapters', () => {
 
     expect(runner).toHaveBeenCalledWith('codex', [
       'mcp', 'add', 'agentwiki-local-a1', '--', 'npx', '-y',
-      '@agentwiki/local-sync@0.1.0', 'mcp', '--connection', 'connection-1',
+      '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1',
     ], expect.anything());
     expect(JSON.stringify(runner.mock.calls)).not.toContain('agk_');
   });
@@ -96,7 +96,7 @@ describe('agent client adapters', () => {
     expect(config.mcp.other).toBeTruthy();
     expect(config.mcp['agentwiki-local-a1']).toEqual({
       type: 'local',
-      command: ['npx', '-y', '@agentwiki/local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
+      command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
       enabled: true,
     });
   });
@@ -111,7 +111,7 @@ describe('agent client adapters', () => {
     const config = JSON.parse(await readFile(configPath, 'utf8')) as OpenCodeConfig;
     expect(config.mcp.servers?.['agentwiki-local-a1']).toEqual({
       type: 'local',
-      command: ['npx', '-y', '@agentwiki/local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
+      command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
       disabled: false,
     });
   });
@@ -129,7 +129,7 @@ describe('agent client adapters', () => {
       mcp: {
         'agentwiki-local-a1': {
           type: 'local',
-          command: ['npx', '-y', '@agentwiki/local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
+          command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
           enabled: true,
         },
       },

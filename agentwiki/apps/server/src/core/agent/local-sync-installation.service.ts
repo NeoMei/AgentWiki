@@ -249,7 +249,7 @@ export class LocalSyncInstallationService {
   private instructions(code: string, pluginVersion: string, serverUrl: string): string {
     return [
       'Run this pinned command with your local Agent:',
-      `npx --yes @agentwiki/local-sync@${pluginVersion} connect --server ${serverUrl} --code ${code} --agent auto`,
+      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} connect --server ${serverUrl} --code ${code} --agent auto`,
       'After installation, report the complete doctor output to the user.',
       'Installation only configures the connection; it does not scan or sync local knowledge.',
     ].join('\n');
