@@ -156,6 +156,8 @@ describe('local knowledge preparation', () => {
       'openwiki/guides/project.md',
     ]);
     expect(prepared.envelope.documents.every((document) => document.path !== 'openwiki/INSTRUCTIONS.md')).toBe(true);
+    expect(prepared.envelope.documents.every((document) => Array.isArray(document.evidence))).toBe(true);
+    expect(prepared.envelope.documents.every((document) => document.evidence?.length === 0)).toBe(true);
     expect(prepared.envelope.documents).toContainEqual(expect.objectContaining({
       path: 'openwiki/guides/project.md',
       contentHash: createHash('sha256').update('# Generated\n', 'utf8').digest('hex'),

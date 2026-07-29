@@ -71,7 +71,7 @@ export interface OkfEnvelope {
     path: string;
     content: string;
     contentHash: string;
-    evidence?: Array<{ sourcePath: string; sourceHash: string; quote: string }>;
+    evidence: Array<{ sourcePath: string; sourceHash: string; quote: string }>;
   }>;
 }
 
@@ -562,7 +562,12 @@ function appendDocument(
     skippedFiles.push({ path, reason: 'Document limit of 500 reached' });
     return;
   }
-  const document = { path: toPosixPath(path), content, contentHash: contentHash(content) };
+  const document = {
+    path: toPosixPath(path),
+    content,
+    contentHash: contentHash(content),
+    evidence: [],
+  };
   const candidate: OkfEnvelope = { ...envelope, documents: [...envelope.documents, document] };
   if (new TextEncoder().encode(JSON.stringify(candidate)).byteLength > MAX_ENVELOPE_BYTES) {
     skippedFiles.push({ path, reason: 'Document exceeds 10 MiB bundle limit' });
