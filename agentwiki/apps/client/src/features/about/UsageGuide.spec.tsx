@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { GuideScreenshot } from './GuideScreenshot';
 import { UsageGuide } from './UsageGuide';
 
 vi.mock('../../context/AuthContext', () => ({
@@ -36,5 +37,31 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('img', { name: 'OpenCode 接入成功结果' })).toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
     expect(screen.getByRole('img', { name: 'AgentWiki 已发布页面' })).toHaveAttribute('src', '/screenshots/step6-published-page.png');
     expect(screen.getByRole('img', { name: 'AgentWiki MCP 活动记录' })).toHaveAttribute('src', '/screenshots/step6-activity-log.png');
+  });
+});
+
+describe('GuideScreenshot', () => {
+  it('renders default crop classes and accepts explicit display options', () => {
+    const { rerender } = render(<GuideScreenshot src="/default.png" alt="默认截图" />);
+
+    const image = screen.getByRole('img', { name: '默认截图' });
+    expect(image).toHaveAttribute('loading', 'lazy');
+    expect(image).toHaveClass('object-cover', 'object-center');
+    expect(image.parentElement).toHaveClass('h-56', 'sm:h-72');
+
+    rerender(
+      <GuideScreenshot
+        src="/custom.png"
+        alt="自定义截图"
+        focus="top"
+        fit="contain"
+        heightClassName="h-40"
+      />,
+    );
+
+    const customImage = screen.getByRole('img', { name: '自定义截图' });
+    expect(customImage).toHaveAttribute('src', '/custom.png');
+    expect(customImage).toHaveClass('object-contain', 'object-top');
+    expect(customImage.parentElement).toHaveClass('h-40');
   });
 });
