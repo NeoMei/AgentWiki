@@ -29,7 +29,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('heading', { name: '生成 Key 与接入指令' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
-    expect(screen.getByText(/Codex、Claude Code、OpenCode/)).toBeInTheDocument();
+    expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/以下以 OpenCode 为例/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '确认 Agent 接入与页面发布结果' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '已生成 Key 和接入指令' })).toHaveAttribute('src', '/screenshots/step4-generated-credential.png');
@@ -37,6 +37,12 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('img', { name: 'OpenCode 接入成功结果' })).toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
     expect(screen.getByRole('img', { name: 'AgentWiki 已发布页面' })).toHaveAttribute('src', '/screenshots/step6-published-page.png');
     expect(screen.getByRole('img', { name: 'AgentWiki MCP 活动记录' })).toHaveAttribute('src', '/screenshots/step6-activity-log.png');
+    expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
+      'href',
+      'https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.0',
+    );
+    expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
   });
 });
 

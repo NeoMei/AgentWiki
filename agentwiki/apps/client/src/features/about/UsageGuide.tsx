@@ -10,6 +10,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { GuideScreenshot } from './GuideScreenshot';
+import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 
 export const UsageGuide: React.FC = () => {
   useAuth();
@@ -265,6 +266,8 @@ export const UsageGuide: React.FC = () => {
             </div>
           </div>
         </section>
+
+        <LocalSyncGuideSection zh={zh} />
 
         {/* Permission Model */}
         <section className="mb-16">
