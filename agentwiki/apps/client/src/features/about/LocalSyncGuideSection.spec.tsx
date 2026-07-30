@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { LocalSyncGuideSection, LOCAL_SYNC_PACKAGE_URL } from './LocalSyncGuideSection';
+import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
+import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 
 describe('LocalSyncGuideSection', () => {
   it('shows the verified Chinese workflow and safe defaults', () => {
@@ -8,8 +9,8 @@ describe('LocalSyncGuideSection', () => {
 
     expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
     expect(screen.getByText('@neomei/agentwiki-local-sync')).toBeInTheDocument();
-    expect(screen.getByText('版本 0.1.0')).toBeInTheDocument();
-    expect(LOCAL_SYNC_PACKAGE_URL).toBe('https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.0');
+    expect(screen.getByText('版本 0.1.1')).toBeInTheDocument();
+    expect(LOCAL_SYNC_PACKAGE_URL).toBe('https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1');
     expect(screen.getByText(/已验证自动配置 Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/其他兼容 stdio MCP 的本地 Agent 可按自身配置方式接入/)).toBeInTheDocument();
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();

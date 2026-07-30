@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, ExternalLink, PlugZap } from 'lucide-react';
 import api from '../../api/client';
+import {
+  LOCAL_SYNC_PACKAGE_NAME,
+  LOCAL_SYNC_PACKAGE_URL,
+  LOCAL_SYNC_VERSION,
+} from '../../config/localSync';
 import { useLanguage } from '../../context/LanguageContext';
 
 const BASE_SCOPES = [
@@ -12,9 +17,6 @@ const BASE_SCOPES = [
   'runs:write',
   'review:read',
 ];
-
-  const LOCAL_SYNC_VERSION = '0.1.0';
-  const PACKAGE_URL = `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/${LOCAL_SYNC_VERSION}`;
 
 interface InstallationResult {
   installationId: string;
@@ -77,11 +79,11 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
           <PlugZap size={16} className="text-white" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-900">@neomei/agentwiki-local-sync</p>
+          <p className="truncate text-sm font-medium text-gray-900">{LOCAL_SYNC_PACKAGE_NAME}</p>
           <p className="text-xs text-gray-500">{t('agent.localSync.version', { version: LOCAL_SYNC_VERSION })}</p>
         </div>
         <a
-          href={PACKAGE_URL}
+          href={LOCAL_SYNC_PACKAGE_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"

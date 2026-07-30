@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { GuideScreenshot } from './GuideScreenshot';
 import { UsageGuide } from './UsageGuide';
@@ -40,7 +41,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
       'href',
-      'https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.0',
+      LOCAL_SYNC_PACKAGE_URL,
     );
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
   });

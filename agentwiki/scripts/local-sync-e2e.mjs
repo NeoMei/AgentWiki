@@ -181,7 +181,7 @@ export async function runVerifier(environment = process.env) {
       method: 'PUT', token: fixture.token, body: { role: 'editor', scopes: LOCAL_SYNC_SCOPES },
     });
     const installation = await apiRequest(apiUrl, `/agents/${fixture.agentId}/local-sync-installations`, {
-      method: 'POST', token: fixture.token, body: { pluginVersion: '0.1.0', scopes: LOCAL_SYNC_SCOPES },
+      method: 'POST', token: fixture.token, body: { pluginVersion: '0.1.1', scopes: LOCAL_SYNC_SCOPES },
     });
     fixture.installationId = installation.installationId;
 

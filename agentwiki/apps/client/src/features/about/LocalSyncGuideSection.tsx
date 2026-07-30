@@ -1,9 +1,11 @@
 import React from 'react';
 import { ExternalLink, FolderSearch, PackageCheck, ShieldCheck } from 'lucide-react';
+import {
+  LOCAL_SYNC_PACKAGE_NAME,
+  LOCAL_SYNC_PACKAGE_URL,
+  LOCAL_SYNC_VERSION,
+} from '../../config/localSync';
 import { GuideScreenshot } from './GuideScreenshot';
-
-const LOCAL_SYNC_VERSION = '0.1.0';
-export const LOCAL_SYNC_PACKAGE_URL = `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/${LOCAL_SYNC_VERSION}`;
 
 const commands = [
   ['doctor', '检查安装、依赖、身份和权限', 'Check installation, dependencies, identity, and permissions'],
@@ -33,8 +35,8 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-gray-900">AgentWiki Local Sync</h3>
-          <p className="break-all font-mono text-sm text-indigo-700">@neomei/agentwiki-local-sync</p>
-          <p className="mt-1 text-xs text-gray-500">{zh ? '版本 0.1.0' : 'Version 0.1.0'}</p>
+          <p className="break-all font-mono text-sm text-indigo-700">{LOCAL_SYNC_PACKAGE_NAME}</p>
+          <p className="mt-1 text-xs text-gray-500">{zh ? `版本 ${LOCAL_SYNC_VERSION}` : `Version ${LOCAL_SYNC_VERSION}`}</p>
         </div>
         <a
           href={LOCAL_SYNC_PACKAGE_URL}

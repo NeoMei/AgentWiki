@@ -4,12 +4,12 @@
 
 在现有“使用指南”中增加一段面向普通用户的“本地知识同步”说明，让用户理解如何把本地代码仓库或文档目录交给 Codex、Claude Code、OpenCode 等本地 Agent 整理，并在确认后同步到 AgentWiki。
 
-这段说明以实际发布的 npm 包 `@neomei/agentwiki-local-sync@0.1.0` 为准，强调推荐流程和安全边界，不把指南写成命令参考手册。
+这段说明以本次准备发布的 npm 包 `@neomei/agentwiki-local-sync@0.1.1` 为准，强调推荐流程和安全边界，不把指南写成命令参考手册。
 
 ## 已确认范围
 
 - 内容加入现有 `/guide` 页面，不新增独立指南页。
-- 使用 `@neomei/agentwiki-local-sync`，展示当前版本 `0.1.0` 和 npm 页面链接。
+- 使用 `@neomei/agentwiki-local-sync`，展示当前版本 `0.1.1` 和 npm 页面链接。
 - Codex、Claude Code、OpenCode 是当前已验证自动配置的客户端；其他兼容 stdio MCP 的本地 Agent 可按同一协议接入，但指南不把未验证客户端写成已经支持一键安装。
 - 主流程由截图和短说明构成，命令仅放在默认收起的“高级命令”区域。
 - 截图必须来自真实 AgentWiki 和真实本地 Agent 操作，不使用模拟界面、占位图或拉伸变形的全屏截图。
@@ -31,7 +31,7 @@
 
 - 名称：AgentWiki Local Sync；
 - npm 包：`@neomei/agentwiki-local-sync`；
-- 当前版本：`0.1.0`；
+- 当前版本：`0.1.1`；
 - “在 npm 上查看”外链，并默认在新标签页打开；
 - 已验证自动配置 Codex、Claude Code、OpenCode，并说明底层采用标准 stdio MCP，其他兼容客户端可按其自身配置方式接入；
 - 一句话用途：在本地分析代码或文档，预览拟同步内容，并在用户明确确认后写入 AgentWiki。

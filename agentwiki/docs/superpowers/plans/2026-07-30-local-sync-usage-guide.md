@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- npm 包必须写为 `@neomei/agentwiki-local-sync`，当前展示版本必须为 `0.1.0`。
+- npm 包必须写为 `@neomei/agentwiki-local-sync`，当前展示版本必须为 `0.1.1`。
 - Codex、Claude Code、OpenCode 是当前已验证自动配置的客户端；其他 stdio MCP 客户端只说明协议兼容，不承诺已经验证一键安装。
 - 安装不会自动扫描或上传；远程模型调用和同步必须分别取得明确同意。
 - 本地 Agent 只能提交同步结果并报告 ChangeSet 状态，不能代替用户审批 ChangeSet。
@@ -135,7 +135,7 @@ describe('LocalSyncGuideSection', () => {
 
     expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
     expect(screen.getByText('@neomei/agentwiki-local-sync')).toBeInTheDocument();
-    expect(screen.getByText('版本 0.1.0')).toBeInTheDocument();
+    expect(screen.getByText('版本 0.1.1')).toBeInTheDocument();
     expect(screen.getByText(/Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/其他兼容 stdio MCP/)).toBeInTheDocument();
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
@@ -191,7 +191,7 @@ import React from 'react';
 import { ExternalLink, FolderSearch, PackageCheck, ShieldCheck } from 'lucide-react';
 import { GuideScreenshot } from './GuideScreenshot';
 
-const LOCAL_SYNC_VERSION = '0.1.0';
+const LOCAL_SYNC_VERSION = '0.1.1';
 export const LOCAL_SYNC_PACKAGE_URL = `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/${LOCAL_SYNC_VERSION}`;
 
 const commands = [
@@ -229,7 +229,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-gray-900">AgentWiki Local Sync</h3>
           <p className="break-all font-mono text-sm text-indigo-700">@neomei/agentwiki-local-sync</p>
-          <p className="mt-1 text-xs text-gray-500">{zh ? '版本 0.1.0' : 'Version 0.1.0'}</p>
+          <p className="mt-1 text-xs text-gray-500">{zh ? '版本 0.1.1' : 'Version 0.1.1'}</p>
         </div>
         <a
           href={LOCAL_SYNC_PACKAGE_URL}
@@ -380,7 +380,7 @@ git commit -m "feat: add local sync guide section"
 expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
 expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
   'href',
-  'https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.0',
+  'https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1',
 );
 expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
 ```
@@ -464,7 +464,7 @@ Expected: 最终 JSON 包含 `"status":"passed"`、`"pages":2` 且 `relationCoun
 - Space Grant：编辑者，并包含 `spaces:read`、`pages:read`、`sources:read`、`sources:write`、`runs:read`、`runs:write`、`review:read`；
 - 演示目录：只放公开示例代码和 Markdown，不包含 `.env`、凭据、私人路径或个人信息。
 
-在 Agent 详情页生成 `0.1.0` 的一次性本地同步接入指令。截图前用开发者工具确认截图区域没有完整安装码或 API Key；只保留包名、版本、生成成功状态和复制入口。用浏览器截图工具保存为 `apps/client/public/screenshots/local-sync-installation.png`。
+在 Agent 详情页生成 `0.1.1` 的一次性本地同步接入指令。截图前用开发者工具确认截图区域没有完整安装码或 API Key；只保留包名、版本、生成成功状态和复制入口。用浏览器截图工具保存为 `apps/client/public/screenshots/local-sync-installation.png`。
 
 - [ ] **Step 3: 用真实本地 Agent 生成预览并截图**
 
@@ -554,7 +554,7 @@ Expected: 三条命令均退出码 `0`；服务端、客户端、本地同步插
 - 包名、版本、npm 链接和四步顺序正确；
 - 高级命令默认收起，鼠标点击后显示七类命令；
 - 四张截图非空白、未裁掉关键内容、没有被拉伸；
-- npm 链接在新标签打开 `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.0`。
+- npm 链接在新标签打开 `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1`。
 
 - [ ] **Step 4: 用浏览器检查英文和移动布局**
 

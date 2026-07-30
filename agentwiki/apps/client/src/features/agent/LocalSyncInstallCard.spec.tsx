@@ -8,7 +8,7 @@ vi.mock('../../api/client', () => ({
   default: { post: vi.fn() },
 }));
 
-const instruction = '# 接入\nnpx -y @neomei/agentwiki-local-sync@0.1.0 connect --code AW-ABCD-EFGH';
+const instruction = '# 接入\nnpx -y @neomei/agentwiki-local-sync@0.1.1 connect --code AW-ABCD-EFGH';
 
 const renderCard = () => render(
   <LanguageProvider>
@@ -18,7 +18,7 @@ const renderCard = () => render(
 
 const generate = async () => {
   fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
-  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.1\.0/);
+  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.1\.1/);
 };
 
 describe('LocalSyncInstallCard', () => {
@@ -45,7 +45,7 @@ describe('LocalSyncInstallCard', () => {
     await generate();
 
     expect(api.post).toHaveBeenCalledWith('/agents/agent-1/local-sync-installations', {
-      pluginVersion: '0.1.0',
+      pluginVersion: '0.1.1',
       scopes: ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'],
     });
     expect(screen.queryByText(/agk_/)).not.toBeInTheDocument();

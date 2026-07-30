@@ -1,6 +1,6 @@
 {
   "name": "@neomei/agentwiki-local-sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local OpenWiki and AgentWiki synchronization for coding agents",
   "type": "module",
   "bin": {
@@ -10,6 +10,8 @@
   "types": "./dist/mcp.d.ts",
   "files": [
     "dist",
+    "!dist/**/*.spec.d.ts",
+    "!dist/**/*.spec.js",
     "skill",
     "README.md",
     "LICENSE"

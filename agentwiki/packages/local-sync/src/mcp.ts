@@ -190,7 +190,7 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
 }
 
 export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.1.0' });
+  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.1.1' });
   server.registerTool('local_sync_status', {
     description: 'Show the active local AgentWiki sync connection without credentials.',
     inputSchema: {},
