@@ -168,7 +168,7 @@ export class AgentService {
     });
     if (!existingGrant) {
       if (agent.ownerId !== actorUserId) {
-        throw new ForbiddenException('You can only add your own agent');
+        throw new NotFoundException('Agent not found');
       }
       if (agent.status !== 'active') {
         throw new BadRequestException('Agent must be active before it can join a space');

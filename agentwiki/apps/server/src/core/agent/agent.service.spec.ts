@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AgentService } from './agent.service';
 
 describe('AgentService grant scope validation', () => {
@@ -142,7 +142,7 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
   });
 
-  it('rejects a new grant for an agent owned by another user', async () => {
+  it('hides another users agent when rejecting a new grant', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-2', status: 'active', revokedAt: null,
     });
@@ -150,7 +150,7 @@ describe('AgentService grant scope validation', () => {
 
     await expect(service.upsertGrantForSpace(
       'owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read'],
-    )).rejects.toBeInstanceOf(ForbiddenException);
+    )).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
   });
 
