@@ -61,9 +61,9 @@ describe('AddSpaceMemberDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '智能体' }));
 
-    expect(await screen.findByRole('option', { name: 'New agent' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Existing agent' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Paused agent' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'New agent · 已启用' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Existing agent/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Paused agent/ })).not.toBeInTheDocument();
   });
 
   it('adds an editor agent with editor default scopes', async () => {
@@ -72,7 +72,7 @@ describe('AddSpaceMemberDialog', () => {
     ] } as never);
     renderDialog();
     fireEvent.click(screen.getByRole('button', { name: '智能体' }));
-    await screen.findByRole('option', { name: 'New agent' });
+    await screen.findByRole('option', { name: 'New agent · 已启用' });
     fireEvent.change(screen.getByLabelText('智能体角色'), { target: { value: 'editor' } });
     fireEvent.click(screen.getByRole('button', { name: '添加智能体' }));
 
@@ -126,10 +126,11 @@ describe('AddSpaceMemberDialog', () => {
     vi.mocked(api.put).mockRejectedValue(new Error('failed'));
     renderDialog();
     fireEvent.click(screen.getByRole('button', { name: '智能体' }));
-    await screen.findByRole('option', { name: 'New agent' });
+    await screen.findByRole('option', { name: 'New agent · 已启用' });
     fireEvent.click(screen.getByRole('button', { name: '添加智能体' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('智能体添加失败');
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用户' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

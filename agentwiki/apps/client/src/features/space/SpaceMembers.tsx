@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare, Square } from 'lucide-react';
+import { Users, Plus, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -167,11 +167,8 @@ export const SpaceMembers: React.FC = () => {
     await handleScopeUpdate(agentId, newScopes);
   };
 
-  const handleAllScopes = async (agentId: string, currentScopes: string[]) => {
-    const allScopeValues = ALL_SCOPES.map(s => s.value);
-    const allSelected = allScopeValues.every(v => currentScopes.includes(v));
-    const newScopes = allSelected ? [] : allScopeValues;
-    await handleScopeUpdate(agentId, newScopes);
+  const handleAllScopes = async (agentId: string) => {
+    await handleScopeUpdate(agentId, ALL_SCOPES.map(s => s.value));
   };
 
   const handlePreset = async (agentId: string, scopes: string[]) => {
@@ -302,12 +299,12 @@ export const SpaceMembers: React.FC = () => {
                           {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
                         </p>
                         <button
-                          onClick={() => handleAllScopes(m.agentId!, m.scopes || [])}
-                          disabled={updatingId === m.agentId}
+                          onClick={() => handleAllScopes(m.agentId!)}
+                          disabled={updatingId === m.agentId || ALL_SCOPES.every(s => (m.scopes || []).includes(s.value))}
                           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
                         >
                           {ALL_SCOPES.every(s => (m.scopes || []).includes(s.value)) ? (
-                            <><Square size={13} />{zh ? '取消全选' : 'Deselect all'}</>
+                            <><CheckSquare size={13} />{zh ? '已全选' : 'All selected'}</>
                           ) : (
                             <><CheckSquare size={13} />{zh ? '全选' : 'Select all'}</>
                           )}
@@ -414,6 +411,7 @@ export const SpaceMembers: React.FC = () => {
             <p className="font-medium text-gray-700">{zh ? '角色权限' : 'Role permissions'}</p>
             <ul className="mt-1 space-y-0.5 text-xs">
               <li><strong>{zh ? '所有者' : 'Owner'}</strong> — {zh ? '完整权限，可管理成员和删除空间' : 'Full access, manage members, delete space'}</li>
+              <li><strong>{zh ? '管理员' : 'Admin'}</strong> — {zh ? '可管理成员和空间内容，但不能操作所有者' : 'Manage members and content, but not the owner'}</li>
               <li><strong>{zh ? '编辑者' : 'Editor'}</strong> — {zh ? '可创建和编辑页面' : 'Create and edit pages'}</li>
               <li><strong>{zh ? '查看者' : 'Viewer'}</strong> — {zh ? '只读访问' : 'Read-only access'}</li>
             </ul>

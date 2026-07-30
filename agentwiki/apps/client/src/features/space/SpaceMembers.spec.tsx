@@ -15,24 +15,28 @@ vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigat
 
 interface FixtureOptions {
   role?: 'owner' | 'admin' | 'editor';
+  agentScopes?: string[];
 }
 
-const membersFor = (role: FixtureOptions['role'] = 'owner') => [
+const membersFor = (
+  role: FixtureOptions['role'] = 'owner',
+  agentScopes: string[] = ['pages:read'],
+) => [
   {
     id: 'current-member', type: 'human', userId: 'user-1', role,
     user: { id: 'user-1', email: 'current@example.com', name: 'Current', type: 'human' },
     createdAt: '2026-07-30T00:00:00.000Z',
   },
   {
-    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: 'viewer', scopes: ['pages:read'],
+    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: 'viewer', scopes: agentScopes,
     agent: { id: 'agent-existing', name: 'Existing', status: 'active' },
     createdAt: '2026-07-30T00:00:00.000Z',
   },
 ];
 
-const renderMembers = ({ role = 'owner' }: FixtureOptions = {}) => {
+const renderMembers = ({ role = 'owner', agentScopes }: FixtureOptions = {}) => {
   vi.mocked(api.get).mockImplementation((url) => {
-    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role) });
+    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role, agentScopes) });
     if (url === '/agents') return Promise.resolve({ data: [
       { id: 'agent-existing', name: 'Existing', status: 'active', revokedAt: null },
       { id: 'agent-new', name: 'New', status: 'active', revokedAt: null },
@@ -62,8 +66,8 @@ describe('SpaceMembers Agent addition', () => {
     fireEvent.click(await screen.findByRole('button', { name: '添加成员' }));
     fireEvent.click(screen.getByRole('button', { name: '智能体' }));
 
-    expect(await screen.findByRole('option', { name: 'New' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Existing' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'New · 已启用' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Existing/ })).not.toBeInTheDocument();
   });
 
   it('shows the unified Add member entry to a space admin', async () => {
@@ -77,5 +81,20 @@ describe('SpaceMembers Agent addition', () => {
 
     await screen.findByText('Current');
     expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument();
+  });
+
+  it('does not present an unsafe deselect-all action when every scope is selected', async () => {
+    renderMembers({
+      agentScopes: [
+        'pages:read', 'pages:write', 'sources:read', 'sources:write',
+        'runs:read', 'runs:write', 'review:read', 'review:auto-publish',
+        'memory:read', 'memory:write', 'graph:read', 'graph:write',
+      ],
+    });
+
+    fireEvent.click(await screen.findByTitle('权限设置'));
+
+    expect(screen.getByRole('button', { name: '已全选' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '取消全选' })).not.toBeInTheDocument();
   });
 });

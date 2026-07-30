@@ -100,6 +100,9 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
           ? (zh ? '成员添加失败' : 'Failed to add member')
           : (zh ? '智能体添加失败' : 'Failed to add agent'),
       ));
+      if (mode === 'agent') {
+        await loadAgents();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -230,7 +233,11 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                       onChange={(event) => setAgentId(event.target.value)}
                       className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name} · {zh ? '已启用' : 'Active'}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
