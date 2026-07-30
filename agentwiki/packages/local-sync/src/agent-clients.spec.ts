@@ -98,6 +98,7 @@ describe('agent client adapters', () => {
       type: 'local',
       command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
       enabled: true,
+      timeout: 1_800_000,
     });
   });
 
@@ -113,6 +114,7 @@ describe('agent client adapters', () => {
       type: 'local',
       command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
       disabled: false,
+      timeout: { execution: 1_800_000 },
     });
   });
 
@@ -131,6 +133,7 @@ describe('agent client adapters', () => {
           type: 'local',
           command: ['npx', '-y', '@neomei/agentwiki-local-sync@0.1.0', 'mcp', '--connection', 'connection-1'],
           enabled: true,
+          timeout: 1_800_000,
         },
       },
     }));

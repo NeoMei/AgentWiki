@@ -26,6 +26,8 @@ const CLIENTS: AgentClient[] = ['codex', 'claude', 'opencode'];
 const COMMAND_OPTIONS: SpawnSyncOptions = { stdio: 'pipe' };
 const SKILL_NAME = 'agentwiki-local-sync';
 
+export const OPENCODE_MCP_EXECUTION_TIMEOUT_MS = 30 * 60 * 1_000;
+
 export const packagedSkillSource = fileURLToPath(new URL('../skill/SKILL.md', import.meta.url));
 
 function isNotFound(error: unknown): error is NodeJS.ErrnoException {
@@ -105,7 +107,9 @@ function desiredOpenCodeEntry(version: string, connectionId: string, major: 1 | 
   return {
     type: 'local',
     command: mcpCommand(version, connectionId),
-    ...(major === 1 ? { enabled: true } : { disabled: false }),
+    ...(major === 1
+      ? { enabled: true, timeout: OPENCODE_MCP_EXECUTION_TIMEOUT_MS }
+      : { disabled: false, timeout: { execution: OPENCODE_MCP_EXECUTION_TIMEOUT_MS } }),
   };
 }
 
