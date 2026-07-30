@@ -142,12 +142,39 @@ export class AgentService {
 
   async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
     await this.getOwned(ownerId, agentId);
-    return this.upsertGrantForSpace(agentId, spaceId, role, scopes);
+    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role, scopes);
   }
 
-  // Space-level grant management: the controller already verified the caller is
-  // an owner/admin of this space, so we do not require agent ownership here.
-  async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
+  // Space-level grant management: creating a new grant requires an active Agent
+  // owned by the caller. Once the Agent is already a Space member, owner/admin
+  // callers may continue to manage that existing grant regardless of ownership.
+  async upsertGrantForSpace(
+    actorUserId: string,
+    agentId: string,
+    spaceId: string,
+    role: 'viewer' | 'editor',
+    scopes?: string[],
+  ) {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { id: true, ownerId: true, status: true, revokedAt: true },
+    });
+    if (!agent || agent.revokedAt || agent.status === 'revoked') {
+      throw new NotFoundException('Agent not found');
+    }
+    const existingGrant = await this.prisma.agentGrant.findUnique({
+      where: { agentId_spaceId: { agentId, spaceId } },
+      select: { id: true },
+    });
+    if (!existingGrant) {
+      if (agent.ownerId !== actorUserId) {
+        throw new ForbiddenException('You can only add your own agent');
+      }
+      if (agent.status !== 'active') {
+        throw new BadRequestException('Agent must be active before it can join a space');
+      }
+    }
+
     const normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
     if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
       throw new BadRequestException('Grant contains an invalid scope');

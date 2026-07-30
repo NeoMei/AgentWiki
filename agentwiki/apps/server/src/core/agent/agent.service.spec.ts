@@ -1,11 +1,11 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AgentService } from './agent.service';
 
 describe('AgentService grant scope validation', () => {
   const prisma = {
     agent: { findUnique: jest.fn() },
     agentCredential: { create: jest.fn() },
-    agentGrant: { upsert: jest.fn() },
+    agentGrant: { findUnique: jest.fn(), upsert: jest.fn() },
     agentAuditEvent: { create: jest.fn() },
   } as any;
   const service = new AgentService(prisma);
@@ -75,7 +75,13 @@ describe('AgentService grant scope validation', () => {
   });
 
   it('rejects invalid grant scopes before persisting the grant', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+
     await expect(service.upsertGrantForSpace(
+      'owner-1',
       'agent-1',
       'space-1',
       'editor',
@@ -85,10 +91,15 @@ describe('AgentService grant scope validation', () => {
   });
 
   it('deduplicates valid grant scopes before persisting the grant', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
     prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
     prisma.agentAuditEvent.create.mockResolvedValue({});
 
     await service.upsertGrantForSpace(
+      'owner-1',
       'agent-1',
       'space-1',
       'editor',
@@ -99,5 +110,84 @@ describe('AgentService grant scope validation', () => {
       create: expect.objectContaining({ scopes: ['pages:read', 'pages:write'] }),
       update: { role: 'editor', scopes: ['pages:read', 'pages:write'] },
     }));
+  });
+
+  it('rejects a missing or revoked agent before persisting a new grant', async () => {
+    prisma.agent.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.upsertGrantForSpace(
+      'owner-1', 'missing', 'space-1', 'viewer', ['pages:read'],
+    )).rejects.toBeInstanceOf(NotFoundException);
+
+    prisma.agent.findUnique.mockResolvedValueOnce({
+      id: 'agent-1', ownerId: 'owner-1', status: 'revoked', revokedAt: new Date(),
+    });
+
+    await expect(service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read'],
+    )).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a paused agent when creating a new grant', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'paused', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+
+    await expect(service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'editor', ['pages:write'],
+    )).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new grant for an agent owned by another user', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-2', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+
+    await expect(service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read'],
+    )).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+  });
+
+  it('allows a space admin to update an existing grant for another users agent', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-2', status: 'paused', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1' });
+    prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.upsertGrantForSpace(
+      'admin-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read'],
+    );
+
+    expect(prisma.agentGrant.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { agentId_spaceId: { agentId: 'agent-1', spaceId: 'space-1' } },
+    }));
+  });
+
+  it('upserts an active owned agent grant idempotently', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'grant-1' });
+    prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read'],
+    );
+    await service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read'],
+    );
+
+    expect(prisma.agentGrant.upsert).toHaveBeenCalledTimes(2);
   });
 });
