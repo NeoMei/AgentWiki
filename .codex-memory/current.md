@@ -35,6 +35,7 @@
 - 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
 - 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
 - 2026-07-31 GitHub 发布准备将 AgentWiki 主应用、client、server 和 shared 版本从 `0.0.1` 统一提升为 `0.1.0`；已单独发布的 `@neomei/agentwiki-local-sync` 保持 `0.1.1`。
+- 2026-07-31 使用指南“从本地知识创建 Wiki”的 4 个截图链接已从从未入库的 `local-sync-*.png` 改为仓库已有的真实系统截图；新增静态资产存在性回归测试，运行态四个 URL 均返回 200，Playwright 验证全部图片解码成功且无截图 404/控制台错误。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束

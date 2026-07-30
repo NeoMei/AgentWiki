@@ -66,7 +66,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
             </p>
           </div>
         </div>
-        <GuideScreenshot src="/screenshots/local-sync-installation.png" alt={zh ? 'AgentWiki 生成的 Local Sync 接入指令' : 'Generated AgentWiki Local Sync instructions'} fit="contain" heightClassName="h-48 sm:h-64" />
+        <GuideScreenshot src="/screenshots/step4-generated-credential.png" alt={zh ? 'AgentWiki 生成的 Local Sync 接入指令' : 'Generated AgentWiki Local Sync instructions'} fit="contain" heightClassName="h-48 sm:h-64" />
       </li>
 
       <li className="rounded-xl border border-gray-200 bg-white p-5 sm:p-8">
@@ -91,7 +91,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
             </p>
           </div>
         </div>
-        <GuideScreenshot src="/screenshots/local-sync-agent-preview.png" alt={zh ? '本地 Agent 等待确认的知识预览' : 'Local Agent knowledge preview awaiting confirmation'} fit="contain" heightClassName="h-56 sm:h-72" />
+        <GuideScreenshot src="/screenshots/step5-opencode-publish.png" alt={zh ? '本地 Agent 执行 AgentWiki 工作流的真实示例' : 'Real local Agent workflow example in AgentWiki'} fit="contain" heightClassName="h-56 sm:h-72" />
       </li>
 
       <li className="rounded-xl border border-gray-200 bg-white p-5 sm:p-8">
@@ -105,8 +105,8 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
           </div>
         </div>
         <div className="grid gap-5 lg:grid-cols-2">
-          <GuideScreenshot src="/screenshots/local-sync-agent-success.png" alt={zh ? '本地 Agent 同步完成结果' : 'Local Agent sync completion result'} fit="contain" heightClassName="h-52 sm:h-64" />
-          <GuideScreenshot src="/screenshots/local-sync-published-page.png" alt={zh ? '由本地知识发布的 AgentWiki 页面' : 'AgentWiki page published from local knowledge'} fit="contain" heightClassName="h-52 sm:h-64" />
+          <GuideScreenshot src="/screenshots/step6-opencode-success.png" alt={zh ? '本地 Agent 接入并发布成功的真实示例' : 'Real local Agent connection and publishing result'} fit="contain" heightClassName="h-52 sm:h-64" />
+          <GuideScreenshot src="/screenshots/step6-published-page.png" alt={zh ? '本地 Agent 发布的 AgentWiki 页面示例' : 'AgentWiki page published by a local Agent'} fit="contain" heightClassName="h-52 sm:h-64" />
         </div>
       </li>
     </ol>
