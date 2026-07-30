@@ -8,10 +8,13 @@
 
 ## 当前状态
 
-- 设计与实施计划已存在，用户要求在 local-knowledge-sync 大任务之前优先完成。
-- Node 26.5.0 基线通过：服务端 32 suites / 232 tests，客户端 26 files / 104 tests。
-- 计划已校正服务端边界：新增 Grant 只能使用调用者自有 active Agent；已有 Grant 仍可由 Space owner/admin 管理。
+- 服务端校验、候选过滤、统一用户/智能体弹窗、SpaceMembers 集成和权限卡片安全修复均已实现并提交。
+- 新增 Grant 只能使用调用者自有 active Agent；其他用户 Agent 与不存在 Agent 对外均表现为 404；已有 Grant 仍可由 Space owner/admin 管理。
+- Node 26.5.0 门禁通过：服务端 32 suites / 237 tests，客户端 29 files / 119 tests，类型检查、ESLint、生产构建及真实 API owner/admin/editor 权限矩阵均通过。
+- 真实 API 临时 Space 和 Agent 已清理；测试注册的临时人类账号没有公开删除端点，保留在本地开发库。
+- Chrome 插件的 browser-client 初始化因运行环境拒绝 `node:process` 而失败，真实浏览器视觉与响应式验收尚未完成。
 
 ## 下一步
 
-- 按 TDD 完成服务端校验、候选过滤、统一弹窗、SpaceMembers 集成、全量门禁和真实浏览器验证。
+- Chrome 插件恢复后补跑 owner/admin 添加流程、提交错误、中文/英文和 390x844 响应式验收。
+- 浏览器验收通过后归档本任务，再恢复 `local-knowledge-sync` 第一阶段。

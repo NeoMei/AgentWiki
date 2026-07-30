@@ -693,3 +693,11 @@ git commit -m "fix: polish space agent member workflow"
 ```
 
 If browser verification required no changes, skip this commit.
+
+## Execution record (2026-07-30)
+
+- Tasks 1-4 are implemented in commits `f92c3ce`, `98ab81f`, `4a867f5`, and `e4328dd`.
+- Review fixes are implemented in `546c283` and `79cfd24`: failed Agent submissions refresh candidates, Agent options expose active status, “deselect all” no longer maps to inherited full access, and guessed unowned Agent IDs do not disclose existence.
+- Automated gates pass: server 32 suites / 237 tests, client 29 files / 119 tests, TypeScript, ESLint, and production build.
+- Real API verification passes for Space owner/admin/editor, active/paused Agents, unowned Agent IDs, existing Grant administration, and unified member listing; temporary Space and Agents were cleaned up.
+- Task 5 browser interaction and 390×844 visual verification remain open because the installed Chrome browser-client cannot initialize in the current automation runtime (`node:process` import rejected). This is recorded as an external test-tool limitation, not an application pass.

@@ -30,7 +30,8 @@
 - 2026-07-30 `@neomei/agentwiki-local-sync@0.1.1` 已发布并验证 registry/bin；修复 OKF evidence 契约和 OpenCode MCP execution timeout。真实演示同时证明 OpenWiki 仍有交互初始化、独立模型配置、长任务与子进程稳定性问题，因此 `0.1.1` 不能被描述为最终零配置方案。
 - 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
 - 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
-- 2026-07-30 用户要求先完成 `space-add-agent-member`：统一添加成员弹窗支持用户/智能体；新增 Agent Grant 仅限调用者自有 active Agent，已有 Agent Grant 仍由 Space owner/admin 管理。Node 26.5.0 基线为服务端 32/232、客户端 26/104 全通过。
+- 2026-07-30 `space-add-agent-member` 业务实现已完成：统一添加成员弹窗支持用户/智能体，viewer/editor 自动使用默认 Space scopes；新增 Agent Grant 仅限调用者自有 active Agent，其他用户 Agent 与不存在 Agent 均返回相同 404，已有 Agent Grant 仍由 Space owner/admin 管理。权限卡片修正了“取消全选”提交空 scopes 会反向继承全部权限的误授权风险。
+- 该任务当前门禁：服务端 32 suites / 237 tests、客户端 29 files / 119 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -64,7 +65,7 @@
 
 # 风险 / 下一步
 
-- 当前先按 `space-add-agent-member` 计划完成服务端、客户端、全量门禁和浏览器验证；完成后恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
+- `space-add-agent-member` 的代码、自动化门禁与真实 API 已完成；浏览器插件恢复后必须补跑 owner/admin、中文/英文及 390x844 响应式视觉验收，随后归档该任务并恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。
