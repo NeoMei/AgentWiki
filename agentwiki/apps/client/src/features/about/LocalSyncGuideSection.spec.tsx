@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
 import { LocalSyncGuideSection } from './LocalSyncGuideSection';
@@ -50,17 +52,28 @@ describe('LocalSyncGuideSection', () => {
     expect(screen.getByText(/requires confirmation in the current conversation/)).toBeInTheDocument();
     expect(screen.getByText(/reports the Source, Run, ChangeSet, and review status but never approves for you/)).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Generated AgentWiki Local Sync instructions' }))
-      .toHaveAttribute('src', '/screenshots/local-sync-installation.png');
-    expect(screen.getByRole('img', { name: 'Local Agent knowledge preview awaiting confirmation' }))
-      .toHaveAttribute('src', '/screenshots/local-sync-agent-preview.png');
-    expect(screen.getByRole('img', { name: 'Local Agent sync completion result' }))
-      .toHaveAttribute('src', '/screenshots/local-sync-agent-success.png');
-    expect(screen.getByRole('img', { name: 'AgentWiki page published from local knowledge' }))
-      .toHaveAttribute('src', '/screenshots/local-sync-published-page.png');
+      .toHaveAttribute('src', '/screenshots/step4-generated-credential.png');
+    expect(screen.getByRole('img', { name: 'Real local Agent workflow example in AgentWiki' }))
+      .toHaveAttribute('src', '/screenshots/step5-opencode-publish.png');
+    expect(screen.getByRole('img', { name: 'Real local Agent connection and publishing result' }))
+      .toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
+    expect(screen.getByRole('img', { name: 'AgentWiki page published by a local Agent' }))
+      .toHaveAttribute('src', '/screenshots/step6-published-page.png');
     const screenshots = within(container).getAllByRole('img');
     expect(screenshots).toHaveLength(4);
     for (const image of screenshots) {
       expect(image).toHaveClass('object-contain');
+    }
+  });
+
+  it('references screenshot files that are shipped with the client', () => {
+    const { container } = render(<LocalSyncGuideSection zh />);
+    const screenshots = within(container).getAllByRole('img');
+
+    for (const image of screenshots) {
+      const src = image.getAttribute('src');
+      expect(src).toMatch(/^\/screenshots\//u);
+      expect(existsSync(path.resolve(process.cwd(), 'public', src!.slice(1))), src!).toBe(true);
     }
   });
 });
