@@ -8,3 +8,4 @@
 - Agent 角色仅 viewer/editor，并自动应用设计中固定的默认 Space scopes。
 - 新 Grant 服务端校验 Agent 归调用者所有；管理员对已有 Agent Grant 的调整和移除不受 Agent 所有权限制。
 - 人类邮箱添加流程和现有 Agent 权限卡片不得回归。
+- Space 只保留一个 Owner；添加成员时不能直接邀请第二个 Owner。现有 Owner 把另一名成员设为 Owner 时，服务端必须在同一个 Serializable 事务中将目标提升为 Owner、将操作人降为 Admin。

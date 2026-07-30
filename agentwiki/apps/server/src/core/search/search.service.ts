@@ -72,7 +72,7 @@ export class SearchService {
       });
 
       if (pages.length > 0) {
-        return pages
+        const semanticResults = pages
           .map((page) => ({
             page,
             similarity: cosineSimilarity(
@@ -83,6 +83,7 @@ export class SearchService {
           .filter((r) => r.similarity > 0.5)
           .sort((a, b) => b.similarity - a.similarity)
           .slice(0, limit);
+        if (semanticResults.length > 0) return semanticResults;
       }
     }
 

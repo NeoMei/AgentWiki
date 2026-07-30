@@ -122,8 +122,10 @@ export class PageController {
     const user = req.user as any;
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
+      const current = await this.pageService.findOne(id);
       return this.review.propose(user, page.spaceId, `Proposed delete: ${id}`, {
-        type: 'archive_page', payload: { pageId: id },
+        type: 'archive_page',
+        payload: { pageId: id, expectedUpdatedAt: current.updatedAt.toISOString() },
       });
     }
     this.logger.log('Removing page: ' + id);

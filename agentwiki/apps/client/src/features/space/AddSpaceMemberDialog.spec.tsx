@@ -15,7 +15,6 @@ const renderDialog = (overrides: Partial<AddSpaceMemberDialogProps> = {}) => ren
   <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
     <AddSpaceMemberDialog
       spaceId="space-1"
-      canGrantOwner
       existingAgentIds={[]}
       zh
       onClose={onClose}
@@ -136,13 +135,9 @@ describe('AddSpaceMemberDialog', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('only offers the owner role when the caller may grant it', () => {
-    const view = renderDialog({ canGrantOwner: false });
+  it('never invites a second owner; ownership is transferred from an existing member', () => {
+    renderDialog();
     expect(screen.queryByRole('option', { name: '所有者' })).not.toBeInTheDocument();
-    view.unmount();
-
-    renderDialog({ canGrantOwner: true });
-    expect(screen.getByRole('option', { name: '所有者' })).toBeInTheDocument();
   });
 
   it('renders equivalent English controls', async () => {

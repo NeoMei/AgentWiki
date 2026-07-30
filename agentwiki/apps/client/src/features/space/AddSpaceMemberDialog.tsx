@@ -11,7 +11,6 @@ import {
 
 export interface AddSpaceMemberDialogProps {
   spaceId: string;
-  canGrantOwner: boolean;
   existingAgentIds: string[];
   zh: boolean;
   onClose: () => void;
@@ -28,7 +27,6 @@ function requestMessage(error: unknown, fallback: string): string {
 
 export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
   spaceId,
-  canGrantOwner,
   existingAgentIds,
   zh,
   onClose,
@@ -187,7 +185,6 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                   onChange={(event) => setHumanRole(event.target.value)}
                   className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
                   <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                   <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                   <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>

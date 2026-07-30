@@ -82,7 +82,11 @@ export class KnowledgeService {
   async getRelatedPages(pageId: string) {
     this.logger.log('Getting related pages for: ' + pageId);
     const relations = await this.prisma.knowledgeRelation.findMany({
-      where: { OR: [{ sourcePageId: pageId }, { targetPageId: pageId }] },
+      where: {
+        OR: [{ sourcePageId: pageId }, { targetPageId: pageId }],
+        sourcePage: { deletedAt: null },
+        targetPage: { deletedAt: null },
+      },
     });
 
     const relatedPageIds = relations.map((r) =>

@@ -116,7 +116,7 @@ export class McpService {
       const source = await this.authorization.assertPageAccess(principal, sourcePageId, ['owner', 'editor'], 'graph:write');
       const target = await this.authorization.assertPageAccess(principal, targetPageId, ['owner', 'editor'], 'graph:write');
       if (source.spaceId !== spaceId || target.spaceId !== spaceId) throw new BadRequestException('Pages must belong to the requested space');
-      return this.text(await this.review.propose(principal, spaceId, 'Proposed relation', { type: 'create_relation', payload: { sourcePageId, targetPageId, relation, confidence: confidence || 1 } }));
+      return this.text(await this.review.propose(principal, spaceId, 'Proposed relation', { type: 'create_relation', payload: { sourcePageId, targetPageId, relation, confidence: confidence ?? 1 } }));
     });
     registerTool('list_sources', {
       description: 'List knowledge sources in a space.',

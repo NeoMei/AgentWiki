@@ -422,7 +422,6 @@ export const SpaceMembers: React.FC = () => {
       {showAdd && id ? (
         <AddSpaceMemberDialog
           spaceId={id}
-          canGrantOwner={canGrantOwner}
           existingAgentIds={existingAgentIds}
           zh={zh}
           onClose={() => setShowAdd(false)}

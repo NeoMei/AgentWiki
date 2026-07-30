@@ -18,18 +18,27 @@ export class ReviewService {
     title: string,
     item: { type: string; payload: Record<string, unknown> },
   ) {
-    // Agent proposals can skip manual review only when the space, the agent and
-    // the credential all opt in to scoped auto-publish. Anything less stays in
-    // pending_review for a human to approve.
-    const [space, agent] = await Promise.all([
+    // Agent proposals can skip manual review only when the space, the agent,
+    // the credential and the per-space grant all opt in. An empty grant scope
+    // list deliberately means that the credential is not narrowed further.
+    const [space, agent, grant] = await Promise.all([
       this.prisma.space.findUnique({ where: { id: spaceId }, select: { approvalPolicy: true } }),
       principal.agentId
         ? this.prisma.agent.findUnique({ where: { id: principal.agentId }, select: { approvalMode: true } })
         : Promise.resolve(null),
+      principal.agentId
+        ? this.prisma.agentGrant.findUnique({
+          where: { agentId_spaceId: { agentId: principal.agentId, spaceId } },
+          select: { scopes: true },
+        })
+        : Promise.resolve(null),
     ]);
+    const grantAllowsAutoPublish = !!grant &&
+      (grant.scopes.length === 0 || grant.scopes.includes('review:auto-publish'));
     const autoPublish = !!principal.agentId &&
       space?.approvalPolicy === 'scoped-auto-publish' &&
       agent?.approvalMode === 'scoped-auto-publish' &&
+      grantAllowsAutoPublish &&
       (principal.scopes || []).includes('review:auto-publish');
 
     const changeSet = await this.prisma.changeSet.create({

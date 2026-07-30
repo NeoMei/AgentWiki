@@ -195,6 +195,9 @@ export class SpaceService {
   }
 
   async addMember(spaceId: string, email: string, role: 'owner' | 'admin' | 'editor' | 'viewer' = 'viewer') {
+    if (role === 'owner') {
+      throw new BadRequestException('Invite the member as an admin, then transfer ownership');
+    }
     await this.findOne(spaceId);
 
     const user = await this.prisma.user.findFirst({
@@ -214,10 +217,16 @@ export class SpaceService {
   }
 
   async updateMemberRole(spaceId: string, userId: string, role: 'owner' | 'editor' | 'viewer') {
-    return this.updateMemberRoleAs(spaceId, userId, role, 'owner');
+    return this.updateMemberRoleAs(spaceId, userId, role, 'owner', userId);
   }
 
-  async updateMemberRoleAs(spaceId: string, userId: string, role: string, callerRole: string) {
+  async updateMemberRoleAs(
+    spaceId: string,
+    userId: string,
+    role: string,
+    callerRole: string,
+    callerUserId?: string,
+  ) {
     await this.findOne(spaceId);
 
     return this.prisma.$transaction(async (tx) => {
@@ -228,6 +237,24 @@ export class SpaceService {
       // Admins manage non-owner members only and can never touch the owner role.
       if (callerRole !== 'owner' && (member.role === 'owner' || role === 'owner')) {
         throw new ForbiddenException('Only an owner can manage the owner role');
+      }
+      if (role === 'owner' && member.role !== 'owner') {
+        if (!callerUserId || callerUserId === userId) {
+          throw new ForbiddenException('Ownership transfer requires the acting owner');
+        }
+        const promoted = await tx.spaceMember.update({
+          where: { userId_spaceId: { userId, spaceId } },
+          data: { role: 'owner' },
+          select: MEMBER_SELECT,
+        });
+        const demoted = await tx.spaceMember.updateMany({
+          where: { userId: callerUserId, spaceId, role: 'owner' },
+          data: { role: 'admin' },
+        });
+        if (demoted.count !== 1) {
+          throw new ForbiddenException('The acting user is no longer the space owner');
+        }
+        return promoted;
       }
       if (member.role === 'owner' && role !== 'owner') {
         const owners = await tx.spaceMember.count({ where: { spaceId, role: 'owner' } });

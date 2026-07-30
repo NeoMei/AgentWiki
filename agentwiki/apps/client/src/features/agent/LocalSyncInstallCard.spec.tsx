@@ -110,6 +110,21 @@ describe('LocalSyncInstallCard', () => {
     expect(screen.getByRole('button', { name: '重新生成' })).toBeInTheDocument();
   });
 
+  it('treats an invalid expiration timestamp as expired instead of starting an invalid timer', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      installationId: 'install-1',
+      expiresAt: 'not-a-date',
+      instructions: instruction,
+    } } as any);
+    renderCard();
+
+    await generate();
+
+    expect(screen.getByText('接入指令已过期。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制接入指令' })).toBeDisabled();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
   it('clears the countdown timer when unmounted', async () => {
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
     const view = renderCard();

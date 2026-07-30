@@ -31,8 +31,9 @@
 - 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
 - 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
 - 2026-07-30 `space-add-agent-member` 业务实现已完成：统一添加成员弹窗支持用户/智能体，viewer/editor 自动使用默认 Space scopes；新增 Agent Grant 仅限调用者自有 active Agent，其他用户 Agent 与不存在 Agent 均返回相同 404，已有 Agent Grant 仍由 Space owner/admin 管理。权限卡片修正了“取消全选”提交空 scopes 会反向继承全部权限的误授权风险。
-- 该任务当前门禁：服务端 32 suites / 237 tests、客户端 29 files / 119 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
-- 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。Node 24.18.0 下 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 237、客户端 119、local-sync 49、类型检查、ESLint、生产构建及完整 `pnpm dev` API/Worker/Vite 健康检查通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查也通过。Docker CLI 本机不可用，镜像实际构建未验证。
+- 该任务当前门禁：服务端 33 suites / 244 tests、客户端 29 files / 120 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
+- 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
+- 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束

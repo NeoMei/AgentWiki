@@ -36,7 +36,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
   useEffect(() => {
     if (!result) return;
     const expiry = Date.parse(result.expiresAt);
-    if (expiry <= Date.now()) return;
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     const timeout = window.setTimeout(() => window.clearInterval(timer), Math.max(0, expiry - Date.now()));
     return () => { window.clearInterval(timer); window.clearTimeout(timeout); };
@@ -61,8 +61,9 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
     }
   };
 
-  const remainingSeconds = result
-    ? Math.max(0, Math.ceil((Date.parse(result.expiresAt) - now) / 1_000))
+  const expiry = result ? Date.parse(result.expiresAt) : Number.NaN;
+  const remainingSeconds = result && Number.isFinite(expiry)
+    ? Math.max(0, Math.ceil((expiry - now) / 1_000))
     : 0;
   const expired = result ? remainingSeconds === 0 : false;
   const remaining = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;

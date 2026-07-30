@@ -130,3 +130,37 @@ describe('McpService knowledge-sync tool', () => {
     });
   });
 });
+
+describe('McpService relation proposals', () => {
+  it('preserves an explicit zero confidence value', async () => {
+    const principal = {
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', scopes: ['graph:write'],
+    } as any;
+    const authorization = {
+      assertSpaceAccess: jest.fn().mockResolvedValue(undefined),
+      assertPageAccess: jest.fn()
+        .mockResolvedValueOnce({ id: 'page-1', spaceId: 'space-1' })
+        .mockResolvedValueOnce({ id: 'page-2', spaceId: 'space-1' }),
+    } as any;
+    const review = { propose: jest.fn().mockResolvedValue({ id: 'change-1' }) } as any;
+    const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
+    const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
+    const service = new (McpService as any)(
+      { get: jest.fn() }, authorization,
+      {}, {}, {}, {}, {}, review, {}, {}, audit, prisma, {},
+    );
+    const tool = (service as any).createServer(principal)._registeredTools.propose_relation;
+
+    await tool.handler({
+      spaceId: 'space-1', sourcePageId: 'page-1', targetPageId: 'page-2',
+      relation: 'contradicts', confidence: 0,
+    });
+
+    expect(review.propose).toHaveBeenCalledWith(
+      principal,
+      'space-1',
+      'Proposed relation',
+      expect.objectContaining({ payload: expect.objectContaining({ confidence: 0 }) }),
+    );
+  });
+});
