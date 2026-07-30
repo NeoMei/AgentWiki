@@ -56,3 +56,10 @@
 - `0.1.x` 不自动切换到 `0.2.0`；升级先迁移本地配置和 Space Workspace，再切换 MCP。
 - 旧 OpenWiki preview 不能直接作为新 Bundle 上传，需要通过迁移 Recipe 重新整理。
 - `0.2.0` 完成跨 Agent、跨机器真实 E2E 前，使用指南不能声称新方案可用。
+
+## 实施拆分
+
+- 实施顺序固定为四阶段：本地协议/Workspace/状态机 → 私有 Adapter runtime/codebase-memory/MarkItDown → 服务端 Revision/Submission/ChangeSet → 双向同步/冲突/安装迁移/真实验收。
+- 每阶段必须独立通过测试、类型检查、lint、build 和审查门禁，不能把未完成接口跨阶段伪装为可用功能。
+- codebase-memory 首批固定运行时版本为 npm `codebase-memory-mcp@0.9.0`；MarkItDown 首批固定版本为 PyPI `markitdown==0.1.7`，安装前验证计划中记录的 registry integrity/hash。
+- Revision 只能在 ChangeSet 真正发布或回滚后产生；pending/rejected 提案不能被其他机器 Pull。

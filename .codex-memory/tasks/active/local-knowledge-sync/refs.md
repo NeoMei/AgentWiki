@@ -3,6 +3,11 @@
 # 参考资料
 
 - 当前设计规格：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
+- 实施总路线图：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-orchestrator-roadmap.md`
+- 本地核心计划：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-core-plan.md`
+- Adapter 计划：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-adapters-plan.md`
+- 服务端 Revision 计划：`agentwiki/docs/superpowers/plans/2026-07-30-space-knowledge-revisions-plan.md`
+- 双向同步与发布计划：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-sync-release-plan.md`
 - 旧设计规格（历史参考）：`agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`
 - 旧 OpenWiki 服务端计划（历史参考）：`agentwiki/docs/superpowers/plans/2026-07-29-local-knowledge-sync-server.md`
 - 旧 OpenWiki 插件计划（历史参考）：`agentwiki/docs/superpowers/plans/2026-07-29-local-sync-plugin.md`

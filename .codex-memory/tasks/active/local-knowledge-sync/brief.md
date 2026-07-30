@@ -11,8 +11,8 @@
 - `@neomei/agentwiki-local-sync@0.1.1` 已发布；OKF evidence 和 OpenCode timeout 修复已完成。
 - 真实验证确认 OpenWiki 过重且不稳定，旧 OpenWiki 必需链路被新设计取代。
 - 用户已逐项确认本地整理、Agent 执行语义工作、确定性状态机/Recipe、Space 统一 Wiki、私有 Adapter runtime、服务端权威 Revision、双向同步与三方合并。
-- 新设计已写入 `agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`，等待用户最终文档复核。
-- 下一步在文档批准后编写 `0.2.0` 实施计划；旧三份 OpenWiki 计划仅保留历史参考。
+- 新设计已写入 `agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`，并已得到用户确认。
+- `0.2.0` 总路线图与四份顺序实施计划已经完成并自审；下一步从本地协议、原子 Workspace、Recipe/校验和状态机开始执行。旧三份 OpenWiki 计划仅保留历史参考。
 
 ## 范围
 
