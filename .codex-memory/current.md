@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 当前目标是按已确认的 `0.2.0` 四阶段实施计划，把本地知识同步从 OpenWiki/OKF 必需链路重构为零配置 Local Knowledge Orchestrator：本地 Adapter 采集、本地 Agent 整理、Space 统一 Wiki、服务端权威 Revision 与双向同步。
+- 当前优先目标是完成 Space“添加成员”中的智能体添加流程；完成测试与审查后，再按已确认的 `0.2.0` 四阶段计划实施 Local Knowledge Orchestrator。
 
 # 范围 / 不做
 
@@ -30,6 +30,7 @@
 - 2026-07-30 `@neomei/agentwiki-local-sync@0.1.1` 已发布并验证 registry/bin；修复 OKF evidence 契约和 OpenCode MCP execution timeout。真实演示同时证明 OpenWiki 仍有交互初始化、独立模型配置、长任务与子进程稳定性问题，因此 `0.1.1` 不能被描述为最终零配置方案。
 - 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
 - 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
+- 2026-07-30 用户要求先完成 `space-add-agent-member`：统一添加成员弹窗支持用户/智能体；新增 Agent Grant 仅限调用者自有 active Agent，已有 Agent Grant 仍由 Space owner/admin 管理。Node 26.5.0 基线为服务端 32/232、客户端 26/104 全通过。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -63,7 +64,7 @@
 
 # 风险 / 下一步
 
-- 活跃任务 `local-knowledge-sync` 的设计和实施计划均已完成；旧 OpenWiki 三份计划不再是当前实施入口。下一步由用户选择逐任务子 Agent 执行或当前会话分批执行，从第一阶段本地核心开始。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
+- 当前先按 `space-add-agent-member` 计划完成服务端、客户端、全量门禁和浏览器验证；完成后恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

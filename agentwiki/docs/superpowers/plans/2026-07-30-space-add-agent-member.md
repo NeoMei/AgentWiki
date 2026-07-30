@@ -4,7 +4,7 @@
 
 **Goal:** Let Space owners and admins add one of their own active Agents from the existing Add member dialog, with viewer/editor default scopes and the existing Agent Grant model.
 
-**Architecture:** Keep human membership in `SpaceMember` and Agent membership in `AgentGrant`. Add a focused dialog component that switches between human and Agent modes, reuses `GET /agents` and `PUT /agents/:agentId/grants/:spaceId`, and delegates the existing member-list refresh to `SpaceMembers`. Add server-side active-Agent validation so stale or revoked IDs cannot receive new grants.
+**Architecture:** Keep human membership in `SpaceMember` and Agent membership in `AgentGrant`. Add a focused dialog component that switches between human and Agent modes, reuses `GET /agents` and `PUT /agents/:agentId/grants/:spaceId`, and delegates the existing member-list refresh to `SpaceMembers`. On the server, a new Grant requires an active Agent owned by the caller, while Space admins retain authority to update an Agent Grant that already exists in their Space.
 
 **Tech Stack:** React 18, TypeScript, React Router, Axios client, Vitest/Testing Library, NestJS, Prisma, Jest.
 
@@ -12,6 +12,8 @@
 
 - Only Agents owned by the current signed-in user are discoverable through `GET /agents`.
 - Only Agents with `status === 'active'` and no existing grant for the Space are selectable.
+- Creating a new Grant requires caller ownership server-side; guessing another user's Agent ID must not work.
+- Once a Grant exists, Space owner/admin may update or remove it regardless of Agent ownership.
 - Agent member roles are limited to `viewer` and `editor`; Agents cannot be Space `owner` or `admin`.
 - Viewer defaults to `pages:read` and `graph:read`.
 - Editor defaults to `pages:read`, `pages:write`, `sources:read`, `graph:read`, and `graph:write`.
@@ -24,8 +26,9 @@
 
 ## File Structure
 
-- `apps/server/src/core/agent/agent.service.ts`: reject missing, revoked, paused, or otherwise inactive Agents before grant upsert.
-- `apps/server/src/core/agent/agent.service.spec.ts`: server regression tests for active-Agent validation and idempotent upsert.
+- `apps/server/src/core/agent/agent.service.ts`: distinguish new Grant creation from existing Grant management; require caller ownership and active status only for creation.
+- `apps/server/src/core/agent/agent.controller.ts`: pass the authenticated user ID into the Space-level Grant service after owner/admin authorization.
+- `apps/server/src/core/agent/agent.service.spec.ts`: server regression tests for ownership, active-Agent validation, existing-Grant administration, and idempotent upsert.
 - `apps/client/src/features/space/spaceMemberAgentOptions.ts`: pure Agent filtering and role-to-scope defaults.
 - `apps/client/src/features/space/spaceMemberAgentOptions.spec.ts`: deterministic tests for filtering and presets.
 - `apps/client/src/features/space/AddSpaceMemberDialog.tsx`: focused two-mode Add member dialog and API orchestration.
@@ -38,57 +41,77 @@
 ### Task 1: Enforce active Agent grants on the server
 
 **Files:**
-- Modify: `apps/server/src/core/agent/agent.service.ts:132-160`
+- Modify: `apps/server/src/core/agent/agent.service.ts:143-174`
+- Modify: `apps/server/src/core/agent/agent.controller.ts:63-80`
 - Test: `apps/server/src/core/agent/agent.service.spec.ts`
 
 **Interfaces:**
-- Consumes: `AgentService.upsertGrantForSpace(agentId, spaceId, role, scopes?)`.
-- Produces: the same method signature, now rejecting missing/revoked Agents with `NotFoundException` and non-active Agents with `BadRequestException` before `agentGrant.upsert`.
+- Consumes: `AgentService.upsertGrantForSpace(actorUserId, agentId, spaceId, role, scopes?)`.
+- Produces: new Grant creation restricted to the caller's active Agent; existing Space Grant updates remain available to Space owner/admin.
 
 - [ ] **Step 1: Write failing active-Agent validation tests**
 
-Add `NotFoundException` to the test import and add these tests:
+Add `ForbiddenException` and `NotFoundException` to the test import, add `agentGrant.findUnique` to the Prisma mock, and add these tests:
 
 ```ts
 it('rejects a missing or revoked agent before persisting the grant', async () => {
   prisma.agent.findUnique.mockResolvedValueOnce(null);
-  await expect(service.upsertGrantForSpace('missing', 'space-1', 'viewer', ['pages:read']))
+  await expect(service.upsertGrantForSpace('owner-1', 'missing', 'space-1', 'viewer', ['pages:read']))
     .rejects.toBeInstanceOf(NotFoundException);
 
-  prisma.agent.findUnique.mockResolvedValueOnce({ id: 'agent-1', status: 'revoked', revokedAt: new Date() });
-  await expect(service.upsertGrantForSpace('agent-1', 'space-1', 'viewer', ['pages:read']))
+  prisma.agent.findUnique.mockResolvedValueOnce({ id: 'agent-1', ownerId: 'owner-1', status: 'revoked', revokedAt: new Date() });
+  await expect(service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read']))
     .rejects.toBeInstanceOf(NotFoundException);
 
   expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
 });
 
-it('rejects a paused agent before persisting the grant', async () => {
-  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', status: 'paused', revokedAt: null });
+it('rejects a paused agent when creating a new grant', async () => {
+  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'paused', revokedAt: null });
+  prisma.agentGrant.findUnique.mockResolvedValue(null);
 
-  await expect(service.upsertGrantForSpace('agent-1', 'space-1', 'editor', ['pages:write']))
+  await expect(service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'editor', ['pages:write']))
     .rejects.toBeInstanceOf(BadRequestException);
   expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
 });
 
-it('upserts an active agent grant idempotently', async () => {
-  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', status: 'active', revokedAt: null });
+it('rejects a new grant for an agent owned by another user', async () => {
+  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-2', status: 'active', revokedAt: null });
+  prisma.agentGrant.findUnique.mockResolvedValue(null);
+  await expect(service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read']))
+    .rejects.toBeInstanceOf(ForbiddenException);
+  expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+});
+
+it('allows a space admin to update an existing grant for another users agent', async () => {
+  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-2', status: 'paused', revokedAt: null });
+  prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1' });
   prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
   prisma.agentAuditEvent.create.mockResolvedValue({});
 
-  await service.upsertGrantForSpace('agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read']);
-  await service.upsertGrantForSpace('agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read']);
+  await service.upsertGrantForSpace('admin-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read']);
 
-  expect(prisma.agentGrant.upsert).toHaveBeenCalledTimes(2);
   expect(prisma.agentGrant.upsert).toHaveBeenLastCalledWith(expect.objectContaining({
     where: { agentId_spaceId: { agentId: 'agent-1', spaceId: 'space-1' } },
   }));
 });
+
+it('upserts an active owned agent grant idempotently', async () => {
+  prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null });
+  prisma.agentGrant.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'grant-1' });
+  prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
+  prisma.agentAuditEvent.create.mockResolvedValue({});
+  await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read']);
+  await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'viewer', ['pages:read', 'graph:read']);
+  expect(prisma.agentGrant.upsert).toHaveBeenCalledTimes(2);
+});
 ```
 
-Update the two existing successful grant tests to mock:
+Update existing direct `upsertGrantForSpace` tests to pass `owner-1` first and mock:
 
 ```ts
-prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', status: 'active', revokedAt: null });
+prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null });
+prisma.agentGrant.findUnique.mockResolvedValue(null);
 ```
 
 - [ ] **Step 2: Run the focused test and verify RED**
@@ -99,24 +122,33 @@ Run:
 pnpm --filter @agentwiki/server test -- src/core/agent/agent.service.spec.ts
 ```
 
-Expected: the missing/revoked/paused tests fail because `upsertGrantForSpace` currently persists without loading the Agent.
+Expected: ownership/active tests fail because `upsertGrantForSpace` currently has no actor parameter or Agent lookup.
 
 - [ ] **Step 3: Implement minimal validation**
 
-At the beginning of `upsertGrantForSpace`, before scope normalization, add:
+Change `upsertGrantForSpace` to accept `actorUserId` first. Before scope normalization, add:
 
 ```ts
 const agent = await this.prisma.agent.findUnique({
   where: { id: agentId },
-  select: { id: true, status: true, revokedAt: true },
+  select: { id: true, ownerId: true, status: true, revokedAt: true },
 });
 if (!agent || agent.revokedAt || agent.status === 'revoked') {
   throw new NotFoundException('Agent not found');
 }
-if (agent.status !== 'active') {
-  throw new BadRequestException('Agent must be active before it can join a space');
+const existingGrant = await this.prisma.agentGrant.findUnique({
+  where: { agentId_spaceId: { agentId, spaceId } },
+  select: { id: true },
+});
+if (!existingGrant) {
+  if (agent.ownerId !== actorUserId) throw new ForbiddenException('You can only add your own agent');
+  if (agent.status !== 'active') {
+    throw new BadRequestException('Agent must be active before it can join a space');
+  }
 }
 ```
+
+Pass `ownerId` from both `upsertGrant` and `AgentController.upsertGrant` into the new signature. Keep `removeGrantForSpace` unchanged so Space administrators can remove any existing Agent member.
 
 - [ ] **Step 4: Run focused and full server tests**
 
@@ -133,6 +165,7 @@ Expected: focused tests pass; all server suites pass.
 
 ```bash
 git add agentwiki/apps/server/src/core/agent/agent.service.ts \
+  agentwiki/apps/server/src/core/agent/agent.controller.ts \
   agentwiki/apps/server/src/core/agent/agent.service.spec.ts
 git commit -m "fix: require active agents for space grants"
 ```

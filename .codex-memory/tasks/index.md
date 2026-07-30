@@ -10,7 +10,8 @@
 
 ## 活跃任务
 
-- [local-knowledge-sync](active/local-knowledge-sync/brief.md)：本地扫描代码和文档、生成 OKF Wiki、确认后同步到 AgentWiki。
+- [space-add-agent-member](active/space-add-agent-member/brief.md)：优先完成 Space 统一添加用户/智能体成员流程。
+- [local-knowledge-sync](active/local-knowledge-sync/brief.md)：零配置本地知识编排与双向同步，等待前置成员任务完成后恢复实施。
 
 ## 最近完成
 
