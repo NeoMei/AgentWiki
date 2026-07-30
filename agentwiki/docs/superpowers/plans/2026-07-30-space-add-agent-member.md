@@ -603,7 +603,7 @@ pnpm build
 git diff --check
 ```
 
-Expected: all commands exit 0. The Node 26 contract must be run with the repository-declared Node 26 runtime.
+Expected: all commands exit 0 under a repository-supported Node 24 or Node 26 runtime.
 
 - [ ] **Step 6: Commit**
 
@@ -626,7 +626,7 @@ git commit -m "feat: add agents from the space member page"
 
 - [ ] **Step 1: Start the real local stack**
 
-Run with the repository Node 26 runtime:
+Run with a repository-supported Node 24 or Node 26 runtime:
 
 ```bash
 cd agentwiki

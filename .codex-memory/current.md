@@ -19,7 +19,7 @@
 - 远端直接运行 `agentwiki-api.service`、`agentwiki-worker.service`、`agentwiki-frontend.service`；三项均为 active，Docker 服务为 inactive。
 - `/api/health` 验证 PostgreSQL 与 Redis；远端业务 smoke 完成注册、Space、Page、Search、Agent Credential/Grant、MCP 只读及审计、Source → Run → Review → Publish → provenance，临时数据已删除。
 - 当前门禁：ESLint、双端类型检查、16 个 Jest 套件 58 项服务端测试、4 项 Vitest 客户端测试、Nest/Vite 生产构建全部通过。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
-- 本机仅以 Node 26.5.0 + pnpm 11.9.0 作为 AgentWiki 运行时；PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
+- AgentWiki 当前支持 Node 24 和 Node 26，默认开发、`.node-version` 与 Docker 基线为 Node 24；pnpm 固定 11.9.0。PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
 - `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
 - 2026-07-27 fresh Node 26 门禁：`test:runtime` 7/7、ESLint 0 error/10 warnings、双端类型检查、Jest 16 suites/58 tests、Vitest 4 files/4 tests、shared/Nest/Vite 生产构建均退出 0；中间任务和源码 TODO 扫描均无匹配。
 - codebase-memory 规范项目名为 `agentwiki`，主产品 `agentwiki/` 已纳入 `codex/node26-compatibility` 版本控制；规范图为 1565 nodes / 3624 edges，`node_modules`、`dist`、`.stale-node-modules` 和参考仓库路径污染均为 0，Authorization/Review/Memory/Mcp 四项服务各发现 1 个定义。
@@ -32,6 +32,7 @@
 - 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
 - 2026-07-30 `space-add-agent-member` 业务实现已完成：统一添加成员弹窗支持用户/智能体，viewer/editor 自动使用默认 Space scopes；新增 Agent Grant 仅限调用者自有 active Agent，其他用户 Agent 与不存在 Agent 均返回相同 404，已有 Agent Grant 仍由 Space owner/admin 管理。权限卡片修正了“取消全选”提交空 scopes 会反向继承全部权限的误授权风险。
 - 该任务当前门禁：服务端 32 suites / 237 tests、客户端 29 files / 119 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
+- 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。Node 24.18.0 下 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 237、客户端 119、local-sync 49、类型检查、ESLint、生产构建及完整 `pnpm dev` API/Worker/Vite 健康检查通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查也通过。Docker CLI 本机不可用，镜像实际构建未验证。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -59,7 +60,7 @@
 - 本机开发配置：`agentwiki/.env`、`agentwiki/apps/server/.env`（数据库主机已切到 `127.0.0.1`）
 - 零配置本地知识编排设计：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
 - `0.2.0` 实施路线图：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-orchestrator-roadmap.md`
-- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node26-contract.test.mjs`
+- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node-runtime-contract.test.mjs`
 - 本机 Git 元数据：`/Users/neomei/.local/share/AgentWiki.git`（工作树仍为当前项目路径，避免 iCloud 占位对象阻塞 Git）
 - 迁移前备份：`C:\Users\1\AgentWikiBackups\agentwiki-pre-migrate-20260716-003650.dump`
 

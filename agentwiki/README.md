@@ -56,7 +56,7 @@ A knowledge base system designed for **people and AI Agents**. Write in Markdown
 
 ### Prerequisites
 
-- Node.js >= 26
+- Node.js 24 or 26 (Node 24 is the default development and container baseline)
 - pnpm >= 11
 - PostgreSQL >= 16
 - Redis

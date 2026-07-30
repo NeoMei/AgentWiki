@@ -18,7 +18,7 @@ Do not commit `.env`, Agent credentials, personal access tokens, database dumps,
 
 The current host uses direct Node.js processes, not Docker. Run `deploy.sh` to upload source without `.env`, install the locked dependencies, build shared/server/client, apply Prisma migrations, and restart the three user-level systemd services.
 
-Before deployment, verify that both the local shell and the remote `/usr/bin/node` report Node.js 26. `deploy.sh` enforces this preflight and stops before upload, dependency installation, migrations, or service restarts when either runtime is not Node 26.
+Before deployment, verify that both the local shell and the remote `/usr/bin/node` report Node.js 24 or 26. Node 24 is the default development and container baseline. `deploy.sh` enforces this preflight and stops before upload, dependency installation, migrations, or service restarts when either runtime is outside the supported majors.
 
 1. `agentwiki-api.service` runs the Nest API with `PROCESS_ROLE=api` on port 3000.
 2. `agentwiki-worker.service` runs the isolated ingestion worker with no HTTP listener.
@@ -402,4 +402,3 @@ Before a release, record the prior npm package version, client build, and `LOCAL
 4. If the release exposed a security issue, do not preserve existing credentials for convenience: revoke them and require re-enrollment before re-enabling sync.
 
 Do not roll back the database as a response to a package-only problem. Existing Source, Run, Evidence, ChangeSet, and Page provenance are audit data; recover knowledge through the normal review/revert flow rather than deleting it during rollback.
-

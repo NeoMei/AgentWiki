@@ -1,5 +1,5 @@
 # Frontend Dockerfile for AgentWiki (React + Vite)
-ARG NODE_IMAGE=node:26-alpine
+ARG NODE_IMAGE=node:24-alpine
 ARG NGINX_IMAGE=nginx:alpine
 FROM ${NODE_IMAGE} AS builder
 
