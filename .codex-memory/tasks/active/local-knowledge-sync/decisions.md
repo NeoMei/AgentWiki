@@ -2,21 +2,57 @@
 
 # 决策
 
-- 本地 Agent 是扫描和同步编排者；AgentWiki 服务端只接收已确认的派生知识。
-- OpenWiki 的 OKF v0.1 是交换格式；OpenWiki 不在 AgentWiki 服务端运行。
-- codebase-memory 只增强代码来源；MarkItDown 只转换本地文档。
-- 同步确认发生在任何本地知识上传之前，差异通过服务端只读哈希状态在本地计算。
-- OpenWiki 使用非本地模型时，必须在模型调用前进行独立的数据边界确认；这不能被 AgentWiki 同步确认替代。
-- 第一版使用不超过 10 MiB 的 OKF JSON Envelope，通过 Agent Credential 认证的 multipart HTTP 接口上传。
-- 复用 Source、SourceVersion、IngestRun、Evidence、ChangeSet 和既有发布策略。
-- 本地能力发布为公开 npm 包 `@agentwiki/local-sync`，由 Agent Skill、stdio MCP、CLI、工具适配器和薄客户端配置适配器组成；不绑定 OpenCode 或其他单一 Agent。
-- OpenWiki、codebase-memory 和 MarkItDown 不捆绑进插件；缺失时报告并询问，不静默安装。
-- AgentWiki 由有权人类生成绑定 Agent/Scope/版本的 10 分钟单次安装码；Redis 保存哈希并原子消费，兑换后只返回一次长期 Credential。
-- 固定版本接入指令由本地 Agent 执行，自动安装 Skill、注册 MCP、安全保存 Credential 并运行 doctor；安装过程不扫描或同步。
-- 长期 Credential 不进入命令参数、项目目录、Skill 或 MCP 明文配置；本地凭据文件仅当前用户可读。
-- npm 是第一版分发渠道，GitHub Release 提供源码与审计信息；安装、升级和卸载均固定明确版本，不使用 `latest`。
-- 卸载默认保留 `sync-state.json`，防止重装后同一本地来源被识别成新来源；删除同步历史和本地 Credential 都需要用户明确选择。
-- 实施拆为服务端、本地插件、产品接入三份连续计划，每份都有独立测试和提交门禁。
-- OpenWiki 始终在临时 staging 仓库运行，避免扫描时改写用户仓库中的 `AGENTS.md`、`CLAUDE.md` 或 `openwiki/`；代码文件由 `git ls-files -co --exclude-standard` 复制当前工作树内容。
-- 一次性安装记录以完整 `sha256(code)` 作为可撤销的 installationId 和 Redis key，不保存明文码，也不引入反向索引。
-- CLI 的 `scan` 复用 MCP prepare-and-diff 核心，`preview` 只展示已保存预览；保持公开命令清晰而不复制扫描逻辑。
+## 数据边界
+
+- 所有采集、转换、语义整理、冲突合并和敏感信息检查均在本地完成。
+- 原始代码仓库、原始二进制文档、原始 Agent Memory 数据库和本地凭据永不上传。
+- 可以上传完整的可迁移知识产物；边界由“是否已整理为共享知识”决定，而不是由摘录长度决定。
+- AgentWiki 服务端只接收页面、共享记忆、关系、provenance、必要证据、删除提案和版本信息。
+
+## 整理引擎
+
+- OpenWiki 不再是必需组件；零配置方案不要求 OpenWiki init、独立 Provider 或额外模型 Key。
+- 当前本地 Agent 负责需要语义判断的整理和写作；Orchestrator 不内嵌第二套模型。
+- 采用确定性状态机、版本化 Recipe、Schema、稳定 ID、checkpoint 和有界修复循环约束 Agent，不能只依赖提示词。
+- Agent 只填写语义字段；路径、ID、排序、hash、版本、幂等和同步状态由 Orchestrator 管理。
+
+## Adapter
+
+- codebase-memory、MarkItDown 和未来 agent-memory 是同等地位的 Source Adapter。
+- Adapter 只产生标准化 SourceArtifact，不能直接写统一 Wiki、同步、审批或发布。
+- Adapter 使用 manifest 声明版本、输入、输出、权限、增量能力和私有运行时依赖。
+- Adapter 按需安装到 `~/.agentwiki/runtime/`，优先复用兼容安装，不修改全局环境，不运行交互式 init。
+- Adapter 升级先验证再原子切换，失败回滚；超时或取消必须回收整个进程组。
+
+## Space 与本地 Workspace
+
+- Space 是知识隔离、版本和同步的最小边界。
+- 同一 Space 只有一套统一 Wiki，多种 Adapter 只作为来源和证据。
+- 本地以 `~/.agentwiki/spaces/<space-id>/wiki/` 物化 Markdown/JSON，供 Agent 高频直接读取。
+- `.state/` 保存 manifest、provenance、base、draft 和 checkpoint，不作为知识内容展示。
+
+## 双向同步
+
+- AgentWiki 服务端是权威 Revision，本地是可编辑缓存和工作副本。
+- 首次 Pull 获取 Snapshot，后续按 Revision 获取 Delta；物化必须临时写入并原子替换。
+- Push 前强制 Pull，并计算 base/local/remote 三方差异。
+- 非冲突项确定性合并；同字段冲突由本地 Agent 按 Recipe 生成合并提案。
+- 合并提案必须预览确认，禁止静默覆盖和 last-write-wins。
+- 删除使用 tombstone，防止离线节点复活旧知识。
+- 服务端发布新 Revision 后，其他 Agent 通过 Pull 获得同一结果。
+
+## 安装与权限
+
+- 正常用户体验保持一个 AgentWiki 接入指令和自然语言调用，不要求手写 MCP、Space ID、preview ID、端口或 CLI 内部命令。
+- 基础组件使用 stdio MCP，不开放本地端口，不增加后台 daemon。
+- 一次性安装码仍绑定 Agent、Scope 和精确版本；长期 Credential 不进入命令、项目目录、Skill、MCP 配置或日志。
+- 有效权限仍为 Credential Scope、Space Grant 和 Space Policy 的交集。
+- 任何上传前都必须在当前对话展示预览并取得明确确认；Agent 不能代替用户审批 ChangeSet。
+
+## 版本与迁移
+
+- `@neomei/agentwiki-local-sync@0.1.1` 已发布，但仍属于旧 OpenWiki 路径，不能宣传为零配置方案。
+- 新架构使用 `0.2.0`，并定义新的 Adapter、Artifact、KnowledgeBundle、Recipe、Job State、Revision 和 Delta 协议。
+- `0.1.x` 不自动切换到 `0.2.0`；升级先迁移本地配置和 Space Workspace，再切换 MCP。
+- 旧 OpenWiki preview 不能直接作为新 Bundle 上传，需要通过迁移 Recipe 重新整理。
+- `0.2.0` 完成跨 Agent、跨机器真实 E2E 前，使用指南不能声称新方案可用。

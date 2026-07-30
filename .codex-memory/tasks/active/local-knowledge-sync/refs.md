@@ -2,15 +2,15 @@
 
 # 参考资料
 
-- 设计规格：`agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`
-- 服务端实施计划：`agentwiki/docs/superpowers/plans/2026-07-29-local-knowledge-sync-server.md`
-- 本地插件实施计划：`agentwiki/docs/superpowers/plans/2026-07-29-local-sync-plugin.md`
-- 产品接入实施计划：`agentwiki/docs/superpowers/plans/2026-07-29-local-sync-product-integration.md`
+- 当前设计规格：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
+- 旧设计规格（历史参考）：`agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`
+- 旧 OpenWiki 服务端计划（历史参考）：`agentwiki/docs/superpowers/plans/2026-07-29-local-knowledge-sync-server.md`
+- 旧 OpenWiki 插件计划（历史参考）：`agentwiki/docs/superpowers/plans/2026-07-29-local-sync-plugin.md`
+- 旧 OpenWiki 产品计划（历史参考）：`agentwiki/docs/superpowers/plans/2026-07-29-local-sync-product-integration.md`
 - AgentWiki Source 流水线：`agentwiki/apps/server/src/knowledge-pipeline/source.service.ts`
 - AgentWiki MCP：`agentwiki/apps/server/src/mcp/mcp.service.ts`
-- 计划中的本地插件包：`agentwiki/packages/local-sync/`
-- 计划中的安装码 API：`POST /api/agents/:agentId/local-sync-installations`、`POST /api/integrations/local-sync/exchange`
-- OpenWiki：https://github.com/langchain-ai/openwiki
+- 当前本地插件包：`agentwiki/packages/local-sync/`
+- 安装码 API：`POST /api/agents/:agentId/local-sync-installations`、`POST /api/integrations/local-sync/exchange`
+- codebase-memory CLI：`codebase-memory-mcp cli <tool> [json]`
 - MarkItDown：https://github.com/microsoft/markitdown
-- Graphify 备选：https://github.com/Graphify-Labs/graphify
-- Docling 备选：https://github.com/docling-project/docling
+- 已发布旧协议包：https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1

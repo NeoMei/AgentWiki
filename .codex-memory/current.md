@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 当前目标是按已批准规格实现本地知识同步：先完成服务端安装码与 OKF 流水线，再完成 `@agentwiki/local-sync`，最后完成界面、指南和真实端到端验收。
+- 当前目标是把本地知识同步从 OpenWiki/OKF 必需链路重构为零配置 Local Knowledge Orchestrator：本地 Adapter 采集、本地 Agent 整理、Space 统一 Wiki、服务端权威 Revision 与双向同步。
 
 # 范围 / 不做
 
@@ -27,8 +27,8 @@
 - 2026-07-27 最终门禁：服务端 21 suites/111 tests、客户端 8 files/37 tests、双端 tsc、Nest/Vite 构建、ESLint 0 error/0 warning（scripts 与 spec 已声明 Node globals）、真实 PostgreSQL 乐观锁往返（正确 token=1 / 过期=0）全部通过；迁移 17/17。
 - 2026-07-28 使用指南已补全为六步通用 Agent 接入流程，明确 AgentWiki 不绑定具体客户端，Codex、Claude Code、OpenCode 等本地 Agent 使用同一套服务端接入方式；OpenCode 1.18.7 仅作为真实演示，已完成 MCP initialize、身份校验、`list_spaces`、`propose_page`、`list_pages`。演示页面以 `scoped-auto-publish` 正式发布，OpenCode 结果、页面来源与 MCP 活动记录均使用真实截图。重复接入时改用凭据专属 MCP 连接名并强制校验服务端 Agent 身份，避免误用旧连接；临时凭据已撤销且验证返回 401。客户端门禁为 19 files / 86 tests、ESLint、TypeScript/Vite 构建全部通过。
 - 2026-07-28 首页、使用指南和工作台统一复用 `GlobalNavigation`：Logo 固定返回首页，三入口始终可达；未登录工作台入口携带 `intent=workspace` 返回登录卡片、自动聚焦邮箱并明确提示，已登录入口直达 `/dashboard`。桌面与 390x844 移动端真实浏览器验证无横向溢出、无控制台错误；已登录闭环 `工作台 → 使用指南 → 工作台 → 首页 → 工作台` 通过。客户端门禁为 23 files / 92 tests，ESLint、TypeScript、Vite 生产构建与 diff check 全部通过。
-- 2026-07-29 本地知识同步方向及插件交付形态已确认：OpenWiki/OKF 负责编译交换格式，codebase-memory 增强代码来源，MarkItDown 转换 Markdown/TXT/PDF/DOCX；`@agentwiki/local-sync` 以 Agent Skill + stdio MCP + CLI + 适配器服务 Codex、Claude Code、OpenCode 等本地 Agent。AgentWiki 生成带 10 分钟单次安装码的固定版本接入指令，插件完成本地配置、凭据安全存储和 doctor；安装不触发扫描，用户确认前不上传本地知识。当前处于更新后设计规格最终复核阶段。
-- 2026-07-29 用户已批准本地知识同步规格；实施已拆为三份连续计划：服务端（安装码、OKF、Source/Run/MCP）、本地插件（跨 Agent 安装、扫描、预览、确认、同步）、产品接入（Agent 详情、指南、真实截图和 E2E）。计划已完成自检，等待选择执行方式。
+- 2026-07-30 `@neomei/agentwiki-local-sync@0.1.1` 已发布并验证 registry/bin；修复 OKF evidence 契约和 OpenCode MCP execution timeout。真实演示同时证明 OpenWiki 仍有交互初始化、独立模型配置、长任务与子进程稳定性问题，因此 `0.1.1` 不能被描述为最终零配置方案。
+- 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -40,6 +40,9 @@
 - 远端发布必须先备份，再执行迁移和业务 smoke；应用保持直部署并由三个用户级 systemd 服务管理。
 - Markdown 编辑器不得恢复为并排双栏；编辑与预览使用同一工作区状态切换。界面新增用户可见文案时必须同时提供中文和英文，并保持语言选择持久化。
 - 首页 `/`、使用指南 `/guide`、工作台 `/dashboard` 必须共享一致的顶层导航；Logo 固定返回首页，未登录访问工作台必须使用明确的登录意图和提示，不能静默跳转。
+- 本地知识同步不得上传原始代码库、原始二进制文档、原始 Agent Memory 数据库或本地凭据；只有本地整理后的可迁移知识内容可以在明确确认后进入 Space ChangeSet。
+- 同一 Space 只有一套统一 Wiki；Source Adapter 只能产生 Artifact，不能直接写 Wiki、同步或发布。服务端权威、本地缓存，冲突使用三方合并提案，禁止 last-write-wins。
+- 正常安装和调用必须保持一个接入指令与自然语言入口；Adapter 按需安装到私有运行时，不要求 OpenWiki init、额外模型 Key、手写 MCP 配置、本地端口或 daemon。
 
 # 关键索引
 
@@ -51,13 +54,14 @@
 - 直部署脚本：`agentwiki/deploy.sh`
 - 本机代码图谱：`agentwiki/.codebase-memory/graph.db.zst`
 - 本机开发配置：`agentwiki/.env`、`agentwiki/apps/server/.env`（数据库主机已切到 `127.0.0.1`）
+- 零配置本地知识编排设计：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
 - 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node26-contract.test.mjs`
 - 本机 Git 元数据：`/Users/neomei/.local/share/AgentWiki.git`（工作树仍为当前项目路径，避免 iCloud 占位对象阻塞 Git）
 - 迁移前备份：`C:\Users\1\AgentWikiBackups\agentwiki-pre-migrate-20260716-003650.dump`
 
 # 风险 / 下一步
 
-- 活跃任务 `local-knowledge-sync` 已完成设计与三份实施计划，下一步选择逐任务执行方式并从服务端计划开始。npm publish、GitHub Release、Git push 和非本地 OpenWiki 模型调用仍需在发生前获得对应明确授权。部署前仍需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
+- 活跃任务 `local-knowledge-sync` 已切换到零配置 Orchestrator 设计；旧 OpenWiki 三份计划不再是当前实施入口。下一步先由用户复核新设计，再编写 `0.2.0` 分阶段实施计划。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

@@ -4,28 +4,31 @@
 
 ## 目标
 
-实现本地 Agent 对代码仓库和 Markdown/TXT/PDF/DOCX 资料目录的本地扫描、Wiki 生成、同步前确认，以及确认后的 AgentWiki OKF 导入。
+实现零配置 Local Knowledge Orchestrator：从 codebase-memory、MarkItDown 和未来 agent-memory 等 Adapter 获取本地整理材料，由当前本地 Agent 按稳定协议生成统一 Space Wiki，并与 AgentWiki 权威版本库进行确认门禁下的双向同步。
 
 ## 当前状态
 
-- 高层方向和本地插件安装体验已由用户确认。
-- 正式设计已写入 `agentwiki/docs/superpowers/specs/2026-07-28-local-knowledge-sync-design.md`，用户已最终批准。
-- 服务端、本地插件、产品接入三份实施计划已完成并自检；尚未开始产品代码修改。
-- 下一步从服务端计划开始执行，再依次进入插件和产品接入。
+- `@neomei/agentwiki-local-sync@0.1.1` 已发布；OKF evidence 和 OpenCode timeout 修复已完成。
+- 真实验证确认 OpenWiki 过重且不稳定，旧 OpenWiki 必需链路被新设计取代。
+- 用户已逐项确认本地整理、Agent 执行语义工作、确定性状态机/Recipe、Space 统一 Wiki、私有 Adapter runtime、服务端权威 Revision、双向同步与三方合并。
+- 新设计已写入 `agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`，等待用户最终文档复核。
+- 下一步在文档批准后编写 `0.2.0` 实施计划；旧三份 OpenWiki 计划仅保留历史参考。
 
 ## 范围
 
-- OpenWiki/OKF、本地 codebase-memory、MarkItDown。
-- `@agentwiki/local-sync` Agent Skill、stdio MCP、CLI 和跨 Agent 配置适配器。
+- Source Adapter 协议：codebase-memory、MarkItDown、agent-memory 和未来 Adapter。
+- `@neomei/agentwiki-local-sync` Agent Skill、stdio MCP、CLI、Local Knowledge Orchestrator 和 Adapter Manager。
 - AgentWiki 生成固定版本接入指令和 10 分钟单次安装码。
-- 本地预览和明确确认。
-- AgentWiki OKF Source、SourceVersion、IngestRun、Evidence、ChangeSet 复用。
-- 代码仓库与 Markdown/TXT/PDF/DOCX。
+- 本地状态机、版本化 Recipe、Schema、provenance、checkpoint、preview 和明确确认。
+- 同一 Space 统一 Wiki、本地文件物化、服务端 Snapshot/Delta/Revision 和跨机器双向同步。
+- base/local/remote 三方冲突合并提案。
+- 代码、Markdown/TXT/PDF/DOCX 和未来可共享 Agent Memory。
 
 ## 不做
 
 - 服务端读取本地路径。
-- 图片、音频、视频。
-- 默认上传完整源码。
-- Graphify、Docling 或第二套审核流水线。
-- 第一版原生桌面安装包、静默安装系统依赖或服务端运行本地插件。
+- 上传原始代码库、原始二进制文件、原始 Agent Memory 数据库或本地凭据。
+- OpenWiki、独立本地模型或全服共享模型作为必需整理引擎。
+- Source Adapter 直接写 Wiki、同步、审批或发布。
+- P2P/CRDT 多主同步、last-write-wins、后台 daemon 或第一阶段实时文件监听。
+- 仅靠提示词约束的自由工作流。

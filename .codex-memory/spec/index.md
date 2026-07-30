@@ -28,6 +28,8 @@
   - current / tasks / archive 的写法与更新原则
 - `agentwiki-architecture.md`
   - AgentWiki 当前身份、权限、知识流水线、记忆、MCP 与旧入口边界
+- `local-knowledge-sync.md`
+  - 零配置本地知识编排、Adapter、Space 统一 Wiki、双向同步、冲突与版本边界
 
 ## 提升规则
 
