@@ -18,7 +18,7 @@ Do not commit `.env`, Agent credentials, personal access tokens, database dumps,
 
 The current host uses direct Node.js processes, not Docker. Run `deploy.sh` to upload source without `.env`, install the locked dependencies, build shared/server/client, apply Prisma migrations, and restart the three user-level systemd services.
 
-Before deployment, verify that both the local shell and the remote `/usr/bin/node` report Node.js 26. `deploy.sh` enforces this preflight and stops before upload, dependency installation, migrations, or service restarts when either runtime is not Node 26.
+Before deployment, verify that both the local shell and the remote `/usr/bin/node` report Node.js 24 or 26. Node 24 is the default development and container baseline. `deploy.sh` enforces this preflight and stops before upload, dependency installation, migrations, or service restarts when either runtime is outside the supported majors.
 
 1. `agentwiki-api.service` runs the Nest API with `PROCESS_ROLE=api` on port 3000.
 2. `agentwiki-worker.service` runs the isolated ingestion worker with no HTTP listener.
@@ -343,3 +343,62 @@ ORDER BY 1, 2, 3;
 - Local-path legacy Sources are archived and cannot be rerun.
 - Source versions and Evidence are retained with published knowledge so provenance remains verifiable.
 - Audit retention and backup retention must be configured to meet the deploying organization's policy; no UI claim should promise indefinite retention.
+## Local knowledge sync operations
+
+### Server configuration
+
+Set these values in the API process environment before enabling local-sync enrollment:
+
+| Variable | Required | Operational requirement |
+| --- | --- | --- |
+| `PUBLIC_API_URL` | Yes outside development | Canonical public absolute `http(s)` API URL, including `/api`, with no credentials, query, or fragment. It is embedded in generated local installation instructions. |
+| `LOCAL_SYNC_PACKAGE_VERSION` | Yes | Exact published `@agentwiki/local-sync` version accepted by the enrollment exchange. It must match the version used by the client enrollment card. |
+| `REDIS_URL` | Yes | Stores one-time enrollment records and the exchange rate-limit counters. Redis must be available for issuance, exchange, and revocation of unexchanged installation codes. |
+| `NODE_ENV` | Yes | In production and staging, absence of `PUBLIC_API_URL` fails enrollment closed. Development alone may derive the URL from the request. |
+
+Use TLS at the public endpoint. Do not place a credential, enrollment code, or server URL with embedded credentials in an environment variable, reverse-proxy log, shell history, or ticket. Installation codes expire after 10 minutes, are stored only as a hash-derived identifier, and are consumed atomically on exchange.
+
+### npm release dependency and procedure
+
+The UI and server deliberately pin an exact local-sync package version. An enrollment can succeed only when all three values agree: the published npm package version, the client enrollment-card constant, and `LOCAL_SYNC_PACKAGE_VERSION` on the server. Never generate instructions for an unpublished version.
+
+1. Choose the release version and update the package version, the client enrollment version, and the server deployment value together.
+2. Run `pnpm --filter @agentwiki/local-sync test`, `pnpm --filter @agentwiki/local-sync typecheck`, and `pnpm --filter @agentwiki/local-sync build`; inspect the packed tarball to ensure it contains only the declared distributable files and no fixtures, credentials, `.env` files, or local paths.
+3. Publish `@agentwiki/local-sync@<exact-version>` to the approved npm registry from the reviewed release commit. Confirm the registry resolves that exact version before changing production configuration.
+4. Deploy the matching client and server release, set `LOCAL_SYNC_PACKAGE_VERSION=<exact-version>`, restart the API, then generate a fresh installation instruction and complete `doctor` using a non-production Agent/Space.
+
+The npm release is a production dependency, not an optional convenience: users receive an `npx` command that must resolve the exact pinned version. Keep the previous published package version available until the rollback window has closed.
+
+### Logs, audit evidence, and health checks
+
+Application services write to systemd journal rather than an application log file:
+
+```bash
+journalctl --user -u agentwiki-api.service --since '1 hour ago'
+journalctl --user -u agentwiki-worker.service --since '1 hour ago'
+journalctl --user -u agentwiki-frontend.service --since '1 hour ago'
+```
+
+Use the reverse-proxy request log and its `x-request-id` to correlate an exchange with API logs. The server audit store records the successful enrollment exchange as `local-sync.installation.exchange` with the Agent, credential ID, hashed installation ID, plugin version, selected scopes, and source IP. Credential revocation records `credential.revoke`; successful knowledge uploads record `knowledge_sync.create`. Do not log the one-time code, API key, prepared envelope contents, or full local path.
+
+Investigate these events first: repeated `LOCAL_SYNC_CODE_INVALID` or `AUTH_RATE_LIMITED` responses, `LOCAL_SYNC_VERSION_UNSUPPORTED`, unexpected exchange IPs, inactive Agent/credential checks from `doctor`, and failed `knowledge_sync.create` operations. Verify API and Redis with `GET /api/health` after every configuration or release change.
+
+### Credential revocation
+
+There are two different actions:
+
+1. **Cancel an unexchanged instruction:** while its 10-minute TTL is still active, delete it with `DELETE /agents/:agentId/local-sync-installations/:installationId` as the Agent owner. This removes the pending Redis record; it cannot revoke a credential that has already been exchanged.
+2. **End an installed connection immediately:** identify the connection's `credentialId` in `~/.agentwiki/local-sync.json`, then revoke it as the Agent owner with `DELETE /agents/:agentId/credentials/:credentialId`. The credential becomes inactive server-side immediately. Remove the local MCP entry with `agentwiki-local-sync uninstall --agent <codex|claude|opencode>` and, if the host is untrusted, add `--delete-credential --delete-sync-state`.
+
+For compromise, revoke the server-side credential first, then revoke or deactivate the Agent, inspect the audit trail and affected Sources/Runs, rotate any unrelated exposed secret, and re-enroll with a new one-time code. Local uninstall alone never revokes server access.
+
+### Rollback
+
+Before a release, record the prior npm package version, client build, and `LOCAL_SYNC_PACKAGE_VERSION`; retain the previous package in the registry. To roll back:
+
+1. Stop issuing new instructions, deploy the previous client/server build, and set `LOCAL_SYNC_PACKAGE_VERSION` back to the previous exact published version.
+2. Restart the API, verify `/api/health`, and issue a new non-production instruction. It must install the prior package and pass `doctor`.
+3. For a local client already upgraded, run `agentwiki-local-sync upgrade --version <previous-exact-version>` or remove and re-enroll it. The upgrade changes the registered MCP command while retaining the connection ID, local credential, and sync state.
+4. If the release exposed a security issue, do not preserve existing credentials for convenience: revoke them and require re-enrollment before re-enabling sync.
+
+Do not roll back the database as a response to a package-only problem. Existing Source, Run, Evidence, ChangeSet, and Page provenance are audit data; recover knowledge through the normal review/revert flow rather than deleting it during rollback.

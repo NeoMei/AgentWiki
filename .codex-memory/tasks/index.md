@@ -10,7 +10,8 @@
 
 ## 活跃任务
 
-- 无。
+- [space-add-agent-member](active/space-add-agent-member/brief.md)：优先完成 Space 统一添加用户/智能体成员流程。
+- [local-knowledge-sync](active/local-knowledge-sync/brief.md)：零配置本地知识编排与双向同步，等待前置成员任务完成后恢复实施。
 
 ## 最近完成
 

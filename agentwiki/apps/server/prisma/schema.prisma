@@ -347,6 +347,7 @@ model Source {
   uri              String?
   status           String          @default("active")
   contentHash      String
+  sourceKey        String?
   config           Json?
   space            Space           @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId          String
@@ -362,6 +363,7 @@ model Source {
   archivedAt       DateTime?
 
   @@unique([spaceId, type, contentHash])
+  @@unique([spaceId, type, sourceKey])
   @@index([spaceId, status])
 }
 
@@ -375,6 +377,7 @@ model SourceVersion {
   sourceId    String
   evidences   Evidence[]
   files       SourceFileSnapshot[]
+  inputRuns   IngestRun[]          @relation("IngestRunInputVersion")
   pages       Page[]
   createdAt   DateTime             @default(now())
 
@@ -413,6 +416,8 @@ model IngestRun {
   nextAttemptAt           DateTime?
   source                  Source     @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   sourceId                String
+  inputSourceVersion      SourceVersion? @relation("IngestRunInputVersion", fields: [inputSourceVersionId], references: [id], onDelete: SetNull)
+  inputSourceVersionId    String?
   space                   Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId                 String
   requestedByUser         User?      @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
@@ -432,6 +437,7 @@ model IngestRun {
   @@unique([sourceId, idempotencyKey])
   @@index([spaceId, status, createdAt])
   @@index([sourceId, createdAt])
+  @@index([inputSourceVersionId])
   @@index([status, leaseExpiresAt])
 }
 

@@ -1,5 +1,7 @@
 # AgentWiki Node 26-Only Compatibility Implementation Plan
 
+> Superseded on 2026-07-30: the current runtime contract supports Node 24 and Node 26 and defaults to Node 24. This completed plan remains as historical implementation evidence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Node.js 26 the only supported AgentWiki runtime across local development, tests, builds, Docker, and direct deployment.

@@ -1,5 +1,6 @@
 import { SpaceService } from './space.service';
 import { Prisma } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
 
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
@@ -40,7 +41,7 @@ describe('SpaceService.listMembers includes agents', () => {
 describe('admin role and member management', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
-    spaceMember: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+    spaceMember: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
     user: { findFirst: jest.fn() },
     agentGrant: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
@@ -63,6 +64,12 @@ describe('admin role and member management', () => {
     expect(result.role).toBe('admin');
   });
 
+  it('requires ownership to be transferred to an existing member instead of inviting a second owner', async () => {
+    await expect(service.addMember('space-1', 'b@x.com', 'owner' as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+
   it('rejects an admin changing another owner or granting owner', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
     await expect(
@@ -82,6 +89,24 @@ describe('admin role and member management', () => {
     });
     expect(prisma.spaceMember.count).toHaveBeenCalledWith({ where: { spaceId: 'space-1', role: 'owner' } });
     expect(prisma.spaceMember.update).toHaveBeenCalled();
+  });
+
+  it('transfers ownership atomically and demotes the acting owner to admin', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm2', userId: 'u2', role: 'admin' });
+    prisma.spaceMember.update
+      .mockResolvedValueOnce({ id: 'm2', userId: 'u2', role: 'owner' });
+    prisma.spaceMember.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.updateMemberRoleAs('space-1', 'u2', 'owner', 'owner', 'u1');
+
+    expect(prisma.spaceMember.update).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { userId_spaceId: { userId: 'u2', spaceId: 'space-1' } },
+      data: { role: 'owner' },
+    }));
+    expect(prisma.spaceMember.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: 'u1', spaceId: 'space-1', role: 'owner' },
+      data: { role: 'admin' },
+    }));
   });
 
   it('checks and removes an owner in one serializable transaction', async () => {

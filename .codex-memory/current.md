@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 首页、使用指南与工作台的统一顶层导航已于 2026-07-28 完成实现、真实浏览器验收并推送 GitHub；当前无活跃开发任务。
+- 当前优先目标是完成 Space“添加成员”中的智能体添加流程；完成测试与审查后，再按已确认的 `0.2.0` 四阶段计划实施 Local Knowledge Orchestrator。
 
 # 范围 / 不做
 
@@ -19,7 +19,7 @@
 - 远端直接运行 `agentwiki-api.service`、`agentwiki-worker.service`、`agentwiki-frontend.service`；三项均为 active，Docker 服务为 inactive。
 - `/api/health` 验证 PostgreSQL 与 Redis；远端业务 smoke 完成注册、Space、Page、Search、Agent Credential/Grant、MCP 只读及审计、Source → Run → Review → Publish → provenance，临时数据已删除。
 - 当前门禁：ESLint、双端类型检查、16 个 Jest 套件 58 项服务端测试、4 项 Vitest 客户端测试、Nest/Vite 生产构建全部通过。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
-- 本机仅以 Node 26.5.0 + pnpm 11.9.0 作为 AgentWiki 运行时；PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
+- AgentWiki 当前支持 Node 24 和 Node 26，默认开发、`.node-version` 与 Docker 基线为 Node 24；pnpm 固定 11.9.0。PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
 - `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
 - 2026-07-27 fresh Node 26 门禁：`test:runtime` 7/7、ESLint 0 error/10 warnings、双端类型检查、Jest 16 suites/58 tests、Vitest 4 files/4 tests、shared/Nest/Vite 生产构建均退出 0；中间任务和源码 TODO 扫描均无匹配。
 - codebase-memory 规范项目名为 `agentwiki`，主产品 `agentwiki/` 已纳入 `codex/node26-compatibility` 版本控制；规范图为 1565 nodes / 3624 edges，`node_modules`、`dist`、`.stale-node-modules` 和参考仓库路径污染均为 0，Authorization/Review/Memory/Mcp 四项服务各发现 1 个定义。
@@ -27,6 +27,14 @@
 - 2026-07-27 最终门禁：服务端 21 suites/111 tests、客户端 8 files/37 tests、双端 tsc、Nest/Vite 构建、ESLint 0 error/0 warning（scripts 与 spec 已声明 Node globals）、真实 PostgreSQL 乐观锁往返（正确 token=1 / 过期=0）全部通过；迁移 17/17。
 - 2026-07-28 使用指南已补全为六步通用 Agent 接入流程，明确 AgentWiki 不绑定具体客户端，Codex、Claude Code、OpenCode 等本地 Agent 使用同一套服务端接入方式；OpenCode 1.18.7 仅作为真实演示，已完成 MCP initialize、身份校验、`list_spaces`、`propose_page`、`list_pages`。演示页面以 `scoped-auto-publish` 正式发布，OpenCode 结果、页面来源与 MCP 活动记录均使用真实截图。重复接入时改用凭据专属 MCP 连接名并强制校验服务端 Agent 身份，避免误用旧连接；临时凭据已撤销且验证返回 401。客户端门禁为 19 files / 86 tests、ESLint、TypeScript/Vite 构建全部通过。
 - 2026-07-28 首页、使用指南和工作台统一复用 `GlobalNavigation`：Logo 固定返回首页，三入口始终可达；未登录工作台入口携带 `intent=workspace` 返回登录卡片、自动聚焦邮箱并明确提示，已登录入口直达 `/dashboard`。桌面与 390x844 移动端真实浏览器验证无横向溢出、无控制台错误；已登录闭环 `工作台 → 使用指南 → 工作台 → 首页 → 工作台` 通过。客户端门禁为 23 files / 92 tests，ESLint、TypeScript、Vite 生产构建与 diff check 全部通过。
+- 2026-07-30 `@neomei/agentwiki-local-sync@0.1.1` 已发布并验证 registry/bin；修复 OKF evidence 契约和 OpenCode MCP execution timeout。真实演示同时证明 OpenWiki 仍有交互初始化、独立模型配置、长任务与子进程稳定性问题，因此 `0.1.1` 不能被描述为最终零配置方案。
+- 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
+- 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
+- 2026-07-30 `space-add-agent-member` 业务实现已完成：统一添加成员弹窗支持用户/智能体，viewer/editor 自动使用默认 Space scopes；新增 Agent Grant 仅限调用者自有 active Agent，其他用户 Agent 与不存在 Agent 均返回相同 404，已有 Agent Grant 仍由 Space owner/admin 管理。权限卡片修正了“取消全选”提交空 scopes 会反向继承全部权限的误授权风险。2026-07-31 已将原本只在 `codex/local-sync-guide` 的实现 fast-forward 合并到实际运行的 `master` (`a15a7f3`)。
+- 该任务当前门禁：服务端 33 suites / 244 tests、客户端 29 files / 120 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
+- 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
+- 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
+- 2026-07-31 GitHub 发布准备将 AgentWiki 主应用、client、server 和 shared 版本从 `0.0.1` 统一提升为 `0.1.0`；已单独发布的 `@neomei/agentwiki-local-sync` 保持 `0.1.1`。
 - 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
 
 # 稳定约束
@@ -38,6 +46,9 @@
 - 远端发布必须先备份，再执行迁移和业务 smoke；应用保持直部署并由三个用户级 systemd 服务管理。
 - Markdown 编辑器不得恢复为并排双栏；编辑与预览使用同一工作区状态切换。界面新增用户可见文案时必须同时提供中文和英文，并保持语言选择持久化。
 - 首页 `/`、使用指南 `/guide`、工作台 `/dashboard` 必须共享一致的顶层导航；Logo 固定返回首页，未登录访问工作台必须使用明确的登录意图和提示，不能静默跳转。
+- 本地知识同步不得上传原始代码库、原始二进制文档、原始 Agent Memory 数据库或本地凭据；只有本地整理后的可迁移知识内容可以在明确确认后进入 Space ChangeSet。
+- 同一 Space 只有一套统一 Wiki；Source Adapter 只能产生 Artifact，不能直接写 Wiki、同步或发布。服务端权威、本地缓存，冲突使用三方合并提案，禁止 last-write-wins。
+- 正常安装和调用必须保持一个接入指令与自然语言入口；Adapter 按需安装到私有运行时，不要求 OpenWiki init、额外模型 Key、手写 MCP 配置、本地端口或 daemon。
 
 # 关键索引
 
@@ -49,13 +60,15 @@
 - 直部署脚本：`agentwiki/deploy.sh`
 - 本机代码图谱：`agentwiki/.codebase-memory/graph.db.zst`
 - 本机开发配置：`agentwiki/.env`、`agentwiki/apps/server/.env`（数据库主机已切到 `127.0.0.1`）
-- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node26-contract.test.mjs`
+- 零配置本地知识编排设计：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
+- `0.2.0` 实施路线图：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-orchestrator-roadmap.md`
+- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node-runtime-contract.test.mjs`
 - 本机 Git 元数据：`/Users/neomei/.local/share/AgentWiki.git`（工作树仍为当前项目路径，避免 iCloud 占位对象阻塞 Git）
 - 迁移前备份：`C:\Users\1\AgentWikiBackups\agentwiki-pre-migrate-20260716-003650.dump`
 
 # 风险 / 下一步
 
-- 当前无活跃任务或代码缺陷阻塞。部署前仍需用户提供真实 pre-migration 备份并配置 `LEGACY_DATABASE_URL` 完成真实历史库 recovery dry-run/apply。
+- `space-add-agent-member` 的代码、自动化门禁与真实 API 已完成；浏览器插件恢复后必须补跑 owner/admin、中文/英文及 390x844 响应式视觉验收，随后归档该任务并恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
 - 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。

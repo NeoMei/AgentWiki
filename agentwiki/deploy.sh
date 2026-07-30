@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REQUIRED_NODE_MAJOR="26"
+SUPPORTED_NODE_MAJORS="24 26"
 
-require_node_26() {
+require_supported_node() {
   local executable="${1:-node}"
   local version major
   version="$("${executable}" --version 2>/dev/null || true)"
   major="${version#v}"
   major="${major%%.*}"
-  if [ "${major}" != "${REQUIRED_NODE_MAJOR}" ]; then
-    echo "AgentWiki requires Node.js 26; ${executable} reports ${version:-not installed}." >&2
-    return 1
-  fi
+  case " ${SUPPORTED_NODE_MAJORS} " in
+    *" ${major} "*) return 0 ;;
+    *)
+      echo "AgentWiki requires Node.js 24 or 26; ${executable} reports ${version:-not installed}." >&2
+      return 1
+      ;;
+  esac
 }
 
-require_node_26 node
+require_supported_node node
 
 REMOTE_HOST="${1:-100.64.35.78}"
 REMOTE_USER="${2:-neomei}"
@@ -43,15 +46,18 @@ scp "${ARCHIVE}" "${REMOTE_USER}@${REMOTE_HOST}:~/"
 
 ssh "${REMOTE_USER}@${REMOTE_HOST}" "bash -se" <<REMOTE
 set -euo pipefail
-required_node_major="26"
+supported_node_majors="24 26"
 node_binary="/usr/bin/node"
 node_version="\$("\$node_binary" --version 2>/dev/null || true)"
 node_major="\${node_version#v}"
 node_major="\${node_major%%.*}"
-if [ "\$node_major" != "\$required_node_major" ]; then
-  echo "AgentWiki requires Node.js 26; \$node_binary reports \${node_version:-not installed}." >&2
-  exit 1
-fi
+case " \$supported_node_majors " in
+  *" \$node_major "*) ;;
+  *)
+    echo "AgentWiki requires Node.js 24 or 26; \$node_binary reports \${node_version:-not installed}." >&2
+    exit 1
+    ;;
+esac
 mkdir -p "\$HOME/${PROJECT_DIR}"
 release_dir="\$(mktemp -d "\$HOME/agentwiki-release.XXXXXX")"
 trap 'rm -rf "\$release_dir"' EXIT

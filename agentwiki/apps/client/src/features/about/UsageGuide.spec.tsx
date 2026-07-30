@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { GuideScreenshot } from './GuideScreenshot';
 import { UsageGuide } from './UsageGuide';
 
 vi.mock('../../context/AuthContext', () => ({
@@ -28,7 +30,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('heading', { name: '生成 Key 与接入指令' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
-    expect(screen.getByText(/Codex、Claude Code、OpenCode/)).toBeInTheDocument();
+    expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/以下以 OpenCode 为例/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '确认 Agent 接入与页面发布结果' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: '已生成 Key 和接入指令' })).toHaveAttribute('src', '/screenshots/step4-generated-credential.png');
@@ -36,5 +38,37 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('img', { name: 'OpenCode 接入成功结果' })).toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
     expect(screen.getByRole('img', { name: 'AgentWiki 已发布页面' })).toHaveAttribute('src', '/screenshots/step6-published-page.png');
     expect(screen.getByRole('img', { name: 'AgentWiki MCP 活动记录' })).toHaveAttribute('src', '/screenshots/step6-activity-log.png');
+    expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
+      'href',
+      LOCAL_SYNC_PACKAGE_URL,
+    );
+    expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
+  });
+});
+
+describe('GuideScreenshot', () => {
+  it('renders default crop classes and accepts explicit display options', () => {
+    const { rerender } = render(<GuideScreenshot src="/default.png" alt="默认截图" />);
+
+    const image = screen.getByRole('img', { name: '默认截图' });
+    expect(image).toHaveAttribute('loading', 'lazy');
+    expect(image).toHaveClass('object-cover', 'object-center');
+    expect(image.parentElement).toHaveClass('h-56', 'sm:h-72');
+
+    rerender(
+      <GuideScreenshot
+        src="/custom.png"
+        alt="自定义截图"
+        focus="top"
+        fit="contain"
+        heightClassName="h-40"
+      />,
+    );
+
+    const customImage = screen.getByRole('img', { name: '自定义截图' });
+    expect(customImage).toHaveAttribute('src', '/custom.png');
+    expect(customImage).toHaveClass('object-contain', 'object-top');
+    expect(customImage.parentElement).toHaveClass('h-40');
   });
 });

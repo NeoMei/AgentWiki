@@ -23,6 +23,16 @@ interface FetchedSegment {
   title: string;
   content: string;
   format: 'markdown' | 'json';
+  evidence?: Array<{ sourcePath: string; sourceHash: string; quote: string }>;
+}
+
+interface FetchedSource {
+  content: string;
+  metadata?: object;
+  cleanup?: string;
+  files?: Array<{ path: string; contentHash: string; size: number; commit?: string }>;
+  segments?: FetchedSegment[];
+  sourceVersion?: { id: string; version: number; contentHash: string };
 }
 
 interface LocatedChunk {
@@ -235,7 +245,7 @@ export class SourceService {
       },
     });
     if (reserved.count === 0) return;
-    const run = await this.prisma.ingestRun.findUnique({ where: { id }, include: { source: true } });
+    const run = await this.prisma.ingestRun.findUnique({ where: { id }, include: { source: true, inputSourceVersion: true } });
     if (!run) return;
     await this.prisma.$transaction([
       this.prisma.artifact.deleteMany({ where: { runId: id } }),
@@ -246,7 +256,7 @@ export class SourceService {
     try {
       let currentScopes = await this.assertRequesterStillAuthorized(run);
       if (run.cancelRequested) throw new Error('Run cancelled');
-      const fetched = await this.fetch(run.source);
+      const fetched = await this.fetch(run.source, run.inputSourceVersion);
       cleanup = fetched.cleanup;
       currentScopes = await this.assertRequesterStillAuthorized(run);
       await this.assertRunActive(id, workerId, leaseMs);
@@ -256,7 +266,10 @@ export class SourceService {
       }]).map((segment) => ({ ...segment, content: this.redactSecrets(segment.content) }));
       const sanitized = segments.map((segment) => `## ${segment.sourcePath}\n${segment.content}`).join('\n\n');
       const contentHash = this.hash(sanitized);
-      let version = await this.prisma.sourceVersion.findFirst({ where: { sourceId: run.sourceId, contentHash } });
+      let version = fetched.sourceVersion
+        ? await this.prisma.sourceVersion.findUnique({ where: { id: fetched.sourceVersion.id } })
+        : await this.prisma.sourceVersion.findFirst({ where: { sourceId: run.sourceId, contentHash } });
+      if (!version && fetched.sourceVersion) throw new Error('Pinned source version no longer exists');
       if (!version) {
         const latest = await this.prisma.sourceVersion.findFirst({ where: { sourceId: run.sourceId }, orderBy: { version: 'desc' } });
         try {
@@ -283,14 +296,28 @@ export class SourceService {
           metadata: { index, ...chunk.location },
         })),
       });
-      await this.prisma.evidence.createMany({
-        data: chunks.map((chunk) => ({
+      const chunkEvidence = chunks.map((chunk) => ({
           runId: id,
           sourceVersionId: version!.id,
           quote: chunk.content.slice(0, 500),
           location: chunk.location as any,
           confidence: 1,
+      }));
+      const explicitEvidence = segments.flatMap((segment) =>
+        (segment.evidence || []).map((evidence) => ({
+          runId: id,
+          sourceVersionId: version!.id,
+          quote: this.redactSecrets(evidence.quote),
+          location: {
+            sourcePath: segment.sourcePath,
+            originalSourcePath: evidence.sourcePath,
+            sourceHash: evidence.sourceHash,
+          },
+          confidence: 1,
         })),
+      );
+      await this.prisma.evidence.createMany({
+        data: [...chunkEvidence, ...explicitEvidence],
       });
       const evidences = await this.prisma.evidence.findMany({
         where: { runId: id },
@@ -494,13 +521,32 @@ export class SourceService {
     if (dto.content && Buffer.byteLength(dto.content) > 10 * 1024 * 1024) throw new BadRequestException('Source exceeds 10 MB');
   }
 
-  private async fetch(source: any): Promise<{
-    content: string;
-    metadata?: object;
-    cleanup?: string;
-    files?: Array<{ path: string; contentHash: string; size: number; commit?: string }>;
-    segments?: FetchedSegment[];
-  }> {
+  private async fetch(source: any, inputSourceVersion?: any): Promise<FetchedSource> {
+    if (source.type === 'okf') {
+      if (!inputSourceVersion) throw new Error('Pinned source version no longer exists');
+      let envelope: { documents?: Array<{ path: string; title: string; content: string; evidence?: FetchedSegment['evidence'] }> };
+      try {
+        envelope = JSON.parse(inputSourceVersion.content);
+      } catch {
+        throw new Error('Pinned OKF source version is invalid');
+      }
+      if (!Array.isArray(envelope.documents)) throw new Error('Pinned OKF source version is invalid');
+      return {
+        content: inputSourceVersion.content,
+        segments: envelope.documents.map((document) => ({
+          sourcePath: document.path,
+          title: document.title,
+          content: document.content,
+          format: extname(document.path).toLowerCase() === '.json' ? 'json' : 'markdown',
+          evidence: document.evidence,
+        })),
+        sourceVersion: {
+          id: inputSourceVersion.id,
+          version: inputSourceVersion.version,
+          contentHash: inputSourceVersion.contentHash,
+        },
+      };
+    }
     if (source.type === 'text' || source.type === 'file') {
       const version = await this.prisma.sourceVersion.findFirst({ where: { sourceId: source.id }, orderBy: { version: 'desc' } });
       const content = version?.content || '';

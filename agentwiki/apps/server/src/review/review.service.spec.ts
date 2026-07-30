@@ -456,6 +456,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     approval: { create: jest.fn() },
     space: { findUnique: jest.fn() },
     agent: { findUnique: jest.fn() },
+    agentGrant: { findUnique: jest.fn() },
     page: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
     pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
     evidence: { updateMany: jest.fn() },
@@ -507,6 +508,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('propose auto-publishes when space, agent and credential all allow it', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
     prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.agentGrant.findUnique.mockResolvedValue({ scopes: [] });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-auto', status: 'approved' });
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-auto', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
@@ -522,6 +524,23 @@ describe('one-shot review-publish and agent auto-publish', () => {
       data: expect.objectContaining({ status: 'approved' }),
     }));
     expect(result.autoPublished).toBe(true);
+  });
+
+  it('propose stays pending_review when the space grant excludes auto-publish', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.agentGrant.findUnique.mockResolvedValue({ scopes: ['pages:read', 'pages:write'] });
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-p', status: 'pending_review', items: [] });
+
+    const result = await service.propose(
+      { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write', 'review:auto-publish'] },
+      'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
+    );
+
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review' }),
+    }));
+    expect(result.autoPublished).toBeFalsy();
   });
 
   it('propose stays pending_review when auto-publish conditions are not met', async () => {

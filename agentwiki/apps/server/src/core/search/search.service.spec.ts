@@ -21,6 +21,21 @@ describe('SearchService data minimization and durable index', () => {
     expect(query.include.page.include.author.select).not.toHaveProperty('apiKey');
   });
 
+  it('falls back to the lexical index when semantic candidates are below the similarity threshold', async () => {
+    llm.generateEmbedding.mockResolvedValue({ embedding: [1, 0] });
+    prisma.page.findMany.mockResolvedValue([
+      { id: 'semantic-miss', embedding: [0, 1], author: {}, space: {} },
+    ]);
+    prisma.pageSearchDocument.findMany.mockResolvedValue([
+      { page: { id: 'lexical-match' } },
+    ]);
+
+    await expect(service.searchPages('exact term', undefined, 10, ['space-1'])).resolves.toEqual([
+      { page: { id: 'lexical-match' }, similarity: 1 },
+    ]);
+    expect(prisma.pageSearchDocument.findMany).toHaveBeenCalled();
+  });
+
   it('writes a lexical search document even when semantic indexing is unavailable', async () => {
     prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
     prisma.pageSearchDocument.upsert.mockResolvedValue({});

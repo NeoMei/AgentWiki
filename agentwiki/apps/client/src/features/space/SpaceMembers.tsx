@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, X, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare, Square } from 'lucide-react';
+import { Users, Plus, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { AddSpaceMemberDialog } from './AddSpaceMemberDialog';
 
 interface Member {
   id: string;
@@ -34,8 +35,6 @@ export const SpaceMembers: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ email: '', role: 'viewer' });
-  const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
 
@@ -59,26 +58,6 @@ export const SpaceMembers: React.FC = () => {
   useEffect(() => {
     fetchMembers();
   }, [id]);
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id || !addForm.email.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      await api.post('/spaces/' + id + '/members', {
-        email: addForm.email.trim(),
-        role: addForm.role,
-      });
-      setAddForm({ email: '', role: 'viewer' });
-      setShowAdd(false);
-      await fetchMembers();
-    } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '成员添加失败' : 'Failed to add member'));
-    } finally {
-      setAdding(false);
-    }
-  };
 
   const handleRoleChange = async (userId: string, role: string) => {
     if (!id) return;
@@ -188,11 +167,8 @@ export const SpaceMembers: React.FC = () => {
     await handleScopeUpdate(agentId, newScopes);
   };
 
-  const handleAllScopes = async (agentId: string, currentScopes: string[]) => {
-    const allScopeValues = ALL_SCOPES.map(s => s.value);
-    const allSelected = allScopeValues.every(v => currentScopes.includes(v));
-    const newScopes = allSelected ? [] : allScopeValues;
-    await handleScopeUpdate(agentId, newScopes);
+  const handleAllScopes = async (agentId: string) => {
+    await handleScopeUpdate(agentId, ALL_SCOPES.map(s => s.value));
   };
 
   const handlePreset = async (agentId: string, scopes: string[]) => {
@@ -212,6 +188,10 @@ export const SpaceMembers: React.FC = () => {
       setUpdatingId(null);
     }
   };
+
+  const existingAgentIds = members
+    .filter((member) => member.type === 'agent' && member.agentId)
+    .map((member) => member.agentId as string);
 
   if (loading)
     return (
@@ -233,7 +213,9 @@ export const SpaceMembers: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold">{zh ? '成员' : 'Members'}</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {zh ? '管理可以访问此空间的用户及其角色。' : 'Manage who can access this space and their roles.'}
+            {zh
+              ? '管理可以访问此空间的用户、智能体及其权限。'
+              : 'Manage users, Agents, and permissions for this space.'}
           </p>
         </div>
         {canManage ? (
@@ -317,12 +299,12 @@ export const SpaceMembers: React.FC = () => {
                           {zh ? '本空间权限（收窄全局凭据）' : 'Space-level scopes (intersect with credential)'}
                         </p>
                         <button
-                          onClick={() => handleAllScopes(m.agentId!, m.scopes || [])}
-                          disabled={updatingId === m.agentId}
+                          onClick={() => handleAllScopes(m.agentId!)}
+                          disabled={updatingId === m.agentId || ALL_SCOPES.every(s => (m.scopes || []).includes(s.value))}
                           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
                         >
                           {ALL_SCOPES.every(s => (m.scopes || []).includes(s.value)) ? (
-                            <><Square size={13} />{zh ? '取消全选' : 'Deselect all'}</>
+                            <><CheckSquare size={13} />{zh ? '已全选' : 'All selected'}</>
                           ) : (
                             <><CheckSquare size={13} />{zh ? '全选' : 'Select all'}</>
                           )}
@@ -429,6 +411,7 @@ export const SpaceMembers: React.FC = () => {
             <p className="font-medium text-gray-700">{zh ? '角色权限' : 'Role permissions'}</p>
             <ul className="mt-1 space-y-0.5 text-xs">
               <li><strong>{zh ? '所有者' : 'Owner'}</strong> — {zh ? '完整权限，可管理成员和删除空间' : 'Full access, manage members, delete space'}</li>
+              <li><strong>{zh ? '管理员' : 'Admin'}</strong> — {zh ? '可管理成员和空间内容，但不能操作所有者' : 'Manage members and content, but not the owner'}</li>
               <li><strong>{zh ? '编辑者' : 'Editor'}</strong> — {zh ? '可创建和编辑页面' : 'Create and edit pages'}</li>
               <li><strong>{zh ? '查看者' : 'Viewer'}</strong> — {zh ? '只读访问' : 'Read-only access'}</li>
             </ul>
@@ -436,70 +419,15 @@ export const SpaceMembers: React.FC = () => {
         </div>
       </div>
 
-      {showAdd && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setShowAdd(false)}
-        >
-          <div
-            className="bg-white rounded-lg p-6 w-full max-w-md"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">{zh ? '添加成员' : 'Add member'}</h2>
-              <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAdd} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{zh ? '用户邮箱' : 'User email'} *</label>
-                <input
-                  type="email"
-                  value={addForm.email}
-                  onChange={e => setAddForm({ ...addForm, email: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="user@example.com"
-                  required
-                  autoFocus
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  {zh ? '该用户必须已经注册账号。' : 'The user must already have an account.'}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{zh ? '角色' : 'Role'}</label>
-                <select
-                  value={addForm.role}
-                  onChange={e => setAddForm({ ...addForm, role: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
-                  <option value="admin">{zh ? '管理员' : 'Admin'}</option>
-                  <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
-                  <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAdd(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
-                >
-                  {zh ? '取消' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={adding || !addForm.email.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {adding ? (zh ? '添加中…' : 'Adding…') : (zh ? '添加' : 'Add')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {showAdd && id ? (
+        <AddSpaceMemberDialog
+          spaceId={id}
+          existingAgentIds={existingAgentIds}
+          zh={zh}
+          onClose={() => setShowAdd(false)}
+          onAdded={fetchMembers}
+        />
+      ) : null}
     </div>
   );
 };

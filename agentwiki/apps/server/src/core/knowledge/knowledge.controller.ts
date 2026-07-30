@@ -45,16 +45,26 @@ export class KnowledgeController {
 
   @Delete('relations/:id')
   async deleteRelation(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertRelationAccess(req.user as any, id, ['owner', 'editor'], 'graph:write');
-    if ((req.user as any).agentId) throw new ForbiddenException('Agent relation deletion proposals are not enabled');
+    const user = req.user as any;
+    const relation = await this.authorization.assertRelationAccess(user, id, ['owner', 'editor'], 'graph:write');
+    if (user.agentId) {
+      return this.review.propose(user, relation.sourcePage.spaceId, `Proposed delete relation: ${id}`, {
+        type: 'archive_relation', payload: { relationId: id, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
+      });
+    }
     return this.knowledgeService.deleteRelation(id);
   }
 
   @Patch('relations/:id/strength')
   async updateStrength(@Param('id') id: string, @Body() dto: UpdateKnowledgeRelationStrengthDto, @Req() req: Request) {
-    await this.authorization.assertRelationAccess(req.user as any, id, ['owner', 'editor'], 'graph:write');
-    if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose relationship changes through review');
-    return this.knowledgeService.updateRelationStrength(id, dto.strength, (req.user as any).userId);
+    const user = req.user as any;
+    const relation = await this.authorization.assertRelationAccess(user, id, ['owner', 'editor'], 'graph:write');
+    if (user.agentId) {
+      return this.review.propose(user, relation.sourcePage.spaceId, `Proposed update relation strength: ${id}`, {
+        type: 'update_relation_strength', payload: { relationId: id, strength: dto.strength, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
+      });
+    }
+    return this.knowledgeService.updateRelationStrength(id, dto.strength, user.userId);
   }
 
   @Get('graph/:spaceId')

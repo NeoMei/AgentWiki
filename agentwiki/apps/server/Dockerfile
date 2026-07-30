@@ -1,5 +1,5 @@
 # Backend Dockerfile for AgentWiki (NestJS)
-ARG NODE_IMAGE=node:26-alpine
+ARG NODE_IMAGE=node:24-alpine
 FROM ${NODE_IMAGE} AS builder
 
 # Install pnpm and build tools

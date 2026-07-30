@@ -1,5 +1,7 @@
 # AgentWiki Node 26-Only Compatibility Design
 
+> Superseded on 2026-07-30: AgentWiki now supports Node 24 and Node 26, with Node 24 as the default development and container baseline. The remainder of this document is retained as the historical rationale for the earlier Node 26-only implementation.
+
 ## Status
 
 Approved direction: targeted Node 26 adaptation for the `agentwiki/` product only. Reference projects at the repository root are out of scope. Node 20, 22, and 24 compatibility will not be retained as a requirement.

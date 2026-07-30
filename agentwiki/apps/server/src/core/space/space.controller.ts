@@ -87,7 +87,13 @@ export class SpaceController {
     const member = await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin']);
     if (dto.role === 'owner' && member.role !== 'owner') throw new ForbiddenException('Only an owner can grant the owner role');
     this.logger.log('Updating member role: ' + userId + ' in space: ' + id);
-    return this.spaceService.updateMemberRoleAs(id, userId, dto.role, member.role);
+    return this.spaceService.updateMemberRoleAs(
+      id,
+      userId,
+      dto.role,
+      member.role,
+      (req.user as any).userId,
+    );
   }
 
   @Delete(':id/members/:userId')

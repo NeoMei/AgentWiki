@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
@@ -11,6 +11,8 @@ const VALID_SCOPES = new Set([
 
 @Injectable()
 export class AgentService {
+  private readonly logger = new Logger(AgentService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(ownerId: string, dto: CreateAgentDto) {
@@ -83,10 +85,7 @@ export class AgentService {
   async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = Array.from(new Set(dto.scopes));
-    if (scopes.length === 0 || scopes.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
+    const scopes = this.normalizeCredentialScopes(dto.scopes);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
     const credential = await this.prisma.agentCredential.create({
       data: {
@@ -102,8 +101,20 @@ export class AgentService {
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
-    await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    try {
+      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
+    } catch (error) {
+      this.logger.warn(`Credential ${credential.id} was persisted but its audit event failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return { ...credential, apiKey: rawKey };
+  }
+
+  normalizeCredentialScopes(scopes: string[]): string[] {
+    const normalized = Array.from(new Set(scopes));
+    if (normalized.length === 0 || normalized.some((scope) => !VALID_SCOPES.has(scope))) {
+      throw new BadRequestException('Credential contains an invalid or empty scope list');
+    }
+    return normalized;
   }
 
   async listCredentials(ownerId: string, agentId: string) {
@@ -131,12 +142,39 @@ export class AgentService {
 
   async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
     await this.getOwned(ownerId, agentId);
-    return this.upsertGrantForSpace(agentId, spaceId, role, scopes);
+    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role, scopes);
   }
 
-  // Space-level grant management: the controller already verified the caller is
-  // an owner/admin of this space, so we do not require agent ownership here.
-  async upsertGrantForSpace(agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
+  // Space-level grant management: creating a new grant requires an active Agent
+  // owned by the caller. Once the Agent is already a Space member, owner/admin
+  // callers may continue to manage that existing grant regardless of ownership.
+  async upsertGrantForSpace(
+    actorUserId: string,
+    agentId: string,
+    spaceId: string,
+    role: 'viewer' | 'editor',
+    scopes?: string[],
+  ) {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { id: true, ownerId: true, status: true, revokedAt: true },
+    });
+    if (!agent || agent.revokedAt || agent.status === 'revoked') {
+      throw new NotFoundException('Agent not found');
+    }
+    const existingGrant = await this.prisma.agentGrant.findUnique({
+      where: { agentId_spaceId: { agentId, spaceId } },
+      select: { id: true },
+    });
+    if (!existingGrant) {
+      if (agent.ownerId !== actorUserId) {
+        throw new NotFoundException('Agent not found');
+      }
+      if (agent.status !== 'active') {
+        throw new BadRequestException('Agent must be active before it can join a space');
+      }
+    }
+
     const normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
     if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
       throw new BadRequestException('Grant contains an invalid scope');
