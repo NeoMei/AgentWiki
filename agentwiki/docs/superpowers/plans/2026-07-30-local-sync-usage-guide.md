@@ -4,7 +4,7 @@
 
 **Goal:** 在现有 `/guide` 页面加入经过真实流程验证的 AgentWiki Local Sync 使用说明，让用户能理解安装、扫描、预览、确认同步和审批结果。
 
-**Architecture:** 从现有 `UsageGuide.tsx` 抽出可复用截图组件，再新增独立的 `LocalSyncGuideSection`，由 `UsageGuide` 在 Agent 接入流程和权限模型之间组合。文案沿用页面当前的 `zh` 双语模式；真实截图作为静态资源，组件测试锁定内容、链接、折叠行为和资源路径，浏览器验收负责确认真实画面、响应式和不变形。
+**Architecture:** 从现有 `UsageGuide.tsx` 抽出可复用截图组件，用 `apps/client/src/config/localSync.ts` 集中管理包名、版本和 npm URL，再新增独立的 `LocalSyncGuideSection`，由 `UsageGuide` 在 Agent 接入流程和权限模型之间组合。文案沿用页面当前的 `zh` 双语模式；真实截图作为静态资源，组件测试锁定内容、链接、折叠行为和资源路径，浏览器验收负责确认真实画面、响应式和不变形。
 
 **Tech Stack:** React 18、TypeScript、Tailwind CSS、Lucide React、Vitest、Testing Library、Vite、真实 AgentWiki + OpenCode/Codex/Claude Code 本地同步流程。
 
@@ -113,21 +113,31 @@ git commit -m "refactor: share usage guide screenshot component"
 ### Task 2: 用测试驱动实现本地同步指南章节
 
 **Files:**
+- Create: `apps/client/src/config/localSync.ts`
 - Create: `apps/client/src/features/about/LocalSyncGuideSection.tsx`
 - Create: `apps/client/src/features/about/LocalSyncGuideSection.spec.tsx`
 
 **Interfaces:**
 - Consumes: `GuideScreenshot` from `./GuideScreenshot`；prop `zh: boolean`。
-- Produces: `LocalSyncGuideSection({ zh }: { zh: boolean })`；导出常量 `LOCAL_SYNC_PACKAGE_URL` 供测试断言。
+- Produces: `localSync.ts` 导出 `LOCAL_SYNC_PACKAGE_NAME`、`LOCAL_SYNC_VERSION`、`LOCAL_SYNC_PACKAGE_URL`；组件仅导出 `LocalSyncGuideSection({ zh }: { zh: boolean })`。
 
-- [ ] **Step 1: 写失败的中文内容、链接和折叠测试**
+- [ ] **Step 1: 创建共享版本配置并写失败的中文内容、链接和折叠测试**
+
+Create `apps/client/src/config/localSync.ts`:
+
+```ts
+export const LOCAL_SYNC_PACKAGE_NAME = '@neomei/agentwiki-local-sync';
+export const LOCAL_SYNC_VERSION = '0.1.1';
+export const LOCAL_SYNC_PACKAGE_URL = `https://www.npmjs.com/package/${LOCAL_SYNC_PACKAGE_NAME}/v/${LOCAL_SYNC_VERSION}`;
+```
 
 Create `apps/client/src/features/about/LocalSyncGuideSection.spec.tsx`:
 
 ```tsx
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { LocalSyncGuideSection, LOCAL_SYNC_PACKAGE_URL } from './LocalSyncGuideSection';
+import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
+import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 
 describe('LocalSyncGuideSection', () => {
   it('shows the verified Chinese workflow and safe defaults', () => {
@@ -182,17 +192,19 @@ pnpm --filter @agentwiki/client test -- LocalSyncGuideSection.spec.tsx
 
 Expected: FAIL，错误包含 `Cannot find module './LocalSyncGuideSection'`。
 
-- [ ] **Step 3: 实现组件的常量、步骤数据和命令数据**
+- [ ] **Step 3: 使用共享常量实现步骤数据和命令数据**
 
-Create `apps/client/src/features/about/LocalSyncGuideSection.tsx` with these exact exports and data before the JSX:
+Create `apps/client/src/features/about/LocalSyncGuideSection.tsx` with these shared imports and data before the JSX:
 
 ```tsx
 import React from 'react';
 import { ExternalLink, FolderSearch, PackageCheck, ShieldCheck } from 'lucide-react';
+import {
+  LOCAL_SYNC_PACKAGE_NAME,
+  LOCAL_SYNC_PACKAGE_URL,
+  LOCAL_SYNC_VERSION,
+} from '../../config/localSync';
 import { GuideScreenshot } from './GuideScreenshot';
-
-const LOCAL_SYNC_VERSION = '0.1.1';
-export const LOCAL_SYNC_PACKAGE_URL = `https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/${LOCAL_SYNC_VERSION}`;
 
 const commands = [
   ['doctor', '检查安装、依赖、身份和权限', 'Check installation, dependencies, identity, and permissions'],
@@ -228,8 +240,8 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-gray-900">AgentWiki Local Sync</h3>
-          <p className="break-all font-mono text-sm text-indigo-700">@neomei/agentwiki-local-sync</p>
-          <p className="mt-1 text-xs text-gray-500">{zh ? '版本 0.1.1' : 'Version 0.1.1'}</p>
+          <p className="break-all font-mono text-sm text-indigo-700">{LOCAL_SYNC_PACKAGE_NAME}</p>
+          <p className="mt-1 text-xs text-gray-500">{zh ? `版本 ${LOCAL_SYNC_VERSION}` : `Version ${LOCAL_SYNC_VERSION}`}</p>
         </div>
         <a
           href={LOCAL_SYNC_PACKAGE_URL}
@@ -356,7 +368,7 @@ Expected: `2 tests passed` and TypeScript exits `0`.
 - [ ] **Step 7: 提交独立章节**
 
 ```bash
-git add apps/client/src/features/about/LocalSyncGuideSection.tsx apps/client/src/features/about/LocalSyncGuideSection.spec.tsx
+git add apps/client/src/config/localSync.ts apps/client/src/features/about/LocalSyncGuideSection.tsx apps/client/src/features/about/LocalSyncGuideSection.spec.tsx
 git commit -m "feat: add local sync guide section"
 ```
 
@@ -374,13 +386,19 @@ git commit -m "feat: add local sync guide section"
 
 - [ ] **Step 1: 扩展集成测试并确认失败**
 
-在 `UsageGuide.spec.tsx` 的中文用例末尾加入：
+在 `UsageGuide.spec.tsx` 的 imports 区域加入：
+
+```tsx
+import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
+```
+
+再在中文用例末尾加入：
 
 ```tsx
 expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
 expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
   'href',
-  'https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1',
+  LOCAL_SYNC_PACKAGE_URL,
 );
 expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
 ```

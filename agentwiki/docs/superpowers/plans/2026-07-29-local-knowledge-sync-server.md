@@ -907,7 +907,7 @@ Register it and the service in `AgentModule`. Document:
 
 ```dotenv
 PUBLIC_API_URL=http://localhost:3000/api
-LOCAL_SYNC_PACKAGE_VERSION=0.1.0
+LOCAL_SYNC_PACKAGE_VERSION=0.1.1
 ```
 
 - [ ] **Step 8: Run focused security tests**
