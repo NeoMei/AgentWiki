@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Users, Plus, X, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare, Square } from 'lucide-react';
+import { Users, Plus, Trash2, Shield, ShieldCheck, Loader2, Bot, CheckSquare, Square } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { AddSpaceMemberDialog } from './AddSpaceMemberDialog';
 
 interface Member {
   id: string;
@@ -34,8 +35,6 @@ export const SpaceMembers: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ email: '', role: 'viewer' });
-  const [adding, setAdding] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
 
@@ -59,26 +58,6 @@ export const SpaceMembers: React.FC = () => {
   useEffect(() => {
     fetchMembers();
   }, [id]);
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id || !addForm.email.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      await api.post('/spaces/' + id + '/members', {
-        email: addForm.email.trim(),
-        role: addForm.role,
-      });
-      setAddForm({ email: '', role: 'viewer' });
-      setShowAdd(false);
-      await fetchMembers();
-    } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '成员添加失败' : 'Failed to add member'));
-    } finally {
-      setAdding(false);
-    }
-  };
 
   const handleRoleChange = async (userId: string, role: string) => {
     if (!id) return;
@@ -213,6 +192,10 @@ export const SpaceMembers: React.FC = () => {
     }
   };
 
+  const existingAgentIds = members
+    .filter((member) => member.type === 'agent' && member.agentId)
+    .map((member) => member.agentId as string);
+
   if (loading)
     return (
       <div className="flex items-center justify-center py-8 text-gray-500">
@@ -233,7 +216,9 @@ export const SpaceMembers: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold">{zh ? '成员' : 'Members'}</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {zh ? '管理可以访问此空间的用户及其角色。' : 'Manage who can access this space and their roles.'}
+            {zh
+              ? '管理可以访问此空间的用户、智能体及其权限。'
+              : 'Manage users, Agents, and permissions for this space.'}
           </p>
         </div>
         {canManage ? (
@@ -436,70 +421,16 @@ export const SpaceMembers: React.FC = () => {
         </div>
       </div>
 
-      {showAdd && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setShowAdd(false)}
-        >
-          <div
-            className="bg-white rounded-lg p-6 w-full max-w-md"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">{zh ? '添加成员' : 'Add member'}</h2>
-              <button onClick={() => setShowAdd(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAdd} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{zh ? '用户邮箱' : 'User email'} *</label>
-                <input
-                  type="email"
-                  value={addForm.email}
-                  onChange={e => setAddForm({ ...addForm, email: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="user@example.com"
-                  required
-                  autoFocus
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  {zh ? '该用户必须已经注册账号。' : 'The user must already have an account.'}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{zh ? '角色' : 'Role'}</label>
-                <select
-                  value={addForm.role}
-                  onChange={e => setAddForm({ ...addForm, role: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
-                  <option value="admin">{zh ? '管理员' : 'Admin'}</option>
-                  <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
-                  <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAdd(false)}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
-                >
-                  {zh ? '取消' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={adding || !addForm.email.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {adding ? (zh ? '添加中…' : 'Adding…') : (zh ? '添加' : 'Add')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {showAdd && id ? (
+        <AddSpaceMemberDialog
+          spaceId={id}
+          canGrantOwner={canGrantOwner}
+          existingAgentIds={existingAgentIds}
+          zh={zh}
+          onClose={() => setShowAdd(false)}
+          onAdded={fetchMembers}
+        />
+      ) : null}
     </div>
   );
 };
