@@ -35,9 +35,10 @@
 - 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
 - 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
 - 2026-07-31 P5 完成：`sync/merge.ts` 支持字段级合并、冲突类型（add-add/field/delete-modify/delete-delete）、`ConflictBundle`/`applyConflictResolution`；`sync/sync-engine.ts` 实现 dirty-local 检测、Delta/Snapshot 拉取、原子物化、确认 hash、提交后更新 base；`workspace/state.ts` 新增 `listWikiMemories`。
+- 2026-07-31 P6 完成：新增 `orchestrator-commands.ts` + MCP 工具（`start_knowledge_job`/`get_next_work_item`/`read_artifacts`/`submit_organized_item`/`validate_knowledge_job`/`preview_knowledge_job`/`confirm_and_push`/`pull_space`/`resolve_conflict`）；CLI 新增 `start`/`work`/`preview-job`/`push-job`/`pull`/`mcp --orchestrator`；`recipes.ts` 提供默认 `code-wiki@1`/`document-library@1`；`SKILL.md` 已更新为新流程。
 - 2026-07-31 GitHub 发布准备将 AgentWiki 主应用、client、server 和 shared 版本从 `0.0.1` 统一提升为 `0.1.0`；已单独发布的 `@neomei/agentwiki-local-sync` 保持 `0.1.1`。
 - 2026-07-31 使用指南“从本地知识创建 Wiki”的 4 个截图链接已从从未入库的 `local-sync-*.png` 改为仓库已有的真实系统截图；新增静态资产存在性回归测试，运行态四个 URL 均返回 200，Playwright 验证全部图片解码成功且无截图 404/控制台错误。
-- 剩余任务：P6 CLI/MCP/Skill 新流程集成（旧 OKF 命令保留为 legacy）、P7 跨 Agent 跨机器真实 E2E 与 `0.2.0` 发布；`space-add-agent-member` 浏览器视觉验收仍待 Chrome 插件恢复后补跑。
+- 剩余任务：P7 跨 Agent 跨机器真实 E2E 与 `0.2.0` 发布（需要明确授权：npm publish、GitHub Release、真实 E2E 可能涉及外部操作）；`space-add-agent-member` 浏览器视觉验收仍待 Chrome 插件恢复后补跑。
 
 # 稳定约束
 
