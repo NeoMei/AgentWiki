@@ -84,32 +84,34 @@ model Space {
   members SpaceMember[]
   pages   Page[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  deletedAt     DateTime?
-  agentGrants   AgentGrant[]
-  sources       Source[]
-  ingestRuns    IngestRun[]
-  changeSets    ChangeSet[]
-  agentMemories AgentMemory[]
-  assistTasks   AssistTask[]
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  deletedAt            DateTime?
+  agentGrants          AgentGrant[]
+  sources              Source[]
+  ingestRuns           IngestRun[]
+  changeSets           ChangeSet[]
+  knowledgeSubmissions KnowledgeSubmission[]
+  knowledgeRevisions   SpaceKnowledgeRevision[]
+  agentMemories        AgentMemory[]
+  assistTasks          AssistTask[]
 }
 
 model AssistTask {
-  id           String   @id @default(cuid())
-  status       String   @default("queued")
+  id           String  @id @default(cuid())
+  status       String  @default("queued")
   intent       String
   pageSnapshot Json?
   result       Json?
   error        String?
-  attempts     Int      @default(0)
-  maxAttempts  Int      @default(3)
+  attempts     Int     @default(0)
+  maxAttempts  Int     @default(3)
 
-  space           Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  spaceId         String
-  page            Page?  @relation(fields: [pageId], references: [id], onDelete: SetNull)
-  pageId          String?
-  requestedByUser User?  @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  space             Space   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId           String
+  page              Page?   @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  pageId            String?
+  requestedByUser   User?   @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
   requestedByUserId String?
 
   lockedAt       DateTime?
@@ -176,8 +178,8 @@ model AgentCredential {
 }
 
 model AgentGrant {
-  id   String @id @default(cuid())
-  role String @default("viewer")
+  id     String   @id @default(cuid())
+  role   String   @default("viewer")
   scopes String[] @default([])
 
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
@@ -224,17 +226,18 @@ model SpaceMember {
 }
 
 model Page {
-  id        String @id @default(cuid())
-  title     String
-  slug      String
-  content   String @default("")
-  format    String @default("markdown")
-  embedding Json?
+  id           String @id @default(cuid())
+  title        String
+  slug         String
+  knowledgeKey String @default(cuid())
+  content      String @default("")
+  format       String @default("markdown")
+  embedding    Json?
 
-  parent   Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  parentId String?
-  children Page[]  @relation("PageChildren")
-  sortOrder Int    @default(0)
+  parent    Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  parentId  String?
+  children  Page[]  @relation("PageChildren")
+  sortOrder Int     @default(0)
 
   space    Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId  String
@@ -272,6 +275,7 @@ model Page {
 
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
+  @@unique([spaceId, knowledgeKey])
   @@index([sourceId, sourceVersionId])
 }
 
@@ -317,6 +321,7 @@ model PageVersion {
 model KnowledgeRelation {
   id                   String   @id @default(cuid())
   relation             String
+  knowledgeKey         String   @default(cuid())
   sourcePageId         String
   targetPageId         String
   strength             Float    @default(1.0)
@@ -338,6 +343,7 @@ model KnowledgeRelation {
   createdAt DateTime @default(now())
 
   @@unique([sourcePageId, targetPageId, relation])
+  @@unique([knowledgeKey])
 }
 
 model Source {
@@ -401,37 +407,37 @@ model SourceFileSnapshot {
 }
 
 model IngestRun {
-  id                      String     @id @default(cuid())
+  id                      String         @id @default(cuid())
   idempotencyKey          String?
-  status                  String     @default("queued")
-  stage                   String     @default("queued")
-  attempts                Int        @default(0)
-  maxAttempts             Int        @default(3)
+  status                  String         @default("queued")
+  stage                   String         @default("queued")
+  attempts                Int            @default(0)
+  maxAttempts             Int            @default(3)
   error                   String?
   result                  Json?
-  cancelRequested         Boolean    @default(false)
+  cancelRequested         Boolean        @default(false)
   lockedAt                DateTime?
   leaseOwner              String?
   leaseExpiresAt          DateTime?
   nextAttemptAt           DateTime?
-  source                  Source     @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source                  Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   sourceId                String
   inputSourceVersion      SourceVersion? @relation("IngestRunInputVersion", fields: [inputSourceVersionId], references: [id], onDelete: SetNull)
   inputSourceVersionId    String?
-  space                   Space      @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  space                   Space          @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId                 String
-  requestedByUser         User?      @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  requestedByUser         User?          @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
   requestedByUserId       String?
-  requestedByAgent        Agent?     @relation(fields: [requestedByAgentId], references: [id], onDelete: SetNull)
+  requestedByAgent        Agent?         @relation(fields: [requestedByAgentId], references: [id], onDelete: SetNull)
   requestedByAgentId      String?
-  requestedScopes         String[]   @default([])
+  requestedScopes         String[]       @default([])
   requestedCredentialId   String?
   requestedCredentialType String?
   artifacts               Artifact[]
   evidences               Evidence[]
   changeSet               ChangeSet?
-  createdAt               DateTime   @default(now())
-  updatedAt               DateTime   @updatedAt
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
   completedAt             DateTime?
 
   @@unique([sourceId, idempotencyKey])
@@ -474,27 +480,29 @@ model Evidence {
 }
 
 model ChangeSet {
-  id               String              @id @default(cuid())
-  title            String
-  status           String              @default("draft")
-  space            Space               @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  spaceId          String
-  run              IngestRun?          @relation(fields: [runId], references: [id], onDelete: SetNull)
-  runId            String?             @unique
-  createdByUser    User?               @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdByUserId  String?
-  createdByAgent   Agent?              @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  createdByAgentId String?
-  items            ChangeItem[]
-  approvals        Approval[]
-  originPages      Page[]              @relation("PageOriginChangeSet")
-  changedPages     Page[]              @relation("PageLastChangeSet")
-  relations        KnowledgeRelation[]
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  reviewedAt       DateTime?
-  publishedAt      DateTime?
-  revertedAt       DateTime?
+  id                  String                  @id @default(cuid())
+  title               String
+  status              String                  @default("draft")
+  space               Space                   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId             String
+  run                 IngestRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
+  runId               String?                 @unique
+  createdByUser       User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId     String?
+  createdByAgent      Agent?                  @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  createdByAgentId    String?
+  items               ChangeItem[]
+  approvals           Approval[]
+  knowledgeSubmission KnowledgeSubmission?    @relation("ChangeSetKnowledgeSubmission")
+  knowledgeRevision   SpaceKnowledgeRevision? @relation("ChangeSetKnowledgeRevision")
+  originPages         Page[]                  @relation("PageOriginChangeSet")
+  changedPages        Page[]                  @relation("PageLastChangeSet")
+  relations           KnowledgeRelation[]
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  reviewedAt          DateTime?
+  publishedAt         DateTime?
+  revertedAt          DateTime?
 
   @@index([spaceId, status, createdAt])
 }
@@ -555,4 +563,50 @@ model AgentMemory {
   @@unique([agentId, spaceId, type, contentHash])
   @@index([agentId, spaceId, status])
   @@index([expiresAt])
+}
+
+model KnowledgeSubmission {
+  id                String   @id @default(cuid())
+  spaceId           String
+  baseRevisionId    String?
+  principalKey      String
+  idempotencyKey    String
+  schemaVersion     String
+  recipeVersion     String
+  contentHash       String
+  bundle            Json
+  status            String   @default("pending")
+  changeSetId       String?  @unique
+  appliedRevisionId String?  @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  space           Space                   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  changeSet       ChangeSet?              @relation("ChangeSetKnowledgeSubmission", fields: [changeSetId], references: [id], onDelete: SetNull)
+  appliedRevision SpaceKnowledgeRevision? @relation("AppliedKnowledgeRevision", fields: [appliedRevisionId], references: [id], onDelete: SetNull)
+
+  @@unique([spaceId, principalKey, idempotencyKey])
+  @@index([spaceId, status, createdAt])
+}
+
+model SpaceKnowledgeRevision {
+  id                String   @id @default(cuid())
+  spaceId           String
+  sequence          Int
+  parentRevisionId  String?
+  schemaVersion     String
+  recipeVersion     String
+  contentHash       String
+  snapshot          Json
+  delta             Json
+  sourceChangeSetId String?  @unique
+  createdAt         DateTime @default(now())
+
+  space             Space                @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  appliedSubmission KnowledgeSubmission? @relation("AppliedKnowledgeRevision")
+  sourceChangeSet   ChangeSet?           @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+
+  @@unique([spaceId, sequence])
+  @@unique([spaceId, contentHash])
+  @@index([spaceId, createdAt])
 }
