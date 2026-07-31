@@ -31,7 +31,7 @@ import {
   savePreview,
   type LocalSyncConnection,
 } from './config.js';
-import { inspectLocalSource, inspectOpenWikiProvider, prepareKnowledgeSync } from './local-knowledge.js';
+import { inspectLocalSource, prepareKnowledgeSync } from './local-knowledge.js';
 import {
   createLocalSyncCommands,
   serveLocalSyncMcp,
@@ -40,7 +40,7 @@ import {
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
 
-const PACKAGE_VERSION = '0.1.1';
+const PACKAGE_VERSION = '0.2.0';
 
 export function formatOutput(value: unknown): string {
   return redactSecrets(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
@@ -271,38 +271,18 @@ async function inspectFilePermissions(home: string): Promise<DoctorCheck> {
   }
 }
 
-async function inspectProviderBoundary(home: string): Promise<DoctorCheck> {
-  const names = ['OPENWIKI_PROVIDER', 'OPENWIKI_MODEL_ID', 'OPENWIKI_BASE_URL', 'OPENAI_BASE_URL', 'OPENAI_COMPATIBLE_BASE_URL', 'ANTHROPIC_BASE_URL', 'OLLAMA_HOST'];
-  const environment: Record<string, string | undefined> = {};
-  try {
-    const contents = await readFile(join(home, '.openwiki', '.env'), 'utf8');
-    for (const line of contents.split(/\r?\n/u)) {
-      const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/u);
-      if (match && names.includes(match[1])) environment[match[1]] = match[2].replace(/^(['"])(.*)\1$/u, '$2');
-    }
-  } catch {
-    // The provider defaults are still meaningful when no local OpenWiki env file exists.
-  }
-  for (const name of names) environment[name] = process.env[name] ?? environment[name];
-  const provider = inspectOpenWikiProvider(environment);
-  return check('provider-boundary', provider.local,
-    provider.local ? `OpenWiki provider ${provider.provider} is local` : `OpenWiki provider ${provider.provider} requires explicit remote-model consent`);
-}
-
 export async function runDoctor(
   home: string,
   connection: LocalSyncConnection,
   dependencies: DoctorDependencies,
 ): Promise<DoctorReport> {
-  const checks = [
-    check('node', versionAtLeast(process.version, [20, 0, 0]), `Node ${process.version}`),
-    inspectCommand('openwiki', 'openwiki', ['--version'], dependencies.run, [0, 2, 0]),
+ const checks = [
+   check('node', versionAtLeast(process.version, [20, 0, 0]), `Node ${process.version}`),
     inspectCommand('markitdown', 'markitdown', ['--version'], dependencies.run, [0, 1, 0]),
     inspectCommand('git', 'git', ['--version'], dependencies.run),
     inspectCommand('codebase-memory', 'codebase-memory-mcp', ['--version'], dependencies.run),
     await inspectMcpRegistration(connection, home, dependencies.run),
     await inspectFilePermissions(home),
-    await inspectProviderBoundary(home),
   ];
 
   try {

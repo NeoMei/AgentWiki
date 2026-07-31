@@ -220,7 +220,7 @@ describe('local sync command orchestration', () => {
       .rejects.toThrow('Preview ID must be a UUID');
   });
 
-  it('doctor checks required tool availability without invoking OpenWiki or scanning paths', async () => {
+ it('doctor checks required tool availability without invoking OpenWiki or scanning paths', async () => {
     const home = await temporaryDirectory('agentwiki-doctor-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
@@ -228,13 +228,10 @@ describe('local sync command orchestration', () => {
     };
     await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
     await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });
-    await mkdir(join(home, '.openwiki'), { recursive: true });
-    await writeFile(join(home, '.openwiki', '.env'), 'OPENWIKI_PROVIDER=ollama\n');
     const run = vi.fn((command: string) => ({
       status: 0,
-      stdout: command === 'openwiki' ? 'openwiki 0.2.0\n'
-        : command === 'markitdown' ? 'markitdown 0.1.0\n'
-          : `${command} 1.0.0\n`,
+      stdout: command === 'markitdown' ? 'markitdown 0.1.0\n'
+        : `${command} 1.0.0\n`,
       stderr: '',
     }));
     const client = {
@@ -256,11 +253,9 @@ describe('local sync command orchestration', () => {
     });
 
     expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(report.checks.length);
-    expect(run).toHaveBeenCalledWith('openwiki', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('markitdown', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('git', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('codebase-memory-mcp', ['--version'], expect.anything());
-    expect(run).not.toHaveBeenCalledWith('openwiki', expect.arrayContaining(['code', '--update']), expect.anything());
     expect(client.access).toHaveBeenCalledWith(connection, 'agk_doctor_secret');
   });
 });

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn, type SpawnOptions } from 'node:child_process';
 import {
-  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -11,7 +10,6 @@ import {
   rm,
   stat,
 } from 'node:fs/promises';
-import { isIP } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -40,19 +38,15 @@ export interface ToolStatus {
   version?: string;
 }
 
-export interface OpenWikiProvider {
-  provider: string;
-  model?: string;
-  baseUrl?: string;
-  local: boolean;
-}
-
 export interface SourceInspection {
   displayName: string;
   kind: 'code' | 'documents' | 'mixed';
   files: { code: number; documents: number; unsupported: number };
-  provider: OpenWikiProvider;
-  dependencies: { openwiki: ToolStatus; markitdown: ToolStatus; git: ToolStatus };
+  dependencies: {
+    markitdown: ToolStatus;
+    git: ToolStatus;
+    codebaseMemory: ToolStatus;
+  };
 }
 
 export interface PrepareInput {
@@ -66,7 +60,7 @@ export interface OkfEnvelope {
   sourceKey: string;
   name: string;
   kind: 'code' | 'documents' | 'mixed';
-  producer: { name: 'openwiki'; version: string };
+  producer: { name: 'agentwiki-local-sync'; version: string };
   documents: Array<{
     path: string;
     content: string;
@@ -81,7 +75,6 @@ export interface PreparedKnowledge {
   sourceKey: string;
   processedFiles: number;
   skippedFiles: Array<{ path: string; reason: string }>;
-  provider: SourceInspection['provider'];
 }
 
 export interface CommandResult {
@@ -132,35 +125,19 @@ interface SourceCounts {
   unsupported: number;
 }
 
-interface ConvertibleDocument {
-  inputPath: string;
-  relativePath: string;
+interface ExtractedDocument {
+  path: string;
+  content: string;
+}
+
+interface CodebaseMemorySummary {
+  files?: Array<{ path: string; summary?: string }>;
+  summary?: string;
+  [key: string]: unknown;
 }
 
 /**
- * Classifies the configured OpenWiki provider without returning credentials.
- *
- * @param environment Environment values from the process and OpenWiki env file.
- * @returns A safe provider disclosure for the confirmation UI.
- */
-export function inspectOpenWikiProvider(environment: Record<string, string | undefined>): OpenWikiProvider {
-  const provider = environment.OPENWIKI_PROVIDER?.trim() || 'openai';
-  const model = environment.OPENWIKI_MODEL_ID?.trim() || undefined;
-  const baseUrl = providerBaseUrl(provider, environment);
-  const local = provider === 'ollama'
-    ? isLoopbackUrl(baseUrl ?? '127.0.0.1:11434')
-    : isLoopbackUrl(baseUrl);
-
-  return {
-    provider,
-    ...(model ? { model } : {}),
-    ...(baseUrl ? { baseUrl } : {}),
-    local,
-  };
-}
-
-/**
- * Inspects a local source and available command line dependencies without invoking OpenWiki.
+ * Inspects a local source and available command line dependencies without uploading data.
  *
  * @param path Local source directory.
  * @param deps Optional clock, home directory, and command runner dependencies.
@@ -169,10 +146,9 @@ export function inspectOpenWikiProvider(environment: Record<string, string | und
 export async function inspectLocalSource(path: string, deps?: LocalKnowledgeDeps): Promise<SourceInspection> {
   const dependencies = deps ?? defaultDependencies();
   const root = await resolveRoot(path);
-  const [files, providerEnvironment, tools] = await Promise.all([
+  const [files, tools] = await Promise.all([
     listSourceFiles(root),
-    loadProviderEnvironment(dependencies.home),
-    Promise.all(['openwiki', 'markitdown', 'git'].map((command) => inspectTool(command, dependencies.run))),
+    Promise.all(['markitdown', 'git', 'codebase-memory-mcp'].map((command) => inspectTool(command, dependencies.run))),
   ]);
   const counts = classifyFiles(files);
 
@@ -180,13 +156,13 @@ export async function inspectLocalSource(path: string, deps?: LocalKnowledgeDeps
     displayName: basename(root),
     kind: sourceKind(counts),
     files: counts,
-    provider: inspectOpenWikiProvider(providerEnvironment),
-    dependencies: { openwiki: tools[0], markitdown: tools[1], git: tools[2] },
+    dependencies: { markitdown: tools[0], git: tools[1], codebaseMemory: tools[2] },
   };
 }
 
 /**
- * Builds a private OpenWiki knowledge bundle from a local source directory.
+ * Builds a local knowledge bundle from a source directory using markitdown for documents
+ * and codebase-memory-mcp for code summaries. No remote model is invoked.
  *
  * @param input Source and consent inputs.
  * @param deps Optional clock, home directory, and command runner dependencies.
@@ -194,40 +170,37 @@ export async function inspectLocalSource(path: string, deps?: LocalKnowledgeDeps
  */
 export async function prepareKnowledgeSync(input: PrepareInput, deps?: LocalKnowledgeDeps): Promise<PreparedKnowledge> {
   const dependencies = deps ?? defaultDependencies();
-  const provider = inspectOpenWikiProvider(await loadProviderEnvironment(dependencies.home));
-  if (!provider.local && input.allowRemoteModel !== true) {
-    throw new Error('Remote OpenWiki model consent is required');
-  }
+  // allowRemoteModel is kept for parameter compatibility but ignored; no remote model is used.
+  void input.allowRemoteModel;
 
   const root = await resolveRoot(input.path);
-  const files = await sourceFilesForStaging(root, dependencies.run);
+  const files = await sourceFilesForProcessing(root, dependencies.run);
   const stagingLimits = { ...DEFAULT_STAGING_LIMITS, ...dependencies.limits };
   const counts = classifyFiles(files);
   const skippedFiles: PreparedKnowledge['skippedFiles'] = [];
   const sourceKey = await getOrCreateSourceKey(dependencies.home, root);
-  const staging = await mkdtemp(join(tmpdir(), 'agentwiki-local-sync-'));
+  const processing = await mkdtemp(join(tmpdir(), 'agentwiki-local-sync-'));
 
   try {
-    const staged = await stageFiles(root, files, staging, skippedFiles, stagingLimits);
-    await convertDocuments(staged.convertible, staging, dependencies.run, skippedFiles);
-    await initializeStagingGitRepository(staging, dependencies.run);
-    await runChecked(dependencies.run, 'openwiki', ['code', '--update', '--print'], {
-      cwd: staging,
-      env: { ...process.env, ...(await loadProviderEnvironment(dependencies.home)), DO_NOT_TRACK: '1' },
-    });
+    const { documents: extractedDocuments } = await extractDocuments(root, files, processing, skippedFiles, stagingLimits, dependencies.run);
+    const codeSummary = await summarizeCode(root, files, skippedFiles, dependencies.run);
 
     const envelope: OkfEnvelope = {
       okfVersion: '0.1',
       sourceKey,
       name: basename(root),
       kind: sourceKind(counts),
-      producer: { name: 'openwiki', version: 'unknown' },
+      producer: { name: 'agentwiki-local-sync', version: '0.2.0' },
       documents: [],
     };
 
-    await appendGeneratedDocuments(envelope, staging, skippedFiles);
+    for (const extracted of extractedDocuments) {
+      appendDocument(envelope, extracted.path, extracted.content, skippedFiles);
+    }
     if (input.codebaseMemorySummary) {
       appendDocument(envelope, 'architecture/codebase-memory.md', truncateUtf8(input.codebaseMemorySummary, MAX_ARCHITECTURE_BYTES), skippedFiles);
+    } else if (codeSummary) {
+      appendDocument(envelope, 'architecture/codebase-memory.md', truncateUtf8(codeSummary, MAX_ARCHITECTURE_BYTES), skippedFiles);
     }
 
     const envelopeBytes = new TextEncoder().encode(JSON.stringify(envelope));
@@ -241,10 +214,9 @@ export async function prepareKnowledgeSync(input: PrepareInput, deps?: LocalKnow
       sourceKey,
       processedFiles: envelope.documents.length,
       skippedFiles,
-      provider,
     };
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    await rm(processing, { recursive: true, force: true });
   }
 }
 
@@ -283,27 +255,27 @@ function defaultDependencies(): LocalKnowledgeDeps {
 function spawnCommand(command: string, args: string[], options: SpawnOptions = {}): Promise<CommandResult> {
   return new Promise((resolveResult) => {
     const child = spawn(command, args, { ...options, shell: false, stdio: 'pipe' });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
+    const stdout: string[] = [];
+    const stderr: string[] = [];
     let timedOut = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
     }, COMMAND_TIMEOUT_MS);
 
-    child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.stdout?.on('data', (chunk: string | Buffer) => stdout.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8')));
+    child.stderr?.on('data', (chunk: string | Buffer) => stderr.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8')));
     child.once('error', (error) => {
       clearTimeout(timeout);
-      resolveResult({ status: null, error, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
+      resolveResult({ status: null, error, stdout: stdout.join(''), stderr: stderr.join('') });
     });
     child.once('close', (status) => {
       clearTimeout(timeout);
       resolveResult({
         status,
         ...(timedOut ? { error: new Error(`${command} timed out after 30 minutes`) } : {}),
-        stdout: Buffer.concat(stdout),
-        stderr: Buffer.concat(stderr),
+        stdout: stdout.join(''),
+        stderr: stderr.join(''),
       });
     });
   });
@@ -316,53 +288,6 @@ async function resolveRoot(path: string): Promise<string> {
   return root;
 }
 
-async function loadProviderEnvironment(home: string): Promise<Record<string, string | undefined>> {
-  const envPath = join(home, '.openwiki', '.env');
-  let fromFile: Record<string, string | undefined> = {};
-  try {
-    fromFile = parseEnvFile(await readFile(envPath, 'utf8'));
-  } catch (error: unknown) {
-    if (!isNotFound(error)) throw error;
-  }
-  return { ...fromFile, ...process.env };
-}
-
-function parseEnvFile(contents: string): Record<string, string | undefined> {
-  const result: Record<string, string | undefined> = {};
-  for (const line of contents.split(/\r?\n/u)) {
-    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/u);
-    if (!match) continue;
-    const value = match[2].replace(/^(['"])(.*)\1$/u, '$2');
-    result[match[1]] = value;
-  }
-  return result;
-}
-
-function providerBaseUrl(provider: string, environment: Record<string, string | undefined>): string | undefined {
-  const candidates = provider === 'openai-compatible'
-    ? ['OPENAI_COMPATIBLE_BASE_URL', 'OPENAI_BASE_URL', 'OPENWIKI_BASE_URL']
-    : provider === 'anthropic'
-      ? ['ANTHROPIC_BASE_URL', 'OPENWIKI_BASE_URL']
-      : provider === 'ollama'
-        ? ['OLLAMA_HOST', 'OPENWIKI_BASE_URL']
-        : ['OPENAI_BASE_URL', 'OPENWIKI_BASE_URL'];
-  return candidates.map((name) => environment[name]?.trim()).find((value) => Boolean(value));
-}
-
-function isLoopbackUrl(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.includes('://') ? value : `http://${value}`;
-  try {
-    const host = new URL(normalized).hostname.toLowerCase();
-    const ipAddress = host.replace(/^\[|\]$/gu, '');
-    return host === 'localhost'
-      || (isIP(ipAddress) === 4 && ipAddress.split('.')[0] === '127')
-      || (isIP(ipAddress) === 6 && ipAddress === '::1');
-  } catch {
-    return false;
-  }
-}
-
 async function inspectTool(command: string, run: CommandRunner): Promise<ToolStatus> {
   try {
     const result = await run(command, ['--version'], { stdio: 'pipe' });
@@ -373,7 +298,7 @@ async function inspectTool(command: string, run: CommandRunner): Promise<ToolSta
   }
 }
 
-async function sourceFilesForStaging(root: string, run: CommandRunner): Promise<SourceFile[]> {
+async function sourceFilesForProcessing(root: string, run: CommandRunner): Promise<SourceFile[]> {
   const gitDirectory = join(root, '.git');
   try {
     await lstat(gitDirectory);
@@ -429,19 +354,21 @@ function sourceKind(counts: SourceCounts): 'code' | 'documents' | 'mixed' {
   return counts.code > 0 ? 'code' : 'documents';
 }
 
-async function stageFiles(
+async function extractDocuments(
   root: string,
   files: SourceFile[],
-  staging: string,
+  processing: string,
   skippedFiles: PreparedKnowledge['skippedFiles'],
   limits: StagingLimits,
-): Promise<{ convertible: ConvertibleDocument[] }> {
-  const convertible: ConvertibleDocument[] = [];
-  let stagedCount = 0;
-  let stagedBytes = 0;
+  run: CommandRunner,
+): Promise<{ documents: ExtractedDocument[] }> {
+  const convertedDir = join(processing, '_converted');
+  const documents: ExtractedDocument[] = [];
+  let processedCount = 0;
+  let processedBytes = 0;
   for (const file of files) {
     const extension = extensionOf(file.relativePath);
-    if (!DOCUMENT_EXTENSIONS.has(extension) && !CODE_EXTENSIONS.has(extension)) {
+    if (!DOCUMENT_EXTENSIONS.has(extension) && !CONVERTIBLE_DOCUMENT_EXTENSIONS.has(extension)) {
       skippedFiles.push({ path: file.relativePath, reason: 'Unsupported file type' });
       continue;
     }
@@ -452,27 +379,73 @@ async function stageFiles(
         skippedFiles.push({ path: file.relativePath, reason: 'File exceeds 1 MiB limit' });
         continue;
       }
-      if (stagedCount >= limits.maxInputFiles) {
+      if (processedCount >= limits.maxInputFiles) {
         skippedFiles.push({ path: file.relativePath, reason: 'Staging file limit of 10,000 reached' });
         continue;
       }
-      if (stagedBytes + details.size > limits.maxInputBytes) {
+      if (processedBytes + details.size > limits.maxInputBytes) {
         skippedFiles.push({ path: file.relativePath, reason: 'Staging size limit of 100 MiB reached' });
         continue;
       }
-      const destination = join(staging, file.relativePath);
-      await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-      await copyFile(filePath, destination);
-      stagedCount += 1;
-      stagedBytes += details.size;
       if (CONVERTIBLE_DOCUMENT_EXTENSIONS.has(extension)) {
-        convertible.push({ inputPath: destination, relativePath: file.relativePath });
+        const convertedPath = join(convertedDir, `${file.relativePath}.md`);
+        await mkdir(dirname(convertedPath), { recursive: true, mode: 0o700 });
+        const result = await run('markitdown', [filePath, '-o', convertedPath], { env: markItDownEnvironment() });
+        if (!result.error && result.status === 0) {
+          const content = await readFile(convertedPath, 'utf8');
+          documents.push({ path: `${file.relativePath}.md`, content });
+          processedCount += 1;
+          processedBytes += details.size;
+        } else {
+          skippedFiles.push({ path: file.relativePath, reason: commandOutput(result.stderr) || 'markitdown failed' });
+        }
+      } else {
+        const content = await readFile(filePath, 'utf8');
+        documents.push({ path: file.relativePath, content });
+        processedCount += 1;
+        processedBytes += details.size;
       }
     } catch (error: unknown) {
       skippedFiles.push({ path: file.relativePath, reason: errorMessage(error) });
     }
   }
-  return { convertible };
+  return { documents };
+}
+
+async function summarizeCode(
+  root: string,
+  files: SourceFile[],
+  skippedFiles: PreparedKnowledge['skippedFiles'],
+  run: CommandRunner,
+): Promise<string> {
+  const codeFiles = files.filter((file) => CODE_EXTENSIONS.has(extensionOf(file.relativePath)));
+  if (codeFiles.length === 0) return '';
+  try {
+    const result = await run('codebase-memory-mcp', ['--json', 'summary', '--root', root], { cwd: root, env: cleanModelEnvironment() });
+    if (result.error || result.status !== 0) {
+      skippedFiles.push({ path: '.', reason: `codebase-memory-mcp summary failed: ${commandOutput(result.stderr) || result.status}` });
+      return '';
+    }
+    const output = commandOutput(result.stdout);
+    if (!output.trim()) return '';
+    let parsed: CodebaseMemorySummary;
+    try {
+      parsed = JSON.parse(output) as CodebaseMemorySummary;
+    } catch {
+      return output.slice(0, MAX_ARCHITECTURE_BYTES);
+    }
+    if (parsed.summary) return parsed.summary;
+    if (Array.isArray(parsed.files)) {
+      const parts = parsed.files
+        .filter((entry) => entry && typeof entry.path === 'string')
+        .map((entry) => `## ${entry.path}\n${entry.summary ?? ''}`);
+      return parts.join('\n\n');
+    }
+    return output.slice(0, MAX_ARCHITECTURE_BYTES);
+  } catch (error: unknown) {
+    skippedFiles.push({ path: '.', reason: errorMessage(error) });
+    return '';
+  }
 }
 
 async function safeSourcePath(root: string, file: SourceFile): Promise<string> {
@@ -483,38 +456,6 @@ async function safeSourcePath(root: string, file: SourceFile): Promise<string> {
   return target;
 }
 
-async function convertDocuments(
-  documents: ConvertibleDocument[],
-  staging: string,
-  run: CommandRunner,
-  skippedFiles: PreparedKnowledge['skippedFiles'],
-): Promise<void> {
-  const conversionDir = join(staging, '_converted');
-  await mkdir(conversionDir, { recursive: true, mode: 0o700 });
-  for (const document of documents) {
-    try {
-      const outputPath = join(conversionDir, `${document.relativePath}.md`);
-      await mkdir(dirname(outputPath), { recursive: true, mode: 0o700 });
-      await runChecked(run, 'markitdown', [document.inputPath, '-o', outputPath], {
-        cwd: staging,
-        env: markItDownEnvironment(),
-      });
-    } catch (error: unknown) {
-      skippedFiles.push({ path: document.relativePath, reason: errorMessage(error) });
-    }
-  }
-}
-
-async function initializeStagingGitRepository(staging: string, run: CommandRunner): Promise<void> {
-  try {
-    await lstat(join(staging, '.git'));
-    return;
-  } catch (error: unknown) {
-    if (!isNotFound(error)) throw error;
-  }
-  await runChecked(run, 'git', ['init'], { cwd: staging, stdio: 'pipe' });
-}
-
 function markItDownEnvironment(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   delete environment.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
@@ -523,34 +464,15 @@ function markItDownEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-async function runChecked(run: CommandRunner, command: string, args: string[], options: SpawnOptions): Promise<CommandResult> {
-  const result = await run(command, args, options);
-  if (!result.error && result.status === 0) return result;
-  const details = commandOutput(result.stderr).trim();
-  throw new Error(`Unable to run ${command}${details ? `: ${details}` : ''}`, { cause: result.error });
+function cleanModelEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  delete environment.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT;
+  delete environment.AZURE_DOCUMENT_INTELLIGENCE_KEY;
+  delete environment.OPENAI_API_KEY;
+  delete environment.ANTHROPIC_API_KEY;
+  return environment;
 }
 
-async function appendGeneratedDocuments(
-  envelope: OkfEnvelope,
-  staging: string,
-  skippedFiles: PreparedKnowledge['skippedFiles'],
-): Promise<void> {
-  const outputRoot = join(staging, 'openwiki');
-  try {
-    const outputFiles = await listSourceFiles(outputRoot);
-    for (const file of outputFiles) {
-      if (extensionOf(file.relativePath) !== '.md' || file.relativePath === 'INSTRUCTIONS.md') continue;
-      try {
-        const path = await safeSourcePath(outputRoot, file);
-        appendDocument(envelope, `openwiki/${file.relativePath}`, await readFile(path, 'utf8'), skippedFiles);
-      } catch (error: unknown) {
-        skippedFiles.push({ path: `openwiki/${file.relativePath}`, reason: errorMessage(error) });
-      }
-    }
-  } catch (error: unknown) {
-    if (!isNotFound(error)) throw error;
-  }
-}
 
 function appendDocument(
   envelope: OkfEnvelope,

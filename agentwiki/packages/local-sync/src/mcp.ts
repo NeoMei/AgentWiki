@@ -34,7 +34,6 @@ export interface SyncPreview {
   processedFiles: number;
   skippedFiles: Array<{ path: string; reason: string }>;
   uploadBytes: number;
-  provider: SourceInspection['provider'];
   expiresAt: string;
 }
 
@@ -148,7 +147,6 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
         processedFiles: prepared.processedFiles,
         skippedFiles: prepared.skippedFiles,
         uploadBytes: prepared.envelopeBytes.byteLength,
-        provider: prepared.provider,
         expiresAt,
       };
     },
@@ -190,7 +188,7 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
 }
 
 export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.1.1' });
+  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.2.0' });
   server.registerTool('local_sync_status', {
     description: 'Show the active local AgentWiki sync connection without credentials.',
     inputSchema: {},
