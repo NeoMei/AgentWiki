@@ -12,7 +12,16 @@
 - 真实验证确认 OpenWiki 过重且不稳定，旧 OpenWiki 必需链路被新设计取代。
 - 用户已逐项确认本地整理、Agent 执行语义工作、确定性状态机/Recipe、Space 统一 Wiki、私有 Adapter runtime、服务端权威 Revision、双向同步与三方合并。
 - 新设计已写入 `agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`，并已得到用户确认。
-- `0.2.0` 总路线图与四份顺序实施计划已经完成并自审；下一步从本地协议、原子 Workspace、Recipe/校验和状态机开始执行。旧三份 OpenWiki 计划仅保留历史参考。
+- `0.2.0` 总路线图与四份顺序实施计划已经完成并自审。
+- **P0 协议与骨架已完成**：SourceAdapter 协议、SourceArtifact/KnowledgeBundle/Recipe/JobState 协议、`core/orchestrator.ts` 骨架、`workspace/manifest.ts` 与 `workspace/layout.ts` 已落地。
+- **P1 Space 本地 Workspace 与完整状态机已完成**：
+  - 目录结构 `~/.agentwiki/spaces/<space-id>/{wiki/{pages,memories,relations.json},.state/{manifest.json,provenance.json,base,drafts,checkpoints,runtime}}` 已实现并持久化。
+  - Orchestrator 状态机完整阶段 `idle → discover → collect → organize → validate → preview → confirm → push → pull → merge → done`，支持失败 `failed` 阶段。
+  - 状态持久化到 checkpoint，支持 `persistCheckpoint`、`loadLatestCheckpoint`、`resumeFromCheckpoint` 和 `pruneCheckpoints`。
+  - `workspace/space.ts` 提供 `initSpaceWorkspace`、`isWorkspaceInitialized`、`setBaseRevision` 和稳定的 `stableSpaceId`。
+  - 每个 phase 可基于 Recipe 步骤生成最小工作单元（`planPhaseWorkItems`），支持 `advanceAfterWorkItem` 自动推进到下一 phase。
+  - 单元测试覆盖 workspace 读写、checkpoint 恢复、space 初始化、状态机流转与 phase 推进。`local-sync` 包 typecheck 和 100 个测试全部通过。
+- 下一步：P2 私有 Adapter runtime 与首批 codebase-memory / MarkItDown Adapter 实现。
 
 ## 范围
 
