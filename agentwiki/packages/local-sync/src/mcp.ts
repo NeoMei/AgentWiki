@@ -259,3 +259,9 @@ export function createOrchestratorMcpServer(commands: import('./orchestrator-com
   }, async (input) => text(await commands.resolveConflict(input as { jobId: string; conflictId: string; resolved: Record<string, unknown> })));
   return server;
 }
+
+
+export async function serveOrchestratorMcp(commands: import('./orchestrator-commands.js').OrchestratorCommands): Promise<void> {
+  const server = createOrchestratorMcpServer(commands);
+  await server.connect(new StdioServerTransport());
+}

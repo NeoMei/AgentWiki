@@ -35,8 +35,11 @@ import { inspectLocalSource, prepareKnowledgeSync } from './local-knowledge.js';
 import {
   createLocalSyncCommands,
   serveLocalSyncMcp,
+  serveOrchestratorMcp,
   type CommandDependencies,
 } from './mcp.js';
+import { createOrchestratorCommands, type OrchestratorCommands } from './orchestrator-commands.js';
+import { defaultRecipes } from './recipes.js';
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
 
@@ -318,6 +321,19 @@ export async function runDoctor(
   };
 }
 
+async function orchestratorCommands(home: string, connectionId?: string): Promise<OrchestratorCommands> {
+  const dependencies = await connectionDependencies(home, connectionId);
+  return createOrchestratorCommands({
+    home,
+    connection: dependencies.connection,
+    readApiKey: dependencies.readApiKey,
+    client: dependencies.client,
+    adapters: [],
+    recipes: defaultRecipes(),
+    now: () => new Date(),
+  });
+}
+
 export async function runCli(argv = process.argv.slice(2), home = homedir()): Promise<unknown> {
   const [command, ...args] = argv;
   const { values } = parseArgs({
@@ -325,6 +341,7 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
     options: {
       server: { type: 'string' }, code: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
       path: { type: 'string' }, space: { type: 'string' }, 'allow-remote-model': { type: 'boolean', default: false },
+      recipe: { type: 'string' }, job: { type: 'string' }, orchestrator: { type: 'boolean', default: false },
       id: { type: 'string' }, preview: { type: 'string' }, version: { type: 'string' }, confirm: { type: 'boolean', default: false },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
@@ -351,11 +368,38 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
     return commands.sync({ previewId: required(values, 'preview'), confirmed: true });
   }
   if (command === 'upgrade') return upgrade(home, values);
+  if (command === 'start') {
+    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
+    return commands.start({ spaceId: required(values, 'space'), recipeId: required(values, 'recipe'), sourcePaths: [required(values, 'path')] });
+  }
+  if (command === 'work') {
+    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
+    const item = await commands.next({ jobId: required(values, 'job') });
+    if (!item) return { done: true };
+    return item;
+  }
+  if (command === 'preview-job') {
+    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
+    return commands.preview({ jobId: required(values, 'job') });
+  }
+  if (command === 'push-job') {
+    if (values.confirm !== true) throw new Error('Explicit user confirmation is required');
+    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
+    return commands.confirmAndPush({ jobId: required(values, 'job'), confirmed: true });
+  }
+  if (command === 'pull') {
+    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
+    return commands.pull({ spaceId: required(values, 'space') });
+  }
   if (command === 'mcp') {
-    await serveLocalSyncMcp(commands);
+    if (values.orchestrator === true) {
+      await serveOrchestratorMcp(await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined));
+    } else {
+      await serveLocalSyncMcp(commands);
+    }
     return undefined;
   }
-  throw new Error('Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp>');
+  throw new Error('Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp|start|work|preview-job|push-job|pull>');
 }
 
 async function main(): Promise<void> {
