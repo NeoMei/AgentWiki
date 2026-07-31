@@ -10,7 +10,6 @@ import type { LocalSyncConnection } from './config.js';
 import { workspacePaths } from './workspace/layout.js';
 import { stableSpaceId } from './workspace/space.js';
 import { ensureWorkspace } from './workspace/state.js';
-import { applyConflictResolution } from './sync/merge.js';
 
 export interface OrchestratorCommandDeps {
   home: string;
@@ -36,19 +35,18 @@ export interface OrchestratorCommands {
 
 export function createOrchestratorCommands(deps: OrchestratorCommandDeps): OrchestratorCommands {
   const ctx = makeOrchestratorContext(deps.adapters, deps.recipes, deps.now);
-  const spaceId = deps.connection.agentId
-    ? stableSpaceId(deps.connection.serverUrl, deps.connection.agentId)
-    : deps.connection.agentId;
+  const spaceId = stableSpaceId(deps.connection.serverUrl, deps.connection.agentId);
   const paths = workspacePaths(deps.home, spaceId);
-  const syncEngine = new SyncEngine({
-    connection: deps.connection,
-    apiKey: 'placeholder',
-    client: deps.client,
-    home: deps.home,
-    spaceId,
-  });
 
-  void syncEngine;
+  async function syncEngine(spaceId: string): Promise<SyncEngine> {
+    return new SyncEngine({
+      connection: deps.connection,
+      apiKey: await deps.readApiKey(),
+      client: deps.client,
+      home: deps.home,
+      spaceId,
+    });
+  }
 
   return {
     async start(input) {
@@ -69,7 +67,7 @@ export function createOrchestratorCommands(deps: OrchestratorCommandDeps): Orche
       if (!state) throw new Error(`Job ${input.jobId} not found`);
       const item = state.workItems.find((wi) => wi.workItemId === input.workItemId);
       if (!item) throw new Error(`Work item ${input.workItemId} not found`);
-      return item.artifactIds?.map((id) => ({ artifactId: id, summary: 'pending adapter integration' })) ?? [];
+      return item.artifactIds?.map((id) => ({ artifactId: id, summary: 'artifact available when adapter is wired' })) ?? [];
     },
 
     async submitOrganizedItem(input) {
@@ -109,36 +107,17 @@ export function createOrchestratorCommands(deps: OrchestratorCommandDeps): Orche
       if (!input.confirmed) throw new Error('Explicit confirmation is required');
       const state = await loadLatestCheckpoint(paths, input.jobId);
       if (!state) throw new Error(`Job ${input.jobId} not found`);
-      const apiKey = await deps.readApiKey();
-      const engine = new SyncEngine({
-        connection: deps.connection,
-        apiKey,
-        client: deps.client,
-        home: deps.home,
-        spaceId: state.spaceId,
-      });
       const preview = await this.preview({ jobId: input.jobId });
-      return engine.push(preview.bundle);
+      return (await syncEngine(state.spaceId)).push(preview.bundle);
     },
 
     async pull(input) {
-      const apiKey = await deps.readApiKey();
-      const engine = new SyncEngine({
-        connection: deps.connection,
-        apiKey,
-        client: deps.client,
-        home: deps.home,
-        spaceId: input.spaceId,
-      });
-      return engine.pull();
+      return (await syncEngine(input.spaceId)).pull();
     },
 
     async resolveConflict(input) {
       const state = await loadLatestCheckpoint(paths, input.jobId);
       if (!state) throw new Error(`Job ${input.jobId} not found`);
-      void applyConflictResolution;
-      void input.conflictId;
-      void input.resolved;
       return state;
     },
   };
