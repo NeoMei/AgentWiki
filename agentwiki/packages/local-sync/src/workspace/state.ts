@@ -151,6 +151,12 @@ export async function listWikiPages(paths: SpaceWorkspacePaths): Promise<string[
   return entries.filter((name) => name.endsWith('.md')).map((name) => name.slice(0, -'.md'.length));
 }
 
+export async function listWikiMemories(paths: SpaceWorkspacePaths): Promise<string[]> {
+  if (!existsSync(paths.memoriesDir)) return [];
+  const entries = await readSortedNames(paths.memoriesDir);
+  return entries.filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length));
+}
+
 export async function writeWikiMemory(paths: SpaceWorkspacePaths, memoryId: string, data: unknown): Promise<void> {
   const file = join(paths.memoriesDir, `${memoryId}.json`);
   await writeJsonAtomic(file, data);
