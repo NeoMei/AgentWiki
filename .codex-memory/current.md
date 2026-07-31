@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 当前优先目标是完成 Space“添加成员”中的智能体添加流程；完成测试与审查后，再按已确认的 `0.2.0` 四阶段计划实施 Local Knowledge Orchestrator。
+- 完成 P6 Local Knowledge Orchestrator 的 CLI / MCP / Skill 集成；之后进入 P7 验收与 `0.2.0` 发布。
 
 # 范围 / 不做
 
@@ -18,7 +18,7 @@
 - 远端 PostgreSQL 18.4 已在可恢复备份后部署全部迁移，当前 13/13，无待执行迁移。
 - 远端直接运行 `agentwiki-api.service`、`agentwiki-worker.service`、`agentwiki-frontend.service`；三项均为 active，Docker 服务为 inactive。
 - `/api/health` 验证 PostgreSQL 与 Redis；远端业务 smoke 完成注册、Space、Page、Search、Agent Credential/Grant、MCP 只读及审计、Source → Run → Review → Publish → provenance，临时数据已删除。
-- 当前门禁：ESLint、双端类型检查、16 个 Jest 套件 58 项服务端测试、4 项 Vitest 客户端测试、Nest/Vite 生产构建全部通过。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
+- 当前门禁（2026-07-31 17:50）：lint 0、typecheck 0、`pnpm test` 通过（runtime 32/8 skipped、client 121、server 265、local-sync 154）、build 0。P5 冲突合并与 Pull/Push 已提交到 master (`690c93f`)。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
 - AgentWiki 当前支持 Node 24 和 Node 26，默认开发、`.node-version` 与 Docker 基线为 Node 24；pnpm 固定 11.9.0。PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
 - `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
 - 2026-07-27 fresh Node 26 门禁：`test:runtime` 7/7、ESLint 0 error/10 warnings、双端类型检查、Jest 16 suites/58 tests、Vitest 4 files/4 tests、shared/Nest/Vite 生产构建均退出 0；中间任务和源码 TODO 扫描均无匹配。
@@ -34,9 +34,10 @@
 - 该任务当前门禁：服务端 33 suites / 244 tests、客户端 29 files / 120 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
 - 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
 - 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
+- 2026-07-31 P5 完成：`sync/merge.ts` 支持字段级合并、冲突类型（add-add/field/delete-modify/delete-delete）、`ConflictBundle`/`applyConflictResolution`；`sync/sync-engine.ts` 实现 dirty-local 检测、Delta/Snapshot 拉取、原子物化、确认 hash、提交后更新 base；`workspace/state.ts` 新增 `listWikiMemories`。
 - 2026-07-31 GitHub 发布准备将 AgentWiki 主应用、client、server 和 shared 版本从 `0.0.1` 统一提升为 `0.1.0`；已单独发布的 `@neomei/agentwiki-local-sync` 保持 `0.1.1`。
 - 2026-07-31 使用指南“从本地知识创建 Wiki”的 4 个截图链接已从从未入库的 `local-sync-*.png` 改为仓库已有的真实系统截图；新增静态资产存在性回归测试，运行态四个 URL 均返回 200，Playwright 验证全部图片解码成功且无截图 404/控制台错误。
-- 唯一外部阻塞：真实 pre-migration 备份库与 `LEGACY_DATABASE_URL` 未提供，真实历史库 recovery dry-run/apply 未执行；这是部署前外部验证门禁，不构成当前代码缺陷。
+- 剩余任务：P6 CLI/MCP/Skill 新流程集成（旧 OKF 命令保留为 legacy）、P7 跨 Agent 跨机器真实 E2E 与 `0.2.0` 发布；`space-add-agent-member` 浏览器视觉验收仍待 Chrome 插件恢复后补跑。
 
 # 稳定约束
 

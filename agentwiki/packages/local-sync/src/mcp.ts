@@ -217,3 +217,45 @@ export async function serveLocalSyncMcp(commands: LocalSyncCommands): Promise<vo
   const server = createLocalSyncMcpServer(commands);
   await server.connect(new StdioServerTransport());
 }
+
+
+export function createOrchestratorMcpServer(commands: import('./orchestrator-commands.js').OrchestratorCommands): McpServer {
+  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: '0.2.0' });
+  server.registerTool('start_knowledge_job', {
+    description: 'Start a deterministic local knowledge job for a Space and recipe.',
+    inputSchema: { spaceId: z.string().min(1), recipeId: z.string().min(1), sourcePaths: z.array(z.string().min(1)).default([]) },
+  }, async (input) => text(await commands.start(input as { spaceId: string; recipeId: string; sourcePaths: string[] })));
+  server.registerTool('get_next_work_item', {
+    description: 'Get the next pending work item for a job, or null if the phase is complete.',
+    inputSchema: { jobId: z.string().uuid() },
+  }, async (input) => text(await commands.next(input as { jobId: string })));
+  server.registerTool('read_artifacts', {
+    description: 'Read artifact summaries for a work item.',
+    inputSchema: { jobId: z.string().uuid(), workItemId: z.string().min(1) },
+  }, async (input) => text(await commands.readArtifacts(input as { jobId: string; workItemId: string })));
+  server.registerTool('submit_organized_item', {
+    description: 'Submit an organized knowledge item for a work item and advance the job.',
+    inputSchema: { jobId: z.string().uuid(), workItemId: z.string().min(1), item: z.record(z.unknown()) },
+  }, async (input) => text(await commands.submitOrganizedItem(input as { jobId: string; workItemId: string; item: Record<string, unknown> })));
+  server.registerTool('validate_knowledge_job', {
+    description: 'Transition a job to validation phase.',
+    inputSchema: { jobId: z.string().uuid() },
+  }, async (input) => text(await commands.validate(input as { jobId: string })));
+  server.registerTool('preview_knowledge_job', {
+    description: 'Build a preview bundle for a job without uploading.',
+    inputSchema: { jobId: z.string().uuid() },
+  }, async (input) => text(await commands.preview(input as { jobId: string })));
+  server.registerTool('confirm_and_push', {
+    description: 'Upload a confirmed preview bundle to AgentWiki.',
+    inputSchema: { jobId: z.string().uuid(), confirmed: z.literal(true) },
+  }, async (input) => text(await commands.confirmAndPush(input as { jobId: string; confirmed: true })));
+  server.registerTool('pull_space', {
+    description: 'Pull the authoritative Space revision into the local workspace.',
+    inputSchema: { spaceId: z.string().min(1) },
+  }, async (input) => text(await commands.pull(input as { spaceId: string })));
+  server.registerTool('resolve_conflict', {
+    description: 'Resolve a conflict in a merge job.',
+    inputSchema: { jobId: z.string().uuid(), conflictId: z.string().min(1), resolved: z.record(z.unknown()) },
+  }, async (input) => text(await commands.resolveConflict(input as { jobId: string; conflictId: string; resolved: Record<string, unknown> })));
+  return server;
+}
