@@ -22,8 +22,8 @@ export function spaceWorkspacePaths(home: string, spaceId: string): SpaceWorkspa
   return workspacePaths(resolveAgentWikiHome(home), spaceId);
 }
 
-export function stableSpaceId(input: string): string {
-  return stableId('agentwiki:space', input);
+export function stableSpaceId(input: string, salt = ''): string {
+  return stableId('agentwiki:space', input + salt);
 }
 
 export async function initSpaceWorkspace(home: string, spaceId: string): Promise<SpaceWorkspace> {

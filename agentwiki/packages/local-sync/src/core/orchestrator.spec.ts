@@ -317,7 +317,7 @@ describe('orchestrator organize/validate/preview integration', () => {
       status: 'pending',
       maxAttempts: 1,
     });
-    state = state = recordArtifacts(state, [fixtureArtifact()]);
+    state = recordArtifacts(state, [fixtureArtifact()]);
     state = transition(state, 'organize');
     state = planOrganizePhase(state);
     const organizeItem = getNextWorkItem(state)!;

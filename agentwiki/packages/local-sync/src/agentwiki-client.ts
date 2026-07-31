@@ -1,4 +1,6 @@
 import type { LocalSyncConnection } from './config.js';
+import type { KnowledgeBundle } from './protocol/bundle.js';
+import type { Delta } from './protocol/sync.js';
 
 export interface ExchangeResult {
   apiKey: string;
@@ -32,6 +34,41 @@ export interface KnowledgeSyncResult {
   sourceId: string;
   sourceVersionId: string;
   runId: string | null;
+}
+
+export interface RevisionHead {
+  revisionId: string;
+  sequence: number;
+  contentHash: string;
+}
+
+export interface RevisionSnapshot extends RevisionHead {
+  schemaVersion: string;
+  recipeVersion: string;
+  bundle: KnowledgeBundle;
+}
+
+export interface RevisionDelta {
+  fromRevision: string;
+  toRevision: string;
+  revisions: Array<{
+    revisionId: string;
+    sequence: number;
+    contentHash: string;
+    delta: Delta;
+  }>;
+}
+
+export interface KnowledgeSubmissionResult {
+  status: 'pending_review' | 'published' | 'noop' | 'existing';
+  submissionId: string;
+  changeSetId: string | null;
+  currentRevision: string;
+}
+
+export interface StaleBaseError {
+  code: 'STALE_BASE_REVISION';
+  currentRevision: string;
 }
 
 export class AgentWikiClientError extends Error {
@@ -144,6 +181,73 @@ export class AgentWikiClient {
         },
         body: form,
       },
+    );
+  }
+
+
+  async getRevisionHead(connection: LocalSyncConnection, apiKey: string, spaceId: string): Promise<RevisionHead> {
+    return this.send<RevisionHead>(
+      endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/current`),
+      { method: 'GET', headers: authorization(apiKey) },
+    );
+  }
+
+  async getSnapshot(
+    connection: LocalSyncConnection,
+    apiKey: string,
+    spaceId: string,
+    revisionId?: string,
+  ): Promise<RevisionSnapshot> {
+    const path = revisionId
+      ? `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/snapshot/${encodeURIComponent(revisionId)}`
+      : `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/snapshot`;
+    return this.send<RevisionSnapshot>(endpoint(connection.serverUrl, path), { method: 'GET', headers: authorization(apiKey) });
+  }
+
+  async getDelta(
+    connection: LocalSyncConnection,
+    apiKey: string,
+    spaceId: string,
+    fromRevisionId: string,
+  ): Promise<RevisionDelta> {
+    return this.send<RevisionDelta>(
+      endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/delta?from=${encodeURIComponent(fromRevisionId)}`),
+      { method: 'GET', headers: authorization(apiKey) },
+    );
+  }
+
+  async submitKnowledge(
+    connection: LocalSyncConnection,
+    apiKey: string,
+    spaceId: string,
+    bundle: KnowledgeBundle,
+    idempotencyKey: string,
+    confirmationHash: string,
+  ): Promise<KnowledgeSubmissionResult> {
+    return this.send<KnowledgeSubmissionResult>(
+      endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-submissions`),
+      {
+        method: 'POST',
+        headers: {
+          ...authorization(apiKey),
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+          'X-AgentWiki-Confirmation-Hash': confirmationHash,
+        },
+        body: JSON.stringify(bundle),
+      },
+    );
+  }
+
+  async getSubmission(
+    connection: LocalSyncConnection,
+    apiKey: string,
+    spaceId: string,
+    submissionId: string,
+  ): Promise<KnowledgeSubmissionResult> {
+    return this.send<KnowledgeSubmissionResult>(
+      endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-submissions/${encodeURIComponent(submissionId)}`),
+      { method: 'GET', headers: authorization(apiKey) },
     );
   }
 
