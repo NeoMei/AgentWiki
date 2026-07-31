@@ -1,14 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type {
-  AdapterManifest,
-  ManagedRuntimeDescriptor,
-  SourceAdapter,
-} from '../protocol/adapter.js';
+import type { ManagedRuntimeDescriptor, SourceAdapter } from '../protocol/adapter.js';
 import { CodebaseMemoryAdapter } from './codebase-memory.js';
 import { MarkitdownAdapter } from './markitdown.js';
 
@@ -68,21 +64,27 @@ const MANAGED_ADAPTERS: ManagedAdapter[] = [
   },
 ];
 
+export type ExecFn = (
+  file: string,
+  args?: readonly string[] | null,
+  options?: { cwd?: string; env?: Record<string, string | undefined> },
+) => Promise<{ stdout: string; stderr: string }>;
+
 export interface AdapterManagerOptions {
   runtimeHome?: string;
-  exec?: typeof execFileAsync;
+  exec?: ExecFn;
   managedAdapters?: ManagedAdapter[];
 }
 
 export class AdapterManager {
   private readonly runtimeHome: string;
-  private readonly exec: typeof execFileAsync;
+  private readonly exec: ExecFn;
   private readonly managedAdapters: Map<string, ManagedAdapter>;
   private readonly statusCache = new Map<string, RuntimeStatus>();
 
   constructor(options: AdapterManagerOptions = {}) {
     this.runtimeHome = options.runtimeHome ?? DEFAULT_RUNTIME_HOME;
-    this.exec = options.exec ?? execFileAsync;
+    this.exec = options.exec ?? (execFileAsync as unknown as ExecFn);
     this.managedAdapters = new Map(
       (options.managedAdapters ?? MANAGED_ADAPTERS).map((a) => [a.adapterId, a]),
     );
@@ -101,7 +103,7 @@ export class AdapterManager {
   }
 
   private async readRuntimeManifest(adapterId: string): Promise<RuntimeStatus> {
-    const dir = this.runtimeDir(adapterId);
+    this.runtimeDir(adapterId); // ensure side-effect free path computation
     try {
       const raw = await readFile(this.manifestPath(adapterId), 'utf8');
       const parsed = JSON.parse(raw) as {
@@ -166,7 +168,7 @@ export class AdapterManager {
     }
 
     try {
-      await this.exec(command[0], command.slice(1), {
+      await this.exec(command[0], command.slice(1) ?? null, {
         cwd: tmpDir,
         env: {
           ...process.env,

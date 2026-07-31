@@ -64,6 +64,7 @@ export const JobStateSchema = z.object({
   recipeId: z.string().min(1),
   recipeVersion: z.string().min(1),
   phase: JobPhaseSchema,
+  baseRevision: z.string().min(1).default('0'),
   adapterIds: z.array(z.string().min(1)),
   sourcePaths: z.array(z.string().min(1)),
   createdAt: z.string().datetime(),

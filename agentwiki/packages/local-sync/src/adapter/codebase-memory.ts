@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { stat } from 'node:fs/promises';
+// stat is not currently used in this adapter skeleton.
 import { isAbsolute, join } from 'node:path';
 import type { AdapterInput, AdapterManifest, SourceAdapter, SourceDescriptor } from '../protocol/adapter.js';
 import { ArtifactBatch } from '../protocol/adapter.js';

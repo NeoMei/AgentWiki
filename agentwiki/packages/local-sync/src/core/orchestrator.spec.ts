@@ -20,8 +20,18 @@ import {
   transition,
   transitionOnFailure,
 } from './orchestrator.js';
+import {
+  planOrganizePhase,
+  planValidatePhase,
+  planPreviewPhase,
+  recordArtifacts,
+  submitOrganizedItems,
+  completeValidateWorkItem,
+  buildPreview,
+} from './orchestrator-organize.js';
 import { workspacePaths } from '../workspace/index.js';
-import type { Recipe, SourceAdapter } from '../protocol/index.js';
+import type { Recipe, SourceArtifact, SourceAdapter, WikiPage } from '../protocol/index.js';
+import { pageId } from '../utils/id.js';
 
 const testAdapter: SourceAdapter = {
   manifest: () => ({
@@ -249,5 +259,148 @@ describe('orchestrator phase advancement', () => {
     state = failWorkItem(state, next.workItemId, 'boom');
     state = transitionOnFailure(state);
     expect(state.phase).toBe('failed');
+  });
+});
+
+function fixtureArtifact(overrides: Partial<SourceArtifact> = {}): SourceArtifact {
+  return {
+    artifactId: 'artifact-1',
+    adapterId: 'test',
+    adapterVersion: '1.0.0',
+    sourceId: 'source-1',
+    logicalKey: 'core',
+    contentHash: 'a'.repeat(64),
+    updatedAt: '2026-07-30T00:00:00.000Z',
+    kind: 'document',
+    content: { title: 'Core', body: 'Body' },
+    evidence: [{ evidenceId: 'e1', sourceUri: 'src/core.ts', sourceHash: 'a'.repeat(64) }],
+    sensitivity: 'shareable',
+    ...overrides,
+  } as SourceArtifact;
+}
+
+const organizeRecipe: Recipe = {
+  ...multiPhaseRecipe,
+  recipeId: 'code-wiki@1',
+  steps: [
+    { stepId: 'collect', phase: 'collect', description: 'Collect artifacts', retryCount: 0 },
+    { stepId: 'organize', phase: 'organize', description: 'Organize pages', retryCount: 0 },
+    { stepId: 'validate', phase: 'validate', description: 'Validate', retryCount: 0 },
+    { stepId: 'preview', phase: 'preview', description: 'Preview', retryCount: 0 },
+  ],
+};
+
+describe('orchestrator organize/validate/preview integration', () => {
+  it('plans organize work items after artifacts are collected', () => {
+    const ctx = makeOrchestratorContext([testAdapter], [organizeRecipe]);
+    let state = startJob(ctx, 'job-1', 'space-1', 'code-wiki@1', ['/tmp/docs']);
+    state = transition(state, 'collect');
+    state = appendWorkItem(state, {
+      type: 'collect-artifacts',
+      instructions: 'Collect',
+      status: 'pending',
+      maxAttempts: 1,
+    });
+    state = recordArtifacts(state, [fixtureArtifact()]);
+    state = transition(state, 'organize');
+    state = planOrganizePhase(state);
+    expect(state.workItems.some((wi) => wi.phase === 'organize' && wi.type === 'organize-page')).toBe(true);
+  });
+
+  it('validates organized items and reaches preview', () => {
+    const ctx = makeOrchestratorContext([testAdapter], [organizeRecipe]);
+    let state = startJob(ctx, 'job-1', 'space-1', 'code-wiki@1', ['/tmp/docs']);
+    state = transition(state, 'collect');
+    state = appendWorkItem(state, {
+      type: 'collect-artifacts',
+      instructions: 'Collect',
+      status: 'pending',
+      maxAttempts: 1,
+    });
+    state = state = recordArtifacts(state, [fixtureArtifact()]);
+    state = transition(state, 'organize');
+    state = planOrganizePhase(state);
+    const organizeItem = getNextWorkItem(state)!;
+    const spaceId = 'space-1';
+    const pageIdValue = pageId(spaceId, 'core');
+    state = submitOrganizedItems(state, organizeItem.workItemId, [
+      {
+        kind: 'page',
+        value: {
+          pageId: pageIdValue,
+          spaceId,
+          path: 'docs/core.md',
+          title: 'Core',
+          body: 'Body',
+          order: 0,
+          artifactIds: ['artifact-1'],
+          contentHash: 'a'.repeat(64),
+          updatedAt: '2026-07-30T00:00:00.000Z',
+        },
+      },
+    ]);
+    state = transition(state, 'validate');
+    state = planValidatePhase(state);
+    const validateItem = getNextWorkItem(state)!;
+    const { state: validated, issues } = completeValidateWorkItem(ctx, state, validateItem.workItemId, [fixtureArtifact()]);
+    expect(issues).toHaveLength(0);
+    state = transition(validated, 'preview');
+    state = planPreviewPhase(state);
+    const organizedItems = state.workItems
+      .filter((wi) => wi.phase === 'organize' && wi.status === 'completed')
+      .flatMap((wi) => (wi.result?.items as Array<{ kind: 'page'; value: WikiPage }> | undefined) ?? []);
+    const page = organizedItems[0].value as WikiPage;
+    const preview = buildPreview({
+      schemaVersion: 'knowledge-bundle@1',
+      recipeVersion: 'code-wiki@1',
+      spaceId,
+      baseRevision: '0',
+      pages: [page],
+      memories: [],
+      relations: [],
+      provenance: [{ itemId: page.pageId, artifactIds: ['artifact-1'], sensitivity: 'shareable' }],
+      deletions: [],
+    }, issues);
+    expect(preview.pageCount).toBe(1);
+    expect(preview.issues).toHaveLength(0);
+  });
+
+  it('fails validation when secrets are present', () => {
+    const ctx = makeOrchestratorContext([testAdapter], [organizeRecipe]);
+    let state = startJob(ctx, 'job-1', 'space-1', 'code-wiki@1', ['/tmp/docs']);
+    state = transition(state, 'collect');
+    state = appendWorkItem(state, {
+      type: 'collect-artifacts',
+      instructions: 'Collect',
+      status: 'pending',
+      maxAttempts: 1,
+    });
+    state = recordArtifacts(state, [fixtureArtifact({ content: { title: 'Core', body: 'api_key=12345678' } })]);
+    state = transition(state, 'organize');
+    state = planOrganizePhase(state);
+    const organizeItem = getNextWorkItem(state)!;
+    const spaceId = 'space-1';
+    const pageIdValue = pageId(spaceId, 'core');
+    state = submitOrganizedItems(state, organizeItem.workItemId, [
+      {
+        kind: 'page',
+        value: {
+          pageId: pageIdValue,
+          spaceId,
+          path: 'docs/core.md',
+          title: 'Core',
+          body: 'api_key=12345678',
+          order: 0,
+          artifactIds: ['artifact-1'],
+          contentHash: 'a'.repeat(64),
+          updatedAt: '2026-07-30T00:00:00.000Z',
+        },
+      },
+    ]);
+    state = transition(state, 'validate');
+    state = planValidatePhase(state);
+    const validateItem = getNextWorkItem(state)!;
+    const { issues } = completeValidateWorkItem(ctx, state, validateItem.workItemId, [fixtureArtifact({ content: { title: 'Core', body: 'api_key=12345678' } })]);
+    expect(issues).toContainEqual(expect.objectContaining({ rule: 'sensitive.secret' }));
   });
 });

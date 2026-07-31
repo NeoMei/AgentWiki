@@ -2,15 +2,15 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AdapterManager, AdapterRuntimeError, RuntimeStatus } from './manager.js';
-import type { ManagedAdapter } from './manager.js';
-import type { SourceAdapter } from '../protocol/adapter.js';
+import { AdapterManager, AdapterRuntimeError } from './manager.js';
+import type { ManagedAdapter, RuntimeStatus, ExecFn } from './manager.js';
 
 function fakeExec(
   records: Record<string, { stdout: string; stderr?: string }>,
-): any {
-  return async (file: string, args: string[] = []) => {
-    const key = [file, ...args].join(' ');
+): ExecFn {
+  return async (file: string, args?: readonly string[] | null) => {
+    const argsArr = args ?? [];
+    const key = [file, ...argsArr].join(' ');
     const record = records[key];
     if (!record) {
       const err = new Error(`Command not found in fake exec: ${key}`);
@@ -123,7 +123,7 @@ describe('AdapterManager', () => {
     const manager = new AdapterManager({
       runtimeHome: tempHome,
       managedAdapters: [adapter],
-      exec: (async () => ({ stdout: '', stderr: '' })) as any,
+      exec: async () => ({ stdout: '', stderr: '' }),
     });
 
     const dir = join(tempHome, 'stub', 'stub@1.0.0');

@@ -145,7 +145,7 @@ async function listSupportedFiles(
   limits?: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number },
 ): Promise<string[]> {
   const files: string[] = [];
-  let bytes = 0;
+  const bytes = { value: 0 };
   await walk(sourcePath, '', files, limits, bytes);
   return files;
 }
@@ -155,13 +155,13 @@ async function walk(
   prefix: string,
   files: string[],
   limits: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number } | undefined,
-  bytesRef: number,
+  bytesRef: { value: number },
 ): Promise<number> {
   const dir = prefix ? resolve(root, prefix) : root;
   const names = await readdir(dir);
   names.sort();
 
-  let bytes = bytesRef;
+  let bytes = bytesRef.value;
   for (const name of names) {
     if (name.startsWith('.')) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
@@ -169,7 +169,7 @@ async function walk(
     const stats = await stat(fullPath);
 
     if (stats.isDirectory()) {
-      bytes = await walk(root, relativePath, files, limits, bytes);
+      bytes = await walk(root, relativePath, files, limits, { value: bytes });
     } else if (stats.isFile() && SUPPORTED_EXTENSIONS.has(extname(name).toLowerCase())) {
       if (limits?.maxFileBytes !== undefined && stats.size > limits.maxFileBytes) {
         continue;
@@ -180,11 +180,13 @@ async function walk(
       files.push(fullPath);
       bytes += stats.size;
       if (limits?.maxFiles !== undefined && files.length >= limits.maxFiles) {
-        return bytes;
+        bytesRef.value = bytes;
+  return bytesRef.value;
       }
     }
   }
-  return bytes;
+  bytesRef.value = bytes;
+  return bytesRef.value;
 }
 
 async function computeDirectoryHash(sourcePath: string, files: string[]): Promise<string> {

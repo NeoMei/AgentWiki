@@ -46,6 +46,14 @@ export const KnowledgeRelationSchema = z.object({
 
 export type KnowledgeRelation = z.infer<typeof KnowledgeRelationSchema>;
 
+export const BundleProvenanceSchema = z.object({
+  itemId: z.string().min(1),
+  artifactIds: z.array(z.string().min(1)).min(1),
+  sensitivity: z.enum(['shareable', 'review-required', 'local-only']),
+}).strict();
+
+export type BundleProvenance = z.infer<typeof BundleProvenanceSchema>;
+
 export const ProvenanceRecordSchema = z.object({
   provenanceId: z.string().min(1),
   artifactId: z.string().min(1),
@@ -78,8 +86,18 @@ export const KnowledgeBundleSchema = z.object({
   pages: z.array(WikiPageSchema),
   memories: z.array(SharedMemorySchema),
   relations: z.array(KnowledgeRelationSchema),
-  provenance: z.array(ProvenanceRecordSchema),
+  provenance: z.array(BundleProvenanceSchema),
   deletions: z.array(DeletionProposalSchema),
+}).strict().superRefine((bundle, context) => {
+  for (const record of bundle.provenance) {
+    if (record.sensitivity === 'local-only') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'local-only provenance cannot enter a KnowledgeBundle',
+        path: ['provenance'],
+      });
+    }
+  }
 });
 
 export type KnowledgeBundle = z.infer<typeof KnowledgeBundleSchema>;
@@ -94,6 +112,10 @@ export function assertSharedMemory(value: unknown): SharedMemory {
 
 export function assertKnowledgeRelation(value: unknown): KnowledgeRelation {
   return KnowledgeRelationSchema.parse(value);
+}
+
+export function assertBundleProvenance(value: unknown): BundleProvenance {
+  return BundleProvenanceSchema.parse(value);
 }
 
 export function assertProvenanceRecord(value: unknown): ProvenanceRecord {

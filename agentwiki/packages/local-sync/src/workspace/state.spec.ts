@@ -50,6 +50,7 @@ describe('workspace state persistence', () => {
       recipeId: 'recipe-1',
       recipeVersion: '1.0',
       phase: 'discover',
+      baseRevision: '0',
       adapterIds: ['a'],
       sourcePaths: ['/tmp'],
       createdAt: '2024-01-01T00:00:00Z',
