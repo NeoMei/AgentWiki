@@ -137,6 +137,22 @@ The generated installation code is single-use and expires after 10 minutes. It i
 a reusable API key. The local package must first be published to npm; until then the
 generated command is intentionally not a usable public installation path.
 
+### Example local workflow
+
+```bash
+# Verify the connection, local adapters, and permissions.
+agentwiki-local-sync doctor
+
+# Inspect a local folder without uploading anything.
+agentwiki-local-sync inspect --path /absolute/path/to/source
+
+# Prepare a preview. This runs locally and does not upload data.
+agentwiki-local-sync scan --path /absolute/path/to/source --space <space-id>
+
+# Review the returned preview, then upload it only after explicit confirmation.
+agentwiki-local-sync sync --preview <preview-id> --confirm
+```
+
 See the in-app [Usage Guide](/guide) for the complete guided flow and screenshots.
 
 ### Data and security boundary
@@ -147,10 +163,7 @@ See the in-app [Usage Guide](/guide) for the complete guided flow and screenshot
 - **Sent only after confirmation:** the prepared knowledge envelope, its relative paths
   and provenance, and the target Space selection. `scan` and preview generation do not
   upload data; `sync --confirm` is the upload step.
-- **Remote model boundary:** OpenWiki provider settings are inspected before preparation.
-  A non-local provider is disclosed and requires explicit consent before local content
-  can be processed through it. Do not include secrets in source material or in a
-  codebase-memory summary.
+- **Remote model boundary:** Local Agent may use its own model provider during preparation. A non-local provider is disclosed and requires explicit consent before local content can be processed through it. Do not include secrets in source material or in a codebase-memory summary.
 
 ### Supported Agents
 

@@ -96,7 +96,9 @@ function normalizeServerUrl(serverUrl: string): string {
 }
 
 function endpoint(serverUrl: string, path: string): string {
-  return `${normalizeServerUrl(serverUrl)}${path}`;
+  const base = normalizeServerUrl(serverUrl);
+  const baseWithApi = base.endsWith('/api') ? base : `${base}/api`;
+  return path.startsWith('/api') ? `${baseWithApi}${path.slice(4)}` : `${baseWithApi}${path}`;
 }
 
 function authorization(apiKey: string): Record<string, string> {
@@ -152,10 +154,17 @@ export class AgentWikiClient {
     spaceId: string,
     sourceKey: string,
   ): Promise<KnowledgeSyncState> {
-    return this.send<KnowledgeSyncState>(
-      endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-syncs/${encodeURIComponent(sourceKey)}`),
-      { method: 'GET', headers: authorization(apiKey) },
-    );
+    try {
+      return await this.send<KnowledgeSyncState>(
+        endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-syncs/${encodeURIComponent(sourceKey)}`),
+        { method: 'GET', headers: authorization(apiKey) },
+      );
+    } catch (error) {
+      if (error instanceof AgentWikiClientError && error.status === 404) {
+        return { exists: false, sourceId: null, sourceVersionId: null, syncedAt: null, documents: [] };
+      }
+      throw error;
+    }
   }
 
   async upload(

@@ -1,7 +1,7 @@
 {
   "name": "@neomei/agentwiki-local-sync",
   "version": "0.2.0",
-  "description": "Local OpenWiki and AgentWiki synchronization for coding agents",
+  "description": "Local knowledge adapter and AgentWiki synchronization for coding agents",
   "type": "module",
   "bin": {
     "agentwiki-local-sync": "./dist/cli.js"

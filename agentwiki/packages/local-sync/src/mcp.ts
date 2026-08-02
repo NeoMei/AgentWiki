@@ -194,7 +194,7 @@ export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer
     inputSchema: {},
   }, async () => text(await commands.status()));
   server.registerTool('inspect_local_source', {
-    description: 'Inspect a local source directory without invoking OpenWiki or uploading data.',
+    description: 'Inspect a local source directory without uploading data or invoking remote model providers.',
     inputSchema: { path: z.string().min(1) },
   }, async (input) => text(await commands.inspect(input)));
   server.registerTool('prepare_knowledge_sync', {

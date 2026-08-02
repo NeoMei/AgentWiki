@@ -130,12 +130,6 @@ interface ExtractedDocument {
   content: string;
 }
 
-interface CodebaseMemorySummary {
-  files?: Array<{ path: string; summary?: string }>;
-  summary?: string;
-  [key: string]: unknown;
-}
-
 /**
  * Inspects a local source and available command line dependencies without uploading data.
  *
@@ -420,32 +414,78 @@ async function summarizeCode(
 ): Promise<string> {
   const codeFiles = files.filter((file) => CODE_EXTENSIONS.has(extensionOf(file.relativePath)));
   if (codeFiles.length === 0) return '';
+  const fallbackProject = deriveProjectName(root);
   try {
-    const result = await run('codebase-memory-mcp', ['--json', 'summary', '--root', root], { cwd: root, env: cleanModelEnvironment() });
-    if (result.error || result.status !== 0) {
-      skippedFiles.push({ path: '.', reason: `codebase-memory-mcp summary failed: ${commandOutput(result.stderr) || result.status}` });
+    const indexResult = await run('codebase-memory-mcp', ['cli', 'index_repository', '--repo_path', root], { cwd: root, env: cleanModelEnvironment() });
+    if (indexResult.error || indexResult.status !== 0) {
+      skippedFiles.push({ path: '.', reason: `codebase-memory-mcp index failed: ${commandOutput(indexResult.stderr) || indexResult.status}` });
       return '';
     }
-    const output = commandOutput(result.stdout);
-    if (!output.trim()) return '';
-    let parsed: CodebaseMemorySummary;
-    try {
-      parsed = JSON.parse(output) as CodebaseMemorySummary;
-    } catch {
-      return output.slice(0, MAX_ARCHITECTURE_BYTES);
+    const indexOutput = commandOutput(indexResult.stdout);
+    const indexParsed = safeJsonParse<Record<string, unknown>>(indexOutput) ?? {};
+    const project = typeof indexParsed.project === 'string' ? indexParsed.project : fallbackProject;
+    const archResult = await run('codebase-memory-mcp', ['cli', 'get_architecture', '--project', project], { cwd: root, env: cleanModelEnvironment() });
+    if (archResult.error || archResult.status !== 0) {
+      skippedFiles.push({ path: '.', reason: `codebase-memory-mcp architecture failed: ${commandOutput(archResult.stderr) || archResult.status}` });
+      return '';
     }
-    if (parsed.summary) return parsed.summary;
-    if (Array.isArray(parsed.files)) {
-      const parts = parsed.files
-        .filter((entry) => entry && typeof entry.path === 'string')
-        .map((entry) => `## ${entry.path}\n${entry.summary ?? ''}`);
-      return parts.join('\n\n');
-    }
-    return output.slice(0, MAX_ARCHITECTURE_BYTES);
+    const archOutput = commandOutput(archResult.stdout);
+    if (!archOutput.trim()) return '';
+    const archParsed = safeJsonParse<Record<string, unknown>>(archOutput);
+    if (!archParsed) return archOutput.slice(0, MAX_ARCHITECTURE_BYTES);
+    return formatArchitecture(archParsed).slice(0, MAX_ARCHITECTURE_BYTES);
   } catch (error: unknown) {
     skippedFiles.push({ path: '.', reason: errorMessage(error) });
     return '';
   }
+}
+
+function deriveProjectName(root: string): string {
+  const normalized = root.replace(/\/$/, '');
+  const base = normalized.split('/').pop() ?? 'project';
+  return `private-${base}`;
+}
+
+function safeJsonParse<T>(value: string): T | undefined {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatArchitecture(parsed: Record<string, unknown>): string {
+  if (typeof parsed.summary === 'string' && parsed.summary) return parsed.summary;
+  const lines: string[] = ['# Codebase architecture'];
+  const languages = Array.isArray(parsed.languages) ? parsed.languages : [];
+  if (languages.length) {
+    lines.push('## Languages');
+    for (const lang of languages) {
+      if (lang && typeof lang.language === 'string') lines.push(`- ${lang.language}${typeof lang.file_count === 'number' ? ` (${lang.file_count} files)` : ''}`);
+    }
+  }
+  const fileTree = Array.isArray(parsed.file_tree) ? parsed.file_tree : [];
+  if (fileTree.length) {
+    lines.push('## Files');
+    for (const entry of fileTree) {
+      if (entry && typeof entry.path === 'string') lines.push(`- ${entry.path}`);
+    }
+  }
+  const nodeLabels = Array.isArray(parsed.node_labels) ? parsed.node_labels : [];
+  if (nodeLabels.length) {
+    lines.push('## Graph overview');
+    for (const label of nodeLabels) {
+      if (label && typeof label.label === 'string') lines.push(`- ${label.label}${typeof label.count === 'number' ? `: ${label.count}` : ''}`);
+    }
+  }
+  const edgeTypes = Array.isArray(parsed.edge_types) ? parsed.edge_types : [];
+  if (edgeTypes.length) {
+    lines.push('## Relationships');
+    for (const edge of edgeTypes) {
+      if (edge && typeof edge.type === 'string') lines.push(`- ${edge.type}${typeof edge.count === 'number' ? `: ${edge.count}` : ''}`);
+    }
+  }
+  return lines.join('\n\n');
 }
 
 async function safeSourcePath(root: string, file: SourceFile): Promise<string> {

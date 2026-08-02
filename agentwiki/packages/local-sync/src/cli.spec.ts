@@ -19,7 +19,7 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 function envelopeBytes(content = '# Generated knowledge\n'): Uint8Array {
   return new TextEncoder().encode(JSON.stringify({
     okfVersion: '0.1',
-    documents: [{ path: 'openwiki/project.md', content, contentHash: 'document-hash' }],
+    documents: [{ path: 'agentwiki/project.md', content, contentHash: 'document-hash' }],
   }));
 }
 
@@ -49,7 +49,7 @@ function dependencies(overrides: Partial<CommandDependencies> = {}): {
     client: client as never,
     inspectLocalSource: vi.fn().mockResolvedValue({ displayName: 'fixture', provider: { provider: 'ollama', local: true } }) as never,
     prepareKnowledgeSync: vi.fn().mockResolvedValue({
-      envelope: { name: 'fixture', documents: [{ path: 'openwiki/project.md', contentHash: 'document-hash' }] },
+      envelope: { name: 'fixture', documents: [{ path: 'agentwiki/project.md', contentHash: 'document-hash' }] },
       envelopeBytes: envelopeBytes(), sourceKey: 'source-key', processedFiles: 1, skippedFiles: [], provider: { provider: 'ollama', local: true },
     }) as never,
     savePreview: vi.fn(async (_home, preview) => { previews.set(preview.id, preview); }) as never,
@@ -220,7 +220,7 @@ describe('local sync command orchestration', () => {
       .rejects.toThrow('Preview ID must be a UUID');
   });
 
- it('doctor checks required tool availability without invoking OpenWiki or scanning paths', async () => {
+ it('doctor checks required tool availability without invoking remote model providers or scanning paths', async () => {
     const home = await temporaryDirectory('agentwiki-doctor-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',

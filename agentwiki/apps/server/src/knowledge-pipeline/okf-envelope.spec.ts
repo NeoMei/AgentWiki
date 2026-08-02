@@ -7,7 +7,7 @@ const valid = () => ({
   sourceKey: 'repo-7f4e',
   name: 'Project Docs',
   kind: 'code',
-  producer: { name: 'openwiki', version: '0.2.0' },
+  producer: { name: 'agentwiki-local-sync', version: '0.2.0' },
   documents: [{
     path: 'architecture/overview.md',
     content: '# Architecture\nSafe content',

@@ -88,15 +88,19 @@ async function writeExecutable(path, contents) {
 async function createFakeTools(home, bin) {
   await mkdir(bin, { recursive: true, mode: 0o700 });
   await mkdir(home, { recursive: true, mode: 0o700 });
-  await writeExecutable(join(bin, 'openwiki'), `#!/usr/bin/env node
-import { mkdir, writeFile } from 'node:fs/promises';
-if (process.argv.includes('--version')) { process.stdout.write('openwiki 0.2.0\\n'); process.exit(0); }
-await mkdir('openwiki', { recursive: true });
-await writeFile('openwiki/architecture.md', '# Architecture\\n[Guide](guide.md)\\n');
-await writeFile('openwiki/guide.md', '# Guide\\nDeterministic local sync verification.\\n');
+  await writeExecutable(join(bin, 'markitdown'), "#!/usr/bin/env node\nprocess.stdout.write('markitdown 0.1.0\n');\n");
+  await writeExecutable(join(bin, 'git'), "#!/usr/bin/env node\nprocess.stdout.write('git version 2.50.1\n');\n");
+  await writeExecutable(join(bin, 'codebase-memory-mcp'), `#!/usr/bin/env node
+import { writeFile, mkdir } from 'node:fs/promises';
+const args = process.argv.slice(2);
+if (args[0] === 'cli' && args[1] === 'index_repository') {
+  console.log(JSON.stringify({ project: 'private-test-source', status: 'indexed' }));
+} else if (args[0] === 'cli' && args[1] === 'get_architecture') {
+  console.log(JSON.stringify({ summary: 'A tiny test project with two files.' }));
+} else {
+  process.stdout.write('codebase-memory-mcp 0.9.0\n');
+}
 `);
-  await writeExecutable(join(bin, 'markitdown'), "#!/usr/bin/env node\nprocess.stdout.write('markitdown 0.1.0\\n');\n");
-  await writeExecutable(join(bin, 'codebase-memory-mcp'), "#!/usr/bin/env node\nprocess.stdout.write('codebase-memory-mcp 1.0.0\\n');\n");
   await writeExecutable(join(bin, 'codex'), `#!/usr/bin/env node
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -110,7 +114,6 @@ if (args[1] === 'add') {
 if (args[1] === 'get' || args[1] === 'add' || args[1] === 'remove') process.exit(0);
 process.exit(1);
 `);
-  await writeFile(join(home, '.openwiki-env-note'), 'The verifier uses a local deterministic OpenWiki stub.\n', { mode: 0o600 });
 }
 
 async function runLocalSyncCli(home, environment, args) {
@@ -150,8 +153,6 @@ export async function runVerifier(environment = process.env) {
     ...environment,
     HOME: home,
     PATH: `${bin}:${environment.PATH ?? process.env.PATH ?? ''}`,
-    OPENWIKI_PROVIDER: 'ollama',
-    OLLAMA_HOST: 'http://127.0.0.1:11434',
   };
   const fixture = { token: '', userId: '', spaceId: '', agentId: '', installationId: '', credentialId: '' };
 

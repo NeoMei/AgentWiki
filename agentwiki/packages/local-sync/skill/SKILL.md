@@ -1,6 +1,6 @@
 ---
 name: agentwiki-local-sync
-description: Synchronize locally-organized knowledge to AgentWiki through a deterministic orchestrator. No OpenWiki init, remote model key, or daemon is required.
+description: Synchronize locally-organized knowledge to AgentWiki through a deterministic orchestrator. No separate wiki tool init, remote model key, or daemon is required.
 license: MIT
 compatibility: codex, claude-code, opencode
 ---
@@ -20,4 +20,4 @@ Use the `agentwiki-local-sync` MCP tools for local knowledge synchronization.
 9. Only after a clear yes in the current conversation, call `confirm_and_push` with `confirmed: true`.
 10. To refresh the local workspace from the server, call `pull_space`. If pull reports conflicts, use `resolve_conflict` with a merge proposal before pushing.
 
-Never approve a ChangeSet on the Agent's behalf, run OpenWiki interactively, expose API keys, or upload raw source files or binary documents.
+Never approve a ChangeSet on the Agent's behalf, run a separate local wiki tool interactively, expose API keys, or upload raw source files or binary documents.

@@ -21,6 +21,15 @@ describe('AgentService grant scope validation', () => {
     expect(() => service.normalizeCredentialScopes([])).toThrow(BadRequestException);
     expect(() => service.normalizeCredentialScopes(['review:decide'])).toThrow(BadRequestException);
   });
+  it('expands a wildcard credential scope to all valid scopes', () => {
+    const full = service.normalizeCredentialScopes(['*']);
+    expect(full).toContain('pages:read');
+    expect(full).toContain('pages:write');
+    expect(full).toContain('spaces:read');
+    expect(full).toContain('review:auto-publish');
+    expect(full.length).toBeGreaterThan(5);
+  });
+
 
   it('uses the shared scope normalizer when creating ordinary credentials', async () => {
     prisma.agent.findUnique.mockResolvedValue({
@@ -111,6 +120,17 @@ describe('AgentService grant scope validation', () => {
       update: { role: 'editor', scopes: ['pages:read', 'pages:write'] },
     }));
   });
+  it('expands a wildcard grant scope to all valid scopes', async () => {
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+    await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'editor', ['*']);
+    expect(prisma.agentGrant.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ scopes: expect.arrayContaining(['pages:read', 'pages:write']) }),
+    }));
+  });
+
 
   it('rejects a missing or revoked agent before persisting a new grant', async () => {
     prisma.agent.findUnique.mockResolvedValueOnce(null);

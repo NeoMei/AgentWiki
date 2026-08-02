@@ -110,11 +110,17 @@ export class AgentService {
   }
 
   normalizeCredentialScopes(scopes: string[]): string[] {
-    const normalized = Array.from(new Set(scopes));
-    if (normalized.length === 0 || normalized.some((scope) => !VALID_SCOPES.has(scope))) {
+    const input = Array.from(new Set(scopes));
+    if (input.length === 0) {
       throw new BadRequestException('Credential contains an invalid or empty scope list');
     }
-    return normalized;
+    if (input.includes('*')) {
+      return Array.from(VALID_SCOPES);
+    }
+    if (input.some((scope) => !VALID_SCOPES.has(scope))) {
+      throw new BadRequestException('Credential contains an invalid or empty scope list');
+    }
+    return input;
   }
 
   async listCredentials(ownerId: string, agentId: string) {
@@ -175,7 +181,10 @@ export class AgentService {
       }
     }
 
-    const normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
+    let normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
+    if (normalizedScopes?.includes('*')) {
+      normalizedScopes = Array.from(VALID_SCOPES);
+    }
     if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
       throw new BadRequestException('Grant contains an invalid scope');
     }
