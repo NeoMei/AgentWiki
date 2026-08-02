@@ -10,6 +10,17 @@
 - 不恢复公开 Agent 注册、任意服务器本地路径摄取、旧 DocumentGeneration 双轨、Agent 直接写正式知识或 Agent 自批。
 - 不宣称未经验证的四层记忆或时间衰减。
 
+
+- 2026-08-02 完成最终 spec 审计与代码审查：lint 0、typecheck 0、`pnpm test` 通过（server 36 suites/265 tests、client 29 files/121 tests、local-sync 22 files/159 tests）、`pnpm build` 通过。发现并修复 `orchestrator-commands` 三处 bug：`start` 未根据 recipe 生成初始工作项、`submitOrganizedItem` 未把 artifact 持久化到 checkpoint、`loadLatestCheckpoint` 字典序排序导致读取最旧 checkpoint；已提交并推送到 master（`8a16f7a`）。
+- 审计确认 `space-add-agent-member-design.md` 已完整实现并通过测试；`zero-config-local-knowledge-orchestrator-design.md` 的本地协议、workspace、状态机、Adapter、Sync Engine、客户端 UI、安装指令、SKILL.md 已落地。
+- P7 / 0.2.0 剩余三个关键缺口（非 regression，是尚未闭环的新功能）：(1) `review.service.ts` 的 `publish` 不写入 `spaceKnowledgeRevision`，审批发布后无法形成新版本供其他机器 pull；(2) `knowledge-revision.controller.ts` 的 `getSubmission` 仍是 skeleton，未按 submissionId 查询；(3) `apps/client/src/config/localSync.ts` 的 `LOCAL_SYNC_VERSION` 仍为 `0.1.1`，需 bump 到 `0.2.0` 并发布 npm/GitHub Release。
+
+# 范围 / 不做
+
+- 当前产品栈：React/Vite + NestJS + Prisma/PostgreSQL；远端采用源码直部署和用户级 systemd，不使用 Docker 运行应用。
+- 不恢复公开 Agent 注册、任意服务器本地路径摄取、旧 DocumentGeneration 双轨、Agent 直接写正式知识或 Agent 自批。
+- 不宣称未经验证的四层记忆或时间衰减。
+
 # 当前状态
 
 - P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
