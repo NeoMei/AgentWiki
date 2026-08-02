@@ -1,5 +1,6 @@
 import type { JobPhase, JobState, Recipe, SourceAdapter, WorkItem } from '../protocol/index.js';
 import { JobStateSchema, WorkItemSchema } from '../protocol/index.js';
+import type { SourceArtifact } from '../protocol/artifact.js';
 import type { SpaceWorkspacePaths } from '../workspace/index.js';
 import { writeCheckpoint, readCheckpoint, listCheckpoints, deleteCheckpoint } from '../workspace/index.js';
 
@@ -164,8 +165,8 @@ export async function persistCheckpoint(paths: SpaceWorkspacePaths, state: JobSt
 
 export async function loadLatestCheckpoint(paths: SpaceWorkspacePaths, jobId: string): Promise<JobState | null> {
   const ids = await listCheckpoints(paths);
-  const jobIds = ids.filter((id) => id.startsWith(`${jobId}:`)).sort();
-  const latest = jobIds.pop();
+  const jobIds = ids.filter((id) => id.startsWith(`${jobId}:`));
+  const latest = jobIds.sort((a, b) => a.split(':').pop()!.localeCompare(b.split(':').pop()!)).pop();
   if (!latest) return null;
   return readCheckpoint(paths, latest);
 }
@@ -214,16 +215,42 @@ export interface PhasePlan {
   workItems: WorkItem[];
 }
 
-export function planPhaseWorkItems(recipe: Recipe, phase: JobPhase): Omit<WorkItem, 'workItemId' | 'jobId' | 'phase' | 'attempts'>[] {
+export function planPhaseWorkItems(
+  recipe: Recipe,
+  phase: JobPhase,
+  adapters?: Map<string, SourceAdapter>,
+): Omit<WorkItem, 'workItemId' | 'jobId' | 'phase' | 'attempts'>[] {
   const steps = recipe.steps.filter((s) => s.phase === phase);
-  return steps.map((step) => ({
-    type: stepTypeFromPhase(phase),
-    instructions: step.description,
-    maxAttempts: step.retryCount + 1,
-    status: 'pending' as const,
-    artifactIds: step.requiredArtifactKinds,
-    itemIds: step.dependsOn,
-  }));
+  return steps.map((step) => {
+    const artifactIds = step.requiredArtifactKinds
+      ? resolveAdapterIds(step.requiredArtifactKinds, adapters)
+      : undefined;
+    return {
+      type: stepTypeFromPhase(phase),
+      instructions: step.description,
+      maxAttempts: step.retryCount + 1,
+      status: 'pending' as const,
+      artifactIds,
+      itemIds: step.dependsOn,
+    };
+  });
+}
+
+function resolveAdapterIds(
+  requiredArtifactKinds: SourceArtifact['kind'][],
+  adapters?: Map<string, SourceAdapter>,
+): string[] {
+  if (!adapters || adapters.size === 0) return requiredArtifactKinds as string[];
+  const ids: string[] = [];
+  for (const kind of requiredArtifactKinds) {
+    for (const [adapterId, adapter] of adapters.entries()) {
+      if (adapter.manifest().artifactKinds.includes(kind)) {
+        ids.push(adapterId);
+        break;
+      }
+    }
+  }
+  return ids.length > 0 ? ids : (requiredArtifactKinds as string[]);
 }
 
 function stepTypeFromPhase(phase: JobPhase): WorkItem['type'] {
