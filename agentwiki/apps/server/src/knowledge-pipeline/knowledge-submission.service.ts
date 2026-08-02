@@ -103,6 +103,22 @@ export class KnowledgeSubmissionService {
     });
   }
 
+  async getSubmission(spaceId: string, submissionId: string): Promise<KnowledgeSubmissionResult | null> {
+    const submission = await this.prisma.knowledgeSubmission.findUnique({
+      where: { id: submissionId },
+      include: { appliedRevision: { select: { id: true, sequence: true, contentHash: true } } },
+    });
+    if (!submission || submission.spaceId !== spaceId) {
+      throw new BusinessException('RESOURCE_NOT_FOUND');
+    }
+    return {
+      status: submission.status as KnowledgeSubmissionResult['status'],
+      submissionId: submission.id,
+      changeSetId: submission.changeSetId,
+      currentRevision: submission.appliedRevisionId ?? submission.baseRevisionId ?? '0',
+    };
+  }
+
   private deriveRequiredScope(bundle: NormalizedKnowledgeBundle): string {
     if (bundle.pages.length || bundle.deletions.some((d) => d.itemType === 'page')) return 'pages:write';
     if (bundle.memories.length || bundle.deletions.some((d) => d.itemType === 'memory')) return 'memory:write';

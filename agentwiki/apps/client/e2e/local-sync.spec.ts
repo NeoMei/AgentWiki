@@ -80,12 +80,12 @@ test.describe('local sync enrollment card', () => {
     await page.getByRole('button', { name: /generate local sync instructions|生成本地同步接入指令/i }).click();
 
     const instructions = page.locator('pre');
-    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.1.1');
+    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.2.0');
     await expect(instructions).toContainText('AW-');
     await expect(instructions).not.toContainText('agk_');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.1.1');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.2.0');
     await expect(page.getByText(/expires in|后过期/i)).toBeVisible();
   });
 });

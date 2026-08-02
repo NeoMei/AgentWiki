@@ -63,6 +63,6 @@ export class KnowledgeRevisionController {
     @CurrentPrincipal() principal: Principal,
   ) {
     await this.auth.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
-    return this.submissionService; // P0: skeleton only; submission lookup to be implemented
+    return this.submissionService.getSubmission(spaceId, submissionId);
   }
 }

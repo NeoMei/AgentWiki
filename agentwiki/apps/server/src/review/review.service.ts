@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { SearchService } from '../core/search/search.service';
+ import type { NormalizedKnowledgeBundle } from '../knowledge-pipeline/knowledge-bundle';
+ import type { SpaceKnowledgeRevision } from '@prisma/client';
 
 @Injectable()
 export class ReviewService {
@@ -380,10 +382,119 @@ export class ReviewService {
       if (unsupported.length) throw new BadRequestException(`Unsupported change item type: ${unsupported[0].type}`);
       await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'publishing' }, data: { status: 'published', publishedAt: new Date() } });
+      if (tx.knowledgeSubmission) {
+        const submission = await tx.knowledgeSubmission.findUnique({ where: { changeSetId: id } });
+        if (submission) {
+          const revision = await this.createKnowledgeRevision(tx, changeSet.spaceId, submission, id);
+          await tx.knowledgeSubmission.update({
+            where: { id: submission.id },
+            data: { status: 'published', appliedRevisionId: revision.id },
+          });
+        }
+      }
       return Array.from(new Set(pageIds));
     });
     await Promise.allSettled(publishedPageIds.map((pageId) => this.search.indexPage(pageId)));
     return this.get(id);
+  }
+
+  private async createKnowledgeRevision(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    submission: { id: string; bundle: unknown; schemaVersion: string; recipeVersion: string; contentHash: string },
+    changeSetId: string,
+  ): Promise<SpaceKnowledgeRevision> {
+    const bundle = submission.bundle as NormalizedKnowledgeBundle;
+    const pages = await tx.page.findMany({
+      where: { spaceId, deletedAt: null },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        parentId: true,
+        sortOrder: true,
+        updatedAt: true,
+        sourcePath: true,
+        sourceId: true,
+      },
+    });
+    const memories = await tx.agentMemory.findMany({
+      where: { spaceId },
+      select: { id: true, type: true, content: true, updatedAt: true },
+    });
+    const relations = await tx.knowledgeRelation.findMany({
+      where: { sourcePage: { spaceId } },
+      select: {
+        id: true,
+        sourcePageId: true,
+        targetPageId: true,
+        relation: true,
+        strength: true,
+        confidence: true,
+        lastModifiedAt: true,
+      },
+    });
+    const snapshot = {
+      schemaVersion: submission.schemaVersion,
+      recipeVersion: submission.recipeVersion,
+      spaceId,
+      pages: pages.map((p) => ({
+        pageId: p.id,
+        spaceId,
+        path: p.sourcePath || this.pagePathFromTitle(p.title),
+        title: p.title,
+        body: p.content,
+        order: p.sortOrder ?? 0,
+        parentId: p.parentId,
+        updatedAt: p.updatedAt.toISOString(),
+      })),
+      memories: memories.map((m) => ({
+        memoryId: m.id,
+        spaceId,
+        key: m.type,
+        value: m.content,
+        scope: 'space' as const,
+        pageIds: [] as string[],
+        updatedAt: m.updatedAt.toISOString(),
+      })),
+      relations: relations.map((r) => ({
+        relationId: r.id,
+        spaceId,
+        sourceId: r.sourcePageId,
+        targetId: r.targetPageId,
+        relationType: r.relation,
+        strength: r.strength,
+        confidence: r.confidence,
+        updatedAt: r.lastModifiedAt.toISOString(),
+      })),
+      provenance: bundle.provenance || [],
+      deletions: bundle.deletions || [],
+    };
+    const snapshotJson = JSON.stringify(snapshot);
+    const contentHash = createHash('sha256').update(snapshotJson).digest('hex');
+    const latest = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { sequence: true },
+    });
+    const sequence = (latest?.sequence ?? 0) + 1;
+    return tx.spaceKnowledgeRevision.create({
+      data: {
+        spaceId,
+        sequence,
+        schemaVersion: submission.schemaVersion,
+        recipeVersion: submission.recipeVersion,
+        contentHash,
+        snapshot: snapshot as unknown as Prisma.InputJsonValue,
+        delta: bundle as unknown as Prisma.InputJsonValue,
+        sourceChangeSetId: changeSetId,
+      },
+    });
+  }
+
+  private pagePathFromTitle(title: string): string {
+    const slug = title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+    return `pages/${slug}.md`;
   }
 
   async revert(id: string) {
