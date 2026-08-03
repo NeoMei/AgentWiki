@@ -73,6 +73,9 @@ install -m 0644 "\$release_dir/pnpm-lock.yaml" "\$HOME/${PROJECT_DIR}/pnpm-lock.
 install -m 0644 "\$release_dir/pnpm-workspace.yaml" "\$HOME/${PROJECT_DIR}/pnpm-workspace.yaml"
 install -m 0644 "\$release_dir/tsconfig.json" "\$HOME/${PROJECT_DIR}/tsconfig.json"
 install -m 0755 "\$release_dir/deploy.sh" "\$HOME/${PROJECT_DIR}/deploy.sh"
+if [ "\$(id -u)" = 0 ]; then
+  chown -R -- "\$(id -u):\$(id -g)" "\$HOME/${PROJECT_DIR}"
+fi
 cd "\$HOME/${PROJECT_DIR}"
 
 if ! grep -q '^JWT_SECRET=' .env; then

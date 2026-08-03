@@ -38,4 +38,5 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
   assert.match(deploy, /SUPPORTED_NODE_MAJORS="24 26"/);
   assert.match(deploy, /\/usr\/bin\/node/);
   assert.match(deploy, /requires Node\.js 24 or 26/);
+  assert.match(deploy, /chown -R -- .*\$HOME\/\$\{PROJECT_DIR\}/);
 });
