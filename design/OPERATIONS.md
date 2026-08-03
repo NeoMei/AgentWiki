@@ -9,7 +9,7 @@ This runbook describes the current React/Vite + NestJS + PostgreSQL deployment.
 - `CORS_ORIGINS`: comma-separated exact browser origins.
 - `MCP_ALLOWED_HOSTS`: comma-separated HTTP Host allowlist for `/api/mcp`.
 - `ALLOWED_GIT_HOSTS`: exact HTTPS Git hosts accepted by the ingestion worker.
-- `REDIS_URL`: shared rate-limit counter. The server uses a bounded in-memory fallback if Redis is unavailable.
+- `REDIS_URL`: Redis 7.2 or newer with AOF enabled. Production startup verifies both AOF and the `WAITAOF` durability command; Ubuntu 24.04's default Redis 7.0 package is insufficient.
 - `AGENT_MEMORY_QUOTA`: active-memory maximum per Agent.
 
 Do not commit `.env`, Agent credentials, personal access tokens, database dumps, or generated deployment archives.
@@ -19,6 +19,8 @@ Do not commit `.env`, Agent credentials, personal access tokens, database dumps,
 The current host uses direct Node.js processes, not Docker. Run `deploy.sh` to upload source without `.env`, install the locked dependencies, build shared/server/client, apply Prisma migrations, and restart the three user-level systemd services.
 
 Before deployment, verify that both the local shell and the remote `/usr/bin/node` report Node.js 24 or 26. Node 24 is the default development and container baseline. `deploy.sh` enforces this preflight and stops before upload, dependency installation, migrations, or service restarts when either runtime is outside the supported majors.
+
+Also verify `redis-cli INFO server` reports Redis 7.2 or newer, `CONFIG GET appendonly` reports `yes`, and a disposable `WAITAOF 1 0 5000` probe succeeds. Back up Redis data and configuration before upgrading an older server.
 
 1. `agentwiki-api.service` runs the Nest API with `PROCESS_ROLE=api` on port 3000.
 2. `agentwiki-worker.service` runs the isolated ingestion worker with no HTTP listener.

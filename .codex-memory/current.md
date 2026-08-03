@@ -23,6 +23,7 @@
 
 # 当前状态
 
+- 2026-08-04 将 `master` (`164b324`) 直部署到目标主机 `113.249.120.24`：远端 Node 24.18.0 / pnpm 11.9.0、PostgreSQL 16、Redis 8.10.0（AOF + `WAITAOF`）和 Nginx 已配置；25/25 Prisma migrations、API/Worker/Frontend 用户级 systemd、数据库/Redis/审计健康、注册登录/Space/Page/Graph/Local Sync enrollment/MCP 只读业务冒烟均通过，临时业务数据已清理。部署过程中修复 fresh migration 链和 root rsync 所有权两个阻断并推送 `05cdc54`、`164b324`。服务器内网与 SSH tunnel 可访问；`113.249.120.24:80` 尚未在云侧映射/放通，永久公网入口仍需云平台网络配置与域名/TLS。
 - 2026-08-03 使用 npm 公共包 `@neomei/agentwiki-local-sync@0.2.1` 完成真实 E2E：一次性安装码接入 Codex，doctor 9 项全过，扫描本仓库 `packages/local-sync`，preview 新增 3 个知识文档，服务端 Run completed，ChangeSet 按测试 Space 策略自动发布 3 个正式页面并保存 3 条 evidence；第二次扫描为 unchanged=3，sync=noop。临时 Space、Agent 和本地凭据均已清理。
 - 真实扫描同时发现非 Git 子目录回退会遍历 `dist`/`node_modules`，且已由 codebase-memory 处理的源码仍被逐个列为 unsupported。已按 TDD 修复并发布为 `0.2.2`：排除常见生成/依赖目录，代码文件不再进入 skippedFiles；local-sync 22 files / 160 tests、客户端 121、服务端 267、三端 build 与全仓 lint 均通过，npm registry/latest/bin/全新目录 npx 已验证。
 - P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
@@ -84,6 +85,7 @@
 
 # 风险 / 下一步
 
+- `113.249.120.24` 当前只确认 SSH 入口可达；服务器本地 80/3000/5173 与 SSH tunnel 均正常，但第三方公网探针访问 `113.249.120.24:80` 超时且请求未进入 Nginx。需在云平台安全组/NAT/端口映射中把 TCP 80（后续 443）转发到该 VM 的 `10.0.0.3`，再配置域名、TLS 并复跑外网 UI 验收。不要把 `47.108.85.222` 当作 AgentWiki 裸 IP入口，它当前由另一层默认站点处理。
 - `space-add-agent-member` 的代码、自动化门禁与真实 API 已完成；浏览器插件恢复后必须补跑 owner/admin、中文/英文及 390x844 响应式视觉验收，随后归档该任务并恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
