@@ -19,3 +19,4 @@
 - codebase-memory CLI：`codebase-memory-mcp cli <tool> [json]`
 - MarkItDown：https://github.com/microsoft/markitdown
 - 已发布旧协议包：https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.1.1
+- 当前已发布包：https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.2.2

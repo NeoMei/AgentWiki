@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 完成 P6 Local Knowledge Orchestrator 的 CLI / MCP / Skill 集成；之后进入 P7 验收与 `0.2.0` 发布。
+- 完成 Local Knowledge Sync 的真实验收闭环；`0.2.2` 已发布并完成单机真实 E2E，下一步继续跨机器 Pull/Push 与冲突合并验收。
 
 # 范围 / 不做
 
@@ -23,6 +23,8 @@
 
 # 当前状态
 
+- 2026-08-03 使用 npm 公共包 `@neomei/agentwiki-local-sync@0.2.1` 完成真实 E2E：一次性安装码接入 Codex，doctor 9 项全过，扫描本仓库 `packages/local-sync`，preview 新增 3 个知识文档，服务端 Run completed，ChangeSet 按测试 Space 策略自动发布 3 个正式页面并保存 3 条 evidence；第二次扫描为 unchanged=3，sync=noop。临时 Space、Agent 和本地凭据均已清理。
+- 真实扫描同时发现非 Git 子目录回退会遍历 `dist`/`node_modules`，且已由 codebase-memory 处理的源码仍被逐个列为 unsupported。已按 TDD 修复并发布为 `0.2.2`：排除常见生成/依赖目录，代码文件不再进入 skippedFiles；local-sync 22 files / 160 tests、客户端 121、服务端 267、三端 build 与全仓 lint 均通过，npm registry/latest/bin/全新目录 npx 已验证。
 - P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
 - Markdown 编辑页使用单一工作区，以 Edit/Preview 状态切换和 `Ctrl/⌘ + E` 快捷键替代双栏；桌面与移动端均已验证。
 - 全局语言上下文支持中文/英文切换、浏览器持久化和 `html lang` 同步；导航、认证、空间、页面、Agent、来源/运行、审核、图谱、成员、Profile、集成、产品页和指南均已接入。

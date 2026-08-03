@@ -8,6 +8,9 @@
 
 ## 当前状态
 
+- `@neomei/agentwiki-local-sync@0.2.2` 已发布；npm registry/latest、bin、干净临时目录 npx 均验证通过。
+- 2026-08-03 单机真实 E2E 已通过：真实安装码、Codex MCP、codebase-memory 0.9.0、本地代码库扫描、preview、确认同步、Worker、自动发布、页面 provenance/evidence 以及二次 noop 均验证；测试资源已清理。
+- 扫描降噪修复已随 `0.2.2` 发布：非 Git 回退排除 `dist`/`node_modules` 等目录，codebase-memory 已处理的源码不再被误报 unsupported；160 项 local-sync 测试、客户端 121、服务端 267、build 与 lint 通过。
 - `@neomei/agentwiki-local-sync@0.1.1` 已发布；OKF evidence 和 OpenCode timeout 修复已完成。
 - 真实验证确认 OpenWiki 过重且不稳定，旧 OpenWiki 必需链路被新设计取代。
 - 用户已逐项确认本地整理、Agent 执行语义工作、确定性状态机/Recipe、Space 统一 Wiki、私有 Adapter runtime、服务端权威 Revision、双向同步与三方合并。
@@ -21,7 +24,7 @@
   - `workspace/space.ts` 提供 `initSpaceWorkspace`、`isWorkspaceInitialized`、`setBaseRevision` 和稳定的 `stableSpaceId`。
   - 每个 phase 可基于 Recipe 步骤生成最小工作单元（`planPhaseWorkItems`），支持 `advanceAfterWorkItem` 自动推进到下一 phase。
   - 单元测试覆盖 workspace 读写、checkpoint 恢复、space 初始化、状态机流转与 phase 推进。`local-sync` 包 typecheck 和 100 个测试全部通过。
-- 下一步：P2 私有 Adapter runtime 与首批 codebase-memory / MarkItDown Adapter 实现。
+- 下一步：继续跨机器 Snapshot/Delta Pull/Push 与冲突合并真实验收。
 
 ## 范围
 
