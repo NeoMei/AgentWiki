@@ -308,10 +308,57 @@ test('real Prisma chain upgrades 13 migrations through legacy false conflicts wi
       'ascii-i|69|semantic|865c0c0b4ab0e063e5caa3387c1a8741',
       'unicode-i|c4b0|semantic|1a313f370a5ba8fd5dad6f793d84ff21',
       '0',
-      '17',
+      '25',
     ]);
   } finally {
     if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
+    runPsql(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE;`);
+  }
+});
+
+test('real Prisma chain deploys all migrations to an empty schema with the local knowledge revision shape', {
+  skip: databaseSkip,
+}, async () => {
+  const schema = isolatedSchema('fresh_install_chain');
+  const quotedSchema = quotedIdentifier(schema);
+  const targetUrl = databaseUrlForSchema(schema);
+  try {
+    assertPsqlSuccess(runPsql(`CREATE SCHEMA ${quotedSchema};`));
+
+    const deployed = runPrisma(['migrate', 'deploy'], targetUrl);
+    assertPrismaSuccess(deployed);
+
+    const status = runPrisma(['migrate', 'status'], targetUrl);
+    assertPrismaSuccess(status);
+    assert.match(status.stdout, /Database schema is up to date/);
+
+    const verified = runPsql(`
+      SET search_path TO ${quotedSchema};
+      SELECT COUNT(*)
+      FROM "_prisma_migrations"
+      WHERE "finished_at" IS NOT NULL AND "rolled_back_at" IS NULL;
+      SELECT string_agg(column_name, ',' ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = '${schema}' AND table_name = 'SpaceKnowledgeRevision';
+      SELECT string_agg(column_name, ',' ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = '${schema}' AND table_name = 'KnowledgeSubmission';
+      SELECT COUNT(*)
+      FROM pg_constraint constraint_record
+      JOIN pg_class table_record ON table_record.oid = constraint_record.conrelid
+      JOIN pg_namespace namespace_record ON namespace_record.oid = table_record.relnamespace
+      WHERE namespace_record.nspname = '${schema}'
+        AND table_record.relname IN ('SpaceKnowledgeRevision', 'KnowledgeSubmission')
+        AND constraint_record.contype = 'f';
+    `);
+    assertPsqlSuccess(verified);
+    assert.deepEqual(verified.stdout.trim().split('\n'), [
+      '25',
+      'id,spaceId,sequence,parentRevisionId,schemaVersion,recipeVersion,contentHash,snapshot,createdAt,delta,sourceChangeSetId',
+      'id,spaceId,baseRevisionId,principalKey,idempotencyKey,schemaVersion,recipeVersion,contentHash,bundle,status,changeSetId,appliedRevisionId,createdAt,updatedAt',
+      '5',
+    ]);
+  } finally {
     runPsql(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE;`);
   }
 });
