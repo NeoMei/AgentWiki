@@ -51,6 +51,22 @@ describe('AuthService', () => {
       const result = await service.login('test@test.com', 'password');
       expect(result.access_token).toBe('mock-token');
     });
+
+    it('returns the persisted platform role when validating a JWT user', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'admin-1',
+        email: 'admin@agentwiki.com',
+        name: 'Admin',
+        type: 'human',
+        platformRole: 'super_admin',
+      });
+
+      await expect(service.validateJwtUser('admin-1')).resolves.toMatchObject({
+        userId: 'admin-1',
+        type: 'human',
+        platformRole: 'super_admin',
+      });
+    });
   });
 
   describe('registration', () => {

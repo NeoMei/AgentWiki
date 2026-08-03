@@ -61,6 +61,25 @@ describe('SourceService safety and idempotency', () => {
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
     })).resolves.toEqual(['runs:write']);
   });
+
+  it('keeps a queued super-admin run authorized without a space membership', async () => {
+    const authorizationPrisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({
+        id: 'admin-1', type: 'human', platformRole: 'super_admin', deletedAt: null,
+      }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByUserId: 'admin-1',
+      requestedByAgentId: null,
+      spaceId: 'space-1',
+      requestedCredentialId: null,
+      requestedCredentialType: null,
+    })).resolves.toEqual([]);
+    expect(authorizationPrisma.spaceMember.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 describe('SourceService pipeline lifecycle', () => {
@@ -84,6 +103,9 @@ describe('SourceService pipeline lifecycle', () => {
       sourceVersion: { findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null), findUnique: jest.fn(), create: jest.fn().mockResolvedValue({ id: 'version-1' }) },
       sourceFileSnapshot: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
       space: { findUnique: jest.fn().mockResolvedValue({ approvalPolicy: 'always-review' }) },
+      user: { findUnique: jest.fn().mockResolvedValue({
+        id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null,
+      }) },
       agent: { findUnique: jest.fn() },
       agentGrant: { findUnique: jest.fn() },
       spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'editor', space: { deletedAt: null }, user: { deletedAt: null, type: 'human' } }) },

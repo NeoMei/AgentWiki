@@ -814,13 +814,36 @@ export class SourceService {
         ? credential.scopes.filter((scope) => grant.scopes.includes(scope))
         : credential.scopes;
     }
-    const membership = run.requestedByUserId ? await this.prisma.spaceMember.findUnique({
+    const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
+      where: { id: run.requestedByUserId },
+      select: { deletedAt: true, type: true, platformRole: true },
+    }) : null;
+    if (!requester || requester.deletedAt || requester.type !== 'human') {
+      throw new Error('Run requester is no longer authorized');
+    }
+    if (requester.platformRole === 'super_admin') {
+      if (run.requestedCredentialType === 'personal') {
+        const credential = run.requestedCredentialId ? await this.prisma.apiKeyCredential.findFirst({
+          where: {
+            id: run.requestedCredentialId,
+            userId: run.requestedByUserId,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          select: { scopes: true },
+        }) : null;
+        if (!credential) throw new Error('Run requester is no longer authorized');
+        return credential.scopes;
+      }
+      return [];
+    }
+    const membership = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: run.requestedByUserId, spaceId: run.spaceId } },
       include: {
         user: { select: { deletedAt: true, type: true } },
         space: { select: { deletedAt: true } },
       },
-    }) : null;
+    });
     if (!membership || !['owner', 'editor'].includes(membership.role) || membership.space.deletedAt ||
       membership.user.deletedAt || membership.user.type !== 'human') {
       throw new Error('Run requester is no longer authorized');

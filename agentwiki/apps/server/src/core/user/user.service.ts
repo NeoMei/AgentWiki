@@ -16,6 +16,7 @@ const USER_SELECT = {
   email: true,
   name: true,
   type: true,
+  platformRole: true,
   createdAt: true,
   updatedAt: true,
   apiKeys: {

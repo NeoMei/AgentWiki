@@ -41,6 +41,19 @@ describe('AuthorizationService', () => {
     ).resolves.toMatchObject({ role: 'editor' });
   });
 
+  it('allows a super admin to access any existing space as an owner without membership', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.assertSpaceAccess(
+        { userId: 'super-admin', platformRole: 'super_admin' } as any,
+        'space-1',
+        ['owner'],
+      ),
+    ).resolves.toMatchObject({ role: 'owner', isSuperAdmin: true });
+    expect(prisma.spaceMember.findUnique).not.toHaveBeenCalled();
+  });
+
   it('requires both an Agent grant and the requested scope', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
       role: 'editor',
@@ -184,5 +197,23 @@ describe('space discovery and self-describing errors', () => {
     ]);
     const result = await service.listAccessibleSpaces('user-1');
     expect(result).toEqual([{ id: 'space-2', name: 'Team', role: 'owner' }]);
+  });
+
+  it('lists every active space for a super admin', async () => {
+    prisma.space.findMany.mockResolvedValue([
+      { id: 'space-1', name: 'One', deletedAt: null },
+      { id: 'space-2', name: 'Two', deletedAt: null },
+    ]);
+
+    await expect(service.getAccessibleSpaceIds(
+      { userId: 'super-admin', platformRole: 'super_admin' } as any,
+    )).resolves.toEqual(['space-1', 'space-2']);
+    await expect(service.listAccessibleSpaces(
+      { userId: 'super-admin', platformRole: 'super_admin' } as any,
+    )).resolves.toEqual([
+      { id: 'space-1', name: 'One', role: 'owner' },
+      { id: 'space-2', name: 'Two', role: 'owner' },
+    ]);
+    expect(prisma.spaceMember.findMany).not.toHaveBeenCalled();
   });
 });

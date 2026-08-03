@@ -10,6 +10,7 @@ export interface User {
   email: string;
   name: string;
   type: 'human' | 'agent';
+  platformRole?: 'user' | 'super_admin';
   apiKey?: string;
   password?: string;
 }
@@ -30,7 +31,7 @@ export class AuthService {
   }
 
   signToken(user: User): string {
-    const payload = { sub: user.id, email: user.email, type: user.type };
+    const payload = { sub: user.id, email: user.email, type: user.type, platformRole: user.platformRole };
     return this.jwtService.sign(payload);
   }
 
@@ -39,13 +40,20 @@ export class AuthService {
     email: string;
     name?: string;
     type: 'human';
+    platformRole: 'user' | 'super_admin';
   } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, deletedAt: null, type: 'human' },
-      select: { id: true, email: true, name: true, type: true },
+      select: { id: true, email: true, name: true, type: true, platformRole: true },
     });
     if (!user) return null;
-    return { userId: user.id, email: user.email, name: user.name || undefined, type: 'human' };
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name || undefined,
+      type: 'human',
+      platformRole: user.platformRole as 'user' | 'super_admin',
+    };
   }
 
   async validateApiKey(apiKey: string): Promise<{
@@ -55,6 +63,7 @@ export class AuthService {
     credentialId: string;
     scopes: string[];
     agentId?: string;
+    platformRole?: 'user' | 'super_admin';
   } | null> {
     const keyHash = createHash('sha256').update(apiKey).digest('hex');
     const credential = await this.prisma.apiKeyCredential.findUnique({
@@ -78,6 +87,7 @@ export class AuthService {
         userId: credential.user.id,
         email: credential.user.email,
         type: credential.user.type,
+        platformRole: credential.user.platformRole as 'user' | 'super_admin',
         credentialId: credential.id,
         scopes: credential.scopes,
       };
@@ -112,7 +122,10 @@ export class AuthService {
   }
 
   async login(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email, deletedAt: null, type: 'human' }, select: { id: true, email: true, name: true, type: true, password: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { email, deletedAt: null, type: 'human' },
+      select: { id: true, email: true, name: true, type: true, platformRole: true, password: true },
+    });
     if (!user || !user.password) {
       throw new BusinessException('AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
@@ -121,7 +134,10 @@ export class AuthService {
       throw new BusinessException('AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
     const token = this.signToken(user as User);
-    return { access_token: token, user: { id: user.id, email: user.email, name: user.name, type: user.type } };
+    return {
+      access_token: token,
+      user: { id: user.id, email: user.email, name: user.name, type: user.type, platformRole: user.platformRole },
+    };
   }
 
   async register(email: string, password: string, name: string) {
@@ -131,7 +147,10 @@ export class AuthService {
         data: { email, password: hashed, name, type: 'human' },
       });
       const token = this.signToken(user as User);
-      return { access_token: token, user: { id: user.id, email: user.email, name: user.name, type: user.type } };
+      return {
+        access_token: token,
+        user: { id: user.id, email: user.email, name: user.name, type: user.type, platformRole: user.platformRole },
+      };
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new BusinessException('RESOURCE_CONFLICT', 'Email already in use');

@@ -8,6 +8,7 @@ export interface Principal {
   agentId?: string;
   scopes?: string[];
   credentialId?: string;
+  platformRole?: 'user' | 'super_admin';
 }
 type PrincipalInput = string | Principal;
 
@@ -34,6 +35,9 @@ export class AuthorizationService {
         'SPACE_NOT_FOUND',
         `Space not found: "${spaceId}". spaceId must be the space's internal id (CUID), not its display name. Call list_spaces or GET /api/integrations/mcp to see the spaces you can access and their ids.`,
       );
+    }
+    if (!principal.agentId && principal.platformRole === 'super_admin') {
+      return { role: 'owner' as const, spaceId, userId: principal.userId, isSuperAdmin: true };
     }
     if (principal.agentId) {
       const grant = await this.prisma.agentGrant.findUnique({
@@ -176,6 +180,13 @@ export class AuthorizationService {
 
   async getAccessibleSpaceIds(principalInput: PrincipalInput, requiredScope = 'spaces:read'): Promise<string[]> {
     const principal = this.normalize(principalInput);
+    if (!principal.agentId && principal.platformRole === 'super_admin') {
+      const spaces = await this.prisma.space.findMany({
+        where: { deletedAt: null },
+        select: { id: true },
+      });
+      return spaces.map((space) => space.id);
+    }
     if (principal.agentId) {
       this.assertScope(principal, requiredScope);
       const grants = await this.prisma.agentGrant.findMany({
@@ -211,6 +222,14 @@ export class AuthorizationService {
     requiredScope = 'spaces:read',
   ): Promise<Array<{ id: string; name: string; role: SpaceRole }>> {
     const principal = this.normalize(principalInput);
+    if (!principal.agentId && principal.platformRole === 'super_admin') {
+      const spaces = await this.prisma.space.findMany({
+        where: { deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      return spaces.map((space) => ({ id: space.id, name: space.name, role: 'owner' }));
+    }
     if (principal.agentId) {
       this.assertScope(principal, requiredScope);
       const grants = await this.prisma.agentGrant.findMany({

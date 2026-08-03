@@ -39,4 +39,8 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
   assert.match(deploy, /\/usr\/bin\/node/);
   assert.match(deploy, /requires Node\.js 24 or 26/);
   assert.match(deploy, /chown -R -- .*\$HOME\/\$\{PROJECT_DIR\}/);
+  const generateIndex = deploy.indexOf('pnpm --filter @agentwiki/server exec prisma generate');
+  const buildIndex = deploy.indexOf('pnpm --filter @agentwiki/server build');
+  assert.ok(generateIndex >= 0, 'direct deployment must explicitly regenerate Prisma Client');
+  assert.ok(generateIndex < buildIndex, 'Prisma Client must be generated before the server build');
 });

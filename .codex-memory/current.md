@@ -23,7 +23,9 @@
 
 # 当前状态
 
-- 2026-08-04 将 `master` (`164b324`) 直部署到目标主机 `113.249.120.24`：远端 Node 24.18.0 / pnpm 11.9.0、PostgreSQL 16、Redis 8.10.0（AOF + `WAITAOF`）和 Nginx 已配置；25/25 Prisma migrations、API/Worker/Frontend 用户级 systemd、数据库/Redis/审计健康、注册登录/Space/Page/Graph/Local Sync enrollment/MCP 只读业务冒烟均通过，临时业务数据已清理。部署过程中修复 fresh migration 链和 root rsync 所有权两个阻断并推送 `05cdc54`、`164b324`。服务器内网与 SSH tunnel 可访问；`113.249.120.24:80` 尚未在云侧映射/放通，永久公网入口仍需云平台网络配置与域名/TLS。
+- 2026-08-04 新增真实平台级 `super_admin`：角色存储于 `User.platformRole`，JWT/PAT 每次认证均从数据库刷新；超管可查看所有 active Space，并以 owner 等效权限执行 Space/Page/Graph/Source/Run/Review 等既有授权链，但不会把平台角色传递给其 Agent，也不绕过 private Agent memory 的所有权。生产已完成 26/26 迁移并配置 1 个超管账号；用临时普通用户创建的非成员 Space 完成 list/read/delete 公网权限 smoke，临时数据已清理。
+- 2026-08-04 生产公网入口已切换为 `https://agentwiki.quukk.com`：`47.108.85.222:443` 终止 TLS 并反代到 `113.249.120.24:8444`；113 上的 8444 只允许跳板机来源，旧 445/8443 已关闭。公网首页、静态资源和 `/api/health` 均返回 200。
+- 2026-08-04 将 `master` (`164b324`) 直部署到目标主机 `113.249.120.24`：远端 Node 24.18.0 / pnpm 11.9.0、PostgreSQL 16、Redis 8.10.0（AOF + `WAITAOF`）和 Nginx 已配置；当前 26/26 Prisma migrations、API/Worker/Frontend 用户级 systemd、数据库/Redis/审计健康、注册登录/Space/Page/Graph/Local Sync enrollment/MCP 只读业务冒烟均通过。部署链已补充显式 Prisma Client 生成，避免 schema 更新但依赖未变化时使用旧客户端。
 - 2026-08-03 使用 npm 公共包 `@neomei/agentwiki-local-sync@0.2.1` 完成真实 E2E：一次性安装码接入 Codex，doctor 9 项全过，扫描本仓库 `packages/local-sync`，preview 新增 3 个知识文档，服务端 Run completed，ChangeSet 按测试 Space 策略自动发布 3 个正式页面并保存 3 条 evidence；第二次扫描为 unchanged=3，sync=noop。临时 Space、Agent 和本地凭据均已清理。
 - 真实扫描同时发现非 Git 子目录回退会遍历 `dist`/`node_modules`，且已由 codebase-memory 处理的源码仍被逐个列为 unsupported。已按 TDD 修复并发布为 `0.2.2`：排除常见生成/依赖目录，代码文件不再进入 skippedFiles；local-sync 22 files / 160 tests、客户端 121、服务端 267、三端 build 与全仓 lint 均通过，npm registry/latest/bin/全新目录 npx 已验证。
 - P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
@@ -57,6 +59,7 @@
 # 稳定约束
 
 - Agent 是人类拥有的独立实体；权限为当前 Credential Scope、Space Grant、Agent 状态和 Space 策略的交集。`review:decide` 不签发给 Agent。
+- 平台超管是 human User 的独立 `platformRole`，不是 SpaceMember 角色；它只对人类主体生效，作为 owner 等效入口接入既有 Space 授权链，Agent 不得继承。
 - JWT 与 WebSocket 握手必须重新确认当前未删除的人类 User；正式知识必须保留 Source/Version/Run/Evidence/ChangeSet/Approval provenance。
 - 自动知识默认进入 ChangeSet；Worker 使用可续租 fenced lease，在多个阶段复核凭证与授权。
 - 记忆只声明 episodic/semantic；private 仅目标 Agent，space 可由同 Space 授权 Agent 召回。
@@ -85,7 +88,7 @@
 
 # 风险 / 下一步
 
-- `113.249.120.24` 当前只确认 SSH 入口可达；服务器本地 80/3000/5173 与 SSH tunnel 均正常，但第三方公网探针访问 `113.249.120.24:80` 超时且请求未进入 Nginx。需在云平台安全组/NAT/端口映射中把 TCP 80（后续 443）转发到该 VM 的 `10.0.0.3`，再配置域名、TLS 并复跑外网 UI 验收。不要把 `47.108.85.222` 当作 AgentWiki 裸 IP入口，它当前由另一层默认站点处理。
+- 生产入口依赖双机链路 `agentwiki.quukk.com:443 → 47.108.85.222 → 113.249.120.24:8444`；需监控跳板机反代、113 的来源白名单和通配符证书续期。不要重新开放高风险的公网 445，也不要把 113 的 8444 放宽到任意来源。
 - `space-add-agent-member` 的代码、自动化门禁与真实 API 已完成；浏览器插件恢复后必须补跑 owner/admin、中文/英文及 390x844 响应式视觉验收，随后归档该任务并恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
 - 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
 - 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
