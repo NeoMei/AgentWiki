@@ -43,7 +43,7 @@ import { defaultRecipes } from './recipes.js';
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
 
-const PACKAGE_VERSION = '0.2.1';
+const PACKAGE_VERSION = '0.2.2';
 
 export function formatOutput(value: unknown): string {
   return redactSecrets(typeof value === 'string' ? value : JSON.stringify(value, null, 2));

@@ -66,6 +66,23 @@ describe('inspectLocalSource', () => {
     });
     expect(JSON.stringify(inspection)).not.toContain(source);
   });
+
+  it('ignores generated and dependency directories outside a Git repository', async () => {
+    const { home, source } = await fixture();
+    await mkdir(join(source, 'dist'), { recursive: true });
+    await mkdir(join(source, 'node_modules', 'dependency'), { recursive: true });
+    await mkdir(join(source, '.cache'), { recursive: true });
+    await writeFile(join(source, 'dist', 'generated.js'), 'export const generated = true;\n');
+    await writeFile(join(source, 'node_modules', 'dependency', 'index.js'), 'export const dependency = true;\n');
+    await writeFile(join(source, '.cache', 'result.json'), '{}\n');
+    const run = vi.fn<CommandRunner>((command, args) => (
+      args[0] === '--version' ? Promise.resolve(commandResult(`${command} 1.0.0`)) : Promise.resolve(commandResult())
+    ));
+
+    const inspection = await inspectLocalSource(source, dependencies(home, run));
+
+    expect(inspection.files).toEqual({ code: 1, documents: 2, unsupported: 1 });
+  });
 });
 
 describe('prepareKnowledgeSync', () => {
@@ -108,6 +125,8 @@ describe('prepareKnowledgeSync', () => {
       path: 'README.md',
       contentHash: createHash('sha256').update('# Project\n', 'utf8').digest('hex'),
     }));
+    expect(prepared.skippedFiles).not.toContainEqual({ path: 'app.ts', reason: 'Unsupported file type' });
+    expect(prepared.skippedFiles).toContainEqual({ path: 'unsupported.bin', reason: 'Unsupported file type' });
     expect(new TextDecoder().decode(prepared.envelopeBytes)).not.toContain(source);
   });
 

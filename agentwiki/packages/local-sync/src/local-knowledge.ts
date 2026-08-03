@@ -31,6 +31,10 @@ const CODE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cs', '.css', '.go', '.h', '.hpp', '.html', '.java', '.js', '.jsx',
   '.kt', '.mjs', '.php', '.py', '.rb', '.rs', '.sh', '.sql', '.swift', '.ts', '.tsx', '.vue', '.yml', '.yaml',
 ]);
+const IGNORED_DIRECTORY_NAMES = new Set([
+  '.cache', '.git', '.next', '.turbo', '.vite',
+  'build', 'coverage', 'dist', 'node_modules', 'out', 'target',
+]);
 
 export interface ToolStatus {
   command: string;
@@ -184,7 +188,7 @@ export async function prepareKnowledgeSync(input: PrepareInput, deps?: LocalKnow
       sourceKey,
       name: basename(root),
       kind: sourceKind(counts),
-      producer: { name: 'agentwiki-local-sync', version: '0.2.1' },
+      producer: { name: 'agentwiki-local-sync', version: '0.2.2' },
       documents: [],
     };
 
@@ -310,7 +314,7 @@ async function listSourceFiles(root: string): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name === '.git') continue;
+      if (entry.isDirectory() && IGNORED_DIRECTORY_NAMES.has(entry.name)) continue;
       const absolutePath = join(directory, entry.name);
       if (entry.isDirectory()) {
         await visit(absolutePath);
@@ -363,6 +367,7 @@ async function extractDocuments(
   for (const file of files) {
     const extension = extensionOf(file.relativePath);
     if (!DOCUMENT_EXTENSIONS.has(extension) && !CONVERTIBLE_DOCUMENT_EXTENSIONS.has(extension)) {
+      if (CODE_EXTENSIONS.has(extension)) continue;
       skippedFiles.push({ path: file.relativePath, reason: 'Unsupported file type' });
       continue;
     }
