@@ -188,7 +188,7 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
 }
 
 export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.2.0' });
+  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.2.1' });
   server.registerTool('local_sync_status', {
     description: 'Show the active local AgentWiki sync connection without credentials.',
     inputSchema: {},
@@ -220,7 +220,7 @@ export async function serveLocalSyncMcp(commands: LocalSyncCommands): Promise<vo
 
 
 export function createOrchestratorMcpServer(commands: import('./orchestrator-commands.js').OrchestratorCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: '0.2.0' });
+  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: '0.2.1' });
   server.registerTool('start_knowledge_job', {
     description: 'Start a deterministic local knowledge job for a Space and recipe.',
     inputSchema: { spaceId: z.string().min(1), recipeId: z.string().min(1), sourcePaths: z.array(z.string().min(1)).default([]) },
