@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { spawn } from 'child_process';
+import { join } from 'path';
 import { AssistRunResult, OpencodeRunner } from './assist.queue';
 
 const MAX_OUTPUT_BYTES = 2_000_000;
@@ -41,7 +42,8 @@ export class OpencodeCliRunner implements OpencodeRunner {
   }
 
   private exec(args: string[], timeoutMs: number): Promise<string> {
-    const bin = this.config.get<string>('OPENCODE_BIN') || 'opencode';
+    const bin = this.config.get<string>('OPENCODE_BIN')
+      || join(process.cwd(), 'node_modules', '.bin', 'opencode');
     return new Promise((resolve, reject) => {
       // Pass only what opencode needs (config dir + LLM creds), not the whole
       // host environment (which may hold DB passwords and other secrets).
@@ -135,7 +137,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
       if (!trimmed.startsWith('{')) continue;
       try {
         const event = JSON.parse(trimmed);
-        const text = event?.text || event?.content || event?.message;
+        const text = event?.text || event?.content || event?.message || event?.part?.text;
         if (typeof text === 'string' && text.includes('"changes"')) {
           const match = text.match(/\{[\s\S]*"changes"[\s\S]*\}/);
           if (match) {

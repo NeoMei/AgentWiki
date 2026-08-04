@@ -91,6 +91,19 @@ fi
 grep -q '^MCP_ALLOWED_HOSTS=' .env || printf 'MCP_ALLOWED_HOSTS=${REMOTE_HOST},localhost,127.0.0.1\n' >> .env
 grep -q '^ALLOWED_GIT_HOSTS=' .env || printf 'ALLOWED_GIT_HOSTS=github.com,gitlab.com\n' >> .env
 sed -i '/^NODE_IMAGE=/d;/^NGINX_IMAGE=/d' .env
+
+public_api_url="\$(sed -n 's/^PUBLIC_API_URL=//p' apps/server/.env | tail -n1)"
+if [ -z "\$public_api_url" ]; then
+  public_api_url="\$(sed -n 's/^PUBLIC_API_URL=//p' .env | tail -n1)"
+fi
+case "\$public_api_url" in
+  https://*/api|https://*/api/) ;;
+  *)
+    echo "PUBLIC_API_URL must be the externally reachable HTTPS /api URL before deployment." >&2
+    exit 1
+    ;;
+esac
+
 chmod 600 .env apps/server/.env
 
 pnpm install --frozen-lockfile

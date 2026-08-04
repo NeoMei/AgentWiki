@@ -32,6 +32,7 @@
     "class-validator": "^0.15.1",
     "express": "^4.22.1",
     "ioredis": "^5.11.1",
+    "opencode-ai": "1.18.12",
     "passport": "^0.7.0",
     "passport-custom": "^1.1.1",
     "passport-jwt": "^4.0.1",

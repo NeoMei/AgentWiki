@@ -21,6 +21,11 @@ test('the repository supports Node 24 and Node 26', async () => {
 
   const serverPackage = JSON.parse(await read('apps/server/package.json'));
   assert.equal(serverPackage.devDependencies['@types/node'], '^24.0.0');
+  assert.equal(
+    serverPackage.dependencies['opencode-ai'],
+    '1.18.12',
+    'the worker release must install the pinned OpenCode CLI it executes',
+  );
 });
 
 test('Docker defaults to Node 24 and direct deployment accepts the supported majors', async () => {
@@ -43,4 +48,11 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
   const buildIndex = deploy.indexOf('pnpm --filter @agentwiki/server build');
   assert.ok(generateIndex >= 0, 'direct deployment must explicitly regenerate Prisma Client');
   assert.ok(generateIndex < buildIndex, 'Prisma Client must be generated before the server build');
+});
+
+test('direct production deployment rejects a stale non-HTTPS public Agent API URL', async () => {
+  const deploy = await read('deploy.sh');
+  assert.match(deploy, /PUBLIC_API_URL/);
+  assert.match(deploy, /https:\/\//);
+  assert.match(deploy, /must be the externally reachable HTTPS \/api URL/);
 });

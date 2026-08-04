@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { join } from 'path';
 import { PassThrough } from 'stream';
 import { spawn } from 'child_process';
 import { OpencodeCliRunner } from './opencode.runner';
@@ -67,5 +68,38 @@ describe('OpencodeCliRunner process limits', () => {
     expect(child.listenerCount('error')).toBe(0);
     expect(child.stdout.listenerCount('data')).toBe(0);
     expect(child.stderr.listenerCount('data')).toBe(0);
+  });
+
+  it('uses the server-bundled OpenCode binary when OPENCODE_BIN is not configured', async () => {
+    const child = childProcess();
+    const bundledConfig = { get: jest.fn(() => undefined) } as any;
+    const runner = new OpencodeCliRunner(bundledConfig);
+    const execution = (runner as any).exec([], 10_000);
+
+    child.stdout.write('ok');
+    child.emit('close', 0);
+
+    await expect(execution).resolves.toBe('ok');
+    expect(spawn).toHaveBeenCalledWith(
+      join(process.cwd(), 'node_modules', '.bin', 'opencode'),
+      [],
+      expect.any(Object),
+    );
+  });
+
+  it('parses OpenCode 1.18 text events from part.text', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = JSON.stringify({
+      type: 'text',
+      part: {
+        type: 'text',
+        text: JSON.stringify({ summary: 'Improved wording', changes: '# Improved\n\nClear text.' }),
+      },
+    });
+
+    expect((runner as any).parse(output)).toMatchObject({
+      summary: 'Improved wording',
+      changes: '# Improved\n\nClear text.',
+    });
   });
 });
