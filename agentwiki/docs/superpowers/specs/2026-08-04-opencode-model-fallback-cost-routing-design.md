@@ -2,7 +2,7 @@
 
 ## 目标
 
-为 AgentWiki 服务端内嵌的 OpenCode 辅助写作增加可预测的模型路由：默认优先使用 OpenCode 当前可用的零成本模型，只有免费候选全部失败时才尝试管理员明确授权的付费模型，并在多 Worker 并发下通过共享熔断避免重复撞击故障模型。
+为 AgentWiki 服务端内嵌的 OpenCode 辅助写作增加可预测的模型路由：默认优先使用 OpenCode 当前可用的零成本模型，免费候选全部失败时再从 OpenCode 自动发现的付费模型中选择预计成本最低的候选，并在多 Worker 并发下通过共享熔断避免重复撞击故障模型。
 
 该设计只改变服务器端辅助写作的模型选择与执行过程，不改变页面编辑、审核、发布和 Space 授权语义。
 
@@ -10,7 +10,8 @@
 
 - 采用“免费模型优先，失败后才降级到付费模型”的成本优先策略。
 - 只在技术失败或结果客观无效时切换模型，不使用额外模型调用对内容质量做主观评分。
-- 服务器存在某个供应商 Key 不代表允许产生付费调用；付费模型必须出现在管理员显式允许列表中。
+- 付费模型也由 OpenCode 模型目录自动发现，不要求管理员逐个配置模型。
+- `ASSIST_OPENCODE_ALLOW_PAID_FALLBACK` 是全服付费降级总开关，默认值为 `true`；管理员可显式设为 `false` 完全禁止付费降级。
 - 免费模型从 OpenCode 模型元数据动态发现，并允许管理员通过显式免费列表固定优先级。
 - 同一任务最多尝试 3 个免费模型和 1 个付费模型，且受单一任务总超时约束。
 - 模型健康状态由 Redis 在 Worker 间共享，连续失败后短期熔断。
@@ -48,14 +49,17 @@
 
 1. `ASSIST_OPENCODE_FREE_MODELS` 中、且目录元数据确认确实为零成本的活跃文本模型。
 2. 动态发现的其他零成本模型，按稳定的模型 ID 顺序追加。
-3. `ASSIST_OPENCODE_PAID_MODELS` 中管理员明确授权的模型，保持配置顺序。
+3. OpenCode 动态发现的其他付费模型，按当前任务的预计费用从低到高排列。
 
 规则：
 
 - 同一模型只保留第一次出现的位置。
 - 被错误填入免费列表、但元数据不为零成本的模型必须跳过并告警，不能静默当作免费或付费使用。
 - 目录暂时失败时优先使用有效的缓存快照；没有可用快照时，未知免费模型不得运行。
-- 付费允许列表是明确的费用授权，即使目录暂时不可用也可作为 `paid` 候选，但仍必须遵守付费尝试上限。
+- 付费候选只在 `ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=true` 时加入模型链；该值默认即为 `true`。
+- 付费模型必须存在于成功解析的当前目录或仍有效的缓存快照中，不能执行目录之外的未知模型。
+- `ASSIST_OPENCODE_PAID_MODEL_EXCLUDES` 可选排除不希望调用的昂贵或不稳定模型，但无需维护付费允许列表。
+- 预计费用按 `inputPrice × 估算输入 token + outputPrice × 估算输出 token` 计算；估算输入 token 取本次 prompt 的 Unicode code point 数量（最小为 1），估算输出 token 默认 2000 且可配置。该估算只用于相对排序。费用相同时依次按 output 价格、input 价格和模型 ID 排序，保证结果稳定。
 - 两类候选都为空时返回可操作的配置错误。
 - 发现的免费模型不因为配置了供应商 Key 而改变分类或顺序。
 
@@ -86,8 +90,11 @@ opencode run --model provider/model --format json <prompt>
 # 留空时完全使用动态发现结果；配置只决定已确认免费模型的优先级。
 ASSIST_OPENCODE_FREE_MODELS=opencode/big-pickle
 
-# 只有这里列出的模型才允许产生付费调用；默认必须为空。
-ASSIST_OPENCODE_PAID_MODELS=
+# 允许免费候选全部失败后自动调用一个预计成本最低的付费模型；默认开启。
+ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=true
+
+# 可选排除列表；不需要配置付费允许列表。
+ASSIST_OPENCODE_PAID_MODEL_EXCLUDES=
 
 ASSIST_OPENCODE_MAX_FREE_ATTEMPTS=3
 ASSIST_OPENCODE_MAX_PAID_ATTEMPTS=1
@@ -95,6 +102,7 @@ ASSIST_OPENCODE_MODEL_CACHE_MS=600000
 ASSIST_OPENCODE_MODEL_STALE_MS=3600000
 ASSIST_OPENCODE_MODEL_ENUM_TIMEOUT_MS=10000
 ASSIST_OPENCODE_ATTEMPT_TIMEOUT_MS=60000
+ASSIST_OPENCODE_ESTIMATED_OUTPUT_TOKENS=2000
 ASSIST_OPENCODE_CIRCUIT_FAILURES=3
 ASSIST_OPENCODE_CIRCUIT_WINDOW_MS=300000
 ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
@@ -102,7 +110,9 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 
 `ASSIST_OPENCODE_TIMEOUT_MS=180000` 的语义调整为整个任务的总模型执行预算。每次调用的实际超时取以下最小值：单次上限、任务剩余时间以及 Worker lease 的安全剩余时间。
 
-所有数字配置必须在启动时校验为有限正整数，并设置合理上限。模型列表按逗号分隔，去除空白、空项和重复项；非法模型 ID 被拒绝并给出明确配置错误。
+所有数字配置必须在启动时校验为有限正整数，并设置合理上限。布尔配置只接受明确的 `true`/`false`。模型列表按逗号分隔，去除空白、空项和重复项；非法模型 ID 被拒绝并给出明确配置错误。
+
+付费模型价格缺失、非有限或为负数时不进入候选链。预计费用只用于候选排序，任务完成后必须以 OpenCode `step_finish.cost` 作为实际费用记录；不能把估算值冒充实际账单。
 
 ## 执行流程
 
@@ -181,7 +191,8 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 
 ## 安全边界
 
-- 只有 `ASSIST_OPENCODE_PAID_MODELS` 构成付费授权，Key 检测、模型目录发现和 OpenCode 默认模型都不能替代该授权。
+- `ASSIST_OPENCODE_ALLOW_PAID_FALLBACK` 默认开启，因此免费模型全部失败后允许自动尝试一个付费模型；管理员设置为 `false` 后必须彻底禁止付费候选。
+- API Key 只决定某个自动发现模型是否实际可调用，不决定模型排序，也不得绕过每任务一次付费尝试上限。
 - 模型 ID 只能作为独立 argv 传给 `spawn`，不能经过 shell 拼接。
 - OpenCode 子进程继续使用环境变量白名单。
 - 模型目录与执行输出都使用字节上限和超时。
@@ -194,7 +205,8 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 
 - 解析多个连续的 OpenCode verbose 模型对象、嵌套 JSON 和异常尾部。
 - 只发现 active 文本模型；严格识别全维度零成本。
-- 显式免费顺序、动态追加、去重、非法免费模型跳过和付费 allowlist。
+- 显式免费顺序、动态追加、去重、非法免费模型跳过和付费模型自动发现。
+- 付费开关默认开启、显式关闭、排除列表、无效价格过滤和基于任务规模的预计费用排序。
 - 没有目录、陈旧缓存、刷新并发合并与目录超时。
 - token/cost 事件聚合、有效结果、空结果、错误事件和损坏 JSON。
 - 模型级错误与全局错误分类。
@@ -207,8 +219,9 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 使用可控的假 OpenCode 可执行程序验证完整顺序：
 
 - 第一个免费模型限流，第二个免费模型成功，不调用付费模型。
-- 免费模型全部无效，唯一显式付费模型成功。
-- 配置了 Key 但付费 allowlist 为空时绝不调用付费模型。
+- 免费模型全部无效后，自动选择预计成本最低的付费模型。
+- 付费开关关闭时，即使配置了供应商 Key 也绝不调用付费模型。
+- 排除最便宜的付费模型后，选择下一个未排除候选。
 - 某模型熔断后多个并发任务不会同时探测。
 - 单次超时后使用剩余总预算调用下一个模型。
 - OpenCode 二进制缺失时立即结束，不遍历所有模型。
@@ -224,24 +237,25 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 1. 使用项目内固定版本的真实 OpenCode CLI 执行 `models --verbose`，确认至少发现一个元数据为零成本的活跃文本模型。
 2. 创建一次性 Space/Page，提交真实辅助写作任务。
 3. 确认任务成功，并记录实际模型、tier、token、cost 和尝试次数。
-4. 使用受控的无效第一候选验证真实降级顺序，同时保证付费 allowlist 为空时不产生付费调用。
+4. 使用受控的无效第一候选验证真实降级顺序；再将付费开关设为 `false`，确认免费模型失败时不产生付费调用。
 5. 生产部署前备份 PostgreSQL；部署后检查 API、Worker、Frontend systemd 和 `/api/health`。
 6. 在生产创建一次性测试数据完成同样的辅助任务 smoke，随后清理测试数据并复核日志无敏感内容。
 
 ## 部署与回滚
 
 1. 备份生产 PostgreSQL，并保存当前环境文件的权限受控副本。
-2. 默认保持 `ASSIST_OPENCODE_PAID_MODELS` 为空，只启用动态免费模型。
+2. 明确记录 `ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=true` 的默认费用语义；如果部署环境不允许任何付费调用，发布前显式设置为 `false`。
 3. 部署并重启 Worker；API 与前端只在其代码确有变化时重启。
 4. 验证模型目录刷新、免费模型辅助任务和成本元数据。
-5. 如需启用付费降级，管理员单独设置允许列表并再次执行受控 smoke。
+5. 使用默认开启状态执行受控 smoke；生产无可用付费账户时，鉴权失败必须脱敏并受到熔断保护。
 6. 回滚时恢复旧代码和环境配置；新增 result JSON 字段保持向后兼容，不要求破坏性数据迁移。
 
 ## 完成标准
 
 - 默认零配置能够动态发现并优先使用真实免费模型。
 - 免费候选成功时不调用任何付费模型。
-- 只有显式 allowlist 中的模型可能产生付费调用。
+- 付费模型从 OpenCode 自动发现并按预计成本排序，无需逐个配置。
+- 付费降级默认开启，但可以通过单一开关完全关闭；每任务最多一次付费尝试。
 - 模型级故障会按顺序降级；全局故障不会触发无意义遍历。
 - 多 Worker 对故障模型共享熔断与单一半开探测。
 - 每个任务受 3 次免费、1 次付费和 180 秒总预算约束。
@@ -251,7 +265,7 @@ ASSIST_OPENCODE_CIRCUIT_OPEN_MS=120000
 ## 不做
 
 - 不增加内容质量评分模型或模型自评重试。
-- 不根据检测到的 API Key 自动授权付费模型。
+- 不要求管理员维护付费模型允许列表。
 - 不引入 LiteLLM、OpenRouter 路由服务或新的常驻 OpenCode Server。
 - 不在本版实现成本报表、用户额度、套餐计费或按 Space 分摊。
 - 不允许普通用户从前端修改全服模型列表或服务器 Key。
