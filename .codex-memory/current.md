@@ -25,7 +25,7 @@
 
 # 当前状态
 
-- 2026-08-04 OpenCode 模型降级与成本路由的免费优先、客观失败降级、付费模型自动发现与预计成本排序、默认开启的付费降级开关、熔断、调用上限和真实验收范围已由用户确认；书面 spec 为 `agentwiki/docs/superpowers/specs/2026-08-04-opencode-model-fallback-cost-routing-design.md`，当前等待用户复审，尚未开始业务代码实现。
+- 2026-08-04 OpenCode 模型降级与成本路由的书面 spec 已由用户确认；实施计划为 `agentwiki/docs/superpowers/plans/2026-08-04-opencode-model-fallback-cost-routing.md`，拆分为共享契约/配置、单模型 Runner、模型目录、Redis 熔断、路由器、Nest/UI 接线和真实 E2E/发布 7 个测试驱动任务，当前等待选择执行方式，尚未开始业务代码实现。
 - 2026-08-04 已修复生产 Agent 接入返回内网 API 地址和 Worker 缺少 OpenCode CLI 的问题：服务端固定内嵌 `opencode-ai@1.18.12`，兼容解析 `part.text` 事件，部署脚本强制正式环境使用公网 HTTPS `/api`。公网一次性安装码经 `@neomei/agentwiki-local-sync@0.2.2 connect` 实测接入成功；真实辅助写作的模型路由复测将在本任务实现后统一完成。
 - 2026-08-04 超管管理后台的范围、密码重置语义、锁定/删除语义、统计指标、前端交互与测试范围已经用户逐项确认；书面 spec 为 `agentwiki/docs/superpowers/specs/2026-08-04-platform-admin-console-design.md`，当前等待用户审阅，尚未开始业务代码实现。
 - 2026-08-04 新增真实平台级 `super_admin`：角色存储于 `User.platformRole`，JWT/PAT 每次认证均从数据库刷新；超管可查看所有 active Space，并以 owner 等效权限执行 Space/Page/Graph/Source/Run/Review 等既有授权链，但不会把平台角色传递给其 Agent，也不绕过 private Agent memory 的所有权。生产已完成 26/26 迁移并配置 1 个超管账号；用临时普通用户创建的非成员 Space 完成 list/read/delete 公网权限 smoke，临时数据已清理。
