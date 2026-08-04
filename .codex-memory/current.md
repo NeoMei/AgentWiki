@@ -2,7 +2,8 @@
 
 # 当前目标
 
-- 完成 Local Knowledge Sync 的真实验收闭环；`0.2.2` 已发布并完成单机真实 E2E，下一步继续跨机器 Pull/Push 与冲突合并验收。
+- 实现平台超管管理后台：用户与核心资源统计、用户查询、默认密码重置与强制改密码、锁定/解锁和软删除。
+- Local Knowledge Sync 跨机器 Pull/Push 与冲突合并验收在本任务后继续。
 
 # 范围 / 不做
 
@@ -23,6 +24,7 @@
 
 # 当前状态
 
+- 2026-08-04 超管管理后台的范围、密码重置语义、锁定/删除语义、统计指标、前端交互与测试范围已经用户逐项确认；书面 spec 为 `agentwiki/docs/superpowers/specs/2026-08-04-platform-admin-console-design.md`，当前等待用户审阅，尚未开始业务代码实现。
 - 2026-08-04 新增真实平台级 `super_admin`：角色存储于 `User.platformRole`，JWT/PAT 每次认证均从数据库刷新；超管可查看所有 active Space，并以 owner 等效权限执行 Space/Page/Graph/Source/Run/Review 等既有授权链，但不会把平台角色传递给其 Agent，也不绕过 private Agent memory 的所有权。生产已完成 26/26 迁移并配置 1 个超管账号；用临时普通用户创建的非成员 Space 完成 list/read/delete 公网权限 smoke，临时数据已清理。
 - 2026-08-04 生产公网入口已切换为 `https://agentwiki.quukk.com`：`47.108.85.222:443` 终止 TLS 并反代到 `113.249.120.24:8444`；113 上的 8444 只允许跳板机来源，旧 445/8443 已关闭。公网首页、静态资源和 `/api/health` 均返回 200。
 - 2026-08-04 将 `master` (`164b324`) 直部署到目标主机 `113.249.120.24`：远端 Node 24.18.0 / pnpm 11.9.0、PostgreSQL 16、Redis 8.10.0（AOF + `WAITAOF`）和 Nginx 已配置；当前 26/26 Prisma migrations、API/Worker/Frontend 用户级 systemd、数据库/Redis/审计健康、注册登录/Space/Page/Graph/Local Sync enrollment/MCP 只读业务冒烟均通过。部署链已补充显式 Prisma Client 生成，避免 schema 更新但依赖未变化时使用旧客户端。
