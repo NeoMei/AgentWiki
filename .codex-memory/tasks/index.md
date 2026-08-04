@@ -10,6 +10,7 @@
 
 ## 活跃任务
 
+- [opencode-model-fallback](active/opencode-model-fallback/brief.md)：服务端 OpenCode 免费模型优先、显式付费降级、共享熔断与成本记录。
 - [platform-admin-console](active/platform-admin-console/brief.md)：实现超管统计、用户查询、默认密码重置、锁定/解锁与软删除。
 - [space-add-agent-member](active/space-add-agent-member/brief.md)：优先完成 Space 统一添加用户/智能体成员流程。
 - [local-knowledge-sync](active/local-knowledge-sync/brief.md)：零配置本地知识编排与双向同步，等待前置成员任务完成后恢复实施。
