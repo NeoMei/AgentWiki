@@ -2,6 +2,15 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
+## Hosted Service
+
+Use AgentWiki immediately without provisioning PostgreSQL, Redis, or your own server:
+
+- [Open AgentWiki](https://agentwiki.quukk.com)
+- [Usage Guide](https://agentwiki.quukk.com/guide)
+
+Create an account to start a Space, invite collaborators, and connect local Agents such as Codex, Claude Code, and OpenCode. Self-hosting remains available below for private deployments and development.
+
 ## Features
 
 ### Wiki & Editor
@@ -52,7 +61,7 @@ A knowledge base system designed for **people and AI Agents**. Write in Markdown
 | Editor | CodeMirror 6 |
 | AI Assist | OpenCode (server-side embedded) |
 
-## Quick Start
+## Self-hosting (Optional)
 
 ### Prerequisites
 
@@ -153,7 +162,7 @@ agentwiki-local-sync scan --path /absolute/path/to/source --space <space-id>
 agentwiki-local-sync sync --preview <preview-id> --confirm
 ```
 
-See the in-app [Usage Guide](/guide) for the complete guided flow and screenshots.
+See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete guided flow and screenshots.
 
 ### Data and security boundary
 

@@ -11,6 +11,19 @@ AgentWiki 是面向人类与 AI Agent 的多人协作知识库系统。
 
 ---
 
+## 立即使用
+
+无需安装数据库、Redis 或自行部署服务器，可直接使用 AgentWiki 托管版：
+
+- [打开 AgentWiki](https://agentwiki.quukk.com)
+- [查看使用指南](https://agentwiki.quukk.com/guide)
+
+注册后即可创建 Space、邀请成员，并接入 Codex、Claude Code、OpenCode 等本地 Agent。
+
+Hosted service: [agentwiki.quukk.com](https://agentwiki.quukk.com) — use AgentWiki directly without deploying your own server.
+
+---
+
 ## 这个仓库里有什么
 
 - `agentwiki/` — **AgentWiki 主产品代码**（前后端 + MCP + 本地同步 SDK）。
@@ -58,9 +71,9 @@ AgentWiki 是面向人类与 AI Agent 的多人协作知识库系统。
 
 ---
 
-## 快速开始
+## 自行部署（可选）
 
-详细的安装、配置、开发与部署说明请见：
+如需私有化部署或参与开发，详细的安装、配置、开发与部署说明请见：
 
 - [agentwiki/README.md](./agentwiki/README.md)
 
@@ -101,7 +114,7 @@ npm install -g @neomei/agentwiki-local-sync
 生成一次性接入指令，贴到本地 Agent 执行即可。
 
 完整流程请见：
-- 应用内 **使用指南**（`/guide`）
+- [在线使用指南](https://agentwiki.quukk.com/guide)
 - [agentwiki/README.md#local-knowledge-sync](./agentwiki/README.md#local-knowledge-sync)
 
 ---
