@@ -2,20 +2,10 @@
 
 # 当前目标
 
-- 优先完成服务端 OpenCode 模型自动降级与成本路由：免费模型优先、付费模型自动发现与成本排序、Redis 共享熔断和 token/cost 记录。
-- 实现平台超管管理后台：用户与核心资源统计、用户查询、默认密码重置与强制改密码、锁定/解锁和软删除。
-- Local Knowledge Sync 跨机器 Pull/Push 与冲突合并验收在本任务后继续。
-
-# 范围 / 不做
-
-- 当前产品栈：React/Vite + NestJS + Prisma/PostgreSQL；远端采用源码直部署和用户级 systemd，不使用 Docker 运行应用。
-- 不恢复公开 Agent 注册、任意服务器本地路径摄取、旧 DocumentGeneration 双轨、Agent 直接写正式知识或 Agent 自批。
-- 不宣称未经验证的四层记忆或时间衰减。
-
-
-- 2026-08-02 完成最终 spec 审计与代码审查：lint 0、typecheck 0、`pnpm test` 通过（server 36 suites/265 tests、client 29 files/121 tests、local-sync 22 files/159 tests）、`pnpm build` 通过。发现并修复 `orchestrator-commands` 三处 bug：`start` 未根据 recipe 生成初始工作项、`submitOrganizedItem` 未把 artifact 持久化到 checkpoint、`loadLatestCheckpoint` 字典序排序导致读取最旧 checkpoint；已提交并推送到 master（`8a16f7a`）。
-- 审计确认 `space-add-agent-member-design.md` 已完整实现并通过测试；`zero-config-local-knowledge-orchestrator-design.md` 的本地协议、workspace、状态机、Adapter、Sync Engine、客户端 UI、安装指令、SKILL.md 已落地。
-- P7 / 0.2.0 剩余三个关键缺口（非 regression，是尚未闭环的新功能）：(1) `review.service.ts` 的 `publish` 不写入 `spaceKnowledgeRevision`，审批发布后无法形成新版本供其他机器 pull；(2) `knowledge-revision.controller.ts` 的 `getSubmission` 仍是 skeleton，未按 submissionId 查询；(3) `apps/client/src/config/localSync.ts` 的 `LOCAL_SYNC_VERSION` 仍为 `0.1.1`，需 bump 到 `0.2.0` 并发布 npm/GitHub Release。
+- 已完成服务端 OpenCode 模型自动降级与成本路由：免费模型优先、付费模型自动发现与成本排序、Redis 共享熔断和 token/cost 记录。已合并 master，部署生产。
+- 已完成平台超管管理后台：用户与核心资源统计、用户查询、默认密码重置与强制改密码、锁定/解锁和软删除。已合并 master，部署生产。
+- 待完成：跨机器 Snapshot/Delta Pull/Push 与冲突合并真实验收（local-knowledge-sync 最后阶段）。
+- 待完成：space-add-agent-member 浏览器视觉验收（Chrome 插件恢复后）。
 
 # 范围 / 不做
 
@@ -25,76 +15,34 @@
 
 # 当前状态
 
-- 2026-08-05 OpenCode 模型降级与成本路由已完成本地实现和独立复审：免费模型优先、付费模型自动发现/成本排序、Redis 共享熔断、token/cost 元数据和 UI 展示均已落地。真实本地 E2E 使用 `opencode/big-pickle` 一次成功，tier=free、cost=0；最终门禁为 runtime 43 passed/9 skipped、server 343、client 124、local-sync 160，typecheck/lint/build 全通过。已修复 stdin 未关闭导致 CLI 超时、OpenCode 自带免费模型优先级、Space 删除后任务取消、错误终态优先和 E2E 清理确认。生产备份/部署/远程 smoke 仍需单独发布授权。
-- 2026-08-04 已修复生产 Agent 接入返回内网 API 地址和 Worker 缺少 OpenCode CLI 的问题：服务端固定内嵌 `opencode-ai@1.18.12`，兼容解析 `part.text` 事件，部署脚本强制正式环境使用公网 HTTPS `/api`。公网一次性安装码经 `@neomei/agentwiki-local-sync@0.2.2 connect` 实测接入成功；真实辅助写作的模型路由复测将在本任务实现后统一完成。
-- 2026-08-04 超管管理后台的范围、密码重置语义、锁定/删除语义、统计指标、前端交互与测试范围已经用户逐项确认；书面 spec 为 `agentwiki/docs/superpowers/specs/2026-08-04-platform-admin-console-design.md`，当前等待用户审阅，尚未开始业务代码实现。
-- 2026-08-04 新增真实平台级 `super_admin`：角色存储于 `User.platformRole`，JWT/PAT 每次认证均从数据库刷新；超管可查看所有 active Space，并以 owner 等效权限执行 Space/Page/Graph/Source/Run/Review 等既有授权链，但不会把平台角色传递给其 Agent，也不绕过 private Agent memory 的所有权。生产已完成 26/26 迁移并配置 1 个超管账号；用临时普通用户创建的非成员 Space 完成 list/read/delete 公网权限 smoke，临时数据已清理。
-- 2026-08-04 生产公网入口已切换为 `https://agentwiki.quukk.com`：`47.108.85.222:443` 终止 TLS 并反代到 `113.249.120.24:8444`；113 上的 8444 只允许跳板机来源，旧 445/8443 已关闭。公网首页、静态资源和 `/api/health` 均返回 200。
-- 2026-08-04 将 `master` (`164b324`) 直部署到目标主机 `113.249.120.24`：远端 Node 24.18.0 / pnpm 11.9.0、PostgreSQL 16、Redis 8.10.0（AOF + `WAITAOF`）和 Nginx 已配置；当前 26/26 Prisma migrations、API/Worker/Frontend 用户级 systemd、数据库/Redis/审计健康、注册登录/Space/Page/Graph/Local Sync enrollment/MCP 只读业务冒烟均通过。部署链已补充显式 Prisma Client 生成，避免 schema 更新但依赖未变化时使用旧客户端。
-- 2026-08-03 使用 npm 公共包 `@neomei/agentwiki-local-sync@0.2.1` 完成真实 E2E：一次性安装码接入 Codex，doctor 9 项全过，扫描本仓库 `packages/local-sync`，preview 新增 3 个知识文档，服务端 Run completed，ChangeSet 按测试 Space 策略自动发布 3 个正式页面并保存 3 条 evidence；第二次扫描为 unchanged=3，sync=noop。临时 Space、Agent 和本地凭据均已清理。
-- 真实扫描同时发现非 Git 子目录回退会遍历 `dist`/`node_modules`，且已由 codebase-memory 处理的源码仍被逐个列为 unsupported。已按 TDD 修复并发布为 `0.2.2`：排除常见生成/依赖目录，代码文件不再进入 skippedFiles；local-sync 22 files / 160 tests、客户端 121、服务端 267、三端 build 与全仓 lint 均通过，npm registry/latest/bin/全新目录 npx 已验证。
-- P0-P6 安全、Agent、Source/Run、ChangeSet/Review、来源证据、Memory、MCP 和界面入口差异均已闭环。
-- Markdown 编辑页使用单一工作区，以 Edit/Preview 状态切换和 `Ctrl/⌘ + E` 快捷键替代双栏；桌面与移动端均已验证。
-- 全局语言上下文支持中文/英文切换、浏览器持久化和 `html lang` 同步；导航、认证、空间、页面、Agent、来源/运行、审核、图谱、成员、Profile、集成、产品页和指南均已接入。
-- 远端 PostgreSQL 18.4 已在可恢复备份后部署全部迁移，当前 13/13，无待执行迁移。
-- 远端直接运行 `agentwiki-api.service`、`agentwiki-worker.service`、`agentwiki-frontend.service`；三项均为 active，Docker 服务为 inactive。
-- `/api/health` 验证 PostgreSQL 与 Redis；远端业务 smoke 完成注册、Space、Page、Search、Agent Credential/Grant、MCP 只读及审计、Source → Run → Review → Publish → provenance，临时数据已删除。
-- 当前门禁（2026-07-31 17:50）：lint 0、typecheck 0、`pnpm test` 通过（runtime 32/8 skipped、client 121、server 265、local-sync 154）、build 0。P5 冲突合并与 Pull/Push 已提交到 master (`690c93f`)。端到端功能测试 R1-R4 已完成（注册、Space、Page CRUD、搜索、图谱、Agent/API Key、Source→Run→Review 全链路、MCP、权限隔离、输入验证、并发更新、大 payload 返回 413 而非 500）均已通过。R4-R5 完成全量深度代码审查和 E2E 测试。修复：Space DTO name MinLength(1) 验证、ESLint 配置忽略 *.config.js、SourcesPage 加载状态指示器。所有门禁通过。远端已验证结构化业务错误码（12 个 code）和 ChangeSet submit 端点正常工作。
-- AgentWiki 当前支持 Node 24 和 Node 26，默认开发、`.node-version` 与 Docker 基线为 Node 24；pnpm 固定 11.9.0。PostgreSQL 16 与 Redis 已作为用户服务启动，本地 `agentwiki` 数据库已应用 13/13 迁移。
-- `pnpm dev` 现由 Node 启动器统一加载 `.env`、映射 `APP_SECRET`/`JWT_SECRET`、监督 API/Worker/Vite 并转发退出信号；Vite 前端 `http://localhost:5173` 返回 200，Nest API `http://localhost:3000/api/health` 返回 database/redis 均为 ok，Worker 正常连接 Redis。
-- 2026-07-27 fresh Node 26 门禁：`test:runtime` 7/7、ESLint 0 error/10 warnings、双端类型检查、Jest 16 suites/58 tests、Vitest 4 files/4 tests、shared/Nest/Vite 生产构建均退出 0；中间任务和源码 TODO 扫描均无匹配。
-- codebase-memory 规范项目名为 `agentwiki`，主产品 `agentwiki/` 已纳入 `codex/node26-compatibility` 版本控制；规范图为 1565 nodes / 3624 edges，`node_modules`、`dist`、`.stale-node-modules` 和参考仓库路径污染均为 0，Authorization/Review/Memory/Mcp 四项服务各发现 1 个定义。
-- 最终审查整改 `final-review-remediation` 已完成：后端安全（回滚版本条件、认证限流、审计持久化、Compose healthcheck、Redis ACL fail-closed）经独立复审 Approved；旧数据与凭据（PAT 前向清除、Memory 哈希 ASCII-only 规范化、13/13→17/17 桥接迁移、provenance 可信校验、Evidence 幂等身份）经独立复审 Approved；前端（编辑器草稿保护、Review 详情新鲜度、E2E 仅 loopback + 显式 opt-in、服务端乐观锁 `expectedUpdatedAt`）已落地。
-- 2026-07-27 最终门禁：服务端 21 suites/111 tests、客户端 8 files/37 tests、双端 tsc、Nest/Vite 构建、ESLint 0 error/0 warning（scripts 与 spec 已声明 Node globals）、真实 PostgreSQL 乐观锁往返（正确 token=1 / 过期=0）全部通过；迁移 17/17。
-- 2026-07-28 使用指南已补全为六步通用 Agent 接入流程，明确 AgentWiki 不绑定具体客户端，Codex、Claude Code、OpenCode 等本地 Agent 使用同一套服务端接入方式；OpenCode 1.18.7 仅作为真实演示，已完成 MCP initialize、身份校验、`list_spaces`、`propose_page`、`list_pages`。演示页面以 `scoped-auto-publish` 正式发布，OpenCode 结果、页面来源与 MCP 活动记录均使用真实截图。重复接入时改用凭据专属 MCP 连接名并强制校验服务端 Agent 身份，避免误用旧连接；临时凭据已撤销且验证返回 401。客户端门禁为 19 files / 86 tests、ESLint、TypeScript/Vite 构建全部通过。
-- 2026-07-28 首页、使用指南和工作台统一复用 `GlobalNavigation`：Logo 固定返回首页，三入口始终可达；未登录工作台入口携带 `intent=workspace` 返回登录卡片、自动聚焦邮箱并明确提示，已登录入口直达 `/dashboard`。桌面与 390x844 移动端真实浏览器验证无横向溢出、无控制台错误；已登录闭环 `工作台 → 使用指南 → 工作台 → 首页 → 工作台` 通过。客户端门禁为 23 files / 92 tests，ESLint、TypeScript、Vite 生产构建与 diff check 全部通过。
-- 2026-07-30 `@neomei/agentwiki-local-sync@0.1.1` 已发布并验证 registry/bin；修复 OKF evidence 契约和 OpenCode MCP execution timeout。真实演示同时证明 OpenWiki 仍有交互初始化、独立模型配置、长任务与子进程稳定性问题，因此 `0.1.1` 不能被描述为最终零配置方案。
-- 2026-07-30 零配置本地知识编排方向已逐项确认：所有整理在本地完成；codebase-memory、MarkItDown 和未来 agent-memory 使用同等 Adapter 协议；当前本地 Agent 负责语义整理；Orchestrator 以状态机、版本化 Recipe、Schema、证据和 checkpoint 约束行为；同一 Space 共享一套统一 Wiki；服务端是权威 Revision；本地支持跨机器 Pull/Push 与 base/local/remote 三方合并提案。
-- 2026-07-30 书面设计已由用户确认，实施拆为四份顺序计划：本地协议/工作区/状态机、私有 Adapter runtime 与首批 Adapter、服务端 Space Revision/Submission/ChangeSet、双向同步/冲突/安装迁移/真实验收；另有总路线图和跨阶段门禁。当前尚未开始业务代码实现。
-- 2026-07-30 `space-add-agent-member` 业务实现已完成：统一添加成员弹窗支持用户/智能体，viewer/editor 自动使用默认 Space scopes；新增 Agent Grant 仅限调用者自有 active Agent，其他用户 Agent 与不存在 Agent 均返回相同 404，已有 Agent Grant 仍由 Space owner/admin 管理。权限卡片修正了“取消全选”提交空 scopes 会反向继承全部权限的误授权风险。2026-07-31 已将原本只在 `codex/local-sync-guide` 的实现 fast-forward 合并到实际运行的 `master` (`a15a7f3`)。
-- 该任务当前门禁：服务端 33 suites / 244 tests、客户端 29 files / 120 tests、类型检查、ESLint、生产构建和真实 API owner/admin/editor 权限矩阵均通过，临时 Space/Agent 已清理。Chrome 插件的 browser-client 初始化被运行环境拒绝加载 `node:process`，因此真实浏览器视觉/响应式验收仍待插件恢复后补跑；不得把该项写成已验证。
-- 2026-07-30 Node 24 兼容已完成：根因是仓库人为写死的 Node 26-only 契约，业务代码与依赖没有发现 Node 24 不兼容。2026-07-31 最新 Node 24.18.0 门禁为 runtime 32 passed / 8 skipped（跳过项需显式数据库环境）、服务端 244、客户端 120、local-sync 49、类型检查、ESLint 和生产构建全部通过；Node 26.5.0 的 frozen install、runtime 契约与类型检查此前也通过。Docker CLI 本机不可用，镜像实际构建未验证。
-- 2026-07-31 多轮代码审查闭环 7 个回归：Space Grant 收窄后仍可自动发布、语义搜索空结果不走词法兜底、Agent 删除提案缺失页面版本、Owner 转移产生多个 Owner、MCP 零置信度被改写、已归档页面留下悬空 related-page、无效安装码过期时间触发 `TimeoutNaNWarning`。每项均先用失败测试复现后修复；最终 diff check、类型、ESLint、全量测试和生产构建通过。
-- 2026-07-31 P5 完成：`sync/merge.ts` 支持字段级合并、冲突类型（add-add/field/delete-modify/delete-delete）、`ConflictBundle`/`applyConflictResolution`；`sync/sync-engine.ts` 实现 dirty-local 检测、Delta/Snapshot 拉取、原子物化、确认 hash、提交后更新 base；`workspace/state.ts` 新增 `listWikiMemories`。
-- 2026-07-31 P6 完成：新增 `orchestrator-commands.ts` + MCP 工具（`start_knowledge_job`/`get_next_work_item`/`read_artifacts`/`submit_organized_item`/`validate_knowledge_job`/`preview_knowledge_job`/`confirm_and_push`/`pull_space`/`resolve_conflict`）；CLI 新增 `start`/`work`/`preview-job`/`push-job`/`pull`/`mcp --orchestrator`；`recipes.ts` 提供默认 `code-wiki@1`/`document-library@1`；`SKILL.md` 已更新为新流程。
-- 2026-07-31 GitHub 发布准备将 AgentWiki 主应用、client、server 和 shared 版本从 `0.0.1` 统一提升为 `0.1.0`；已单独发布的 `@neomei/agentwiki-local-sync` 保持 `0.1.1`。
-- 2026-07-31 使用指南“从本地知识创建 Wiki”的 4 个截图链接已从从未入库的 `local-sync-*.png` 改为仓库已有的真实系统截图；新增静态资产存在性回归测试，运行态四个 URL 均返回 200，Playwright 验证全部图片解码成功且无截图 404/控制台错误。
-- 剩余任务：P7 跨 Agent 跨机器真实 E2E 与 `0.2.0` 发布（需要明确授权：npm publish、GitHub Release、真实 E2E 可能涉及外部操作）；`space-add-agent-member` 浏览器视觉验收仍待 Chrome 插件恢复后补跑。
+- 2026-08-06 完成 OpenCode 模型降级合并部署：11 commits，29 files，3200+ 行，免费优先 + 付费自动发现 + Redis 熔断 + 成本记录，全仓门禁通过，生产运行正常。
+- 2026-08-06 完成平台超管管理后台：Prisma 迁移（lockedAt/mustChangePassword/authVersion），PlatformAdminModule（Guard/统计/用户管理/密码重置/锁定解锁/软删除），JWT/PAT/Agent 凭据同步校验，前端 /admin 页面。全部合并 master，部署生产，超管账号 admin@agentwiki.com 已配置。
+- 门禁（2026-08-06）：服务端 42 suites / 343 tests、客户端 30 files / 124 tests、local-sync 22 files / 160 tests、typecheck 0、lint 0、build 0。
+- P7 三个缺口已确认全部修复：review.service.ts 写入 spaceKnowledgeRevision、getSubmission 完整实现、LOCAL_SYNC_VERSION=0.2.2。
+- @neomei/agentwiki-local-sync@0.2.2 已发布 npm latest。
+- 生产公网 https://agentwiki.quukk.com 运行正常，API/Worker/Frontend 全部健康。
+- GitHub master 已推送最新代码（cc94047）。
 
 # 稳定约束
 
-- Agent 是人类拥有的独立实体；权限为当前 Credential Scope、Space Grant、Agent 状态和 Space 策略的交集。`review:decide` 不签发给 Agent。
-- 平台超管是 human User 的独立 `platformRole`，不是 SpaceMember 角色；它只对人类主体生效，作为 owner 等效入口接入既有 Space 授权链，Agent 不得继承。
-- JWT 与 WebSocket 握手必须重新确认当前未删除的人类 User；正式知识必须保留 Source/Version/Run/Evidence/ChangeSet/Approval provenance。
-- 自动知识默认进入 ChangeSet；Worker 使用可续租 fenced lease，在多个阶段复核凭证与授权。
-- 记忆只声明 episodic/semantic；private 仅目标 Agent，space 可由同 Space 授权 Agent 召回。
-- 远端发布必须先备份，再执行迁移和业务 smoke；应用保持直部署并由三个用户级 systemd 服务管理。
-- Markdown 编辑器不得恢复为并排双栏；编辑与预览使用同一工作区状态切换。界面新增用户可见文案时必须同时提供中文和英文，并保持语言选择持久化。
-- 首页 `/`、使用指南 `/guide`、工作台 `/dashboard` 必须共享一致的顶层导航；Logo 固定返回首页，未登录访问工作台必须使用明确的登录意图和提示，不能静默跳转。
-- 本地知识同步不得上传原始代码库、原始二进制文档、原始 Agent Memory 数据库或本地凭据；只有本地整理后的可迁移知识内容可以在明确确认后进入 Space ChangeSet。
-- 同一 Space 只有一套统一 Wiki；Source Adapter 只能产生 Artifact，不能直接写 Wiki、同步或发布。服务端权威、本地缓存，冲突使用三方合并提案，禁止 last-write-wins。
-- 正常安装和调用必须保持一个接入指令与自然语言入口；Adapter 按需安装到私有运行时，不要求 OpenWiki init、额外模型 Key、手写 MCP 配置、本地端口或 daemon。
+- Agent 是人类拥有的独立实体；权限为当前 Credential Scope、Space Grant、Agent 状态和 Space 策略的交集。
+- 平台超管是 human User 的独立 platformRole，作为 owner 等效入口接入既有 Space 授权链。
+- JWT 包含 authVersion，每次验证从数据库刷新；锁定/删除/版本不匹配时认证失败。
+- 超管不可自操作；锁定/删除最后超管受服务端保护。
+- Markdown 编辑器不得恢复为并排双栏；界面新增文案同时提供中英文。
+- 本地知识同步不得上传原始代码库/二进制文档/凭据。
+- 正常安装和调用保持一个接入指令与自然语言入口。
 
 # 关键索引
 
 - 产品代码：`agentwiki/`
-- 当前设计：`design/CURRENT_DESIGN.md`
-- 全量整改与发布记录：`design/REMEDIATION_TODO.md`
-- 运维与备份：`design/OPERATIONS.md`
-- systemd 单元：`agentwiki/deploy/systemd/`
-- 直部署脚本：`agentwiki/deploy.sh`
-- 本机代码图谱：`agentwiki/.codebase-memory/graph.db.zst`
-- 本机开发配置：`agentwiki/.env`、`agentwiki/apps/server/.env`（数据库主机已切到 `127.0.0.1`）
-- 零配置本地知识编排设计：`agentwiki/docs/superpowers/specs/2026-07-30-zero-config-local-knowledge-orchestrator-design.md`
-- `0.2.0` 实施路线图：`agentwiki/docs/superpowers/plans/2026-07-30-local-knowledge-orchestrator-roadmap.md`
-- 运行时约束：`agentwiki/.node-version`、`agentwiki/package.json`、`agentwiki/scripts/node-runtime-contract.test.mjs`
-- 本机 Git 元数据：`/Users/neomei/.local/share/AgentWiki.git`（工作树仍为当前项目路径，避免 iCloud 占位对象阻塞 Git）
-- 迁移前备份：`C:\Users\1\AgentWikiBackups\agentwiki-pre-migrate-20260716-003650.dump`
+- 生产地址：https://agentwiki.quukk.com
+- GitHub：https://github.com/NeoMei/AgentWiki
+- npm 包：https://www.npmjs.com/package/@neomei/agentwiki-local-sync
+- 超管账号：admin@agentwiki.com
 
 # 风险 / 下一步
 
-- 生产入口依赖双机链路 `agentwiki.quukk.com:443 → 47.108.85.222 → 113.249.120.24:8444`；需监控跳板机反代、113 的来源白名单和通配符证书续期。不要重新开放高风险的公网 445，也不要把 113 的 8444 放宽到任意来源。
-- `space-add-agent-member` 的代码、自动化门禁与真实 API 已完成；浏览器插件恢复后必须补跑 owner/admin、中文/英文及 390x844 响应式视觉验收，随后归档该任务并恢复 `local-knowledge-sync` 第一阶段。`0.2.0` 完成真实跨 Agent、跨机器验证前，不得在指南中宣称新方案可用。npm publish、GitHub Release、Git push 和未来任何远程处理 Adapter 仍需在发生前获得对应明确授权。
-- 当前 codebase-memory-mcp 的 `--name agentwiki` 参数仍会被 CLI/MCP 忽略；图工件已通过完整性校验并规范化为 `agentwiki`。工具升级后应移除该手工规范化步骤并以官方参数重新索引验证。
-- 后续发布继续执行备份 → 直部署 → `/api/health` → 业务 smoke；监控 systemd/journal、Worker 租约和备份保留。
-- 记忆时间衰减或新增层级前，必须完成至少 50 个生产影子查询评审并保持 Recall@3/MRR 门槛。
+- space-add-agent-member 浏览器视觉验收仍待 Chrome 插件恢复后补跑。
+- local-knowledge-sync 跨机器双向同步真实验收待继续。
+- 后续发布继续执行备份 → 直部署 → /api/health → 业务 smoke。

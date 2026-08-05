@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Param, Query, Body, Headers, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { IsString } from 'class-validator';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { CurrentPrincipal } from '../core/auth/current-principal.decorator';
 import { AuthorizationService, Principal } from '../core/authorization/authorization.service';
@@ -6,7 +7,10 @@ import { KnowledgeRevisionService } from '../knowledge-revision/knowledge-revisi
 import { KnowledgeSubmissionService, SubmitPrincipal } from './knowledge-submission.service';
 
 export class KnowledgeBundleSubmitDto {
+  @IsString()
   body: string;
+
+  @IsString()
   idempotencyKey: string;
 }
 

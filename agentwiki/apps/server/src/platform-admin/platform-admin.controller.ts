@@ -3,7 +3,7 @@ import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { PlatformSuperAdminGuard } from './platform-admin.guard';
 import { PlatformAdminService } from './platform-admin.service';
 
-@Controller('api/platform-admin')
+@Controller('platform-admin')
 @UseGuards(CombinedAuthGuard, PlatformSuperAdminGuard)
 export class PlatformAdminController {
   constructor(private readonly service: PlatformAdminService) {}
