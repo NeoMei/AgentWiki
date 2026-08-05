@@ -217,6 +217,39 @@ describe('OpencodeCliRunner', () => {
     await rejected;
   });
 
+  it('does not classify model stdout as a provider failure on nonzero exit', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = (runner as any).exec([], 10_000, 'model').catch((error: any) => error);
+
+    child.stdout.write([
+      JSON.stringify({
+        type: 'text',
+        part: { text: 'Unauthorized invalid API key stdout-secret' },
+      }),
+      JSON.stringify({
+        type: 'step_finish',
+        part: {
+          tokens: { total: 7, input: 3, output: 2, reasoning: 1, cache: { read: 1, write: 0 } },
+          cost: 0.0007,
+        },
+      }),
+    ].join('\n'));
+    child.stderr.write('unexpected failure stderr-secret');
+    child.emit('close', 1);
+
+    const error = await execution;
+    expect(error).toMatchObject({
+      message: 'process_error',
+      code: 'process_error',
+      scope: 'global',
+      usage: { total: 7, input: 3, output: 2, reasoning: 1, cacheRead: 1, cacheWrite: 0 },
+      cost: 0.0007,
+    });
+    expect(error.message).not.toContain('stdout-secret');
+    expect(error.message).not.toContain('stderr-secret');
+  });
+
   it('parses OpenCode 1.18 text and usage events', () => {
     const runner = new OpencodeCliRunner(config);
     const output = [

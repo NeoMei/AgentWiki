@@ -145,7 +145,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
         cleanup();
         if (code === 0) settle(undefined, out);
         else {
-          const failureCode = this.classifyFailure(`${out}\n${err}`);
+          const failureCode = this.classifyFailure(err);
           const scope = failureCode === 'process_error' ? 'global' : 'model';
           settle(this.executionError(failureCode, scope, out));
         }
