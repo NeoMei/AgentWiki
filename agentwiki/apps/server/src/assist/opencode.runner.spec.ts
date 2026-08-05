@@ -6,7 +6,7 @@ import { OpencodeCliRunner } from './opencode.runner';
 
 jest.mock('child_process', () => ({ spawn: jest.fn() }));
 
-describe('OpencodeCliRunner process limits', () => {
+describe('OpencodeCliRunner', () => {
   const config = { get: jest.fn((key: string) => key === 'OPENCODE_BIN' ? 'opencode' : undefined) } as any;
 
   const childProcess = () => {
@@ -29,12 +29,72 @@ describe('OpencodeCliRunner process limits', () => {
 
   afterEach(() => jest.useRealTimers());
 
+  it('builds an editing prompt from the task input', () => {
+    const runner = new OpencodeCliRunner(config);
+
+    expect(runner.buildPrompt({
+      intent: 'Make it concise',
+      pageSnapshot: { title: 'Draft', content: 'Long text' },
+    })).toContain([
+      '## Page snapshot',
+      '{',
+      '  "title": "Draft",',
+      '  "content": "Long text"',
+      '}',
+      '',
+      '## User intent',
+      'Make it concise',
+    ].join('\n'));
+  });
+
+  it('runs one explicit model and excludes host secrets from the child environment', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
+
+    expect(spawn).toHaveBeenCalledWith('opencode', [
+      'run', '--model', 'opencode/big-pickle', '--format', 'json', 'prompt',
+    ], expect.objectContaining({ env: expect.any(Object) }));
+    const childEnv = (spawn as jest.Mock).mock.calls[0][2].env;
+    expect(childEnv).not.toHaveProperty('DATABASE_URL');
+    expect(childEnv).not.toHaveProperty('JWT_SECRET');
+    expect(childEnv).not.toHaveProperty('REDIS_URL');
+
+    child.stdout.write(JSON.stringify({
+      type: 'text',
+      part: { text: JSON.stringify({ summary: 'ok', changes: '# Result' }) },
+    }));
+    child.emit('close', 0);
+
+    await expect(execution).resolves.toMatchObject({ summary: 'ok', changes: '# Result' });
+  });
+
+  it('lists verbose models through the OpenCode catalog command', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = runner.listModels(10_000);
+
+    expect(spawn).toHaveBeenCalledWith(
+      'opencode',
+      ['models', '--verbose'],
+      expect.objectContaining({ env: expect.any(Object) }),
+    );
+    child.stdout.write('model catalog');
+    child.emit('close', 0);
+
+    await expect(execution).resolves.toBe('model catalog');
+  });
+
   it('escalates a timed-out process to SIGKILL when it has not closed', async () => {
     jest.useFakeTimers();
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);
-    const execution = (runner as any).exec([], 100);
-    const rejected = expect(execution).rejects.toThrow('opencode timed out');
+    const execution = (runner as any).exec([], 100, 'model');
+    const rejected = expect(execution).rejects.toMatchObject({
+      message: 'timeout',
+      code: 'timeout',
+      scope: 'model',
+    });
 
     await jest.advanceTimersByTimeAsync(100);
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
@@ -46,19 +106,24 @@ describe('OpencodeCliRunner process limits', () => {
   it('terminates the process without retaining output beyond two megabytes', async () => {
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);
-    const execution = (runner as any).exec([], 10_000).catch(() => undefined);
+    const execution = (runner as any).exec([], 10_000, 'model');
+    const rejected = expect(execution).rejects.toMatchObject({
+      message: 'output_limit',
+      code: 'output_limit',
+      scope: 'global',
+    });
 
     child.stdout.write(Buffer.alloc(2_000_001, 'x'));
 
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     child.emit('close', 1);
-    await execution;
+    await rejected;
   });
 
   it('removes process and stream listeners after the process closes', async () => {
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);
-    const execution = (runner as any).exec([], 10_000);
+    const execution = (runner as any).exec([], 10_000, 'catalog');
 
     child.stdout.write('ok');
     child.emit('close', 0);
@@ -74,7 +139,7 @@ describe('OpencodeCliRunner process limits', () => {
     const child = childProcess();
     const bundledConfig = { get: jest.fn(() => undefined) } as any;
     const runner = new OpencodeCliRunner(bundledConfig);
-    const execution = (runner as any).exec([], 10_000);
+    const execution = (runner as any).exec([], 10_000, 'catalog');
 
     child.stdout.write('ok');
     child.emit('close', 0);
@@ -87,19 +152,167 @@ describe('OpencodeCliRunner process limits', () => {
     );
   });
 
-  it('parses OpenCode 1.18 text events from part.text', () => {
+  it('classifies a missing OpenCode binary as a global failure', async () => {
+    const child = childProcess();
     const runner = new OpencodeCliRunner(config);
-    const output = JSON.stringify({
-      type: 'text',
-      part: {
-        type: 'text',
-        text: JSON.stringify({ summary: 'Improved wording', changes: '# Improved\n\nClear text.' }),
-      },
+    const execution = (runner as any).exec([], 10_000, 'catalog');
+    const rejected = expect(execution).rejects.toMatchObject({
+      message: 'binary_unavailable',
+      code: 'binary_unavailable',
+      scope: 'global',
     });
+
+    child.emit('error', Object.assign(new Error('spawn opencode ENOENT'), { code: 'ENOENT' }));
+
+    await rejected;
+  });
+
+  it.each([
+    ['HTTP 429: too many requests', 'rate_limited'],
+    ['Unauthorized: invalid API key', 'auth_failed'],
+    ['model vendor/missing not found', 'model_unavailable'],
+  ])('classifies provider failure %s without exposing raw stderr', async (providerText, errorCode) => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = (runner as any).exec([], 10_000, 'model');
+    const rejected = expect(execution).rejects.toMatchObject({
+      message: errorCode,
+      code: errorCode,
+      scope: 'model',
+    });
+
+    child.stdout.write(JSON.stringify({
+      type: 'step_finish',
+      part: {
+        tokens: { total: 9, input: 4, output: 2, reasoning: 1, cache: { read: 1, write: 1 } },
+        cost: 0.001,
+      },
+    }));
+    child.stderr.write(`${providerText} secret-provider-detail`);
+    child.emit('close', 1);
+
+    await rejected;
+    await execution.catch((error: any) => {
+      expect(error.usage).toEqual({
+        total: 9, input: 4, output: 2, reasoning: 1, cacheRead: 1, cacheWrite: 1,
+      });
+      expect(error.cost).toBe(0.001);
+      expect(error.message).not.toContain('secret-provider-detail');
+    });
+  });
+
+  it('classifies an unknown nonzero exit as a sanitized global process failure', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = (runner as any).exec([], 10_000, 'model');
+    const rejected = expect(execution).rejects.toMatchObject({
+      message: 'process_error',
+      code: 'process_error',
+      scope: 'global',
+    });
+
+    child.stderr.write('unexpected failure with secret-provider-detail');
+    child.emit('close', 1);
+
+    await rejected;
+  });
+
+  it('parses OpenCode 1.18 text and usage events', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      JSON.stringify({
+        type: 'text',
+        part: {
+          type: 'text',
+          text: JSON.stringify({ summary: 'Improved wording', changes: '# Improved\n\nClear text.' }),
+        },
+      }),
+      JSON.stringify({
+        type: 'step_finish',
+        part: {
+          tokens: {
+            total: 120,
+            input: 70,
+            output: 20,
+            reasoning: 10,
+            cache: { read: 15, write: 5 },
+          },
+          cost: 0.0025,
+        },
+      }),
+    ].join('\n');
 
     expect((runner as any).parse(output)).toMatchObject({
       summary: 'Improved wording',
       changes: '# Improved\n\nClear text.',
+      cost: 0.0025,
+      usage: {
+        total: 120,
+        input: 70,
+        output: 20,
+        reasoning: 10,
+        cacheRead: 15,
+        cacheWrite: 5,
+      },
     });
+  });
+
+  it('concatenates text fragments and sums every step usage event', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      JSON.stringify({ type: 'text', part: { text: '{"summary":"ok",' } }),
+      JSON.stringify({ type: 'step_finish', part: {
+        tokens: { total: 10, input: 5, output: 2, reasoning: 1, cache: { read: 1, write: 1 } },
+        cost: 0.001,
+      } }),
+      JSON.stringify({ type: 'text', part: { text: '"changes":"# Result"}' } }),
+      JSON.stringify({ type: 'step_finish', part: {
+        tokens: { total: 20, input: 9, output: 5, reasoning: 2, cache: { read: 3, write: 1 } },
+        cost: 0.002,
+      } }),
+    ].join('\n');
+
+    expect((runner as any).parse(output)).toMatchObject({
+      changes: '# Result',
+      cost: 0.003,
+      usage: {
+        total: 30,
+        input: 14,
+        output: 7,
+        reasoning: 3,
+        cacheRead: 4,
+        cacheWrite: 2,
+      },
+    });
+  });
+
+  it('parses the final JSON object containing changes from assistant text', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      JSON.stringify({ type: 'text', part: { text: 'Preparing the final response.\n```json\n' } }),
+      JSON.stringify({ type: 'text', part: {
+        text: JSON.stringify({ summary: 'final', changes: '# Final {result}' }),
+      } }),
+      JSON.stringify({ type: 'text', part: { text: '\n```' } }),
+    ].join('\n');
+
+    expect((runner as any).parse(output)).toMatchObject({
+      summary: 'final',
+      changes: '# Final {result}',
+    });
+  });
+
+  it.each([
+    JSON.stringify({ type: 'text', part: { text: 'plain text' } }),
+    '{damaged-json',
+    JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: 'empty', changes: '   ' }) } }),
+  ])('rejects invalid OpenCode event output instead of treating it as page changes', (output) => {
+    const runner = new OpencodeCliRunner(config);
+
+    expect(() => (runner as any).parse(output)).toThrow(expect.objectContaining({
+      message: 'invalid_output',
+      code: 'invalid_output',
+      scope: 'model',
+    }));
   });
 });
