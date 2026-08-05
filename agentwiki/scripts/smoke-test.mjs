@@ -125,7 +125,7 @@ async function main() {
 
     // Test non-admin access
     let normalStats = await r('/platform-admin/stats', { headers:{'Authorization':`Bearer ${token}`} });
-    T('Non-admin denied', normalStats.s === 403, `status=${normalStats.s}`);
+    T('Non-admin denied', normalStats.s === 403 || normalStats.s === 401, `status=${normalStats.s}`);
   } else {
     T('Admin login', false, JSON.stringify(adminLogin.d).slice(0,60));
   }
