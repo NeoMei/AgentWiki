@@ -79,6 +79,18 @@ describe('RedisService strict hash operations', () => {
     await expect(service.getStrict('install:hash')).resolves.toBe('payload');
   });
 
+  it('strictly writes an expiring value and surfaces Redis errors', async () => {
+    const failure = new Error('redis unavailable');
+    const setex = jest.fn()
+      .mockResolvedValueOnce('OK')
+      .mockRejectedValueOnce(failure);
+    const service = serviceWithClient({ setex });
+
+    await expect(service.setStrict('key', 'value', 2)).resolves.toBeUndefined();
+    expect(setex).toHaveBeenCalledWith('key', 2, 'value');
+    await expect(service.setStrict('key', 'value', 2)).rejects.toBe(failure);
+  });
+
   it('strictly deletes revocation state', async () => {
     const client = { del: jest.fn().mockResolvedValue(1) };
     const service = serviceWithClient(client);

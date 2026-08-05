@@ -83,6 +83,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.getClient().get(key);
   }
 
+  async setStrict(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    const client = this.getClient();
+    if (ttlSeconds) await client.setex(key, ttlSeconds, value);
+    else await client.set(key, value);
+  }
+
   async deleteStrict(key: string): Promise<number> {
     return this.getClient().del(key);
   }
