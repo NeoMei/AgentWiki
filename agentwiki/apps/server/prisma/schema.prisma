@@ -28,6 +28,10 @@ model User {
   requestedRuns     IngestRun[]
   createdChangeSets ChangeSet[]
   approvals         Approval[]
+  lockedAt           DateTime?
+  mustChangePassword Boolean          @default(false)
+  authVersion        Int              @default(0)
+
   assistTasks       AssistTask[]
 
   createdAt DateTime  @default(now())

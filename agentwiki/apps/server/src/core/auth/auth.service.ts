@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { BusinessException } from '../filters/business-error';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
@@ -11,6 +11,8 @@ export interface User {
   name: string;
   type: 'human' | 'agent';
   platformRole?: 'user' | 'super_admin';
+  authVersion?: number;
+  mustChangePassword?: boolean;
   apiKey?: string;
   password?: string;
 }
@@ -31,7 +33,14 @@ export class AuthService {
   }
 
   signToken(user: User): string {
-    const payload = { sub: user.id, email: user.email, type: user.type, platformRole: user.platformRole };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      type: user.type,
+      platformRole: user.platformRole,
+      authVersion: user.authVersion ?? 0,
+      passwordChangeRequired: user.mustChangePassword ?? false,
+    };
     return this.jwtService.sign(payload);
   }
 
@@ -41,18 +50,25 @@ export class AuthService {
     name?: string;
     type: 'human';
     platformRole: 'user' | 'super_admin';
+    authVersion?: number;
+    mustChangePassword?: boolean;
   } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId, deletedAt: null, type: 'human' },
-      select: { id: true, email: true, name: true, type: true, platformRole: true },
+      select: {
+        id: true, email: true, name: true, type: true,
+        platformRole: true, lockedAt: true, authVersion: true, mustChangePassword: true,
+      },
     });
-    if (!user) return null;
+    if (!user || user.lockedAt) return null;
     return {
       userId: user.id,
       email: user.email,
       name: user.name || undefined,
       type: 'human',
       platformRole: user.platformRole as 'user' | 'super_admin',
+      authVersion: user.authVersion,
+      mustChangePassword: user.mustChangePassword,
     };
   }
 
@@ -73,6 +89,7 @@ export class AuthService {
     if (credential && (
       credential.revokedAt ||
       credential.user.deletedAt ||
+      credential.user.lockedAt ||
       credential.user.type !== 'human' ||
       (credential.expiresAt && credential.expiresAt <= new Date())
     )) {
@@ -103,6 +120,7 @@ export class AuthService {
       agentCredential.agent.status !== 'active' ||
       agentCredential.agent.revokedAt ||
       agentCredential.agent.owner.deletedAt ||
+      agentCredential.agent.owner.lockedAt ||
       (agentCredential.expiresAt && agentCredential.expiresAt <= new Date())
     ) {
       return null;
@@ -124,9 +142,12 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
       where: { email, deletedAt: null, type: 'human' },
-      select: { id: true, email: true, name: true, type: true, platformRole: true, password: true },
+      select: {
+        id: true, email: true, name: true, type: true, platformRole: true,
+        password: true, lockedAt: true, authVersion: true, mustChangePassword: true,
+      },
     });
-    if (!user || !user.password) {
+    if (!user || !user.password || user.lockedAt) {
       throw new BusinessException('AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
     const valid = await this.validatePassword(password, user.password);
@@ -136,7 +157,11 @@ export class AuthService {
     const token = this.signToken(user as User);
     return {
       access_token: token,
-      user: { id: user.id, email: user.email, name: user.name, type: user.type, platformRole: user.platformRole },
+      user: {
+        id: user.id, email: user.email, name: user.name,
+        type: user.type, platformRole: user.platformRole,
+        mustChangePassword: user.mustChangePassword,
+      },
     };
   }
 
@@ -157,5 +182,43 @@ export class AuthService {
       }
       throw new InternalServerErrorException('Registration failed');
     }
+  }
+
+  async changeRequiredPassword(userId: string, newPassword: string, defaultPassword?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId, deletedAt: null, type: 'human' },
+      select: { id: true, mustChangePassword: true, password: true, authVersion: true },
+    });
+    if (!user || !user.mustChangePassword) {
+      throw new UnauthorizedException('Password change not required');
+    }
+    if (defaultPassword && newPassword === defaultPassword) {
+      throw new BusinessException('AUTH_PASSWORD_POLICY', 'New password cannot be the default password');
+    }
+    if (newPassword.length < 8) {
+      throw new BusinessException('AUTH_PASSWORD_POLICY', 'Password must be at least 8 characters');
+    }
+    const hashed = await this.hashPassword(newPassword);
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashed,
+        mustChangePassword: false,
+        authVersion: { increment: 1 },
+      },
+      select: {
+        id: true, email: true, name: true, type: true,
+        platformRole: true, authVersion: true, mustChangePassword: true,
+      },
+    });
+    const token = this.signToken(updated as User);
+    return {
+      access_token: token,
+      user: {
+        id: updated.id, email: updated.email, name: updated.name,
+        type: updated.type, platformRole: updated.platformRole,
+        mustChangePassword: false,
+      },
+    };
   }
 }

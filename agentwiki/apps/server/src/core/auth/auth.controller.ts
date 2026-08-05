@@ -1,8 +1,11 @@
-import { Controller, Post, Body, Logger, Req } from '@nestjs/common';
+import { Controller, Post, Body, Logger, Req, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { AuditService } from '../security/audit.service';
+import { BusinessException } from '../filters/business-error';
+import { CombinedAuthGuard } from './combined-auth.guard';
+import { CurrentPrincipal } from './current-principal.decorator';
 
 export class LoginDto {
   @IsEmail()
@@ -24,7 +27,16 @@ export class RegisterDto {
   @IsString()
   @MinLength(1)
   name: string;
+}
 
+export class ChangeRequiredPasswordDto {
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+
+  @IsString()
+  @MinLength(8)
+  confirmPassword: string;
 }
 
 @Controller('auth')
@@ -73,5 +85,21 @@ export class AuthController {
       userAgent: req.headers['user-agent'],
     });
     return result;
+  }
+
+  @Post('change-required-password')
+  @UseGuards(CombinedAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changeRequiredPassword(
+    @Body() dto: ChangeRequiredPasswordDto,
+    @CurrentPrincipal() principal: any,
+  ) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BusinessException('AUTH_PASSWORD_MISMATCH', 'Passwords do not match');
+    }
+    if (!principal.mustChangePassword) {
+      throw new BusinessException('AUTH_INVALID_STATE', 'Password change not required');
+    }
+    return this.authService.changeRequiredPassword(principal.userId, dto.newPassword);
   }
 }

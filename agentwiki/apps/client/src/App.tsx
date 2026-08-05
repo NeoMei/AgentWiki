@@ -8,10 +8,12 @@ import { Dashboard } from './features/dashboard/Dashboard';
 import { SpaceView } from './features/space/SpaceView';
 import { SearchResults } from './features/search/SearchResults';
 import { Profile } from './features/profile/Profile';
+import { ForcePasswordChange } from './features/auth/ForcePasswordChange';
 import { SpaceMembers } from './features/space/SpaceMembers';
 import { ProductPage } from './features/about/ProductPage';
 import { UsageGuide } from './features/about/UsageGuide';
 import { SpaceSettings } from './features/space/SpaceSettings';
+import { AdminPage } from './features/admin/AdminPage';
 
 const AgentList = lazy(() => import('./features/agent/AgentList').then((module) => ({ default: module.AgentList })));
 const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((module) => ({ default: module.AgentDetail })));
@@ -48,12 +50,14 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/members" element={<SpaceMembers />} />
         <Route path="/spaces/:id/settings" element={<SpaceSettings />} />
         <Route path="/spaces/:id/docs" element={<Navigate to="../sources" relative="path" replace />} />
+        <Route path="/change-password" element={<ForcePasswordChange />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/agents" element={<Suspense fallback={<RouteLoading />}><AgentList /></Suspense>} />
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
         <Route path="/spaces/:id/sources" element={<Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense>} />
         <Route path="/spaces/:id/runs" element={<Suspense fallback={<RouteLoading />}><RunsPage /></Suspense>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
+        <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
         <Route path="/settings/integrations" element={<Suspense fallback={<RouteLoading />}><IntegrationsPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />

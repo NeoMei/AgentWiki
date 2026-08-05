@@ -23,7 +23,7 @@ export const Login: React.FC = () => {
     try {
       const response = await api.post('/auth/login', { email, password });
       login(response.data.access_token, response.data.user);
-      navigate('/');
+      if (response.data.user?.mustChangePassword) { navigate('/change-password'); } else { navigate('/dashboard'); }
     } catch (err: any) {
       setError(err.response?.data?.message || t('auth.loginFailed'));
     } finally {

@@ -21,12 +21,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: { sub: string; email: string; type: string }) {
+  async validate(payload: { sub: string; email: string; type: string; authVersion?: number }) {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token payload');
     }
     const principal = await this.authService.validateJwtUser(payload.sub);
     if (!principal) throw new UnauthorizedException('User account is unavailable');
+    if (payload.authVersion !== undefined && principal.authVersion !== undefined &&
+        payload.authVersion !== principal.authVersion) {
+      throw new UnauthorizedException('Token version mismatch; please log in again');
+    }
     return principal;
   }
 }

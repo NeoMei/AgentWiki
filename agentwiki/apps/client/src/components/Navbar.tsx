@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Bot, ChevronDown, ClipboardCheck, LogOut, Plug, Search, User } from 'lucide-react';
+import { Bot, ChevronDown, ClipboardCheck, LogOut, Plug, Search, Shield, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import api from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
@@ -55,6 +55,7 @@ export const Navbar: React.FC = () => {
             <p className="px-3 py-2 text-xs text-gray-400 truncate">{user?.email}</p>
             <Link onClick={() => setMenuOpen(false)} to="/profile" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><User size={16} /> {t('nav.profile')}</Link>
             <Link onClick={() => setMenuOpen(false)} to="/settings/integrations" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Plug size={16} /> {t('nav.integrations')}</Link>
+            {user?.platformRole === 'super_admin' ? <Link onClick={() => setMenuOpen(false)} to="/admin" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Shield size={16} /> {t('nav.admin')}</Link> : null}
             <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"><LogOut size={16} /> {t('nav.logout')}</button>
           </div> : null}
         </div>
