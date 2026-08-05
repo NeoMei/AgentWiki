@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
-import { OpencodeRunner } from './opencode.types';
+import { OpencodeRoutingError, OpencodeRunner } from './opencode.types';
 
 export type { AssistRunResult, OpencodeRunner } from './opencode.types';
 
@@ -73,13 +73,14 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
           select: { id: true, intent: true, pageSnapshot: true },
         });
         if (!candidate) break;
+        const leaseExpiresAt = new Date(Date.now() + leaseMs);
         const claim = await this.prisma.assistTask.updateMany({
           where: { id: candidate.id, status: 'queued' },
-          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt: new Date(Date.now() + leaseMs) },
+          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt },
         });
         if (!claim.count) continue;
         this.active += 1;
-        void this.processOne(candidate).catch(() => undefined).finally(() => {
+        void this.processOne({ ...candidate, leaseExpiresAtMs: leaseExpiresAt.getTime() }).catch(() => undefined).finally(() => {
           this.active -= 1;
           void this.safeTick();
         });
@@ -89,20 +90,26 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processOne(task: { id: string; intent: string; pageSnapshot: unknown }) {
+  private async processOne(task: { id: string; intent: string; pageSnapshot: unknown; leaseExpiresAtMs?: number }) {
     try {
-      const result = await this.runner.run({ intent: task.intent, pageSnapshot: task.pageSnapshot });
+      const result = await this.runner.run({
+        intent: task.intent,
+        pageSnapshot: task.pageSnapshot,
+        leaseExpiresAtMs: task.leaseExpiresAtMs,
+      });
       const completion = await this.prisma.assistTask.updateMany({
         where: { id: task.id, status: 'running', leaseOwner: this.workerId },
         data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
       });
       if (completion.count === 0) return;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const routing = error instanceof OpencodeRoutingError ? error : undefined;
       const completion = await this.prisma.assistTask.updateMany({
         where: { id: task.id, status: 'running', leaseOwner: this.workerId },
         data: {
           status: 'failed',
-          error: String(error?.message || error || 'opencode failed'),
+          error: routing ? routing.message : 'Editing assistant failed',
+          ...(routing ? { result: routing.result as any } : {}),
           completedAt: new Date(),
           leaseOwner: null,
           leaseExpiresAt: null,

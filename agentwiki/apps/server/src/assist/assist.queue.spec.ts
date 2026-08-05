@@ -1,4 +1,5 @@
 import { AssistQueue } from './assist.queue';
+import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
@@ -11,11 +12,13 @@ describe('AssistQueue task processing', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.assistTask.findFirst.mockReset();
+    prisma.assistTask.updateMany.mockReset();
+    runner.run.mockReset();
     prisma.assistTask.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it('claims a queued task, runs opencode, and marks it done with the result', async () => {
-    prisma.assistTask.findFirst.mockResolvedValue({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } });
     runner.run.mockResolvedValue({ summary: 'polished version', changes: '# Hi — polished' });
     const queue = new AssistQueue(prisma, config, runner);
     await (queue as any).processOne({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } });
@@ -32,8 +35,59 @@ describe('AssistQueue task processing', () => {
     await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
-      data: expect.objectContaining({ status: 'failed' }),
+      data: expect.objectContaining({ status: 'failed', error: 'Editing assistant failed' }),
     }));
+  });
+
+  it('passes the exact claimed lease deadline to the runner', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    prisma.assistTask.findFirst
+      .mockResolvedValueOnce({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } })
+      .mockResolvedValueOnce(null);
+    runner.run.mockResolvedValue({ summary: 'done' });
+    const queue = new AssistQueue(prisma, config, runner);
+
+    await (queue as any).tick();
+
+    const claim = prisma.assistTask.updateMany.mock.calls.find((call: any[]) => call[0].data.status === 'running')[0];
+    expect(claim.data.leaseExpiresAt).toEqual(new Date(1_060_000));
+    expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ leaseExpiresAtMs: 1_060_000 }));
+    now.mockRestore();
+  });
+
+  it('persists sanitized routing metadata when every candidate fails', async () => {
+    const secret = 'OPENAI_API_KEY=sk-fake provider stderr fixture';
+    const result = {
+      summary: 'Editing assistant failed',
+      model: 'paid/cheap',
+      modelTier: 'paid' as const,
+      attemptCount: 2,
+      usage: { ...EMPTY_USAGE, input: 7, total: 7 },
+      cost: 0.004,
+      attempts: [
+        { model: 'free/one', tier: 'free' as const, durationMs: 10, status: 'failed' as const, errorCode: 'rate_limited' as const, usage: EMPTY_USAGE, cost: 0 },
+        { model: 'paid/cheap', tier: 'paid' as const, durationMs: 20, status: 'failed' as const, errorCode: 'invalid_output' as const, usage: { ...EMPTY_USAGE, input: 7, total: 7 }, cost: 0.004 },
+      ],
+    };
+    const error = new OpencodeRoutingError('OpenCode routing failed: invalid_output', result);
+    (error as any).stderr = secret;
+    runner.run.mockRejectedValue(error);
+    const queue = new AssistQueue(prisma, config, runner);
+
+    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null, leaseExpiresAtMs: 10_000 });
+
+    const failed = prisma.assistTask.updateMany.mock.calls[0][0].data;
+    expect(failed).toMatchObject({
+      status: 'failed',
+      error: 'OpenCode routing failed: invalid_output',
+      result: {
+        attemptCount: 2,
+        attempts: [{ errorCode: 'rate_limited' }, { errorCode: 'invalid_output' }],
+        usage: { total: 7 },
+        cost: 0.004,
+      },
+    });
+    expect(JSON.stringify({ result: failed.result, error: failed.error })).not.toContain(secret);
   });
 
   it('does not complete a task after its lease has been taken over', async () => {
