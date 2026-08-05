@@ -6,9 +6,19 @@ import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../core/security/audit.service';
 import { AuthService } from '../core/auth/auth.service';
 import { RedisService } from '../database/redis.service';
-import { JwtService } from '@nestjs/jwt';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
+  imports: [
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET') || process.env.JWT_SECRET,
+      }),
+    }),
+  ],
   controllers: [PlatformAdminController],
   providers: [
     PlatformAdminService,
@@ -17,7 +27,7 @@ import { JwtService } from '@nestjs/jwt';
     AuditService,
     AuthService,
     RedisService,
-    JwtService,
+    ConfigService,
   ],
   exports: [PlatformAdminService],
 })
