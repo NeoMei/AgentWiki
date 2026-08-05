@@ -10,20 +10,64 @@ interface AgentAssistPanelProps {
   snapshot: () => { title: string; content: string; updatedAt?: string };
 }
 
-const STATUS_LABEL: Record<string, { zh: string; en: string; cls: string }> = {
+type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
+
+interface AssistAttemptResult {
+  errorCode?: string;
+}
+
+interface AssistRoutingResult {
+  changes?: string;
+  model?: string;
+  modelTier?: 'free' | 'paid';
+  attemptCount: number;
+  usage?: { total?: number };
+  cost: number;
+  attempts?: AssistAttemptResult[];
+}
+
+interface AssistTask {
+  id: string;
+  intent: string;
+  status: AssistTaskStatus;
+  result?: AssistRoutingResult;
+}
+
+interface PendingReview {
+  id: string;
+  title: string;
+  status: string;
+}
+
+const STATUS_LABEL: Record<AssistTaskStatus, { zh: string; en: string; cls: string }> = {
   queued: { zh: '排队中', en: 'Queued', cls: 'text-amber-600' },
   running: { zh: '生成中…', en: 'Running…', cls: 'text-blue-600' },
   done: { zh: '已完成', en: 'Done', cls: 'text-green-600' },
   failed: { zh: '失败', en: 'Failed', cls: 'text-red-600' },
 };
 
+const routingMeta = (result: AssistRoutingResult | undefined, zh: boolean) => {
+  if (!result?.model) return null;
+  const tier = result.modelTier === 'paid' ? (zh ? '付费' : 'Paid') : (zh ? '免费' : 'Free');
+  const attempts = zh
+    ? `${result.attemptCount} 次尝试`
+    : `${result.attemptCount} ${result.attemptCount === 1 ? 'attempt' : 'attempts'}`;
+  const tokens = `${new Intl.NumberFormat(zh ? 'zh-CN' : 'en-US').format(result.usage?.total || 0)} tokens`;
+  return `${result.model} · ${tier} · ${attempts} · ${tokens} · $${Number(result.cost || 0).toFixed(6)}`;
+};
+
+const routingErrorCode = (result: AssistRoutingResult | undefined) => {
+  const attempts = result?.attempts;
+  return attempts?.[attempts.length - 1]?.errorCode || null;
+};
+
 export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [intent, setIntent] = useState('');
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<AssistTask[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [pending, setPending] = useState<any[]>([]);
+  const [pending, setPending] = useState<PendingReview[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadTasks = useCallback(async () => {
@@ -38,8 +82,8 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const loadPending = useCallback(async () => {
     try {
       const res = await api.get('/review', { params: { spaceId } });
-      const items = Array.isArray(res.data) ? res.data : res.data.data || [];
-      setPending(items.filter((item: any) => item.status === 'pending_review'));
+      const items: PendingReview[] = Array.isArray(res.data) ? res.data : res.data.data || [];
+      setPending(items.filter((item) => item.status === 'pending_review'));
     } catch {
       setPending([]);
     }
@@ -107,7 +151,11 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           {tasks.length ? (
             <ul className="space-y-2">
               {tasks.map((task) => {
-                const status = STATUS_LABEL[task.status] || STATUS_LABEL.queued;
+                const status = STATUS_LABEL[task.status];
+                const metadata = task.status === 'done' || task.status === 'failed'
+                  ? routingMeta(task.result, zh)
+                  : null;
+                const errorCode = task.status === 'failed' ? routingErrorCode(task.result) : null;
                 return (
                   <li key={task.id} className="rounded-lg border border-gray-200 p-2.5" data-testid={`assist-task-${task.id}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -117,13 +165,14 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                         {zh ? status.zh : status.en}
                       </span>
                     </div>
+                    {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
                     {task.status === 'done' && task.result?.changes ? (
                       <details className="mt-1.5">
                         <summary className="cursor-pointer text-xs text-blue-600">{zh ? '查看建议内容' : 'View suggestion'}</summary>
                         <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">{task.result.changes}</pre>
                       </details>
                     ) : null}
-                    {task.status === 'failed' ? <p className="mt-1 text-xs text-red-600">{task.error}</p> : null}
+                    {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
                   </li>
                 );
               })}
@@ -137,7 +186,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           <p className="mb-1.5 text-xs font-medium text-gray-500">{zh ? '待我审批的变更' : 'Awaiting my review'}</p>
           {pending.length ? (
             <ul className="space-y-1.5">
-              {pending.map((item: any) => (
+              {pending.map((item) => (
                 <li key={item.id}>
                   <a href={`/review?changeSet=${item.id}`} className="block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 hover:bg-amber-100">
                     {item.title}
