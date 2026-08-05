@@ -2,19 +2,9 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
+import { OpencodeRunner } from './opencode.types';
 
-export interface AssistRunResult {
-  summary: string;
-  changes?: string;
-  proposedChangeSetId?: string;
-  raw?: string;
-}
-
-// Abstraction over the opencode invocation so the queue can be tested without
-// spawning a real process. The default implementation runs `opencode run`.
-export interface OpencodeRunner {
-  run(task: { intent: string; pageSnapshot: unknown }): Promise<AssistRunResult>;
-}
+export type { AssistRunResult, OpencodeRunner } from './opencode.types';
 
 @Injectable()
 export class AssistQueue implements OnModuleInit, OnModuleDestroy {
