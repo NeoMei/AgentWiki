@@ -68,7 +68,11 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       const leaseMs = Number(this.config.get('ASSIST_LEASE_MS') || 5 * 60_000);
       while (this.active < concurrency) {
         const candidate = await this.prisma.assistTask.findFirst({
-          where: { status: 'queued', OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }] },
+          where: {
+            status: 'queued',
+            space: { deletedAt: null },
+            OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+          },
           orderBy: { createdAt: 'asc' },
           select: { id: true, intent: true, pageSnapshot: true },
         });
@@ -96,6 +100,14 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         intent: task.intent,
         pageSnapshot: task.pageSnapshot,
         leaseExpiresAtMs: task.leaseExpiresAtMs,
+        isActive: async () => (await this.prisma.assistTask.count({
+          where: {
+            id: task.id,
+            status: 'running',
+            leaseOwner: this.workerId,
+            space: { deletedAt: null },
+          },
+        })) === 1,
       });
       const completion = await this.prisma.assistTask.updateMany({
         where: { id: task.id, status: 'running', leaseOwner: this.workerId },

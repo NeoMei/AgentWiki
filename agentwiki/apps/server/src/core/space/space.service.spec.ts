@@ -123,3 +123,34 @@ describe('admin role and member management', () => {
     expect(prisma.spaceMember.delete).toHaveBeenCalled();
   });
 });
+
+describe('SpaceService.remove', () => {
+  const tx = {
+    assistTask: { updateMany: jest.fn() },
+    pageSearchDocument: { deleteMany: jest.fn() },
+    page: { updateMany: jest.fn() },
+    space: { update: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+  };
+  const prisma = {
+    space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+    $transaction: jest.fn(async (callback: any) => callback(tx)),
+  } as any;
+  const service = new SpaceService(prisma);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('fails queued and running assistant tasks before soft-deleting the space', async () => {
+    await service.remove('space-1');
+
+    expect(tx.assistTask.updateMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', status: { in: ['queued', 'running'] } },
+      data: expect.objectContaining({
+        status: 'failed',
+        error: 'space deleted',
+        lockedAt: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      }),
+    });
+  });
+});

@@ -11,6 +11,7 @@ describe('OpencodeCliRunner', () => {
 
   const childProcess = () => {
     const child = new EventEmitter() as any;
+    child.stdin = new PassThrough();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     child.killed = false;
@@ -69,6 +70,29 @@ describe('OpencodeCliRunner', () => {
     await expect(execution).resolves.toMatchObject({ summary: 'ok', changes: '# Result' });
   });
 
+  it('forwards standard proxy settings required by model providers', async () => {
+    const previous = process.env.HTTPS_PROXY;
+    process.env.HTTPS_PROXY = 'http://proxy.test:8080';
+    try {
+      const child = childProcess();
+      const runner = new OpencodeCliRunner(config);
+      const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
+
+      expect((spawn as jest.Mock).mock.calls[0][2].env).toMatchObject({
+        HTTPS_PROXY: 'http://proxy.test:8080',
+      });
+      child.stdout.write(JSON.stringify({
+        type: 'text',
+        part: { text: JSON.stringify({ summary: 'ok', changes: '# Result' }) },
+      }));
+      child.emit('close', 0);
+      await expect(execution).resolves.toMatchObject({ changes: '# Result' });
+    } finally {
+      if (previous === undefined) delete process.env.HTTPS_PROXY;
+      else process.env.HTTPS_PROXY = previous;
+    }
+  });
+
   it('lists verbose models through the OpenCode catalog command', async () => {
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);
@@ -83,6 +107,20 @@ describe('OpencodeCliRunner', () => {
     child.emit('close', 0);
 
     await expect(execution).resolves.toBe('model catalog');
+  });
+
+  it('closes child stdin so non-interactive OpenCode does not wait for input', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
+
+    expect(child.stdin.writableEnded).toBe(true);
+    child.stdout.write(JSON.stringify({
+      type: 'text',
+      part: { text: JSON.stringify({ summary: 'ok', changes: '# Result' }) },
+    }));
+    child.emit('close', 0);
+    await expect(execution).resolves.toMatchObject({ changes: '# Result' });
   });
 
   it('escalates a timed-out process to SIGKILL when it has not closed', async () => {
@@ -333,6 +371,27 @@ describe('OpencodeCliRunner', () => {
       summary: 'final',
       changes: '# Final {result}',
     });
+  });
+
+  it('rejects an OpenCode error terminal even after valid text was emitted', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      JSON.stringify({
+        type: 'text',
+        part: { text: JSON.stringify({ summary: 'partial', changes: '# Incomplete' }) },
+      }),
+      JSON.stringify({
+        type: 'step_finish',
+        part: { tokens: { total: 4, input: 3, output: 1, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 0 },
+      }),
+      JSON.stringify({ type: 'error', error: { name: 'UnknownError', data: { message: 'provider detail' } } }),
+    ].join('\n');
+
+    expect(() => (runner as any).parse(output)).toThrow(expect.objectContaining({
+      code: 'invalid_output',
+      scope: 'model',
+      usage: expect.objectContaining({ total: 4 }),
+    }));
   });
 
   it.each([

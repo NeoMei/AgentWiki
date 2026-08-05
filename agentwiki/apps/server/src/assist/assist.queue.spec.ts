@@ -3,7 +3,7 @@ import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
-    assistTask: { findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    assistTask: { count: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   } as any;
   const config = { get: jest.fn((key: string, def?: any) => ({
     PROCESS_ROLE: 'worker', ASSIST_CONCURRENCY: 2, ASSIST_LEASE_MS: 60000, ASSIST_QUEUE_POLL_MS: 1000,
@@ -15,6 +15,7 @@ describe('AssistQueue task processing', () => {
     prisma.assistTask.findFirst.mockReset();
     prisma.assistTask.updateMany.mockReset();
     runner.run.mockReset();
+    prisma.assistTask.count.mockResolvedValue(1);
     prisma.assistTask.updateMany.mockResolvedValue({ count: 1 });
   });
 
@@ -51,8 +52,30 @@ describe('AssistQueue task processing', () => {
 
     const claim = prisma.assistTask.updateMany.mock.calls.find((call: any[]) => call[0].data.status === 'running')[0];
     expect(claim.data.leaseExpiresAt).toEqual(new Date(1_060_000));
+    expect(prisma.assistTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ space: { deletedAt: null } }),
+    }));
     expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ leaseExpiresAtMs: 1_060_000 }));
     now.mockRestore();
+  });
+
+  it('lets routing recheck the task lease and active space before every model attempt', async () => {
+    runner.run.mockImplementation(async (input: any) => {
+      await expect(input.isActive()).resolves.toBe(true);
+      return { summary: 'done' };
+    });
+    const queue = new AssistQueue(prisma, config, runner);
+
+    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
+
+    expect(prisma.assistTask.count).toHaveBeenCalledWith({
+      where: {
+        id: 't1',
+        status: 'running',
+        leaseOwner: (queue as any).workerId,
+        space: { deletedAt: null },
+      },
+    });
   });
 
   it('persists sanitized routing metadata when every candidate fails', async () => {

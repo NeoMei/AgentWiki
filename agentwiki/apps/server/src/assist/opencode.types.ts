@@ -1,10 +1,15 @@
 export type ModelTier = 'free' | 'paid';
 export type FailureCode =
-  | 'auth_failed' | 'binary_unavailable' | 'budget_exhausted'
+  | 'auth_failed' | 'binary_unavailable' | 'budget_exhausted' | 'cancelled'
   | 'configuration_error' | 'invalid_output' | 'model_unavailable'
   | 'no_models' | 'output_limit' | 'process_error' | 'rate_limited' | 'timeout';
 
-export interface AssistInput { intent: string; pageSnapshot: unknown; leaseExpiresAtMs?: number }
+export interface AssistInput {
+  intent: string;
+  pageSnapshot: unknown;
+  leaseExpiresAtMs?: number;
+  isActive?: () => Promise<boolean>;
+}
 export interface ModelUsage {
   input: number; output: number; reasoning: number;
   cacheRead: number; cacheWrite: number; total: number;

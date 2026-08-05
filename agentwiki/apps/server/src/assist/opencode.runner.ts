@@ -77,6 +77,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
       let child: ChildProcessWithoutNullStreams;
       try {
         child = spawn(bin, args, { env });
+        child.stdin.end();
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code === 'ENOENT'
           ? 'binary_unavailable'
@@ -164,7 +165,12 @@ export class OpencodeCliRunner implements OpencodeRunner {
   }
 
   private llmEnv(): Record<string, string | undefined> {
-    const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY', 'KIMI_API_KEY', 'GLM_API_KEY', 'QWEN_API_KEY'];
+    const keys = [
+      'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY',
+      'KIMI_API_KEY', 'GLM_API_KEY', 'QWEN_API_KEY',
+      'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+      'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+    ];
     const out: Record<string, string | undefined> = {};
     for (const key of keys) if (process.env[key]) out[key] = process.env[key];
     return out;
@@ -257,6 +263,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
         const trimmed = line.trim();
         if (!trimmed) continue;
         const event = JSON.parse(trimmed);
+        if (event?.type === 'error') throw new Error('OpenCode error terminal');
         if (event?.type === 'text' && typeof event?.part?.text === 'string') {
           text += event.part.text;
         }

@@ -152,6 +152,20 @@ describe('OpencodeModelRouter', () => {
     });
   });
 
+  it('stops before the next model when the claimed task is no longer active', async () => {
+    const { router, runner } = createRouter();
+    const isActive = jest.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    runner.runModel.mockRejectedValueOnce(modelFailure('timeout'));
+
+    const error = await captureRoutingError(router.run({ ...task, isActive }));
+
+    expect(error.message).toContain('cancelled');
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+    expect(isActive).toHaveBeenCalledTimes(2);
+  });
+
   it('never calls a paid model when paid fallback is disabled', async () => {
     const { router, runner } = createRouter({
       config: { ...routingConfig, allowPaidFallback: false },

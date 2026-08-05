@@ -81,6 +81,17 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     let totalCost = 0;
 
     for (const candidate of selected) {
+      if (task.isActive) {
+        let active: boolean;
+        try {
+          active = await this.withinDeadline(task.isActive, deadline);
+        } catch (error) {
+          throw this.routingError(this.errorCode(error), attempts, totalUsage, totalCost, candidate);
+        }
+        if (!active) {
+          throw this.routingError('cancelled', attempts, totalUsage, totalCost, candidate);
+        }
+      }
       const startedAt = this.now();
       const remaining = deadline - startedAt;
       if (remaining <= 0) {

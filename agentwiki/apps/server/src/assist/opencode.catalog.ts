@@ -102,6 +102,13 @@ const byId = (left: CatalogModel, right: CatalogModel) => (
   left.id < right.id ? -1 : left.id > right.id ? 1 : 0
 );
 
+const byFreePreference = (left: CatalogModel, right: CatalogModel) => {
+  const leftBundled = left.id.startsWith('opencode/');
+  const rightBundled = right.id.startsWith('opencode/');
+  if (leftBundled !== rightBundled) return leftBundled ? -1 : 1;
+  return byId(left, right);
+};
+
 export const buildCandidates = (
   models: CatalogModel[],
   config: RoutingConfig,
@@ -122,7 +129,7 @@ export const buildCandidates = (
   }
   const discoveredFree = [...uniqueModels.values()]
     .filter((model) => model.tier === 'free' && !selectedFree.has(model.id))
-    .sort(byId);
+    .sort(byFreePreference);
 
   const inputTokens = Math.max(1, [...prompt].length);
   const toCandidate = (model: CatalogModel): ModelCandidate => ({

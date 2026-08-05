@@ -114,7 +114,7 @@ describe('OpenCode model catalog', () => {
     )[1].id).toBe('vendor/expensive');
   });
 
-  it('uses configured free order then lexical order and stable paid tie breakers', () => {
+  it('uses configured free order, then OpenCode free models, then stable tie breakers', () => {
     const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const sameEstimateA = { input: 2, output: 1, cacheRead: 0, cacheWrite: 0 };
     const sameEstimateB = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 };
@@ -122,6 +122,7 @@ describe('OpenCode model catalog', () => {
     const models = [
       { id: 'free/z', tier: 'free' as const, price: zero },
       { id: 'free/a', tier: 'free' as const, price: zero },
+      { id: 'opencode/big-pickle', tier: 'free' as const, price: zero },
       { id: 'paid/output-cheaper', tier: 'paid' as const, price: sameEstimateA },
       { id: 'paid/b', tier: 'paid' as const, price: sameEstimateB },
       { id: 'paid/a', tier: 'paid' as const, price: sameEstimateC },
@@ -133,6 +134,7 @@ describe('OpenCode model catalog', () => {
       estimatedOutputTokens: 1,
     }, 'x').map((candidate) => candidate.id)).toEqual([
       'free/z',
+      'opencode/big-pickle',
       'free/a',
       'paid/output-cheaper',
       'paid/a',

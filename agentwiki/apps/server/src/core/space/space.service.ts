@@ -153,6 +153,18 @@ export class SpaceService {
     await this.findOne(id);
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.assistTask.updateMany({
+        where: { spaceId: id, status: { in: ['queued', 'running'] } },
+        data: {
+          status: 'failed',
+          error: 'space deleted',
+          completedAt: new Date(),
+          lockedAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          nextAttemptAt: null,
+        },
+      });
       await tx.pageSearchDocument.deleteMany({ where: { page: { spaceId: id } } });
       await tx.page.updateMany({
         where: { spaceId: id, deletedAt: null },
