@@ -3,12 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { AuditService } from '../security/audit.service';
 
-/**
- * CombinedAuthGuard accepts either:
- * - Bearer JWT token (Authorization: Bearer <token>)
- * - API key header (x-api-key: <key>)
- * This allows human users (JWT) and agents (API key) to share endpoints.
- */
 @Injectable()
 export class CombinedAuthGuard {
   constructor(
@@ -22,18 +16,20 @@ export class CombinedAuthGuard {
     const authHeader = request.headers.authorization;
     const apiKey = request.headers['x-api-key'];
 
-    // Try JWT
     let jwtError: string | undefined;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
         const payload = this.jwtService.verify(token);
         const principal = await this.authService.validateJwtUser(payload.sub);
-        if (principal) {
+        if (!principal) {
+          jwtError = 'Token payload is no longer valid';
+        } else if (payload.authVersion !== undefined && principal.authVersion !== undefined && payload.authVersion !== principal.authVersion) {
+          jwtError = 'Token version mismatch; please log in again';
+        } else {
           request.user = principal;
           return true;
         }
-        jwtError = 'Token payload is no longer valid';
       } catch (err: any) {
         if (token.startsWith('awk_') || token.startsWith('agk_')) {
           const result = await this.authService.validateApiKey(token);
@@ -56,7 +52,6 @@ export class CombinedAuthGuard {
       }
     }
 
-    // Try API key
     if (apiKey) {
       const result = await this.authService.validateApiKey(apiKey);
       if (result) {
@@ -72,9 +67,6 @@ export class CombinedAuthGuard {
         });
         return true;
       }
-    }
-
-    if (apiKey) {
       await this.audit.record({
         action: 'api_key.authenticate',
         outcome: 'failure',
@@ -82,6 +74,7 @@ export class CombinedAuthGuard {
         userAgent: request.headers['user-agent'],
       });
     }
+
     throw new UnauthorizedException(jwtError || 'Valid JWT token or API key required');
   }
 }

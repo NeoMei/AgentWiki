@@ -167,82 +167,95 @@ export class PlatformAdminService {
 
   async resetPassword(actorUserId: string, targetId: string): Promise<string> {
     if (actorUserId === targetId) throw new ConflictException('Cannot reset your own password');
-    const user = await this.prisma.user.findUnique({ where: { id: targetId, type: 'human' } });
-    if (!user) throw new NotFoundException('User not found');
-    const defaultPassword = this.config.get<string>('PLATFORM_DEFAULT_USER_PASSWORD') || '12345678';
-    if (defaultPassword.length < 8) throw new BadRequestException('Default password too short');
 
-    const hashed = await this.auth.hashPassword(defaultPassword);
-    await this.prisma.user.update({
-      where: { id: targetId },
-      data: {
-        password: hashed,
-        mustChangePassword: true,
-        authVersion: { increment: 1 },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.deletedAt) throw new ConflictException('Cannot reset password of a deleted user');
+
+      const defaultPassword = this.config.get<string>('PLATFORM_DEFAULT_USER_PASSWORD') || '12345678';
+      if (defaultPassword.length < 8) throw new BadRequestException('Default password too short');
+
+      const hashed = await this.auth.hashPassword(defaultPassword);
+      await tx.user.update({
+        where: { id: targetId },
+        data: { password: hashed, mustChangePassword: true, authVersion: { increment: 1 } },
+      });
+
+      return defaultPassword;
+    }).then(async (pwd) => {
+      await this.audit.record({ actorUserId, action: 'platform_user.password_reset', outcome: 'success', metadata: { targetId } });
+      return pwd;
     });
-
-    await this.audit.record({ actorUserId, action: 'platform_user.password_reset', outcome: 'success', metadata: { targetId } });
-    return defaultPassword;
   }
 
   async lockUser(actorUserId: string, targetId: string) {
     if (actorUserId === targetId) throw new ConflictException('Cannot lock your own account');
-    const user = await this.prisma.user.findUnique({ where: { id: targetId, type: 'human' } });
-    if (!user) throw new NotFoundException('User not found');
-    if (user.deletedAt) throw new ConflictException('Cannot lock a deleted user');
-    if (user.lockedAt) return { locked: true, alreadyLocked: true };
-    if (user.platformRole === 'super_admin') {
-      await this.assertLastSuperAdmin(targetId);
-    }
-    await this.prisma.user.update({
-      where: { id: targetId },
-      data: { lockedAt: new Date(), authVersion: { increment: 1 } },
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.deletedAt) throw new ConflictException('Cannot lock a deleted user');
+      if (user.lockedAt) return { locked: true, alreadyLocked: true };
+
+      if (user.platformRole === 'super_admin') {
+        const count = await tx.user.count({
+          where: { type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null, id: { not: targetId } },
+        });
+        if (count === 0) throw new ConflictException('Cannot remove the last active super admin');
+      }
+
+      await tx.user.update({
+        where: { id: targetId },
+        data: { lockedAt: new Date(), authVersion: { increment: 1 } },
+      });
+      return { locked: true };
+    }).then(async (result) => {
+      await this.audit.record({ actorUserId, action: 'platform_user.lock', metadata: { targetId }, outcome: 'success' });
+      return result;
     });
-    await this.audit.record({ actorUserId, action: 'platform_user.lock', metadata: { targetId }, outcome: 'success' });
-    return { locked: true };
   }
 
   async unlockUser(actorUserId: string, targetId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: targetId, type: 'human' } });
-    if (!user) throw new NotFoundException('User not found');
-    if (!user.lockedAt) return { unlocked: true, alreadyUnlocked: true };
-    await this.prisma.user.update({
-      where: { id: targetId },
-      data: { lockedAt: null, authVersion: { increment: 1 } },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
+      if (!user) throw new NotFoundException('User not found');
+      if (!user.lockedAt) return { unlocked: true, alreadyUnlocked: true };
+
+      await tx.user.update({
+        where: { id: targetId },
+        data: { lockedAt: null, authVersion: { increment: 1 } },
+      });
+      return { unlocked: true };
+    }).then(async (result) => {
+      await this.audit.record({ actorUserId, action: 'platform_user.unlock', metadata: { targetId }, outcome: 'success' });
+      return result;
     });
-    await this.audit.record({ actorUserId, action: 'platform_user.unlock', metadata: { targetId }, outcome: 'success' });
-    return { unlocked: true };
   }
 
   async deleteUser(actorUserId: string, targetId: string) {
     if (actorUserId === targetId) throw new ConflictException('Cannot delete your own account');
-    const user = await this.prisma.user.findUnique({ where: { id: targetId, type: 'human' } });
-    if (!user) throw new NotFoundException('User not found');
-    if (user.deletedAt) return { deleted: true, alreadyDeleted: true };
-    if (user.platformRole === 'super_admin') {
-      await this.assertLastSuperAdmin(targetId);
-    }
-    await this.prisma.user.update({
-      where: { id: targetId },
-      data: { deletedAt: new Date(), authVersion: { increment: 1 } },
-    });
-    await this.audit.record({ actorUserId, action: 'platform_user.delete', metadata: { targetId }, outcome: 'success' });
-    return { deleted: true };
-  }
 
-  async assertLastSuperAdmin(targetId: string): Promise<void> {
-    const count = await this.prisma.user.count({
-      where: {
-        type: 'human',
-        platformRole: 'super_admin',
-        deletedAt: null,
-        lockedAt: null,
-        id: { not: targetId },
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
+      if (!user) throw new NotFoundException('User not found');
+      if (user.deletedAt) return { deleted: true, alreadyDeleted: true };
+
+      if (user.platformRole === 'super_admin') {
+        const count = await tx.user.count({
+          where: { type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null, id: { not: targetId } },
+        });
+        if (count === 0) throw new ConflictException('Cannot remove the last active super admin');
+      }
+
+      await tx.user.update({
+        where: { id: targetId },
+        data: { deletedAt: new Date(), authVersion: { increment: 1 } },
+      });
+      return { deleted: true };
+    }).then(async (result) => {
+      await this.audit.record({ actorUserId, action: 'platform_user.delete', metadata: { targetId }, outcome: 'success' });
+      return result;
     });
-    if (count === 0) {
-      throw new ConflictException('Cannot remove the last active super admin');
-    }
   }
 }
