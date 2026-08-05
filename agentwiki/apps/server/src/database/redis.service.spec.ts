@@ -124,6 +124,61 @@ describe('RedisService strict hash operations', () => {
     expect(expire).not.toHaveBeenCalled();
   });
 
+  it('applies model health transitions through one fenced atomic script', async () => {
+    const evalCommand = jest.fn().mockResolvedValue([1, 3]);
+    const service = serviceWithClient({ eval: evalCommand });
+
+    await expect(service.applyModelHealthTransition({
+      failureKey: 'assist:model-health:fail:hash',
+      openKey: 'assist:model-health:open:hash',
+      probeKey: 'assist:model-health:probe:hash',
+      fenceKey: 'assist:model-health:fence:hash',
+    }, {
+      kind: 'failure',
+      atMs: 200,
+      failureWindowSeconds: 300,
+      fenceSeconds: 86_400,
+      failureThreshold: 3,
+      immediateOpen: true,
+      openSeconds: 120,
+      openUntilMs: 120_200,
+    })).resolves.toEqual({ applied: true, failures: 3 });
+
+    expect(evalCommand).toHaveBeenCalledTimes(1);
+    const [script, keyCount, ...args] = evalCommand.mock.calls[0];
+    expect(script).toContain("redis.call('GET', KEYS[4])");
+    expect(script).toContain("redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])");
+    expect(script).toContain("redis.call('INCR', KEYS[1])");
+    expect(script).toContain("redis.call('SET', KEYS[4]");
+    expect(keyCount).toBe(4);
+    expect(args).toEqual([
+      'assist:model-health:fail:hash',
+      'assist:model-health:open:hash',
+      'assist:model-health:probe:hash',
+      'assist:model-health:fence:hash',
+      200,
+      'failure',
+      300,
+      86_400,
+      3,
+      1,
+      120,
+      120_200,
+    ]);
+  });
+
+  it('surfaces fenced model health transition failures to the fail-open store boundary', async () => {
+    const failure = new Error('eval unavailable');
+    const service = serviceWithClient({ eval: jest.fn().mockRejectedValue(failure) });
+
+    await expect(service.applyModelHealthTransition({
+      failureKey: 'fail', openKey: 'open', probeKey: 'probe', fenceKey: 'fence',
+    }, {
+      kind: 'success', atMs: 200, failureWindowSeconds: 300, fenceSeconds: 86_400,
+      failureThreshold: 3, immediateOpen: false, openSeconds: 120, openUntilMs: 0,
+    })).rejects.toBe(failure);
+  });
+
   it('strictly deletes revocation state', async () => {
     const client = { del: jest.fn().mockResolvedValue(1) };
     const service = serviceWithClient(client);

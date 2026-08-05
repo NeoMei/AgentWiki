@@ -288,6 +288,23 @@ describe('OpencodeModelRouter', () => {
     expect(error.message).toContain('budget_exhausted');
   });
 
+  it('does not create catalog work when the deadline is already expired', async () => {
+    const getModels = jest.fn().mockImplementation(() => Promise.reject(
+      new Error('late catalog rejection'),
+    ));
+    const { router, runner } = createRouter({ getModels, now: () => 1_000 });
+
+    const error = await captureRoutingError(router.run({
+      ...task,
+      leaseExpiresAtMs: 6_000,
+    }));
+    await Promise.resolve();
+
+    expect(error.message).toContain('budget_exhausted');
+    expect(getModels).not.toHaveBeenCalled();
+    expect(runner.runModel).not.toHaveBeenCalled();
+  });
+
   it('skips open circuits when another candidate is available', async () => {
     const { router, runner, health } = createRouter();
     health.get.mockImplementation(async (id: string) => (
@@ -336,7 +353,7 @@ describe('OpencodeModelRouter', () => {
 
     await router.run(task);
 
-    expect(health.recordSuccess).toHaveBeenCalledWith('free/one');
+    expect(health.recordSuccess).toHaveBeenCalledWith('free/one', 0);
     expect(health.recordFailure).not.toHaveBeenCalled();
   });
 
@@ -354,7 +371,7 @@ describe('OpencodeModelRouter', () => {
     await jest.advanceTimersByTimeAsync(1_000);
 
     await expect(outcome).resolves.toBe('succeeded');
-    expect(health.recordSuccess).toHaveBeenCalledWith('free/one');
+    expect(health.recordSuccess).toHaveBeenCalledWith('free/one', 0);
   });
 
   it('returns complete sanitized metadata with aggregated partial usage and cost when all candidates fail', async () => {
@@ -384,8 +401,8 @@ describe('OpencodeModelRouter', () => {
     expect(JSON.stringify(error)).not.toContain('sk-secret');
     expect(JSON.stringify(error)).not.toContain('sk-other-secret');
     expect(health.recordFailure.mock.calls).toEqual([
-      ['free/one', 'rate_limited'],
-      ['paid/cheap', 'invalid_output'],
+      ['free/one', 'rate_limited', 0],
+      ['paid/cheap', 'invalid_output', 0],
     ]);
   });
 

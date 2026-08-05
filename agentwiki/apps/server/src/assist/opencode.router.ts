@@ -54,7 +54,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     let candidates: ModelCandidate[];
     try {
       candidates = this.limitCandidates(buildCandidates(
-        await this.withinDeadline(this.catalog.getModels(), deadline),
+        await this.withinDeadline(() => this.catalog.getModels(), deadline),
         this.config,
         prompt,
       ));
@@ -99,17 +99,18 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
           candidate.id,
           Math.min(this.config.attemptTimeoutMs, remaining),
         );
+        const completedAt = this.now();
         this.addUsage(totalUsage, result.usage);
         totalCost += result.cost;
         attempts.push({
           model: candidate.id,
           tier: candidate.tier,
-          durationMs: this.durationSince(startedAt),
+          durationMs: this.duration(startedAt, completedAt),
           status: 'succeeded',
           usage: { ...result.usage },
           cost: result.cost,
         });
-        this.resetHealth(candidate.id);
+        this.resetHealth(candidate.id, completedAt);
         return {
           summary: result.summary,
           changes: result.changes,
@@ -121,6 +122,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
           attempts,
         };
       } catch (error) {
+        const completedAt = this.now();
         const code = this.errorCode(error);
         const failureUsage = error instanceof OpencodeExecutionError
           ? error.usage
@@ -133,7 +135,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
         attempts.push({
           model: candidate.id,
           tier: candidate.tier,
-          durationMs: this.durationSince(startedAt),
+          durationMs: this.duration(startedAt, completedAt),
           status: 'failed',
           errorCode: code,
           usage: { ...failureUsage },
@@ -145,7 +147,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
         }
         try {
           await this.withinDeadline(
-            this.health.recordFailure(candidate.id, error.code),
+            () => this.health.recordFailure(candidate.id, error.code, completedAt),
             deadline,
           );
         } catch (healthError) {
@@ -185,7 +187,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     const now = this.now();
     const states = await Promise.all(candidates.map(async (candidate) => ({
       candidate,
-      health: await this.withinDeadline(this.health.get(candidate.id), deadline),
+      health: await this.withinDeadline(() => this.health.get(candidate.id), deadline),
     })));
     const available = states
       .filter(({ health }) => health?.openUntil === null || health === null || health.openUntil <= now)
@@ -200,14 +202,24 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
       ))[0]?.candidate;
     if (
       !freeProbe
-      || !(await this.withinDeadline(this.health.tryAcquireProbe(freeProbe.id), deadline))
+      || !(await this.withinDeadline(
+        () => this.health.tryAcquireProbe(freeProbe.id),
+        deadline,
+      ))
     ) return [];
     return [freeProbe];
   }
 
-  private withinDeadline<T>(operation: Promise<T>, deadline: number): Promise<T> {
+  private withinDeadline<T>(operation: () => Promise<T>, deadline: number): Promise<T> {
     const remaining = deadline - this.now();
     if (remaining <= 0) return Promise.reject(this.budgetError());
+
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     return new Promise<T>((resolve, reject) => {
       let settled = false;
@@ -218,7 +230,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
       }, remaining);
       timer.unref();
 
-      void operation.then(
+      void pending.then(
         (value) => {
           if (settled) return;
           settled = true;
@@ -244,9 +256,9 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     );
   }
 
-  private resetHealth(model: string): void {
+  private resetHealth(model: string, transitionAtMs: number): void {
     try {
-      void this.health.recordSuccess(model).catch(() => undefined);
+      void this.health.recordSuccess(model, transitionAtMs).catch(() => undefined);
     } catch { /* Health cleanup is best-effort after a successful model result. */ }
   }
 
@@ -254,8 +266,8 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     return error instanceof OpencodeExecutionError ? error.code : 'process_error';
   }
 
-  private durationSince(startedAt: number): number {
-    return Math.max(0, this.now() - startedAt);
+  private duration(startedAt: number, completedAt: number): number {
+    return Math.max(0, completedAt - startedAt);
   }
 
   private addUsage(total: ModelUsage, addition: ModelUsage): void {

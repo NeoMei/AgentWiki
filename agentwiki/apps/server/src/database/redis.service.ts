@@ -14,6 +14,53 @@ if count == 1 then
 end
 return count
 `;
+const MODEL_HEALTH_TRANSITION_SCRIPT = `
+local incoming_at = tonumber(ARGV[1])
+local kind = ARGV[2]
+local current = redis.call('GET', KEYS[4])
+if current then
+  local separator = string.find(current, ':')
+  local current_at = tonumber(string.sub(current, 1, separator - 1))
+  if incoming_at < current_at or (incoming_at == current_at and kind == 'success') then
+    return {0, tonumber(redis.call('GET', KEYS[1]) or '0')}
+  end
+end
+
+local failures = 0
+local priority = 1
+if kind == 'success' then
+  redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+else
+  priority = 2
+  failures = redis.call('INCR', KEYS[1])
+  if failures == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[3])
+  end
+  if tonumber(ARGV[6]) == 1 or failures >= tonumber(ARGV[5]) then
+    redis.call('SET', KEYS[2], ARGV[8], 'EX', ARGV[7])
+  end
+end
+redis.call('SET', KEYS[4], tostring(incoming_at) .. ':' .. tostring(priority), 'EX', ARGV[4])
+return {1, failures}
+`;
+
+export interface ModelHealthTransitionKeys {
+  failureKey: string;
+  openKey: string;
+  probeKey: string;
+  fenceKey: string;
+}
+
+export interface ModelHealthTransition {
+  kind: 'failure' | 'success';
+  atMs: number;
+  failureWindowSeconds: number;
+  fenceSeconds: number;
+  failureThreshold: number;
+  immediateOpen: boolean;
+  openSeconds: number;
+  openUntilMs: number;
+}
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -242,6 +289,35 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return null;
     }
+  }
+
+  async applyModelHealthTransition(
+    keys: ModelHealthTransitionKeys,
+    transition: ModelHealthTransition,
+  ): Promise<{ applied: boolean; failures: number }> {
+    const result = await this.getClient().eval(
+      MODEL_HEALTH_TRANSITION_SCRIPT,
+      4,
+      keys.failureKey,
+      keys.openKey,
+      keys.probeKey,
+      keys.fenceKey,
+      transition.atMs,
+      transition.kind,
+      transition.failureWindowSeconds,
+      transition.fenceSeconds,
+      transition.failureThreshold,
+      transition.immediateOpen ? 1 : 0,
+      transition.openSeconds,
+      transition.openUntilMs,
+    );
+    if (!Array.isArray(result) || result.length < 2) {
+      throw new Error('Invalid Redis model health transition result');
+    }
+    return {
+      applied: Number(result[0]) === 1,
+      failures: Number(result[1]),
+    };
   }
 
   async ping(): Promise<boolean> {

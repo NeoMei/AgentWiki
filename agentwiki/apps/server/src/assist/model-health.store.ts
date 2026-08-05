@@ -12,8 +12,8 @@ export interface ModelHealth {
 
 export interface ModelHealthStore {
   get(model: string): Promise<ModelHealth | null>;
-  recordFailure(model: string, code: FailureCode): Promise<void>;
-  recordSuccess(model: string): Promise<void>;
+  recordFailure(model: string, code: FailureCode, transitionAtMs?: number): Promise<void>;
+  recordSuccess(model: string, transitionAtMs?: number): Promise<void>;
   tryAcquireProbe(model: string): Promise<boolean>;
 }
 
@@ -22,6 +22,7 @@ const IMMEDIATE_OPEN_CODES = new Set<FailureCode>([
   'model_unavailable',
   'auth_failed',
 ]);
+const TRANSITION_FENCE_SECONDS = 86_400;
 
 @Injectable()
 export class RedisModelHealthStore implements ModelHealthStore {
@@ -52,32 +53,39 @@ export class RedisModelHealthStore implements ModelHealthStore {
     }
   }
 
-  async recordFailure(model: string, code: FailureCode): Promise<void> {
+  async recordFailure(
+    model: string,
+    code: FailureCode,
+    transitionAtMs = Date.now(),
+  ): Promise<void> {
     try {
-      const failures = await this.redis.incrementWithWindow(
-        this.key('fail', model),
-        this.seconds(this.config.circuitWindowMs),
-      );
-      if (failures === null) throw new Error('Redis failure counter unavailable');
-      if (failures >= this.config.circuitFailures || IMMEDIATE_OPEN_CODES.has(code)) {
-        await this.redis.setStrict(
-          this.key('open', model),
-          String(Date.now() + this.config.circuitOpenMs),
-          this.seconds(this.config.circuitOpenMs),
-        );
-      }
+      await this.redis.applyModelHealthTransition(this.transitionKeys(model), {
+        kind: 'failure',
+        atMs: transitionAtMs,
+        failureWindowSeconds: this.seconds(this.config.circuitWindowMs),
+        fenceSeconds: TRANSITION_FENCE_SECONDS,
+        failureThreshold: this.config.circuitFailures,
+        immediateOpen: IMMEDIATE_OPEN_CODES.has(code),
+        openSeconds: this.seconds(this.config.circuitOpenMs),
+        openUntilMs: transitionAtMs + this.config.circuitOpenMs,
+      });
     } catch {
       this.warn('recordFailure', model);
     }
   }
 
-  async recordSuccess(model: string): Promise<void> {
+  async recordSuccess(model: string, transitionAtMs = Date.now()): Promise<void> {
     try {
-      await Promise.all([
-        this.redis.deleteStrict(this.key('fail', model)),
-        this.redis.deleteStrict(this.key('open', model)),
-        this.redis.deleteStrict(this.key('probe', model)),
-      ]);
+      await this.redis.applyModelHealthTransition(this.transitionKeys(model), {
+        kind: 'success',
+        atMs: transitionAtMs,
+        failureWindowSeconds: this.seconds(this.config.circuitWindowMs),
+        fenceSeconds: TRANSITION_FENCE_SECONDS,
+        failureThreshold: this.config.circuitFailures,
+        immediateOpen: false,
+        openSeconds: this.seconds(this.config.circuitOpenMs),
+        openUntilMs: 0,
+      });
     } catch {
       this.warn('recordSuccess', model);
     }
@@ -96,7 +104,16 @@ export class RedisModelHealthStore implements ModelHealthStore {
     }
   }
 
-  private key(kind: 'fail' | 'open' | 'probe', model: string): string {
+  private transitionKeys(model: string) {
+    return {
+      failureKey: this.key('fail', model),
+      openKey: this.key('open', model),
+      probeKey: this.key('probe', model),
+      fenceKey: this.key('fence', model),
+    };
+  }
+
+  private key(kind: 'fail' | 'open' | 'probe' | 'fence', model: string): string {
     const hash = createHash('sha256').update(model).digest('hex');
     return `assist:model-health:${kind}:${hash}`;
   }
