@@ -7,6 +7,13 @@ import Redis from 'ioredis';
 // durability probe times out spuriously even when persistence is healthy.
 const REDIS_AOF_TIMEOUT_MS = 5_000;
 const REDIS_DURABILITY_PROBE_PREFIX = 'audit:durability-probe';
+const INCREMENT_WITH_WINDOW_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`;
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -226,10 +233,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async incrementWithWindow(key: string, ttlSeconds: number): Promise<number | null> {
     try {
-      const client = this.getClient();
-      const count = await client.incr(key);
-      if (count === 1) await client.expire(key, ttlSeconds);
-      return count;
+      return Number(await this.getClient().eval(
+        INCREMENT_WITH_WINDOW_SCRIPT,
+        1,
+        key,
+        ttlSeconds,
+      ));
     } catch {
       return null;
     }

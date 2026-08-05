@@ -91,6 +91,39 @@ describe('RedisService strict hash operations', () => {
     await expect(service.setStrict('key', 'value', 2)).rejects.toBe(failure);
   });
 
+  it('atomically increments a window counter and sets expiry on the first write', async () => {
+    const evalCommand = jest.fn().mockResolvedValue('2');
+    const incr = jest.fn();
+    const expire = jest.fn();
+    const service = serviceWithClient({ eval: evalCommand, incr, expire });
+
+    await expect(service.incrementWithWindow('assist:model-health:fail:hash', 300))
+      .resolves.toBe(2);
+
+    expect(evalCommand).toHaveBeenCalledTimes(1);
+    const [script, keyCount, key, ttl] = evalCommand.mock.calls[0];
+    expect(script).toContain("redis.call('INCR', KEYS[1])");
+    expect(script).toContain('if count == 1 then');
+    expect(script).toContain("redis.call('EXPIRE', KEYS[1], ARGV[1])");
+    expect(script).toContain('return count');
+    expect([keyCount, key, ttl]).toEqual([1, 'assist:model-health:fail:hash', 300]);
+    expect(incr).not.toHaveBeenCalled();
+    expect(expire).not.toHaveBeenCalled();
+  });
+
+  it('returns null without standalone counter commands when atomic increment rejects', async () => {
+    const evalFailure = new Error('eval unavailable');
+    const evalCommand = jest.fn().mockRejectedValue(evalFailure);
+    const incr = jest.fn().mockResolvedValue(1);
+    const expire = jest.fn().mockResolvedValue(1);
+    const service = serviceWithClient({ eval: evalCommand, incr, expire });
+
+    await expect(service.incrementWithWindow('assist:model-health:fail:hash', 300))
+      .resolves.toBeNull();
+    expect(incr).not.toHaveBeenCalled();
+    expect(expire).not.toHaveBeenCalled();
+  });
+
   it('strictly deletes revocation state', async () => {
     const client = { del: jest.fn().mockResolvedValue(1) };
     const service = serviceWithClient(client);
