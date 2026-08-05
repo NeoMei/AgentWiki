@@ -31,6 +31,10 @@ describe('readRoutingConfig', () => {
     expect(() => readRoutingConfig(config({ ASSIST_OPENCODE_MAX_PAID_ATTEMPTS: '2' }))).toThrow('integer from 1 to 1');
   });
 
+  it('rejects total timeouts above the hard ceiling', () => {
+    expect(() => readRoutingConfig(config({ ASSIST_OPENCODE_TIMEOUT_MS: '180001' }))).toThrow('integer from 1 to 180000');
+  });
+
   it('rejects invalid model IDs', () => {
     expect(() => readRoutingConfig(config({ ASSIST_OPENCODE_FREE_MODELS: '../bad' }))).toThrow('model ID');
   });

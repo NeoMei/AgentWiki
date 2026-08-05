@@ -35,7 +35,7 @@ export const readRoutingConfig = (config: ConfigService): RoutingConfig => ({
   allowPaidFallback: boolean(config.get('ASSIST_OPENCODE_ALLOW_PAID_FALLBACK'), true, 'ASSIST_OPENCODE_ALLOW_PAID_FALLBACK'),
   maxFreeAttempts: integer(config.get('ASSIST_OPENCODE_MAX_FREE_ATTEMPTS'), 3, 'ASSIST_OPENCODE_MAX_FREE_ATTEMPTS', 3),
   maxPaidAttempts: integer(config.get('ASSIST_OPENCODE_MAX_PAID_ATTEMPTS'), 1, 'ASSIST_OPENCODE_MAX_PAID_ATTEMPTS', 1),
-  totalTimeoutMs: integer(config.get('ASSIST_OPENCODE_TIMEOUT_MS'), 180_000, 'ASSIST_OPENCODE_TIMEOUT_MS', 600_000),
+  totalTimeoutMs: integer(config.get('ASSIST_OPENCODE_TIMEOUT_MS'), 180_000, 'ASSIST_OPENCODE_TIMEOUT_MS', 180_000),
   attemptTimeoutMs: integer(config.get('ASSIST_OPENCODE_ATTEMPT_TIMEOUT_MS'), 60_000, 'ASSIST_OPENCODE_ATTEMPT_TIMEOUT_MS', 180_000),
   modelCacheMs: integer(config.get('ASSIST_OPENCODE_MODEL_CACHE_MS'), 600_000, 'ASSIST_OPENCODE_MODEL_CACHE_MS', 86_400_000),
   modelStaleMs: integer(config.get('ASSIST_OPENCODE_MODEL_STALE_MS'), 3_600_000, 'ASSIST_OPENCODE_MODEL_STALE_MS', 86_400_000),
