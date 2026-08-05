@@ -53,7 +53,7 @@ export class KnowledgeRevisionController {
     const result = await this.submissionService.submit(
       spaceId,
       principal,
-      Buffer.from(dto.body, 'utf8'),
+      Buffer.from(dto.body, 'base64'),
       dto.idempotencyKey,
       confirmed === 'true',
     );
