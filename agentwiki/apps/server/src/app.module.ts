@@ -12,6 +12,7 @@ import { CollaborationModule } from './core/collaboration/collaboration.module';
 import { AuthorizationModule } from './core/authorization/authorization.module';
 import { AssistModule } from './assist/assist.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { OnboardModule } from './onboard/onboard.module';
 import { SecurityModule } from './core/security/security.module';
 import { AgentModule } from './core/agent/agent.module';
 import { KnowledgePipelineModule } from './knowledge-pipeline/knowledge-pipeline.module';
@@ -41,6 +42,7 @@ import { HealthController } from './health.controller';
     CollaborationModule,
     AssistModule,
     PlatformAdminModule,
+    OnboardModule,
   ],
   controllers: [HealthController],
 })

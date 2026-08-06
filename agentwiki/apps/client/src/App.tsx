@@ -12,6 +12,7 @@ import { ForcePasswordChange } from './features/auth/ForcePasswordChange';
 import { SpaceMembers } from './features/space/SpaceMembers';
 import { ProductPage } from './features/about/ProductPage';
 import { UsageGuide } from './features/about/UsageGuide';
+import { OnboardPage } from './features/about/OnboardPage';
 import { SpaceSettings } from './features/space/SpaceSettings';
 import { AdminPage } from './features/admin/AdminPage';
 
@@ -62,6 +63,7 @@ const AppRoutes: React.FC = () => {
       </Route>
       <Route path="/" element={<ProductPage />} />
       <Route path="/guide" element={<UsageGuide />} />
+      <Route path="/onboard" element={<OnboardPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
