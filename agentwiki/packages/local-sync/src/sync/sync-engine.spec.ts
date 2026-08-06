@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { SyncEngine, SyncError } from './sync-engine.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import type { LocalSyncConnection } from '../config.js';
-import type { KnowledgeBundle, WikiPage, SharedMemory, KnowledgeRelation } from '../protocol/bundle.js';
+import type { KnowledgeBundle, WikiPage } from '../protocol/bundle.js';
 import type { RevisionHead, RevisionSnapshot, KnowledgeSubmissionResult } from '../agentwiki-client.js';
 import { workspacePaths } from '../workspace/layout.js';
 import { contentHash } from '../utils/hash.js';
@@ -38,33 +38,15 @@ function makePage(id: string, body: string, title = id): WikiPage {
   };
 }
 
-function makeMemory(id: string, value: string): SharedMemory {
-  return {
-    memoryId: id,
-    spaceId: 'space-1',
-    key: id,
-    value,
-    scope: 'space',
-    artifactIds: [],
-    contentHash: contentHash(value),
-    updatedAt: '2026-07-30T00:00:00.000Z',
-  };
-}
 
-function makeRelation(id: string, source: string, target: string): KnowledgeRelation {
-  return {
-    relationId: id,
-    spaceId: 'space-1',
-    sourceId: source,
-    targetId: target,
-    relationType: 'relates-to',
-    artifactIds: [],
-  };
-}
-
-
-
-function makeClient(): any {
+function makeClient(): {
+  client: AgentWikiClient;
+  calls: { method: string; args: unknown[] }[];
+  setHead: (h: RevisionHead) => void;
+  setSnapshot: (s: RevisionSnapshot) => void;
+  setSubmitResult: (r: KnowledgeSubmissionResult) => void;
+  setSubmissionStatus: (s: KnowledgeSubmissionResult) => void;
+} {
   const calls: { method: string; args: unknown[] }[] = [];
   let head: RevisionHead = { revisionId: 'rev-1', sequence: 1, contentHash: 'hash-1' };
   let snapshot: RevisionSnapshot = {
@@ -96,14 +78,18 @@ function makeClient(): any {
       return new Response(JSON.stringify(snapshot), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (/\/knowledge-revisions\/delta/.test(url) || /\/knowledge-revisions\/[^/]+\/delta/.test(url)) {
-      const delta: any = {
+      const delta: {
+        fromRevision: string;
+        toRevision: string;
+        revisions: Array<{ revisionId: string; sequence: number; contentHash: string; delta: KnowledgeBundle }>;
+      } = {
         fromRevision: 'rev-1',
         toRevision: head.revisionId,
         revisions: [{
           revisionId: head.revisionId,
           sequence: head.sequence,
           contentHash: head.contentHash,
-          delta: snapshot,
+          delta: snapshot.bundle,
         }],
       };
       return new Response(JSON.stringify(delta), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -192,9 +178,9 @@ describe('SyncEngine', () => {
     const result = await engine.pull();
     expect(result.updated).toBe(true);
     expect(result.pageCount).toBe(2);
-    const snapshotCalls = calls.filter((c: any) => /\/knowledge-revisions\/[^/]+\/snapshot/.test(c.args[0]));
+    const snapshotCalls = calls.filter((c) => /\/knowledge-revisions\/[^/]+\/snapshot/.test(c.args[0] as string));
     expect(snapshotCalls.length).toBe(1); // initial snapshot only
-    const deltaCalls = calls.filter((c: any) => c.args[0].includes('/knowledge-revisions/delta'));
+    const deltaCalls = calls.filter((c) => (c.args[0] as string).includes('/knowledge-revisions/delta'));
     expect(deltaCalls.length).toBe(1);
   });
 
@@ -231,7 +217,7 @@ describe('SyncEngine', () => {
     });
     const result = await engine.pull();
     expect(result.conflicts.length).toBeGreaterThan(0);
-    expect(result.conflicts[0] && (result.conflicts[0] as any).itemId).toBe('p1');
+    expect(result.conflicts[0] && (result.conflicts[0] as { itemId: string }).itemId).toBe('p1');
   });
 
   it('two-machine workflow: B pulls A push, edits, pushes; A pulls merged result', async () => {

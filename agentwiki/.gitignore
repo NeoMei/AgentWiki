@@ -19,3 +19,10 @@ apps/*/.env
 
 .codebase-memory/*
 !.codebase-memory/graph.db.zst
+
+# TypeScript build artifacts leaked into source trees by accidental tsc runs
+*.tsbuildinfo
+apps/server/src/**/*.js
+apps/client/**/*.js
+!apps/client/vite.config.js
+packages/local-sync/src/**/*.js

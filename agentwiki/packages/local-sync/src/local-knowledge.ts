@@ -252,7 +252,8 @@ function defaultDependencies(): LocalKnowledgeDeps {
 
 function spawnCommand(command: string, args: string[], options: SpawnOptions = {}): Promise<CommandResult> {
   return new Promise((resolveResult) => {
-    const child = spawn(command, args, { ...options, shell: false, stdio: 'pipe' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const child: any = spawn(command, args, { ...options, shell: false, stdio: 'pipe' });
     const stdout: string[] = [];
     const stderr: string[] = [];
     let timedOut = false;
@@ -263,11 +264,11 @@ function spawnCommand(command: string, args: string[], options: SpawnOptions = {
 
     child.stdout?.on('data', (chunk: string | Buffer) => stdout.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8')));
     child.stderr?.on('data', (chunk: string | Buffer) => stderr.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8')));
-    child.once('error', (error) => {
+    child.once('error', (error: Error) => {
       clearTimeout(timeout);
       resolveResult({ status: null, error, stdout: stdout.join(''), stderr: stderr.join('') });
     });
-    child.once('close', (status) => {
+    child.once('close', (status: number | null) => {
       clearTimeout(timeout);
       resolveResult({
         status,
