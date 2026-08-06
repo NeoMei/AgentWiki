@@ -207,9 +207,8 @@ export class AgentWikiClient {
     spaceId: string,
     revisionId?: string,
   ): Promise<RevisionSnapshot> {
-    const path = revisionId
-      ? `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/snapshot/${encodeURIComponent(revisionId)}`
-      : `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/snapshot`;
+    const rev = revisionId ?? 'current';
+    const path = `/spaces/${encodeURIComponent(spaceId)}/knowledge-revisions/${encodeURIComponent(rev)}/snapshot`;
     return this.send<RevisionSnapshot>(endpoint(connection.serverUrl, path), { method: 'GET', headers: authorization(apiKey) });
   }
 
@@ -233,6 +232,7 @@ export class AgentWikiClient {
     idempotencyKey: string,
     confirmationHash: string,
   ): Promise<KnowledgeSubmissionResult> {
+    const body = Buffer.from(JSON.stringify(bundle)).toString('base64');
     return this.send<KnowledgeSubmissionResult>(
       endpoint(connection.serverUrl, `/spaces/${encodeURIComponent(spaceId)}/knowledge-submissions`),
       {
@@ -242,8 +242,9 @@ export class AgentWikiClient {
           'Content-Type': 'application/json',
           'Idempotency-Key': idempotencyKey,
           'X-AgentWiki-Confirmation-Hash': confirmationHash,
+          'X-AgentWiki-User-Confirmed': 'true',
         },
-        body: JSON.stringify(bundle),
+        body: JSON.stringify({ body, idempotencyKey }),
       },
     );
   }

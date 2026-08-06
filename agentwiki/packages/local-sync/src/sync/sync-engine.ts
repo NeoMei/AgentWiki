@@ -1,5 +1,5 @@
 import type { LocalSyncConnection } from '../config.js';
-import { AgentWikiClient, type RevisionHead } from '../agentwiki-client.js';
+import { AgentWikiClient, type RevisionHead, type RevisionDelta } from '../agentwiki-client.js';
 import { workspacePaths, type SpaceWorkspacePaths } from '../workspace/layout.js';
 import { stableSpaceId } from '../workspace/space.js';
 import {
@@ -16,6 +16,7 @@ import {
   initManifest,
 } from '../workspace/state.js';
 import type { KnowledgeBundle, WikiPage, SharedMemory, KnowledgeRelation, DeletionProposal, BundleProvenance } from '../protocol/bundle.js';
+import { KnowledgeBundleSchema } from '../protocol/bundle.js';
 import type { RevisionPointer, LocalManifest } from '../workspace/manifest.js';
 import { mergeBundles } from './merge.js';
 import { contentHash } from '../utils/hash.js';
@@ -42,6 +43,17 @@ export interface PushResult {
   status: 'pending_review' | 'published' | 'noop' | 'existing';
   submissionId: string;
   currentRevision: string;
+}
+
+export class SyncError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = 'SyncError';
+  }
+}
+
+function isKnowledgeBundle(value: unknown): value is KnowledgeBundle {
+  return KnowledgeBundleSchema.safeParse(value).success;
 }
 
 export class SyncEngine {
@@ -126,7 +138,7 @@ export class SyncEngine {
   async push(bundle: KnowledgeBundle): Promise<PushResult> {
     const pullResult = await this.pull();
     if (pullResult.conflicts.length > 0) {
-      throw new Error('Pull produced conflicts; resolve them before pushing.');
+      throw new SyncError('Pull produced conflicts; resolve them before pushing.', 'CONFLICTS');
     }
     const manifest = await this.readManifest();
 
@@ -142,14 +154,52 @@ export class SyncEngine {
       confirmationHash,
     );
 
-    if ('code' in result && result.code === 'STALE_BASE_REVISION') {
+    if (this.isStaleError(result)) {
       await this.pull();
-      throw new Error('Base revision changed during push; please resolve conflicts and retry.');
+      throw new SyncError('Base revision changed during push; please resolve conflicts and retry.', 'STALE_BASE');
+    }
+
+    if (result.status === 'pending_review') {
+      await writeManifest(this.paths, {
+        ...manifest,
+        pendingRevision: { revision: result.currentRevision, pulledAt: new Date().toISOString(), contentHash: contentHash(result.currentRevision) },
+        updatedAt: new Date().toISOString(),
+      });
+      const final = await this.pollSubmission(result.submissionId, 30_000, 1_000);
+      if (final.status === 'pending_review') {
+        return {
+          submitted: true,
+          status: 'pending_review',
+          submissionId: result.submissionId,
+          currentRevision: result.currentRevision,
+        };
+      }
+      if (this.isStaleError(final)) {
+        await this.pull();
+        throw new SyncError('Base revision changed during push; please resolve conflicts and retry.', 'STALE_BASE');
+      }
+      if (final.status === 'published' || final.status === 'noop' || final.status === 'existing') {
+        await writeManifest(this.paths, {
+          ...manifest,
+          pendingRevision: null,
+          baseRevision: { revision: final.currentRevision, pulledAt: new Date().toISOString(), contentHash: contentHash(final.currentRevision) },
+          updatedAt: new Date().toISOString(),
+        });
+        await this.pull();
+        return {
+          submitted: true,
+          status: final.status,
+          submissionId: result.submissionId,
+          currentRevision: final.currentRevision,
+        };
+      }
+      throw new SyncError(`Submission ended with unexpected status: ${final.status}`, 'SUBMISSION_FAILED');
     }
 
     if (result.status === 'published' || result.status === 'noop' || result.status === 'existing') {
       await writeManifest(this.paths, {
         ...manifest,
+        pendingRevision: null,
         baseRevision: { revision: result.currentRevision, pulledAt: new Date().toISOString(), contentHash: contentHash(result.currentRevision) },
         updatedAt: new Date().toISOString(),
       });
@@ -197,15 +247,85 @@ export class SyncEngine {
   private async fetchRemoteBundle(head: RevisionHead, baseRevision: string | null): Promise<KnowledgeBundle> {
     if (baseRevision) {
       const delta = await this.client.getDelta(this.options.connection, this.options.apiKey, this.spaceId, baseRevision);
-      if (delta.toRevision === head.revisionId && delta.revisions.length > 0) {
-        const latest = delta.revisions[delta.revisions.length - 1];
-        if (latest.delta && 'bundle' in latest.delta && latest.delta.bundle) {
-          return latest.delta.bundle as KnowledgeBundle;
-        }
+      const merged = this.mergeDeltaRevisions(delta, head.revisionId);
+      if (merged) {
+        return merged;
       }
     }
     const snapshot = await this.client.getSnapshot(this.options.connection, this.options.apiKey, this.spaceId);
     return snapshot.bundle;
+  }
+
+  private mergeDeltaRevisions(delta: RevisionDelta, targetRevisionId: string): KnowledgeBundle | null {
+    if (delta.toRevision !== targetRevisionId || delta.revisions.length === 0) return null;
+    let accumulated: KnowledgeBundle | null = null;
+    for (const r of delta.revisions) {
+      const extracted = this.extractBundleFromDelta(r.delta);
+      if (!extracted) return null;
+      if (!accumulated) {
+        accumulated = extracted;
+      } else {
+        accumulated = this.applyDeltaToBundle(accumulated, extracted);
+      }
+    }
+    return accumulated;
+  }
+
+  private extractBundleFromDelta(deltaValue: unknown): KnowledgeBundle | null {
+    if (isKnowledgeBundle(deltaValue)) {
+      return deltaValue;
+    }
+    if (typeof deltaValue === 'object' && deltaValue !== null && 'bundle' in deltaValue) {
+      const bundle = (deltaValue as Record<string, unknown>).bundle;
+      if (isKnowledgeBundle(bundle)) {
+        return bundle;
+      }
+    }
+    return null;
+  }
+
+  private applyDeltaToBundle(base: KnowledgeBundle, delta: KnowledgeBundle): KnowledgeBundle {
+    const pageMap = new Map(base.pages.map((p) => [p.pageId, p]));
+    const memoryMap = new Map(base.memories.map((m) => [m.memoryId, m]));
+    const relationMap = new Map(base.relations.map((r) => [r.relationId, r]));
+    for (const page of delta.pages) pageMap.set(page.pageId, page);
+    for (const memory of delta.memories) memoryMap.set(memory.memoryId, memory);
+    for (const relation of delta.relations) relationMap.set(relation.relationId, relation);
+    for (const del of delta.deletions) {
+      if (del.itemType === 'page') pageMap.delete(del.itemId);
+      else if (del.itemType === 'memory') memoryMap.delete(del.itemId);
+      else if (del.itemType === 'relation') relationMap.delete(del.itemId);
+    }
+    return {
+      ...base,
+      baseRevision: delta.baseRevision,
+      pages: Array.from(pageMap.values()),
+      memories: Array.from(memoryMap.values()),
+      relations: Array.from(relationMap.values()),
+      deletions: [...base.deletions, ...delta.deletions],
+      provenance: [...base.provenance, ...delta.provenance],
+    };
+  }
+
+  private async pollSubmission(submissionId: string, timeoutMs: number, intervalMs: number): Promise<ReturnType<AgentWikiClient['submitKnowledge']>> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = await this.client.getSubmission(
+        this.options.connection,
+        this.options.apiKey,
+        this.spaceId,
+        submissionId,
+      );
+      if (result.status !== 'pending_review') {
+        return result;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return { status: 'pending_review', submissionId, changeSetId: null, currentRevision: '' };
+  }
+
+  private isStaleError(result: unknown): result is { code: 'STALE_BASE_REVISION' } {
+    return typeof result === 'object' && result !== null && 'code' in result && (result as Record<string, unknown>).code === 'STALE_BASE_REVISION';
   }
 
   private async materializeBundle(bundle: KnowledgeBundle): Promise<void> {
@@ -271,9 +391,9 @@ export class SyncEngine {
 
   private isDirty(base: KnowledgeBundle, local: KnowledgeBundle): boolean {
     const strip = (b: KnowledgeBundle) => ({
-      pages: b.pages.map((p) => ({ id: p.pageId, hash: p.contentHash })),
-      memories: b.memories.map((m) => ({ id: m.memoryId, hash: m.contentHash })),
-      relations: b.relations.map((r) => r.relationId),
+      pages: b.pages.map((p) => ({ id: p.pageId, hash: p.contentHash })).sort((a, b) => a.id.localeCompare(b.id)),
+      memories: b.memories.map((m) => ({ id: m.memoryId, hash: m.contentHash })).sort((a, b) => a.id.localeCompare(b.id)),
+      relations: b.relations.map((r) => r.relationId).sort(),
     });
     return JSON.stringify(strip(base)) !== JSON.stringify(strip(local));
   }

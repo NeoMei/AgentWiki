@@ -48,7 +48,7 @@ export interface DeletionResult {
   conflict: ConflictBundle | null;
 }
 
-const IGNORED_FIELDS = new Set(['contentHash', 'updatedAt']);
+const IGNORED_FIELDS = new Set(['contentHash', 'updatedAt', 'path']);
 
 function valuesEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
