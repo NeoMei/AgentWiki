@@ -2,6 +2,9 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
+> **v0.2.0** — Platform admin console, model fallback routing, 694-test E2E suite.
+
+
 ## Hosted Service
 
 Use AgentWiki immediately without provisioning PostgreSQL, Redis, or your own server:
@@ -44,6 +47,8 @@ Create an account to start a Space, invite collaborators, and connect local Agen
 - **Ingest pipeline** — queued, lease-based processing with crash recovery
 
 ### Administration
+- **Platform admin** — super admin dashboard with user stats, search/filter/lock/delete
+
 - **Space roles** — Owner, Admin, Editor, Viewer with clear hierarchy
 - **Member management** — invite users by email, manage Agent grants with scope checkboxes
 - **Review queue** — approve, reject or revert proposed changes with status tracking
