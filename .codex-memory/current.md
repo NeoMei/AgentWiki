@@ -4,7 +4,7 @@
 
 - 已完成服务端 OpenCode 模型自动降级与成本路由：免费模型优先、付费模型自动发现与成本排序、Redis 共享熔断和 token/cost 记录。已合并 master，部署生产。
 - 已完成平台超管管理后台：用户与核心资源统计、用户查询、默认密码重置与强制改密码、锁定/解锁和软删除。已合并 master，部署生产。
-- 待完成：跨机器 Snapshot/Delta Pull/Push 与冲突合并真实验收（local-knowledge-sync 最后阶段）。
+- 待完成：跨机器 Snapshot/Delta Pull/Push 与冲突合并真实验收（local-knowledge-sync 最后阶段）。代码实现与单测已完成，待真实 E2E 跑通。
 - 待完成：space-add-agent-member 浏览器视觉验收（Chrome 插件恢复后）。
 
 # 范围 / 不做
@@ -19,9 +19,9 @@
 - 2026-08-06 完成平台超管管理后台：Prisma 迁移（lockedAt/mustChangePassword/authVersion），PlatformAdminModule（Guard/统计/用户管理/密码重置/锁定解锁/软删除），JWT/PAT/Agent 凭据同步校验，前端 /admin 页面。全部合并 master，部署生产，超管账号 admin@agentwiki.com 已配置。
 - 门禁（2026-08-06）：服务端 42 suites / 343 tests、客户端 30 files / 124 tests、local-sync 22 files / 160 tests、typecheck 0、lint 0、build 0。
 - P7 三个缺口已确认全部修复：review.service.ts 写入 spaceKnowledgeRevision、getSubmission 完整实现、LOCAL_SYNC_VERSION=0.2.2。
-- @neomei/agentwiki-local-sync@0.2.2 已发布 npm latest。
+- @neomei/agentwiki-local-sync@0.2.3 已发布 npm latest（npm token 可能过期，需重新授权后重试）。
 - 生产公网 https://agentwiki.quukk.com 运行正常，API/Worker/Frontend 全部健康。
-- GitHub master 已推送最新代码（cc94047）。
+- GitHub master 已推送最新代码（891989d）。
 
 # 稳定约束
 
