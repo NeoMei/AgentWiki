@@ -250,7 +250,11 @@ export class McpService {
   }
 
   private validateHost(request: Request): void {
-    const allowed = (this.config.get<string>('MCP_ALLOWED_HOSTS') || 'localhost,127.0.0.1').split(',').map((value) => value.trim().toLowerCase());
+    const publicUrl = this.config.get<string>('PUBLIC_API_URL') || '';
+    let publicHost = '';
+    try { publicHost = new URL(publicUrl).hostname; } catch { /* keep empty */ }
+    const configured = (this.config.get<string>('MCP_ALLOWED_HOSTS') || 'localhost,127.0.0.1').split(',').map((value) => value.trim().toLowerCase());
+    const allowed = publicHost ? [...new Set([...configured, publicHost.toLowerCase()])] : configured;
     const host = String(request.headers.host || '').split(':')[0].toLowerCase();
     if (!allowed.includes(host)) throw new BadRequestException('MCP Host header is not allowed');
   }
