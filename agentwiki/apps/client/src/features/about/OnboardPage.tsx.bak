@@ -3,8 +3,8 @@ import { Copy, Check, ExternalLink, Bot, UserPlus, Key, BookOpen, Send } from 'l
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
-const ONBOARD_JSON_URL = 'https://agentwiki.quukk.com/api/onboard.json';
-const PROMPT = `请访问 ${ONBOARD_JSON_URL} 获取 AgentWiki 结构化接入计划，然后按 steps 顺序执行。每一步中，把 save 声明的字段保存为变量，用于替换后续步骤 URL、headers、body 中的占位符（如 {{TOKEN}}）。若我没有提供邮箱、密码或昵称，请先问我。每一步执行前告知我你要做什么，执行后把关键结果告诉我。`;
+const ONBOARD_URL = 'https://agentwiki.quukk.com/onboard';
+const PROMPT = `请访问 ${ONBOARD_URL} 并一步一步引导我完成 AgentWiki 的注册和 Agent 接入。`;
 
 export const OnboardPage: React.FC = () => {
   const { language, t } = useLanguage();
@@ -28,8 +28,8 @@ export const OnboardPage: React.FC = () => {
         </div>
 
         <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><Send size={20} className="text-blue-600" /> {zh ? '方式一：复制提示词（推荐）' : 'Method 1: Copy prompt (recommended)'}</h2>
-          <p className="text-sm text-gray-500">{zh ? '把下面这段话直接粘贴给你的本地 Agent，它会自动读取接入指令并逐步执行：' : 'Paste the following message directly to your local Agent. It will fetch the onboarding instructions and execute step by step:'}</p>
+          <h2 className="text-lg font-semibold flex items-center gap-2"><Send size={20} className="text-blue-600" /> {zh ? '方式一：复制提示词' : 'Method 1: Copy prompt'}</h2>
+          <p className="text-sm text-gray-500">{zh ? '把下面这段话直接粘贴给你的本地 Agent：' : 'Paste the following message directly to your local Agent:'}</p>
           <div className="bg-gray-900 text-green-400 rounded-lg p-4 text-sm font-mono break-all relative">
             {PROMPT}
             <button onClick={() => copy(PROMPT, setCopiedPrompt)} className="absolute top-2 right-2 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300" title={zh ? '复制' : 'Copy'}>
@@ -39,11 +39,11 @@ export const OnboardPage: React.FC = () => {
         </div>
 
         <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><ExternalLink size={20} className="text-blue-600" /> {zh ? '方式二：复制 API 指令链接' : 'Method 2: Copy API instruction link'}</h2>
-          <p className="text-sm text-gray-500">{zh ? '复制 API 端点链接，让 Agent 访问以获取原始接入指令：' : 'Copy the API endpoint link for your Agent to fetch raw instructions:'}</p>
+          <h2 className="text-lg font-semibold flex items-center gap-2"><ExternalLink size={20} className="text-blue-600" /> {zh ? '方式二：复制链接' : 'Method 2: Copy link'}</h2>
+          <p className="text-sm text-gray-500">{zh ? '复制链接，告诉你的 Agent "请访问这个链接并引导我完成接入"：' : 'Copy the link and tell your Agent "Please visit this link and guide me through connecting.":'}</p>
           <div className="flex items-center gap-2 bg-gray-50 border rounded-lg px-4 py-3">
-            <code className="flex-1 text-sm text-blue-600 break-all">{ONBOARD_JSON_URL}</code>
-            <button onClick={() => copy(ONBOARD_JSON_URL, setCopiedUrl)} className="p-2 rounded hover:bg-gray-200 shrink-0">
+            <code className="flex-1 text-sm text-blue-600 break-all">{ONBOARD_URL}</code>
+            <button onClick={() => copy(ONBOARD_URL, setCopiedUrl)} className="p-2 rounded hover:bg-gray-200 shrink-0">
               {copiedUrl ? <Check size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-400" />}
             </button>
           </div>

@@ -30,6 +30,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+
+SSH_TOOL=(ssh)
+SCP_TOOL=(scp)
+if command -v sshpass >/dev/null 2>&1 && [ -n "${SSHPASS:-}" ]; then
+  SSH_TOOL=(sshpass -e ssh)
+  SCP_TOOL=(sshpass -e scp)
+fi
+
 echo "Packaging AgentWiki direct-runtime release..."
 tar \
   --exclude='.env' \
@@ -42,9 +50,9 @@ tar \
   package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json .dockerignore \
   apps packages deploy deploy.sh
 
-scp "${ARCHIVE}" "${REMOTE_USER}@${REMOTE_HOST}:~/"
+"${SCP_TOOL[@]}" "${ARCHIVE}" "${REMOTE_USER}@${REMOTE_HOST}:~/"
 
-ssh "${REMOTE_USER}@${REMOTE_HOST}" "bash -se" <<REMOTE
+"${SSH_TOOL[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash -se" <<REMOTE
 set -euo pipefail
 supported_node_majors="24 26"
 node_binary="/usr/bin/node"

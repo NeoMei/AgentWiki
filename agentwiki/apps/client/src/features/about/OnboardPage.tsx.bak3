@@ -3,8 +3,8 @@ import { Copy, Check, ExternalLink, Bot, UserPlus, Key, BookOpen, Send } from 'l
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
-const ONBOARD_JSON_URL = 'https://agentwiki.quukk.com/api/onboard.json';
-const PROMPT = `请访问 ${ONBOARD_JSON_URL} 获取 AgentWiki 结构化接入计划，然后按 steps 顺序执行。每一步中，把 save 声明的字段保存为变量，用于替换后续步骤 URL、headers、body 中的占位符（如 {{TOKEN}}）。若我没有提供邮箱、密码或昵称，请先问我。每一步执行前告知我你要做什么，执行后把关键结果告诉我。`;
+const ONBOARD_API_URL = 'https://agentwiki.quukk.com/api/onboard';
+const PROMPT = `请访问 ${ONBOARD_API_URL} 获取 AgentWiki 自助接入指令，然后严格按照指令中的步骤引导我完成注册、创建空间、创建 Agent 身份、授权、生成 API Key 和创建第一个页面。`;
 
 export const OnboardPage: React.FC = () => {
   const { language, t } = useLanguage();
@@ -42,8 +42,8 @@ export const OnboardPage: React.FC = () => {
           <h2 className="text-lg font-semibold flex items-center gap-2"><ExternalLink size={20} className="text-blue-600" /> {zh ? '方式二：复制 API 指令链接' : 'Method 2: Copy API instruction link'}</h2>
           <p className="text-sm text-gray-500">{zh ? '复制 API 端点链接，让 Agent 访问以获取原始接入指令：' : 'Copy the API endpoint link for your Agent to fetch raw instructions:'}</p>
           <div className="flex items-center gap-2 bg-gray-50 border rounded-lg px-4 py-3">
-            <code className="flex-1 text-sm text-blue-600 break-all">{ONBOARD_JSON_URL}</code>
-            <button onClick={() => copy(ONBOARD_JSON_URL, setCopiedUrl)} className="p-2 rounded hover:bg-gray-200 shrink-0">
+            <code className="flex-1 text-sm text-blue-600 break-all">{ONBOARD_API_URL}</code>
+            <button onClick={() => copy(ONBOARD_API_URL, setCopiedUrl)} className="p-2 rounded hover:bg-gray-200 shrink-0">
               {copiedUrl ? <Check size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-400" />}
             </button>
           </div>
