@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Bot, ArrowRight, Shield, Key,
   FileText, Network, Search, Users, CheckCircle2,
-  MousePointerClick, UserPlus
+  MousePointerClick, UserPlus, Rocket
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -14,7 +14,7 @@ import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 
 export const UsageGuide: React.FC = () => {
   useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
 
   const scopes = [
@@ -101,6 +101,27 @@ export const UsageGuide: React.FC = () => {
                 {zh ? '创建 Agent 并授予权限，让它成为你的知识管理伙伴。' : 'Create an Agent and grant permissions to make it your knowledge management partner.'}
               </p>
             </div>
+          </div>
+        </section>
+
+
+        {/* Agent Onboard Card */}
+        <section className="mb-16">
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6 flex flex-col md:flex-row items-start md:items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
+              <Rocket size={24} />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">{zh ? '最快方式：让 Agent 帮你接入' : 'Fastest way: let an Agent set you up'}</h3>
+              <p className="text-sm text-gray-600">{t('guide.onboardCard')}</p>
+            </div>
+            <Link
+              to="/onboard"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
+            >
+              {zh ? '打开 Agent 自助接入' : 'Open Agent Onboard'}
+              <ArrowRight size={16} />
+            </Link>
           </div>
         </section>
 

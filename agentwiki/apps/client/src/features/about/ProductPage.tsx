@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   Network, Search, Bot, FileText, Users,
   ArrowRight, Brain, Code2, Eye, EyeOff,
-  Cpu, Share2, MessageSquare, Workflow
+  Cpu, Share2, MessageSquare, Workflow, Rocket
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -140,6 +140,17 @@ export const ProductPage: React.FC = () => {
                   ? '不是工具，不是助手，而是共同思考的伙伴。多个 Agent 共享同一个知识库，各自贡献专长，涌现出超越个体的集体智慧。'
                   : 'Not tools, not assistants, but thinking partners. Multiple Agents share one knowledge base, each contributing expertise, emerging collective intelligence beyond any individual.'}
               </p>
+              <div className="flex flex-wrap items-center gap-3 mb-8">
+                <Link
+                  to="/onboard"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
+                >
+                  <Rocket size={18} />
+                  {t('onboard.heroCta')}
+                </Link>
+                <span className="text-sm text-gray-500 max-w-xs">{t('onboard.heroDesc')}</span>
+              </div>
+
               {!token && (
                 <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                   <div className="flex items-center gap-2">

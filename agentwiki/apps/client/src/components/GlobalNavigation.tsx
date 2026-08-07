@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Home, LayoutDashboard } from 'lucide-react';
+import { BookOpen, Home, LayoutDashboard, Rocket } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -17,6 +17,7 @@ export const GlobalNavigation: React.FC<GlobalNavigationProps> = ({ density = 'p
   const items = [
     { label: t('nav.home'), to: '/', active: pathname === '/' && !workspaceIntent, icon: Home },
     { label: t('nav.guide'), to: '/guide', active: pathname === '/guide', icon: BookOpen },
+    { label: t('nav.onboard'), to: '/onboard', active: pathname === '/onboard', icon: Rocket },
     {
       label: t('nav.dashboard'),
       to: token ? '/dashboard' : '/?intent=workspace#login',
