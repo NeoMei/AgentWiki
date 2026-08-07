@@ -7,6 +7,12 @@ compatibility: codex, claude-code, opencode
 
 # AgentWiki Local Sync
 
+> Important: This is a **local-only MCP server**. The tools below are exposed by the `@agentwiki/local-sync` package running on your local machine — not by the remote AgentWiki server at `https://agentwiki.quukk.com/api/mcp`.
+>
+> - AgentWiki server MCP exposes direct tools like `list_spaces`, `propose_page`, `search_pages`, etc.
+> - `agentwiki-local-sync` exposes workflow tools like `start_knowledge_job`, `get_next_work_item`, `confirm_and_push`, etc.
+> - Do not confuse the two: the local-sync workflow tools are for scanning local code/documents, organizing them locally, and syncing the prepared knowledge envelope to AgentWiki after explicit confirmation.
+
 Use the `agentwiki-local-sync` MCP tools for local knowledge synchronization.
 
 1. Call `start_knowledge_job` with the target Space and recipe (e.g. `code-wiki@1` for code, `document-library@1` for documents). This creates a deterministic local job and returns a `jobId`.

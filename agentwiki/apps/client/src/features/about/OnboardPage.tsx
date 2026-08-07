@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, ExternalLink, Bot, UserPlus, Key, BookOpen, Send } from 'lucide-react';
+import { Copy, Check, ExternalLink, Bot, UserPlus, Key, BookOpen, Send, Server, Terminal } from 'lucide-react';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -70,8 +70,27 @@ export const OnboardPage: React.FC = () => {
           </div>
         </div>
 
+        <div className="bg-white border rounded-xl p-6 space-y-4">
+          <h2 className="text-lg font-semibold">{zh ? '两种 MCP 接入方式' : 'Two MCP modes'}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-blue-600 font-medium"><Server size={18} /> {zh ? '方式 A：直接远程 MCP' : 'Mode A: Direct remote MCP'}</div>
+              <p className="text-xs text-gray-500">{zh ? '由 AgentWiki 服务端直接暴露。适合直接查询/创建页面、图谱、来源、审核。' : 'Exposed by the AgentWiki server. Use for directly querying/creating pages, graph, sources, and reviews.'}</p>
+              <p className="text-xs text-gray-400">{zh ? '工具：list_spaces, list_pages, get_page, search_pages, propose_page, list_graph, propose_relation, list_sources, get_knowledge_sync_state, start_source_run, recall_memory, list_reviews, approve_change_set' : 'Tools: list_spaces, list_pages, get_page, search_pages, propose_page, list_graph, propose_relation, list_sources, get_knowledge_sync_state, start_source_run, recall_memory, list_reviews, approve_change_set'}</p>
+            </div>
+            <div className="border rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-green-600 font-medium"><Terminal size={18} /> {zh ? '方式 B：本地同步 MCP' : 'Mode B: Local sync MCP'}</div>
+              <p className="text-xs text-gray-500">{zh ? '由本地 @agentwiki/local-sync 包暴露。适合扫描本地代码/文档，整理成知识库后同步到 AgentWiki。' : 'Exposed by the local @agentwiki/local-sync package. Use for scanning local code/documents, organizing, and syncing to AgentWiki.'}</p>
+              <p className="text-xs text-gray-400">{zh ? '工具：start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict' : 'Tools: start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict'}</p>
+            </div>
+          </div>
+          <div className="text-xs text-gray-500 bg-yellow-50 border border-yellow-100 rounded-lg p-3">
+            {zh ? '注意：不要把两套工具混用。直接远程 MCP 不能执行本地扫描/整理工作流；本地同步 MCP 不能替代 AgentWiki 服务端 MCP。' : 'Note: do not mix the two tool sets. The direct remote MCP cannot run local scan/organize workflows; the local sync MCP cannot replace the AgentWiki server MCP.'}
+          </div>
+        </div>
+
         <div className="text-center text-sm text-gray-400">
-          {zh ? '支持 Codex、Claude Code、OpenCode 及任何 MCP 兼容 Agent' : 'Supports Codex, Claude Code, OpenCode and any MCP-compatible Agent'}
+          {zh ? '支持两种 MCP 接入方式：直接远程 AgentWiki MCP 或本地 agentwiki-local-sync MCP' : 'Supports two MCP modes: direct remote AgentWiki MCP or local agentwiki-local-sync MCP'}
         </div>
       </div>
     </div>
