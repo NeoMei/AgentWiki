@@ -12,13 +12,13 @@
 
 # 当前状态
 
-- 2026-08-10 完成 0.2.6 代码与本地上线门禁：全量代码图谱 3861 节点 / 10135 边，架构、符号、源码与调用链均可查询。
+- 2026-08-10 完成 0.2.6 代码与本地上线门禁：全量代码图谱 3868 节点 / 10144 边，架构、符号、源码与调用链均可查询。
 - 零配置本地知识链路已真实验证：codebase-memory 扫描、Orchestrator 整理、非空 provenance Bundle、预览确认、人工审核发布。
 - 双向同步已真实验证：两个本地工作区 Snapshot/Delta Pull/Push，页面、共享记忆、关系、冲突阻断及三类审批删除均通过。
 - Space Agent 成员桌面/移动端浏览器验收已通过；全站 3 个公开、16 个登录后、6 个移动端关键路由巡检通过。
 - 门禁：runtime 61、server 369、client 124、local-sync 173，合计 727 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical。
 - Codex Security 扫描完成：修复前快照发现 16 项，当前工作树均已修复并回归验证。
-- GitHub `master` 已更新到 `caba0a4`，并已发布 `v0.2.6` 标签。
+- GitHub `master` 已推送 0.2.6 发布与部署加固提交，并已发布 `v0.2.6` 标签。
 - 详细证据：`agentwiki/docs/verification/production-readiness-0.2.6.md`。
 
 # 稳定约束

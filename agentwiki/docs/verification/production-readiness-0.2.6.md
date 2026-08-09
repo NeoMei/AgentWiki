@@ -68,7 +68,7 @@ resource quotas, secret redaction, proxy trust and loopback backend binding.
 
 ## Codebase knowledge graph
 
-- Full persistent index: 3,861 nodes and 10,135 edges.
+- Full persistent index: 3,868 nodes and 10,144 edges.
 - Architecture, graph schema, symbol search, exact source retrieval and call-chain
   tracing were all queried successfully.
 - The `confirmAndPush` source proves explicit confirmation precedes `SyncEngine.push`;
@@ -78,7 +78,7 @@ resource quotas, secret redaction, proxy trust and loopback backend binding.
 
 - npm package tarball: built, inspected and installed from a clean temporary HOME;
   version 0.2.6 is staged publicly and awaits npm website WebAuthn approval.
-- GitHub `master`: commit `caba0a4` pushed; annotated tag `v0.2.6` published.
+- GitHub `master`: release and deployment-hardening commits pushed; annotated tag `v0.2.6` published.
 - Production service: awaits npm publication, backup, migration/deploy and public
   health/onboarding smoke.
 
