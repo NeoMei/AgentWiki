@@ -18,6 +18,7 @@
 - Space Agent 成员桌面/移动端浏览器验收已通过；全站 3 个公开、16 个登录后、6 个移动端关键路由巡检通过。
 - 门禁：runtime 61、server 369、client 124、local-sync 173，合计 727 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical。
 - Codex Security 扫描完成：修复前快照发现 16 项，当前工作树均已修复并回归验证。
+- GitHub `master` 已更新到 `caba0a4`，并已发布 `v0.2.6` 标签。
 - 详细证据：`agentwiki/docs/verification/production-readiness-0.2.6.md`。
 
 # 稳定约束
@@ -38,4 +39,4 @@
 
 # 风险 / 下一步
 
-- npm 0.2.6 发布正等待 npm WebAuthn 确认；成功后推送 GitHub master，再执行生产备份、部署和公网验收。
+- npm 0.2.6 已进入公开暂存区，正等待 npm 网站 WebAuthn 批准；生产部署还需服务器免密 SSH 访问。

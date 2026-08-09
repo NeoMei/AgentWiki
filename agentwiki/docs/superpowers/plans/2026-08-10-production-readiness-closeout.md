@@ -247,7 +247,7 @@ Expected: zero skipped source files, no `node_modules` paths, architecture/symbo
 
 Verify no `.tgz`, `.env`, key, password, token, database dump, or temporary screenshot is staged.
 
-- [ ] **Step 4: Commit and push the release branch, then integrate to `master`**
+- [x] **Step 4: Commit and push the release branch, then integrate to `master`**
 
 Use author `NeoMei <ffdeml@gmail.com>`. Push the tested commit and fast-forward `master` only after all gates pass.
 

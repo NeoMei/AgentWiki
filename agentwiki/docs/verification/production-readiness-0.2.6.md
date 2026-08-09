@@ -77,8 +77,8 @@ resource quotas, secret redaction, proxy trust and loopback backend binding.
 ## External release status
 
 - npm package tarball: built, inspected and installed from a clean temporary HOME;
-  public registry publication awaits npm WebAuthn approval.
-- GitHub `master`: awaits the final release commit and push.
+  version 0.2.6 is staged publicly and awaits npm website WebAuthn approval.
+- GitHub `master`: commit `caba0a4` pushed; annotated tag `v0.2.6` published.
 - Production service: awaits npm publication, backup, migration/deploy and public
   health/onboarding smoke.
 
