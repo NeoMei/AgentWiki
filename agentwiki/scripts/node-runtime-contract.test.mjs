@@ -57,6 +57,8 @@ test('direct production deployment rejects a stale non-HTTPS public Agent API UR
   assert.match(deploy, /PUBLIC_API_URL/);
   assert.match(deploy, /https:\/\//);
   assert.match(deploy, /must be the externally reachable HTTPS \/api URL/);
+  assert.match(deploy, /packages\/local-sync\/package\.json/);
+  assert.match(deploy, /LOCAL_SYNC_PACKAGE_VERSION/);
 });
 
 test('Compose forwards onboarding and OpenCode routing configuration to the API', async () => {

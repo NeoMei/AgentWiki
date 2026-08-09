@@ -86,6 +86,31 @@ if [ "\$(id -u)" = 0 ]; then
 fi
 cd "\$HOME/${PROJECT_DIR}"
 
+if [ ! -f .env ]; then
+  echo "Existing production .env is required; deployment will not generate secrets." >&2
+  exit 1
+fi
+touch apps/server/.env
+
+set_env_value() {
+  local file="\$1" key="\$2" value="\$3"
+  if grep -q "^\${key}=" "\$file"; then
+    sed -i "s|^\${key}=.*|\${key}=\${value}|" "\$file"
+  else
+    printf '%s=%s\n' "\$key" "\$value" >> "\$file"
+  fi
+}
+
+local_sync_version="\$("\$node_binary" -p "require('./packages/local-sync/package.json').version")"
+case "\$local_sync_version" in
+  ''|*[!0-9A-Za-z.-]*)
+    echo "Invalid local-sync package version in packages/local-sync/package.json." >&2
+    exit 1
+    ;;
+esac
+set_env_value .env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
+set_env_value apps/server/.env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
+
 if ! grep -q '^JWT_SECRET=' .env; then
   secret="\$(sed -n 's/^APP_SECRET=//p' .env | head -n1)"
   test -n "\$secret"
