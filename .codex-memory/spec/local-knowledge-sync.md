@@ -17,7 +17,7 @@
 - codebase-memory、MarkItDown、agent-memory 和未来来源都是 Source Adapter。
 - Adapter 只能输出版本化 SourceArtifact，不能直接修改 Wiki、同步、审批或发布。
 - 当前本地 Agent 负责语义整理；Orchestrator 通过状态机、Recipe、Schema、稳定 ID、checkpoint 和有界修复控制行为。
-- OpenWiki 不再是必需组件，不得恢复为默认整理链路。
+- 不得恢复需要交互式初始化或独立模型配置的外部 Wiki 编译器链路。
 
 ## Space 与同步
 
@@ -35,6 +35,6 @@
 
 ## 版本边界
 
-- `@neomei/agentwiki-local-sync@0.1.1` 属于旧 OpenWiki 路径，不能描述为零配置方案。
+- `@neomei/agentwiki-local-sync@0.1.1` 属于旧编译器路径，不能描述为零配置方案。
 - 新架构目标版本为 `0.2.0`；完成真实跨 Agent、跨机器 E2E 前不得在使用指南中宣称可用。
 - 旧 `0.1.x` 连接不能静默升级到 `0.2.0`，必须先生成本地 Workspace 迁移预览。

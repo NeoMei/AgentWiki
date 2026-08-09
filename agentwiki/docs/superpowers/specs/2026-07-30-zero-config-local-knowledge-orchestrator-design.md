@@ -2,14 +2,14 @@
 
 ## 背景
 
-现有 `@neomei/agentwiki-local-sync` 使用 OpenWiki 把本地代码或文档整理为 OKF，再同步到 AgentWiki。真实验证发现 OpenWiki 过重：需要交互式初始化、独立模型配置和较长运行时间，并且容易因 provider、MCP timeout 或子进程退出失败而中断。
+早期本地同步方案依赖外部 Wiki 编译器，实际验证发现它需要交互式初始化、独立模型配置和较长运行时间，容易因 provider、MCP timeout 或子进程退出而中断。
 
-OpenWiki 不再作为本地知识同步的必需组件。本设计用 AgentWiki Local Knowledge Orchestrator 取代其职责，并保留已经验证有效的安全边界：所有原始材料和整理过程留在本地，只有整理后的共享知识在用户确认后进入 AgentWiki。
+现行设计由 AgentWiki Local Knowledge Orchestrator 在本地直接组织知识：所有原始材料和整理过程留在本地，只有整理后的共享知识在用户确认后进入 AgentWiki。
 
 ## 目标
 
 - 用户只需把 AgentWiki 生成的一次性接入指令交给本地 Agent。
-- 不要求用户配置 OpenWiki、模型 Provider、额外 API Key、MCP JSON、本地端口或后台服务。
+- 不要求用户配置第三方 Wiki 编译器、模型 Provider、额外 API Key、MCP JSON、本地端口或后台服务。
 - codebase-memory、MarkItDown 和未来的 agent-memory 作为同等地位的 Source Adapter。
 - 当前本地 Agent 使用自己已有的模型能力完成语义理解和知识组织。
 - Orchestrator 通过确定性状态机、Recipe、Schema、证据和 checkpoint 保证不同 Agent 稳定执行。
@@ -307,7 +307,7 @@ interface ValidationIssue {
 拉取团队最新共享记忆。
 ```
 
-用户不需要理解 OpenWiki、Provider、Space ID、preview ID、MCP JSON、CLI 内部命令或本地端口。
+用户不需要理解底层编译器、Provider、Space ID、preview ID、MCP JSON、CLI 内部命令或本地端口。
 
 ## 私有运行时与 Adapter Manager
 
@@ -480,7 +480,7 @@ Credential Scope ∩ Space Grant ∩ Space Policy
 
 ## 迁移与发布策略
 
-现有 `0.1.1` 仍包含 OpenWiki 路径，不能把它宣传成零配置 Orchestrator。新协议属于架构变更，建议以 `0.2.0` 发布。
+现有 `0.1.1` 仍属于旧编译器路径，不能把它宣传成零配置 Orchestrator。新协议属于架构变更，建议以 `0.2.0` 发布。
 
 分阶段实施：
 
@@ -498,7 +498,7 @@ Credential Scope ∩ Space Grant ∩ Space Policy
 
 - `0.1.x` 连接不自动切换到 `0.2.0`。
 - 升级先迁移本地配置和 Space Workspace，再切换 MCP 命令。
-- 旧 OpenWiki preview 不作为新 Bundle 直接上传；需要通过迁移 Recipe 重新整理。
+- 旧格式 preview 不作为新 Bundle 直接上传；需要通过迁移 Recipe 重新整理。
 - 服务端在迁移窗口内明确区分 OKF v0.1 与 KnowledgeBundle 新协议。
 - `0.2.0` 验证完成前，使用指南不能声称新方案已可用。
 

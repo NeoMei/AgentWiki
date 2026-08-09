@@ -180,9 +180,11 @@ export class ReviewService {
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
       const pageIds: string[] = [];
       const pageIdBySourcePath = new Map<string, string>();
+      const pageIdByKnowledgeKey = new Map<string, string>();
       const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted');
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
-      const relationItems = acceptedItems.filter((item) => ['create_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
+      const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
+      const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
 
       for (const item of pageItems) {
         const payload = item.payload as any;
@@ -192,6 +194,7 @@ export class ReviewService {
           const page = await tx.page.create({
             data: {
               spaceId: changeSet.spaceId,
+              ...(payload.knowledgeKey ? { knowledgeKey: payload.knowledgeKey } : {}),
               authorId,
               title: payload.title,
               slug: payload.slug || this.slugify(payload.title) + '-' + Date.now().toString(36) + '-' + item.id.slice(-4),
@@ -212,6 +215,7 @@ export class ReviewService {
           resourceId = page.id;
           pageIds.push(page.id);
           if (payload.sourcePath) pageIdBySourcePath.set(payload.sourcePath, page.id);
+          if (payload.knowledgeKey) pageIdByKnowledgeKey.set(payload.knowledgeKey, page.id);
           if (changeSet.runId) {
             await tx.evidence.updateMany({
               where: {
@@ -303,8 +307,120 @@ export class ReviewService {
         await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: resourceId } });
       }
 
+      for (const item of memoryItems) {
+        const payload = item.payload as any;
+        if (item.type === 'archive_space_memory') {
+          const existing = await tx.agentMemory.findFirst({
+            where: { id: payload.memoryId, spaceId: changeSet.spaceId, deletedAt: null },
+          });
+          if (!existing) throw new BadRequestException('Archived memory must belong to the change set space');
+          if (payload.expectedUpdatedAt && existing.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
+            throw new BusinessException('CHANGESET_INVALID_STATE', 'The memory changed after this archive candidate was compiled');
+          }
+          const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...before } = existing;
+          await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
+          const archived = await tx.agentMemory.updateMany({
+            where: {
+              id: payload.memoryId,
+              spaceId: changeSet.spaceId,
+              deletedAt: null,
+              updatedAt: existing.updatedAt,
+            },
+            data: { status: 'archived', archivedAt: new Date(), deletedAt: new Date() },
+          });
+          if (!archived.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'The memory changed while it was being archived');
+          await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: payload.memoryId } });
+          continue;
+        }
+        const existing = await tx.agentMemory.findUnique({ where: { id: payload.knowledgeKey } });
+        if (existing && existing.spaceId !== changeSet.spaceId) {
+          throw new BadRequestException('Updated memory must belong to the change set space');
+        }
+        if (existing && payload.expectedUpdatedAt && existing.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
+          throw new BusinessException('CHANGESET_INVALID_STATE', 'The memory changed after this candidate was compiled');
+        }
+        if (!existing && !changeSet.createdByAgentId) {
+          throw new BadRequestException('A shared Agent memory requires an Agent author');
+        }
+        const before = existing
+          ? (({ id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...state }) => state)(existing)
+          : null;
+        await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
+        let memoryId: string;
+        if (existing) {
+          const updated = await tx.agentMemory.updateMany({
+            where: { id: existing.id, spaceId: changeSet.spaceId, updatedAt: existing.updatedAt },
+            data: {
+              type: payload.key,
+              content: payload.value,
+              contentHash: payload.contentHash,
+              visibility: 'space',
+              status: 'active',
+              archivedAt: null,
+              deletedAt: null,
+            },
+          });
+          if (!updated.count) {
+            throw new BusinessException('CHANGESET_INVALID_STATE', 'The memory changed while it was being published');
+          }
+          memoryId = existing.id;
+        } else {
+          const memory = await tx.agentMemory.create({
+            data: {
+              id: payload.knowledgeKey,
+              type: payload.key,
+              content: payload.value,
+              contentHash: payload.contentHash,
+              visibility: 'space',
+              status: 'active',
+              agentId: changeSet.createdByAgentId!,
+              spaceId: changeSet.spaceId,
+            },
+          });
+          memoryId = memory.id;
+        }
+        await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: memoryId } });
+      }
+
       for (const item of relationItems) {
           const payload = item.payload as any;
+          if (item.type === 'update_relation') {
+            const existing = await tx.knowledgeRelation.findUnique({
+              where: { id: payload.relationId },
+              include: {
+                sourcePage: { select: { spaceId: true } },
+                targetPage: { select: { spaceId: true } },
+              },
+            });
+            if (!existing || existing.sourcePage.spaceId !== changeSet.spaceId || existing.targetPage.spaceId !== changeSet.spaceId) {
+              throw new BadRequestException('Updated relation must belong to the change set space');
+            }
+            if (payload.expectedLastModifiedAt && existing.lastModifiedAt.toISOString() !== payload.expectedLastModifiedAt) {
+              throw new BusinessException('CHANGESET_INVALID_STATE', 'The relation changed after this candidate was compiled');
+            }
+            const sourcePageId = pageIdByKnowledgeKey.get(payload.sourceKnowledgeKey)
+              || await this.resolvePageByKnowledgeKey(tx, changeSet.spaceId, payload.sourceKnowledgeKey);
+            const targetPageId = pageIdByKnowledgeKey.get(payload.targetKnowledgeKey)
+              || await this.resolvePageByKnowledgeKey(tx, changeSet.spaceId, payload.targetKnowledgeKey);
+            if (!sourcePageId || !targetPageId) throw new BadRequestException('Updated relation page reference is missing');
+            if (sourcePageId === targetPageId) throw new BadRequestException('A page cannot relate to itself');
+            const { sourcePage: _sourcePage, targetPage: _targetPage, createdAt: _createdAt, ...before } = existing;
+            await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
+            const updated = await tx.knowledgeRelation.update({
+              where: { id: existing.id },
+              data: {
+                sourcePageId,
+                targetPageId,
+                relation: payload.relation,
+                sourceChangeSetId: id,
+                createdByAgentId: existing.createdByAgentId || changeSet.createdByAgentId,
+                lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
+                lastModifiedAt: new Date(),
+              },
+            });
+            await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: updated.id } });
+            continue;
+          }
           if (item.type === 'archive_relation') {
             const existing = await tx.knowledgeRelation.findUnique({
               where: { id: payload.relationId },
@@ -347,8 +463,14 @@ export class ReviewService {
             await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: existing.id } });
             continue;
           }
-         const sourcePageId = payload.sourcePageId || await this.resolvePageBySourcePath(tx, changeSet.spaceId, payload.sourcePath, pageIdBySourcePath);
-          const targetPageId = payload.targetPageId || await this.resolvePageBySourcePath(tx, changeSet.spaceId, payload.targetPath, pageIdBySourcePath);
+         const sourcePageId = payload.sourcePageId
+           || pageIdByKnowledgeKey.get(payload.sourceKnowledgeKey)
+           || await this.resolvePageByKnowledgeKey(tx, changeSet.spaceId, payload.sourceKnowledgeKey)
+           || await this.resolvePageBySourcePath(tx, changeSet.spaceId, payload.sourcePath, pageIdBySourcePath);
+          const targetPageId = payload.targetPageId
+            || pageIdByKnowledgeKey.get(payload.targetKnowledgeKey)
+            || await this.resolvePageByKnowledgeKey(tx, changeSet.spaceId, payload.targetKnowledgeKey)
+            || await this.resolvePageBySourcePath(tx, changeSet.spaceId, payload.targetPath, pageIdBySourcePath);
           if (sourcePageId === targetPageId) throw new BadRequestException('A page cannot relate to itself');
           const pages = await tx.page.findMany({
             where: { id: { in: [sourcePageId, targetPageId] }, deletedAt: null },
@@ -365,6 +487,7 @@ export class ReviewService {
             data: {
               sourcePageId,
               targetPageId,
+              ...(payload.knowledgeKey ? { knowledgeKey: payload.knowledgeKey } : {}),
               relation: payload.relation,
               strength: payload.strength ?? 1,
               confidence: payload.confidence ?? 1,
@@ -378,7 +501,11 @@ export class ReviewService {
           if (payload.evidenceId) await tx.evidence.update({ where: { id: payload.evidenceId }, data: { targetRelationId: relation.id } });
           await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: relation.id } });
       }
-      const unsupported = acceptedItems.filter((item) => !['create_page', 'update_page', 'archive_page', 'create_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
+      const unsupported = acceptedItems.filter((item) => ![
+        'create_page', 'update_page', 'archive_page',
+        'upsert_space_memory', 'archive_space_memory',
+        'create_relation', 'update_relation', 'archive_relation', 'update_relation_strength',
+      ].includes(item.type));
       if (unsupported.length) throw new BadRequestException(`Unsupported change item type: ${unsupported[0].type}`);
       await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'publishing' }, data: { status: 'published', publishedAt: new Date() } });
@@ -405,10 +532,15 @@ export class ReviewService {
     changeSetId: string,
   ): Promise<SpaceKnowledgeRevision> {
     const bundle = submission.bundle as NormalizedKnowledgeBundle;
+    const submittedPagesById = new Map(bundle.pages.map((page) => [page.pageId, page]));
+    const submittedPagesByPath = new Map(bundle.pages.map((page) => [page.path, page]));
+    const submittedMemoriesById = new Map(bundle.memories.map((memory) => [memory.memoryId, memory]));
+    const submittedRelationsById = new Map(bundle.relations.map((relation) => [relation.relationId, relation]));
     const pages = await tx.page.findMany({
       where: { spaceId, deletedAt: null },
       select: {
         id: true,
+        knowledgeKey: true,
         title: true,
         content: true,
         parentId: true,
@@ -419,13 +551,14 @@ export class ReviewService {
       },
     });
     const memories = await tx.agentMemory.findMany({
-      where: { spaceId },
+      where: { spaceId, deletedAt: null, archivedAt: null },
       select: { id: true, type: true, content: true, updatedAt: true },
     });
     const relations = await tx.knowledgeRelation.findMany({
       where: { sourcePage: { spaceId } },
       select: {
         id: true,
+        knowledgeKey: true,
         sourcePageId: true,
         targetPageId: true,
         relation: true,
@@ -434,38 +567,49 @@ export class ReviewService {
         lastModifiedAt: true,
       },
     });
+    const pageKnowledgeKeyById = new Map(pages.map((page) => [page.id, page.knowledgeKey]));
     const snapshot = {
       schemaVersion: submission.schemaVersion,
       recipeVersion: submission.recipeVersion,
       spaceId,
-      pages: pages.map((p) => ({
-        pageId: p.id,
-        spaceId,
-        path: p.sourcePath || this.pagePathFromTitle(p.title),
-        title: p.title,
-        body: p.content,
-        order: p.sortOrder ?? 0,
-        parentId: p.parentId,
-        updatedAt: p.updatedAt.toISOString(),
-      })),
-      memories: memories.map((m) => ({
-        memoryId: m.id,
-        spaceId,
-        key: m.type,
-        value: m.content,
-        scope: 'space' as const,
-        pageIds: [] as string[],
-        updatedAt: m.updatedAt.toISOString(),
-      })),
+      baseRevision: bundle.baseRevision,
+      pages: pages.map((p) => {
+        const submitted = submittedPagesById.get(p.knowledgeKey) ?? (p.sourcePath ? submittedPagesByPath.get(p.sourcePath) : undefined);
+        return {
+          pageId: p.knowledgeKey,
+          spaceId,
+          path: p.sourcePath || this.pagePathFromTitle(p.title),
+          title: p.title,
+          body: p.content,
+          order: p.sortOrder ?? 0,
+          ...(p.parentId ? { metadata: { parentId: p.parentId } } : {}),
+          artifactIds: submitted?.artifactIds ?? [],
+          contentHash: createHash('sha256').update(p.content).digest('hex'),
+          updatedAt: p.updatedAt.toISOString(),
+        };
+      }),
+      memories: memories.map((m) => {
+        const submitted = submittedMemoriesById.get(m.id);
+        return {
+          memoryId: m.id,
+          spaceId,
+          key: m.type,
+          value: m.content,
+          scope: 'space' as const,
+          pageIds: [] as string[],
+          artifactIds: submitted?.artifactIds ?? [],
+          contentHash: createHash('sha256').update(m.content).digest('hex'),
+          updatedAt: m.updatedAt.toISOString(),
+        };
+      }),
       relations: relations.map((r) => ({
-        relationId: r.id,
+        relationId: r.knowledgeKey,
         spaceId,
-        sourceId: r.sourcePageId,
-        targetId: r.targetPageId,
+        sourceId: pageKnowledgeKeyById.get(r.sourcePageId) ?? r.sourcePageId,
+        targetId: pageKnowledgeKeyById.get(r.targetPageId) ?? r.targetPageId,
         relationType: r.relation,
-        strength: r.strength,
-        confidence: r.confidence,
-        updatedAt: r.lastModifiedAt.toISOString(),
+        artifactIds: submittedRelationsById.get(r.knowledgeKey)?.artifactIds ?? [],
+        metadata: { strength: r.strength, confidence: r.confidence },
       })),
       provenance: bundle.provenance || [],
       deletions: bundle.deletions || [],
@@ -551,6 +695,38 @@ export class ReviewService {
           });
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
+        } else if (item.type === 'upsert_space_memory') {
+          const payload = item.payload as any;
+          const reverted = payload.before
+            ? await tx.agentMemory.updateMany({
+              where: {
+                id: item.publishedResourceId,
+                spaceId: changeSet.spaceId,
+                updatedAt: { lte: publishedAt },
+              },
+              data: payload.before,
+            })
+            : await tx.agentMemory.updateMany({
+              where: {
+                id: item.publishedResourceId,
+                spaceId: changeSet.spaceId,
+                updatedAt: { lte: publishedAt },
+              },
+              data: { status: 'archived', archivedAt: new Date(), deletedAt: new Date() },
+            });
+          this.assertRevertMutation(reverted.count, item.type);
+        } else if (item.type === 'archive_space_memory') {
+          const payload = item.payload as any;
+          if (!payload.before) throw new BadRequestException('Archived memory is missing its prior state');
+          const reverted = await tx.agentMemory.updateMany({
+            where: {
+              id: item.publishedResourceId,
+              spaceId: changeSet.spaceId,
+              updatedAt: { lte: publishedAt },
+            },
+            data: payload.before,
+          });
+          this.assertRevertMutation(reverted.count, item.type);
         } else if (item.type === 'create_relation') {
           const reverted = await tx.knowledgeRelation.deleteMany({
             where: {
@@ -587,6 +763,21 @@ export class ReviewService {
             data: { strength: payload.before.strength },
           });
           this.assertRevertMutation(reverted.count, item.type);
+        } else if (item.type === 'update_relation') {
+          const payload = item.payload as any;
+          if (!payload.before) throw new BadRequestException('Updated relation is missing its prior state');
+          const { id: _id, ...before } = payload.before;
+          const reverted = await tx.knowledgeRelation.updateMany({
+            where: {
+              id: item.publishedResourceId,
+              sourceChangeSetId: id,
+              lastModifiedAt: { lte: publishedAt },
+            },
+            data: before,
+          });
+          this.assertRevertMutation(reverted.count, item.type);
+        } else {
+          throw new BadRequestException(`Unsupported reverted change item type: ${item.type}`);
         }
         await tx.changeItem.update({ where: { id: item.id }, data: { status: 'reverted' } });
       }
@@ -638,6 +829,19 @@ export class ReviewService {
     const page = await tx.page.findFirst({ where: { spaceId, sourcePath, deletedAt: null }, select: { id: true } });
     if (!page) throw new BadRequestException(`Relation page not found for source path: ${sourcePath}`);
     return page.id;
+  }
+
+  private async resolvePageByKnowledgeKey(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    knowledgeKey: string | undefined,
+  ): Promise<string | undefined> {
+    if (!knowledgeKey) return undefined;
+    const page = await tx.page.findFirst({
+      where: { spaceId, knowledgeKey, deletedAt: null },
+      select: { id: true },
+    });
+    return page?.id;
   }
 
   private async syncLexicalIndex(tx: Prisma.TransactionClient, pageIds: string[]) {

@@ -1,4 +1,9 @@
-const API = 'https://agentwiki.quukk.com/api';
+const API = process.env.AGENTWIKI_API_URL;
+const ADMIN_EMAIL = process.env.AGENTWIKI_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.AGENTWIKI_ADMIN_PASSWORD;
+if (!API || !ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  throw new Error('AGENTWIKI_API_URL, AGENTWIKI_ADMIN_EMAIL, and AGENTWIKI_ADMIN_PASSWORD are required');
+}
 let pass = 0, fail = 0;
 const T = (n, ok, d) => { if (ok) { pass++; console.log(`  PASS: ${n}`); } else { fail++; console.log(`  FAIL: ${n}${d?' '+d:''}`); } };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -16,7 +21,7 @@ async function r(path, opts = {}) {
 async function main() {
   console.log('=== Admin Console Tests ===\n');
   await sleep(3000);
-  let adminLogin = await r('/auth/login', { method:'POST', body:JSON.stringify({email:'admin@agentwiki.com',password:'AdminWiki@2026'}) });
+  let adminLogin = await r('/auth/login', { method:'POST', body:JSON.stringify({email:ADMIN_EMAIL,password:ADMIN_PASSWORD}) });
   const adminToken = adminLogin.d?.access_token;
   T('Admin login', !!adminToken);
   if (!adminToken) { console.log(`\n=== ${pass} passed, ${fail} failed ===`); process.exit(1); }

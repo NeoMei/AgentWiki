@@ -46,8 +46,8 @@ const MANAGED_ADAPTERS: ManagedAdapter[] = [
     descriptor: {
       kind: 'node-module',
       packageName: 'codebase-memory-mcp',
-      packageVersion: '^0.5.0',
-      installCommand: ['npm', 'install', 'codebase-memory-mcp@^0.5.0'],
+      packageVersion: '0.9.0',
+      installCommand: ['npm', 'install', 'codebase-memory-mcp@0.9.0'],
     },
     factory: (runtimePath) => new CodebaseMemoryAdapter(runtimePath),
   },

@@ -1,5 +1,6 @@
 import { test, expect, request as playwrightRequest, APIRequestContext } from '@playwright/test';
 import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import { resolveE2ETarget } from '../src/config/localTargets';
 
@@ -18,7 +19,8 @@ let spaceId = '';
 let pageId = '';
 
 test.beforeAll(async () => {
-  api = await playwrightRequest.newContext({ baseURL: apiBaseUrl });
+  await mkdir(artifacts, { recursive: true });
+  api = await playwrightRequest.newContext({ baseURL: `${apiBaseUrl.replace(/\/+$/u, '')}/` });
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const registration = await api.post('auth/register', { data: { email: `ui-qa-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'UI QA' } });
   expect(registration.ok()).toBeTruthy();
@@ -59,20 +61,23 @@ test('desktop editor uses one surface and persists language selection', async ({
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/pages/${pageId}/edit`);
 
-  await expect(page.getByRole('textbox', { name: 'Edit mode' })).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Edit');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('mode-toggle').click();
+  await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Edit mode');
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toHaveCount(0);
   await page.screenshot({ path: path.join(artifacts, 'editor-desktop-edit.png'), fullPage: true });
 
-  await page.getByRole('button', { name: 'Preview' }).click();
-  await expect(page.getByRole('textbox', { name: 'Edit mode' })).toHaveCount(0);
+  await page.getByTestId('mode-toggle').click();
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Switch language' }).click();
-  await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '预览' })).toBeVisible();
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '编辑');
   await page.reload();
-  await expect(page.getByRole('button', { name: '编辑' })).toBeVisible();
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '编辑');
   expect(consoleErrors).toEqual([]);
 });
 
@@ -80,8 +85,11 @@ test('mobile editor controls fit without a two-column workspace', async ({ page 
   await authenticate(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/pages/${pageId}/edit`);
-  await expect(page.getByRole('textbox', { name: 'Edit mode' })).toHaveCount(1);
-  await page.getByRole('button', { name: 'Preview' }).click();
+  await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
+  await page.getByTestId('mode-toggle').click();
+  await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Edit mode');
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
+  await page.getByTestId('mode-toggle').click();
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
   const overflows = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflows).toBeFalsy();

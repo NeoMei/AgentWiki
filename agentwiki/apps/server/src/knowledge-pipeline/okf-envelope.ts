@@ -49,7 +49,7 @@ const safePath = (value: string) => {
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 const redactSecrets = (content: string) => content
-  .replace(/(api[_-]?key|secret|password|token)\s*[:=]\s*['"]?[^\s'"]+/gi, '$1=[REDACTED]')
+  .replace(/(["']?(?:api[_-]?key|apikey|secret|password|token)["']?\s*[:=]\s*)["']?[^\s'",}]+["']?/gi, '$1[REDACTED]')
   .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]');
 
 const titleFromMarkdown = (path: string, content: string) =>

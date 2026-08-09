@@ -9,6 +9,9 @@ import { randomUUID } from 'crypto';
 async function bootstrap() {
   process.env.PROCESS_ROLE ||= 'api';
   const app = await NestFactory.create(AppModule);
+  if (process.env.NODE_ENV === 'production') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
   // Allow up to 11 MB JSON body (10 MB source content + JSON overhead)
   app.use(json({ limit: '11mb' }));
   app.use((request: any, response: any, next: () => void) => {

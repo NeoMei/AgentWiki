@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -21,6 +22,15 @@ import {
   type SourceInspection,
 } from './local-knowledge.js';
 
+
+const PACKAGE_VERSION = (() => {
+  try {
+    const require = createRequire(import.meta.url);
+    return (require('../package.json') as { version: string }).version;
+  } catch {
+    return '0.2.6';
+  }
+})();
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
 
 export interface SyncPreview {
@@ -188,7 +198,7 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
 }
 
 export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-sync', version: '0.2.2' });
+  const server = new McpServer({ name: 'agentwiki-local-sync', version: PACKAGE_VERSION });
   server.registerTool('local_sync_status', {
     description: 'Show the active local AgentWiki sync connection without credentials.',
     inputSchema: {},
@@ -220,7 +230,7 @@ export async function serveLocalSyncMcp(commands: LocalSyncCommands): Promise<vo
 
 
 export function createOrchestratorMcpServer(commands: import('./orchestrator-commands.js').OrchestratorCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: '0.2.2' });
+  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: PACKAGE_VERSION });
   server.registerTool('start_knowledge_job', {
     description: 'Start a deterministic local knowledge job for a Space and recipe.',
     inputSchema: { spaceId: z.string().min(1), recipeId: z.string().min(1), sourcePaths: z.array(z.string().min(1)).default([]) },

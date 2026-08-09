@@ -76,7 +76,7 @@ describe('parseOkfEnvelope', () => {
 
     expect(parsed.documents[0].content).toBe('token=[REDACTED]');
     expect(parsed.documents[0].contentHash).toBe(hash('token=[REDACTED]'));
-    expect(parsed.documents[0].evidence[0].quote).toBe('password=[REDACTED]');
+    expect(parsed.documents[0].evidence[0].quote).toBe('password: [REDACTED]');
   });
 
   it('rejects unknown top-level and document fields', () => {

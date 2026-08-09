@@ -1,122 +1,130 @@
+import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { chromium } from 'playwright';
 
-const BASE = 'https://agentwiki.quukk.com';
-const API = 'https://agentwiki.quukk.com/api';
-const TEST_EMAIL = `vtest-${Date.now()}@t.local`;
-const TEST_PASS = 'Test12345678';
-const TEST_NAME = 'Visual Tester';
-const SPACE_NAME = `V-Test-Space-${Date.now()}`;
-const AGENT_NAME = `V-Test-Agent-${Date.now()}`;
+import { assertE2ETarget, cleanupFixture } from './e2e-safety.mjs';
 
-let browser, page;
+const PREFIX = 'AGENTWIKI_SPACE_AGENT_UI_E2E';
 
-async function main() {
-  browser = await chromium.launch({ headless: true });
-  page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-
-  // Step 1: Register via API (faster)
-  console.log('1. Registering...');
-  const regRes = await fetch(`${API}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASS, name: TEST_NAME }),
+async function request(apiUrl, path, { method = 'GET', token, body } = {}) {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30_000),
   });
-  const regData = await regRes.json();
-  const token = regData.access_token;
-  console.log(`   User: ${regData.user?.id} | token: ${token ? 'OK' : 'MISSING'}`);
-
-  // Step 2: Create Space via API
-  console.log('2. Creating space...');
-  const spaceRes = await fetch(`${API}/spaces`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ name: SPACE_NAME }),
-  });
-  const space = await spaceRes.json();
-  console.log(`   Space ID: ${space.id}`);
-
-  // Step 3: Create Agent via API
-  console.log('3. Creating agent...');
-  const agentRes = await fetch(`${API}/agents`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ name: AGENT_NAME, provider: 'custom' }),
-  });
-  const agent = await agentRes.json();
-  console.log(`   Agent ID: ${agent.id}`);
-
-  // Step 4: Navigate to Space Members page
-  console.log('4. Navigating to space members page...');
-  // First login via browser
-  await page.goto(`${BASE}/?intent=workspace#login`);
-  await page.waitForTimeout(1000);
-  // Fill login form
-  await page.fill('input[type="email"]', TEST_EMAIL);
-  await page.fill('input[type="password"]', TEST_PASS);
-  await page.click('button[type="submit"]');
-  await page.waitForTimeout(3000);
-  console.log(`   Login URL: ${page.url()}`);
-
-  // Navigate to space members
-  await page.goto(`${BASE}/spaces/${space.id}/members`);
-  await page.waitForTimeout(2000);
-  await page.screenshot({ path: '/tmp/vtest-members-list.png', fullPage: true });
-  console.log('   Screenshot: /tmp/vtest-members-list.png');
-
-  // Step 5: Open Add Member dialog
-  console.log('5. Opening add member dialog...');
-  const addBtn = page.locator('button').filter({ hasText: /add|添加|邀请|invite/i }).first();
-  if (await addBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await addBtn.click();
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: '/tmp/vtest-add-member-dialog.png' });
-    console.log('   Screenshot: /tmp/vtest-add-member-dialog.png');
-
-    // Look for agent/user tab
-    const agentTab = page.locator('button, [role="tab"]').filter({ hasText: /agent|智能体|bot/i }).first();
-    if (await agentTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await agentTab.click();
-      await page.waitForTimeout(500);
-      await page.screenshot({ path: '/tmp/vtest-add-agent-tab.png' });
-      console.log('   Screenshot: /tmp/vtest-add-agent-tab.png');
-    }
-  } else {
-    // Try API instead
-    console.log('   Add button not found, testing via API...');
-    const addRes = await fetch(`${API}/spaces/${space.id}/members`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ agentId: agent.id, role: 'editor' }),
-    });
-    const addData = await addRes.json();
-    console.log(`   API add result: ${JSON.stringify(addData).slice(0, 100)}`);
-
-    // Verify member list
-    const membersRes = await fetch(`${API}/spaces/${space.id}/members`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const members = await membersRes.json();
-    const found = Array.isArray(members) && members.some(m => m.agentId === agent.id);
-    console.log(`   Agent in members: ${found ? 'PASS' : 'FAIL'}`);
-  }
-
-  // Step 6: Mobile viewport test
-  console.log('6. Mobile viewport test...');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${BASE}/spaces/${space.id}/members`);
-  await page.waitForTimeout(1500);
-  await page.screenshot({ path: '/tmp/vtest-members-mobile.png', fullPage: true });
-  console.log('   Screenshot: /tmp/vtest-members-mobile.png');
-
-  // Cleanup
-  await fetch(`${API}/agents/${agent.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-  await fetch(`${API}/spaces/${space.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-
-  console.log('\n=== VISUAL VERIFICATION COMPLETE ===');
-  await browser.close();
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
+  if (!response.ok) throw new Error(`${method} ${path} failed with ${response.status}`);
+  return data;
 }
 
-main().catch(err => {
-  console.error('TEST FAILED:', err.message);
-  process.exit(1);
-});
+async function assertNoHorizontalOverflow(page, label) {
+  const dimensions = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  assert.ok(
+    dimensions.scrollWidth <= dimensions.clientWidth + 1,
+    `${label} overflows horizontally (${dimensions.scrollWidth} > ${dimensions.clientWidth})`,
+  );
+}
+
+export async function runSpaceAgentMemberUI(environment = process.env) {
+  const apiUrl = assertE2ETarget(
+    environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api',
+    environment,
+    PREFIX,
+  );
+  const webUrl = assertE2ETarget(
+    environment.AGENTWIKI_WEB_URL ?? 'http://127.0.0.1:5173',
+    environment,
+    PREFIX,
+  );
+  const suffix = `${Date.now()}-${process.pid}`;
+  const email = `space-agent-ui-${suffix}@example.test`;
+  const password = `SpaceAgent-${suffix}!`;
+  const fixture = { userId: '', spaceId: '', agentId: '' };
+  const pageErrors = [];
+  let token = '';
+  let browser;
+
+  try {
+    const registration = await request(apiUrl, '/auth/register', {
+      method: 'POST',
+      body: { email, password, name: 'Space Agent UI E2E' },
+    });
+    token = registration.access_token;
+    fixture.userId = registration.user.id;
+
+    const space = await request(apiUrl, '/spaces', {
+      method: 'POST', token, body: { name: `Space Agent UI ${suffix}` },
+    });
+    fixture.spaceId = space.id;
+    const agent = await request(apiUrl, '/agents', {
+      method: 'POST', token, body: { name: `UI Agent ${suffix}` },
+    });
+    fixture.agentId = agent.id;
+
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await page.goto(`${webUrl}/?intent=workspace#login`, { waitUntil: 'networkidle' });
+    await page.locator('input[type="email"]').fill(email);
+    await page.locator('input[type="password"]').fill(password);
+    await page.locator('button[type="submit"]').click();
+    await page.waitForURL(/\/dashboard(?:$|[?#])/, { timeout: 15_000 });
+
+    await page.goto(`${webUrl}/spaces/${space.id}/members`, { waitUntil: 'networkidle' });
+    const addMember = page.getByRole('button', { name: /Add member|添加成员/i });
+    await assert.doesNotReject(() => addMember.waitFor({ state: 'visible', timeout: 10_000 }));
+    await addMember.click();
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: /Agent|智能体/i }).click();
+    await dialog.locator('#space-agent').selectOption(agent.id);
+    await dialog.locator('#space-agent-role').selectOption('editor');
+    for (const scope of ['pages:read', 'pages:write', 'sources:read', 'graph:read', 'graph:write']) {
+      await assert.doesNotReject(() => dialog.getByText(scope, { exact: true }).waitFor({ state: 'visible' }));
+    }
+    await dialog.getByRole('button', { name: /Add agent|添加智能体/i }).click();
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 });
+    await assert.doesNotReject(() => page.getByText(agent.name, { exact: true }).waitFor({ state: 'visible' }));
+    await assertNoHorizontalOverflow(page, 'desktop member view');
+
+    const mobile = await context.newPage();
+    mobile.on('pageerror', (error) => pageErrors.push(error.message));
+    await mobile.setViewportSize({ width: 390, height: 844 });
+    await mobile.goto(`${webUrl}/spaces/${space.id}/members`, { waitUntil: 'networkidle' });
+    await assert.doesNotReject(() => mobile.getByText(agent.name, { exact: true }).waitFor({ state: 'visible' }));
+    await assertNoHorizontalOverflow(mobile, 'mobile member view');
+
+    assert.deepEqual(pageErrors, [], `Browser page errors: ${pageErrors.join('; ')}`);
+    return { status: 'passed', desktop: true, mobile: true };
+  } finally {
+    await browser?.close();
+    if (token) {
+      await cleanupFixture(fixture, async (kind, id) => {
+        const endpoint = kind === 'agent' ? `/agents/${id}` : kind === 'space' ? `/spaces/${id}` : `/users/${id}`;
+        await request(apiUrl, endpoint, { method: 'DELETE', token });
+      });
+    }
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  runSpaceAgentMemberUI()
+    .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
+    .catch((error) => {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    });
+}

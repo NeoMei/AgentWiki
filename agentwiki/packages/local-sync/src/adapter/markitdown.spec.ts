@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MarkitdownAdapter } from './markitdown.js';
@@ -114,6 +114,20 @@ describe('MarkitdownAdapter', () => {
     await expect(
       adapter.inspect({ sourcePath: 'relative/path', spaceId: 's', jobId: 'j' }),
     ).rejects.toThrow('Source path must be absolute');
+  });
+
+  it('does not follow symbolic links outside the selected source root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'md-outside-'));
+    try {
+      await writeFile(join(outside, 'private.md'), 'password: SuperSecret123');
+      await symlink(join(outside, 'private.md'), join(sourcePath, 'linked.md'));
+
+      const batch = await adapter.collect({ sourcePath, spaceId: 's', jobId: 'j' });
+
+      expect(batch.artifacts).toHaveLength(0);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
 

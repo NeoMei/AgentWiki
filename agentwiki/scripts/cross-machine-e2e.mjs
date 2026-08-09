@@ -1,62 +1,259 @@
-const API = 'https://agentwiki.quukk.com/api';
-const OK = '\x1b[32mPASS\x1b[0m', FAIL = '\x1b[31mFAIL\x1b[0m';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-async function req(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...opts.headers }, ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } });
-  const text = await res.text();
-  try { return { status: res.status, data: JSON.parse(text) }; } catch { return { status: res.status, text }; }
+import { AgentWikiClient } from '../packages/local-sync/dist/agentwiki-client.js';
+import { SyncEngine } from '../packages/local-sync/dist/sync/sync-engine.js';
+import { contentHash } from '../packages/local-sync/dist/utils/hash.js';
+import { workspacePaths } from '../packages/local-sync/dist/workspace/layout.js';
+import { assertE2ETarget, cleanupFixture } from './e2e-safety.mjs';
+
+const PREFIX = 'AGENTWIKI_CROSS_MACHINE_E2E';
+
+async function request(apiUrl, path, { method = 'GET', token, body } = {}) {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
+  if (!response.ok) throw new Error(`${method} ${path} failed with ${response.status}: ${text.slice(0, 300)}`);
+  return data;
 }
 
-async function main() {
-  console.log('=== Cross-Machine Sync E2E ===\n');
-  const email = `e2e-${Date.now()}@t.local`;
-  const reg = await req('/auth/register', { method: 'POST', body: JSON.stringify({ email, password: 'Test12345678', name: 'E2E' }) });
-  const token = reg.data.access_token;
-  const space = await req('/spaces', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ name: `E2E-${Date.now()}` }) });
-  const spaceId = space.data.id;
-  const agent = await req('/agents', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ name: 'E2E-Agent' }) });
-  const agentId = agent.data.id;
-
-  await req(`/agents/${agentId}/grants/${spaceId}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ role: 'editor', scopes: ['pages:read', 'pages:write', 'review:auto-publish'] }) });
-  await req(`/spaces/${spaceId}`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ approvalPolicy: 'scoped-auto-publish' }) });
-  await req(`/agents/${agentId}`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ approvalMode: 'scoped-auto-publish' }) });
-  const cred = await req(`/agents/${agentId}/credentials`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ name: 'e2e-key', scopes: ['pages:read', 'pages:write', 'review:auto-publish'] }) });
-  const agentKey = cred.data.apiKey;
-
-  let allPass = true;
-
-  // 1. Agent (Machine A) creates pages
-  const p1 = await req('/pages', { method: 'POST', headers: { 'Authorization': `Bearer ${agentKey}` }, body: JSON.stringify({ spaceId, title: 'Machine A Page', content: '# Page A\n\nFrom machine A.' }) });
-  const p2 = await req('/pages', { method: 'POST', headers: { 'Authorization': `Bearer ${agentKey}` }, body: JSON.stringify({ spaceId, title: 'Shared Page', content: '# Shared\n\nCreated by agent on A.' }) });
-  const test1 = p1.data.id && p2.data.id;
-  console.log(`1. Agent creates pages: ${test1 ? OK : FAIL}`);
-  if (!test1) allPass = false;
-
-  // 2. User (Machine B) reads pages
-  const pagesRes = await req(`/pages?spaceId=${spaceId}`, { headers: { 'Authorization': `Bearer ${token}` } });
-  const pages = Array.isArray(pagesRes.data) ? pagesRes.data : (pagesRes.data?.data || []);
-  const test2 = pages.length === 2;
-  console.log(`2. User reads pages: ${test2 ? OK : FAIL} (${pages.length} pages)`);
-  if (!test2) allPass = false;
-
-  // 3. User (Machine B) updates page
-  const shared = pages.find(p => p.title === 'Shared Page');
-  const upd = shared ? await req(`/pages/${shared.id}`, { method: 'PATCH', headers: { 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ content: '# Shared\n\nUpdated from Machine B!', expectedUpdatedAt: shared.updatedAt }) }) : { data: {} };
-  const test3 = !!upd.data.id;
-  console.log(`3. User updates page: ${test3 ? OK : FAIL}`);
-  if (!test3) allPass = false;
-
-  // 4. Agent re-reads to verify cross-machine sync
-  const reread = shared ? await req(`/pages/${shared.id}`, { headers: { 'Authorization': `Bearer ${agentKey}` } }) : { data: {} };
-  const test4 = reread.data?.content?.includes('Machine B');
-  console.log(`4. Cross-machine sync: ${test4 ? OK : FAIL}`);
-  if (!test4) allPass = false;
-
-  // 5. Knowledge revision exists
-  const rev = await req(`/spaces/${spaceId}/knowledge-revisions/current`, { headers: { 'Authorization': `Bearer ${token}` } });
-  console.log(`5. Knowledge revisions: ${rev.data?.sequence !== undefined ? OK : FAIL} (seq=${rev.data?.sequence || 0})`);
-
-  console.log(`\n=== ${allPass ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED'} ===`);
+function wikiPage(spaceId, pageId, title, body) {
+  return {
+    pageId,
+    spaceId,
+    path: `pages/${pageId}.md`,
+    title,
+    body,
+    artifactIds: [],
+    contentHash: contentHash(body),
+    updatedAt: new Date().toISOString(),
+  };
 }
 
-main().catch(err => { console.error('FAILED:', err.message); process.exit(1); });
+function bundle(spaceId, baseRevision, pages, memories = [], relations = [], deletions = []) {
+  return {
+    schemaVersion: 'knowledge-bundle@1',
+    recipeVersion: 'code-wiki@1',
+    spaceId,
+    baseRevision,
+    pages,
+    memories,
+    relations,
+    provenance: [],
+    deletions,
+  };
+}
+
+async function waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds) {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const changes = await request(apiUrl, `/review?spaceId=${encodeURIComponent(spaceId)}`, { token });
+    const pending = changes.find((change) => (
+      change.status === 'pending_review'
+      && change.createdByAgentId === agentId
+      && !seenIds.has(change.id)
+    ));
+    if (pending) return pending;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error('Timed out waiting for the cross-machine knowledge ChangeSet');
+}
+
+async function pushAndPublish(engine, proposedBundle, apiUrl, token, spaceId, agentId, seenIds) {
+  const pushPromise = engine.push(proposedBundle);
+  const changeSet = await waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds);
+  seenIds.add(changeSet.id);
+  for (const item of changeSet.items) {
+    await request(apiUrl, `/change-sets/${changeSet.id}/items/${item.id}`, {
+      method: 'PATCH', token, body: { status: 'accepted' },
+    });
+  }
+  await request(apiUrl, `/change-sets/${changeSet.id}/approve`, {
+    method: 'POST', token, body: { comment: 'cross-machine E2E' },
+  });
+  await request(apiUrl, `/change-sets/${changeSet.id}/publish`, { method: 'POST', token });
+  const result = await pushPromise;
+  assert.equal(result.status, 'published');
+  return result;
+}
+
+export async function runCrossMachineE2E(environment = process.env) {
+  const apiUrl = assertE2ETarget(environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api', environment, PREFIX);
+  const suffix = `${Date.now()}-${process.pid}`;
+  const fixture = { userId: '', spaceId: '', agentId: '' };
+  const tempHome = await mkdtemp(join(os.tmpdir(), 'agentwiki-cross-machine-'));
+  const seenChangeSets = new Set();
+  let token = '';
+
+  try {
+    const registration = await request(apiUrl, '/auth/register', {
+      method: 'POST',
+      body: { email: `cross-machine-${suffix}@example.test`, password: `Cross-${suffix}!`, name: 'Cross-machine E2E' },
+    });
+    token = registration.access_token;
+    fixture.userId = registration.user.id;
+
+    const space = await request(apiUrl, '/spaces', {
+      method: 'POST', token, body: { name: `Cross-machine ${suffix}` },
+    });
+    fixture.spaceId = space.id;
+    const agent = await request(apiUrl, '/agents', {
+      method: 'POST', token, body: { name: `Cross-machine ${suffix}` },
+    });
+    fixture.agentId = agent.id;
+
+    const scopes = ['pages:read', 'pages:write', 'memory:read', 'memory:write', 'graph:read', 'graph:write'];
+    await request(apiUrl, `/agents/${agent.id}/grants/${space.id}`, {
+      method: 'PUT', token, body: { role: 'editor', scopes },
+    });
+    const credential = await request(apiUrl, `/agents/${agent.id}/credentials`, {
+      method: 'POST', token, body: { name: 'cross-machine-e2e', scopes },
+    });
+    assert.ok(credential.apiKey, 'Agent credential must be created');
+
+    const connection = {
+      id: `cross-${suffix}`,
+      serverUrl: apiUrl,
+      agentId: agent.id,
+      credentialId: credential.id,
+      pluginVersion: '0.2.6',
+      client: 'codex',
+      mcpName: 'agentwiki-local',
+    };
+    const client = new AgentWikiClient();
+    const homeA = join(tempHome, 'machine-a');
+    const homeB = join(tempHome, 'machine-b');
+    const homeC = join(tempHome, 'machine-c');
+    await mkdir(homeA, { recursive: true });
+    await mkdir(homeB, { recursive: true });
+    await mkdir(homeC, { recursive: true });
+    const machineA = new SyncEngine({ connection, apiKey: credential.apiKey, client, home: homeA, spaceId: space.id });
+    const machineB = new SyncEngine({ connection, apiKey: credential.apiKey, client, home: homeB, spaceId: space.id });
+
+    const firstPull = await machineA.pull();
+    assert.equal(firstPull.revisionId, '0');
+    const pageA = wikiPage(space.id, `machine-a-${suffix}`, 'Machine A Page', '# Machine A\n\nCreated on machine A.');
+    const anchorPage = wikiPage(space.id, `anchor-${suffix}`, 'Shared Anchor', '# Shared Anchor\n\nRelation target.');
+    const sharedMemory = {
+      memoryId: `memory-${suffix}`, spaceId: space.id, key: 'shared-fact', value: 'A cross-machine shared memory.', scope: 'space',
+      artifactIds: [], contentHash: contentHash('A cross-machine shared memory.'), updatedAt: new Date().toISOString(),
+    };
+    const sharedRelation = {
+      relationId: `relation-${suffix}`, spaceId: space.id, sourceId: pageA.pageId, targetId: anchorPage.pageId,
+      relationType: 'supports', artifactIds: [],
+    };
+    const pathsA = workspacePaths(homeA, space.id);
+    await writeFile(join(pathsA.pagesDir, `${pageA.pageId}.md`), pageA.body, 'utf8');
+    await writeFile(join(pathsA.pagesDir, `${anchorPage.pageId}.md`), anchorPage.body, 'utf8');
+    const firstPush = await pushAndPublish(
+      machineA,
+      bundle(space.id, firstPull.revisionId, [pageA, anchorPage], [sharedMemory], [sharedRelation]),
+      apiUrl, token, space.id, agent.id, seenChangeSets,
+    );
+
+    const pullB = await machineB.pull();
+    assert.equal(pullB.updated, true);
+    assert.equal(pullB.memoryCount, 1);
+    assert.equal(pullB.relationCount, 1);
+    assert.match(await readFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageA.pageId}.md`), 'utf8'), /machine A/i);
+
+    const pageB = wikiPage(space.id, `machine-b-${suffix}`, 'Machine B Page', '# Machine B\n\nCreated on machine B.');
+    await writeFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageB.pageId}.md`), pageB.body, 'utf8');
+    const secondPush = await pushAndPublish(
+      machineB,
+      bundle(space.id, firstPush.currentRevision, [pageA, anchorPage, pageB], [sharedMemory], [sharedRelation]),
+      apiUrl, token, space.id, agent.id, seenChangeSets,
+    );
+    assert.notEqual(secondPush.currentRevision, firstPush.currentRevision, 'the second publish must advance the authoritative revision');
+    const manifestA = JSON.parse(await readFile(pathsA.manifestFile, 'utf8'));
+    const headAfterB = await client.getRevisionHead(connection, credential.apiKey, space.id);
+    assert.equal(manifestA.baseRevision?.revision, firstPush.currentRevision, 'machine A must still point to its first published revision');
+    assert.equal(headAfterB.revisionId, secondPush.currentRevision, 'server head must expose machine B publication');
+
+    const pullA = await machineA.pull();
+    assert.equal(pullA.conflicts.length, 0, `non-overlapping machine B addition conflicted: ${JSON.stringify(pullA.conflicts)}`);
+    assert.equal(pullA.updated, true);
+    assert.equal(pullA.pageCount, 3);
+    assert.match(await readFile(join(pathsA.pagesDir, `${pageB.pageId}.md`), 'utf8'), /machine B/i);
+
+    await machineB.pull();
+    await writeFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageA.pageId}.md`), '# Machine A\n\nConflicting local edit.', 'utf8');
+    const remotePageA = wikiPage(space.id, pageA.pageId, pageA.title, '# Machine A\n\nConflicting remote edit.');
+    const updatedRelation = { ...sharedRelation, relationType: 'contradicts' };
+    await writeFile(join(pathsA.pagesDir, `${pageA.pageId}.md`), remotePageA.body, 'utf8');
+    const thirdPush = await pushAndPublish(
+      machineA,
+      bundle(space.id, secondPush.currentRevision, [remotePageA, anchorPage, pageB], [sharedMemory], [updatedRelation]),
+      apiUrl, token, space.id, agent.id, seenChangeSets,
+    );
+
+    const conflictPull = await machineB.pull();
+    assert.ok(conflictPull.conflicts.length > 0, 'divergent local and remote edits must produce a conflict');
+    assert.equal(conflictPull.updated, false, 'conflicted remote state must not overwrite local files');
+    assert.match(await readFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageA.pageId}.md`), 'utf8'), /local edit/);
+
+    const machineC = new SyncEngine({ connection, apiKey: credential.apiKey, client, home: homeC, spaceId: space.id });
+    const pullC = await machineC.pull();
+    assert.equal(pullC.pageCount, 3);
+    const relationState = JSON.parse(await readFile(workspacePaths(homeC, space.id).relationsFile, 'utf8'));
+    assert.equal(relationState[0]?.relationType, 'contradicts', 'Agent relation modification must publish through review');
+    const deletionBundle = bundle(
+      space.id,
+      thirdPush.currentRevision,
+      [remotePageA, anchorPage],
+      [],
+      [],
+      [
+        { deletionId: `delete-page-${suffix}`, itemType: 'page', itemId: pageB.pageId, reason: 'cross-machine deletion check' },
+        { deletionId: `delete-memory-${suffix}`, itemType: 'memory', itemId: sharedMemory.memoryId, reason: 'cross-machine deletion check' },
+        { deletionId: `delete-relation-${suffix}`, itemType: 'relation', itemId: sharedRelation.relationId, reason: 'cross-machine deletion check' },
+      ],
+    );
+    const deletionPush = await pushAndPublish(
+      machineC, deletionBundle, apiUrl, token, space.id, agent.id, seenChangeSets,
+    );
+    const deletionSnapshot = await client.getSnapshot(connection, credential.apiKey, space.id, deletionPush.currentRevision);
+    assert.equal(deletionSnapshot.bundle.pages.some((page) => page.pageId === pageB.pageId), false);
+    assert.equal(deletionSnapshot.bundle.memories.length, 0);
+    assert.equal(deletionSnapshot.bundle.relations.length, 0);
+
+    return {
+      status: 'passed',
+      realSyncEngine: true,
+      revisions: [firstPush.currentRevision, secondPush.currentRevision],
+      conflicts: conflictPull.conflicts.length,
+      memories: 1,
+      relations: 1,
+      approvedDeletions: 3,
+    };
+  } finally {
+    await rm(tempHome, { recursive: true, force: true });
+    if (token) {
+      await cleanupFixture(fixture, async (kind, id) => {
+        const endpoint = kind === 'agent' ? `/agents/${id}` : kind === 'space' ? `/spaces/${id}` : `/users/${id}`;
+        await request(apiUrl, endpoint, { method: 'DELETE', token });
+      });
+    }
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  runCrossMachineE2E()
+    .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
+    .catch((error) => {
+      process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+      process.exitCode = 1;
+    });
+}

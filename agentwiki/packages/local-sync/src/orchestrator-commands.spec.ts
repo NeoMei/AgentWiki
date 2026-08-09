@@ -8,6 +8,8 @@ import type { LocalSyncConnection } from './config.js';
 import { AdapterManager } from './adapter/manager.js';
 import type { SourceAdapter } from './protocol/adapter.js';
 import type { Recipe } from './protocol/recipe.js';
+import { workspacePaths } from './workspace/layout.js';
+import { ensureWorkspace, initManifest, writeManifest } from './workspace/state.js';
 
 function makeConnection(): LocalSyncConnection {
   return {
@@ -150,6 +152,29 @@ describe('orchestrator commands', () => {
     expect(state.spaceId).toBe('space-1');
     expect(state.recipeId).toBe('code-wiki@1');
     expect(state.phase).toBe('discover');
+  });
+
+  it('isolates checkpoints by Space and resumes each job by id', async () => {
+    const commands = createOrchestratorCommands(makeDeps(tempHome));
+    const first = await commands.start({ spaceId: 'space-1', recipeId: 'code-wiki@1', sourcePaths: ['/tmp/a'] });
+    const second = await commands.start({ spaceId: 'space-2', recipeId: 'code-wiki@1', sourcePaths: ['/tmp/b'] });
+
+    await expect(commands.preview({ jobId: first.jobId })).resolves.toMatchObject({ bundle: { spaceId: 'space-1' } });
+    await expect(commands.preview({ jobId: second.jobId })).resolves.toMatchObject({ bundle: { spaceId: 'space-2' } });
+    await expect(import('node:fs/promises').then(({ stat }) => stat(workspacePaths(tempHome, 'space-1').checkpointsDir))).resolves.toBeTruthy();
+    await expect(import('node:fs/promises').then(({ stat }) => stat(workspacePaths(tempHome, 'space-2').checkpointsDir))).resolves.toBeTruthy();
+  });
+
+  it('starts from the Space manifest authoritative base revision', async () => {
+    const paths = workspacePaths(tempHome, 'space-1');
+    await ensureWorkspace(paths);
+    const manifest = await initManifest(paths, 'space-1');
+    await writeManifest(paths, { ...manifest, baseRevision: { revision: 'rev-7', contentHash: 'hash-7', pulledAt: '2026-07-31T00:00:00.000Z' } });
+    const commands = createOrchestratorCommands(makeDeps(tempHome));
+
+    const state = await commands.start({ spaceId: 'space-1', recipeId: 'code-wiki@1', sourcePaths: ['/tmp'] });
+
+    expect(state.baseRevision).toBe('rev-7');
   });
 
   it('returns the next work item for a new job', async () => {

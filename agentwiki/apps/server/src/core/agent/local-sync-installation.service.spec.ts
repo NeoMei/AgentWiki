@@ -16,6 +16,7 @@ describe('LocalSyncInstallationService', () => {
     listCredentials: jest.fn(),
     revokeCredential: jest.fn(),
     normalizeCredentialScopes: jest.fn(),
+    assertCredentialCanDelegate: jest.fn(),
   };
   const config = { get: jest.fn() };
   const audit = { record: jest.fn() };
@@ -47,6 +48,7 @@ describe('LocalSyncInstallationService', () => {
     agents.createCredential.mockResolvedValue({ id: 'credential-1', apiKey: 'agk_secret' });
     agents.listCredentials.mockResolvedValue([]);
     agents.revokeCredential.mockResolvedValue({ success: true });
+    agents.assertCredentialCanDelegate.mockResolvedValue(undefined);
     audit.record.mockResolvedValue(undefined);
     service = new LocalSyncInstallationService(redis as any, agents as any, config as any, audit as any);
   });
@@ -118,6 +120,24 @@ describe('LocalSyncInstallationService', () => {
       'owner-1', 'agent-1', ['review:decide'], '0.1.0', 'https://wiki.test/api',
     )).rejects.toBeInstanceOf(BadRequestException);
     expect(redis.setOnce).not.toHaveBeenCalled();
+  });
+
+  it('rejects an Agent-originated installation that expands the issuing credential scopes', async () => {
+    await expect(service.create(
+      'owner-1', 'agent-1', ['pages:write'], '0.1.0', 'https://wiki.test/api',
+      { credentialId: 'credential-read', scopes: ['pages:read'] },
+    )).rejects.toThrow('Agent install scopes cannot exceed the issuing credential');
+    expect(redis.setOnce).not.toHaveBeenCalled();
+  });
+
+  it('revalidates the issuing credential when an Agent-originated code is exchanged', async () => {
+    redis.getDel.mockResolvedValue(JSON.stringify({ ...payload, issuerCredentialId: 'credential-read' }));
+
+    await service.exchange(exchangeCode, '127.0.0.1');
+
+    expect(agents.assertCredentialCanDelegate).toHaveBeenCalledWith(
+      'owner-1', 'agent-1', 'credential-read', ['sources:read'],
+    );
   });
 
   it('revokes an owned installation using its direct hash key', async () => {

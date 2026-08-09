@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import type { AdapterInput, AdapterManifest, SourceAdapter, SourceDescriptor } from '../protocol/adapter.js';
 import { ArtifactBatch } from '../protocol/adapter.js';
 import type { SourceArtifact } from '../protocol/artifact.js';
@@ -16,6 +16,11 @@ const ADAPTER_VERSION = '0.1.0';
 const PROTOCOL_VERSION = '1.0';
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.docx', '.doc']);
+const DEFAULT_LIMITS = {
+  maxFiles: 1_000,
+  maxBytes: 100 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+};
 
 export class MarkitdownAdapter implements SourceAdapter {
   constructor(private readonly runtimePath: string) {}
@@ -40,8 +45,9 @@ export class MarkitdownAdapter implements SourceAdapter {
 
   async inspect(input: AdapterInput): Promise<SourceDescriptor> {
     assertSourcePath(input.sourcePath);
-    const files = await listSupportedFiles(input.sourcePath, input.limits);
-    const sourceHash = await computeDirectoryHash(input.sourcePath, files);
+    const canonicalSourcePath = await realpath(input.sourcePath);
+    const files = await listSupportedFiles(canonicalSourcePath, input.limits);
+    const sourceHash = await computeDirectoryHash(canonicalSourcePath, files);
 
     return {
       adapterId: ADAPTER_ID,
@@ -58,12 +64,13 @@ export class MarkitdownAdapter implements SourceAdapter {
 
   async collect(input: AdapterInput): Promise<ArtifactBatch> {
     assertSourcePath(input.sourcePath);
-    const files = await listSupportedFiles(input.sourcePath, input.limits);
-    const sourceHash = await computeDirectoryHash(input.sourcePath, files);
+    const canonicalSourcePath = await realpath(input.sourcePath);
+    const files = await listSupportedFiles(canonicalSourcePath, input.limits);
+    const sourceHash = await computeDirectoryHash(canonicalSourcePath, files);
 
     const artifacts: SourceArtifact[] = [];
     for (const file of files) {
-      const logicalKey = relative(input.sourcePath, file).replace(/\\/g, '/');
+      const logicalKey = relative(canonicalSourcePath, file).replace(/\\/g, '/');
       let text: string;
       try {
         text = await convertToText(this.runtimePath, file);
@@ -146,7 +153,8 @@ async function listSupportedFiles(
 ): Promise<string[]> {
   const files: string[] = [];
   const bytes = { value: 0 };
-  await walk(sourcePath, '', files, limits, bytes);
+  const root = await realpath(sourcePath);
+  await walk(root, '', files, { ...DEFAULT_LIMITS, ...limits }, bytes, new Set([root]));
   return files;
 }
 
@@ -154,8 +162,9 @@ async function walk(
   root: string,
   prefix: string,
   files: string[],
-  limits: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number } | undefined,
+  limits: { maxFiles: number; maxBytes: number; maxFileBytes: number },
   bytesRef: { value: number },
+  visitedDirectories: Set<string>,
 ): Promise<number> {
   const dir = prefix ? resolve(root, prefix) : root;
   const names = await readdir(dir);
@@ -166,20 +175,25 @@ async function walk(
     if (name.startsWith('.')) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
     const fullPath = resolve(root, relativePath);
-    const stats = await stat(fullPath);
+    const linkStats = await lstat(fullPath);
+    if (linkStats.isSymbolicLink()) continue;
+    const stats = linkStats;
 
     if (stats.isDirectory()) {
-      bytes = await walk(root, relativePath, files, limits, { value: bytes });
+      const canonicalDirectory = await realpath(fullPath);
+      if (visitedDirectories.has(canonicalDirectory)) continue;
+      visitedDirectories.add(canonicalDirectory);
+      bytes = await walk(root, relativePath, files, limits, { value: bytes }, visitedDirectories);
     } else if (stats.isFile() && SUPPORTED_EXTENSIONS.has(extname(name).toLowerCase())) {
-      if (limits?.maxFileBytes !== undefined && stats.size > limits.maxFileBytes) {
+      if (stats.size > limits.maxFileBytes) {
         continue;
       }
-      if (limits?.maxBytes !== undefined && bytes + stats.size > limits.maxBytes) {
+      if (bytes + stats.size > limits.maxBytes) {
         break;
       }
       files.push(fullPath);
       bytes += stats.size;
-      if (limits?.maxFiles !== undefined && files.length >= limits.maxFiles) {
+      if (files.length >= limits.maxFiles) {
         bytesRef.value = bytes;
   return bytesRef.value;
       }

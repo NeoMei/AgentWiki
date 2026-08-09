@@ -135,12 +135,12 @@ export async function deleteDraft(paths: SpaceWorkspacePaths, draftId: string): 
 }
 
 export async function writeWikiPage(paths: SpaceWorkspacePaths, pageId: string, content: string): Promise<void> {
-  const file = join(paths.pagesDir, `${pageId}.md`);
+  const file = knowledgeFile(paths.pagesDir, pageId, '.md');
   await writeFile(file, content, 'utf-8');
 }
 
 export async function readWikiPage(paths: SpaceWorkspacePaths, pageId: string): Promise<string | null> {
-  const file = join(paths.pagesDir, `${pageId}.md`);
+  const file = knowledgeFile(paths.pagesDir, pageId, '.md');
   if (!existsSync(file)) return null;
   return readFile(file, 'utf-8');
 }
@@ -158,12 +158,12 @@ export async function listWikiMemories(paths: SpaceWorkspacePaths): Promise<stri
 }
 
 export async function writeWikiMemory(paths: SpaceWorkspacePaths, memoryId: string, data: unknown): Promise<void> {
-  const file = join(paths.memoriesDir, `${memoryId}.json`);
+  const file = knowledgeFile(paths.memoriesDir, memoryId, '.json');
   await writeJsonAtomic(file, data);
 }
 
 export async function readWikiMemory(paths: SpaceWorkspacePaths, memoryId: string): Promise<unknown | null> {
-  const file = join(paths.memoriesDir, `${memoryId}.json`);
+  const file = knowledgeFile(paths.memoriesDir, memoryId, '.json');
   if (!existsSync(file)) return null;
   const raw = await readFile(file, 'utf-8');
   return JSON.parse(raw);
@@ -186,6 +186,13 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
   await writeFile(filePath, JSON.stringify(value, null, 2), 'utf-8');
   await rm(tmp, { force: true });
+}
+
+function knowledgeFile(directory: string, id: string, suffix: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
+    throw new Error('Knowledge identifier is not safe for local storage');
+  }
+  return join(directory, `${id}${suffix}`);
 }
 
 async function readSortedNames(dir: string): Promise<string[]> {

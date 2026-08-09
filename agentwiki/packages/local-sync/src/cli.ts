@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { readFile, rm, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
@@ -43,7 +44,16 @@ import { defaultRecipes } from './recipes.js';
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
 
-const PACKAGE_VERSION = '0.2.2';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp|start|work|preview-job|push-job|pull>';
+
+const PACKAGE_VERSION = (() => {
+  try {
+    const require = createRequire(import.meta.url);
+    return (require('../package.json') as { version: string }).version;
+  } catch {
+    return '0.2.6';
+  }
+})();
 
 export function formatOutput(value: unknown): string {
   return redactSecrets(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
@@ -336,6 +346,9 @@ async function orchestratorCommands(home: string, connectionId?: string): Promis
 
 export async function runCli(argv = process.argv.slice(2), home = homedir()): Promise<unknown> {
   const [command, ...args] = argv;
+  if (command === '--help' || command === '-h') return CLI_USAGE;
+  if (command === '--version' || command === '-v') return { version: PACKAGE_VERSION };
+
   const { values } = parseArgs({
     args,
     options: {
@@ -399,7 +412,7 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
     }
     return undefined;
   }
-  throw new Error('Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp|start|work|preview-job|push-job|pull>');
+  throw new Error(CLI_USAGE);
 }
 
 async function main(): Promise<void> {

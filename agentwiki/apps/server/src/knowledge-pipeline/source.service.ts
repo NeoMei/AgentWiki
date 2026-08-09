@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { BusinessException } from '../core/filters/business-error';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { promises as dns } from 'dns';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'fs';
@@ -11,12 +11,14 @@ import { Agent as HttpsAgent } from 'https';
 import { isIP } from 'net';
 import { tmpdir } from 'os';
 import { extname, posix, resolve } from 'path';
+import { promisify } from 'util';
 import { PrismaService } from '../database/prisma.service';
 import { Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
+const execFileAsync = promisify(execFile);
 
 interface FetchedSegment {
   sourcePath: string;
@@ -578,7 +580,10 @@ export class SourceService {
     const root = mkdtempSync(resolve(tmpdir(), 'agentwiki-source-'));
     try {
       const target = resolve(root, 'repo');
-      execFileSync('git', ['clone', '--depth', '1', '--single-branch', url.toString(), target], { timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] });
+      await execFileAsync('git', [
+        'clone', '--depth', '1', '--single-branch', '--filter=blob:limit=1048576',
+        url.toString(), target,
+      ], { timeout: 120_000, maxBuffer: 1024 * 1024 });
       const parts: string[] = [];
       const files: Array<{ path: string; contentHash: string; size: number; commit?: string }> = [];
       const segments: FetchedSegment[] = [];
@@ -654,7 +659,7 @@ export class SourceService {
 
   private redactSecrets(content: string) {
     return content
-      .replace(/(api[_-]?key|secret|password|token)\s*[:=]\s*['"]?[^\s'"]+/gi, '$1=[REDACTED]')
+      .replace(/(["']?(?:api[_-]?key|apikey|secret|password|token)["']?\s*[:=]\s*)["']?[^\s'",}]+["']?/gi, '$1[REDACTED]')
       .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]');
   }
 
@@ -790,7 +795,7 @@ export class SourceService {
         this.prisma.agentGrant.findUnique({
           where: { agentId_spaceId: { agentId: run.requestedByAgentId, spaceId: run.spaceId } },
           include: {
-            agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true } } } },
+            agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
             space: { select: { deletedAt: true } },
           },
         }),
@@ -807,7 +812,7 @@ export class SourceService {
           : Promise.resolve(null),
       ]);
       if (!grant || grant.role !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
-        grant.agent.owner.deletedAt || grant.space.deletedAt || !credential?.scopes.includes('runs:write')) {
+        grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential?.scopes.includes('runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
       return grant.scopes.length > 0
@@ -816,9 +821,9 @@ export class SourceService {
     }
     const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
       where: { id: run.requestedByUserId },
-      select: { deletedAt: true, type: true, platformRole: true },
+      select: { deletedAt: true, lockedAt: true, type: true, platformRole: true },
     }) : null;
-    if (!requester || requester.deletedAt || requester.type !== 'human') {
+    if (!requester || requester.deletedAt || requester.lockedAt || requester.type !== 'human') {
       throw new Error('Run requester is no longer authorized');
     }
     if (requester.platformRole === 'super_admin') {

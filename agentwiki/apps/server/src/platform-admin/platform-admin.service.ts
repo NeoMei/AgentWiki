@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../core/security/audit.service';
@@ -173,13 +174,18 @@ export class PlatformAdminService {
       if (!user) throw new NotFoundException('User not found');
       if (user.deletedAt) throw new ConflictException('Cannot reset password of a deleted user');
 
-      const defaultPassword = this.config.get<string>('PLATFORM_DEFAULT_USER_PASSWORD') || '12345678';
-      if (defaultPassword.length < 8) throw new BadRequestException('Default password too short');
+      const defaultPassword = `${randomBytes(18).toString('base64url')}Aa1!`;
 
       const hashed = await this.auth.hashPassword(defaultPassword);
       await tx.user.update({
         where: { id: targetId },
         data: { password: hashed, mustChangePassword: true, authVersion: { increment: 1 } },
+      });
+      await tx.apiKeyCredential.updateMany({
+        where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date() },
+      });
+      await tx.agentCredential.updateMany({
+        where: { agent: { ownerId: targetId }, revokedAt: null }, data: { revokedAt: new Date() },
       });
 
       return defaultPassword;

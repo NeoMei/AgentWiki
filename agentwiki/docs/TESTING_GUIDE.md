@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.2.0
+# AgentWiki 功能测试指南 v0.2.6
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -213,7 +213,7 @@
 |------|--------|-----|----------|
 | 11.1 | 统计概览 | `GET /platform-admin/stats` | users.total/active/locked/deleted/new7d/new30d；spaces；pages；agents；30天趋势；最近用户 |
 | 11.2 | 用户列表 | `GET /platform-admin/users` | 搜索(姓名/邮箱)、状态筛选(active/locked/deleted)、角色筛选、分页；每用户含 Space/Agent 计数 |
-| 11.3 | 重置密码 | `POST /platform-admin/users/:id/reset-password` | 设为 `12345678`→mustChangePassword=true→authVersion++；返回明文密码（仅当次显示） |
+| 11.3 | 重置密码 | `POST /platform-admin/users/:id/reset-password` | 生成随机一次性临时密码→mustChangePassword=true→authVersion++→撤销个人/Agent 凭据；临时密码仅当次显示 |
 | 11.4 | 锁定用户 | `POST /platform-admin/users/:id/lock` | lockedAt 设置→JWT/PAT/Agent 凭据全部失效；已锁定→幂等；已删除→拒绝 |
 | 11.5 | 解锁用户 | `POST /platform-admin/users/:id/unlock` | lockedAt 清除→PAT 和 Agent 凭据恢复；旧 JWT 不恢复 |
 | 11.6 | 软删除 | `DELETE /platform-admin/users/:id` | 设置 deletedAt→认证永久失效；内容和关联保留 |
@@ -239,7 +239,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `@neomei/agentwiki-local-sync@0.2.2` 公网可安装 |
+| 12.9 | npm 包 | `@neomei/agentwiki-local-sync@0.2.6` 公网可安装 |
 
 ---
 
@@ -303,11 +303,13 @@
 ## 四、快速冒烟测试脚本
 
 ```bash
-# 本地运行（需要 Node.js）
-cd agentwiki/scripts
-node smoke-test.mjs    # 22 项基础测试
-node edge-test.mjs     # 17 项边界测试
-node deep-test.mjs     # 23 项深度功能测试
-node admin-test.mjs    # 29 项管理后台测试
-node cross-machine-e2e.mjs  # 5 项跨机器同步测试
+# 在仓库根目录运行；默认只允许测试本机服务
+AGENTWIKI_SMOKE_E2E=1 pnpm test:e2e:smoke
+AGENTWIKI_CROSS_MACHINE_E2E=1 pnpm test:e2e:cross-machine
+AGENTWIKI_SPACE_AGENT_UI_E2E=1 pnpm test:e2e:space-agent-ui
+AGENTWIKI_UI_ROUTE_E2E=1 pnpm test:e2e:ui-routes
 ```
+
+如需对远程环境执行会创建数据的 E2E，必须同时显式设置 `<SUITE>_ALLOW_REMOTE=1`
+和 `<SUITE>_CONFIRM_HOST=<精确域名>`。脚本只使用一次性用户、Space 和 Agent，并在 `finally`
+中清理全部测试数据。

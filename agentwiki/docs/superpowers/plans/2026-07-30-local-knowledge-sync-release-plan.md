@@ -4,7 +4,7 @@
 
 **Goal:** Join the local orchestrator to authoritative Space revisions, add safe Pull/Push and Agent-authored three-way merge proposals, migrate setup and guides to the zero-configuration flow, and prove a release-ready `0.2.0` across Agents and machines.
 
-**Architecture:** `SyncEngine` pulls Snapshot/Delta into the atomic Space workspace and submits only a fresh validated preview. A deterministic three-way diff auto-merges non-conflicting fields and emits bounded semantic conflict work items for the connected Agent; user confirmation gates the final submission. Installation explicitly migrates a selected `0.1.x` connection, creates every readable Space workspace, and leaves old OpenWiki previews inert.
+**Architecture:** `SyncEngine` pulls Snapshot/Delta into the atomic Space workspace and submits only a fresh validated preview. A deterministic three-way diff auto-merges non-conflicting fields and emits bounded semantic conflict work items for the connected Agent; user confirmation gates the final submission. Installation explicitly migrates a selected `0.1.x` connection, creates every readable Space workspace, and leaves old retired external compiler previews inert.
 
 **Tech Stack:** Node.js 26, TypeScript/ESM, stdio MCP, Vitest, NestJS API, React/Vite/Vitest, local PostgreSQL/Redis E2E, real Codex/Claude Code/OpenCode acceptance.
 
@@ -343,13 +343,13 @@ git commit -m "feat(local-sync): migrate connections to protocol v2"
 
 - [ ] **Step 1: Write failing UI/instruction tests**
 
-Assert generated instruction pins `0.2.0`, says installation performs connection/doctor/initial Pull but no scan/upload, does not mention OpenWiki/provider/model key/MCP JSON/port/daemon, names Codex/Claude Code/OpenCode as examples rather than exclusive clients, and tells the Agent to report Space Pull results. UI copy must distinguish the explicitly selected local path, review-required acknowledgement, and final upload confirmation without adding a redundant local-read confirmation dialog.
+Assert generated instruction pins `0.2.0`, says installation performs connection/doctor/initial Pull but no scan/upload, does not mention retired external compiler/provider/model key/MCP JSON/port/daemon, names Codex/Claude Code/OpenCode as examples rather than exclusive clients, and tells the Agent to report Space Pull results. UI copy must distinguish the explicitly selected local path, review-required acknowledgement, and final upload confirmation without adding a redundant local-read confirmation dialog.
 
 - [ ] **Step 2: Verify failure**
 
 Run: `pnpm --filter @agentwiki/server test -- local-sync-installation.service.spec.ts && pnpm --filter @agentwiki/client test -- LocalSyncInstallCard.spec.tsx LocalSyncGuideSection.spec.tsx`
 
-Expected: FAIL on old version/OpenWiki copy.
+Expected: FAIL on old version/retired external compiler copy.
 
 - [ ] **Step 3: Update server instruction and client UI**
 

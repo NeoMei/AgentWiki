@@ -1,5 +1,7 @@
 # AgentWiki
 
+> 当前稳定版本：**v0.2.6**
+
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,
 > search semantically, and let Agents participate in your knowledge workflow
@@ -28,9 +30,6 @@ Hosted service: [agentwiki.quukk.com](https://agentwiki.quukk.com) — use Agent
 
 - `agentwiki/` — **AgentWiki 主产品代码**（前后端 + MCP + 本地同步 SDK）。
   进入该目录即可开始开发或部署。
-- `docmost/` / `mnemon/` / `openwiki/` / `outline/` / `swarmvault/` —
-  前期围绕知识库、Agent 记忆与代码库理解的实验项目。
-  这些目录不会进入主包发布流程（已在 `.gitignore` 中排除），仅作为历史参考保留。
 - `design/` / `decisions/` / `DEVELOPMENT_HANDBOOK.md` —
   设计文档与开发规范。
 
@@ -107,8 +106,10 @@ pnpm dev
 把本地代码或文档整理为可 review 的 Wiki 知识，并同步到 AgentWiki。
 
 ```bash
-npm install -g @neomei/agentwiki-local-sync
+npm install -g @neomei/agentwiki-local-sync@0.2.6
 ```
+
+- [npm 包页面](https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.2.6)
 
 在 AgentWiki 内创建 Agent 并授予目标 Space 权限后，可在 Agent 详情页
 生成一次性接入指令，贴到本地 Agent 执行即可。
@@ -145,6 +146,7 @@ AgentWiki/
 - [迁移说明](./MIGRATION_README.md)
 - [设计文档](./design/)
 - [AGENTS.md](./AGENTS.md)
+- [v0.2.6 上线验证报告](./agentwiki/docs/verification/production-readiness-0.2.6.md)
 
 ---
 

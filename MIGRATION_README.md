@@ -17,11 +17,6 @@
 | 目录/文件                     | 说明                                                             |
 | ------------------------- | -------------------------------------------------------------- |
 | `agentwiki/`              | **主项目**，pnpm monorepo（React/Vite + NestJS + Prisma/PostgreSQL） |
-| `outline/`                | Outline 知识库（yarn，Node 20.x）                                    |
-| `docmost/`                | Docmost 文档（pnpm）                                               |
-| `mnemon/`                 | Go 项目（go 1.24.2）                                               |
-| `openwiki/`               | OpenWiki（pnpm，Node ≥20）                                        |
-| `swarmvault/`             | SwarmVault（pnpm）                                               |
 | `design/`                 | 设计文档、架构图、SQL schema                                            |
 | `decisions/`              | 决策记录                                                           |
 | `.codex-memory/`          | **Codex 项目级结构化记忆**（必须保留）                                       |
@@ -51,7 +46,7 @@ tar -xzf "E:\AgentWiki-Migration\AgentWiki-full.tar.gz"
 
 | 依赖         | 版本要求                                                              |
 | ---------- | ----------------------------------------------------------------- |
-| Node.js    | 26.x（仅支持 Node 26，仓库约束为 `>=26 <27`）                          |
+| Node.js    | 24.x 或 26.x（仓库约束为 `>=24 <25 || >=26 <27`）                  |
 | pnpm       | 11.9.0（`npm install -g pnpm@11.9.0`）                            |
 | PostgreSQL | ≥ 16（生产用 18.4）                                                    |
 | Redis      | 任意稳定版                                                             |
@@ -61,7 +56,7 @@ tar -xzf "E:\AgentWiki-Migration\AgentWiki-full.tar.gz"
 cd "D:\MyDocuments\AgentWiki\agentwiki"
 
 # 确认运行时并按锁文件安装依赖
-node --version  # 必须为 v26.x
+node --version  # 必须为 v24.x 或 v26.x
 pnpm --version  # 必须为 11.9.0
 pnpm install --frozen-lockfile
 
@@ -77,18 +72,6 @@ pnpm prisma migrate deploy
 # 启动开发服务
 pnpm dev
 ```
-
-### 2.3 其他子项目（按需）
-
-| 项目         | 包管理器     | 安装命令                            |
-| ---------- | -------- | ------------------------------- |
-| outline    | yarn 4.x | `cd outline && yarn install`    |
-| docmost    | pnpm     | `cd docmost && pnpm install`    |
-| openwiki   | pnpm     | `cd openwiki && pnpm install`   |
-| swarmvault | pnpm     | `cd swarmvault && pnpm install` |
-| mnemon     | Go 1.24+ | `cd mnemon && go build ./...`   |
-
----
 
 ## 3. Codex 接手须知
 

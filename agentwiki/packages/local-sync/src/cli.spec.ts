@@ -71,6 +71,20 @@ afterEach(async () => {
 });
 
 describe('local sync command orchestration', () => {
+  it('returns usage for --help without requiring a connection', async () => {
+    const home = await temporaryDirectory('agentwiki-help-');
+
+    await expect(runCli(['--help'], home)).resolves.toMatch(
+      /^Usage: agentwiki-local-sync /,
+    );
+  });
+
+  it('returns the package version for --version without requiring a connection', async () => {
+    const home = await temporaryDirectory('agentwiki-version-');
+
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.2.6' });
+  });
+
   it('upgrades only the selected connection MCP command to an exact version', async () => {
     const home = await temporaryDirectory('agentwiki-upgrade-');
     const connection = {
@@ -93,7 +107,7 @@ describe('local sync command orchestration', () => {
     }
     await expect(readFile(callsPath, 'utf8')).resolves.toBe([
       `mcp remove ${connection.mcpName}`,
-      `mcp add ${connection.mcpName} -- npx -y @neomei/agentwiki-local-sync@0.2.0 mcp --connection ${connection.id}`,
+      `mcp add ${connection.mcpName} -- npx -y @neomei/agentwiki-local-sync@0.2.0 mcp --connection ${connection.id} --orchestrator`,
       '',
     ].join('\n'));
     await expect(readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8')).resolves.toContain('"pluginVersion": "0.2.0"');

@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
@@ -86,11 +87,40 @@ export class UserService {
 
   async remove(id: string) {
     await this.findOne(id);
-    return this.prisma.user.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-      select: USER_SELECT,
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id, deletedAt: null, type: 'human' } });
+      if (!user) throw new NotFoundException('User not found');
+      const ownedSpaces = await tx.spaceMember.count({
+        where: { userId: id, role: 'owner', space: { deletedAt: null } },
+      });
+      if (ownedSpaces > 0) {
+        throw new BadRequestException('Transfer ownership of every Space before deleting your account');
+      }
+      if (user.platformRole === 'super_admin') {
+        const remaining = await tx.user.count({
+          where: {
+            id: { not: id }, type: 'human', platformRole: 'super_admin',
+            deletedAt: null, lockedAt: null,
+          },
+        });
+        if (remaining === 0) throw new BadRequestException('Cannot delete the last active super admin');
+      }
+      await tx.apiKeyCredential.updateMany({
+        where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() },
+      });
+      await tx.agentCredential.updateMany({
+        where: { agent: { ownerId: id }, revokedAt: null }, data: { revokedAt: new Date() },
+      });
+      await tx.agent.updateMany({
+        where: { ownerId: id, revokedAt: null },
+        data: { status: 'revoked', revokedAt: new Date() },
+      });
+      return tx.user.update({
+        where: { id },
+        data: { deletedAt: new Date(), authVersion: { increment: 1 } },
+        select: USER_SELECT,
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
   async generateApiKey(userId: string): Promise<string> {
     const rawKey = 'awk_' + randomBytes(32).toString('base64url');

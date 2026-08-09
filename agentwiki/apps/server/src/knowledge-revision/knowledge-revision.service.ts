@@ -49,7 +49,15 @@ export class KnowledgeRevisionService {
     if (!revisionId || revisionId === '0') {
       const head = await this.current(spaceId);
       if (head.revisionId === '0') {
-        return { ...EMPTY_REVISION, schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', bundle: { pages: [], memories: [], relations: [], provenance: [], deletions: [] } };
+        return {
+          ...EMPTY_REVISION,
+          schemaVersion: 'knowledge-bundle@1',
+          recipeVersion: 'none',
+          bundle: {
+            schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', spaceId, baseRevision: '0',
+            pages: [], memories: [], relations: [], provenance: [], deletions: [],
+          },
+        };
       }
       revisionId = head.revisionId;
     }

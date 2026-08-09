@@ -123,6 +123,32 @@ export class AgentService {
     return input;
   }
 
+  async assertCredentialCanDelegate(
+    ownerId: string,
+    agentId: string,
+    credentialId: string,
+    requestedScopes: string[],
+  ): Promise<void> {
+    const credential = await this.prisma.agentCredential.findFirst({
+      where: {
+        id: credentialId,
+        agentId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        agent: {
+          ownerId,
+          status: 'active',
+          revokedAt: null,
+          owner: { deletedAt: null, lockedAt: null },
+        },
+      },
+      select: { scopes: true },
+    });
+    if (!credential || requestedScopes.some((scope) => !credential.scopes.includes(scope))) {
+      throw new ForbiddenException('The issuing Agent credential is unavailable or no longer permits these scopes');
+    }
+  }
+
   async listCredentials(ownerId: string, agentId: string) {
     await this.getOwned(ownerId, agentId);
     return this.prisma.agentCredential.findMany({

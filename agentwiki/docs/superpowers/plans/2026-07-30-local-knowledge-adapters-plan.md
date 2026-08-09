@@ -366,7 +366,7 @@ pnpm lint
 pnpm --filter @neomei/agentwiki-local-sync build
 ```
 
-Expected: all commands exit `0`; real local smoke on a tiny repo and one PDF reaches `PREVIEW` without OpenWiki, manual init, a model key, a port, or a daemon.
+Expected: all commands exit `0`; real local smoke on a tiny repo and one PDF reaches `PREVIEW` without retired external compiler, manual init, a model key, a port, or a daemon.
 
 - [ ] **Step 5: Commit**
 

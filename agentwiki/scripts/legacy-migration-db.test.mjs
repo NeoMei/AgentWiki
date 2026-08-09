@@ -6,6 +6,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -137,6 +138,11 @@ function databaseUrlForSchema(schemaName) {
   return url.href;
 }
 
+async function migrationCount() {
+  const entries = await readdir(resolve(root, 'apps/server/prisma/migrations'), { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory()).length;
+}
+
 test('real PostgreSQL migration reports and removes a non-empty legacy PAT in an isolated schema', {
   skip: databaseSkip,
 }, async () => {
@@ -252,6 +258,7 @@ test('real Prisma chain upgrades 13 migrations through legacy false conflicts wi
   const targetUrl = databaseUrlForSchema(schema);
   let temporaryRoot;
   try {
+    const expectedMigrationCount = await migrationCount();
     assertPsqlSuccess(runPsql(`CREATE SCHEMA ${quotedSchema};`));
     const temporary = await firstThirteenPrismaDirectory();
     temporaryRoot = temporary.temporaryRoot;
@@ -308,7 +315,7 @@ test('real Prisma chain upgrades 13 migrations through legacy false conflicts wi
       'ascii-i|69|semantic|865c0c0b4ab0e063e5caa3387c1a8741',
       'unicode-i|c4b0|semantic|1a313f370a5ba8fd5dad6f793d84ff21',
       '0',
-      '25',
+      String(expectedMigrationCount),
     ]);
   } finally {
     if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
@@ -323,6 +330,7 @@ test('real Prisma chain deploys all migrations to an empty schema with the local
   const quotedSchema = quotedIdentifier(schema);
   const targetUrl = databaseUrlForSchema(schema);
   try {
+    const expectedMigrationCount = await migrationCount();
     assertPsqlSuccess(runPsql(`CREATE SCHEMA ${quotedSchema};`));
 
     const deployed = runPrisma(['migrate', 'deploy'], targetUrl);
@@ -353,7 +361,7 @@ test('real Prisma chain deploys all migrations to an empty schema with the local
     `);
     assertPsqlSuccess(verified);
     assert.deepEqual(verified.stdout.trim().split('\n'), [
-      '25',
+      String(expectedMigrationCount),
       'id,spaceId,sequence,parentRevisionId,schemaVersion,recipeVersion,contentHash,snapshot,createdAt,delta,sourceChangeSetId',
       'id,spaceId,baseRevisionId,principalKey,idempotencyKey,schemaVersion,recipeVersion,contentHash,bundle,status,changeSetId,appliedRevisionId,createdAt,updatedAt',
       '5',
@@ -765,10 +773,10 @@ test('real Prisma connections reject localhost and 127.0.0.1 aliases for the sam
     assert.equal(cli.status, 1);
     assert.match(cli.stderr, /physically different PostgreSQL databases/);
     assert.doesNotMatch(`${cli.stdout}\n${cli.stderr}`, /postgres(?:ql)?:\/\//);
-    assert.equal(
-      `${cli.stdout}\n${cli.stderr}`.includes(new URL(databaseUrl).password),
-      false,
-    );
+    const databasePassword = new URL(databaseUrl).password;
+    if (databasePassword) {
+      assert.equal(`${cli.stdout}\n${cli.stderr}`.includes(databasePassword), false);
+    }
   } finally {
     await Promise.allSettled([source.$disconnect(), target.$disconnect()]);
   }

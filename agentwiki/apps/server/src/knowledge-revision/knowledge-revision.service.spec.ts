@@ -39,7 +39,10 @@ describe('KnowledgeRevisionService', () => {
     const snapshot = await service.snapshot('space-1');
     expect(snapshot.revisionId).toBe('0');
     expect(snapshot.sequence).toBe(0);
-    expect(snapshot.bundle).toEqual({ pages: [], memories: [], relations: [], provenance: [], deletions: [] });
+    expect(snapshot.bundle).toEqual({
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', spaceId: 'space-1', baseRevision: '0',
+      pages: [], memories: [], relations: [], provenance: [], deletions: [],
+    });
   });
 
   it('returns stored snapshot for a revision id', async () => {

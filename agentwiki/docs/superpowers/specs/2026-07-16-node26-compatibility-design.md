@@ -95,6 +95,6 @@ All verification commands must execute with Node 26 selected and must report Nod
 ## Non-Goals
 
 - Upgrading React, NestJS, Prisma, Vite, Vitest, Tailwind, or other dependencies without a demonstrated Node 26 incompatibility
-- Adapting `outline/`, `docmost/`, `openwiki/`, `swarmvault/`, or `mnemon/`
+- Adapting `outline/`, `docmost/`, `swarmvault/`, or `mnemon/`
 - Preserving Node 20, 22, or 24 support
 - Changing product features, authorization rules, knowledge provenance, deployment topology, or database schema

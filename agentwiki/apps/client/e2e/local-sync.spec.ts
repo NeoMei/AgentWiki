@@ -12,6 +12,7 @@ interface Fixture {
   email: string;
   password: string;
   token: string;
+  userId: string;
   spaceId: string;
   agentId: string;
 }
@@ -39,13 +40,15 @@ test.describe('local sync enrollment card', () => {
       email: `local-sync-e2e-${suffix}@example.test`,
       password: 'LocalSyncE2E-password',
       token: '',
+      userId: '',
       spaceId: '',
       agentId: '',
     };
-    const registration = await requestJson<{ access_token: string }>(request, '/auth/register', {
+    const registration = await requestJson<{ access_token: string; user: { id: string } }>(request, '/auth/register', {
       data: { email: fixture.email, password: fixture.password, name: `Local sync E2E ${suffix}` },
     });
     fixture.token = registration.access_token;
+    fixture.userId = registration.user.id;
     const space = await requestJson<{ id: string }>(request, '/spaces', {
       token: fixture.token,
       data: { name: `Local sync E2E ${suffix}`, visibility: 'private', approvalPolicy: 'always-review' },
@@ -65,6 +68,7 @@ test.describe('local sync enrollment card', () => {
   test.afterEach(async ({ request }) => {
     if (fixture?.agentId) await requestJson(request, `/agents/${fixture.agentId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
     if (fixture?.spaceId) await requestJson(request, `/spaces/${fixture.spaceId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
+    if (fixture?.userId) await requestJson(request, `/users/${fixture.userId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
   });
 
   test('logs in and generates, copies, and expires a one-shot instruction', async ({ page }) => {
@@ -72,20 +76,20 @@ test.describe('local sync enrollment card', () => {
     await page.goto('/?intent=workspace#login');
     await page.getByPlaceholder(/email|邮箱/i).fill(fixture.email);
     await page.getByPlaceholder(/password|密码/i).fill(fixture.password);
-    await page.getByRole('button', { name: /sign in|登录/i }).click();
-    await page.waitForURL(/\/$/u);
+    await page.locator('form').getByRole('button', { name: /sign in|登录/i }).click();
+    await page.waitForURL(/\/dashboard(?:$|[?#])/u);
 
     await page.goto(`/agents/${fixture.agentId}`);
     await page.getByRole('button', { name: /access|访问/i }).click();
     await page.getByRole('button', { name: /generate local sync instructions|生成本地同步接入指令/i }).click();
 
     const instructions = page.locator('pre');
-    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.2.0');
+    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.2.6');
     await expect(instructions).toContainText('AW-');
     await expect(instructions).not.toContainText('agk_');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.2.0');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.2.6');
     await expect(page.getByText(/expires in|后过期/i)).toBeVisible();
   });
 });

@@ -272,6 +272,200 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.changeItem.update).toHaveBeenCalledTimes(1);
   });
 
+  it('publishes a relation update with prior state and change-set ownership for rollback', async () => {
+    const beforeModifiedAt = new Date('2026-07-26T08:00:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-update-relation', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'item-1', type: 'update_relation', status: 'accepted',
+        payload: {
+          relationId: 'relation-1', sourceKnowledgeKey: 'page-key-1',
+          targetKnowledgeKey: 'page-key-2', relation: 'contradicts',
+          expectedLastModifiedAt: beforeModifiedAt.toISOString(),
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const existing = {
+      id: 'relation-1', knowledgeKey: 'relation-key-1', relation: 'supports',
+      sourcePageId: 'page-1', targetPageId: 'page-2', strength: 1, confidence: 1,
+      origin: 'compiled', sourceChangeSetId: 'cs-before', createdByAgentId: 'agent-before',
+      evidenceId: null, lastModifiedByUserId: null, lastModifiedAt: beforeModifiedAt,
+      createdAt: new Date('2026-07-25T08:00:00.000Z'),
+      sourcePage: { spaceId: 'space-1' }, targetPage: { spaceId: 'space-1' },
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({ id: 'page-1' })
+          .mockResolvedValueOnce({ id: 'page-2' }),
+      },
+      knowledgeRelation: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        update: jest.fn().mockResolvedValue({ id: 'relation-1' }),
+      },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-update-relation');
+
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'item-1' },
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          before: expect.objectContaining({ relation: 'supports', sourceChangeSetId: 'cs-before' }),
+        }),
+      }),
+    }));
+    expect(tx.knowledgeRelation.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'relation-1' },
+      data: expect.objectContaining({
+        relation: 'contradicts', sourceChangeSetId: 'cs-update-relation',
+        createdByAgentId: 'agent-before', lastModifiedByUserId: 'user-1',
+      }),
+    }));
+  });
+
+  it('reverts an unchanged relation update to its prior state', async () => {
+    const publishedAt = new Date('2026-07-27T08:00:00.000Z');
+    const before = {
+      id: 'relation-1', knowledgeKey: 'relation-key-1', relation: 'supports',
+      sourcePageId: 'page-1', targetPageId: 'page-2', strength: 1, confidence: 1,
+      origin: 'compiled', sourceChangeSetId: 'cs-before', createdByAgentId: 'agent-before',
+      evidenceId: null, lastModifiedByUserId: null,
+      lastModifiedAt: new Date('2026-07-26T08:00:00.000Z'),
+    };
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-update-relation', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'item-1', type: 'update_relation', status: 'published',
+        publishedResourceId: 'relation-1', payload: { before },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      knowledgeRelation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.revert('cs-update-relation')).resolves.toMatchObject({ id: 'cs-update-relation' });
+    const { id: _id, ...restored } = before;
+    expect(tx.knowledgeRelation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'relation-1', sourceChangeSetId: 'cs-update-relation',
+        lastModifiedAt: { lte: publishedAt },
+      },
+      data: restored,
+    });
+    expect(tx.changeItem.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverts created, updated, and archived shared memories without overwriting later changes', async () => {
+    const publishedAt = new Date('2026-07-27T08:00:00.000Z');
+    const before = {
+      type: 'preference', content: 'before', importance: 0.5, tags: [], entities: null,
+      contentHash: 'before-hash', visibility: 'space', embedding: [], embeddingModel: null,
+      status: 'active', sourceEvidenceId: null, sourceMemoryIds: [], expiresAt: null,
+      lastAccessedAt: null, agentId: 'agent-1', spaceId: 'space-1', archivedAt: null,
+      deletedAt: null,
+    };
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-memory', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: null, createdByAgentId: 'agent-1',
+      items: [
+        {
+          id: 'create', type: 'upsert_space_memory', status: 'published',
+          publishedResourceId: 'memory-created', payload: { before: null },
+        },
+        {
+          id: 'update', type: 'upsert_space_memory', status: 'published',
+          publishedResourceId: 'memory-updated', payload: { before, publishedUpdatedAt: publishedAt.toISOString() },
+        },
+        {
+          id: 'archive', type: 'archive_space_memory', status: 'published',
+          publishedResourceId: 'memory-archived', payload: { before },
+        },
+      ],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      agentMemory: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.revert('cs-memory')).resolves.toMatchObject({ id: 'cs-memory' });
+    expect(tx.agentMemory.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: 'memory-created', spaceId: 'space-1', updatedAt: { lte: publishedAt } },
+      data: expect.objectContaining({ status: 'archived', deletedAt: expect.any(Date) }),
+    });
+    expect(tx.agentMemory.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 'memory-updated', spaceId: 'space-1', updatedAt: { lte: publishedAt } },
+      data: before,
+    });
+    expect(tx.agentMemory.updateMany).toHaveBeenNthCalledWith(3, {
+      where: { id: 'memory-archived', spaceId: 'space-1', updatedAt: { lte: publishedAt } },
+      data: before,
+    });
+    expect(tx.changeItem.update).toHaveBeenCalledTimes(3);
+  });
+
+  it('publishes an existing shared-memory update with optimistic locking and rollback state', async () => {
+    const updatedAt = new Date('2026-07-26T08:00:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-memory-update', status: 'approved', spaceId: 'space-1',
+      createdByUserId: null, createdByAgentId: 'agent-1',
+      items: [{
+        id: 'memory-item', type: 'upsert_space_memory', status: 'accepted',
+        payload: {
+          knowledgeKey: 'memory-1', key: 'preference', value: 'after',
+          contentHash: 'after-hash', expectedUpdatedAt: updatedAt.toISOString(),
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-1' }) };
+    const existing = {
+      id: 'memory-1', type: 'preference', content: 'before', importance: 0.5,
+      tags: [], entities: null, contentHash: 'before-hash', visibility: 'space',
+      embedding: [], embeddingModel: null, status: 'active', sourceEvidenceId: null,
+      sourceMemoryIds: [], expiresAt: null, lastAccessedAt: null, agentId: 'agent-1',
+      spaceId: 'space-1', createdAt: new Date('2026-07-25T08:00:00.000Z'),
+      updatedAt, archivedAt: null, deletedAt: null,
+    };
+    const tx = {
+      agentMemory: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-memory-update');
+
+    expect(tx.agentMemory.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'memory-1', spaceId: 'space-1', updatedAt },
+      data: expect.objectContaining({ content: 'after', contentHash: 'after-hash' }),
+    }));
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'memory-item' },
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          before: expect.objectContaining({ content: 'before', contentHash: 'before-hash' }),
+        }),
+      }),
+    }));
+  });
+
   it('restores an unchanged relation archived by the published change set', async () => {
     const publishedAt = new Date('2026-07-27T08:00:00.000Z');
     const before = {

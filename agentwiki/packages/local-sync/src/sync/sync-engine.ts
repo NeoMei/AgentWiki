@@ -179,13 +179,7 @@ export class SyncEngine {
         throw new SyncError('Base revision changed during push; please resolve conflicts and retry.', 'STALE_BASE');
       }
       if (final.status === 'published' || final.status === 'noop' || final.status === 'existing') {
-        await writeManifest(this.paths, {
-          ...manifest,
-          pendingRevision: null,
-          baseRevision: { revision: final.currentRevision, pulledAt: new Date().toISOString(), contentHash: contentHash(final.currentRevision) },
-          updatedAt: new Date().toISOString(),
-        });
-        await this.pull();
+        await this.refreshPublishedRevision(final.currentRevision);
         return {
           submitted: true,
           status: final.status,
@@ -197,13 +191,7 @@ export class SyncEngine {
     }
 
     if (result.status === 'published' || result.status === 'noop' || result.status === 'existing') {
-      await writeManifest(this.paths, {
-        ...manifest,
-        pendingRevision: null,
-        baseRevision: { revision: result.currentRevision, pulledAt: new Date().toISOString(), contentHash: contentHash(result.currentRevision) },
-        updatedAt: new Date().toISOString(),
-      });
-      await this.pull();
+      await this.refreshPublishedRevision(result.currentRevision);
     }
 
     return {
@@ -336,10 +324,10 @@ export class SyncEngine {
     await mkdir(join(tmpDir, 'pages'), { recursive: true });
     await mkdir(join(tmpDir, 'memories'), { recursive: true });
     for (const page of bundle.pages) {
-      await writeFile(join(tmpDir, 'pages', `${page.pageId}.md`), page.body, 'utf-8');
+      await writeFile(safeMaterializedPath(join(tmpDir, 'pages'), page.pageId, '.md'), page.body, 'utf-8');
     }
     for (const memory of bundle.memories) {
-      await writeFile(join(tmpDir, 'memories', `${memory.memoryId}.json`), `${JSON.stringify(memory, null, 2)}\n`, 'utf-8');
+      await writeFile(safeMaterializedPath(join(tmpDir, 'memories'), memory.memoryId, '.json'), `${JSON.stringify(memory, null, 2)}\n`, 'utf-8');
     }
     await writeFile(join(tmpDir, 'relations.json'), `${JSON.stringify(bundle.relations, null, 2)}\n`, 'utf-8');
     await rm(this.paths.wikiRoot, { recursive: true, force: true });
@@ -347,21 +335,50 @@ export class SyncEngine {
     await rename(tmpDir, this.paths.wikiRoot);
   }
 
+  private async refreshPublishedRevision(revisionId: string): Promise<void> {
+    const snapshot = await this.client.getSnapshot(
+      this.options.connection,
+      this.options.apiKey,
+      this.spaceId,
+      revisionId,
+    );
+    await this.materializeBundle(snapshot.bundle);
+    await writeBase(this.paths, revisionId, snapshot.bundle);
+    const manifest = await this.readManifest();
+    await writeManifest(this.paths, {
+      ...manifest,
+      pendingRevision: null,
+      baseRevision: {
+        revision: revisionId,
+        pulledAt: new Date().toISOString(),
+        contentHash: snapshot.contentHash,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   private async readLocalBundle(): Promise<KnowledgeBundle> {
+    const manifest = await this.readManifest();
+    const baseBundle = manifest.baseRevision?.revision
+      ? ((await readBase(this.paths, manifest.baseRevision.revision)) as KnowledgeBundle | null)
+      : null;
+    const basePages = new Map((baseBundle?.pages ?? []).map((page) => [page.pageId, page]));
     const pageIds = await listWikiPages(this.paths);
     const pages: WikiPage[] = [];
     for (const id of pageIds) {
       const body = await readWikiPage(this.paths, id);
       if (body === null) continue;
+      const previous = basePages.get(id);
       pages.push({
+        ...previous,
         pageId: id,
         spaceId: this.spaceId,
-        path: `pages/${id}.md`,
-        title: id,
+        path: previous?.path ?? `pages/${id}.md`,
+        title: previous?.title ?? id,
         body,
-        artifactIds: [],
+        artifactIds: previous?.artifactIds ?? [],
         contentHash: contentHash(body),
-        updatedAt: new Date().toISOString(),
+        updatedAt: previous?.updatedAt ?? new Date().toISOString(),
       });
     }
 
@@ -374,8 +391,6 @@ export class SyncEngine {
     }
 
     const relations = (await readWikiRelations(this.paths)) as KnowledgeRelation[];
-    const manifest = await this.readManifest();
-
     return {
       schemaVersion: 'knowledge-bundle@1',
       recipeVersion: 'unknown',
@@ -453,4 +468,11 @@ export class SyncEngine {
     };
     return contentHash(JSON.stringify(payload, Object.keys(payload).sort()));
   }
+}
+
+function safeMaterializedPath(directory: string, id: string, suffix: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
+    throw new Error('Remote knowledge identifier is not safe for local materialization');
+  }
+  return `${directory}/${id}${suffix}`;
 }

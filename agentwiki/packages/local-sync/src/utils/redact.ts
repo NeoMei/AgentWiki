@@ -9,7 +9,7 @@ export const SECRET_PATTERNS = [
   { name: 'agentwiki-key', pattern: /\b(?:agk|awk)_[A-Za-z0-9_-]{16,}\b/g },
   { name: 'openai-api-key', pattern: /\b(?:sk-[a-zA-Z0-9]{20,}|sk-proj-[a-zA-Z0-9_-]{20,})\b/g },
   { name: 'aws-key', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
-  { name: 'generic-secret', pattern: /\b(?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*['"`]?[A-Za-z0-9!@#$%^&*()_+\-=]{8,}['"`]?/gi },
+  { name: 'generic-secret', pattern: /["']?\b(?:api[_-]?key|apikey|token|secret|password)["']?\s*[:=]\s*["'`]?[A-Za-z0-9!@#$%^&*()_+\-=]{8,}["'`]?/gi },
 ];
 
 export interface RedactionResult {

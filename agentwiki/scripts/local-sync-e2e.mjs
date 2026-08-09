@@ -10,7 +10,66 @@ const AGENT_CREDENTIAL_PATTERN = /\b(?:agk|awk)_[A-Za-z0-9_-]+\b/gu;
 const execFile = promisify(execFileCallback);
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI_PATH = join(REPOSITORY_ROOT, 'packages', 'local-sync', 'dist', 'cli.js');
-const LOCAL_SYNC_SCOPES = ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'];
+const LOCAL_SYNC_SCOPES = ['spaces:read', 'pages:read', 'pages:write', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'];
+
+async function verifyRealCodebaseAdapter(root, home, source, spaceId, connection, apiKey, apiUrl, userToken, agentId) {
+  const { AdapterManager } = await import('../packages/local-sync/dist/adapter/manager.js');
+  const { AgentWikiClient } = await import('../packages/local-sync/dist/agentwiki-client.js');
+  const { createOrchestratorCommands } = await import('../packages/local-sync/dist/orchestrator-commands.js');
+  const { defaultRecipes } = await import('../packages/local-sync/dist/recipes.js');
+  const manager = new AdapterManager({ runtimeHome: join(root, 'managed-runtime') });
+  const adapter = await manager.ensure('codebase-memory');
+  const batch = await adapter.collect({ sourcePath: source, spaceId, jobId: `real-adapter-${Date.now()}` });
+  assert.ok(batch.artifacts.length > 0, 'the real codebase-memory adapter must return architecture artifacts');
+  assert.ok(
+    batch.artifacts.some((artifact) => artifact.logicalKey === 'architecture/overview'),
+    'the real adapter must organize the code graph into an architecture overview',
+  );
+  const commands = createOrchestratorCommands({
+    home,
+    connection,
+    readApiKey: async () => apiKey,
+    client: new AgentWikiClient(),
+    adapters: [adapter],
+    recipes: defaultRecipes(),
+    now: () => new Date(),
+  });
+  const state = await commands.start({ spaceId, recipeId: 'code-wiki@1', sourcePaths: [source] });
+  const workItem = await commands.next({ jobId: state.jobId });
+  assert.ok(workItem, 'the default code recipe must produce a work item');
+  const summaries = await commands.readArtifacts({ jobId: state.jobId, workItemId: workItem.workItemId });
+  assert.ok(summaries.length > 0, 'the Orchestrator must expose local artifact summaries');
+  await commands.submitOrganizedItem({
+    jobId: state.jobId,
+    workItemId: workItem.workItemId,
+    item: batch.artifacts[0],
+  });
+  assert.equal(await commands.next({ jobId: state.jobId }), null);
+  const validation = await commands.validate({ jobId: state.jobId });
+  assert.deepEqual(validation.issues, [], 'the real organized bundle must validate');
+  const preview = await commands.preview({ jobId: state.jobId });
+  assert.ok(preview.bundle.pages.length > 0, 'the real code graph must become a Wiki preview');
+  assert.ok(preview.bundle.provenance.length > 0, 'the real Wiki preview must retain local provenance');
+  const pushPromise = commands.confirmAndPush({ jobId: state.jobId, confirmed: true });
+  const changeSet = await eventually(
+    () => apiRequest(apiUrl, `/review?spaceId=${encodeURIComponent(spaceId)}`, { token: userToken }),
+    (changes) => changes.find((candidate) => candidate.status === 'pending_review' && candidate.createdByAgentId === agentId),
+    'the real Orchestrator knowledge ChangeSet',
+  ).then((changes) => changes.find((candidate) => candidate.status === 'pending_review' && candidate.createdByAgentId === agentId));
+  assert.ok(changeSet, 'the real Orchestrator must create a pending review ChangeSet');
+  for (const item of changeSet.items) {
+    await apiRequest(apiUrl, `/change-sets/${changeSet.id}/items/${item.id}`, {
+      method: 'PATCH', token: userToken, body: { status: 'accepted' },
+    });
+  }
+  await apiRequest(apiUrl, `/change-sets/${changeSet.id}/approve`, {
+    method: 'POST', token: userToken, body: { comment: 'real orchestrator E2E' },
+  });
+  await apiRequest(apiUrl, `/change-sets/${changeSet.id}/publish`, { method: 'POST', token: userToken });
+  const pushed = await pushPromise;
+  assert.equal(pushed.status, 'published', 'the real Orchestrator bundle must publish');
+  return { artifacts: batch.artifacts.length, previewPages: preview.bundle.pages.length, pushed: true };
+}
 
 export function requireOptIn(environment = process.env) {
   if (environment.AGENTWIKI_LOCAL_SYNC_E2E !== '1') {
@@ -88,8 +147,8 @@ async function writeExecutable(path, contents) {
 async function createFakeTools(home, bin) {
   await mkdir(bin, { recursive: true, mode: 0o700 });
   await mkdir(home, { recursive: true, mode: 0o700 });
-  await writeExecutable(join(bin, 'markitdown'), "#!/usr/bin/env node\nprocess.stdout.write('markitdown 0.1.0\n');\n");
-  await writeExecutable(join(bin, 'git'), "#!/usr/bin/env node\nprocess.stdout.write('git version 2.50.1\n');\n");
+  await writeExecutable(join(bin, 'markitdown'), "#!/usr/bin/env node\nprocess.stdout.write('markitdown 0.1.0\\n');\n");
+  await writeExecutable(join(bin, 'git'), "#!/usr/bin/env node\nprocess.stdout.write('git version 2.50.1\\n');\n");
   await writeExecutable(join(bin, 'codebase-memory-mcp'), `#!/usr/bin/env node
 import { writeFile, mkdir } from 'node:fs/promises';
 const args = process.argv.slice(2);
@@ -98,7 +157,7 @@ if (args[0] === 'cli' && args[1] === 'index_repository') {
 } else if (args[0] === 'cli' && args[1] === 'get_architecture') {
   console.log(JSON.stringify({ summary: 'A tiny test project with two files.' }));
 } else {
-  process.stdout.write('codebase-memory-mcp 0.9.0\n');
+  process.stdout.write('codebase-memory-mcp 0.9.0\\n');
 }
 `);
   await writeExecutable(join(bin, 'codex'), `#!/usr/bin/env node
@@ -162,6 +221,7 @@ export async function runVerifier(environment = process.env) {
       createFakeTools(home, bin),
       writeFile(join(source, 'index.js'), "import { guide } from './guide.js';\nexport const localSync = guide;\n", { encoding: 'utf8', mode: 0o600 }),
       writeFile(join(source, 'guide.js'), 'export const guide = true;\n', { encoding: 'utf8', mode: 0o600 }),
+      writeFile(join(source, 'README.md'), '# Local sync E2E\n\n[Architecture](architecture/codebase-memory.md)\n', { encoding: 'utf8', mode: 0o600 }),
     ]);
 
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -182,7 +242,7 @@ export async function runVerifier(environment = process.env) {
       method: 'PUT', token: fixture.token, body: { role: 'editor', scopes: LOCAL_SYNC_SCOPES },
     });
     const installation = await apiRequest(apiUrl, `/agents/${fixture.agentId}/local-sync-installations`, {
-      method: 'POST', token: fixture.token, body: { pluginVersion: '0.1.1', scopes: LOCAL_SYNC_SCOPES },
+      method: 'POST', token: fixture.token, body: { pluginVersion: '0.2.6', scopes: LOCAL_SYNC_SCOPES },
     });
     fixture.installationId = installation.installationId;
 
@@ -190,6 +250,13 @@ export async function runVerifier(environment = process.env) {
     const config = JSON.parse(await readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8'));
     const connection = config.connections[config.defaultConnectionId];
     fixture.credentialId = connection.credentialId;
+    const connectedCredentials = JSON.parse(await readFile(join(home, '.agentwiki', 'credentials.json'), 'utf8'));
+    const connectedApiKey = connectedCredentials.credentials[fixture.credentialId].apiKey;
+    const realOrchestrator = environment.AGENTWIKI_LOCAL_SYNC_REAL_ADAPTER === '1'
+      ? await verifyRealCodebaseAdapter(
+        root, home, source, fixture.spaceId, connection, connectedApiKey, apiUrl, fixture.token, fixture.agentId,
+      )
+      : { artifacts: 0, previewPages: 0, pushed: false };
     assert.equal(connection.serverUrl, apiUrl);
     assert.match(await readFile(join(home, '.agents', 'skills', 'agentwiki-local-sync', 'SKILL.md'), 'utf8'), /local sync/i);
     await readFile(join(home, '.codex', 'mcp.json'), 'utf8');
@@ -218,8 +285,11 @@ export async function runVerifier(environment = process.env) {
     await apiRequest(apiUrl, `/change-sets/${run.changeSet.id}/publish`, { method: 'POST', token: fixture.token });
     const pages = await apiRequest(apiUrl, `/pages?spaceId=${encodeURIComponent(fixture.spaceId)}`, { token: fixture.token });
     const publishedPages = pages.data ?? pages;
-    assert.equal(publishedPages.length, 2, 'the review must publish both pages');
-    const relations = await apiRequest(apiUrl, `/knowledge/relations/${publishedPages[0].id}`, { token: fixture.token });
+    assert.equal(publishedPages.length, realOrchestrator.pushed ? 3 : 2, 'the review must preserve the orchestrator page and publish both legacy pages');
+    const relationGroups = await Promise.all(publishedPages.map((page) => (
+      apiRequest(apiUrl, `/knowledge/relations/${page.id}`, { token: fixture.token })
+    )));
+    const relations = relationGroups.flat();
     assert.ok(relations.length > 0, 'the review must publish the generated relation');
     assert.ok(run.evidences.length > 0, 'the run must retain source evidence');
 
@@ -228,13 +298,18 @@ export async function runVerifier(environment = process.env) {
     const noop = await runLocalSyncCli(home, childEnvironment, ['sync', '--preview', noopPreview.previewId, '--confirm']);
     assert.equal(noop.status, 'noop');
 
-    const credentials = JSON.parse(await readFile(join(home, '.agentwiki', 'credentials.json'), 'utf8'));
-    const apiKey = credentials.credentials[fixture.credentialId].apiKey;
     await apiRequest(apiUrl, `/agents/${fixture.agentId}/credentials/${fixture.credentialId}`, { method: 'DELETE', token: fixture.token });
-    const revoked = await fetch(`${apiUrl}/integrations/mcp`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const revoked = await fetch(`${apiUrl}/integrations/mcp`, { headers: { Authorization: `Bearer ${connectedApiKey}` } });
     assert.equal(revoked.status, 401, 'revoked agent credential must be rejected');
 
-    return { status: 'passed', pages: publishedPages.length, relationCount: relations.length };
+    return {
+      status: 'passed',
+      pages: publishedPages.length,
+      relationCount: relations.length,
+      realAdapterArtifacts: realOrchestrator.artifacts,
+      orchestratorPreviewPages: realOrchestrator.previewPages,
+      orchestratorPushed: realOrchestrator.pushed,
+    };
   } finally {
     if (fixture.installationId && fixture.agentId && fixture.token) {
       await apiRequest(apiUrl, `/agents/${fixture.agentId}/local-sync-installations/${fixture.installationId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);

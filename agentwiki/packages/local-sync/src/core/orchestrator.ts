@@ -52,6 +52,7 @@ export function startJob(
   spaceId: string,
   recipeId: string,
   sourcePaths: string[],
+  baseRevision = '0',
 ): JobState {
   const recipe = ctx.recipes.get(recipeId);
   if (!recipe) throw new Error(`Unknown recipe: ${recipeId}`);
@@ -66,7 +67,7 @@ export function startJob(
     spaceId,
     recipeId,
     recipeVersion: recipe.recipeId,
-    baseRevision: '0',
+    baseRevision,
     phase: 'discover',
     adapterIds,
     sourcePaths,
@@ -240,7 +241,14 @@ function resolveAdapterIds(
   requiredArtifactKinds: SourceArtifact['kind'][],
   adapters?: Map<string, SourceAdapter>,
 ): string[] {
-  if (!adapters || adapters.size === 0) return requiredArtifactKinds as string[];
+  if (!adapters || adapters.size === 0) {
+    const managedAdapterByKind: Partial<Record<SourceArtifact['kind'], string>> = {
+      code: 'codebase-memory',
+      document: 'markitdown',
+      memory: 'agent-memory',
+    };
+    return requiredArtifactKinds.map((kind) => managedAdapterByKind[kind] ?? kind);
+  }
   const ids: string[] = [];
   for (const kind of requiredArtifactKinds) {
     for (const [adapterId, adapter] of adapters.entries()) {

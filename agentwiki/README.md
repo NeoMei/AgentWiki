@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.2.0** — Platform admin console, model fallback routing, 694-test E2E suite.
+> **v0.2.6** — Production-readiness release with deterministic local knowledge orchestration, hardened local ingestion and authorization boundaries, guarded end-to-end testing, platform administration, and automatic model fallback routing.
 
 
 ## Hosted Service
@@ -148,8 +148,9 @@ Agent Skill; it does **not** scan or upload files during installation.
    explicitly confirm the sync before anything is sent to AgentWiki.
 
 The generated installation code is single-use and expires after 10 minutes. It is not
-a reusable API key. The local package must first be published to npm; until then the
-generated command is intentionally not a usable public installation path.
+a reusable API key. The public package is available as
+[`@neomei/agentwiki-local-sync@0.2.6`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.2.6),
+and generated instructions pin this exact release.
 
 ### Example local workflow
 

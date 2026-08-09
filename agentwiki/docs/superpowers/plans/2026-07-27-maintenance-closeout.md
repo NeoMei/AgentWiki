@@ -183,7 +183,7 @@ Append these exact entries to the root `.gitignore`:
 0
 docmost/
 mnemon/
-openwiki/
+retired-external-compiler/
 outline/
 swarmvault/
 docker-compose-remote.yml

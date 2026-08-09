@@ -55,6 +55,8 @@ WORKDIR /app/apps/server
 # Generate Prisma client in production
 RUN npx prisma generate
 
+USER node
+
 # Expose port
 EXPOSE 3000
 

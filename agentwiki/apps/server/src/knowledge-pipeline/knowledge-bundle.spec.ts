@@ -23,14 +23,9 @@ describe('parseKnowledgeBundle', () => {
     relations: [],
     provenance: [
       {
-        provenanceId: 'p1',
-        artifactId: 'a1',
-        adapterId: 'codebase-memory',
-        adapterVersion: '1',
-        sourceId: 'src-1',
-        logicalKey: 'home',
-        sourceHash: 'sh1',
-        collectedAt: '2026-07-31T00:00:00.000Z',
+        itemId: 'page-1',
+        artifactIds: ['a1'],
+        sensitivity: 'shareable',
       },
     ],
     deletions: [],
@@ -62,6 +57,28 @@ describe('parseKnowledgeBundle', () => {
       pages: [{ ...validBundle.pages[0], title: '' }],
     };
     expect(() => parseKnowledgeBundle(Buffer.from(JSON.stringify(bad)))).toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BUNDLE_INVALID' }));
+  });
+
+  it('accepts the local orchestrator provenance contract', () => {
+    const bundle = parseKnowledgeBundle(Buffer.from(JSON.stringify(validBundle)));
+    expect(bundle.provenance).toEqual([{ itemId: 'page-1', artifactIds: ['a1'], sensitivity: 'shareable' }]);
+  });
+
+  it.each(['../outside', '/absolute', 'nested/page'])('rejects unsafe knowledge identifier %p', (pageId) => {
+    const bad = { ...validBundle, pages: [{ ...validBundle.pages[0], pageId }] };
+    expect(() => parseKnowledgeBundle(Buffer.from(JSON.stringify(bad))))
+      .toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BUNDLE_INVALID' }));
+  });
+
+  it('rejects excessive item counts before compilation', () => {
+    const bad = {
+      ...validBundle,
+      pages: Array.from({ length: 501 }, (_, index) => ({
+        ...validBundle.pages[0], pageId: `page-${index}`, path: `/page-${index}`,
+      })),
+    };
+    expect(() => parseKnowledgeBundle(Buffer.from(JSON.stringify(bad))))
+      .toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BUNDLE_INVALID' }));
   });
 
   it('normalizes ordering and produces deterministic hash', () => {

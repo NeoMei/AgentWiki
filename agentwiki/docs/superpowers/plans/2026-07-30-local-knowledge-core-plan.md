@@ -4,7 +4,7 @@
 
 **Goal:** Build the versioned local protocol, atomic per-Space workspace, deterministic validation, and resumable orchestration state machine without adapters or network sync.
 
-**Architecture:** Replace OpenWiki-shaped in-memory values with canonical `SourceArtifact`, `KnowledgeBundle`, Recipe, validation, and job-state modules. Keep semantic content submission as an explicit MCP work-item exchange so the connected Agent supplies cognition while local code owns IDs, hashes, provenance, state transitions, and preview persistence.
+**Architecture:** Replace retired external compiler-shaped in-memory values with canonical `SourceArtifact`, `KnowledgeBundle`, Recipe, validation, and job-state modules. Keep semantic content submission as an explicit MCP work-item exchange so the connected Agent supplies cognition while local code owns IDs, hashes, provenance, state transitions, and preview persistence.
 
 **Tech Stack:** Node.js 26, TypeScript/ESM, Zod 3, MCP SDK, Vitest, SHA-256, atomic filesystem writes.
 

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -19,6 +20,7 @@ interface InstallationPayload {
   pluginVersion: string;
   serverUrl: string;
   expiresAt: string;
+  issuerCredentialId?: string;
 }
 
 const INSTALLATION_TTL_SECONDS = 600;
@@ -41,6 +43,7 @@ export class LocalSyncInstallationService {
     scopes: string[],
     pluginVersion: string,
     serverUrl: string,
+    issuer?: { credentialId: string; scopes: string[] },
   ): Promise<{
     installationId: string;
     code: string;
@@ -52,6 +55,12 @@ export class LocalSyncInstallationService {
       throw new BadRequestException('Agent must be active to create a local sync installation');
     }
     const normalizedScopes = this.agents.normalizeCredentialScopes(scopes);
+    if (issuer) {
+      const issuerScopes = this.agents.normalizeCredentialScopes(issuer.scopes);
+      if (!issuer.credentialId || normalizedScopes.some((scope) => !issuerScopes.includes(scope))) {
+        throw new ForbiddenException('Agent install scopes cannot exceed the issuing credential');
+      }
+    }
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
@@ -69,6 +78,7 @@ export class LocalSyncInstallationService {
         pluginVersion,
         serverUrl: canonicalServerUrl,
         expiresAt,
+        ...(issuer ? { issuerCredentialId: issuer.credentialId } : {}),
       };
       const stored = await this.redis.setOnce(
         this.installationKey(installationId),
@@ -137,6 +147,14 @@ export class LocalSyncInstallationService {
       throw new BadRequestException('Agent must be active to exchange a local sync installation');
     }
     const scopes = this.agents.normalizeCredentialScopes(payload.scopes);
+    if (payload.issuerCredentialId) {
+      await this.agents.assertCredentialCanDelegate(
+        payload.ownerId,
+        payload.agentId,
+        payload.issuerCredentialId,
+        scopes,
+      );
+    }
     const credential = await this.agents.createCredential(payload.ownerId, payload.agentId, {
       name: 'Local sync plugin',
       scopes,
@@ -228,6 +246,7 @@ export class LocalSyncInstallationService {
         || typeof value.pluginVersion !== 'string'
         || typeof value.serverUrl !== 'string'
         || typeof value.expiresAt !== 'string'
+        || (value.issuerCredentialId !== undefined && typeof value.issuerCredentialId !== 'string')
         || !Number.isFinite(new Date(value.expiresAt).getTime())
       ) {
         throw new Error('Invalid installation payload');

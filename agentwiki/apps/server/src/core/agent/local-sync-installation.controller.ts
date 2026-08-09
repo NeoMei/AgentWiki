@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   InternalServerErrorException,
   Param,
   Post,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../auth/human-only.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
@@ -38,6 +40,36 @@ export class LocalSyncInstallationController {
       dto.scopes,
       dto.pluginVersion,
       this.publicApiUrl(req),
+    );
+  }
+
+
+  @Post('agents/:agentId/local-sync-installations/self')
+  @UseGuards(CombinedAuthGuard)
+  createForAgent(
+    @Req() req: Request,
+    @Param('agentId') agentId: string,
+    @Body() dto: CreateLocalSyncInstallationDto,
+  ) {
+    const principal = req.user as {
+      userId: string;
+      agentId?: string;
+      credentialId?: string;
+      scopes?: string[];
+    };
+    if (principal.agentId && principal.agentId !== agentId) {
+      throw new ForbiddenException('Agents can only create install codes for themselves');
+    }
+    return this.installations.create(
+      principal.userId,
+      agentId,
+      dto.scopes,
+      dto.pluginVersion,
+      this.publicApiUrl(req),
+      principal.agentId ? {
+        credentialId: principal.credentialId!,
+        scopes: principal.scopes || [],
+      } : undefined,
     );
   }
 

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   AssistInput,
@@ -64,21 +66,31 @@ export class OpencodeCliRunner implements OpencodeRunner {
   private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model'): Promise<string> {
     const bin = this.config.get<string>('OPENCODE_BIN')
       || join(process.cwd(), 'node_modules', '.bin', 'opencode');
+    const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
     return new Promise((resolve, reject) => {
       // Pass only what opencode needs (config dir + LLM creds), not the whole
       // host environment (which may hold DB passwords and other secrets).
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
-        OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
-        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          permission: 'deny',
+          share: 'disabled',
+          autoupdate: false,
+          snapshot: false,
+          formatter: false,
+          lsp: false,
+        }),
+        OPENCODE_DISABLE_AUTOUPDATE: 'true',
+        OPENCODE_AUTO_SHARE: 'false',
         ...this.llmEnv(),
       };
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = spawn(bin, args, { env });
+        child = spawn(bin, ['--pure', ...args], { env, cwd: sandbox });
         child.stdin.end();
       } catch (error) {
+        rmSync(sandbox, { recursive: true, force: true });
         const code = (error as NodeJS.ErrnoException).code === 'ENOENT'
           ? 'binary_unavailable'
           : 'process_error';
@@ -108,6 +120,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
         stopReading();
         child.removeListener('error', onError);
         child.removeListener('close', onClose);
+        rmSync(sandbox, { recursive: true, force: true });
       };
       const terminate = (error: Error) => {
         clearTimeout(timer);

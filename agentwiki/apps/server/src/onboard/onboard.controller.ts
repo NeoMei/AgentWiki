@@ -174,13 +174,13 @@ const ONBOARD_JSON: OnboardPlan = {
     {
       step: 9,
       name: '（可选）创建 local-sync 安装 code',
-      note: '如果用户需要扫描本地代码或文档并整理成知识库后同步到 AgentWiki，才执行此步骤。需要用步骤 1 的 owner TOKEN 调用，生成一次性安装 code。',
+      note: '如果用户需要扫描本地代码或文档并整理成知识库后同步到 AgentWiki，才执行此步骤。用 Agent 自己的 AGENT_KEY 调用，生成一次性安装 code。',
       method: 'POST',
-      url: `${API_BASE}/agents/{{AGENT_ID}}/local-sync-installations`,
-      headers: { Authorization: 'Bearer {{TOKEN}}', 'Content-Type': 'application/json' },
+      url: `${API_BASE}/agents/{{AGENT_ID}}/local-sync-installations/self`,
+      headers: { Authorization: 'Bearer {{AGENT_KEY}}', 'Content-Type': 'application/json' },
       body: {
         scopes: ['pages:read', 'pages:write', 'spaces:read', 'graph:read', 'sources:read', 'runs:write'],
-        pluginVersion: '0.2.3',
+        pluginVersion: '0.2.6',
       },
       save: [{ field: 'code', as: 'INSTALL_CODE', description: '一次性 local-sync 安装 code' }],
     },
@@ -190,7 +190,7 @@ const ONBOARD_JSON: OnboardPlan = {
       note: '在本地执行此命令完成安装。它会把本地 stdio MCP server 注册到用户的本地 Agent（Codex / Claude Code / OpenCode），不会自动扫描或上传任何文件。',
       action: 'run_local_command',
       config: {
-        command: 'npx --yes @neomei/agentwiki-local-sync@0.2.3 connect --server https://agentwiki.quukk.com/api --code {{INSTALL_CODE}} --agent auto',
+        command: 'npx --yes @neomei/agentwiki-local-sync@0.2.6 connect --server https://agentwiki.quukk.com/api --code {{INSTALL_CODE}} --agent auto --orchestrator',
       },
       save: [],
     },
@@ -208,9 +208,9 @@ const ONBOARD_JSON: OnboardPlan = {
     localSyncMcp: {
       name: 'agentwiki-local-sync',
       package: '@neomei/agentwiki-local-sync',
-      version: '0.2.3',
+      version: '0.2.6',
       transport: 'stdio',
-      command: 'npx --yes @neomei/agentwiki-local-sync@0.2.3 connect --server https://agentwiki.quukk.com/api --code <INSTALL_CODE> --agent auto',
+      command: 'npx --yes @neomei/agentwiki-local-sync@0.2.6 connect --server https://agentwiki.quukk.com/api --code <INSTALL_CODE> --agent auto --orchestrator',
       tools: ['start_knowledge_job', 'get_next_work_item', 'read_artifacts', 'submit_organized_item', 'validate_knowledge_job', 'preview_knowledge_job', 'confirm_and_push', 'pull_space', 'resolve_conflict'],
       note: '本地同步工具，需要先通过步骤 9 创建安装 code 并运行 npx connect 命令注册到本地 Agent。用于扫描本地代码/文档并整理成知识库后同步到 AgentWiki。不要直接连接远程 MCP 来执行这些工作流。',
     },

@@ -11,7 +11,7 @@
 
 ## 整理引擎
 
-- OpenWiki 不再是必需组件；零配置方案不要求 OpenWiki init、独立 Provider 或额外模型 Key。
+- 旧外部 Wiki 编译器不再是必需组件；零配置方案不要求交互式 init、独立 Provider 或额外模型 Key。
 - 当前本地 Agent 负责需要语义判断的整理和写作；Orchestrator 不内嵌第二套模型。
 - 采用确定性状态机、版本化 Recipe、Schema、稳定 ID、checkpoint 和有界修复循环约束 Agent，不能只依赖提示词。
 - Agent 只填写语义字段；路径、ID、排序、hash、版本、幂等和同步状态由 Orchestrator 管理。
@@ -51,11 +51,11 @@
 
 ## 版本与迁移
 
-- `@neomei/agentwiki-local-sync@0.1.1` 已发布，但仍属于旧 OpenWiki 路径，不能宣传为零配置方案。
-- 新架构使用 `0.2.0`，并定义新的 Adapter、Artifact、KnowledgeBundle、Recipe、Job State、Revision 和 Delta 协议。
+- `@neomei/agentwiki-local-sync@0.1.1` 已发布，但仍属于旧编译器路径，不能宣传为零配置方案。
+- 新架构已随 `0.2.5` 发布，并定义 Adapter、Artifact、KnowledgeBundle、Recipe、Job State、Revision 和 Delta 协议。
 - `0.1.x` 不自动切换到 `0.2.0`；升级先迁移本地配置和 Space Workspace，再切换 MCP。
-- 旧 OpenWiki preview 不能直接作为新 Bundle 上传，需要通过迁移 Recipe 重新整理。
-- `0.2.0` 完成跨 Agent、跨机器真实 E2E 前，使用指南不能声称新方案可用。
+- 旧格式 preview 不能直接作为新 Bundle 上传，需要通过迁移 Recipe 重新整理。
+- `0.2.5` 已完成跨 Agent、跨机器真实 E2E，使用指南可按已验证能力说明新方案。
 
 ## 实施拆分
 

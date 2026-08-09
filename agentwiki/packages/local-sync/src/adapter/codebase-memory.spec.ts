@@ -103,6 +103,30 @@ describe('CodebaseMemoryAdapter', () => {
       adapter.inspect({ sourcePath: 'relative/path', spaceId: 's', jobId: 'j' }),
     ).rejects.toThrow('Source path must be absolute');
   });
+
+  it('uses the supported CLI tools and unwraps MCP JSON output', async () => {
+    const callsPath = join(runtimePath, 'calls.jsonl');
+    const bin = join(runtimePath, 'node_modules', '.bin', 'codebase-memory-mcp');
+    await writeFile(bin, `
+import { appendFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(process.argv.slice(2)) + '\\n');
+const tool = process.argv[4];
+const value = tool === 'index_repository'
+  ? { project: 'tiny-project', nodes: 7, edges: 6, status: 'indexed' }
+  : { project: 'tiny-project', total_nodes: 7, total_edges: 6, languages: [{ language: 'TypeScript', file_count: 2 }], packages: [{ name: 'src', node_count: 6 }] };
+console.log(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, isError: false }));
+`, { mode: 0o755 });
+
+    const batch = await adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
+    const calls = (await import('node:fs/promises')).readFile(callsPath, 'utf8');
+
+    expect(await calls).toContain('index_repository');
+    expect(await calls).toContain('get_architecture');
+    expect(batch.artifacts).toContainEqual(expect.objectContaining({
+      logicalKey: 'architecture/overview',
+      kind: 'code',
+    }));
+  });
 });
 
 async function writeCodebaseMemoryCli(runtimePath: string, graph: Record<string, unknown>): Promise<void> {

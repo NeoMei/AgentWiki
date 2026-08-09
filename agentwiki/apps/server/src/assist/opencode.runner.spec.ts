@@ -54,12 +54,15 @@ describe('OpencodeCliRunner', () => {
     const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
 
     expect(spawn).toHaveBeenCalledWith('opencode', [
-      'run', '--model', 'opencode/big-pickle', '--format', 'json', 'prompt',
-    ], expect.objectContaining({ env: expect.any(Object) }));
+      '--pure', 'run', '--model', 'opencode/big-pickle', '--format', 'json', 'prompt',
+    ], expect.objectContaining({ env: expect.any(Object), cwd: expect.stringContaining('agentwiki-assist-') }));
     const childEnv = (spawn as jest.Mock).mock.calls[0][2].env;
     expect(childEnv).not.toHaveProperty('DATABASE_URL');
     expect(childEnv).not.toHaveProperty('JWT_SECRET');
     expect(childEnv).not.toHaveProperty('REDIS_URL');
+    expect(JSON.parse(childEnv.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+      permission: 'deny', share: 'disabled', autoupdate: false,
+    });
 
     child.stdout.write(JSON.stringify({
       type: 'text',
@@ -100,7 +103,7 @@ describe('OpencodeCliRunner', () => {
 
     expect(spawn).toHaveBeenCalledWith(
       'opencode',
-      ['models', '--verbose'],
+      ['--pure', 'models', '--verbose'],
       expect.objectContaining({ env: expect.any(Object) }),
     );
     child.stdout.write('model catalog');
@@ -185,7 +188,7 @@ describe('OpencodeCliRunner', () => {
     await expect(execution).resolves.toBe('ok');
     expect(spawn).toHaveBeenCalledWith(
       join(process.cwd(), 'node_modules', '.bin', 'opencode'),
-      [],
+      ['--pure'],
       expect.any(Object),
     );
   });

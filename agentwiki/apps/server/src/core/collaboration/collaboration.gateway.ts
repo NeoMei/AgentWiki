@@ -44,6 +44,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       const payload = this.jwt.verify(token);
       const principal = await this.auth.validateJwtUser(payload.sub);
       if (!principal) throw new Error('User account is unavailable');
+      if (payload.authVersion === undefined || payload.authVersion !== principal.authVersion || principal.mustChangePassword) {
+        throw new Error('Token is no longer valid');
+      }
       client.data.user = principal;
     } catch {
       client.disconnect(true);

@@ -55,9 +55,9 @@ function run(runner: CommandRunner, command: string, args: string[]): CommandRes
   return result;
 }
 
-function mcpCommand(version: string, connectionId: string): string[] {
+function mcpCommand(version: string, connectionId: string, orchestrator = false): string[] {
   assertExactVersion(version);
-  return ['npx', '-y', `@neomei/agentwiki-local-sync@${version}`, 'mcp', '--connection', connectionId];
+  return ['npx', '-y', `@neomei/agentwiki-local-sync@${version}`, 'mcp', '--connection', connectionId, ...(orchestrator ? ['--orchestrator'] : [])];
 }
 
 function assertExactVersion(version: string): void {
@@ -106,7 +106,7 @@ function opencodeMajorVersion(runner: CommandRunner): 1 | 2 {
 function desiredOpenCodeEntry(version: string, connectionId: string, major: 1 | 2): JsonObject {
   return {
     type: 'local',
-    command: mcpCommand(version, connectionId),
+    command: mcpCommand(version, connectionId, true),
     ...(major === 1
       ? { enabled: true, timeout: OPENCODE_MCP_EXECUTION_TIMEOUT_MS }
       : { disabled: false, timeout: { execution: OPENCODE_MCP_EXECUTION_TIMEOUT_MS } }),
@@ -193,8 +193,9 @@ export async function registerMcp(
   version: string,
   runner: CommandRunner,
   home: string,
+  orchestrator = true,
 ): Promise<void> {
-  const command = mcpCommand(version, connectionId);
+  const command = mcpCommand(version, connectionId, orchestrator);
   if (client === 'codex') {
     run(runner, 'codex', ['mcp', 'add', name, '--', ...command]);
     return;

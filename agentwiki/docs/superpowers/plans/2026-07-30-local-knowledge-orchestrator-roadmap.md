@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this roadmap plan-by-plan. Every linked plan uses checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the mandatory OpenWiki path with a zero-configuration local knowledge orchestrator, managed source adapters, authoritative per-Space revisions, confirmation-gated bidirectional sync, and three-way conflict proposals.
+**Goal:** Replace the mandatory retired external compiler path with a zero-configuration local knowledge orchestrator, managed source adapters, authoritative per-Space revisions, confirmation-gated bidirectional sync, and three-way conflict proposals.
 
 **Architecture:** The work is split into four sequential, independently reviewable plans. Plans 1 and 2 produce a useful offline local workspace before any server protocol changes; Plan 3 adds the authoritative server revision contract; Plan 4 joins both sides, adds conflict handling, migrates installation UX, and proves the release with real Agents and two local homes.
 
@@ -27,7 +27,7 @@
 1. [Protocol, workspace, validation, and deterministic job state](2026-07-30-local-knowledge-core-plan.md)
    - Deliverable: offline `start → collect fixture → work items → validate → preview` flow with crash recovery and no network.
 2. [Managed adapter runtime and first-party adapters](2026-07-30-local-knowledge-adapters-plan.md)
-   - Deliverable: codebase-memory and MarkItDown produce compliant `SourceArtifact` batches without OpenWiki or manual init.
+   - Deliverable: codebase-memory and MarkItDown produce compliant `SourceArtifact` batches without retired external compiler or manual init.
 3. [Authoritative Space revisions and server ChangeSet bridge](2026-07-30-space-knowledge-revisions-plan.md)
    - Deliverable: Snapshot/Delta/Pull/Submit APIs that compile a confirmed KnowledgeBundle into reviewable page, memory, relation, and deletion items.
 4. [Bidirectional sync, conflict proposals, installation migration, and release](2026-07-30-local-knowledge-sync-release-plan.md)

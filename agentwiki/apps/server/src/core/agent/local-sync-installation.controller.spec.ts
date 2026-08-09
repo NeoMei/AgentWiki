@@ -1,4 +1,5 @@
-import { InternalServerErrorException } from '@nestjs/common';
+import { ForbiddenException, InternalServerErrorException } from '@nestjs/common';
+import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { HumanOnlyGuard } from '../auth/human-only.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -28,6 +29,49 @@ describe('LocalSyncInstallationController', () => {
       HumanOnlyGuard,
     ]);
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.exchange)).toBeUndefined();
+  });
+
+  it('allows an agent to create an install code for itself using CombinedAuthGuard', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.createForAgent)).toEqual([
+      CombinedAuthGuard,
+    ]);
+  });
+
+  it('creates an install code with the ownerId and agentId from the authenticated principal', async () => {
+    config.get.mockImplementation((key: string) => (
+      key === 'PUBLIC_API_URL' ? 'https://wiki.test/api' : 'production'
+    ));
+    installations.create.mockResolvedValue({ installationId: 'install-self' });
+    const request = {
+      user: {
+        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', scopes: ['pages:read'],
+      },
+    } as any;
+
+    const result = await controller.createForAgent(request, 'agent-1', {
+      scopes: ['pages:read'],
+      pluginVersion: '0.2.3',
+    });
+
+    expect(result).toEqual({ installationId: 'install-self' });
+    expect(installations.create).toHaveBeenCalledWith(
+      'owner-1',
+      'agent-1',
+      ['pages:read'],
+      '0.2.3',
+      'https://wiki.test/api',
+      { credentialId: 'credential-1', scopes: ['pages:read'] },
+    );
+  });
+
+  it('forbids an agent from creating install codes for a different agent', () => {
+    const request = { user: { userId: 'owner-1', agentId: 'agent-2' } } as any;
+
+    expect(() => controller.createForAgent(request, 'agent-1', {
+      scopes: ['pages:read'],
+      pluginVersion: '0.2.3',
+    })).toThrow(ForbiddenException);
+    expect(installations.create).not.toHaveBeenCalled();
   });
 
   it('uses the configured canonical public API URL without a trailing slash', async () => {

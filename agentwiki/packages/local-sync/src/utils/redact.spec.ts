@@ -20,6 +20,12 @@ describe('redact', () => {
     expect(sensitivity).toBe('local-only');
   });
 
+  it('detects quoted JSON secret keys', () => {
+    const result = redactSecrets('{"apiKey":"SuperSecret123"}');
+    expect(result.hasSecret).toBe(true);
+    expect(result.text).not.toContain('SuperSecret123');
+  });
+
   it('classifies clean text as shareable', () => {
     const sensitivity = classifySensitivity('Hello world');
     expect(sensitivity).toBe('shareable');
