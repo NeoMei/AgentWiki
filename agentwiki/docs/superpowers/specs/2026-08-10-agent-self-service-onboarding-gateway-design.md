@@ -185,7 +185,7 @@ Agent 只收集必要业务字段：
 - `spaceMode`: `create` 或 `existing`。
 - `spaceName` 或 `spaceId`。
 - `agentName`。
-- `permissionPreset`: `viewer`、`editor` 或 `full`。
+- `permissionPreset`: `editor` 或 `full`。完整 onboarding 必须完成首次同步，因此不提供只读 `viewer`；接入完成后，Space 管理员仍可把 Agent 降级为 `viewer`。
 - `approvalMode`: `always-review` 或 Space 允许时的 `scoped-auto-publish`。
 - `sourcePaths`: 默认当前工作目录，可多选。
 - `sourceType`: 默认 `auto`，也可为 `code`、`documents` 或版本化 Adapter ID。

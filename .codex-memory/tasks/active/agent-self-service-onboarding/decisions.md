@@ -17,3 +17,4 @@
 - bootstrap 只接收 serverPlan；扫描路径、Adapter 选择和本地配置 diff 属于 localPlan，永不上传。
 - 目标版本为 local-sync 0.3.0，并明确作为破坏性简化版本；不保留 0.2.9 connect、remote-only 安装分支或旧状态迁移。
 - 旧客户端配置先完整备份，再一次性替换为唯一 gateway；旧本地状态只归档，不做语义迁移。
+- 完整 onboarding 因首次同步必做，只提供 `editor` 与 `full` 权限预设；`viewer` 仅允许接入完成后由 Space 管理员降级设置。

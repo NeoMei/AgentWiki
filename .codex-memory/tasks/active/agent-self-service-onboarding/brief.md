@@ -12,6 +12,7 @@
 - 正式设计已写入 `agentwiki/docs/superpowers/specs/2026-08-10-agent-self-service-onboarding-gateway-design.md`。
 - 分阶段实施计划已写入 `agentwiki/docs/superpowers/plans/2026-08-10-agent-self-service-onboarding-gateway-plan.md`，拆为 4 个里程碑、11 个 TDD 任务。
 - 当前已完成设计与计划，尚未进入代码实现。
+- 2026-08-10：用户确认权限冲突采用 A，完整 onboarding 不提供 `viewer`，只提供可完成首次同步的 `editor`/`full`。
 
 ## 范围
 

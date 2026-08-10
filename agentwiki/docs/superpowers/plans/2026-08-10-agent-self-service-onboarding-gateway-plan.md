@@ -20,6 +20,7 @@
 - `serverPlan` is uploaded only after its hash is confirmed; `localPlan` never leaves the machine.
 - The three human actions are web authorization, onboarding plan confirmation, and sync preview confirmation.
 - One client receives one stdio MCP named `agentwiki`. There is no direct remote MCP entry, second local MCP entry, `connect` command, remote-only branch, old tool alias, or old checkpoint migration.
+- Full onboarding accepts only `editor` and `full` permission presets because first sync is mandatory. `viewer` remains available only as a post-onboarding Space-admin downgrade.
 - Existing 0.2.9 files remain untouched until 0.3 onboarding is confirmed. At install time, the complete old client configuration and `~/.agentwiki` directory are archived before the clean 0.3 state is activated.
 - Credential Scope, Space Grant, Agent status, Space role, Space Policy, ChangeSet, and approval rules remain authoritative.
 - Every external operation has a deadline, every wait emits an event within five seconds, and cancellation terminates the process group.
@@ -68,7 +69,43 @@
 
 - [ ] **Step 1: Write failing DTO and plan-normalization tests**
 
-  Cover exact version validation, supported clients, unknown-field rejection, create/existing Space variants, preset scopes, approval modes, and canonical hashing. The canonical plan helper must sort object keys and scope arrays before hashing.
+  Cover exact version validation, supported clients, unknown-field rejection, create/existing Space variants, preset scopes, approval modes, and canonical hashing. The canonical plan helper must sort object keys and scope arrays before hashing. The exact public inputs are:
+
+  ```ts
+  type StartDeviceInput = {
+    packageVersion: '0.3.0';
+    clientType: 'codex' | 'claude' | 'opencode';
+    purpose: 'full-onboarding';
+  };
+  type PollDeviceInput = { deviceCode: string };
+  type DeviceDecisionInput = { userCode: string; decision: 'approve' | 'deny' };
+  type ServerPlan = {
+    space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
+    agentName: string;
+    permissionPreset: 'editor' | 'full';
+    approvalMode: 'always-review' | 'scoped-auto-publish';
+    packageVersion: '0.3.0';
+  };
+  type BootstrapInput = { serverPlan: ServerPlan; serverPlanHash: string };
+  ```
+
+  `requestedCapabilities` is server-derived from `purpose` and is never accepted from the client. Use exactly these sorted scope sets:
+
+  ```ts
+  const PERMISSION_PRESETS = {
+    editor: [
+      'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
+      'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
+    ],
+    full: [
+      'graph:read', 'graph:write', 'memory:read', 'memory:write', 'pages:read',
+      'pages:write', 'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
+      'sources:read', 'sources:write', 'spaces:read',
+    ],
+  } as const;
+  ```
+
+  Both presets create an `editor` Space grant. `scoped-auto-publish` adds `review:auto-publish` to the editor set; `always-review` does not remove it from `full`, because effective publication still requires the Agent mode and Space policy intersection. Hash UTF-8 canonical JSON with SHA-256 and return lowercase 64-character hexadecimal.
 
   ```ts
   expect(normalizeServerPlan({
@@ -78,7 +115,10 @@
     approvalMode: 'always-review',
     packageVersion: '0.3.0',
   })).toEqual(expect.objectContaining({
-    scopes: ['graph:read', 'graph:write', 'pages:read', 'pages:write', 'sources:read', 'spaces:read'],
+    scopes: [
+      'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
+      'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
+    ],
   }));
   ```
 
@@ -143,7 +183,7 @@
 
 - [ ] **Step 4: Implement strict DTOs and the canonical plan helper**
 
-  Define `PERMISSION_PRESETS` in one server module. `viewer`, `editor`, and `full` must map only to scopes already accepted by `AgentService.normalizeCredentialScopes`; bootstrap must reject any client-supplied `scopes` field.
+  Define `PERMISSION_PRESETS` in one server module. `editor` and `full` must map only to scopes already accepted by `AgentService.normalizeCredentialScopes`; bootstrap must reject `viewer`, any client-supplied `scopes`, and every unknown field.
 
 - [ ] **Step 5: Validate schema and run tests**
 
