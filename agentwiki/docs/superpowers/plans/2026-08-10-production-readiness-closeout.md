@@ -213,7 +213,7 @@ Assert visible Agent option, viewer/editor defaults, successful member appearanc
 
 Expected: desktop 1280x800 and mobile 390x844 pass; all created data is deleted.
 
-- [ ] **Step 3: After deployment, run production read-only page smoke and controlled write UI E2E**
+- [x] **Step 3: After deployment, run production read-only page smoke and controlled write UI E2E**
 
 Verify `/`, `/guide`, `/onboard`, `/dashboard`, login, Space members, and local-sync guide. Use explicit remote opt-in and exact hostname confirmation.
 
@@ -251,11 +251,11 @@ Verify no `.tgz`, `.env`, key, password, token, database dump, or temporary scre
 
 Use author `NeoMei <ffdeml@gmail.com>`. Push the tested commit and fast-forward `master` only after all gates pass.
 
-- [ ] **Step 5: Publish npm `0.2.9`**
+- [x] **Step 5: Publish npm `0.2.9`**
 
 Use interactive npm WebAuthn confirmation and verify public registry `latest=0.2.9`.
 
-- [ ] **Step 6: Deploy production and verify version parity**
+- [x] **Step 6: Deploy production and verify version parity**
 
 Back up production, deploy API/Worker/frontend, apply migrations, verify systemd services and `/api/health`, then confirm `/api/onboard.json` uses `0.2.9`, Agent-key `/self` installation endpoint is present, and the local-sync MCP command includes `--orchestrator`.
 

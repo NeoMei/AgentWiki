@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,7 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
   const buildIndex = deploy.indexOf('pnpm --filter @agentwiki/server build');
   assert.ok(generateIndex >= 0, 'direct deployment must explicitly regenerate Prisma Client');
   assert.ok(generateIndex < buildIndex, 'Prisma Client must be generated before the server build');
+  assert.notEqual((await stat(resolve(root, 'deploy.sh'))).mode & 0o111, 0, 'deploy.sh must be executable');
 });
 
 test('direct production deployment rejects a stale non-HTTPS public Agent API URL', async () => {
@@ -59,6 +60,17 @@ test('direct production deployment rejects a stale non-HTTPS public Agent API UR
   assert.match(deploy, /must be the externally reachable HTTPS \/api URL/);
   assert.match(deploy, /packages\/local-sync\/package\.json/);
   assert.match(deploy, /LOCAL_SYNC_PACKAGE_VERSION/);
+});
+
+test('Nginx sends Socket.IO websocket upgrades directly to the API', async () => {
+  const nginx = await read('deploy/nginx/agentwiki.conf');
+  const socketLocation = nginx.match(/location \/socket\.io\/ \{([\s\S]*?)\n    \}/)?.[1];
+
+  assert.ok(socketLocation, 'Nginx must define a dedicated /socket.io/ location');
+  assert.match(socketLocation, /proxy_pass http:\/\/127\.0\.0\.1:3000;/);
+  assert.match(socketLocation, /proxy_http_version 1\.1;/);
+  assert.match(socketLocation, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(socketLocation, /proxy_set_header Connection "upgrade";/);
 });
 
 test('Compose forwards onboarding and OpenCode routing configuration to the API', async () => {

@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- AgentWiki 0.2.9 上线收尾：源码、npm、GitHub 与生产服务保持同一版本。
+- AgentWiki 0.2.9 已完成上线：源码、npm、GitHub 与生产服务保持同一版本。
 
 # 范围 / 不做
 
@@ -16,9 +16,11 @@
 - 零配置本地知识链路已真实验证：原生 codebase-memory 直接执行；Microsoft MarkItDown 0.1.6 由私有 Python 3.10+ venv 管理，PDF 转换、运行时复用和校验通过。
 - 双向同步已真实验证：两个本地工作区 Snapshot/Delta Pull/Push，页面、共享记忆、关系、冲突阻断及三类审批删除均通过。
 - Space Agent 成员桌面/移动端浏览器验收已通过；全站 3 个公开、16 个登录后、6 个移动端关键路由已巡检。
-- 门禁：runtime 64、server 369、client 124、local-sync 181，合计 738 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical / 0 low，3 moderate 均不可达。
-- 0.2.9 已暂存到 npm 公开发布队列，尚未 WebAuthn 批准；公网 `latest` 仍为 0.2.5。
-- 生产健康检查正常，但 `/api/onboard.json` 仍为 0.2.3，SSH 认证未通过，因此未冒充完成部署。
+- 门禁：runtime 65、server 369、client 124、local-sync 181，合计 739 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical / 0 low，3 moderate 均不可达。
+- npm `@neomei/agentwiki-local-sync` 公网 `latest=0.2.9`，过期 0.2.6/0.2.7/0.2.8 暂存项已拒绝。
+- 生产已备份并部署 0.2.9；API、Worker、Frontend 均为 active，健康检查全绿，onboarding 安装命令包含 `--orchestrator`。
+- 生产受控验证已通过：API smoke 18 项、3 个公开/16 个登录后/6 个移动端 UI 路由、Space Agent 成员桌面/移动端。
+- 生产 Nginx 的 `/socket.io/` 误路由已修复，公网 WebSocket 握手由 400 恢复为 101，并加入配置契约测试。
 - 详细证据：`agentwiki/docs/verification/production-readiness-0.2.9.md`。
 
 # 稳定约束
@@ -39,5 +41,5 @@
 
 # 风险 / 下一步
 
-- 在 npm Staged Packages 批准 0.2.9（ID `fdd0befc-8a99-4fd3-8268-a6f7125e72c6`），并拒绝过期的 0.2.6/0.2.7/0.2.8 暂存项。
-- 为 `root@113.249.120.24` 配置可用 SSH 认证后，部署 0.2.9 并执行生产受控写入 UI E2E。
+- 当前无未完成上线任务；后续常规维护应继续执行备份、迁移、健康检查、受控 smoke 和版本核对。
+- 生产依赖审计剩余 3 个不可达 moderate；只有未来引入 Nest SSE 或 `FileTypeValidator` 路径时才需重新评估。

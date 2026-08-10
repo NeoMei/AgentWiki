@@ -5,7 +5,7 @@
 
 ## 结论
 
-0.2.9 的本地实现和验证门禁已通过，本轮修复了以下会阻断使用或影响上线安全的问题：
+0.2.9 的本地实现、npm 发布、生产部署和验证门禁均已通过，本轮修复了以下会阻断使用或影响上线安全的问题：
 
 1. codebase-memory 本机原生可执行文件被 Node 当作 JavaScript 加载，导致扫描失败。
 2. 文档适配器误用了同名 npm 包，而非 Microsoft MarkItDown；现改为私有 Python 3.10+ venv 和精确版本 0.1.6。
@@ -13,18 +13,19 @@
 4. 文档多层目录达到 `maxFiles` 后父目录仍可继续扫描；现已确保全局不超过用户限额。
 5. 运行时 checksum 跳过点目录，未覆盖 Python `.venv` 和 Node `.bin`；现已将实际执行入口纳入校验。
 6. 生产依赖含 Hono、Node Server、`qs`、`body-parser` 和 React Router 已修复漏洞版本；已升级 MCP SDK 和 React Router 7，并完成真实浏览器回归。
+7. 生产 Nginx 将 `/socket.io/` 错送到 Vite，WebSocket 握手返回 400；现增加直连 NestJS 的专用 Upgrade 路由，并加入配置契约测试。
 
-本地可完成的任务已完成。npm 批准与生产部署仍是外部权限门禁，本报告不将其冒充为已完成。
+发布前已创建生产代码、环境和 PostgreSQL 备份。npm 0.2.9 已经 WebAuthn 批准，生产 API、Worker、Frontend 均已部署并通过受控写入验证。
 
 ## 自动化门禁
 
 | 范围 | 结果 |
 | --- | --- |
-| Runtime / 数据库契约 | 64 / 64，真实 PostgreSQL，0 跳过 |
+| Runtime / 数据库契约 | 65 / 65，真实 PostgreSQL，0 跳过 |
 | Server | 45 suites / 369 tests |
 | Client | 30 files / 124 tests |
 | local-sync | 23 files / 181 tests |
-| 合计 | 738 tests |
+| 合计 | 739 tests |
 | TypeScript | `pnpm typecheck` 通过 |
 | Lint | `pnpm lint` 通过，0 errors |
 | Build | `pnpm build` 通过 |
@@ -43,6 +44,9 @@
 - UI：3 个公开路由、16 个登录后路由、6 个移动端路由通过；Space Agent 成员桌面/移动端通过。
 - 生产只读 UI：`/`、`/guide`、`/onboard` 桌面/移动端无空白、无横向溢出、无 console/page error、无 5xx。
 - React Router 7 全栈 UI 回归：3 个公开、16 个登录后、6 个移动端路由以及 Space Agent 成员操作再次通过。
+- 生产 API smoke：18 项通过，测试用户、Space 和 Agent 在 `finally` 中清理。
+- 生产 UI：3 个公开路由、16 个登录后路由、6 个移动端路由通过；Space 添加 Agent 成员桌面/移动端通过。
+- 生产 WebSocket：修复前稳定返回 400，修复后公网 `wss` 握手返回 101。
 
 ## 依赖风险处理
 
@@ -58,9 +62,9 @@
 - 重复检查旧 npm scope、已退役外部编译器痕迹、TODO/FIXME、敏感信息、差异格式与活跃版本号。
 - 本轮结束时未发现还有值得修复的本地代码缺陷。
 
-## 外部发布门禁
+## 发布结果
 
-1. npm：0.2.9 已暂存为 public/latest，ID `fdd0befc-8a99-4fd3-8268-a6f7125e72c6`，tarball shasum `7d2a0acf1a129b7671525ee124bb3d33deb57698`；公网仍是 0.2.5，需在 npm Staged Packages 完成 WebAuthn 批准。过期 0.2.6/0.2.7/0.2.8 暂存项应拒绝。
-2. 生产：`/api/health` 正常，但 `/api/onboard.json` 仍为 0.2.3。`root@113.249.120.24` 的 SSH 认证被拒绝，因此无法执行备份、迁移、部署和生产受控写入 E2E。
-
-两项完成后，应重新核对 npm `latest=0.2.9`、生产 onboarding `version=0.2.9`、健康检查与受控写入 UI E2E。
+1. npm：`@neomei/agentwiki-local-sync` 的公网 `latest=0.2.9`；过期 0.2.6、0.2.7、0.2.8 暂存项均已拒绝。
+2. 生产：备份位于 `/root/agentwiki-backups/20260810-114802`；源码与 `/api/onboard.json` 均为 0.2.9，安装命令包含 `--orchestrator`。
+3. 运行状态：API、Worker、Frontend 三个 systemd 服务均为 active；健康检查的 database、redis、auditPersistence 均为 ok。
+4. 生产变更：Nginx 配置先经 `nginx -t`，再 reload；WebSocket、API smoke、完整 UI 路由和 Space Agent 成员测试均通过。
