@@ -8,7 +8,8 @@
  * NDJSON events through the injected protocol encoder and waits for structured
  * replies on the injected source.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { hashServerPlan as computeServerPlanHash } from './plan-hash.js';
 import { ProtocolEncoder, parseReply, isConfirmationReply, type ProtocolSource, type OnboardingEvent } from './protocol.js';
 import type { OnboardingClient, ClientType, ServerPlan, StartResult } from './client.js';
 import type { SessionStore, OnboardingCheckpoint, OnboardingState } from './session.js';
@@ -277,8 +278,7 @@ export class OnboardingCoordinator {
   }
 
   private hashServerPlan(plan: ServerPlan): string {
-    const canonical = JSON.stringify(plan);
-    return createHash('sha256').update(canonical, 'utf8').digest('hex');
+    return computeServerPlanHash(plan);
   }
 
   private buildReport(checkpoint: OnboardingCheckpoint): Record<string, unknown> {
@@ -302,7 +302,8 @@ export class OnboardingCoordinator {
   }
 
   private async ask(tag: string, event: Record<string, unknown>): Promise<{ values?: Record<string, unknown>; confirmed?: boolean }> {
-    this.emit({ type: tag === 'input' ? 'input_required' : 'confirmation_required', ...event } as never);
+    const eventType = tag === 'input' ? 'input_required' : 'confirmation_required';
+    this.emit({ type: eventType, ...event } as Parameters<ProtocolEncoder['emit']>[0]);
     const line = await this.deps.source.read();
     if (line === null) throw this.fail('AUTH_DENIED', `connection closed during ${tag}`, false);
     const reply = parseReply(line);

@@ -175,6 +175,17 @@ export function createInMemoryPreviewStore(): PreviewStore {
   };
 }
 
+function canonicalJson(value: unknown): string {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    return '{' + Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',') + '}';
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJson).join(',') + ']';
+  }
+  return JSON.stringify(value);
+}
+
 function sha256(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
+  return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
 }

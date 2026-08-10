@@ -1,0 +1,71 @@
+/**
+ * Server-plan normalization and canonical hashing.
+ *
+ * This MUST stay byte-for-byte identical with the server-side implementation
+ * in apps/server/src/onboard/onboard.types.ts. Any divergence causes the
+ * bootstrap endpoint to reject the confirmed plan hash.
+ */
+import { createHash } from 'node:crypto';
+
+export const PERMISSION_PRESETS = {
+  editor: [
+    'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
+    'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
+  ],
+  full: [
+    'graph:read', 'graph:write', 'memory:read', 'memory:write', 'pages:read',
+    'pages:write', 'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
+    'sources:read', 'sources:write', 'spaces:read',
+  ],
+} as const;
+
+export type PermissionPreset = keyof typeof PERMISSION_PRESETS;
+
+export interface ServerPlan {
+  space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
+  agentName: string;
+  permissionPreset: PermissionPreset;
+  approvalMode: 'always-review' | 'scoped-auto-publish';
+  packageVersion: string;
+}
+
+export interface NormalizedServerPlan extends ServerPlan {
+  scopes: string[];
+  spaceRole: 'editor';
+}
+
+export function normalizeServerPlan(plan: ServerPlan): NormalizedServerPlan {
+  const scopes = [...PERMISSION_PRESETS[plan.permissionPreset]];
+  if (plan.permissionPreset === 'editor' && plan.approvalMode === 'scoped-auto-publish') {
+    scopes.push('review:auto-publish');
+  }
+  return {
+    ...plan,
+    scopes: Array.from(new Set(scopes)).sort(),
+    spaceRole: 'editor',
+  };
+}
+
+function canonicalize(value: unknown, parentKey?: string): unknown {
+  if (Array.isArray(value)) {
+    const values = value.map((item) => canonicalize(item));
+    return parentKey === 'scopes'
+      ? values.sort((left, right) => String(left).localeCompare(String(right)))
+      : values;
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce<Record<string, unknown>>((result, key) => {
+        result[key] = canonicalize((value as Record<string, unknown>)[key], key);
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+export function hashServerPlan(plan: ServerPlan): string {
+  const normalized = normalizeServerPlan(plan);
+  const canonicalJson = JSON.stringify(canonicalize(normalized));
+  return createHash('sha256').update(canonicalJson, 'utf8').digest('hex');
+}
