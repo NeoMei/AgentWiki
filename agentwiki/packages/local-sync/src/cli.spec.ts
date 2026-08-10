@@ -82,7 +82,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.2.9' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.0' });
   });
 
   it('upgrades only the selected connection MCP command to an exact version', async () => {

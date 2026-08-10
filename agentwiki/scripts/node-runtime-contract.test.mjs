@@ -102,7 +102,7 @@ test('the product no longer carries the retired external wiki compiler path', ()
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.2.9');
+  assert.equal(version, '0.3.0');
   for (const path of [
     '.env.example',
     'apps/client/src/config/localSync.ts',
@@ -126,6 +126,33 @@ test('every user-facing local-sync surface uses the published npm package name',
     assert.doesNotMatch(source, /@agentwiki\/local-sync/, `${path} must not use the retired npm scope`);
     assert.match(source, /@neomei\/agentwiki-local-sync/, `${path} must name the published package`);
   }
+});
+
+
+
+test('the onboard controller advertises the pinned 0.3.0 onboarding command', async () => {
+  const source = await read('apps/server/src/onboard/onboard.controller.ts');
+  assert.match(source, /0\.3\.0/, 'onboard controller must reference 0.3.0');
+  assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
+  assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
+  assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
+});
+
+test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {
+  const source = await read('packages/local-sync/src/cli.ts');
+  const usage = source.match(/CLI_USAGE = '([^']+)'/);
+  assert.ok(usage, 'CLI_USAGE must be defined');
+  assert.match(usage[1], /onboard/, 'CLI must expose onboard');
+  assert.match(usage[1], /gateway/, 'CLI must expose gateway');
+  assert.doesNotMatch(usage[1], /\bconnect\b/, 'CLI must not expose connect');
+  assert.doesNotMatch(usage[1], /--orchestrator/, 'CLI must not expose --orchestrator');
+});
+
+test('the onboard.json endpoint returns 410 Gone with a replacement command', async () => {
+  const source = await read('apps/server/src/onboard/onboard.controller.ts');
+  assert.match(source, /410/, 'onboard.json must return 410');
+  assert.match(source, /replacement/, 'onboard.json must include a replacement command');
+  assert.doesNotMatch(source, /OnboardPlan/, 'the old OnboardPlan type must be removed');
 });
 
 test('the local-sync README documents the supported Node majors', async () => {
