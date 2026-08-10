@@ -45,6 +45,10 @@
 - Hybrid: `knowledge_prepare`, `knowledge_confirm_and_sync`, `knowledge_pull`.
 - The old `start_knowledge_job`, `get_next_work_item`, `read_artifacts`, `submit_organized_item`, `validate_knowledge_job`, `preview_knowledge_job`, `confirm_and_push`, `pull_space`, and `resolve_conflict` names are not registered.
 
+### Stable failure codes
+
+`AUTH_DENIED`, `AUTH_EXPIRED`, `PROTOCOL_UNSUPPORTED`, `CLIENT_UNSUPPORTED`, `CONFIG_NOT_WRITABLE`, `CONFIG_CONFLICT`, `PACKAGE_INTEGRITY_FAILED`, `MCP_HANDSHAKE_FAILED`, `TOOLSET_MISMATCH`, `REMOTE_UNAVAILABLE`, `SCAN_FAILED`, `CONFIRMATION_REQUIRED`, `PREVIEW_CHANGED`, `SYNC_CONFLICT`, and `SYNC_FAILED` are public protocol values. Tests must assert the code, retryability, resume session, and redacted next action instead of matching free-form messages.
+
 ---
 
 ## Milestone 1 — Device Auth, bootstrap, and protocol foundations
