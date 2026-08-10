@@ -93,6 +93,46 @@ describe('LocalSyncInstallationService', () => {
     expect(agents.normalizeCredentialScopes).toHaveBeenCalledWith(['sources:read']);
   });
 
+  it('issues a bootstrap code through the same validation and ten-minute storage path', async () => {
+    const result = await service.issueForBootstrap({
+      ownerId: 'owner-1',
+      agentId: 'agent-1',
+      scopes: ['sources:read', 'sources:read'],
+      pluginVersion: '0.1.0',
+      serverUrl: 'https://wiki.test/api/',
+    });
+
+    expect(result.expiresAt).toBe('2030-01-01T00:10:00.000Z');
+    expect(agents.getOwned).toHaveBeenCalledWith('owner-1', 'agent-1');
+    expect(agents.normalizeCredentialScopes).toHaveBeenCalledWith([
+      'sources:read', 'sources:read',
+    ]);
+    expect(redis.setOnce).toHaveBeenCalledWith(
+      `local-sync:install:${result.installationId}`,
+      expect.stringContaining('"scopes":["sources:read"]'),
+      600,
+    );
+  });
+
+  it('keeps bootstrap issuance closed for unsupported versions, unsafe URLs and inactive Agents', async () => {
+    await expect(service.issueForBootstrap({
+      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
+      pluginVersion: '0.2.0', serverUrl: 'https://wiki.test/api',
+    })).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
+
+    agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'paused' });
+    await expect(service.issueForBootstrap({
+      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
+      pluginVersion: '0.1.0', serverUrl: 'https://wiki.test/api',
+    })).rejects.toThrow('Agent must be active');
+
+    agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
+    await expect(service.issueForBootstrap({
+      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
+      pluginVersion: '0.1.0', serverUrl: 'https://wiki.test/api;bad',
+    })).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
+  });
+
   it.each([undefined, '0.2.0'])('rejects unsupported configured version %p before issuing a code', async (supported) => {
     config.get.mockReturnValue(supported);
 

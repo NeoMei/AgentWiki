@@ -21,6 +21,7 @@ import { AllExceptionsFilter } from '../core/filters/all-exceptions.filter';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
 import { OnboardController } from './onboard.controller';
+import { OnboardBootstrapService } from './onboard-bootstrap.service';
 import { OnboardDeviceService } from './onboard-device.service';
 import { OnboardingTokenGuard } from './onboarding-token.guard';
 
@@ -479,7 +480,8 @@ describe('OnboardingTokenGuard', () => {
     });
     expect(JSON.stringify(prisma.onboardingDeviceSession.findUnique.mock.calls)).not.toContain(rawToken);
     expect(probe.request.onboarding).toEqual({
-      sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.0', requestedCapabilities: CAPABILITIES,
+      sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.0',
+      purpose: 'full-onboarding', requestedCapabilities: CAPABILITIES,
     });
   });
 
@@ -492,10 +494,23 @@ describe('OnboardingTokenGuard', () => {
   it.each([
     session({ status: 'approved', authorizedUserId: 'user-1', tokenExpiresAt: new Date(Date.now() + 600_000) }),
     session({ status: 'authorized', authorizedUserId: 'user-1', tokenExpiresAt: new Date(Date.now() - 1) }),
-    session({ status: 'authorized', authorizedUserId: 'user-1', tokenExpiresAt: new Date(Date.now() + 600_000), tokenConsumedAt: new Date() }),
-  ])('rejects tokens in invalid, expired, or consumed state', async (stored) => {
+  ])('rejects tokens in invalid or expired state', async (stored) => {
     prisma.onboardingDeviceSession.findUnique.mockResolvedValue(stored);
     await expect(guard.canActivate(context().execution)).rejects.toBeDefined();
+  });
+
+  it('lets a consumed but unexpired token reach bootstrap replay handling', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({
+      status: 'authorized', authorizedUserId: 'user-1',
+      onboardingTokenHash: createHash('sha256').update(rawToken).digest('hex'),
+      tokenExpiresAt: new Date(Date.now() + 600_000), tokenConsumedAt: new Date(),
+    }));
+    const probe = context();
+
+    await expect(guard.canActivate(probe.execution)).resolves.toBe(true);
+    expect(probe.request.onboarding).toEqual(expect.objectContaining({
+      sessionId: 'session-1', userId: 'user-1', purpose: 'full-onboarding',
+    }));
   });
 });
 
@@ -516,6 +531,16 @@ describe('OnboardController HTTP contract', () => {
     decide: jest.fn().mockResolvedValue({ status: 'approved' }),
     poll: jest.fn().mockResolvedValue({ status: 'authorization_pending' }),
   };
+  const bootstrapService = {
+    bootstrap: jest.fn().mockResolvedValue({
+      space: { id: 'space-1', name: '研发知识库' },
+      agent: { id: 'agent-1', name: 'Codex' },
+      grant: { role: 'editor', scopes: ['pages:read'] },
+      installation: {
+        code: 'AW-INSTALL', installationId: 'install-1', expiresAt: NOW.toISOString(),
+      },
+    }),
+  };
 
   class HumanJwtProbe implements CanActivate {
     canActivate(context: ExecutionContext) {
@@ -533,11 +558,23 @@ describe('OnboardController HTTP contract', () => {
       controllers: [OnboardController],
       providers: [
         { provide: OnboardDeviceService, useValue: devices },
+        { provide: OnboardBootstrapService, useValue: bootstrapService },
         HumanOnlyGuard,
       ],
     })
       .overrideGuard(JwtAuthGuard)
       .useClass(HumanJwtProbe)
+      .overrideGuard(OnboardingTokenGuard)
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          const request = context.switchToHttp().getRequest();
+          request.onboarding = {
+            sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.0',
+            purpose: 'full-onboarding', requestedCapabilities: CAPABILITIES,
+          };
+          return true;
+        },
+      })
       .compile();
     app = moduleRef.createNestApplication();
     app.useLogger(false);
@@ -566,6 +603,32 @@ describe('OnboardController HTTP contract', () => {
     expect(devices.start).toHaveBeenCalledWith(expect.anything(), '127.0.0.1');
     expect(devices.getPublicSession).toHaveBeenCalledWith('ABCD-EFGH', '127.0.0.1');
     expect(devices.poll).toHaveBeenCalledWith(expect.anything(), '127.0.0.1');
+  });
+
+  it('routes bootstrap only through the onboarding principal and Idempotency-Key', async () => {
+    const serverPlan = {
+      space: { mode: 'create', name: '研发知识库' },
+      agentName: 'Codex', permissionPreset: 'editor',
+      approvalMode: 'always-review', packageVersion: '0.3.0',
+    };
+    const response = await fetch(`${baseUrl}/api/onboard/bootstrap`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer awo_${'a'.repeat(43)}`,
+        'idempotency-key': 'bootstrap-key-01',
+      },
+      body: JSON.stringify({ serverPlan, serverPlanHash: 'a'.repeat(64) }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(bootstrapService.bootstrap).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-1', userId: 'user-1' }),
+      'bootstrap-key-01',
+      expect.objectContaining(serverPlan),
+      'a'.repeat(64),
+    );
+    expect(JSON.stringify(await response.json())).not.toContain('apiKey');
   });
 
   it('allows only a human JWT to decide', async () => {

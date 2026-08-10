@@ -10,6 +10,6 @@ import { LocalSyncInstallationService } from './local-sync-installation.service'
   imports: [DatabaseModule, AuthModule],
   providers: [AgentService, LocalSyncInstallationService],
   controllers: [AgentController, LocalSyncInstallationController],
-  exports: [AgentService],
+  exports: [AgentService, LocalSyncInstallationService],
 })
 export class AgentModule {}

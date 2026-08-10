@@ -1,13 +1,34 @@
-import { Body, Controller, Get, Header, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
-import { DeviceDecisionDto, PollDeviceDto, StartDeviceDto } from './onboard.dto';
+import { BootstrapDto, DeviceDecisionDto, PollDeviceDto, StartDeviceDto } from './onboard.dto';
+import { OnboardBootstrapService } from './onboard-bootstrap.service';
 import { OnboardDeviceService } from './onboard-device.service';
+import { OnboardingTokenGuard, type OnboardingPrincipal } from './onboarding-token.guard';
 
 @Controller()
 export class OnboardController {
-  constructor(private readonly devices: OnboardDeviceService) {}
+  constructor(
+    private readonly devices: OnboardDeviceService,
+    private readonly bootstrapService: OnboardBootstrapService,
+  ) {}
+
+  @Post('onboard/bootstrap')
+  @UseGuards(OnboardingTokenGuard)
+  bootstrap(
+    @Body() dto: BootstrapDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() req: Request,
+  ) {
+    const onboarding = (req as Request & { onboarding: OnboardingPrincipal }).onboarding;
+    return this.bootstrapService.bootstrap(
+      onboarding,
+      idempotencyKey,
+      dto.serverPlan,
+      dto.serverPlanHash,
+    );
+  }
 
   @Post('onboard/device/start')
   startDevice(@Body() dto: StartDeviceDto, @Req() req: Request) {

@@ -12,6 +12,7 @@ export type OnboardingPrincipal = {
   sessionId: string;
   userId: string;
   packageVersion: string;
+  purpose: string;
   requestedCapabilities: string[];
 };
 
@@ -33,7 +34,7 @@ export class OnboardingTokenGuard implements CanActivate {
     if (!stored || !stored.onboardingTokenHash || !this.sameHash(tokenHash, stored.onboardingTokenHash)) {
       throw new UnauthorizedException('Invalid onboarding token');
     }
-    if (stored.status !== 'authorized' || stored.tokenConsumedAt) {
+    if (stored.status !== 'authorized') {
       throw new BusinessException('AUTH_EXPIRED', 'Onboarding token is no longer active');
     }
     if (!stored.tokenExpiresAt || stored.tokenExpiresAt.getTime() <= Date.now()) {
@@ -52,6 +53,7 @@ export class OnboardingTokenGuard implements CanActivate {
       sessionId: stored.id,
       userId: stored.authorizedUserId,
       packageVersion: stored.packageVersion,
+      purpose: stored.purpose,
       requestedCapabilities: [...stored.requestedCapabilities],
     } satisfies OnboardingPrincipal;
     return true;
