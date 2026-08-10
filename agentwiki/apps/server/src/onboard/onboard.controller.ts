@@ -1,7 +1,41 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Body, Controller, Get, Header, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
+import { HumanOnlyGuard } from '../core/auth/human-only.guard';
+import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
+import { DeviceDecisionDto, PollDeviceDto, StartDeviceDto } from './onboard.dto';
+import { OnboardDeviceService } from './onboard-device.service';
 
 @Controller()
 export class OnboardController {
+  constructor(private readonly devices: OnboardDeviceService) {}
+
+  @Post('onboard/device/start')
+  startDevice(@Body() dto: StartDeviceDto, @Req() req: Request) {
+    return this.devices.start(dto, this.clientIp(req));
+  }
+
+  @Get('onboard/device/session')
+  getDeviceSession(@Query('userCode') userCode: string, @Req() req: Request) {
+    return this.devices.getPublicSession(userCode, this.clientIp(req));
+  }
+
+  @Post('onboard/device/decision')
+  @UseGuards(JwtAuthGuard, HumanOnlyGuard)
+  decideDevice(@Body() dto: DeviceDecisionDto, @Req() req: Request) {
+    const user = req.user as { userId: string };
+    return this.devices.decide(
+      dto,
+      user.userId,
+      this.clientIp(req),
+      req.headers['user-agent'],
+    );
+  }
+
+  @Post('onboard/device/poll')
+  pollDevice(@Body() dto: PollDeviceDto, @Req() req: Request) {
+    return this.devices.poll(dto, this.clientIp(req));
+  }
+
   @Get('onboard')
   @Header('Content-Type', 'text/plain; charset=utf-8')
   @Header('Cache-Control', 'public, max-age=3600')
@@ -14,6 +48,12 @@ export class OnboardController {
   @Header('Cache-Control', 'public, max-age=3600')
   getJson(): OnboardPlan {
     return ONBOARD_JSON;
+  }
+
+  private clientIp(req: Request): string {
+    const address = String(req.ip || req.socket.remoteAddress || 'unknown').toLowerCase();
+    if (address === '::1') return '127.0.0.1';
+    return address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
   }
 }
 

@@ -14,6 +14,8 @@ export interface BusinessErrorPayload {
  */
 const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = {
   AUTH_INVALID_CREDENTIALS: { status: HttpStatus.UNAUTHORIZED, message: 'Invalid credentials' },
+  AUTH_DENIED: { status: HttpStatus.FORBIDDEN, message: 'Authorization was denied' },
+  AUTH_EXPIRED: { status: HttpStatus.UNAUTHORIZED, message: 'Authorization has expired' },
   AUTH_RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many requests' },
   AUTH_SCOPE_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Required scope is missing' },
   LOCAL_SYNC_CODE_INVALID: { status: HttpStatus.UNAUTHORIZED, message: 'Local sync installation code is invalid or expired' },

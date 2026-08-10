@@ -630,6 +630,7 @@ model OnboardingDeviceSession {
   status                String               @default("pending")
   pollIntervalSeconds   Int                  @default(5)
   pollCount             Int                  @default(0)
+  lastPolledAt          DateTime?
   authorizedUserId      String?
   authorizedUser        User?                @relation(fields: [authorizedUserId], references: [id], onDelete: SetNull)
   approvedAt            DateTime?

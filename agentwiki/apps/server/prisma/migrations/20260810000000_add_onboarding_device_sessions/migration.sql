@@ -10,6 +10,7 @@ CREATE TABLE "OnboardingDeviceSession" (
     "status" TEXT NOT NULL DEFAULT 'pending',
     "pollIntervalSeconds" INTEGER NOT NULL DEFAULT 5,
     "pollCount" INTEGER NOT NULL DEFAULT 0,
+    "lastPolledAt" TIMESTAMP(3),
     "authorizedUserId" TEXT,
     "approvedAt" TIMESTAMP(3),
     "deniedAt" TIMESTAMP(3),
