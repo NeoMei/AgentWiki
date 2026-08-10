@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   INestApplication,
+  Logger,
   UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
@@ -60,6 +61,7 @@ describe('OnboardDeviceService', () => {
   let prisma: any;
   let redis: { incrementWithWindow: jest.Mock };
   let audit: { record: jest.Mock };
+  let config: { get: jest.Mock };
 
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(NOW);
@@ -73,6 +75,7 @@ describe('OnboardDeviceService', () => {
     };
     redis = { incrementWithWindow: jest.fn().mockResolvedValue(1) };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
+    config = { get: jest.fn((key: string) => key === 'PUBLIC_WEB_URL' ? 'https://agentwiki.example' : undefined) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -80,13 +83,16 @@ describe('OnboardDeviceService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
         { provide: AuditService, useValue: audit },
-        { provide: ConfigService, useValue: { get: jest.fn((key: string) => key === 'PUBLIC_WEB_URL' ? 'https://agentwiki.example' : undefined) } },
+        { provide: ConfigService, useValue: config },
       ],
     }).compile();
     service = moduleRef.get(OnboardDeviceService);
   });
 
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
 
   it('starts a ten-minute session with 32-byte entropy, a formatted eight-character code, and only hashes persisted', async () => {
     const started = await service.start({
@@ -121,6 +127,31 @@ describe('OnboardDeviceService', () => {
       packageVersion: '0.3.0', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1')).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
     expect(prisma.onboardingDeviceSession.create).not.toHaveBeenCalled();
+  });
+
+  it('uses CLIENT_URL when PUBLIC_WEB_URL is absent and never needs a request Host', async () => {
+    config.get.mockImplementation((key: string) => key === 'CLIENT_URL' ? 'https://client.agentwiki.example/app' : undefined);
+    const started = await service.start({
+      packageVersion: '0.3.0', clientType: 'codex', purpose: 'full-onboarding',
+    }, '127.0.0.1');
+    expect(started).toMatchObject({
+      verificationUri: 'https://client.agentwiki.example/onboard/device',
+      verificationUriComplete: expect.stringMatching(/^https:\/\/client\.agentwiki\.example\/onboard\/device\?user_code=/),
+    });
+    expect(config.get.mock.calls.map(([key]) => key)).toEqual(['PUBLIC_WEB_URL', 'CLIENT_URL']);
+  });
+
+  it('returns committed start credentials when audit persistence is degraded without logging raw codes', async () => {
+    audit.record.mockRejectedValue(new Error('both audit stores unavailable'));
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const started = await service.start({
+      packageVersion: '0.3.0', clientType: 'codex', purpose: 'full-onboarding',
+    }, '127.0.0.1');
+    expect(started.deviceCode).toMatch(/^awd_[A-Za-z0-9_-]{43}$/);
+    expect(log).toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain(started.deviceCode);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(started.userCode);
+    log.mockRestore();
   });
 
   it('returns only the public session allowlist and normalizes the displayed user code', async () => {
@@ -167,6 +198,21 @@ describe('OnboardDeviceService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).not.toHaveBeenCalled();
   });
 
+  it('returns a committed decision when audit persistence is degraded without logging the user code', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session());
+    audit.record.mockRejectedValue(new Error('both audit stores unavailable'));
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    await expect(service.decide(
+      { userCode: 'ABCD-EFGH', decision: 'approve' }, 'user-1', '127.0.0.1', 'test-agent',
+    )).resolves.toEqual({ status: 'approved' });
+    expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'approved' }),
+    }));
+    expect(log).toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain('ABCD-EFGH');
+    log.mockRestore();
+  });
+
   it('keeps an approval idempotent after its token has already been issued', async () => {
     prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({ status: 'authorized', authorizedUserId: 'user-1' }));
     await expect(service.decide({ userCode: 'ABCD-EFGH', decision: 'approve' }, 'user-1', '127.0.0.1'))
@@ -196,9 +242,41 @@ describe('OnboardDeviceService', () => {
     await expect(service.poll({ deviceCode: `awd_${'a'.repeat(43)}` }, '127.0.0.1'))
       .resolves.toEqual({ status: 'authorization_pending' });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
-      where: { id: 'session-1', status: 'pending', lastPolledAt: null },
+      where: {
+        id: 'session-1', status: 'pending', lastPolledAt: null,
+        pollIntervalSeconds: 5, expiresAt: { gt: NOW },
+      },
       data: { lastPolledAt: NOW, pollCount: { increment: 1 } },
     });
+  });
+
+  it('re-reads a normal-poll CAS loser so only one concurrent caller returns pending', async () => {
+    let current = session();
+    prisma.onboardingDeviceSession.findUnique.mockImplementation(async () => ({ ...current }));
+    prisma.onboardingDeviceSession.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const sameLastPoll = where.lastPolledAt === null
+        ? current.lastPolledAt === null
+        : where.lastPolledAt?.getTime() === (current.lastPolledAt as Date | null)?.getTime();
+      if (where.status !== current.status || where.pollIntervalSeconds !== current.pollIntervalSeconds || !sameLastPoll) {
+        return { count: 0 };
+      }
+      current = {
+        ...current,
+        lastPolledAt: data.lastPolledAt ?? current.lastPolledAt,
+        pollIntervalSeconds: data.pollIntervalSeconds ?? current.pollIntervalSeconds,
+        pollCount: (current.pollCount as number) + (data.pollCount?.increment || 0),
+      };
+      return { count: 1 };
+    });
+    const input = { deviceCode: `awd_${'a'.repeat(43)}` };
+    const results = await Promise.all([
+      service.poll(input, '127.0.0.1'), service.poll(input, '127.0.0.1'),
+    ]);
+    expect(results).toEqual(expect.arrayContaining([
+      { status: 'authorization_pending' }, { status: 'slow_down', interval: 10 },
+    ]));
+    expect(results.filter((result) => result.status === 'authorization_pending')).toHaveLength(1);
+    expect(current).toMatchObject({ pollCount: 1, pollIntervalSeconds: 10, lastPolledAt: NOW });
   });
 
   it('returns slow_down for an early poll and grows the session interval by five seconds up to thirty', async () => {
@@ -209,11 +287,44 @@ describe('OnboardDeviceService', () => {
     await expect(service.poll({ deviceCode: code }, '127.0.0.1')).resolves.toEqual({ status: 'slow_down', interval: 10 });
     await expect(service.poll({ deviceCode: code }, '127.0.0.1')).resolves.toEqual({ status: 'slow_down', interval: 30 });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: 'session-1', pollIntervalSeconds: 5 }, data: { pollIntervalSeconds: 10 },
+      where: {
+        id: 'session-1', status: 'pending', lastPolledAt: new Date(NOW.getTime() - 2_000),
+        pollIntervalSeconds: 5, expiresAt: { gt: NOW },
+      },
+      data: { pollIntervalSeconds: 10 },
     });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: 'session-1', pollIntervalSeconds: 30 }, data: { pollIntervalSeconds: 30 },
+      where: {
+        id: 'session-1', status: 'pending', lastPolledAt: new Date(NOW.getTime() - 2_000),
+        pollIntervalSeconds: 30, expiresAt: { gt: NOW },
+      },
+      data: { pollIntervalSeconds: 30 },
     });
+  });
+
+  it('re-reads each concurrent early-poll CAS loser so every request adds five seconds up to the cap', async () => {
+    let current = session({ lastPolledAt: new Date(NOW.getTime() - 2_000), pollIntervalSeconds: 5 });
+    prisma.onboardingDeviceSession.findUnique.mockImplementation(async () => ({ ...current }));
+    prisma.onboardingDeviceSession.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.pollIntervalSeconds !== current.pollIntervalSeconds) return { count: 0 };
+      current = { ...current, pollIntervalSeconds: data.pollIntervalSeconds };
+      return { count: 1 };
+    });
+    const input = { deviceCode: `awd_${'a'.repeat(43)}` };
+    const results = await Promise.all([
+      service.poll(input, '127.0.0.1'), service.poll(input, '127.0.0.1'),
+    ]);
+    expect(results.map((result) => result.interval).sort()).toEqual([10, 15]);
+    expect(current.pollIntervalSeconds).toBe(15);
+  });
+
+  it('returns a stable retryable error when poll contention exhausts its bounded retries', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session());
+    prisma.onboardingDeviceSession.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.poll({ deviceCode: `awd_${'a'.repeat(43)}` }, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
+    expect(prisma.onboardingDeviceSession.findUnique.mock.calls.length).toBeGreaterThan(1);
+    expect(prisma.onboardingDeviceSession.findUnique.mock.calls.length).toBeLessThanOrEqual(10);
   });
 
   it.each([
@@ -231,7 +342,11 @@ describe('OnboardDeviceService', () => {
       status: 'authorized', onboardingToken: expect.stringMatching(/^awo_[A-Za-z0-9_-]{43}$/), expiresIn: 600,
     });
     const update = prisma.onboardingDeviceSession.updateMany.mock.calls[0][0];
-    expect(update.where).toEqual({ id: 'session-1', status: 'approved', onboardingTokenHash: null });
+    expect(update.where).toEqual({
+      id: 'session-1', status: 'approved', onboardingTokenHash: null,
+      authorizedUserId: 'user-1', lastPolledAt: null, pollIntervalSeconds: 5,
+      expiresAt: { gt: NOW },
+    });
     expect(update.data).toMatchObject({
       status: 'authorized', onboardingTokenHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       tokenExpiresAt: new Date(NOW.getTime() + 600_000), lastPolledAt: NOW,
@@ -242,12 +357,31 @@ describe('OnboardDeviceService', () => {
   });
 
   it('does not leak a generated token when another poll wins the compare-and-swap', async () => {
-    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({ status: 'approved', authorizedUserId: 'user-1' }));
+    prisma.onboardingDeviceSession.findUnique
+      .mockResolvedValueOnce(session({ status: 'approved', authorizedUserId: 'user-1' }))
+      .mockResolvedValueOnce(session({
+        status: 'authorized', authorizedUserId: 'user-1', onboardingTokenHash: 't'.repeat(64),
+      }));
     prisma.onboardingDeviceSession.updateMany.mockResolvedValue({ count: 0 });
     const result = await service.poll({ deviceCode: `awd_${'a'.repeat(43)}` }, '127.0.0.1');
     expect(result).toEqual({ status: 'authorization_consumed' });
     expect(result).not.toHaveProperty('onboardingToken');
     expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'onboarding.device.token-issued' }));
+    expect(prisma.onboardingDeviceSession.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns the committed raw onboarding token when audit persistence is degraded and never logs it', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({ status: 'approved', authorizedUserId: 'user-1' }));
+    audit.record.mockRejectedValue(new Error('both audit stores unavailable'));
+    const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const result = await service.poll({ deviceCode: `awd_${'a'.repeat(43)}` }, '127.0.0.1');
+    expect(result).toEqual({
+      status: 'authorized', onboardingToken: expect.stringMatching(/^awo_[A-Za-z0-9_-]{43}$/), expiresIn: 600,
+    });
+    expect(log).toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain((result as any).onboardingToken);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(`awd_${'a'.repeat(43)}`);
+    log.mockRestore();
   });
 
   it('never returns the onboarding token after authorization has been consumed by a prior poll', async () => {
@@ -275,7 +409,11 @@ describe('OnboardDeviceService', () => {
     await expect(service.poll({ deviceCode: `awd_${'a'.repeat(43)}` }, '127.0.0.1'))
       .resolves.toEqual({ status: 'denied' });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
-      where: { id: 'session-1', status: 'approved' }, data: { status: 'denied', deniedAt: NOW },
+      where: {
+        id: 'session-1', status: 'approved', authorizedUserId: 'user-1',
+        lastPolledAt: null, pollIntervalSeconds: 5, expiresAt: { gt: NOW },
+      },
+      data: { status: 'denied', deniedAt: NOW },
     });
   });
 

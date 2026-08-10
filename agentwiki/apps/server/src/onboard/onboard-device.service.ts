@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
 import { AuditService } from '../core/security/audit.service';
@@ -12,6 +12,8 @@ export const ONBOARDING_TOKEN_TTL_SECONDS = 600;
 export const POLL_INTERVAL_SECONDS = 5;
 
 const MAX_POLL_INTERVAL_SECONDS = 30;
+const MAX_POLL_CAS_ATTEMPTS = 6;
+const POLL_CAS_RETRY = Symbol('poll-cas-retry');
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const REQUESTED_CAPABILITIES = [
   'bootstrap:space',
@@ -39,6 +41,8 @@ type DeviceSession = {
 
 @Injectable()
 export class OnboardDeviceService {
+  private readonly logger = new Logger(OnboardDeviceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -65,7 +69,7 @@ export class OnboardDeviceService {
         expiresAt,
       },
     });
-    await this.audit.record({
+    await this.recordAuditBestEffort({
       action: 'onboarding.device.start',
       outcome: 'success',
       ipAddress,
@@ -74,7 +78,7 @@ export class OnboardDeviceService {
         clientType: input.clientType,
         purpose: input.purpose,
       },
-    });
+    }, 'device session creation');
 
     const verificationUri = this.verificationUri();
     return {
@@ -165,51 +169,73 @@ export class OnboardDeviceService {
       throw new BusinessException('RESOURCE_CONFLICT', 'Device authorization already has a different decision');
     }
 
-    await this.audit.record({
+    await this.recordAuditBestEffort({
       action: `onboarding.device.${desired}`,
       outcome: input.decision === 'approve' ? 'success' : 'denied',
       actorUserId: userId,
       ipAddress,
       userAgent,
       metadata: { clientType: stored.clientType, purpose: stored.purpose },
-    });
+    }, 'device decision');
     return { status: desired };
   }
 
   async poll(input: PollDeviceInput, ipAddress: string): Promise<Record<string, unknown>> {
     await this.assertRateLimit('poll-rate', ipAddress, 60, 120);
-    const stored = await this.prisma.onboardingDeviceSession.findUnique({
-      where: { deviceCodeHash: this.hash(input.deviceCode) },
-    }) as DeviceSession | null;
-    if (!stored) return { status: 'expired' };
-    if (stored.status === 'authorized') return { status: 'authorization_consumed' };
-
+    const deviceCodeHash = this.hash(input.deviceCode);
     const now = new Date();
-    if (stored.expiresAt.getTime() <= now.getTime() || stored.status === 'expired') {
-      await this.expire(stored);
-      return { status: 'expired' };
+    for (let attempt = 0; attempt < MAX_POLL_CAS_ATTEMPTS; attempt += 1) {
+      const stored = await this.prisma.onboardingDeviceSession.findUnique({
+        where: { deviceCodeHash },
+      }) as DeviceSession | null;
+      if (!stored) return { status: 'expired' };
+      const result = await this.evaluatePoll(stored, now, ipAddress);
+      if (result !== POLL_CAS_RETRY) return result;
+    }
+    throw new BusinessException('RESOURCE_CONFLICT', 'Concurrent onboarding update; retry poll');
+  }
+
+  private async evaluatePoll(
+    stored: DeviceSession,
+    now: Date,
+    ipAddress: string,
+  ): Promise<Record<string, unknown> | typeof POLL_CAS_RETRY> {
+    if (stored.status === 'authorized') return { status: 'authorization_consumed' };
+    if (stored.status === 'expired') return { status: 'expired' };
+    if (stored.expiresAt.getTime() <= now.getTime()) {
+      const changed = await this.prisma.onboardingDeviceSession.updateMany({
+        where: { id: stored.id, status: stored.status, expiresAt: stored.expiresAt },
+        data: { status: 'expired' },
+      });
+      return changed.count ? { status: 'expired' } : POLL_CAS_RETRY;
     }
     if (this.isEarlyPoll(stored, now)) {
       const interval = Math.min(stored.pollIntervalSeconds + POLL_INTERVAL_SECONDS, MAX_POLL_INTERVAL_SECONDS);
-      await this.prisma.onboardingDeviceSession.updateMany({
-        where: { id: stored.id, pollIntervalSeconds: stored.pollIntervalSeconds },
+      const changed = await this.prisma.onboardingDeviceSession.updateMany({
+        where: {
+          id: stored.id,
+          status: stored.status,
+          lastPolledAt: stored.lastPolledAt,
+          pollIntervalSeconds: stored.pollIntervalSeconds,
+          expiresAt: { gt: now },
+        },
         data: { pollIntervalSeconds: interval },
       });
-      return { status: 'slow_down', interval };
+      return changed.count ? { status: 'slow_down', interval } : POLL_CAS_RETRY;
     }
+    if (stored.status === 'approved') return this.tryIssueToken(stored, now, ipAddress);
+    if (stored.status !== 'pending' && stored.status !== 'denied') return { status: 'expired' };
 
-    if (stored.status === 'approved') return this.issueToken(stored, now, ipAddress);
-    if (stored.status === 'denied') {
-      await this.recordNormalPoll(stored, now);
-      return { status: 'denied' };
-    }
-    if (stored.status !== 'pending') return { status: 'expired' };
-
-    await this.recordNormalPoll(stored, now);
-    return { status: 'authorization_pending' };
+    const changed = await this.recordNormalPoll(stored, now);
+    if (!changed) return POLL_CAS_RETRY;
+    return { status: stored.status === 'pending' ? 'authorization_pending' : 'denied' };
   }
 
-  private async issueToken(stored: DeviceSession, now: Date, ipAddress: string) {
+  private async tryIssueToken(
+    stored: DeviceSession,
+    now: Date,
+    ipAddress: string,
+  ): Promise<Record<string, unknown> | typeof POLL_CAS_RETRY> {
     const user = stored.authorizedUserId
       ? await this.prisma.user.findUnique({
         where: { id: stored.authorizedUserId },
@@ -217,17 +243,32 @@ export class OnboardDeviceService {
       })
       : null;
     if (!this.isActiveHuman(user)) {
-      await this.prisma.onboardingDeviceSession.updateMany({
-        where: { id: stored.id, status: 'approved' },
+      const changed = await this.prisma.onboardingDeviceSession.updateMany({
+        where: {
+          id: stored.id,
+          status: 'approved',
+          authorizedUserId: stored.authorizedUserId,
+          lastPolledAt: stored.lastPolledAt,
+          pollIntervalSeconds: stored.pollIntervalSeconds,
+          expiresAt: { gt: now },
+        },
         data: { status: 'denied', deniedAt: now },
       });
-      return { status: 'denied' };
+      return changed.count ? { status: 'denied' } : POLL_CAS_RETRY;
     }
 
     const onboardingToken = `awo_${randomBytes(32).toString('base64url')}`;
     const tokenExpiresAt = new Date(now.getTime() + ONBOARDING_TOKEN_TTL_SECONDS * 1_000);
     const changed = await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: stored.id, status: 'approved', onboardingTokenHash: null },
+      where: {
+        id: stored.id,
+        status: 'approved',
+        onboardingTokenHash: null,
+        authorizedUserId: stored.authorizedUserId,
+        lastPolledAt: stored.lastPolledAt,
+        pollIntervalSeconds: stored.pollIntervalSeconds,
+        expiresAt: { gt: now },
+      },
       data: {
         status: 'authorized',
         onboardingTokenHash: this.hash(onboardingToken),
@@ -236,23 +277,30 @@ export class OnboardDeviceService {
         pollCount: { increment: 1 },
       },
     });
-    if (!changed.count) return { status: 'authorization_consumed' };
+    if (!changed.count) return POLL_CAS_RETRY;
 
-    await this.audit.record({
+    await this.recordAuditBestEffort({
       action: 'onboarding.device.token-issued',
       outcome: 'success',
       actorUserId: stored.authorizedUserId || undefined,
       ipAddress,
       metadata: { clientType: stored.clientType, purpose: stored.purpose },
-    });
+    }, 'onboarding token issuance');
     return { status: 'authorized', onboardingToken, expiresIn: ONBOARDING_TOKEN_TTL_SECONDS };
   }
 
-  private async recordNormalPoll(stored: DeviceSession, now: Date): Promise<void> {
-    await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: stored.id, status: stored.status, lastPolledAt: stored.lastPolledAt },
+  private async recordNormalPoll(stored: DeviceSession, now: Date): Promise<boolean> {
+    const changed = await this.prisma.onboardingDeviceSession.updateMany({
+      where: {
+        id: stored.id,
+        status: stored.status,
+        lastPolledAt: stored.lastPolledAt,
+        pollIntervalSeconds: stored.pollIntervalSeconds,
+        expiresAt: { gt: now },
+      },
       data: { lastPolledAt: now, pollCount: { increment: 1 } },
     });
+    return changed.count > 0;
   }
 
   private async expire(stored: Pick<DeviceSession, 'id' | 'status'>): Promise<void> {
@@ -297,6 +345,7 @@ export class OnboardDeviceService {
 
   private verificationUri(): string {
     const configured = this.config.get<string>('PUBLIC_WEB_URL')
+      || this.config.get<string>('CLIENT_URL')
       || this.config.get<string>('PUBLIC_BASE_URL')
       || 'https://agentwiki.quukk.com';
     return new URL('/onboard/device', configured).toString().replace(/\/$/, '');
@@ -304,5 +353,18 @@ export class OnboardDeviceService {
 
   private hash(value: string): string {
     return createHash('sha256').update(value, 'utf8').digest('hex');
+  }
+
+  private async recordAuditBestEffort(
+    event: Parameters<AuditService['record']>[0],
+    committedAction: string,
+  ): Promise<void> {
+    try {
+      await this.audit.record(event);
+    } catch {
+      this.logger.error(
+        `Onboarding audit persistence degraded after ${committedAction}; committed result returned`,
+      );
+    }
   }
 }
