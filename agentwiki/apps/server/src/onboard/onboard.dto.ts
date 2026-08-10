@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import {
+  IsDefined,
   IsIn,
+  IsObject,
   IsString,
   Matches,
   ValidateNested,
@@ -54,6 +56,8 @@ class ExistingSpacePlanDto {
 }
 
 export class ServerPlanDto implements ServerPlan {
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => Object, {
     discriminator: {
@@ -81,6 +85,8 @@ export class ServerPlanDto implements ServerPlan {
 }
 
 export class BootstrapDto implements BootstrapInput {
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => ServerPlanDto)
   serverPlan: ServerPlanDto;

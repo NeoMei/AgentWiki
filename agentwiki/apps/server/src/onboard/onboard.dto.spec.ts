@@ -108,6 +108,34 @@ describe('onboarding DTO contract', () => {
   });
 
   it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['array', []],
+  ])('rejects a %s serverPlan', async (_label, serverPlan) => {
+    const input = serverPlan === undefined
+      ? { serverPlanHash: 'a'.repeat(64) }
+      : { serverPlan, serverPlanHash: 'a'.repeat(64) };
+
+    await expect(validationErrors(BootstrapDto, input)).resolves.not.toEqual([]);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['array', []],
+  ])('rejects a %s Space selection', async (_label, space) => {
+    const { space: _ignored, ...planWithoutSpace } = createPlan;
+    const serverPlan = space === undefined
+      ? planWithoutSpace
+      : { ...createPlan, space };
+
+    await expect(validationErrors(BootstrapDto, {
+      serverPlan,
+      serverPlanHash: 'a'.repeat(64),
+    })).resolves.not.toEqual([]);
+  });
+
+  it.each([
     { ...createPlan, permissionPreset: 'viewer' },
     { ...createPlan, approvalMode: 'auto-publish' },
     { ...createPlan, packageVersion: '0.3.1' },
