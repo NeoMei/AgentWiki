@@ -43,8 +43,9 @@ import { createOrchestratorCommands, type OrchestratorCommands } from './orchest
 import { defaultRecipes } from './recipes.js';
 
 export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
+import { runGateway } from './gateway/entry.js';
 
-export const CLI_USAGE = 'Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp|start|work|preview-job|push-job|pull>';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--protocol ndjson|human] [--connection ID]';
 
 const PACKAGE_VERSION = (() => {
   try {
@@ -349,7 +350,7 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
   if (command === '--help' || command === '-h') return CLI_USAGE;
   if (command === '--version' || command === '-v') return { version: PACKAGE_VERSION };
 
-  const { values } = parseArgs({
+  const parsed = parseArgs({
     args,
     options: {
       server: { type: 'string' }, code: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
@@ -359,7 +360,28 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
     strict: true,
+    allowPositionals: true,
   });
+  const { values } = parsed;
+  if (command === 'onboard') {
+    const positional = (parsed.positionals as string[] | undefined)?.[0];
+    if (positional === 'resume') {
+      return { sessionId: required(values, 'id'), action: 'resume', note: 'onboard resume requires a running terminal with NDJSON protocol' };
+    }
+    return {
+      action: 'onboard',
+      server: typeof values.server === 'string' ? values.server : undefined,
+      protocol: (values as Record<string, unknown>).protocol === 'human' ? 'human' : 'ndjson',
+      note: 'onboard starts the self-service device authorization flow',
+    };
+  }
+  if (command === 'gateway') {
+    const cfg = await loadConfig(home);
+    const connectionId = typeof values.connection === 'string' ? values.connection : cfg.defaultConnectionId;
+    if (!connectionId) throw new Error('gateway requires --connection <id> or a default connection');
+    await runGateway({ home, connectionId });
+    return undefined;
+  }
   if (command === 'connect') return connect(home, values);
   if (command === 'uninstall') return uninstall(home, values);
   if (command === 'preview') return renderPreview(home, required(values, 'id'));
@@ -411,6 +433,25 @@ export async function runCli(argv = process.argv.slice(2), home = homedir()): Pr
       await serveLocalSyncMcp(commands);
     }
     return undefined;
+  }
+  if (command === 'gateway') {
+    const cfg = await loadConfig(home);
+    const connectionId = typeof values.connection === 'string' ? values.connection : cfg.defaultConnectionId;
+    if (!connectionId) throw new Error('gateway requires --connection <id> or a default connection');
+    await runGateway({ home, connectionId });
+    return undefined;
+  }
+  if (command === 'onboard') {
+    const subcommand = args[0];
+    if (subcommand === 'resume') {
+      return { sessionId: required(values, 'id'), action: 'resume', note: 'onboard resume requires a running terminal with NDJSON protocol' };
+    }
+    return {
+      action: 'onboard',
+      server: typeof values.server === 'string' ? values.server : undefined,
+      protocol: (values as Record<string, unknown>).protocol === 'human' ? 'human' : 'ndjson',
+      note: 'onboard starts the self-service device authorization flow',
+    };
   }
   throw new Error(CLI_USAGE);
 }

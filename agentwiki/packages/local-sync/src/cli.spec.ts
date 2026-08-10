@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createLocalSyncCommands, runCli, runDoctor, type CommandDependencies } from './cli.js';
+import { createLocalSyncCommands, runCli, runDoctor, CLI_USAGE, type CommandDependencies } from './cli.js';
 import { formatMcpOutput } from './mcp.js';
 import { saveConfig, saveCredentials } from './config.js';
 
@@ -234,7 +234,59 @@ describe('local sync command orchestration', () => {
       .rejects.toThrow('Preview ID must be a UUID');
   });
 
- it('doctor checks required tool availability without invoking remote model providers or scanning paths', async () => {
+ 
+  it('exposes onboard and gateway in the CLI usage string', () => {
+    expect(CLI_USAGE).toContain('onboard');
+    expect(CLI_USAGE).toContain('gateway');
+    expect(CLI_USAGE).toContain('doctor');
+    expect(CLI_USAGE).toContain('uninstall');
+  });
+
+  it('onboard returns structured action metadata', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    try {
+      const result = await runCli(['onboard', '--server', 'https://example.test/api'], home);
+      const data = result as Record<string, unknown>;
+      expect(data.action).toBe('onboard');
+      expect(data.server).toBe('https://example.test/api');
+      expect(data.protocol).toBe('ndjson');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('onboard defaults to ndjson protocol', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    try {
+      const result = await runCli(['onboard'], home);
+      expect((result as Record<string, unknown>).protocol).toBe('ndjson');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('onboard resume returns session metadata', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    try {
+      const result = await runCli(['onboard', 'resume', '--id', 'sess-123'], home);
+      const data = result as Record<string, unknown>;
+      expect(data.action).toBe('resume');
+      expect(data.sessionId).toBe('sess-123');
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('gateway requires --connection or a default', async () => {
+    const home = await temporaryDirectory('agentwiki-gateway-');
+    try {
+      await expect(runCli(['gateway'], home)).rejects.toThrow();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+it('doctor checks required tool availability without invoking remote model providers or scanning paths', async () => {
     const home = await temporaryDirectory('agentwiki-doctor-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
