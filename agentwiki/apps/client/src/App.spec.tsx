@@ -15,7 +15,7 @@ const LocationProbe = () => {
 describe('ProtectedRoute', () => {
   it('redirects signed-out protected routes to the workspace login intent', () => {
     render(
-      <MemoryRouter initialEntries={['/dashboard']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={['/dashboard']}>
         <Routes>
           <Route path="/dashboard" element={<ProtectedRoute><p>private</p></ProtectedRoute>} />
           <Route path="/" element={<LocationProbe />} />

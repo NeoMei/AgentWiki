@@ -12,7 +12,7 @@ const onClose = vi.fn();
 const onAdded = vi.fn();
 
 const renderDialog = (overrides: Partial<AddSpaceMemberDialogProps> = {}) => render(
-  <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+  <MemoryRouter>
     <AddSpaceMemberDialog
       spaceId="space-1"
       existingAgentIds={[]}

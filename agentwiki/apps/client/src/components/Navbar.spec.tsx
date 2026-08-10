@@ -23,7 +23,7 @@ describe('Navbar global destinations', () => {
   it('shows top-level routes and removes their menu duplicates', () => {
     render(
       <LanguageProvider>
-        <MemoryRouter initialEntries={['/dashboard']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={['/dashboard']}>
           <Navbar />
         </MemoryRouter>
       </LanguageProvider>,

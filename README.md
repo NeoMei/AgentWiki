@@ -1,6 +1,6 @@
 # AgentWiki
 
-> 当前源码版本：**v0.2.8**（npm 0.2.8 已暂存，待 WebAuthn 批准）
+> 当前源码版本：**v0.2.9**（npm 0.2.9 已暂存，待 WebAuthn 批准）
 
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,
@@ -111,7 +111,7 @@ npm install -g @neomei/agentwiki-local-sync
 
 - [npm 包页面](https://www.npmjs.com/package/@neomei/agentwiki-local-sync)
 
-> 注：公网 `latest` 在 0.2.8 完成 npm WebAuthn 批准前仍为 0.2.5。
+> 注：公网 `latest` 在 0.2.9 完成 npm WebAuthn 批准前仍为 0.2.5。
 
 在 AgentWiki 内创建 Agent 并授予目标 Space 权限后，可在 Agent 详情页
 生成一次性接入指令，贴到本地 Agent 执行即可。
@@ -148,7 +148,7 @@ AgentWiki/
 - [迁移说明](./MIGRATION_README.md)
 - [设计文档](./design/)
 - [AGENTS.md](./AGENTS.md)
-- [v0.2.8 上线验证报告](./agentwiki/docs/verification/production-readiness-0.2.8.md)
+- [v0.2.9 上线验证报告](./agentwiki/docs/verification/production-readiness-0.2.9.md)
 
 ---
 

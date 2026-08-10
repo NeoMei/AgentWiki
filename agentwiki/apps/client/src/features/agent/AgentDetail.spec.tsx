@@ -11,7 +11,7 @@ vi.mock('../../api/client', () => ({
 
 const renderDetail = () => render(
   <LanguageProvider>
-    <MemoryRouter initialEntries={['/agents/agent-1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={['/agents/agent-1']}>
       <Routes><Route path="/agents/:id" element={<AgentDetail />} /></Routes>
     </MemoryRouter>
   </LanguageProvider>,

@@ -15,7 +15,7 @@ describe('RunsPage', () => {
     ] } as any);
     render(
       <LanguageProvider>
-        <MemoryRouter initialEntries={['/spaces/space-1/runs']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={['/spaces/space-1/runs']}>
           <Routes><Route path="/spaces/:id/runs" element={<RunsPage />} /></Routes>
         </MemoryRouter>
       </LanguageProvider>,

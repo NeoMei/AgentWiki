@@ -45,7 +45,7 @@ const renderMembers = ({ role = 'owner', agentScopes }: FixtureOptions = {}) => 
   });
 
   return render(
-    <MemoryRouter initialEntries={['/spaces/space-1/members']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={['/spaces/space-1/members']}>
       <Routes><Route path="/spaces/:id/members" element={<SpaceMembers />} /></Routes>
     </MemoryRouter>,
   );

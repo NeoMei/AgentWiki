@@ -12,7 +12,7 @@ vi.mock('../context/AuthContext', () => ({
 
 const renderNavigation = (path: string) => render(
   <LanguageProvider>
-    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]}>
       <GlobalNavigation />
     </MemoryRouter>
   </LanguageProvider>,

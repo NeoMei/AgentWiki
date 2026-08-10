@@ -51,7 +51,7 @@ const PACKAGE_VERSION = (() => {
     const require = createRequire(import.meta.url);
     return (require('../package.json') as { version: string }).version;
   } catch {
-    return '0.2.8';
+    return '0.2.9';
   }
 })();
 

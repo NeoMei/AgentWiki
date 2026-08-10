@@ -17,7 +17,7 @@ describe('ProductPage workspace intent', () => {
   it('explains the redirect and focuses email', () => {
     render(
       <LanguageProvider>
-        <MemoryRouter initialEntries={['/?intent=workspace#login']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={['/?intent=workspace#login']}>
           <ProductPage />
         </MemoryRouter>
       </LanguageProvider>,

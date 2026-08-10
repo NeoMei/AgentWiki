@@ -90,7 +90,7 @@ test('the product no longer carries the retired external wiki compiler path', ()
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.2.8');
+  assert.equal(version, '0.2.9');
   for (const path of [
     '.env.example',
     'apps/client/src/config/localSync.ts',
@@ -121,4 +121,19 @@ test('the local-sync README documents the supported Node majors', async () => {
   assert.match(readme, /Node\.js 24 or 26/);
   assert.doesNotMatch(readme, /Node\.js 20 or later/);
   assert.match(readme, /Python 3\.10 or later/);
+});
+
+test('production dependency floors exclude patched network and routing vulnerabilities', async () => {
+  const workspace = await read('pnpm-workspace.yaml');
+  const server = JSON.parse(await read('apps/server/package.json'));
+  const client = JSON.parse(await read('apps/client/package.json'));
+  const localSync = JSON.parse(await read('packages/local-sync/package.json'));
+
+  assert.equal(server.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
+  assert.equal(localSync.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
+  assert.equal(client.dependencies['react-router-dom'], '^7.18.2');
+  assert.match(workspace, /'@hono\/node-server': '2\.1\.0'/);
+  assert.match(workspace, /body-parser: '1\.20\.6'/);
+  assert.match(workspace, /hono: '4\.13\.1'/);
+  assert.match(workspace, /qs: '6\.15\.3'/);
 });

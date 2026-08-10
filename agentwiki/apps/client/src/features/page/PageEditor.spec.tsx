@@ -67,7 +67,7 @@ const deferred = <T,>() => {
 const renderEditor = (withLanguageSwitcher = false) => render(
   <LanguageProvider>
     {withLanguageSwitcher ? <LanguageSwitcher /> : null}
-    <MemoryRouter initialEntries={['/pages/page-1/edit']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={['/pages/page-1/edit']}>
       <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>
     </MemoryRouter>
   </LanguageProvider>,
@@ -276,7 +276,7 @@ describe('PageEditor remote update safety', () => {
     });
     render(
       <LanguageProvider>
-        <MemoryRouter initialEntries={['/pages/page-1/edit']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
           <NavigationHarness />
         </MemoryRouter>
       </LanguageProvider>,

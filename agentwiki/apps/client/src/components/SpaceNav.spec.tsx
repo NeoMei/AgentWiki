@@ -7,7 +7,7 @@ import { LanguageProvider } from '../context/LanguageContext';
 describe('SpaceNav', () => {
   it('keeps all six task-oriented space entries available on a subpage', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
-    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/graph']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><SpaceNav spaceId="space-1" /></MemoryRouter></LanguageProvider>);
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/graph']}><SpaceNav spaceId="space-1" /></MemoryRouter></LanguageProvider>);
     for (const label of ['Pages', 'Graph', 'Sources', 'Runs', 'Members', 'Settings']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }

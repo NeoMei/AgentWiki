@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- AgentWiki 0.2.8 上线收尾：源码、npm、GitHub 与生产服务保持同一版本。
+- AgentWiki 0.2.9 上线收尾：源码、npm、GitHub 与生产服务保持同一版本。
 
 # 范围 / 不做
 
@@ -12,14 +12,14 @@
 
 # 当前状态
 
-- 2026-08-10 完成 0.2.8 代码与本地上线门禁：全量代码图谱 3882 节点 / 10152 边，架构、符号、源码与调用链均可查询。
+- 2026-08-10 完成 0.2.9 代码与本地上线门禁：全量代码图谱 3883 节点 / 10151 边，架构、符号、源码与调用链均可查询。
 - 零配置本地知识链路已真实验证：原生 codebase-memory 直接执行；Microsoft MarkItDown 0.1.6 由私有 Python 3.10+ venv 管理，PDF 转换、运行时复用和校验通过。
 - 双向同步已真实验证：两个本地工作区 Snapshot/Delta Pull/Push，页面、共享记忆、关系、冲突阻断及三类审批删除均通过。
 - Space Agent 成员桌面/移动端浏览器验收已通过；全站 3 个公开、16 个登录后、6 个移动端关键路由已巡检。
-- 门禁：runtime 63、server 369、client 124、local-sync 181，合计 737 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical。
-- 0.2.8 已暂存到 npm 公开发布队列，尚未 WebAuthn 批准；公网 `latest` 仍为 0.2.5。
+- 门禁：runtime 64、server 369、client 124、local-sync 181，合计 738 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical / 0 low，3 moderate 均不可达。
+- 0.2.9 已暂存到 npm 公开发布队列，尚未 WebAuthn 批准；公网 `latest` 仍为 0.2.5。
 - 生产健康检查正常，但 `/api/onboard.json` 仍为 0.2.3，SSH 认证未通过，因此未冒充完成部署。
-- 详细证据：`agentwiki/docs/verification/production-readiness-0.2.8.md`。
+- 详细证据：`agentwiki/docs/verification/production-readiness-0.2.9.md`。
 
 # 稳定约束
 
@@ -35,9 +35,9 @@
 - 生产地址：https://agentwiki.quukk.com
 - GitHub：https://github.com/NeoMei/AgentWiki
 - npm：https://www.npmjs.com/package/@neomei/agentwiki-local-sync
-- 测试报告：`agentwiki/docs/verification/production-readiness-0.2.8.md`
+- 测试报告：`agentwiki/docs/verification/production-readiness-0.2.9.md`
 
 # 风险 / 下一步
 
-- 在 npm Staged Packages 批准 0.2.8（ID `5eb4e3c5-657b-4dfb-b416-602226d064e4`），并拒绝过期的 0.2.6/0.2.7 暂存项。
-- 为 `root@113.249.120.24` 配置可用 SSH 认证后，部署 0.2.8 并执行生产受控写入 UI E2E。
+- 在 npm Staged Packages 批准 0.2.9（ID `fdd0befc-8a99-4fd3-8268-a6f7125e72c6`），并拒绝过期的 0.2.6/0.2.7/0.2.8 暂存项。
+- 为 `root@113.249.120.24` 配置可用 SSH 认证后，部署 0.2.9 并执行生产受控写入 UI E2E。

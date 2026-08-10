@@ -12,7 +12,7 @@ vi.mock('../../context/AuthContext', () => ({
 
 const renderGuide = () => render(
   <LanguageProvider>
-    <MemoryRouter initialEntries={['/guide']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={['/guide']}>
       <UsageGuide />
     </MemoryRouter>
   </LanguageProvider>,
