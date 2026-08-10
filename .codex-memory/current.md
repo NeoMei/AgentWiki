@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- Agent 自助接入 0.3.0：Task 5-9 全部实现完成（NDJSON 协议、单一 gateway MCP、知识工作流、原子安装器、coordinator 状态机、preflight、verifier、CLI 命令）。Task 10-11（版本 0.3.0/文档/E2E/生产部署）待用户授权后执行。
+- Agent 自助接入 0.3.0：Task 5-11 全部代码实现完成（NDJSON 协议、单一 gateway MCP、知识工作流、原子安装器、coordinator 状态机、preflight、verifier、CLI 命令、版本/文档/发布面、E2E 门禁）。待用户授权后部署生产。
 
 # 范围 / 不做
 
@@ -12,16 +12,20 @@
 
 # 当前状态
 
-- 2026-08-11 完成 0.3.0 onboarding Task 5-9 全部代码实现，8 个提交，35 文件 +4016 行：
+- 2026-08-11 完成 0.3.0 onboarding 全部 11 个 Task，分支 codex/production-readiness 上共 12 个新提交：
   - Task 5: NDJSON 协议 + HTTP 客户端 + 安全 session + 稳定错误码 + awd_/awo_ 脱敏
   - Task 6: 单一 gateway manifest + RemoteMcpBridge + createGatewayServer
   - Task 7: KnowledgeWorkflows(prepare/confirmAndSync/pull)
   - Task 8: 原子安装器(Codex/Claude/OpenCode + 备份/回滚/归档)
-  - Task 9: OnboardingCoordinator + preflight + verifier + CLI(onboard/gateway) + plan-hash(精确复刻服务端规范化)
-- 全量门禁(2026-08-11)：runtime 56 pass/9 skip、server 486、client 160、local-sync 292，合计 994 项测试通过；typecheck 0；lint 0；build 0。
-- 生产 https://agentwiki.quukk.com 运行 0.2.9 代码，健康检查全绿，所有现有路由正常。
-- 生产尚未部署 0.3.0 onboarding 代码（Task 1-9 在 codex/production-readiness 分支，领先 master 28 个提交，未 push 未部署）。
-- master 工作区有过时 0.2.4 改动已 stash。
+  - Task 9: OnboardingCoordinator + preflight + verifier + CLI(onboard/gateway)
+  - Task 10: 版本升 0.3.0 + onboard.controller 重写(410 Gone) + README/SKILL + runtime contract
+  - Task 11: onboarding-e2e.mjs 安全 harness + 7 测试 + 验证文档
+  - 代码审查修复: plan-hash 一致性、sha256 确定性、buildToml 正则、状态机失败转换、clientType 一致性
+- 全量门禁(2026-08-11)：runtime 66、server 486、client 160、local-sync 293，合计 1005 项测试通过；typecheck 0；lint 0；build 0。
+- 生产 https://agentwiki.quukk.com 运行 0.2.9，健康检查全绿，所有现有路由正常。
+- 生产尚未部署 0.3.0 代码（onboarding device auth 端点尚未上线）。
+- npm audit: 0 high/critical，3 moderate（均不可达）。
+- npm token 已恢复（neomei），可发布 0.3.0。
 
 # 稳定约束
 
@@ -32,8 +36,8 @@
 
 # 关键索引
 
-- 产品代码：`agentwiki/`
-- 工作目录：`agentwiki/.worktrees/production-readiness/`(分支 codex/production-readiness)
+- 产品代码：`agentwiki/`（版本 0.3.0）
+- 工作目录：`agentwiki/.worktrees/production-readiness/`（分支 codex/production-readiness，领先 master 35 提交）
 - 0.3.0 onboarding 新代码：`packages/local-sync/src/{onboarding,gateway,installer}/`
 - 生产地址：https://agentwiki.quukk.com
 - GitHub：https://github.com/NeoMei/AgentWiki
@@ -41,8 +45,7 @@
 
 # 风险 / 下一步
 
-- Task 10：版本升 0.3.0、README/SKILL/UsageGuide 更新、onboard.json 替换、runtime contract 测试更新。
-- Task 11：onboarding-e2e.mjs + 浏览器 E2E + 三客户端安装验收 + 生产受控部署。
-- codex/production-readiness 分支领先 master 28 个提交，未 push 未合并。
-- master 远程比本地多 11 个提交（需对齐）。
-- npm token 已恢复（neomei），可发布 0.3.0。
+- codex/production-readiness 分支领先 master 35 个提交，未 push 未合并。
+- 生产部署 0.3.0 需要：备份 PostgreSQL → 应用 Prisma 迁移 → 部署 server/client/worker → /api/health → 受控 smoke。
+- master 远程比本地多 11 个提交（需对齐后再合并分支）。
+- onboarding device/start 端点部署后需要受控 E2E 验收。
