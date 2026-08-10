@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [agent-self-service-onboarding](active/agent-self-service-onboarding/brief.md)：网页 Device Auth、NDJSON 填空、单一 gateway MCP 与首次扫描同步（设计已确认，待实施计划）。
+- [agent-self-service-onboarding](active/agent-self-service-onboarding/brief.md)：网页 Device Auth、NDJSON 填空、单一 gateway MCP 与首次扫描同步（设计和实施计划已确认，待执行）。
 
 ## 最近完成
 
