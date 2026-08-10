@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  STATIC_TOOLS,
-  LEGACY_TOOL_NAMES,
   staticToolNames,
   manifestHash,
   isLegacyToolName,

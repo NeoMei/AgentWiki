@@ -153,6 +153,7 @@ export class KnowledgeWorkflows {
   }
 
   /** Refresh the local Space workspace from the authoritative server revision. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async pull(_input: PullInput): Promise<{ revisionId: string }> {
     return this.deps.remote.pull();
   }

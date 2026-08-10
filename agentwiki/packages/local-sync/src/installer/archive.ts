@@ -5,7 +5,7 @@
  * the active onboarding/ session directory), never deleted. If archiving
  * fails the legacy children are left untouched.
  */
-import { chmod, mkdir, readdir, rename, stat } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 

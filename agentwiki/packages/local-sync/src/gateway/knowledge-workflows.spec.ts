@@ -8,7 +8,7 @@ function mockDeps(overrides?: { prepare?: Partial<Awaited<ReturnType<PrepareFn>>
       remoteCalls.push('pull');
       return { revisionId: 'rev-1' };
     }),
-    push: vi.fn(async (bundle: unknown) => {
+    push: vi.fn(async () => {
       remoteCalls.push('push');
       return { conflict: overrides?.remoteConflict ?? false, revisionId: 'rev-2' };
     }),

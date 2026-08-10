@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import {
   clientConfigPath,
   readRawConfig,
-  backupConfig,
   installGatewayEntry,
   analyzeConfig,
 } from './client-config.js';
@@ -46,7 +45,6 @@ describe('readRawConfig', () => {
 describe('analyzeConfig', () => {
   it('detects old AgentWiki entries in claude settings', async () => {
     const home = await freshHome();
-    const path = clientConfigPath('claude', home);
     await seedConfig('claude', home, JSON.stringify({
       mcpServers: {
         'agentwiki-local': { command: ['npx', 'agentwiki-local-sync', 'mcp'] },
@@ -61,7 +59,6 @@ describe('analyzeConfig', () => {
 
   it('flags an unknown agentwiki conflict', async () => {
     const home = await freshHome();
-    const path = clientConfigPath('claude', home);
     await seedConfig('claude', home, JSON.stringify({
       mcpServers: {
         agentwiki: { command: ['npx', 'some-other-tool'] },
@@ -75,9 +72,9 @@ describe('analyzeConfig', () => {
 describe('installGatewayEntry', () => {
   it('writes the gateway entry and produces a working rollback', async () => {
     const home = await freshHome();
-    const path = clientConfigPath('claude', home);
     // Start with an old entry.
     await seedConfig('claude', home, JSON.stringify({ mcpServers: { 'agentwiki-local': { command: ['x'] } } }));
+    const path = clientConfigPath('claude', home);
     const before = await readRawConfig('claude', home);
     const expectedHash = hashConfig(before!);
 
@@ -93,7 +90,6 @@ describe('installGatewayEntry', () => {
 
   it('aborts with CONFIG_CONFLICT on concurrent modification', async () => {
     const home = await freshHome();
-    const path = clientConfigPath('claude', home);
     await seedConfig('claude', home, '{}');
     const staleHash = hashConfig('{}');
 
@@ -126,7 +122,6 @@ describe('installGatewayEntry', () => {
 
   it('backs up the config at 0600', async () => {
     const home = await freshHome();
-    const path = clientConfigPath('claude', home);
     await seedConfig('claude', home, '{"old":true}');
     const { backupPath } = await installGatewayEntry('claude', 'conn-1', hashConfig('{"old":true}'), home);
     const s = await stat(backupPath);

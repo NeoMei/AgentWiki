@@ -121,11 +121,7 @@ function buildToml(current: string | null, command: string[]): string {
   // Codex uses TOML MCP servers. Remove old AgentWiki entries, add the gateway.
   const lines = (current ?? '')
     .split('\n')
-    .filter((line) => {
-      const trimmed = line.trim();
-      // Drop lines inside old agentwiki server blocks (simplified: drop matching [mcp_servers.*]).
-      return true;
-    });
+    .filter(() => true);
   const base = lines.join('\n').replace(/\n+mcp_servers\.[A-Za-z0-9_-]+.*$/s, '').trimEnd();
   const cmd = command.join('", "');
   return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = ["${cmd}"]\n`;

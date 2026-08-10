@@ -91,7 +91,7 @@ describe('gateway server tool registration', () => {
 
   it('routes a local tool call to the scanSources handler', async () => {
     const handlers = mockHandlers();
-    const { server } = await createGatewayServer({ handlers });
+    await createGatewayServer({ handlers });
     // Invoke the handler indirectly via the registered tool through the MCP protocol layer.
     // We test the handler wiring by calling the mock directly after verifying registration.
     const result = await handlers.scanSources({ sourcePaths: ['.'], sourceType: 'auto' });
