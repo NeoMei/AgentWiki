@@ -140,7 +140,7 @@ export class OnboardDeviceService {
     if (!stored) throw new BusinessException('RESOURCE_NOT_FOUND', 'Device authorization session not found');
 
     const desired = input.decision === 'approve' ? 'approved' : 'denied';
-    if (stored.status === desired || (desired === 'approved' && stored.status === 'authorized')) {
+    if (this.isEquivalentDecision(stored.status, desired)) {
       return { status: desired };
     }
     if (stored.expiresAt.getTime() <= Date.now() || stored.status === 'expired') {
@@ -162,7 +162,7 @@ export class OnboardDeviceService {
     });
     if (!changed.count) {
       const latest = await this.prisma.onboardingDeviceSession.findUnique({ where: { id: stored.id } });
-      if (latest?.status === desired) return { status: desired };
+      if (latest && this.isEquivalentDecision(latest.status, desired)) return { status: desired };
       if (!latest || latest.expiresAt.getTime() <= Date.now() || latest.status === 'expired') {
         throw new BusinessException('AUTH_EXPIRED');
       }
@@ -318,6 +318,10 @@ export class OnboardDeviceService {
 
   private isActiveHuman(user: { type?: string; lockedAt?: Date | null; deletedAt?: Date | null } | null): boolean {
     return Boolean(user && user.type === 'human' && !user.lockedAt && !user.deletedAt);
+  }
+
+  private isEquivalentDecision(status: string, desired: 'approved' | 'denied'): boolean {
+    return status === desired || (desired === 'approved' && status === 'authorized');
   }
 
   private async assertRateLimit(kind: string, identity: string, windowSeconds: number, limit: number): Promise<void> {

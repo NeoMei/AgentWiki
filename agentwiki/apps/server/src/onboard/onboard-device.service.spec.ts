@@ -220,6 +220,17 @@ describe('OnboardDeviceService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).not.toHaveBeenCalled();
   });
 
+  it('keeps approve idempotent when a decision CAS loser re-reads an already authorized session', async () => {
+    prisma.onboardingDeviceSession.findUnique
+      .mockResolvedValueOnce(session())
+      .mockResolvedValueOnce(session({ status: 'authorized', authorizedUserId: 'user-1' }));
+    prisma.onboardingDeviceSession.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.decide(
+      { userCode: 'ABCD-EFGH', decision: 'approve' }, 'user-1', '127.0.0.1',
+    )).resolves.toEqual({ status: 'approved' });
+    expect(prisma.onboardingDeviceSession.findUnique).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     { lockedAt: NOW, deletedAt: null },
     { lockedAt: null, deletedAt: NOW },
