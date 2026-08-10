@@ -37,7 +37,7 @@ AgentWiki 当前已经能够通过 `/api/onboard.json` 引导本地 Agent 完成
 - 不启动本地 HTTP 端口或常驻后台 daemon；本地网关继续使用 stdio MCP。
 - 不让服务端读取本地路径或反向控制用户设备。
 - 不绕过现有 Credential Scope、Space Grant、Space Policy、ChangeSet 和审批规则。
-- 不删除远程 MCP 的轻量接入方式；不需要本地扫描的用户仍可使用它。
+- 不为 0.2.9 的双 MCP、`connect` 命令、旧工具名或旧本地状态实现兼容层；0.3.0 是明确的破坏性简化版本。
 
 ## 4. 用户入口
 
@@ -75,7 +75,7 @@ AgentWiki Local Gateway
 | `local_*` | 本地 | `local_scan_sources`、`local_read_artifacts` |
 | `knowledge_*` | 组合 | `knowledge_prepare`、`knowledge_confirm_and_sync`、`knowledge_pull` |
 
-正常使用优先暴露高层组合工具，避免 Agent 手工拼接长链路。已有低层 orchestrator 工具保留一个版本周期的别名，供高级用户和迁移使用。
+正常使用只暴露新的高层组合工具和必要的 `wiki_*`、`local_*` 工具，避免 Agent 手工拼接长链路。0.2.9 的低层 orchestrator 工具名不提供 alias。
 
 ### 5.2 远程工具桥接
 
@@ -189,7 +189,7 @@ Agent 只收集必要业务字段：
 - `approvalMode`: `always-review` 或 Space 允许时的 `scoped-auto-publish`。
 - `sourcePaths`: 默认当前工作目录，可多选。
 - `sourceType`: 默认 `auto`，也可为 `code`、`documents` 或版本化 Adapter ID。
-- `initialSync`: 完整 onboarding 默认必须为 `true`；轻量连接使用单独的 remote-only/connect-only 入口。
+- `initialSync`: 固定为 `true`；0.3.0 自助接入必须完成首次扫描、预览确认和同步，不提供 remote-only/connect-only 分支。
 
 邮箱、密码、Google 登录信息、人类 token、Agent API Key 和 installation code 不进入表单协议。
 
@@ -203,7 +203,7 @@ Preflight 在第一次业务确认前完成，并将结果汇总为一份用户�
 - Agent 类型和版本。
 - Node/npm 与本地包版本。
 - MCP 配置路径和写权限。
-- 已有 AgentWiki MCP 项及替换/保留策略。
+- 已有 AgentWiki MCP 项及一次性替换策略。
 - 将创建或复用的 Space、Agent、权限和审核模式。
 - 将扫描的绝对路径、Adapter、文件边界和忽略规则。
 - 将写入的配置差异、备份位置、预计网络操作和恢复策略。
@@ -254,14 +254,16 @@ collecting_input
 - 当前 Agent 不支持 MCP 热加载时，gateway 子进程验证完成后返回 `reload_required`，脚本正常退出或继续直接执行首次扫描，绝不等待宿主刷新。
 - onboarding session 持久化后才能进入下一状态；崩溃后从最后一个完整 checkpoint 恢复。
 
-### 9.3 Agent 配置迁移
+### 9.3 0.3.0 一次性切换
 
 - 完整 onboarding 的目标 MCP 名固定为 `agentwiki`。
-- 若已存在本项目生成的远程 AgentWiki MCP，Preflight 在计划中提出原子替换为本地 gateway。
-- 若发现未知来源的同名配置，不自动覆盖；计划必须展示差异并取得确认。
-- 其他名称的旧 AgentWiki MCP 会在计划中列出，默认禁用重复连接，避免工具重复；用户可选择保留轻量远程入口。
-- `0.2.9 connect` 继续可用；`0.3.0 onboard` 是完整新流程。
-- 旧本地 orchestrator 工具保留一个小版本周期的 alias，调用时返回迁移提示。
+- Preflight 识别所有指向当前 AgentWiki 服务的旧 remote/local MCP 项，并在确认计划中统一列出。
+- 用户确认后，安装器先备份完整客户端配置，再删除这些旧 AgentWiki MCP 项并安装唯一 gateway；不提供保留双 MCP 的选项。
+- 若同名 `agentwiki` 配置不指向当前 AgentWiki 服务，视为未知第三方冲突并停止，禁止自动覆盖。
+- `0.3.0` 的公开 CLI 只提供 `onboard`、`resume`、`doctor`、`uninstall` 和 gateway 运行入口；不保留 0.2.9 `connect` 工作流。
+- 不保留旧本地 orchestrator 工具 alias，不转换旧 job/checkpoint/preview。
+- 若检测到旧 `~/.agentwiki` 状态，安装器只做带时间戳的只读归档备份，然后初始化干净的 0.3.0 状态；不尝试语义迁移，也不删除归档。
+- 已安装的 0.2.9 在用户执行 0.3.0 onboarding 前继续原样工作；服务器不需要为新客户端保留旧 onboarding 指令。
 
 ## 10. 本地 session 与恢复
 
@@ -331,7 +333,7 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 - Space、Agent、Grant 与 Credential 已创建或复用。
 - 本地 gateway 配置已原子写入。
 - gateway 子进程可启动并完成 MCP handshake。
-- 本地、远程和组合工具清单符合兼容 manifest。
+- 本地、远程和组合工具清单与 0.3.0 manifest 精确一致。
 - 远程身份、Space Grant 和有效 Scope 检查通过。
 - 首次本地扫描和知识预览成功。
 - 用户明确确认同步预览。

@@ -28,4 +28,4 @@
 - 上传原始代码、原始文档、原始 Agent Memory 或凭据。
 - 依赖自然语言提示词保存状态或选择 MCP。
 - 本地端口、daemon、服务端反向控制或未确认上传。
-- 移除现有 remote-only MCP 和 0.2.9 `connect` 兼容入口。
+- 为 0.2.9 双 MCP、`connect`、旧工具 alias 或旧 job 状态提供向下兼容。
