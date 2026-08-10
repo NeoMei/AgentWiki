@@ -41,16 +41,17 @@ export function isTerminalState(state: OnboardingState): boolean {
 }
 
 /** Legal forward transitions; everything else is rejected to prevent skips. */
+
 const TRANSITIONS: Record<OnboardingState, OnboardingState[]> = {
-  collecting_input: ['waiting_for_web_auth', 'cancelled', 'failed_terminal'],
+  collecting_input: ['waiting_for_web_auth', 'cancelled', 'failed_recoverable', 'failed_terminal'],
   waiting_for_web_auth: ['preflight', 'waiting_for_web_auth', 'cancelled', 'failed_recoverable', 'failed_terminal'],
-  preflight: ['waiting_for_confirmation', 'cancelled', 'failed_terminal'],
-  waiting_for_confirmation: ['bootstrapping', 'waiting_for_confirmation', 'cancelled', 'failed_terminal'],
+  preflight: ['waiting_for_confirmation', 'cancelled', 'failed_recoverable', 'failed_terminal'],
+  waiting_for_confirmation: ['bootstrapping', 'waiting_for_confirmation', 'cancelled', 'failed_recoverable', 'failed_terminal'],
   bootstrapping: ['installing_gateway', 'failed_recoverable', 'failed_terminal'],
   installing_gateway: ['verifying_gateway', 'failed_recoverable', 'failed_terminal'],
   verifying_gateway: ['scanning', 'completed', 'failed_recoverable', 'failed_terminal'],
   scanning: ['waiting_for_sync_confirmation', 'failed_recoverable', 'failed_terminal'],
-  waiting_for_sync_confirmation: ['syncing', 'waiting_for_sync_confirmation', 'cancelled', 'failed_terminal'],
+  waiting_for_sync_confirmation: ['syncing', 'waiting_for_sync_confirmation', 'cancelled', 'failed_recoverable', 'failed_terminal'],
   syncing: ['completed', 'failed_recoverable', 'failed_terminal'],
   completed: [],
   failed_recoverable: ['collecting_input', 'waiting_for_web_auth', 'preflight', 'waiting_for_confirmation', 'bootstrapping', 'installing_gateway', 'verifying_gateway', 'scanning', 'waiting_for_sync_confirmation', 'syncing', 'cancelled', 'failed_terminal'],

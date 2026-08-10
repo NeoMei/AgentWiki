@@ -152,11 +152,11 @@ export class OnboardingCoordinator {
   }
 
   private async authorize(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
-    const inputs = prev.inputs!;
+    const clientType: ClientType = prev.clientType ?? 'codex';
     const started: StartResult = await this.deps.client.start({
       serverBaseUrl: this.deps.serverBaseUrl,
       packageVersion: this.deps.packageVersion,
-      clientType: inputs.clientType as ClientType,
+      clientType,
     });
     this.emit({
       type: 'authorization_required',
@@ -182,7 +182,7 @@ export class OnboardingCoordinator {
 
   private async preflight(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'preflight', status: 'running' });
-    const result = await this.deps.preflight((prev.inputs!.clientType as ClientType) ?? 'codex', this.deps.home);
+    const result = await this.deps.preflight(prev.clientType ?? 'codex', this.deps.home);
     if (result.hasConflict) {
       throw this.fail('CONFIG_CONFLICT', 'an unknown entry already occupies the agentwiki MCP name', false);
     }
@@ -217,7 +217,7 @@ export class OnboardingCoordinator {
       idempotencyKey: `${this.sessionId}-${prev.serverPlanHash}`,
       serverPlan: this.buildServerPlan(prev.inputs!),
       serverPlanHash: prev.serverPlanHash!,
-      client: prev.inputs!.clientType as ClientType,
+      client: prev.clientType ?? 'codex',
       connectionId,
       home: this.deps.home,
       expectedConfigHash: prev.inputs!.configHash as string,

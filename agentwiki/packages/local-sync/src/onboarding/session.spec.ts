@@ -11,6 +11,7 @@ import {
   sessionFilePath,
   secretFilePath,
   type OnboardingCheckpoint,
+  type OnboardingState,
 } from './session.js';
 
 let tempHome = '';
@@ -63,6 +64,19 @@ describe('onboarding session state machine', () => {
   it('throws on illegal transitions in assertTransition', () => {
     expect(() => assertTransition('collecting_input', 'completed')).toThrow();
   });
+
+  it('allows transitioning to failed_recoverable from every non-terminal state', () => {
+    const nonTerminal: OnboardingState[] = [
+      'collecting_input', 'waiting_for_web_auth', 'preflight',
+      'waiting_for_confirmation', 'bootstrapping', 'installing_gateway',
+      'verifying_gateway', 'scanning', 'waiting_for_sync_confirmation', 'syncing',
+    ];
+    for (const state of nonTerminal) {
+      expect(canTransition(state, 'failed_recoverable')).toBe(true);
+      expect(canTransition(state, 'failed_terminal')).toBe(true);
+    }
+  });
+
 });
 
 describe('onboarding session persistence', () => {

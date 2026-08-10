@@ -120,11 +120,22 @@ function buildConfigWithGateway(client: AgentClient, current: string | null, con
 function buildToml(current: string | null, command: string[]): string {
   // Codex uses TOML MCP servers. Remove old AgentWiki blocks, add the gateway.
   const text = current ?? '';
-  // Remove all existing mcp_servers blocks that reference agentwiki.
-  const cleaned = text.replace(/\[mcp_servers\.[A-Za-z0-9_-]+\]\n(?:(?!\[mcp_servers\.)[^]*\n?)*/g, (block) => {
-    return block.toLowerCase().includes('agentwiki') ? '' : block;
-  });
-  const base = cleaned.trimEnd();
+  // Split into blocks by [mcp_servers.NAME] headers, keeping non-MCP content intact.
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let skipBlock = false;
+  for (const line of lines) {
+    const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
+    if (headerMatch) {
+      // Starting a new mcp_servers block; skip if it references agentwiki.
+      skipBlock = line.toLowerCase().includes('agentwiki') || headerMatch[1].toLowerCase().includes('agentwiki');
+    } else if (/^\[/.test(line)) {
+      // A different section header stops the skip.
+      skipBlock = false;
+    }
+    if (!skipBlock) result.push(line);
+  }
+  const base = result.join('\n').trimEnd();
   const cmd = command.join('", "');
   return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = ["${cmd}"]\n`;
 }
