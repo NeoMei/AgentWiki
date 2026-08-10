@@ -23,6 +23,7 @@
 - 生产 Nginx 的 `/socket.io/` 误路由已修复，公网 WebSocket 握手由 400 恢复为 101，并加入配置契约测试。
 - 详细证据：`agentwiki/docs/verification/production-readiness-0.2.9.md`。
 - Agent 自助接入 0.3.0 设计与实施计划均已确认落盘；Task 1-3 已完成，事务化 bootstrap、执行 fencing、模糊 Redis 写入恢复和每 device session 独立 Agent 已通过 486 项服务端测试与人工复审。
+- Task 4 网页 Device Auth 前端已实现：公共授权页、登录/注册安全回跳、401 过期会话恢复、唯一 0.3.0 命令、同账号多 Agent 说明均已完成；160 项前端测试、lint、桌面/390px 移动端真实浏览器验收通过，待聚焦提交。
 
 # 稳定约束
 
@@ -42,6 +43,6 @@
 
 # 风险 / 下一步
 
-- 自助接入 Task 1-3 已完成；Task 4-11 尚待按计划实施，完整 0.3.0 流程当前仍不得宣传为已上线。
+- 自助接入 Task 1-3 已完成，Task 4 正在提交收尾，Task 5-11 尚待按计划实施；完整 0.3.0 流程当前仍不得宣传为已上线。
 - 0.3.0 采用破坏性简化，不为刚发布且尚无用户规模的 0.2.9 双 MCP、connect、旧工具名或旧状态实现兼容层。
 - 生产依赖审计剩余 3 个不可达 moderate；只有未来引入 Nest SSE 或 `FileTypeValidator` 路径时才需重新评估。

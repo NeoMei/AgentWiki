@@ -12,6 +12,7 @@
 - 正式设计已写入 `agentwiki/docs/superpowers/specs/2026-08-10-agent-self-service-onboarding-gateway-design.md`。
 - 分阶段实施计划已写入 `agentwiki/docs/superpowers/plans/2026-08-10-agent-self-service-onboarding-gateway-plan.md`，拆为 4 个里程碑、11 个 TDD 任务。
 - Task 1-3 已完成；事务化 bootstrap、generation/lease fencing、Redis replay 恢复和每个 device session 独立 Agent 已通过 486 项服务端测试与人工复审。
+- Task 4 网页 Device Auth 前端已实现并通过 160 项前端测试、lint、build 及桌面/390px 移动端真实浏览器验收；包含登录/注册安全回跳、过期 JWT 恢复、授权竞态保护和复制失败反馈，待聚焦提交。
 - 2026-08-10：用户确认权限冲突采用 A，完整 onboarding 不提供 `viewer`，只提供可完成首次同步的 `editor`/`full`。
 - 2026-08-10：同一人类账号可先后接入多个独立 Agent；每个新的 device session 创建独立 Agent、Grant 和安装凭据，同名 Agent 也不跨 session 复用。
 

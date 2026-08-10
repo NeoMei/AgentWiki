@@ -10,6 +10,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
+import { safeReturnTo } from '../auth/safeReturnTo';
 
 const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
   if (pwd.length < 8) return t('auth.passwordMin');
@@ -34,13 +35,17 @@ export const ProductPage: React.FC = () => {
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const workspaceIntent = new URLSearchParams(location.search).get('intent') === 'workspace';
+  const query = new URLSearchParams(location.search);
+  const intent = query.get('intent');
+  const authIntent = intent === 'workspace' || intent === 'onboard';
+  const onboardIntent = intent === 'onboard';
+  const returnTarget = safeReturnTo(query.get('returnTo'));
 
   useEffect(() => {
-    if (!workspaceIntent || token) return;
+    if (!authIntent || token) return;
     loginCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     emailInputRef.current?.focus({ preventScroll: true });
-  }, [token, workspaceIntent]);
+  }, [authIntent, token]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +61,7 @@ export const ProductPage: React.FC = () => {
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
       login(res.data.access_token, res.data.user);
-      navigate('/dashboard');
+      navigate(returnTarget ?? '/dashboard');
     } catch (err: any) {
       setAuthError(err.response?.data?.message || (authMode === 'login' ? t('auth.loginFailed') : t('auth.registrationFailed')));
     } finally {
@@ -172,20 +177,24 @@ export const ProductPage: React.FC = () => {
             {/* Right: Auth Card */}
             {!token ? (
               <div id="login" ref={loginCardRef} className="bg-white rounded-xl shadow-lg border border-gray-200 p-8">
-                {workspaceIntent ? (
+                {authIntent ? (
                   <div role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-center text-sm text-blue-700">
-                    {t('auth.workspacePrompt')}
+                    {t(onboardIntent ? 'auth.onboardPrompt' : 'auth.workspacePrompt')}
                   </div>
                 ) : null}
                 {/* Tab Switcher */}
                 <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6">
                   <button
+                    type="button"
+                    aria-label={zh ? '切换到登录' : 'Switch to sign in'}
                     onClick={() => { setAuthMode('login'); setAuthError(''); }}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authMode === 'login' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     {t('auth.signIn')}
                   </button>
                   <button
+                    type="button"
+                    aria-label={zh ? '切换到注册' : 'Switch to register'}
                     onClick={() => { setAuthMode('register'); setAuthError(''); }}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authMode === 'register' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
                   >
@@ -234,6 +243,9 @@ export const ProductPage: React.FC = () => {
                     />
                     <button
                       type="button"
+                      aria-label={showPassword
+                        ? (zh ? '隐藏密码' : 'Hide password')
+                        : (zh ? '显示密码' : 'Show password')}
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 transition"
                     >

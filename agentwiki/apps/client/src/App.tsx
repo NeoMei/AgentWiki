@@ -13,6 +13,7 @@ import { SpaceMembers } from './features/space/SpaceMembers';
 import { ProductPage } from './features/about/ProductPage';
 import { UsageGuide } from './features/about/UsageGuide';
 import { OnboardPage } from './features/about/OnboardPage';
+import { OnboardDevicePage } from './features/about/OnboardDevicePage';
 import { SpaceSettings } from './features/space/SpaceSettings';
 import { AdminPage } from './features/admin/AdminPage';
 
@@ -64,6 +65,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/" element={<ProductPage />} />
       <Route path="/guide" element={<UsageGuide />} />
       <Route path="/onboard" element={<OnboardPage />} />
+      <Route path="/onboard/device" element={<OnboardDevicePage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
