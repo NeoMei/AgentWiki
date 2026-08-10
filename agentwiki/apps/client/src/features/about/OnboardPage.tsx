@@ -80,7 +80,7 @@ export const OnboardPage: React.FC = () => {
             </div>
             <div className="border rounded-lg p-4 space-y-2">
               <div className="flex items-center gap-2 text-green-600 font-medium"><Terminal size={18} /> {zh ? '方式 B：本地同步 MCP' : 'Mode B: Local sync MCP'}</div>
-              <p className="text-xs text-gray-500">{zh ? '由本地 @agentwiki/local-sync 包暴露。适合扫描本地代码/文档，整理成知识库后同步到 AgentWiki。' : 'Exposed by the local @agentwiki/local-sync package. Use for scanning local code/documents, organizing, and syncing to AgentWiki.'}</p>
+              <p className="text-xs text-gray-500">{zh ? '由本地 @neomei/agentwiki-local-sync 包暴露。适合扫描本地代码/文档，整理成知识库后同步到 AgentWiki。' : 'Exposed by the local @neomei/agentwiki-local-sync package. Use for scanning local code/documents, organizing, and syncing to AgentWiki.'}</p>
               <p className="text-xs text-gray-400">{zh ? '工具：start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict' : 'Tools: start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict'}</p>
             </div>
           </div>

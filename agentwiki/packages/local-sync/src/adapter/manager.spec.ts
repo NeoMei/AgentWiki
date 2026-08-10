@@ -72,6 +72,57 @@ describe('AdapterManager', () => {
     expect(ids).toEqual(['codebase-memory', 'markitdown']);
   });
 
+  it('installs Microsoft MarkItDown in an isolated Python environment', async () => {
+    const calls: Array<{ file: string; args: string[]; timeout?: number }> = [];
+    const manager = new AdapterManager({
+      runtimeHome: tempHome,
+      exec: async (file, args, options) => {
+        calls.push({
+          file,
+          args: [...(args ?? [])],
+          timeout: (options as { timeout?: number } | undefined)?.timeout,
+        });
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    const status = await manager.install('markitdown');
+
+    expect(status).toMatchObject({ installed: true, version: '0.1.6' });
+    const venvCall = calls.find((call) => call.args.includes('venv'));
+    const pipCall = calls.find((call) => call.args.includes('pip'));
+    expect(venvCall).toMatchObject({ args: ['-m', 'venv', '.venv'] });
+    expect(pipCall?.file).toMatch(/\.venv\/bin\/python$/);
+    expect(pipCall?.args).toEqual([
+      '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
+      'markitdown[pdf,docx]==0.1.6',
+    ]);
+    expect(pipCall?.timeout).toBe(30 * 60_000);
+  });
+
+  it('selects a Python interpreter that satisfies MarkItDown requirements', async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const manager = new AdapterManager({
+      runtimeHome: tempHome,
+      exec: async (file, args) => {
+        const argv = [...(args ?? [])];
+        calls.push({ file, args: argv });
+        if (argv.some((value) => value.startsWith('import sys'))) {
+          if (file === 'python3.12') return { stdout: '3.12\n', stderr: '' };
+          const error = new Error(`${file} is unavailable`);
+          (error as NodeJS.ErrnoException).code = 'ENOENT';
+          throw error;
+        }
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    await manager.install('markitdown');
+
+    expect(calls).toContainEqual({ file: 'python3.12', args: ['-m', 'venv', '.venv'] });
+    expect(calls.some((call) => call.file === 'python3' && call.args.includes('venv'))).toBe(false);
+  });
+
   it('detects missing adapter as not installed', async () => {
     const manager = new AdapterManager({ runtimeHome: tempHome });
     const status = await manager.detect('codebase-memory');
@@ -176,6 +227,20 @@ describe('AdapterManager', () => {
     );
 
     await expect(manager.verify('stub')).rejects.toThrow(AdapterRuntimeError);
+  });
+
+  it('includes hidden runtime directories in checksum verification', async () => {
+    const manager = new AdapterManager({
+      runtimeHome: tempHome,
+      exec: async () => ({ stdout: '', stderr: '' }),
+    });
+    const status = await manager.install('markitdown');
+    if (!status.installed) throw new Error('Expected installed runtime');
+    const hiddenRuntimeFile = join(status.path, '.venv', 'bin', 'injected');
+    await mkdir(join(status.path, '.venv', 'bin'), { recursive: true });
+    await writeFile(hiddenRuntimeFile, 'tampered');
+
+    await expect(manager.verify('markitdown')).rejects.toThrow(/checksum mismatch/);
   });
 
   it('remove clears runtime directory', async () => {

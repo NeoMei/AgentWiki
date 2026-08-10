@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.2.6
+# AgentWiki 功能测试指南 v0.2.8
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -239,7 +239,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `@neomei/agentwiki-local-sync@0.2.6` 公网可安装 |
+| 12.9 | npm 包 | 发布后 `npm view @neomei/agentwiki-local-sync version` 必须为 `0.2.8`；发布前不将暂存版冒充为公网版 |
 
 ---
 

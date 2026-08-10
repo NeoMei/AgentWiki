@@ -12,7 +12,7 @@ import { classifySensitivity } from '../utils/redact.js';
 const execFileAsync = promisify(execFile);
 
 const ADAPTER_ID = 'markitdown';
-const ADAPTER_VERSION = '0.1.0';
+const ADAPTER_VERSION = '0.2.0';
 const PROTOCOL_VERSION = '1.0';
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.docx', '.doc']);
@@ -35,10 +35,10 @@ export class MarkitdownAdapter implements SourceAdapter {
       supportsIncremental: true,
       permissions: ['read-source-path', 'run-managed-runtime'],
       runtime: {
-        kind: 'node-module',
+        kind: 'python-venv',
         packageName: 'markitdown',
-        packageVersion: '^0.1.0',
-        installCommand: ['npm', 'install', 'markitdown@^0.1.0'],
+        packageVersion: '0.1.6',
+        packageExtras: ['pdf', 'docx'],
       },
     };
   }
@@ -75,7 +75,7 @@ export class MarkitdownAdapter implements SourceAdapter {
       try {
         text = await convertToText(this.runtimePath, file);
       } catch (error: unknown) {
-        text = `Conversion failed: ${formatError(error)}`;
+        throw new Error(`Failed to convert ${logicalKey}: ${formatError(error)}`, { cause: error });
       }
 
       const sensitivity = classifySensitivity(text);
@@ -172,6 +172,7 @@ async function walk(
 
   let bytes = bytesRef.value;
   for (const name of names) {
+    if (files.length >= limits.maxFiles) break;
     if (name.startsWith('.')) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
     const fullPath = resolve(root, relativePath);
@@ -195,7 +196,7 @@ async function walk(
       bytes += stats.size;
       if (files.length >= limits.maxFiles) {
         bytesRef.value = bytes;
-  return bytesRef.value;
+        return bytesRef.value;
       }
     }
   }
@@ -219,8 +220,10 @@ async function convertToText(runtimePath: string, filePath: string): Promise<str
     return await readFile(filePath, 'utf8');
   }
 
-  const binary = join(runtimePath, 'node_modules', '.bin', 'markitdown');
-  const { stdout } = await execFileAsync(process.execPath, [binary, filePath], {
+  const python = process.platform === 'win32'
+    ? join(runtimePath, '.venv', 'Scripts', 'python.exe')
+    : join(runtimePath, '.venv', 'bin', 'python');
+  const { stdout } = await execFileAsync(python, ['-m', 'markitdown', filePath], {
     cwd: runtimePath,
     maxBuffer: 64 * 1024 * 1024,
     timeout: 120_000,

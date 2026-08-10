@@ -7,7 +7,7 @@ compatibility: codex, claude-code, opencode
 
 # AgentWiki Local Sync
 
-> Important: This is a **local-only MCP server**. The tools below are exposed by the `@agentwiki/local-sync` package running on your local machine — not by the remote AgentWiki server at `https://agentwiki.quukk.com/api/mcp`.
+> Important: This is a **local-only MCP server**. The tools below are exposed by the `@neomei/agentwiki-local-sync` package running on your local machine — not by the remote AgentWiki server at `https://agentwiki.quukk.com/api/mcp`.
 >
 > - AgentWiki server MCP exposes direct tools like `list_spaces`, `propose_page`, `search_pages`, etc.
 > - `agentwiki-local-sync` exposes workflow tools like `start_knowledge_job`, `get_next_work_item`, `confirm_and_push`, etc.

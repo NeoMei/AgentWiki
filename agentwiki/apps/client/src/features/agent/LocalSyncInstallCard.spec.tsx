@@ -45,7 +45,7 @@ describe('LocalSyncInstallCard', () => {
     await generate();
 
     expect(api.post).toHaveBeenCalledWith('/agents/agent-1/local-sync-installations', {
-      pluginVersion: '0.2.6',
+      pluginVersion: '0.2.8',
       scopes: ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'],
     });
     expect(screen.queryByText(/agk_/)).not.toBeInTheDocument();

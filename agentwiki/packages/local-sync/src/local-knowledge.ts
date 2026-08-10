@@ -188,7 +188,7 @@ export async function prepareKnowledgeSync(input: PrepareInput, deps?: LocalKnow
       sourceKey,
       name: basename(root),
       kind: sourceKind(counts),
-      producer: { name: 'agentwiki-local-sync', version: '0.2.6' },
+      producer: { name: 'agentwiki-local-sync', version: '0.2.8' },
       documents: [],
     };
 

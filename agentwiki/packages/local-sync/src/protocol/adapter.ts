@@ -22,6 +22,7 @@ export const ManagedRuntimeDescriptorSchema = z.object({
   kind: z.enum(['node-module', 'python-venv', 'native-binary', 'future']),
   packageName: z.string().min(1).optional(),
   packageVersion: z.string().min(1).optional(),
+  packageExtras: z.array(z.string().min(1)).optional(),
   installCommand: z.array(z.string()).optional(),
   checksum: z.string().optional(),
 });

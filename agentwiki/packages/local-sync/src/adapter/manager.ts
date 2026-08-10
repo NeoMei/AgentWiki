@@ -55,10 +55,10 @@ const MANAGED_ADAPTERS: ManagedAdapter[] = [
     adapterId: 'markitdown',
     displayName: 'markitdown',
     descriptor: {
-      kind: 'node-module',
+      kind: 'python-venv',
       packageName: 'markitdown',
-      packageVersion: '^0.1.0',
-      installCommand: ['npm', 'install', 'markitdown@^0.1.0'],
+      packageVersion: '0.1.6',
+      packageExtras: ['pdf', 'docx'],
     },
     factory: (runtimePath) => new MarkitdownAdapter(runtimePath),
   },
@@ -67,7 +67,12 @@ const MANAGED_ADAPTERS: ManagedAdapter[] = [
 export type ExecFn = (
   file: string,
   args?: readonly string[] | null,
-  options?: { cwd?: string; env?: Record<string, string | undefined> },
+  options?: {
+    cwd?: string;
+    env?: Record<string, string | undefined>;
+    timeout?: number;
+    maxBuffer?: number;
+  },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 export interface AdapterManagerOptions {
@@ -159,24 +164,29 @@ export class AdapterManager {
 
     await mkdir(tmpDir, { recursive: true, mode: 0o700 });
 
-    const command = managed.descriptor.installCommand;
-    if (!command || command.length === 0) {
-      throw new AdapterRuntimeError(
-        `Adapter "${adapterId}" has no install command`,
-        adapterId,
-      );
-    }
-
     try {
-      await this.exec(command[0], command.slice(1) ?? null, {
-        cwd: tmpDir,
-        env: {
-          ...process.env,
-          npm_config_cache: join(this.runtimeHome, '.npm-cache'),
-          npm_config_global: 'false',
-          npm_config_save: 'false',
-        },
-      });
+      if (managed.descriptor.kind === 'python-venv') {
+        await this.installPythonRuntime(managed, tmpDir);
+      } else {
+        const command = managed.descriptor.installCommand;
+        if (!command || command.length === 0) {
+          throw new AdapterRuntimeError(
+            `Adapter "${adapterId}" has no install command`,
+            adapterId,
+          );
+        }
+        await this.exec(command[0], command.slice(1) ?? null, {
+          cwd: tmpDir,
+          env: {
+            ...process.env,
+            npm_config_cache: join(this.runtimeHome, '.npm-cache'),
+            npm_config_global: 'false',
+            npm_config_save: 'false',
+          },
+          timeout: 5 * 60_000,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+      }
 
       const version = await this.resolveVersion(adapterId, tmpDir);
       const checksum = await hashDirectory(tmpDir);
@@ -284,6 +294,76 @@ export class AdapterManager {
     return managed.descriptor.packageVersion ?? 'unknown';
   }
 
+  private async installPythonRuntime(managed: ManagedAdapter, runtimePath: string): Promise<void> {
+    const packageName = managed.descriptor.packageName;
+    const packageVersion = managed.descriptor.packageVersion;
+    if (!packageName || !packageVersion) {
+      throw new AdapterRuntimeError(
+        `Python adapter "${managed.adapterId}" requires an exact package name and version`,
+        managed.adapterId,
+      );
+    }
+
+    const python = await this.selectPython(runtimePath, managed.adapterId);
+    await this.exec(python.file, [...python.prefixArgs, '-m', 'venv', '.venv'], {
+      cwd: runtimePath,
+      env: process.env,
+      timeout: 2 * 60_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+
+    const venvPython = process.platform === 'win32'
+      ? join(runtimePath, '.venv', 'Scripts', 'python.exe')
+      : join(runtimePath, '.venv', 'bin', 'python');
+    const extras = managed.descriptor.packageExtras?.length
+      ? `[${managed.descriptor.packageExtras.join(',')}]`
+      : '';
+    await this.exec(venvPython, [
+      '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
+      `${packageName}${extras}==${packageVersion}`,
+    ], {
+      cwd: runtimePath,
+      env: process.env,
+      timeout: 30 * 60_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  }
+
+  private async selectPython(
+    runtimePath: string,
+    adapterId: string,
+  ): Promise<{ file: string; prefixArgs: string[] }> {
+    const configured = process.env.AGENTWIKI_PYTHON?.trim();
+    const candidates = configured
+      ? [{ file: configured, prefixArgs: [] }]
+      : process.platform === 'win32'
+        ? ['3.14', '3.13', '3.12', '3.11', '3.10'].map((version) => ({
+            file: 'py', prefixArgs: [`-${version}`],
+          }))
+        : ['python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3']
+            .map((file) => ({ file, prefixArgs: [] }));
+    const probe = 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)';
+
+    for (const candidate of candidates) {
+      try {
+        await this.exec(candidate.file, [...candidate.prefixArgs, '-c', probe], {
+          cwd: runtimePath,
+          env: process.env,
+          timeout: 10_000,
+          maxBuffer: 1024 * 1024,
+        });
+        return candidate;
+      } catch {
+        // Try the next explicitly versioned interpreter.
+      }
+    }
+
+    throw new AdapterRuntimeError(
+      `Adapter "${adapterId}" requires Python 3.10 or later; set AGENTWIKI_PYTHON to a compatible interpreter`,
+      adapterId,
+    );
+  }
+
   private async writeRuntimeManifest(adapterId: string, status: RuntimeStatus): Promise<void> {
     const path = this.manifestPath(adapterId);
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -318,7 +398,6 @@ async function hashDirectory(dir: string): Promise<string> {
 async function walk(root: string, prefix: string, entries: string[]): Promise<void> {
   const names = await readdirSafe(join(root, prefix));
   for (const name of names.sort()) {
-    if (name.startsWith('.')) continue;
     const relativePath = prefix ? `${prefix}/${name}` : name;
     const fullPath = join(root, relativePath);
     const stats = await stat(fullPath);

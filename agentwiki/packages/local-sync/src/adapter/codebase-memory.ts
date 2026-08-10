@@ -186,7 +186,7 @@ export class CodebaseMemoryAdapter implements SourceAdapter {
   }> {
     const binary = join(this.runtimePath, 'node_modules', '.bin', 'codebase-memory-mcp');
     try {
-      const index = await this.exec(process.execPath, [binary, 'cli', '--json', 'index_repository', JSON.stringify({
+      const index = await this.exec(binary, ['cli', '--json', 'index_repository', JSON.stringify({
         repo_path: sourcePath,
         mode: 'fast',
         persistence: false,
@@ -200,7 +200,7 @@ export class CodebaseMemoryAdapter implements SourceAdapter {
       const project = typeof indexResult.value.project === 'string'
         ? indexResult.value.project
         : `private-${sourcePath.split('/').filter(Boolean).at(-1) ?? 'project'}`;
-      const architecture = await this.exec(process.execPath, [binary, 'cli', '--json', 'get_architecture', JSON.stringify({
+      const architecture = await this.exec(binary, ['cli', '--json', 'get_architecture', JSON.stringify({
         project,
         aspects: ['overview'],
       })], {

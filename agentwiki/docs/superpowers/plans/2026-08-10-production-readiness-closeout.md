@@ -29,7 +29,7 @@
 
 **Interfaces:**
 - Produces: `runCli(argv?, home?)` returns usage text for `--help` and `{ version }` for `--version` without loading a connection.
-- Produces: npm package and onboarding version `0.2.6`.
+- Produces: npm package and onboarding version `0.2.8`.
 
 - [x] **Step 1: Write failing help/version tests**
 
@@ -39,7 +39,7 @@ it('returns usage for --help without requiring a connection', async () => {
 });
 
 it('returns the package version for --version without requiring a connection', async () => {
-  await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.2.6' });
+  await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.2.8' });
 });
 ```
 
@@ -58,7 +58,7 @@ if (values.help === true) return CLI_USAGE;
 if (values.version === true) return { version: PACKAGE_VERSION };
 ```
 
-Add `help` and `version` to `parseArgs` boolean options, set package/onboarding references to `0.2.6`, and keep orchestrator MCP registration enabled.
+Add `help` and `version` to `parseArgs` boolean options, set package/onboarding references to `0.2.8`, and keep orchestrator MCP registration enabled.
 
 - [x] **Step 4: Verify GREEN and package smoke**
 
@@ -225,7 +225,7 @@ Verify `/`, `/guide`, `/onboard`, `/dashboard`, login, Space members, and local-
 - Modify: `README.md` only if version/usage references require it.
 
 **Interfaces:**
-- Produces: npm `0.2.6`, GitHub `master`, production service, and documentation at the same version.
+- Produces: npm `0.2.8`, GitHub `master`, production service, and documentation at the same version.
 
 - [x] **Step 1: Run all release gates**
 
@@ -251,13 +251,13 @@ Verify no `.tgz`, `.env`, key, password, token, database dump, or temporary scre
 
 Use author `NeoMei <ffdeml@gmail.com>`. Push the tested commit and fast-forward `master` only after all gates pass.
 
-- [ ] **Step 5: Publish npm `0.2.6`**
+- [ ] **Step 5: Publish npm `0.2.8`**
 
-Use interactive npm WebAuthn confirmation and verify public registry `latest=0.2.6`.
+Use interactive npm WebAuthn confirmation and verify public registry `latest=0.2.8`.
 
 - [ ] **Step 6: Deploy production and verify version parity**
 
-Back up production, deploy API/Worker/frontend, apply migrations, verify systemd services and `/api/health`, then confirm `/api/onboard.json` uses `0.2.6`, Agent-key `/self` installation endpoint is present, and the local-sync MCP command includes `--orchestrator`.
+Back up production, deploy API/Worker/frontend, apply migrations, verify systemd services and `/api/health`, then confirm `/api/onboard.json` uses `0.2.8`, Agent-key `/self` installation endpoint is present, and the local-sync MCP command includes `--orchestrator`.
 
 - [x] **Step 7: Update project memory with current verified state**
 

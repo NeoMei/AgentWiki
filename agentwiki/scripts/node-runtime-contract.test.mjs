@@ -63,8 +63,12 @@ test('direct production deployment rejects a stale non-HTTPS public Agent API UR
 
 test('Compose forwards onboarding and OpenCode routing configuration to the API', async () => {
   const compose = await read('docker-compose.yml');
+  const version = JSON.parse(await read('packages/local-sync/package.json')).version;
   assert.match(compose, /PUBLIC_API_URL: \$\{PUBLIC_API_URL:\?PUBLIC_API_URL is required\}/);
-  assert.match(compose, /LOCAL_SYNC_PACKAGE_VERSION: \$\{LOCAL_SYNC_PACKAGE_VERSION:-0\.2\.6\}/);
+  assert.match(
+    compose,
+    new RegExp(`LOCAL_SYNC_PACKAGE_VERSION: \\$\\{LOCAL_SYNC_PACKAGE_VERSION:-${version.replaceAll('.', '\\.')}\\}`),
+  );
   assert.match(compose, /ASSIST_OPENCODE_ALLOW_PAID_FALLBACK: \$\{ASSIST_OPENCODE_ALLOW_PAID_FALLBACK:-true\}/);
   assert.match(compose, /OPENROUTER_API_KEY: \$\{OPENROUTER_API_KEY:-\}/);
 });
@@ -86,7 +90,7 @@ test('the product no longer carries the retired external wiki compiler path', ()
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.2.6');
+  assert.equal(version, '0.2.8');
   for (const path of [
     '.env.example',
     'apps/client/src/config/localSync.ts',
@@ -97,4 +101,24 @@ test('every active local-sync release surface uses the package version', async (
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
   }
+});
+
+test('every user-facing local-sync surface uses the published npm package name', async () => {
+  for (const path of [
+    'packages/local-sync/README.md',
+    'packages/local-sync/skill/SKILL.md',
+    'apps/client/src/features/about/OnboardPage.tsx',
+    'apps/server/src/onboard/onboard.controller.ts',
+  ]) {
+    const source = await read(path);
+    assert.doesNotMatch(source, /@agentwiki\/local-sync/, `${path} must not use the retired npm scope`);
+    assert.match(source, /@neomei\/agentwiki-local-sync/, `${path} must name the published package`);
+  }
+});
+
+test('the local-sync README documents the supported Node majors', async () => {
+  const readme = await read('packages/local-sync/README.md');
+  assert.match(readme, /Node\.js 24 or 26/);
+  assert.doesNotMatch(readme, /Node\.js 20 or later/);
+  assert.match(readme, /Python 3\.10 or later/);
 });

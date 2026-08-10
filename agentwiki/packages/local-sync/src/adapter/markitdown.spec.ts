@@ -14,7 +14,7 @@ describe('MarkitdownAdapter', () => {
     runtimePath = await mkdtemp(join(tmpdir(), 'md-runtime-'));
     sourcePath = await mkdtemp(join(tmpdir(), 'md-source-'));
     adapter = new MarkitdownAdapter(runtimePath);
-    await mkdir(join(runtimePath, 'node_modules', '.bin'), { recursive: true });
+    await mkdir(join(runtimePath, '.venv', 'bin'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -25,8 +25,15 @@ describe('MarkitdownAdapter', () => {
   it('manifest validates against schema', () => {
     const manifest = adapter.manifest();
     expect(manifest.adapterId).toBe('markitdown');
+    expect(manifest.version).toBe('0.2.0');
     expect(manifest.artifactKinds).toContain('document');
     expect(manifest.supportsIncremental).toBe(true);
+    expect(manifest.runtime).toMatchObject({
+      kind: 'python-venv',
+      packageName: 'markitdown',
+      packageVersion: '0.1.6',
+      packageExtras: ['pdf', 'docx'],
+    });
   });
 
   it('inspect returns descriptor with file count', async () => {
@@ -81,6 +88,37 @@ describe('MarkitdownAdapter', () => {
     expect(batch.artifacts[0].content.body).toContain(fakeOutput);
   });
 
+  it('executes the managed Python runtime directly', async () => {
+    await writeFile(join(sourcePath, 'doc.pdf'), 'binary-pdf-stub');
+    const python = join(runtimePath, '.venv', 'bin', 'python');
+    await writeFile(python, '#!/bin/sh\nprintf "Converted by a non-JavaScript CLI\\n"\n', { mode: 0o755 });
+
+    const batch = await adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
+
+    expect(batch.artifacts).toHaveLength(1);
+    expect(batch.artifacts[0].content.body).toContain('Converted by a non-JavaScript CLI');
+    expect(batch.artifacts[0].content.body).not.toContain('Conversion failed');
+  });
+
+  it('uses the relocatable venv Python module entrypoint', async () => {
+    await writeFile(join(sourcePath, 'relocated.pdf'), 'binary-pdf-stub');
+    const python = join(runtimePath, '.venv', 'bin', 'python');
+    await writeFile(python, '#!/bin/sh\nprintf "Converted after runtime relocation\\n"\n', { mode: 0o755 });
+
+    const batch = await adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
+
+    expect(batch.artifacts).toHaveLength(1);
+    expect(batch.artifacts[0].content.body).toContain('Converted after runtime relocation');
+  });
+
+  it('fails the scan instead of publishing a conversion error as knowledge', async () => {
+    await writeFile(join(sourcePath, 'broken.pdf'), 'binary-pdf-stub');
+
+    await expect(
+      adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' }),
+    ).rejects.toThrow(/broken\.pdf/);
+  });
+
   it('collect skips local-only artifacts', async () => {
     await writeFile(
       join(sourcePath, 'secret.md'),
@@ -110,6 +148,22 @@ describe('MarkitdownAdapter', () => {
     expect(batch.artifacts.length).toBe(1);
   });
 
+  it('does not exceed maxFiles across nested directories', async () => {
+    await mkdir(join(sourcePath, 'a'));
+    await mkdir(join(sourcePath, 'b'));
+    await writeFile(join(sourcePath, 'a', 'first.md'), '# First');
+    await writeFile(join(sourcePath, 'b', 'second.md'), '# Second');
+
+    const batch = await adapter.collect({
+      sourcePath,
+      spaceId: 'space-1',
+      jobId: 'job-1',
+      limits: { maxFiles: 1 },
+    });
+
+    expect(batch.artifacts).toHaveLength(1);
+  });
+
   it('requires absolute source path', async () => {
     await expect(
       adapter.inspect({ sourcePath: 'relative/path', spaceId: 's', jobId: 'j' }),
@@ -132,7 +186,7 @@ describe('MarkitdownAdapter', () => {
 });
 
 async function writeMarkitdownCli(runtimePath: string, output: string): Promise<void> {
-  const bin = join(runtimePath, 'node_modules', '.bin', 'markitdown');
+  const bin = join(runtimePath, '.venv', 'bin', 'python');
   const script = `#!/usr/bin/env node\nconsole.log(${JSON.stringify(output)});`;
   await writeFile(bin, script, { mode: 0o755 });
 }

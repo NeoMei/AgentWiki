@@ -107,7 +107,7 @@ describe('CodebaseMemoryAdapter', () => {
   it('uses the supported CLI tools and unwraps MCP JSON output', async () => {
     const callsPath = join(runtimePath, 'calls.jsonl');
     const bin = join(runtimePath, 'node_modules', '.bin', 'codebase-memory-mcp');
-    await writeFile(bin, `
+    await writeFile(bin, `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 const tool = process.argv[4];
@@ -126,6 +126,28 @@ console.log(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(valu
       logicalKey: 'architecture/overview',
       kind: 'code',
     }));
+  });
+
+  it('executes the managed CLI directly so native binaries are supported', async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const exec = async (file: string, args: string[]) => {
+      calls.push({ file, args });
+      const tool = args.find((value) => value === 'index_repository' || value === 'get_architecture');
+      const value = tool === 'index_repository'
+        ? { project: 'native-project', status: 'indexed' }
+        : { project: 'native-project', total_nodes: 3, total_edges: 2 };
+      return { stdout: JSON.stringify({ structuredContent: value, isError: false }), stderr: '' };
+    };
+    const directAdapter = new CodebaseMemoryAdapter(runtimePath, exec);
+
+    await directAdapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
+
+    const binary = join(runtimePath, 'node_modules', '.bin', 'codebase-memory-mcp');
+    expect(calls).toHaveLength(2);
+    expect(calls[0].file).toBe(binary);
+    expect(calls[0].args.slice(0, 3)).toEqual(['cli', '--json', 'index_repository']);
+    expect(calls[1].file).toBe(binary);
+    expect(calls[1].args.slice(0, 3)).toEqual(['cli', '--json', 'get_architecture']);
   });
 });
 

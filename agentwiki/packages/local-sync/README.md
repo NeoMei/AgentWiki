@@ -8,7 +8,8 @@
 
 ## Prerequisites
 
-- Node.js 20 or later
+- Node.js 24 or 26
+- Python 3.10 or later (only required for PDF/DOCX conversion)
 - `npx`
 - A supported local client (Codex, Claude Code, or OpenCode)
 - An AgentWiki-generated, one-time installation instruction and its unexpired install
@@ -16,7 +17,10 @@
 
 `doctor` checks AgentWiki connectivity, the Agent state, Space grant, effective scopes,
 plugin version, and the availability of local source adapters: MarkItDown, Git, and
-`codebase-memory-mcp`. It does not install system tools silently.
+`codebase-memory-mcp`. On the first document scan, local-sync creates a private Python
+environment under `~/.agentwiki/runtime/` and installs the exact Microsoft MarkItDown
+version automatically; it does not modify the system Python environment or require an
+interactive init.
 
 ## Two MCP servers, do not confuse them
 
@@ -28,7 +32,7 @@ AgentWiki exposes **two different MCP servers** with different tools and purpose
    Use case: directly query and create pages, relations, sources, reviews on AgentWiki. No local scanning.
 
 2. **agentwiki-local-sync MCP** (local, stdio)  
-   Command: `npx -y @agentwiki/local-sync@<version> mcp --connection <id>`.  
+   Command: `npx -y @neomei/agentwiki-local-sync@<version> mcp --connection <id>`.
    Tools: `start_knowledge_job`, `get_next_work_item`, `read_artifacts`, `submit_organized_item`, `validate_knowledge_job`, `preview_knowledge_job`, `confirm_and_push`, `pull_space`, `resolve_conflict`.  
    Use case: scan local code or documents, organize them locally, preview the diff, and sync the prepared knowledge envelope to an AgentWiki Space only after explicit user confirmation.
 
