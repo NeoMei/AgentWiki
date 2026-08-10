@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 按已确认实施计划实现 Agent 自助接入 0.3.0：网页 Device Auth、NDJSON 填空、单一 gateway MCP，以及首次本地扫描和同步。
+- 推进 Agent 自助接入 0.3.0：网页 Device Auth、NDJSON 填空、单一 gateway MCP，以及首次本地扫描和同步。Task 5-9(核心)已完成代码实现，Task 9 剩余(CLI 重写/verifier)与 Task 10-11(版本/文档/E2E)待继续。
 
 # 范围 / 不做
 
@@ -12,18 +12,15 @@
 
 # 当前状态
 
-- 2026-08-10 完成 0.2.9 代码与本地上线门禁：全量代码图谱 3883 节点 / 10151 边，架构、符号、源码与调用链均可查询。
-- 零配置本地知识链路已真实验证：原生 codebase-memory 直接执行；Microsoft MarkItDown 0.1.6 由私有 Python 3.10+ venv 管理，PDF 转换、运行时复用和校验通过。
-- 双向同步已真实验证：两个本地工作区 Snapshot/Delta Pull/Push，页面、共享记忆、关系、冲突阻断及三类审批删除均通过。
-- Space Agent 成员桌面/移动端浏览器验收已通过；全站 3 个公开、16 个登录后、6 个移动端关键路由已巡检。
-- 门禁：runtime 65、server 369、client 124、local-sync 181，合计 739 项自动测试通过；typecheck、lint、build、peer check 通过，生产依赖 0 high / 0 critical / 0 low，3 moderate 均不可达。
-- npm `@neomei/agentwiki-local-sync` 公网 `latest=0.2.9`，过期 0.2.6/0.2.7/0.2.8 暂存项已拒绝。
-- 生产已备份并部署 0.2.9；API、Worker、Frontend 均为 active，健康检查全绿，onboarding 安装命令包含 `--orchestrator`。
-- 生产受控验证已通过：API smoke 18 项、3 个公开/16 个登录后/6 个移动端 UI 路由、Space Agent 成员桌面/移动端。
-- 生产 Nginx 的 `/socket.io/` 误路由已修复，公网 WebSocket 握手由 400 恢复为 101，并加入配置契约测试。
-- 详细证据：`agentwiki/docs/verification/production-readiness-0.2.9.md`。
-- Agent 自助接入 0.3.0 设计与实施计划均已确认落盘；Task 1-3 已完成，事务化 bootstrap、执行 fencing、模糊 Redis 写入恢复和每 device session 独立 Agent 已通过 486 项服务端测试与人工复审。
-- Task 4 网页 Device Auth 前端已实现：公共授权页、登录/注册安全回跳、401 过期会话恢复、唯一 0.3.0 命令、同账号多 Agent 说明均已完成；160 项前端测试、lint、桌面/390px 移动端真实浏览器验收通过，待聚焦提交。
+- 2026-08-11 在 codex/production-readiness worktree 完成 0.3.0 onboarding Task 5-9(核心)，6 个提交：
+  - Task 5: NDJSON 协议(Zod discriminated unions)、onboarding HTTP 客户端(device start/poll/bootstrap)、安全 session 持久化(0600/0700/原子写)、稳定错误码、awd_/awo_/awu_ 脱敏
+  - Task 6: 单一 gateway manifest(6 工具 + legacy 黑名单 + 确定性 hash)、RemoteMcpBridge(代理 /api/mcp + 离线缓存)、createGatewayServer(确定性平面绑定)
+  - Task 7: KnowledgeWorkflows(prepare 零网络/confirmAndSync pull-before-push/conflict 阻断/pull)
+  - Task 8: 原子安装器(gateway 命令 pin 0.3.0、Codex/Claude/OpenCode 配置、备份/回滚/并发 hash 冲突、旧 ~/.agentwiki 归档)
+  - Task 9(核心): OnboardingCoordinator 完整状态机(collecting→...→completed，checkpoint resume，失败稳定错误码)
+- local-sync 门禁：34 文件 / 271 测试全通过；typecheck 0；lint 0。
+- 旧双 MCP 工厂(createLocalSyncMcpServer/createOrchestratorMcpServer)保留在 mcp.ts，待 Task 9 CLI 重写时删除。
+- master 工作区有过时 0.2.4 改动已 stash(obsolete-0.2.4-orchestrator-work-superseded-by-branch)。
 
 # 稳定约束
 
@@ -36,13 +33,17 @@
 # 关键索引
 
 - 产品代码：`agentwiki/`
+- 工作目录：`agentwiki/.worktrees/production-readiness/`(分支 codex/production-readiness)
 - 生产地址：https://agentwiki.quukk.com
 - GitHub：https://github.com/NeoMei/AgentWiki
 - npm：https://www.npmjs.com/package/@neomei/agentwiki-local-sync
 - 测试报告：`agentwiki/docs/verification/production-readiness-0.2.9.md`
+- 0.3.0 onboarding 新代码：`packages/local-sync/src/{onboarding,gateway,installer}/`
 
 # 风险 / 下一步
 
-- 自助接入 Task 1-3 已完成，Task 4 正在提交收尾，Task 5-11 尚待按计划实施；完整 0.3.0 流程当前仍不得宣传为已上线。
-- 0.3.0 采用破坏性简化，不为刚发布且尚无用户规模的 0.2.9 双 MCP、connect、旧工具名或旧状态实现兼容层。
-- 生产依赖审计剩余 3 个不可达 moderate；只有未来引入 Nest SSE 或 `FileTypeValidator` 路径时才需重新评估。
+- Task 9 剩余：创建 preflight.ts、verifier.ts(gateway 子进程 MCP handshake 验证)、CLI 重写(onboard/resume/doctor/uninstall/gateway)、删除旧双 MCP 工厂。
+- Task 10：版本升 0.3.0、README/SKILL/UsageGuide/onboard.json 更新、runtime contract 测试。
+- Task 11：onboarding-e2e.mjs + 浏览器 E2E + 三客户端安装 + 生产受控 E2E + 验证报告。
+- codex/production-readiness 分支领先 master 26 个提交，尚未合并；本地比 GitHub 远程多 12 个提交(含本次 6 个)未 push。
+- master 远程比本地多 11 个提交(需对齐)。
