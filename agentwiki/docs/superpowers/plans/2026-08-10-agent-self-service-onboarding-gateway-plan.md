@@ -276,7 +276,7 @@
 
 - [ ] **Step 1: Write failing bootstrap tests**
 
-  Cover create/reuse Space, create/reuse active Agent, preset grant scopes, `always-review` versus `scoped-auto-publish`, plan capability narrowing, wrong hash, missing idempotency key, identical replay, changed-plan replay rejection, concurrent replay, failure rollback, and token consumption only after a saved result exists.
+  Cover create/reuse Space, one independent Agent per device session (including two sessions using the same Agent name), preset grant scopes, `always-review` versus `scoped-auto-publish`, plan capability narrowing, wrong hash, missing idempotency key, identical same-session replay, changed-plan replay rejection, concurrent replay, failure rollback, and token consumption only after a saved result exists.
 
   ```ts
   const first = await service.bootstrap(context, 'idem-1', plan, hashServerPlan(plan));
@@ -294,7 +294,7 @@
 
 - [ ] **Step 3: Implement bootstrap transaction and replay cache**
 
-  The Prisma transaction must create/reuse the Space owner membership, Agent, and AgentGrant. Persist resource IDs in `OnboardingBootstrap`; store the short-lived response containing the installation code in Redis under the bootstrap record ID. Exact replay reads that response, while a different idempotency key or plan hash fails with `ONBOARDING_REPLAY_MISMATCH`.
+  The Prisma transaction may create/reuse the Space owner membership, but every new device session creates an independent Agent and AgentGrant. Agent identity is never reused by owner, Space, name, client type, or approval mode. Idempotency is scoped to the same device session, idempotency key, and canonical server-plan hash: exact same-session replay reads the original Agent and response, while a different idempotency key or plan hash fails with `ONBOARDING_REPLAY_MISMATCH`. Persist resource IDs in `OnboardingBootstrap`; store the short-lived response containing the installation code in Redis under the bootstrap record ID.
 
 - [ ] **Step 4: Reuse installation-code issuance safely**
 

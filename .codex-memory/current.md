@@ -22,7 +22,7 @@
 - 生产受控验证已通过：API smoke 18 项、3 个公开/16 个登录后/6 个移动端 UI 路由、Space Agent 成员桌面/移动端。
 - 生产 Nginx 的 `/socket.io/` 误路由已修复，公网 WebSocket 握手由 400 恢复为 101，并加入配置契约测试。
 - 详细证据：`agentwiki/docs/verification/production-readiness-0.2.9.md`。
-- Agent 自助接入 0.3.0 设计与实施计划均已确认落盘；计划按 4 个里程碑、11 个 TDD 任务覆盖服务端 Device Auth/bootstrap、统一 gateway、原子安装、首次扫描同步和生产 E2E。
+- Agent 自助接入 0.3.0 设计与实施计划均已确认落盘；Task 1-3 已完成，事务化 bootstrap、执行 fencing、模糊 Redis 写入恢复和每 device session 独立 Agent 已通过 486 项服务端测试与人工复审。
 
 # 稳定约束
 
@@ -42,6 +42,6 @@
 
 # 风险 / 下一步
 
-- 自助接入设计与实施计划已落盘，尚未进入代码实现；下一步按用户选择采用分任务执行或当前会话顺序执行，当前不得宣传为已实现。
+- 自助接入 Task 1-3 已完成；Task 4-11 尚待按计划实施，完整 0.3.0 流程当前仍不得宣传为已上线。
 - 0.3.0 采用破坏性简化，不为刚发布且尚无用户规模的 0.2.9 双 MCP、connect、旧工具名或旧状态实现兼容层。
 - 生产依赖审计剩余 3 个不可达 moderate；只有未来引入 Nest SSE 或 `FileTypeValidator` 路径时才需重新评估。

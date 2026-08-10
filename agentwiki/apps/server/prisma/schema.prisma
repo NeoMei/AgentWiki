@@ -654,6 +654,9 @@ model OnboardingBootstrap {
   idempotencyKeyHash String
   serverPlanHash     String
   status             String                  @default("running")
+  executionId        String?
+  generation         Int                     @default(0)
+  leaseExpiresAt     DateTime?
   resourceIds        Json?
   resultHash         String?
   createdAt          DateTime                @default(now())

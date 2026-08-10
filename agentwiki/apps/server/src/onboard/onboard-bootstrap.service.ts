@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { LocalSyncInstallationService } from '../core/agent/local-sync-installation.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
@@ -19,9 +19,10 @@ import {
 } from './onboard.types';
 
 const REPLAY_TTL_SECONDS = 600;
-const CLAIM_STALE_MS = 30_000;
-const CLAIM_WAIT_ATTEMPTS = 100;
-const CLAIM_WAIT_MS = 20;
+const EXECUTION_LEASE_MS = 30_000;
+const LOSER_WAIT_MS = 2_000;
+const INITIAL_BACKOFF_MS = 20;
+const MAX_BACKOFF_MS = 200;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{16,128}$/;
 const REQUIRED_CAPABILITIES = [
   'bootstrap:space',
@@ -29,6 +30,11 @@ const REQUIRED_CAPABILITIES = [
   'bootstrap:grant',
   'bootstrap:installation',
 ].sort();
+
+type ExecutionFence = {
+  executionId: string;
+  generation: number;
+};
 
 type ResourceIds = {
   spaceId: string;
@@ -57,10 +63,23 @@ type BootstrapRecord = {
   idempotencyKeyHash: string;
   serverPlanHash: string;
   status: string;
+  executionId: string | null;
+  generation: number;
+  leaseExpiresAt: Date | null;
   resourceIds: unknown;
   resultHash: string | null;
   updatedAt: Date;
 };
+
+type Claim = {
+  record: BootstrapRecord;
+  fence: ExecutionFence | null;
+  previous: BootstrapRecord | null;
+};
+
+class LostBootstrapOwnershipError extends Error {}
+class AmbiguousReplayStateError extends Error {}
+class ReplayNotSavedError extends Error {}
 
 @Injectable()
 export class OnboardBootstrapService {
@@ -82,117 +101,123 @@ export class OnboardBootstrapService {
     const canonicalPlanHash = hashServerPlan(normalized);
     this.assertAuthorizedPlan(context, normalized, suppliedPlanHash, canonicalPlanHash);
     const keyHash = this.hash(key);
-
     const claim = await this.claim(context.sessionId, keyHash, canonicalPlanHash);
+
     if (!this.sameRequest(claim.record, context.sessionId, keyHash, canonicalPlanHash)) {
       throw new BusinessException('ONBOARDING_REPLAY_MISMATCH');
     }
-
-    const savedReplay = await this.readReplay(claim.record);
-    if (savedReplay) {
-      await this.finalizeSavedReplay(claim.record, savedReplay, context.sessionId);
-      return savedReplay;
-    }
-
-    if (!claim.owned) {
-      const completed = await this.waitForWinner(
-        claim.record,
+    if (!claim.fence) {
+      if (claim.record.status === 'completed') {
+        return this.readCompletedReplay(claim.record, context.sessionId);
+      }
+      const replay = await this.waitForWinner(
         context.sessionId,
         keyHash,
         canonicalPlanHash,
       );
-      if (completed) return completed;
-      throw new BusinessException(
-        'RESOURCE_CONFLICT',
-        'Onboarding bootstrap is still running; retry the same request',
-      );
+      if (replay) return replay;
+      throw this.retryable('Onboarding bootstrap is still running; retry the same request');
     }
 
+    return this.executeClaim(context, normalized, { ...claim, fence: claim.fence });
+  }
+
+  private async executeClaim(
+    context: OnboardingPrincipal,
+    plan: NormalizedServerPlan,
+    claim: Claim & { fence: ExecutionFence },
+  ): Promise<OnboardBootstrapResponse> {
+    const { fence } = claim;
     let resources: BootstrapResources | null = null;
     let issuedInstallationId: string | null = null;
-    let replaySaved = false;
+    let issuedInstallationPersisted = false;
+    let replayKnownSaved = false;
+    let completed = false;
     try {
+      await this.renew(claim.record.id, fence);
       resources = claim.record.resourceIds
-        ? await this.loadResources(this.resourceIds(claim.record.resourceIds))
-        : await this.createResources(claim.record.id, context.userId, context.sessionId, normalized);
+        ? await this.loadResources(
+          this.resourceIds(claim.record.resourceIds),
+          context.userId,
+          plan,
+        )
+        : await this.createResources(
+          claim.record.id,
+          fence,
+          context.userId,
+          context.sessionId,
+          plan,
+        );
 
-      if (resources.ids.pendingInstallationId) {
-        await this.revokePendingInstallation(context.userId, resources.ids);
-        resources.ids = {
-          spaceId: resources.ids.spaceId,
-          agentId: resources.ids.agentId,
-          grantId: resources.ids.grantId,
-        };
-        await this.persistResourceIds(claim.record.id, resources.ids);
-      }
+      const recovered = await this.recoverPreviousExecution(
+        context,
+        plan,
+        claim,
+        resources,
+      );
+      if (recovered) return recovered;
 
+      await this.renew(claim.record.id, fence);
       const installation = await this.installations.issueForBootstrap({
         ownerId: context.userId,
         agentId: resources.agent.id,
-        scopes: normalized.scopes,
-        pluginVersion: normalized.packageVersion,
+        scopes: plan.scopes,
+        pluginVersion: plan.packageVersion,
         serverUrl: this.publicApiUrl(),
       });
       issuedInstallationId = installation.installationId;
-      resources.ids = {
-        ...resources.ids,
-        pendingInstallationId: installation.installationId,
-      };
-      await this.persistResourceIds(claim.record.id, resources.ids);
+      await this.renew(claim.record.id, fence);
 
-      const response: OnboardBootstrapResponse = {
-        space: resources.space,
-        agent: resources.agent,
-        grant: { role: 'editor', scopes: [...normalized.scopes] },
-        installation: {
-          code: installation.code,
-          installationId: installation.installationId,
-          expiresAt: installation.expiresAt,
-        },
-      };
-      await this.redis.setStrict(
-        this.replayKey(claim.record.id),
-        JSON.stringify(response),
-        REPLAY_TTL_SECONDS,
+      resources.ids = { ...resources.ids, pendingInstallationId: installation.installationId };
+      await this.persistResourceIds(claim.record.id, fence, resources.ids);
+      issuedInstallationPersisted = true;
+      const response = this.response(resources, plan.scopes, installation);
+      const serialized = JSON.stringify(response);
+      const resultHash = this.hash(serialized);
+
+      await this.renew(claim.record.id, fence);
+      replayKnownSaved = await this.storeReplayWithReadback(
+        claim.record.id,
+        fence,
+        serialized,
+        resultHash,
       );
-      replaySaved = true;
-      await this.prisma.onboardingBootstrap.update({
-        where: { id: claim.record.id },
-        data: {
-          status: 'completed',
-          resultHash: this.hash(JSON.stringify(response)),
-        },
+      if (!replayKnownSaved) throw new ReplayNotSavedError('Replay response was not saved');
+      await this.renew(claim.record.id, fence);
+
+      const completion = await this.prisma.onboardingBootstrap.updateMany({
+        where: this.runningFenceWhere(claim.record.id, fence),
+        data: { status: 'completed', resultHash, leaseExpiresAt: null },
       });
-      await this.consumeToken(context.sessionId);
-      return {
-        space: { id: response.space.id, name: response.space.name },
-        agent: { id: response.agent.id, name: response.agent.name },
-        grant: { role: 'editor', scopes: [...response.grant.scopes] },
-        installation: {
-          code: response.installation.code,
-          installationId: response.installation.installationId,
-          expiresAt: response.installation.expiresAt,
-        },
-      };
+      if (completion.count !== 1) throw new LostBootstrapOwnershipError();
+      completed = true;
+      await this.consumeToken(context.sessionId, fence);
+      return response;
     } catch (error) {
-      if (!replaySaved && issuedInstallationId && resources) {
-        try {
-          await this.installations.revoke(
-            context.userId,
-            resources.agent.id,
-            issuedInstallationId,
-          );
-          const cleanIds: ResourceIds = {
-            spaceId: resources.ids.spaceId,
-            agentId: resources.ids.agentId,
-            grantId: resources.ids.grantId,
-          };
-          await this.persistResourceIds(claim.record.id, cleanIds);
-        } catch {
-          // Keep pendingInstallationId so an exact retry can revoke before reissuing.
+      if (error instanceof AmbiguousReplayStateError) {
+        throw this.retryable('Onboarding replay persistence is uncertain; retry the same request');
+      }
+      if (error instanceof LostBootstrapOwnershipError) {
+        if (issuedInstallationId && resources && !issuedInstallationPersisted) {
+          await this.revokeBestEffort(context.userId, resources.agent.id, issuedInstallationId);
+        }
+        throw this.retryable('Onboarding execution ownership changed; retry the same request');
+      }
+      if (completed || replayKnownSaved) throw error;
+
+      if (issuedInstallationId && resources) {
+        const revoked = await this.revokeBestEffort(
+          context.userId,
+          resources.agent.id,
+          issuedInstallationId,
+        );
+        if (revoked) {
+          resources.ids = this.withoutPendingInstallation(resources.ids);
+          await this.persistResourceIdsBestEffort(claim.record.id, fence, resources.ids);
         }
       }
-      if (!replaySaved) await this.markFailed(claim.record.id);
+      await this.deleteOwnedReplayBestEffort(claim.record.id, fence);
+      await this.markFailed(claim.record.id, fence);
       throw error;
     }
   }
@@ -201,168 +226,311 @@ export class OnboardBootstrapService {
     deviceSessionId: string,
     idempotencyKeyHash: string,
     serverPlanHash: string,
-  ): Promise<{ record: BootstrapRecord; owned: boolean }> {
+  ): Promise<Claim> {
+    const fence = { executionId: randomUUID(), generation: 1 };
+    const leaseExpiresAt = this.newLease();
     try {
       const record = await this.prisma.onboardingBootstrap.create({
-        data: { deviceSessionId, idempotencyKeyHash, serverPlanHash, status: 'running' },
+        data: {
+          deviceSessionId,
+          idempotencyKeyHash,
+          serverPlanHash,
+          status: 'running',
+          executionId: fence.executionId,
+          generation: fence.generation,
+          leaseExpiresAt,
+        },
       });
-      return { record: record as BootstrapRecord, owned: true };
+      return { record: record as BootstrapRecord, fence, previous: null };
     } catch (error) {
       if (!this.isUniqueConstraint(error)) throw error;
     }
 
-    const existing = await this.prisma.onboardingBootstrap.findUnique({
-      where: { deviceSessionId },
-    }) as BootstrapRecord | null;
-    if (!existing) {
-      throw new BusinessException('RESOURCE_CONFLICT', 'Onboarding bootstrap claim disappeared; retry');
-    }
+    const existing = await this.findBootstrap(deviceSessionId);
+    if (!existing) throw this.retryable('Onboarding bootstrap claim disappeared; retry');
     if (!this.sameRequest(existing, deviceSessionId, idempotencyKeyHash, serverPlanHash)) {
-      return { record: existing, owned: false };
+      return { record: existing, fence: null, previous: null };
     }
-    if (existing.status === 'failed') {
-      const resumed = await this.prisma.onboardingBootstrap.updateMany({
-        where: { id: existing.id, status: 'failed', updatedAt: existing.updatedAt },
-        data: { status: 'running' },
-      });
-      if (resumed.count === 1) {
-        return { record: { ...existing, status: 'running' }, owned: true };
-      }
+    if (existing.status === 'completed') {
+      return { record: existing, fence: null, previous: null };
     }
-    if (
-      existing.status === 'running'
-      && existing.updatedAt.getTime() <= Date.now() - CLAIM_STALE_MS
-    ) {
-      const resumed = await this.prisma.onboardingBootstrap.updateMany({
-        where: { id: existing.id, status: 'running', updatedAt: existing.updatedAt },
-        data: { status: 'running' },
-      });
-      if (resumed.count === 1) return { record: existing, owned: true };
+    if (!this.canTakeOver(existing)) {
+      return { record: existing, fence: null, previous: null };
     }
-    return { record: existing, owned: false };
+
+    const nextFence = { executionId: randomUUID(), generation: existing.generation + 1 };
+    const takeover = await this.prisma.onboardingBootstrap.updateMany({
+      where: {
+        id: existing.id,
+        status: existing.status,
+        executionId: existing.executionId,
+        generation: existing.generation,
+        leaseExpiresAt: existing.leaseExpiresAt,
+      },
+      data: {
+        status: 'running',
+        executionId: nextFence.executionId,
+        generation: { increment: 1 },
+        leaseExpiresAt: this.newLease(),
+      },
+    });
+    if (takeover.count !== 1) {
+      const latest = await this.findBootstrap(deviceSessionId);
+      if (!latest) throw this.retryable('Onboarding bootstrap claim disappeared; retry');
+      return { record: latest, fence: null, previous: null };
+    }
+    return {
+      record: {
+        ...existing,
+        status: 'running',
+        executionId: nextFence.executionId,
+        generation: nextFence.generation,
+        leaseExpiresAt: this.newLease(),
+      },
+      fence: nextFence,
+      previous: existing,
+    };
+  }
+
+  private async recoverPreviousExecution(
+    context: OnboardingPrincipal,
+    plan: NormalizedServerPlan,
+    claim: Claim & { fence: ExecutionFence },
+    resources: BootstrapResources,
+  ): Promise<OnboardBootstrapResponse | null> {
+    const previous = claim.previous;
+    if (!previous?.executionId) return null;
+    const previousFence = {
+      executionId: previous.executionId,
+      generation: previous.generation,
+    };
+    const previousKey = this.replayKey(previous.id, previousFence);
+
+    if (previous.status === 'failed') {
+      await this.renew(claim.record.id, claim.fence);
+      await this.redis.deleteStrict(previousKey);
+      await this.revokePreviousPending(context.userId, claim, resources);
+      return null;
+    }
+
+    let serialized: string | null;
+    try {
+      serialized = await this.redis.getStrict(previousKey);
+    } catch {
+      throw new AmbiguousReplayStateError();
+    }
+    if (!serialized) {
+      await this.revokePreviousPending(context.userId, claim, resources);
+      return null;
+    }
+
+    let response: OnboardBootstrapResponse;
+    try {
+      response = this.parseReplay(serialized);
+      this.assertRecoveredReplay(response, resources, plan.scopes);
+    } catch {
+      await this.renew(claim.record.id, claim.fence);
+      await this.redis.deleteStrict(previousKey);
+      await this.revokePreviousPending(context.userId, claim, resources);
+      return null;
+    }
+
+    const canonical = JSON.stringify(response);
+    const resultHash = this.hash(canonical);
+    await this.renew(claim.record.id, claim.fence);
+    const copied = await this.storeReplayWithReadback(
+      claim.record.id,
+      claim.fence,
+      canonical,
+      resultHash,
+    );
+    if (!copied) throw new AmbiguousReplayStateError();
+    await this.renew(claim.record.id, claim.fence);
+    await this.redis.deleteStrict(previousKey);
+    const completion = await this.prisma.onboardingBootstrap.updateMany({
+      where: this.runningFenceWhere(claim.record.id, claim.fence),
+      data: { status: 'completed', resultHash, leaseExpiresAt: null },
+    });
+    if (completion.count !== 1) throw new LostBootstrapOwnershipError();
+    await this.consumeToken(context.sessionId, claim.fence);
+    return response;
+  }
+
+  private async revokePreviousPending(
+    ownerId: string,
+    claim: Claim & { fence: ExecutionFence },
+    resources: BootstrapResources,
+  ): Promise<void> {
+    if (!resources.ids.pendingInstallationId) return;
+    await this.renew(claim.record.id, claim.fence);
+    try {
+      await this.installations.revoke(
+        ownerId,
+        resources.agent.id,
+        resources.ids.pendingInstallationId,
+      );
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
+    }
+    resources.ids = this.withoutPendingInstallation(resources.ids);
+    await this.persistResourceIds(claim.record.id, claim.fence, resources.ids);
+  }
+
+  private async readCompletedReplay(
+    record: BootstrapRecord,
+    sessionId: string,
+  ): Promise<OnboardBootstrapResponse> {
+    if (!record.executionId || !record.resultHash) {
+      throw this.retryable('Completed onboarding result is unavailable');
+    }
+    const fence = { executionId: record.executionId, generation: record.generation };
+    let serialized: string | null;
+    try {
+      serialized = await this.redis.getStrict(this.replayKey(record.id, fence));
+    } catch {
+      throw this.retryable('Completed onboarding result is temporarily unavailable');
+    }
+    if (!serialized) throw this.retryable('Completed onboarding result is unavailable');
+    const response = this.parseReplay(serialized);
+    if (this.hash(JSON.stringify(response)) !== record.resultHash) {
+      throw new BusinessException(
+        'ONBOARDING_REPLAY_MISMATCH',
+        'Saved onboarding result is inconsistent',
+      );
+    }
+    await this.consumeToken(sessionId, fence);
+    return response;
   }
 
   private async waitForWinner(
-    initial: BootstrapRecord,
     deviceSessionId: string,
     idempotencyKeyHash: string,
     serverPlanHash: string,
   ): Promise<OnboardBootstrapResponse | null> {
-    let record = initial;
-    for (let attempt = 0; attempt < CLAIM_WAIT_ATTEMPTS; attempt += 1) {
-      const replay = await this.readReplay(record);
-      if (replay) {
-        await this.finalizeSavedReplay(record, replay, deviceSessionId);
-        return replay;
-      }
-      await this.pause(CLAIM_WAIT_MS);
-      const latest = await this.prisma.onboardingBootstrap.findUnique({
-        where: { deviceSessionId },
-      }) as BootstrapRecord | null;
+    const deadline = Date.now() + LOSER_WAIT_MS;
+    let delay = INITIAL_BACKOFF_MS;
+    while (Date.now() < deadline) {
+      const remaining = deadline - Date.now();
+      await this.pause(Math.min(delay, remaining));
+      const latest = await this.findBootstrap(deviceSessionId);
       if (!latest || !this.sameRequest(latest, deviceSessionId, idempotencyKeyHash, serverPlanHash)) {
         throw new BusinessException('ONBOARDING_REPLAY_MISMATCH');
       }
-      record = latest;
-      if (record.status === 'failed') return null;
+      if (latest.status === 'completed') {
+        return this.readCompletedReplay(latest, deviceSessionId);
+      }
+      if (latest.status === 'failed') return null;
+      delay = Math.min(delay * 2, MAX_BACKOFF_MS);
     }
     return null;
   }
 
   private async createResources(
     bootstrapId: string,
+    fence: ExecutionFence,
     userId: string,
     deviceSessionId: string,
     plan: NormalizedServerPlan,
   ): Promise<BootstrapResources> {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const space = plan.space.mode === 'create'
-          ? await tx.space.create({
-            data: {
-              name: plan.space.name,
-              slug: `${this.slugify(plan.space.name)}-${deviceSessionId.slice(-8)}`,
-              visibility: 'private',
-              approvalPolicy: plan.approvalMode,
-              members: { create: { userId, role: 'owner' } },
-            },
-          })
-          : await tx.space.findFirst({
-            where: {
-              id: plan.space.id,
-              deletedAt: null,
-              members: { some: { userId, role: { in: ['owner', 'admin'] } } },
-            },
-          });
-        if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
-        if (
-          plan.space.mode === 'existing'
-          && plan.approvalMode === 'scoped-auto-publish'
-          && space.approvalPolicy !== 'scoped-auto-publish'
-        ) {
-          throw new BusinessException(
-            'RESOURCE_CONFLICT',
-            'Existing Space policy does not allow scoped auto-publish',
-          );
-        }
-
-        const existingAgent = await tx.agent.findFirst({
-          where: {
-            ownerId: userId,
-            revokedAt: null,
-            status: 'active',
-            name: plan.agentName,
-            approvalMode: plan.approvalMode,
-          },
-        });
-        const agent = existingAgent || await tx.agent.create({
+    return this.prisma.$transaction(async (tx) => {
+      const space = plan.space.mode === 'create'
+        ? await tx.space.create({
           data: {
-            ownerId: userId,
-            name: plan.agentName,
-            approvalMode: plan.approvalMode,
+            name: plan.space.name,
+            slug: `${this.slugify(plan.space.name) || 'space'}-${this.hash(deviceSessionId).slice(0, 16)}`,
+            visibility: 'private',
+            approvalPolicy: plan.approvalMode,
+            members: { create: { userId, role: 'owner' } },
+          },
+        })
+        : await tx.space.findFirst({
+          where: {
+            id: plan.space.id,
+            deletedAt: null,
+            members: { some: { userId, role: { in: ['owner', 'admin'] } } },
           },
         });
-        const grant = await tx.agentGrant.upsert({
-          where: { agentId_spaceId: { agentId: agent.id, spaceId: space.id } },
-          create: {
-            agentId: agent.id,
-            spaceId: space.id,
-            role: 'editor',
-            scopes: [...plan.scopes],
-          },
-          update: { role: 'editor', scopes: [...plan.scopes] },
-        });
-        const ids: ResourceIds = {
-          spaceId: space.id,
-          agentId: agent.id,
-          grantId: grant.id,
-        };
-        await tx.onboardingBootstrap.update({
-          where: { id: bootstrapId },
-          data: { resourceIds: ids as Prisma.InputJsonValue },
-        });
-        return {
-          ids,
-          space: { id: space.id, name: space.name },
-          agent: { id: agent.id, name: agent.name },
-          grant: { id: grant.id, role: 'editor' as const, scopes: [...plan.scopes] },
-        };
+      if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
+      if (
+        plan.space.mode === 'existing'
+        && plan.approvalMode === 'scoped-auto-publish'
+        && space.approvalPolicy !== 'scoped-auto-publish'
+      ) {
+        throw new BusinessException(
+          'RESOURCE_CONFLICT',
+          'Existing Space policy does not allow scoped auto-publish',
+        );
+      }
+
+      const agent = await tx.agent.create({
+        data: { ownerId: userId, name: plan.agentName, approvalMode: plan.approvalMode },
       });
-    } catch (error) {
-      await this.markFailed(bootstrapId);
-      throw error;
-    }
+      const grant = await tx.agentGrant.upsert({
+        where: { agentId_spaceId: { agentId: agent.id, spaceId: space.id } },
+        create: {
+          agentId: agent.id,
+          spaceId: space.id,
+          role: 'editor',
+          scopes: [...plan.scopes],
+        },
+        update: { role: 'editor', scopes: [...plan.scopes] },
+      });
+      const ids: ResourceIds = { spaceId: space.id, agentId: agent.id, grantId: grant.id };
+      const persisted = await tx.onboardingBootstrap.updateMany({
+        where: this.runningFenceWhere(bootstrapId, fence),
+        data: { resourceIds: ids as Prisma.InputJsonValue },
+      });
+      if (persisted.count !== 1) throw new LostBootstrapOwnershipError();
+      return {
+        ids,
+        space: { id: space.id, name: space.name },
+        agent: { id: agent.id, name: agent.name },
+        grant: { id: grant.id, role: 'editor' as const, scopes: [...plan.scopes] },
+      };
+    });
   }
 
-  private async loadResources(ids: ResourceIds): Promise<BootstrapResources> {
-    const [space, agent, grant] = await Promise.all([
-      this.prisma.space.findUnique({ where: { id: ids.spaceId } }),
+  private async loadResources(
+    ids: ResourceIds,
+    userId: string,
+    plan: NormalizedServerPlan,
+  ): Promise<BootstrapResources> {
+    const space = await this.prisma.space.findFirst({
+      where: {
+        id: ids.spaceId,
+        deletedAt: null,
+        members: { some: { userId, role: { in: ['owner', 'admin'] } } },
+      },
+    });
+    if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
+    if (
+      (plan.space.mode === 'create' && space.approvalPolicy !== plan.approvalMode)
+      || (plan.space.mode === 'existing'
+        && plan.approvalMode === 'scoped-auto-publish'
+        && space.approvalPolicy !== 'scoped-auto-publish')
+    ) {
+      throw new BusinessException(
+        'RESOURCE_CONFLICT',
+        'Existing Space policy does not allow scoped auto-publish',
+      );
+    }
+
+    const [agent, grant] = await Promise.all([
       this.prisma.agent.findUnique({ where: { id: ids.agentId } }),
       this.prisma.agentGrant.findUnique({ where: { id: ids.grantId } }),
     ]);
     if (
-      !space || space.deletedAt
-      || !agent || agent.revokedAt || agent.status !== 'active'
-      || !grant || grant.agentId !== ids.agentId || grant.spaceId !== ids.spaceId
+      !agent
+      || agent.ownerId !== userId
+      || agent.name !== plan.agentName
+      || agent.approvalMode !== plan.approvalMode
+      || agent.status !== 'active'
+      || agent.revokedAt
+      || !grant
+      || grant.agentId !== ids.agentId
+      || grant.spaceId !== ids.spaceId
+      || grant.role !== 'editor'
+      || !this.sameScopes(grant.scopes, plan.scopes)
     ) {
       throw new BusinessException('RESOURCE_CONFLICT', 'Onboarding bootstrap resources are unavailable');
     }
@@ -374,36 +542,149 @@ export class OnboardBootstrapService {
     };
   }
 
-  private async persistResourceIds(bootstrapId: string, ids: ResourceIds): Promise<void> {
-    await this.prisma.onboardingBootstrap.update({
-      where: { id: bootstrapId },
+  private async storeReplayWithReadback(
+    bootstrapId: string,
+    fence: ExecutionFence,
+    serialized: string,
+    expectedHash: string,
+  ): Promise<boolean> {
+    const key = this.replayKey(bootstrapId, fence);
+    try {
+      await this.redis.setStrict(key, serialized, REPLAY_TTL_SECONDS);
+      return true;
+    } catch {
+      let readBack: string | null;
+      try {
+        readBack = await this.redis.getStrict(key);
+      } catch {
+        throw new AmbiguousReplayStateError();
+      }
+      if (!readBack) return false;
+      try {
+        const sanitized = this.parseReplay(readBack);
+        if (this.hash(JSON.stringify(sanitized)) === expectedHash) return true;
+      } catch {
+        // A definite mismatch is safe to clean up under the current fence.
+      }
+      await this.renew(bootstrapId, fence);
+      await this.redis.deleteStrict(key);
+      return false;
+    }
+  }
+
+  private async renew(bootstrapId: string, fence: ExecutionFence): Promise<void> {
+    const now = new Date();
+    const renewed = await this.prisma.onboardingBootstrap.updateMany({
+      where: {
+        ...this.runningFenceWhere(bootstrapId, fence),
+        leaseExpiresAt: { gt: now },
+      },
+      data: { leaseExpiresAt: new Date(now.getTime() + EXECUTION_LEASE_MS) },
+    });
+    if (renewed.count !== 1) throw new LostBootstrapOwnershipError();
+  }
+
+  private async persistResourceIds(
+    bootstrapId: string,
+    fence: ExecutionFence,
+    ids: ResourceIds,
+  ): Promise<void> {
+    const persisted = await this.prisma.onboardingBootstrap.updateMany({
+      where: this.runningFenceWhere(bootstrapId, fence),
       data: { resourceIds: ids as Prisma.InputJsonValue },
     });
+    if (persisted.count !== 1) throw new LostBootstrapOwnershipError();
   }
 
-  private async readReplay(record: BootstrapRecord): Promise<OnboardBootstrapResponse | null> {
-    const serialized = await this.redis.getStrict(this.replayKey(record.id));
-    if (!serialized) return null;
-    const response = this.parseReplay(serialized);
-    const resultHash = this.hash(JSON.stringify(response));
-    if (record.resultHash && record.resultHash !== resultHash) {
-      throw new BusinessException('ONBOARDING_REPLAY_MISMATCH', 'Saved onboarding result is inconsistent');
-    }
-    return response;
-  }
-
-  private async finalizeSavedReplay(
-    record: BootstrapRecord,
-    response: OnboardBootstrapResponse,
-    sessionId: string,
+  private async persistResourceIdsBestEffort(
+    bootstrapId: string,
+    fence: ExecutionFence,
+    ids: ResourceIds,
   ): Promise<void> {
-    if (record.status !== 'completed' || !record.resultHash) {
-      await this.prisma.onboardingBootstrap.update({
-        where: { id: record.id },
-        data: { status: 'completed', resultHash: this.hash(JSON.stringify(response)) },
-      });
+    try {
+      await this.persistResourceIds(bootstrapId, fence, ids);
+    } catch {
+      // A newer generation owns recovery state.
     }
-    await this.consumeToken(sessionId);
+  }
+
+  private async markFailed(bootstrapId: string, fence: ExecutionFence): Promise<void> {
+    try {
+      await this.prisma.onboardingBootstrap.updateMany({
+        where: this.runningFenceWhere(bootstrapId, fence),
+        data: { status: 'failed', leaseExpiresAt: null },
+      });
+    } catch {
+      // Preserve the original error; stale ownership cannot change newer state.
+    }
+  }
+
+  private async consumeToken(sessionId: string, fence: ExecutionFence): Promise<void> {
+    const consumed = await this.prisma.onboardingDeviceSession.updateMany({
+      where: {
+        id: sessionId,
+        tokenConsumedAt: null,
+        bootstrap: {
+          is: {
+            executionId: fence.executionId,
+            generation: fence.generation,
+            status: 'completed',
+          },
+        },
+      },
+      data: { tokenConsumedAt: new Date() },
+    });
+    if (consumed.count === 0) {
+      const current = await this.findBootstrap(sessionId);
+      if (
+        !current
+        || current.status !== 'completed'
+        || current.executionId !== fence.executionId
+        || current.generation !== fence.generation
+      ) throw new LostBootstrapOwnershipError();
+    }
+  }
+
+  private async deleteOwnedReplayBestEffort(
+    bootstrapId: string,
+    fence: ExecutionFence,
+  ): Promise<void> {
+    try {
+      await this.renew(bootstrapId, fence);
+      await this.redis.deleteStrict(this.replayKey(bootstrapId, fence));
+    } catch {
+      // Keep uncertain state fenced for a later exact recovery.
+    }
+  }
+
+  private async revokeBestEffort(
+    ownerId: string,
+    agentId: string,
+    installationId: string,
+  ): Promise<boolean> {
+    try {
+      await this.installations.revoke(ownerId, agentId, installationId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private response(
+    resources: BootstrapResources,
+    scopes: string[],
+    installation: { code: string; installationId: string; expiresAt: string },
+  ): OnboardBootstrapResponse {
+    return {
+      space: resources.space,
+      agent: resources.agent,
+      grant: { role: 'editor', scopes: [...scopes] },
+      installation: {
+        code: installation.code,
+        installationId: installation.installationId,
+        expiresAt: installation.expiresAt,
+      },
+    };
   }
 
   private parseReplay(serialized: string): OnboardBootstrapResponse {
@@ -437,6 +718,23 @@ export class OnboardBootstrapService {
     }
   }
 
+  private assertRecoveredReplay(
+    response: OnboardBootstrapResponse,
+    resources: BootstrapResources,
+    scopes: string[],
+  ): void {
+    if (
+      response.space.id !== resources.ids.spaceId
+      || response.agent.id !== resources.ids.agentId
+      || response.grant.role !== 'editor'
+      || response.grant.scopes.length !== scopes.length
+      || response.grant.scopes.some((scope, index) => scope !== scopes[index])
+      || response.installation.installationId !== resources.ids.pendingInstallationId
+    ) {
+      throw new BusinessException('RESOURCE_CONFLICT', 'Stale onboarding replay is inconsistent');
+    }
+  }
+
   private resourceIds(value: unknown): ResourceIds {
     const ids = value as Partial<ResourceIds> | null;
     if (
@@ -451,30 +749,15 @@ export class OnboardBootstrapService {
     return ids as ResourceIds;
   }
 
-  private async revokePendingInstallation(ownerId: string, ids: ResourceIds): Promise<void> {
-    try {
-      await this.installations.revoke(ownerId, ids.agentId, ids.pendingInstallationId!);
-    } catch (error) {
-      if (!(error instanceof NotFoundException)) throw error;
-    }
+  private withoutPendingInstallation(ids: ResourceIds): ResourceIds {
+    return { spaceId: ids.spaceId, agentId: ids.agentId, grantId: ids.grantId };
   }
 
-  private async consumeToken(sessionId: string): Promise<void> {
-    await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: sessionId, tokenConsumedAt: null },
-      data: { tokenConsumedAt: new Date() },
-    });
-  }
-
-  private async markFailed(bootstrapId: string): Promise<void> {
-    try {
-      await this.prisma.onboardingBootstrap.update({
-        where: { id: bootstrapId },
-        data: { status: 'failed' },
-      });
-    } catch {
-      // Preserve the original failure; a stale running claim remains recoverable.
-    }
+  private sameScopes(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    const sortedLeft = [...left].sort();
+    const sortedRight = [...right].sort();
+    return sortedLeft.every((scope, index) => scope === sortedRight[index]);
   }
 
   private assertAuthorizedPlan(
@@ -491,9 +774,7 @@ export class OnboardBootstrapService {
       || context.purpose !== 'full-onboarding'
       || capabilities.length !== REQUIRED_CAPABILITIES.length
       || capabilities.some((capability, index) => capability !== REQUIRED_CAPABILITIES[index])
-    ) {
-      throw new BusinessException('ONBOARDING_PLAN_HASH_MISMATCH');
-    }
+    ) throw new BusinessException('ONBOARDING_PLAN_HASH_MISMATCH');
   }
 
   private sameRequest(
@@ -505,6 +786,27 @@ export class OnboardBootstrapService {
     return record.deviceSessionId === sessionId
       && record.idempotencyKeyHash === idempotencyKeyHash
       && record.serverPlanHash === serverPlanHash;
+  }
+
+  private canTakeOver(record: BootstrapRecord): boolean {
+    return record.status === 'failed'
+      || (record.status === 'running'
+        && (!record.leaseExpiresAt || record.leaseExpiresAt.getTime() <= Date.now()));
+  }
+
+  private runningFenceWhere(bootstrapId: string, fence: ExecutionFence) {
+    return {
+      id: bootstrapId,
+      status: 'running',
+      executionId: fence.executionId,
+      generation: fence.generation,
+    } as const;
+  }
+
+  private async findBootstrap(deviceSessionId: string): Promise<BootstrapRecord | null> {
+    return this.prisma.onboardingBootstrap.findUnique({
+      where: { deviceSessionId },
+    }) as Promise<BootstrapRecord | null>;
   }
 
   private validateIdempotencyKey(value: unknown): string {
@@ -528,8 +830,12 @@ export class OnboardBootstrapService {
       .replace(/^-+|-+$/g, '');
   }
 
-  private replayKey(bootstrapId: string): string {
-    return `onboarding:bootstrap-result:${bootstrapId}`;
+  private replayKey(bootstrapId: string, fence: ExecutionFence): string {
+    return `onboarding:bootstrap-result:${bootstrapId}:${fence.generation}:${fence.executionId}`;
+  }
+
+  private newLease(): Date {
+    return new Date(Date.now() + EXECUTION_LEASE_MS);
   }
 
   private hash(value: string): string {
@@ -539,6 +845,10 @@ export class OnboardBootstrapService {
   private isUniqueConstraint(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error
       && (error as { code?: string }).code === 'P2002';
+  }
+
+  private retryable(message: string): BusinessException {
+    return new BusinessException('RESOURCE_CONFLICT', message);
   }
 
   private pause(milliseconds: number): Promise<void> {

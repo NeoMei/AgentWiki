@@ -22,7 +22,7 @@ AgentWiki 当前已经能够通过 `/api/onboard.json` 引导本地 Agent 完成
 1. 通过网页 Device Auth 完成注册或登录，不让密码进入 Agent 对话。
 2. 通过 NDJSON 表单协议让 Agent 向用户收集必要参数。
 3. 汇总完整计划，用户只确认一次接入计划。
-4. 创建或复用 Space、Agent、Grant 和一次性安装凭据。
+4. 创建或复用 Space，并为本次 device session 创建独立 Agent、Grant 和一次性安装凭据。
 5. 原子安装一个名为 `agentwiki` 的本地网关 MCP。
 6. 由网关确定性区分本地、远程和组合任务。
 7. 在当前 onboarding 进程中完成首次本地扫描和知识预览。
@@ -132,7 +132,9 @@ AgentWiki Local Gateway
 `POST /api/onboard/bootstrap`
 
 - 使用 onboarding token、`Idempotency-Key` 和已确认的 server plan hash。
-- 在事务与幂等记录保护下创建或复用 Space、Agent 和 Grant。
+- 在事务与幂等记录保护下创建或复用 Space，并为每个新的 device session 创建独立 Agent 和 Grant。
+- 同一人类账号可以先后接入多个 Agent；即使 Agent 名称相同，不同 device session 也不得复用 Agent ID、Grant 或安装凭据。
+- 幂等只覆盖同一 device session、同一幂等键和同一 canonical server plan hash；精确重放返回该 session 原有的 Agent 与结果。
 - 根据权限模板生成限定 Scope 的一次性 local-sync installation code。
 - 不向 stdout 或 Agent 返回长期 API Key。
 - installation code 仍通过现有 exchange 流程换取本地 Credential，并只写入权限为 `0600` 的凭据文件。
@@ -204,7 +206,7 @@ Preflight 在第一次业务确认前完成，并将结果汇总为一份用户�
 - Node/npm 与本地包版本。
 - MCP 配置路径和写权限。
 - 已有 AgentWiki MCP 项及一次性替换策略。
-- 将创建或复用的 Space、Agent、权限和审核模式。
+- 将创建或复用的 Space、本次新建的独立 Agent、权限和审核模式。
 - 将扫描的绝对路径、Adapter、文件边界和忽略规则。
 - 将写入的配置差异、备份位置、预计网络操作和恢复策略。
 
@@ -330,7 +332,7 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 完整 onboarding 只有在以下条件全部满足时返回 `completed`：
 
 - Device Auth 已批准。
-- Space、Agent、Grant 与 Credential 已创建或复用。
+- Space 已创建或复用，本次 device session 的独立 Agent、Grant 与 Credential 已创建；精确重放则读取同一组既有结果。
 - 本地 gateway 配置已原子写入。
 - gateway 子进程可启动并完成 MCP handshake。
 - 本地、远程和组合工具清单与 0.3.0 manifest 精确一致。
@@ -349,7 +351,7 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 - NDJSON 编解码、requestId、序号、默认值、未知字段和 stdout/stderr 隔离。
 - 状态机全部状态、checkpoint、resume、cancel 和重复输入。
 - Device code 哈希、过期、限流、拒绝、重复轮询和 token 单次使用。
-- bootstrap plan hash、幂等键、权限模板和重复资源复用。
+- bootstrap plan hash、幂等键、权限模板、同一 session 精确重放，以及不同 session（含同名 Agent）的身份隔离。
 - 本地、远程和组合工具的注册表与确定性路由。
 - 远程 manifest 缓存、版本协商、工具冲突和离线行为。
 - Credential、日志、错误和报告脱敏。
@@ -374,7 +376,7 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 - 真实 MarkItDown 文档扫描。
 - 本地 preview、第二次确认、服务端 Push、Revision 和 ChangeSet。
 - 远程网络在扫描后断开，恢复后继续同步。
-- 两次执行相同 onboarding 不产生重复 Space、Agent、Grant 或 MCP。
+- 同一 device session 的精确重放不产生重复 Space、Agent、Grant 或 MCP；不同 device session 必须创建独立 Agent 身份，即使属于同一账号或使用相同名称。
 - Codex、Claude Code、OpenCode 至少各完成一次干净 HOME 安装验收。
 - 生产受控 E2E 使用一次性用户和资源，并在 `finally` 清理。
 
