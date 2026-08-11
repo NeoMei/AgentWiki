@@ -9,6 +9,14 @@
 - Scope: controlled production black-box acceptance
 - Write-test prerequisite: all five authorization fields above must remain recorded and valid before any production write.
 
+### Continuation authorization after STOP-3PT-20260811-001
+
+- Decision: production owner selected continuation option 1 in the Codex thread.
+- Fresh approved window: 2026-08-11 23:34 CST through 2026-08-12 05:34 CST.
+- Admin D exception: the dedicated test `super_admin` may passively see production-wide administrative metadata that the Dashboard renders automatically.
+- Hard boundary: testers must not open, inspect, search for, or mutate any non-`3PT` Space, user, or resource. Non-test content, personal data, or any non-`3PT` write remains an immediate stop condition.
+- All other isolation, prefix, evidence-redaction, and cleanup rules remain unchanged.
+
 ## People
 - Test lead: Codex controller
 - Testers: Codex controller and designated fresh subagents

@@ -94,7 +94,7 @@ Evidence directory: `agentwiki/docs/testing/third-party/0.3.1-20260811/evidence/
 
 ## Self-review and gate assessment
 
-- AUTH-003 and SPACE-001 are the only PASS cases; AUTH-001 and AUTH-002 are BLOCKED for retained-evidence and approval-compliance reasons, respectively.
+- AUTH-003 and SPACE-001 are the only PASS cases; AUTH-001 and AUTH-002 are BLOCKED for approval-compliance and retained-evidence reasons, respectively.
 - All other 19 Task 4 cases are BLOCKED; none is represented as FAIL.
 - The S1 stop remains in force. No post-stop writes occurred, and all created-resource cleanup remains PENDING.
 - 40 observed link elements reconcile to 20 distinct href/Space references. The retained 10 shortened hashes are deliberately a privacy-minimized sample, not a complete set.

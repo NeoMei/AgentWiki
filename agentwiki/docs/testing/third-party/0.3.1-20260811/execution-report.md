@@ -33,6 +33,7 @@
 
 ## Deviations and Accepted Risks
 - Task 2 performed no production calls, account registration, product/UI test, or credential access. Production availability and incident state are recorded only as owner-confirmed entry conditions for the approved window.
+- `STOP-3PT-20260811-001` fired when Admin D's Dashboard automatically rendered production-wide Space link metadata. The production owner selected continuation option 1: this passive global-admin metadata visibility is accepted for the dedicated `super_admin`; testers may not open, inspect, search for, or mutate non-`3PT` resources. A fresh write window was authorized for 2026-08-11 23:34 CST through 2026-08-12 05:34 CST. Any non-test content/personal-data exposure or non-`3PT` write still requires an immediate stop.
 
 ## Final Decision
 NOT_RUN
