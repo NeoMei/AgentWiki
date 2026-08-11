@@ -6,7 +6,7 @@
  * the current config hash is re-checked; a mismatch means someone changed the
  * file concurrently and the install aborts without overwriting.
  */
-import { chmod, copyFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -74,34 +74,55 @@ export async function installGatewayEntry(
   expectedHash: string,
   home: string = homedir(),
 ): Promise<{ backupPath: string; rollback: () => Promise<void> }> {
-  const backup = await backupConfig(client, home);
   const configPath = clientConfigPath(client, home);
 
   // Re-hash immediately before mutation.
   const current = await readRawConfig(client, home);
   const currentHash = current !== null ? hashConfig(current) : hashConfig('');
   if (currentHash !== expectedHash) {
+    if (current !== null && hasExactGatewayEntry(client, current, connectionId)) {
+      const originalBackup = await findOriginalBackup(client, home);
+      if (originalBackup) {
+        return { backupPath: originalBackup, rollback: rollbackFromBackup(configPath, originalBackup) };
+      }
+    }
     throw new Error('CONFIG_CONFLICT: client configuration changed since preflight');
   }
 
+  const backup = await backupConfig(client, home);
   const next = buildConfigWithGateway(client, current, connectionId);
   await writeAtomically(configPath, next, client === 'opencode' ? 0o600 : 0o600);
 
   return {
     backupPath: backup,
-    rollback: async () => {
-      if (existsSync(backup)) {
-        const data = await readFile(backup, 'utf8');
-        if (data.length > 0) {
-          await writeAtomically(configPath, data, 0o600);
-        } else {
-          // No prior config — remove what we created.
-          const { unlink } = await import('node:fs/promises');
-          await unlink(configPath).catch(() => undefined);
-        }
-      }
-    },
+    rollback: rollbackFromBackup(configPath, backup),
   };
+}
+
+function rollbackFromBackup(configPath: string, backup: string): () => Promise<void> {
+  return async () => {
+    if (!existsSync(backup)) return;
+    const data = await readFile(backup, 'utf8');
+    if (data.length > 0) {
+      await writeAtomically(configPath, data, 0o600);
+    } else {
+      const { unlink } = await import('node:fs/promises');
+      await unlink(configPath).catch(() => undefined);
+    }
+  };
+}
+
+async function findOriginalBackup(client: AgentClient, home: string): Promise<string | null> {
+  const root = join(home, '.agentwiki-archive');
+  const names = await readdir(root).catch(() => []);
+  const name = names.filter((candidate) => candidate.startsWith(`${client}-`)).sort()[0];
+  return name ? join(root, name) : null;
+}
+
+function hasExactGatewayEntry(client: AgentClient, current: string, connectionId: string): boolean {
+  const entry = extractEntryNames(client, current).find(([name]) => name === GATEWAY_MCP_NAME)?.[1];
+  if (!entry) return false;
+  return gatewayCommand(connectionId).every((part) => entry.includes(part));
 }
 
 /** Build the post-install config text for each client format. */

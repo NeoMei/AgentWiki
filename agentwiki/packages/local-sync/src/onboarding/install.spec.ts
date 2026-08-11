@@ -35,6 +35,7 @@ function dependencies(verifyOk = true): { deps: BootstrapInstallerDeps; calls: s
           installation: { code: 'install-code', installationId: 'installation-1', expiresAt: '2026-08-11T01:00:00.000Z' },
         };
       }),
+      loadExisting: vi.fn(async () => null),
       archive: vi.fn(async () => { calls.push('archive'); return { archivePath: '/tmp/archive', movedChildren: ['legacy'] }; }),
       initialize: vi.fn(async () => { calls.push('initialize'); }),
       exchange: vi.fn(async () => {
@@ -52,6 +53,7 @@ function dependencies(verifyOk = true): { deps: BootstrapInstallerDeps; calls: s
         return { ok: verifyOk, toolNames: ['onboard_status'], manifestHash: 'manifest-hash', errors: verifyOk ? [] : ['failed'] };
       }),
       verifyAccess: vi.fn(async () => { calls.push('verify-access'); }),
+      revokeCredential: vi.fn(async () => { calls.push('revoke-credential'); }),
       restore: vi.fn(async () => { calls.push('restore-state'); }),
     },
   };
@@ -82,6 +84,26 @@ describe('createBootstrapInstaller', () => {
 
     await expect(install(input())).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
     expect(fixture.calls).toContain('rollback-config');
+    expect(fixture.calls).toContain('revoke-credential');
     expect(fixture.calls).toContain('restore-state');
+  });
+
+  it('resumes after credential exchange without archiving or exchanging a second time', async () => {
+    const fixture = dependencies();
+    fixture.deps.loadExisting = vi.fn(async () => ({
+      connection: {
+        id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+        pluginVersion: '0.3.0', client: 'codex' as const, mcpName: 'agentwiki',
+      },
+      apiKey: 'agk_existing',
+    }));
+    const install = createBootstrapInstaller(fixture.deps);
+
+    await install(input());
+
+    expect(fixture.deps.archive).not.toHaveBeenCalled();
+    expect(fixture.deps.exchange).not.toHaveBeenCalled();
+    expect(fixture.deps.saveConnection).not.toHaveBeenCalled();
+    expect(fixture.calls).toEqual(['bootstrap', 'install-client', 'verify-gateway', 'verify-access']);
   });
 });

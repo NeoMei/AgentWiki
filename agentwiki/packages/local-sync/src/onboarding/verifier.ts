@@ -40,6 +40,11 @@ export async function verifyGateway(options: VerifyOptions): Promise<VerifyResul
     if (missing.length > 0) {
       errors.push(`missing tools: ${missing.join(', ')}`);
     }
+    const allowed = new Set(required);
+    const unexpected = names.filter((name) => !allowed.has(name) && !name.startsWith('wiki_'));
+    if (unexpected.length > 0) {
+      errors.push(`unexpected tools: ${unexpected.join(', ')}`);
+    }
     return { ok: errors.length === 0, toolNames: names, manifestHash: manifestHash(), errors };
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));

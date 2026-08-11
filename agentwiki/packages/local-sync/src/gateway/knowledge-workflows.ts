@@ -145,7 +145,14 @@ export class KnowledgeWorkflows {
 
     // Pull before push to check revision and detect conflicts.
     const bundle = stored.data as KnowledgeBundle;
-    await this.deps.remote.pull(bundle.spaceId);
+    const pulled = await this.deps.remote.pull(bundle.spaceId);
+    if (pulled.revisionId !== bundle.baseRevision) {
+      throw new OnboardingError({
+        code: 'PREVIEW_CHANGED',
+        message: 'authoritative revision changed after preview; prepare a new preview',
+        retryable: true,
+      });
+    }
     const pushResult = await this.deps.remote.push(bundle.spaceId, bundle);
     if (pushResult.conflict) {
       throw new OnboardingError({

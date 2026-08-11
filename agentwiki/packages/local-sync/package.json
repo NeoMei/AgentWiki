@@ -6,12 +6,16 @@
   "bin": {
     "agentwiki-local-sync": "dist/cli.js"
   },
-  "main": "./dist/mcp.js",
-  "types": "./dist/mcp.d.ts",
+  "main": "./dist/gateway/server.js",
+  "types": "./dist/gateway/server.d.ts",
   "files": [
     "dist",
     "!dist/**/*.spec.d.ts",
     "!dist/**/*.spec.js",
+    "!dist/mcp.d.ts",
+    "!dist/mcp.js",
+    "!dist/orchestrator-commands.d.ts",
+    "!dist/orchestrator-commands.js",
     "skill",
     "README.md",
     "LICENSE"

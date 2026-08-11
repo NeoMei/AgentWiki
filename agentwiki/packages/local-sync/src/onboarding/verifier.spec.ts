@@ -25,6 +25,16 @@ describe('verifyGateway', () => {
     expect(result.errors[0]).toContain('missing tools');
   });
 
+  it('fails when the gateway exposes a legacy or unprefixed unexpected tool', async () => {
+    const result = await verifyGateway({
+      command: ['echo'],
+      listToolsImpl: async () => [...staticToolNames(), 'start_knowledge_job', 'list_pages'],
+      deadlineMs: 5_000,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('unexpected tools');
+  });
+
   it('reports a timeout error', async () => {
     const result = await verifyGateway({
       command: ['echo'],

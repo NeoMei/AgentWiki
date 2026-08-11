@@ -14,6 +14,7 @@ type InstallInput = Parameters<BootstrapInstallFn>[0];
 
 export interface BootstrapInstallerDeps {
   bootstrap(input: InstallInput): Promise<BootstrapResult>;
+  loadExisting(home: string, connectionId: string): Promise<{ connection: LocalSyncConnection; apiKey: string } | null>;
   archive(home: string): Promise<ArchiveResult | null>;
   initialize(home: string): Promise<void>;
   exchange(serverBaseUrl: string, code: string): Promise<ExchangeResult>;
@@ -27,6 +28,7 @@ export interface BootstrapInstallerDeps {
   ): Promise<{ backupPath: string; rollback: () => Promise<void> }>;
   verify(connectionId: string, home: string): Promise<VerifyResult>;
   verifyAccess(connection: LocalSyncConnection, apiKey: string, bootstrap: BootstrapResult): Promise<void>;
+  revokeCredential(connection: LocalSyncConnection, apiKey: string): Promise<void>;
   restore(home: string, archive: ArchiveResult | null): Promise<void>;
 }
 
@@ -36,23 +38,44 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
     const bootstrap = await deps.bootstrap(input);
     let archive: ArchiveResult | null = null;
     let rollbackConfig: (() => Promise<void>) | undefined;
+    let activatedState = false;
+    let activatedConnection: LocalSyncConnection | undefined;
+    let activatedApiKey: string | undefined;
     try {
-      archive = await deps.archive(input.home);
-      await deps.initialize(input.home);
-      const exchange = await deps.exchange(input.serverBaseUrl, bootstrap.installation.code);
-      assertExchange(exchange, bootstrap, input.serverPlan.packageVersion);
-
-      const connection: LocalSyncConnection = {
-        id: input.connectionId,
-        serverUrl: exchange.serverUrl,
-        agentId: exchange.agentId,
-        credentialId: exchange.credentialId,
-        pluginVersion: exchange.pluginVersion,
-        client: input.client,
-        mcpName: 'agentwiki',
-      };
-      await deps.saveConnection(input.home, connection, exchange.apiKey);
-      await deps.installSkill(input.home, input.client);
+      const existing = await deps.loadExisting(input.home, input.connectionId);
+      let connection: LocalSyncConnection;
+      let apiKey: string;
+      if (existing) {
+        connection = existing.connection;
+        apiKey = existing.apiKey;
+        if (connection.agentId !== bootstrap.agent.id || connection.pluginVersion !== input.serverPlan.packageVersion) {
+          throw new OnboardingError({
+            code: 'PACKAGE_INTEGRITY_FAILED',
+            message: 'saved onboarding connection does not match the bootstrap result',
+            retryable: false,
+          });
+        }
+      } else {
+        archive = await deps.archive(input.home);
+        await deps.initialize(input.home);
+        activatedState = true;
+        const exchange = await deps.exchange(input.serverBaseUrl, bootstrap.installation.code);
+        assertExchange(exchange, bootstrap, input.serverPlan.packageVersion);
+        connection = {
+          id: input.connectionId,
+          serverUrl: exchange.serverUrl,
+          agentId: exchange.agentId,
+          credentialId: exchange.credentialId,
+          pluginVersion: exchange.pluginVersion,
+          client: input.client,
+          mcpName: 'agentwiki',
+        };
+        apiKey = exchange.apiKey;
+        activatedConnection = connection;
+        activatedApiKey = apiKey;
+        await deps.saveConnection(input.home, connection, apiKey);
+        await deps.installSkill(input.home, input.client);
+      }
       const installed = await deps.installClient(input.client, input.connectionId, input.expectedConfigHash, input.home);
       rollbackConfig = installed.rollback;
 
@@ -64,7 +87,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
           retryable: true,
         });
       }
-      await deps.verifyAccess(connection, exchange.apiKey, bootstrap);
+      await deps.verifyAccess(connection, apiKey, bootstrap);
 
       return {
         bootstrap,
@@ -75,7 +98,10 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
       };
     } catch (error) {
       await rollbackConfig?.().catch(() => undefined);
-      await deps.restore(input.home, archive).catch(() => undefined);
+      if (activatedConnection && activatedApiKey) {
+        await deps.revokeCredential(activatedConnection, activatedApiKey).catch(() => undefined);
+      }
+      if (activatedState) await deps.restore(input.home, archive).catch(() => undefined);
       throw error;
     }
   };
@@ -92,6 +118,14 @@ function productionDependencies(): BootstrapInstallerDeps {
       serverPlan: input.serverPlan,
       serverPlanHash: input.serverPlanHash,
     }),
+    loadExisting: async (home, connectionId) => {
+      const config = await loadConfig(home);
+      const connection = config.connections[connectionId];
+      if (!connection) return null;
+      const credentials = await loadCredentials(home);
+      const apiKey = credentials.credentials[connection.credentialId]?.apiKey;
+      return apiKey ? { connection, apiKey } : null;
+    },
     archive: archiveLegacyState,
     initialize: initCleanState,
     exchange: (serverBaseUrl, code) => agentwiki.exchange(serverBaseUrl, code),
@@ -107,7 +141,9 @@ function productionDependencies(): BootstrapInstallerDeps {
     installSkill: (home, client) => installSkill(home, packagedSkillSource, client),
     installClient: installGatewayEntry,
     verify: (connectionId, home) => verifyGateway({
-      command: gatewayCommand(connectionId),
+      command: process.env.AGENTWIKI_E2E_CLI_FILE
+        ? [process.execPath, process.env.AGENTWIKI_E2E_CLI_FILE, 'gateway', '--connection', connectionId]
+        : gatewayCommand(connectionId),
       cwd: home,
       env: { ...process.env, HOME: home } as Record<string, string>,
     }),
@@ -124,6 +160,7 @@ function productionDependencies(): BootstrapInstallerDeps {
         });
       }
     },
+    revokeCredential: (connection, apiKey) => agentwiki.revokeCurrentCredential(connection, apiKey),
     restore: restoreArchivedState,
   };
 }

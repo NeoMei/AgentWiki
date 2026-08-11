@@ -53,6 +53,10 @@ export class LocalSyncInstallationService {
     );
   }
 
+  revokeCurrentCredential(ownerId: string, agentId: string, credentialId: string) {
+    return this.agents.revokeCredential(ownerId, agentId, credentialId);
+  }
+
   async create(
     ownerId: string,
     agentId: string,

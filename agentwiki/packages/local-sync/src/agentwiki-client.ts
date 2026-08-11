@@ -148,6 +148,13 @@ export class AgentWikiClient {
     });
   }
 
+  async revokeCurrentCredential(connection: LocalSyncConnection, apiKey: string): Promise<void> {
+    await this.send(endpoint(connection.serverUrl, '/integrations/local-sync/credentials/current'), {
+      method: 'DELETE',
+      headers: authorization(apiKey),
+    });
+  }
+
   async getSyncState(
     connection: LocalSyncConnection,
     apiKey: string,

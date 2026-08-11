@@ -1,157 +1,181 @@
 #!/usr/bin/env node
-/**
- * Onboarding E2E harness.
- *
- * Drives the pinned 0.3.0 onboard command via NDJSON stdin/stdout. The
- * harness is destructive only for an explicit loopback target unless
- * production opt-in and cleanup credentials are supplied.
- *
- * Usage:
- *   AGENTWIKI_E2E=1 node scripts/onboarding-e2e.mjs --target http://localhost:3000/api
- */
+/** Real NDJSON onboarding E2E driver with disposable human/resources. */
 import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { assertE2ETarget, cleanupFixture } from './e2e-safety.mjs';
 
-const DISPOSABLE_PREFIX = `aw-e2e-${Date.now()}`;
-const HARNESS_DEADLINE_MS = 5 * 60 * 1_000; // 5 minutes total
+const HARNESS_DEADLINE_MS = 5 * 60 * 1_000;
 
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const target = args[args.indexOf('--target') + 1];
+  const value = (flag) => {
+    const index = args.indexOf(flag);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const target = value('--target');
   if (!target) throw new Error('--target <url> is required');
-  return { target };
+  return {
+    target,
+    clientType: value('--client') ?? 'codex',
+    cliFile: value('--cli-file'),
+  };
 }
 
-/**
- * Drive the onboard CLI via NDJSON. Returns the final event or throws.
- *
- * @param {object} opts
- * @param {string} opts.target - Server base URL.
- * @param {object} [opts.env] - Environment override for tests.
- * @param {function} [opts.spawnImpl] - Spawn override for tests.
- */
 export async function runOnboardingHarness(opts) {
   if (!opts.target) throw new Error('--target <url> is required');
-  const baseUrl = assertE2ETarget(opts.target, opts.env ?? process.env, 'AGENTWIKI_E2E');
-  const startTime = Date.now();
+  const environment = opts.env ?? process.env;
+  const baseUrl = assertE2ETarget(opts.target, environment, 'AGENTWIKI_E2E');
+  const clientType = opts.clientType ?? 'codex';
+  if (!['codex', 'claude', 'opencode'].includes(clientType)) throw new Error('unsupported --client');
+
+  const root = await mkdtemp(join(tmpdir(), `agentwiki-onboard-${clientType}-`));
+  const home = join(root, 'home');
+  const source = join(root, 'source');
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  await mkdir(source, { recursive: true });
+  await writeFile(join(source, 'README.md'), '# Disposable onboarding fixture\n\nA temporary E2E knowledge source.\n');
 
   const fixture = { spaceId: null, agentId: null, userId: null };
+  const auth = { token: null };
   let child;
-
   try {
-    child = (opts.spawnImpl ?? defaultSpawn)(baseUrl);
-
-    const result = await driveProtocol(child, startTime);
-
-    // Extract resource IDs from the completed report.
-    if (result.report?.space?.id) fixture.spaceId = result.report.space.id;
-    if (result.report?.agent?.id) fixture.agentId = result.report.agent.id;
-
-    // Verify completion criteria.
+    child = (opts.spawnImpl ?? defaultSpawn)({
+      baseUrl,
+      clientType,
+      home,
+      cliFile: opts.cliFile,
+      environment,
+    });
+    const result = await driveProtocol(child, {
+      baseUrl,
+      clientType,
+      sourcePaths: [source],
+      fetchImpl: opts.fetchImpl ?? fetch,
+      fixture,
+      auth,
+    });
+    fixture.spaceId = result.report?.space?.id ?? null;
+    fixture.agentId = result.report?.agent?.id ?? null;
     assertCompletion(result);
-
-    return { sessionId: result.sessionId, report: result.report, fixture };
+    return { sessionId: result.sessionId, report: result.report, fixture, home };
   } finally {
     if (child?.kill) child.kill('SIGKILL');
-    // Best-effort cleanup in production E2E; loopback tests clean up manually.
-    if (fixture.spaceId || fixture.agentId) {
-      try {
-        await cleanupFixture(fixture, async () => {});
-      } catch {
-        // non-fatal in harness
-      }
+    if (auth.token) {
+      await cleanupFixture(fixture, async (kind, id) => {
+        const route = kind === 'agent' ? `agents/${id}` : kind === 'space' ? `spaces/${id}` : `users/${id}`;
+        const response = await (opts.fetchImpl ?? fetch)(`${baseUrl}/${route}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` },
+        });
+        if (!response.ok && response.status !== 404) throw new Error(`${kind} cleanup returned ${response.status}`);
+      });
     }
+    await rm(root, { recursive: true, force: true });
   }
 }
 
-function defaultSpawn(baseUrl) {
-  return spawn('npx', [
-    '--yes', '@neomei/agentwiki-local-sync@0.3.0', 'onboard',
-    '--server', baseUrl,
-    '--protocol', 'ndjson',
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
+  const args = ['onboard', '--server', baseUrl, '--protocol', 'ndjson'];
+  const env = {
+    ...environment, HOME: home, USERPROFILE: home,
+    ...(cliFile ? { AGENTWIKI_E2E_CLI_FILE: resolve(cliFile) } : {}),
+  };
+  if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env });
+  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.3.0', ...args], {
+    stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType },
+  });
 }
 
-async function driveProtocol(child, startTime) {
-  return new Promise((resolve, reject) => {
+async function driveProtocol(child, context) {
+  return new Promise((resolvePromise, rejectPromise) => {
     let buffer = '';
+    let stderr = '';
     let sessionId = null;
-    let report = null;
-    const timer = setTimeout(() => {
-      reject(new Error(`onboarding harness timed out after ${HARNESS_DEADLINE_MS}ms`));
-    }, HARNESS_DEADLINE_MS);
-
+    let settled = false;
+    let authorizing = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) rejectPromise(error); else resolvePromise(value);
+    };
+    const timer = setTimeout(() => finish(new Error(`onboarding harness timed out after ${HARNESS_DEADLINE_MS}ms`)), HARNESS_DEADLINE_MS);
+    child.stderr?.on('data', (data) => { stderr = (stderr + data.toString()).slice(-4000); });
     child.stdout?.on('data', (data) => {
       buffer += data.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
-
       for (const line of lines) {
         if (!line.trim()) continue;
         let event;
         try { event = JSON.parse(line); } catch { continue; }
-
         sessionId = event.sessionId ?? sessionId;
-
         if (event.type === 'input_required') {
-          // Respond with disposable fixture values.
-          sendReply(child, event.requestId, {
+          sendInputReply(child, event.requestId, {
             spaceMode: 'create',
-            spaceName: `${DISPOSABLE_PREFIX}-space`,
-            agentName: `${DISPOSABLE_PREFIX}-agent`,
-            permissionPreset: 'editor',
-            approvalMode: 'always-review',
-            clientType: 'codex',
-            sourcePaths: ['.'],
+            spaceName: `aw-e2e-${Date.now()}-space`,
+            agentName: `aw-e2e-${context.clientType}-agent`,
+            permissionPreset: 'editor', approvalMode: 'always-review',
+            clientType: context.clientType, sourcePaths: context.sourcePaths, sourceType: 'documents',
           });
+        } else if (event.type === 'authorization_required' && !authorizing) {
+          authorizing = true;
+          authorizeDevice(context, event.userCode).catch((error) => finish(error));
         } else if (event.type === 'confirmation_required') {
-          sendReply(child, event.requestId, { confirmed: true, planHash: event.planHash });
+          sendConfirmationReply(child, event.requestId, event.planHash);
         } else if (event.type === 'completed') {
-          report = event.report;
-          clearTimeout(timer);
-          resolve({ sessionId, report });
+          finish(null, { sessionId, report: event.report });
         } else if (event.type === 'failed') {
-          clearTimeout(timer);
-          reject(new Error(`onboarding failed: ${event.code} — ${event.message}`));
+          finish(new Error(`onboarding failed: ${event.code} — ${event.message}`));
         }
       }
     });
-
     child.on('exit', (code) => {
-      clearTimeout(timer);
-      if (report === null && code !== 0) {
-        reject(new Error(`onboarding process exited with code ${code} before completion`));
-      }
+      if (!settled) finish(new Error(`onboarding process exited with code ${code} before completion${stderr ? `: ${stderr}` : ''}`));
     });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
+    child.on('error', (error) => finish(error));
   });
 }
 
-function sendReply(child, requestId, values) {
-  const reply = JSON.stringify({ requestId, values });
-  child.stdin?.write(reply + '\n');
+async function authorizeDevice(context, userCode) {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const registration = await context.fetchImpl(`${context.baseUrl}/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: `onboard-e2e-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'Onboarding E2E' }),
+  });
+  if (!registration.ok) throw new Error(`E2E registration failed with ${registration.status}`);
+  const registered = await registration.json();
+  context.auth.token = registered.access_token;
+  context.fixture.userId = registered.user?.id ?? null;
+  const decision = await context.fetchImpl(`${context.baseUrl}/onboard/device/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${context.auth.token}` },
+    body: JSON.stringify({ userCode, decision: 'approve' }),
+  });
+  if (!decision.ok) throw new Error(`device approval failed with ${decision.status}`);
+}
+
+function sendInputReply(child, requestId, values) {
+  child.stdin?.write(`${JSON.stringify({ requestId, values })}\n`);
+}
+
+function sendConfirmationReply(child, requestId, planHash) {
+  child.stdin?.write(`${JSON.stringify({ requestId, confirmed: true, planHash })}\n`);
 }
 
 function assertCompletion(result) {
   if (!result.report) throw new Error('no completion report');
   if (!result.report.space?.id) throw new Error('missing space ID in report');
   if (!result.report.agent?.id) throw new Error('missing agent ID in report');
+  if (!result.report.revisionId) throw new Error('missing first-sync revision in report');
+  if (!result.report.connectionId || !result.report.manifestHash) throw new Error('missing verified gateway evidence in report');
 }
 
-// CLI entry point
 if (process.argv[1]?.endsWith('onboarding-e2e.mjs')) {
-  const { target } = parseArgs(process.argv);
-  runOnboardingHarness({ target })
-    .then((result) => {
-      process.stdout.write(JSON.stringify({ ok: true, sessionId: result.sessionId }, null, 2) + '\n');
-      process.exit(0);
-    })
-    .catch((err) => {
-      process.stderr.write(`E2E FAILED: ${err.message}\n`);
-      process.exit(1);
-    });
+  let parsed;
+  try { parsed = parseArgs(process.argv); } catch (error) { process.stderr.write(`E2E FAILED: ${error.message}\n`); process.exit(1); }
+  runOnboardingHarness(parsed)
+    .then((result) => process.stdout.write(`${JSON.stringify({ ok: true, sessionId: result.sessionId }, null, 2)}\n`))
+    .catch((error) => { process.stderr.write(`E2E FAILED: ${error.message}\n`); process.exitCode = 1; });
 }

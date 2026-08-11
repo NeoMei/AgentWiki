@@ -92,6 +92,20 @@ export class LocalSyncInstallationController {
     return this.installations.exchange(dto.code, req.ip || req.socket.remoteAddress || 'unknown');
   }
 
+  @Delete('integrations/local-sync/credentials/current')
+  @UseGuards(CombinedAuthGuard)
+  revokeCurrentCredential(@Req() req: Request) {
+    const principal = req.user as { userId: string; agentId?: string; credentialId?: string };
+    if (!principal.agentId || !principal.credentialId) {
+      throw new ForbiddenException('Only an Agent credential can revoke itself');
+    }
+    return this.installations.revokeCurrentCredential(
+      principal.userId,
+      principal.agentId,
+      principal.credentialId,
+    );
+  }
+
   private publicApiUrl(req: Request): string {
     const configured = this.config.get<string>('PUBLIC_API_URL');
     if (configured) return this.normalizePublicApiUrl(configured);

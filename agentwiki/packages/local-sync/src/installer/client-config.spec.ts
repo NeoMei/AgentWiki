@@ -127,4 +127,17 @@ describe('installGatewayEntry', () => {
     const s = await stat(backupPath);
     expect(s.mode & 0o777).toBe(0o600);
   });
+
+  it('resumes an identical install and keeps rollback bound to the original config', async () => {
+    const home = await freshHome();
+    const original = JSON.stringify({ mcpServers: { unrelated: { command: ['tool'] } } });
+    await seedConfig('claude', home, original);
+    const originalHash = hashConfig(original);
+    await installGatewayEntry('claude', 'conn-1', originalHash, home);
+
+    const resumed = await installGatewayEntry('claude', 'conn-1', originalHash, home);
+    await resumed.rollback();
+
+    await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
+  });
 });

@@ -7,7 +7,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { formatMcpOutput } from '../mcp.js';
+import { formatMcpOutput } from './output.js';
 import { STATIC_TOOLS, staticToolNames, toRemoteGatewayName, isLegacyToolName } from './manifest.js';
 import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
 

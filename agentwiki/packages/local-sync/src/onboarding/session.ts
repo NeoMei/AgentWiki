@@ -91,6 +91,8 @@ export interface OnboardingCheckpoint {
   lastErrorCode?: string;
   /** Human-readable resume hint. */
   resumeHint?: string;
+  /** Last non-terminal state used to continue a recoverable session. */
+  resumeState?: Exclude<OnboardingState, 'failed_recoverable' | 'failed_terminal' | 'cancelled' | 'completed'>;
 }
 
 export interface SessionStore {

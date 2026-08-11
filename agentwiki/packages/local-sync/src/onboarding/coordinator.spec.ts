@@ -15,6 +15,18 @@ function scriptedSource(replies: string[]): ProtocolSource {
   return { read: async () => replies[i++] ?? null };
 }
 
+function successfulSource(sink: { lines: string[] }, values: Record<string, unknown>): ProtocolSource {
+  let call = 0;
+  return {
+    read: async () => {
+      call += 1;
+      if (call === 1) return JSON.stringify({ requestId: 'input', values });
+      const confirmation = [...sink.lines].reverse().map((line) => JSON.parse(line)).find((event) => event.type === 'confirmation_required');
+      return JSON.stringify({ requestId: confirmation.requestId, confirmed: true, planHash: confirmation.planHash });
+    },
+  };
+}
+
 function mockClient(): OnboardingClient {
   return {
     start: vi.fn(async () => ({
@@ -70,32 +82,12 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
 
 describe('OnboardingCoordinator happy path', () => {
   it('runs the full state machine to completed', async () => {
-    const replies = [
-      // input reply
-      JSON.stringify({
-        requestId: 'input',
-        values: { spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] },
-      }),
-      // plan confirmation
-      JSON.stringify({ requestId: 'plan', confirmed: true, planHash: 'any' }),
-      // sync confirmation — previewHash must match; coordinator emits it, test matches dynamically
-    ];
-    // We need the sync confirmation planHash to match. Since we don't know it ahead, use a source that echoes the last preview.
-    let syncReplyGiven = false;
-    const dynamicSource: ProtocolSource = {
-      read: async () => {
-        if (replies.length > 0 && !syncReplyGiven) {
-          const r = replies.shift()!;
-          if (r.includes('plan')) return r; // plan confirmation
-          return r; // input reply
-        }
-        // For sync, extract the previewHash from emitted events.
-        syncReplyGiven = true;
-        return JSON.stringify({ requestId: 'sync', confirmed: true, planHash: 'hash-1' });
-      },
-    };
-
-    const { deps, sink } = mockDeps({ source: dynamicSource });
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', permissionPreset: 'editor',
+      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+    });
+    const { deps, sink } = fixture;
     const coordinator = new OnboardingCoordinator(deps);
     const result = await coordinator.run();
 
@@ -112,20 +104,95 @@ describe('OnboardingCoordinator happy path', () => {
   });
 
   it('emits authorization_required and heartbeat during polling', async () => {
-    const replies = [
-      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),
-      JSON.stringify({ requestId: 'plan', confirmed: true, planHash: 'x' }),
-      JSON.stringify({ requestId: 'sync', confirmed: true, planHash: 'hash-1' }),
-    ];
-    const { deps, sink } = mockDeps({ source: scriptedSource(replies) });
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor',
+      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+    });
+    const { deps, sink } = fixture;
     await new OnboardingCoordinator(deps).run();
     const types = sink.lines.map((l) => JSON.parse(l).type);
     expect(types).toContain('authorization_required');
     expect(types).toContain('completed');
   });
+
+  it('includes legacy entries in the plan preview and rejects incomplete conditional inputs', async () => {
+    const incomplete = mockDeps({
+      source: scriptedSource([
+        JSON.stringify({ requestId: 'input', values: {
+          spaceMode: 'existing', agentName: 'A', permissionPreset: 'editor',
+          approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+        } }),
+      ]),
+    });
+    await expect(new OnboardingCoordinator(incomplete.deps).run()).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    expect(incomplete.deps.client.start).not.toHaveBeenCalled();
+
+    const fixture = mockDeps({
+      preflight: vi.fn(async () => ({
+        configHash: 'h1', oldEntries: ['agentwiki-local', 'agentwiki-remote'],
+        hasConflict: false, archivePath: null, reloadRequired: true,
+      })),
+    });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor',
+      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+    });
+    await new OnboardingCoordinator(fixture.deps).run();
+    const preview = fixture.sink.lines.map((line) => JSON.parse(line))
+      .find((event) => event.type === 'preview' && event.plan?.serverPlan);
+    expect(preview.plan).toMatchObject({
+      configHash: 'h1', oldEntries: ['agentwiki-local', 'agentwiki-remote'], reloadRequired: true,
+    });
+  });
+
+  it('resumes from the last persisted checkpoint without repeating authorization or bootstrap', async () => {
+    const fixture = mockDeps();
+    fixture.deps.sessionId = 'sess-test';
+    await fixture.store.save({
+      sessionId: 'sess-test',
+      state: 'scanning',
+      protocolVersion: 1,
+      serverUrl: 'https://test/api',
+      clientType: 'codex',
+      createdAt: '2026-08-11T00:00:00.000Z',
+      updatedAt: '2026-08-11T00:00:00.000Z',
+      inputs: { sourcePaths: ['.'], sourceType: 'auto', reloadRequired: false },
+      bootstrapResult: {
+        space: { id: 'space-1', name: 'R&D' },
+        agent: { id: 'agent-1', name: 'Codex' },
+      },
+    });
+    fixture.deps.source = {
+      read: async () => {
+        const confirmation = [...fixture.sink.lines].reverse().map((line) => JSON.parse(line))
+          .find((event) => event.type === 'confirmation_required');
+        return JSON.stringify({ requestId: 'sync', confirmed: true, planHash: confirmation.planHash });
+      },
+    };
+
+    const result = await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(result.report).toMatchObject({ sessionId: 'sess-test', revisionId: 'rev-1' });
+    expect(fixture.deps.client.start).not.toHaveBeenCalled();
+    expect(fixture.deps.preflight).not.toHaveBeenCalled();
+    expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
+  });
 });
 
 describe('OnboardingCoordinator failure handling', () => {
+  it('rejects a confirmation whose plan hash does not match the emitted plan', async () => {
+    const bootstrapInstall = vi.fn();
+    const replies = [
+      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),
+      JSON.stringify({ requestId: 'plan', confirmed: true, planHash: 'wrong-hash' }),
+    ];
+    const { deps } = mockDeps({ source: scriptedSource(replies), bootstrapInstall });
+
+    await expect(new OnboardingCoordinator(deps).run()).rejects.toMatchObject({ code: 'PREVIEW_CHANGED' });
+    expect(bootstrapInstall).not.toHaveBeenCalled();
+  });
+
   it('emits a failed event with a stable code when authorization is denied', async () => {
     const replies = [
       JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),

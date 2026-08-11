@@ -1,11 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
 
 import { type AgentWikiClient, redactSecrets, type KnowledgeSyncResult } from './agentwiki-client.js';
 import {
@@ -23,14 +18,6 @@ import {
 } from './local-knowledge.js';
 
 
-const PACKAGE_VERSION = (() => {
-  try {
-    const require = createRequire(import.meta.url);
-    return (require('../package.json') as { version: string }).version;
-  } catch {
-    return '0.2.9';
-  }
-})();
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
 
 export interface SyncPreview {
@@ -91,14 +78,6 @@ function previewEnvelopePath(home: string, previewId: string): string {
 
 function hash(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
-}
-
-export function formatMcpOutput(result: unknown): string {
-  return redactSecrets(JSON.stringify(result, null, 2));
-}
-
-function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
-  return { content: [{ type: 'text', text: formatMcpOutput(result) }] };
 }
 
 /**
@@ -195,83 +174,4 @@ export function createLocalSyncCommands(deps: CommandDependencies): LocalSyncCom
       }
     },
   };
-}
-
-export function createLocalSyncMcpServer(commands: LocalSyncCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-sync', version: PACKAGE_VERSION });
-  server.registerTool('local_sync_status', {
-    description: 'Show the active local AgentWiki sync connection without credentials.',
-    inputSchema: {},
-  }, async () => text(await commands.status()));
-  server.registerTool('inspect_local_source', {
-    description: 'Inspect a local source directory without uploading data or invoking remote model providers.',
-    inputSchema: { path: z.string().min(1) },
-  }, async (input) => text(await commands.inspect(input)));
-  server.registerTool('prepare_knowledge_sync', {
-    description: 'Generate a local knowledge preview and diff. This never uploads data.',
-    inputSchema: {
-      path: z.string().min(1),
-      spaceId: z.string().min(1),
-      allowRemoteModel: z.boolean().default(false),
-      codebaseMemorySummary: z.string().max(50_000).optional(),
-    },
-  }, async (input) => text(await commands.prepare(input)));
-  server.registerTool('sync_prepared_knowledge', {
-    description: 'Upload a fresh prepared preview after explicit user confirmation.',
-    inputSchema: { previewId: z.string().uuid(), confirmed: z.literal(true) },
-  }, async (input) => text(await commands.sync(input)));
-  return server;
-}
-
-export async function serveLocalSyncMcp(commands: LocalSyncCommands): Promise<void> {
-  const server = createLocalSyncMcpServer(commands);
-  await server.connect(new StdioServerTransport());
-}
-
-
-export function createOrchestratorMcpServer(commands: import('./orchestrator-commands.js').OrchestratorCommands): McpServer {
-  const server = new McpServer({ name: 'agentwiki-local-orchestrator', version: PACKAGE_VERSION });
-  server.registerTool('start_knowledge_job', {
-    description: 'Start a deterministic local knowledge job for a Space and recipe.',
-    inputSchema: { spaceId: z.string().min(1), recipeId: z.string().min(1), sourcePaths: z.array(z.string().min(1)).default([]) },
-  }, async (input) => text(await commands.start(input as { spaceId: string; recipeId: string; sourcePaths: string[] })));
-  server.registerTool('get_next_work_item', {
-    description: 'Get the next pending work item for a job, or null if the phase is complete.',
-    inputSchema: { jobId: z.string().uuid() },
-  }, async (input) => text(await commands.next(input as { jobId: string })));
-  server.registerTool('read_artifacts', {
-    description: 'Read artifact summaries for a work item.',
-    inputSchema: { jobId: z.string().uuid(), workItemId: z.string().min(1) },
-  }, async (input) => text(await commands.readArtifacts(input as { jobId: string; workItemId: string })));
-  server.registerTool('submit_organized_item', {
-    description: 'Submit an organized knowledge item for a work item and advance the job.',
-    inputSchema: { jobId: z.string().uuid(), workItemId: z.string().min(1), item: z.record(z.unknown()) },
-  }, async (input) => text(await commands.submitOrganizedItem(input as { jobId: string; workItemId: string; item: Record<string, unknown> })));
-  server.registerTool('validate_knowledge_job', {
-    description: 'Transition a job to validation phase.',
-    inputSchema: { jobId: z.string().uuid() },
-  }, async (input) => text(await commands.validate(input as { jobId: string })));
-  server.registerTool('preview_knowledge_job', {
-    description: 'Build a preview bundle for a job without uploading.',
-    inputSchema: { jobId: z.string().uuid() },
-  }, async (input) => text(await commands.preview(input as { jobId: string })));
-  server.registerTool('confirm_and_push', {
-    description: 'Upload a confirmed preview bundle to AgentWiki.',
-    inputSchema: { jobId: z.string().uuid(), confirmed: z.literal(true) },
-  }, async (input) => text(await commands.confirmAndPush(input as { jobId: string; confirmed: true })));
-  server.registerTool('pull_space', {
-    description: 'Pull the authoritative Space revision into the local workspace.',
-    inputSchema: { spaceId: z.string().min(1) },
-  }, async (input) => text(await commands.pull(input as { spaceId: string })));
-  server.registerTool('resolve_conflict', {
-    description: 'Resolve a conflict in a merge job.',
-    inputSchema: { jobId: z.string().uuid(), conflictId: z.string().min(1), resolved: z.record(z.unknown()) },
-  }, async (input) => text(await commands.resolveConflict(input as { jobId: string; conflictId: string; resolved: Record<string, unknown> })));
-  return server;
-}
-
-
-export async function serveOrchestratorMcp(commands: import('./orchestrator-commands.js').OrchestratorCommands): Promise<void> {
-  const server = createOrchestratorMcpServer(commands);
-  await server.connect(new StdioServerTransport());
 }

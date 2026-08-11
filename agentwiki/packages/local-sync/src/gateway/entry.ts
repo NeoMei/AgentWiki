@@ -14,6 +14,7 @@ import { SyncEngine } from '../sync/sync-engine.js';
 import { inspectLocalSource, type LocalKnowledgeDeps } from '../local-knowledge.js';
 import { AdapterManager } from '../adapter/manager.js';
 import { join } from 'node:path';
+import { readOnboardingStatus, readPreviewArtifactSummaries } from './status.js';
 
 export interface GatewayEntryDeps {
   home: string;
@@ -51,6 +52,7 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
           revisionId: result.currentRevision,
           status: result.status,
           submissionId: result.submissionId,
+          changeSetId: result.changeSetId,
         };
       } catch (error) {
         if (error instanceof Error && error.message.includes('conflict')) {
@@ -68,12 +70,12 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
   });
 
   const handlers: GatewayHandlers = {
-    status: async () => ({ connection: deps.connectionId, serverUrl: connection.serverUrl }),
+    status: async (input) => readOnboardingStatus(deps.home, input.sessionId),
     scanSources: async (input) => {
       const inspection = await inspectLocalSource(input.sourcePaths[0] ?? '.', deps.knowledgeDeps);
       return inspection;
     },
-    readArtifacts: async () => [],
+    readArtifacts: async (input) => readPreviewArtifactSummaries(deps.home, input.jobId),
     prepare: async (input) => workflows.prepare({ ...input, sourceType: input.sourceType as 'auto' | 'code' | 'documents' | undefined }),
     confirmAndSync: async (input) => workflows.confirmAndSync(input),
     pull: async (input) => workflows.pull(input),

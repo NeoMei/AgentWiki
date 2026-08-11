@@ -18,13 +18,17 @@ function bundle(): KnowledgeBundle {
   };
 }
 
-function mockDeps(overrides?: { prepare?: Partial<Awaited<ReturnType<PrepareFn>>>; remoteConflict?: boolean }) {
+function mockDeps(overrides?: {
+  prepare?: Partial<Awaited<ReturnType<PrepareFn>>>;
+  remoteConflict?: boolean;
+  remoteRevision?: string;
+}) {
   const remoteCalls: string[] = [];
   let pushed: unknown;
   const remote: RemoteSync = {
     pull: vi.fn(async () => {
       remoteCalls.push('pull');
-      return { revisionId: 'rev-1' };
+      return { revisionId: overrides?.remoteRevision ?? '0' };
     }),
     push: vi.fn(async (_spaceId, value) => {
       remoteCalls.push('push');
@@ -124,11 +128,21 @@ describe('KnowledgeWorkflows.confirmAndSync', () => {
       wf.confirmAndSync({ jobId: preview.jobId, previewHash: preview.previewHash, confirmed: true }),
     ).rejects.toMatchObject({ code: 'SYNC_CONFLICT' });
   });
+
+  it('rejects the saved preview when the authoritative revision changed before confirmation', async () => {
+    const deps = mockDeps({ remoteRevision: 'rev-new' });
+    const wf = new KnowledgeWorkflows(deps);
+    const preview = await wf.prepare({ spaceId: 'space-1', sourcePaths: ['.'] });
+    await expect(
+      wf.confirmAndSync({ jobId: preview.jobId, previewHash: preview.previewHash, confirmed: true }),
+    ).rejects.toMatchObject({ code: 'PREVIEW_CHANGED' });
+    expect(deps.remote.push).not.toHaveBeenCalled();
+  });
 });
 
 describe('KnowledgeWorkflows.pull', () => {
   it('refreshes from the authoritative revision', async () => {
-    const deps = mockDeps();
+    const deps = mockDeps({ remoteRevision: 'rev-1' });
     const wf = new KnowledgeWorkflows(deps);
     const result = await wf.pull({ spaceId: 'space-1' });
     expect(result.revisionId).toBe('rev-1');
