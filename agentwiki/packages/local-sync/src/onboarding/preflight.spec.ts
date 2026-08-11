@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preflight } from './preflight.js';
@@ -51,11 +51,15 @@ describe('preflight', () => {
     expect(result.hasConflict).toBe(true);
   });
 
-  it('initializes a clean ~/.agentwiki layout', async () => {
+  it('does not archive or initialize local state before plan confirmation', async () => {
     const home = await freshHome();
+    const legacy = join(home, '.agentwiki', 'local-sync.json');
+    await mkdir(join(home, '.agentwiki'), { recursive: true });
+    await writeFile(legacy, '{"legacy":true}\n');
+
     await preflight('codex', home);
-    const { stat } = await import('node:fs/promises');
-    const s = await stat(join(home, '.agentwiki'));
-    expect(s.isDirectory()).toBe(true);
+
+    await expect(readFile(legacy, 'utf8')).resolves.toBe('{"legacy":true}\n');
+    await expect(access(join(home, '.agentwiki-archive'))).rejects.toThrow();
   });
 });
