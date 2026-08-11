@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createLocalSyncCommands, runCli, runDoctor, type CommandDependencies } from './cli.js';
-import { formatMcpOutput } from './mcp.js';
+import { runCli, runDoctor, CLI_USAGE } from './cli.js';
+import { createLocalSyncCommands, type CommandDependencies } from './mcp.js';
+import { formatMcpOutput } from './gateway/output.js';
 import { saveConfig, saveCredentials } from './config.js';
 
 const temporaryPaths: string[] = [];
@@ -82,35 +83,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.2.9' });
-  });
-
-  it('upgrades only the selected connection MCP command to an exact version', async () => {
-    const home = await temporaryDirectory('agentwiki-upgrade-');
-    const connection = {
-      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-      pluginVersion: '0.1.0', client: 'codex' as const, mcpName: 'agentwiki-local-test',
-    };
-    await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
-
-    const bin = join(home, 'bin');
-    const callsPath = join(home, 'calls.txt');
-    await mkdir(bin);
-    await writeFile(join(bin, 'codex'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${callsPath}'\n`);
-    await chmod(join(bin, 'codex'), 0o700);
-    const originalPath = process.env.PATH;
-    process.env.PATH = `${bin}:${originalPath ?? ''}`;
-    try {
-      await expect(runCli(['upgrade', '--version', '0.2.0'], home)).resolves.toMatchObject({ upgraded: true, version: '0.2.0' });
-    } finally {
-      process.env.PATH = originalPath;
-    }
-    await expect(readFile(callsPath, 'utf8')).resolves.toBe([
-      `mcp remove ${connection.mcpName}`,
-      `mcp add ${connection.mcpName} -- npx -y @neomei/agentwiki-local-sync@0.2.0 mcp --connection ${connection.id} --orchestrator`,
-      '',
-    ].join('\n'));
-    await expect(readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8')).resolves.toContain('"pluginVersion": "0.2.0"');
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.1' });
   });
 
   it('prepare returns a diff and saves an upload-free preview', async () => {
@@ -223,18 +196,83 @@ describe('local sync command orchestration', () => {
     expect(output).toContain('[REDACTED]');
   });
 
-  it('rejects a non-UUID preview ID before it can leave the previews directory', async () => {
-    const home = await temporaryDirectory('agentwiki-home-');
-    await saveCredentials(home, {
-      version: 1,
-      credentials: { escape: { apiKey: 'agk_should_not_be_read' } },
-    });
-
-    await expect(runCli(['preview', '--id', '../credentials'], home))
-      .rejects.toThrow('Preview ID must be a UUID');
+ 
+  it('exposes onboard and gateway in the CLI usage string', () => {
+    expect(CLI_USAGE).toContain('onboard');
+    expect(CLI_USAGE).toContain('gateway');
+    expect(CLI_USAGE).toContain('doctor');
+    expect(CLI_USAGE).toContain('uninstall');
   });
 
- it('doctor checks required tool availability without invoking remote model providers or scanning paths', async () => {
+  it('onboard returns structured action metadata', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    const onboard = vi.fn().mockResolvedValue({ sessionId: 'sess-1', report: { completed: true } });
+    try {
+      const result = await runCli(
+        ['onboard', '--server', 'https://example.test/api', '--protocol', 'ndjson'],
+        home,
+        { onboard },
+      );
+      expect(result).toEqual({ sessionId: 'sess-1', report: { completed: true } });
+      expect(onboard).toHaveBeenCalledWith({
+        home,
+        protocol: 'ndjson',
+        serverBaseUrl: 'https://example.test/api',
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('onboard defaults to the production server and ndjson protocol', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    const onboard = vi.fn().mockResolvedValue({ sessionId: 'sess-2', report: {} });
+    try {
+      await runCli(['onboard'], home, { onboard });
+      expect(onboard).toHaveBeenCalledWith({
+        home,
+        protocol: 'ndjson',
+        serverBaseUrl: 'https://agentwiki.quukk.com/api',
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('onboard resume executes the saved session', async () => {
+    const home = await temporaryDirectory('agentwiki-onboard-');
+    const onboard = vi.fn().mockResolvedValue({ sessionId: 'sess-123', report: {} });
+    try {
+      await runCli(['onboard', 'resume', '--id', 'sess-123'], home, { onboard });
+      expect(onboard).toHaveBeenCalledWith({
+        home,
+        protocol: 'ndjson',
+        serverBaseUrl: 'https://agentwiki.quukk.com/api',
+        sessionId: 'sess-123',
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['connect', 'mcp', 'start', 'work', 'preview', 'preview-job', 'push-job', 'pull', 'scan', 'sync', 'upgrade']) (
+    'rejects the retired public command %s',
+    async (command) => {
+      const home = await temporaryDirectory('agentwiki-retired-command-');
+      await expect(runCli([command], home, { onboard: vi.fn() })).rejects.toThrow(CLI_USAGE);
+    },
+  );
+
+  it('gateway requires --connection or a default', async () => {
+    const home = await temporaryDirectory('agentwiki-gateway-');
+    try {
+      await expect(runCli(['gateway'], home)).rejects.toThrow();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+it('doctor checks required tool availability without invoking remote model providers or scanning paths', async () => {
     const home = await temporaryDirectory('agentwiki-doctor-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',

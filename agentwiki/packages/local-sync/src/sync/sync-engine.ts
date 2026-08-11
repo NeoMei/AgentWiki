@@ -42,6 +42,7 @@ export interface PushResult {
   submitted: boolean;
   status: 'pending_review' | 'published' | 'noop' | 'existing';
   submissionId: string;
+  changeSetId: string | null;
   currentRevision: string;
 }
 
@@ -142,8 +143,8 @@ export class SyncEngine {
     }
     const manifest = await this.readManifest();
 
-    const idempotencyKey = `push-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const confirmationHash = await this.confirmationHash(bundle);
+    const idempotencyKey = `push-${confirmationHash}`;
 
     const result = await this.client.submitKnowledge(
       this.options.connection,
@@ -171,6 +172,7 @@ export class SyncEngine {
           submitted: true,
           status: 'pending_review',
           submissionId: result.submissionId,
+          changeSetId: result.changeSetId,
           currentRevision: result.currentRevision,
         };
       }
@@ -184,6 +186,7 @@ export class SyncEngine {
           submitted: true,
           status: final.status,
           submissionId: result.submissionId,
+          changeSetId: final.changeSetId ?? result.changeSetId,
           currentRevision: final.currentRevision,
         };
       }
@@ -198,6 +201,7 @@ export class SyncEngine {
       submitted: true,
       status: result.status,
       submissionId: result.submissionId,
+      changeSetId: result.changeSetId,
       currentRevision: result.currentRevision,
     };
   }

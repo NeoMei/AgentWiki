@@ -10,10 +10,6 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
 import {
-  detectClient,
-  installSkill,
-  packagedSkillSource,
-  registerMcp,
   removeMcp,
   type AgentClient,
   type CommandResult,
@@ -21,30 +17,34 @@ import {
 } from './agent-clients.js';
 import { AgentWikiClient, redactSecrets } from './agentwiki-client.js';
 import {
-  assertPreviewId,
-  claimPreview,
-  completePreview,
   loadConfig,
   loadCredentials,
-  releasePreview,
   saveConfig,
   saveCredentials,
-  savePreview,
   type LocalSyncConnection,
 } from './config.js';
-import { inspectLocalSource, prepareKnowledgeSync } from './local-knowledge.js';
-import {
-  createLocalSyncCommands,
-  serveLocalSyncMcp,
-  serveOrchestratorMcp,
-  type CommandDependencies,
-} from './mcp.js';
-import { createOrchestratorCommands, type OrchestratorCommands } from './orchestrator-commands.js';
-import { defaultRecipes } from './recipes.js';
+import { runGateway } from './gateway/entry.js';
 
-export { createLocalSyncCommands, formatMcpOutput, type CommandDependencies, type LocalSyncCommands } from './mcp.js';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--protocol ndjson|human] [--connection ID]';
+const DEFAULT_SERVER_BASE_URL = 'https://agentwiki.quukk.com/api';
+const PUBLIC_COMMANDS = new Set(['onboard', 'gateway', 'doctor', 'uninstall']);
 
-export const CLI_USAGE = 'Usage: agentwiki-local-sync <connect|doctor|inspect|scan|preview|sync|upgrade|uninstall|mcp|start|work|preview-job|push-job|pull>';
+export interface OnboardCliInput {
+  home: string;
+  protocol: 'ndjson' | 'human';
+  serverBaseUrl: string;
+  sessionId?: string;
+}
+
+export interface CliRuntime {
+  onboard(input: OnboardCliInput): Promise<unknown>;
+  gateway(input: { home: string; connectionId: string }): Promise<void>;
+}
+
+async function defaultOnboard(input: OnboardCliInput): Promise<unknown> {
+  const { runOnboarding } = await import('./onboarding/runtime.js');
+  return runOnboarding(input);
+}
 
 const PACKAGE_VERSION = (() => {
   try {
@@ -63,13 +63,18 @@ function runner(command: string, args: string[]): CommandResult {
   return spawnSync(command, args, { stdio: 'pipe' });
 }
 
-async function connectionDependencies(home: string, connectionId?: string): Promise<CommandDependencies> {
+interface ConnectionDependencies {
+  connection: LocalSyncConnection;
+  readApiKey: () => Promise<string>;
+  client: AgentWikiClient;
+}
+
+async function connectionDependencies(home: string, connectionId?: string): Promise<ConnectionDependencies> {
   const config = await loadConfig(home);
   const id = connectionId ?? config.defaultConnectionId;
   if (!id || !config.connections[id]) throw new Error('No local sync connection is configured');
   const connection = config.connections[id];
   return {
-    home,
     connection,
     readApiKey: async () => {
       const credentials = await loadCredentials(home);
@@ -78,13 +83,6 @@ async function connectionDependencies(home: string, connectionId?: string): Prom
       return credential.apiKey;
     },
     client: new AgentWikiClient(),
-    inspectLocalSource,
-    prepareKnowledgeSync,
-    savePreview,
-    claimPreview,
-    releasePreview,
-    completePreview,
-    now: () => new Date(),
   };
 }
 
@@ -98,49 +96,6 @@ function clientOption(value: string | undefined): AgentClient | 'auto' {
   if (value === undefined) return 'auto';
   if (value === 'auto' || value === 'codex' || value === 'claude' || value === 'opencode') return value;
   throw new Error('--agent must be auto, codex, claude, or opencode');
-}
-
-async function connect(home: string, values: Record<string, string | boolean | undefined>): Promise<unknown> {
-  const serverUrl = required(values, 'server');
-  const code = required(values, 'code');
-  const clientKind = detectClient(clientOption(typeof values.agent === 'string' ? values.agent : undefined), runner);
-  const client = new AgentWikiClient();
-  const connectionId = crypto.randomUUID();
-  const mcpName = `agentwiki-local-${connectionId.slice(0, 8)}`;
-  await installSkill(home, packagedSkillSource, clientKind);
-  await registerMcp(clientKind, mcpName, connectionId, PACKAGE_VERSION, runner, home);
-  let exchanged = false;
-  try {
-    const exchange = await client.exchange(serverUrl, code);
-    exchanged = true;
-    const connection: LocalSyncConnection = {
-      id: connectionId,
-      serverUrl: exchange.serverUrl,
-      agentId: exchange.agentId,
-      credentialId: exchange.credentialId,
-      pluginVersion: exchange.pluginVersion,
-      client: clientKind,
-      mcpName,
-    };
-    const config = await loadConfig(home);
-    config.connections[connectionId] = connection;
-    config.defaultConnectionId = connectionId;
-    const credentials = await loadCredentials(home);
-    credentials.credentials[exchange.credentialId] = { apiKey: exchange.apiKey };
-    await saveConfig(home, config);
-    await saveCredentials(home, credentials);
-    return { connected: connectionId, doctor: await createLocalSyncCommands(await connectionDependencies(home, connectionId)).status() };
-  } catch (error) {
-    if (!exchanged) await removeMcp(clientKind, mcpName, runner, home).catch(() => undefined);
-    if (exchanged) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `${redactSecrets(message)}\nRecovery: agentwiki-local-sync doctor --connection ${connectionId}`,
-        { cause: error },
-      );
-    }
-    throw error;
-  }
 }
 
 async function uninstall(home: string, values: Record<string, string | boolean | undefined>): Promise<unknown> {
@@ -160,42 +115,6 @@ async function uninstall(home: string, values: Record<string, string | boolean |
   }
   if (values['delete-sync-state'] === true) await rm(join(home, '.agentwiki', 'sync-state.json'), { force: true });
   return { removed: connections.map((connection) => connection.id), reminder: 'Server-side credential revocation remains authoritative.' };
-}
-
-function exactVersion(value: string): string {
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(value)) {
-    throw new Error('--version must be an exact package version');
-  }
-  return value;
-}
-
-async function upgrade(home: string, values: Record<string, string | boolean | undefined>): Promise<unknown> {
-  const version = exactVersion(required(values, 'version'));
-  const config = await loadConfig(home);
-  const connectionId = typeof values.connection === 'string' ? values.connection : config.defaultConnectionId;
-  if (!connectionId || !config.connections[connectionId]) throw new Error('No local sync connection is configured');
-
-  const connection = config.connections[connectionId];
-  if (connection.pluginVersion === version) return { upgraded: false, connectionId, version, message: 'Connection already uses this exact version.' };
-
-  await removeMcp(connection.client, connection.mcpName, runner, home);
-  try {
-    await registerMcp(connection.client, connection.mcpName, connection.id, version, runner, home);
-  } catch (error) {
-    await registerMcp(connection.client, connection.mcpName, connection.id, connection.pluginVersion, runner, home).catch(() => undefined);
-    throw error;
-  }
-  connection.pluginVersion = version;
-  await saveConfig(home, config);
-  return { upgraded: true, connectionId, version };
-}
-
-async function renderPreview(home: string, id: string): Promise<unknown> {
-  assertPreviewId(id);
-  const path = join(home, '.agentwiki', 'previews', `${id}.json`);
-  const preview = JSON.parse(await readFile(path, 'utf8')) as { expiresAt: string };
-  if (Date.parse(preview.expiresAt) <= Date.now()) throw new Error(`Preview ${id} was not found or expired`);
-  return preview;
 }
 
 export interface DoctorCheck {
@@ -331,94 +250,63 @@ export async function runDoctor(
   };
 }
 
-async function orchestratorCommands(home: string, connectionId?: string): Promise<OrchestratorCommands> {
-  const dependencies = await connectionDependencies(home, connectionId);
-  return createOrchestratorCommands({
-    home,
-    connection: dependencies.connection,
-    readApiKey: dependencies.readApiKey,
-    client: dependencies.client,
-    adapters: [],
-    recipes: defaultRecipes(),
-    now: () => new Date(),
-  });
-}
-
-export async function runCli(argv = process.argv.slice(2), home = homedir()): Promise<unknown> {
+export async function runCli(
+  argv = process.argv.slice(2),
+  home = homedir(),
+  runtime: Partial<CliRuntime> = {},
+): Promise<unknown> {
   const [command, ...args] = argv;
   if (command === '--help' || command === '-h') return CLI_USAGE;
   if (command === '--version' || command === '-v') return { version: PACKAGE_VERSION };
+  if (!command || !PUBLIC_COMMANDS.has(command)) throw new Error(CLI_USAGE);
 
-  const { values } = parseArgs({
+  const parsed = parseArgs({
     args,
     options: {
-      server: { type: 'string' }, code: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
-      path: { type: 'string' }, space: { type: 'string' }, 'allow-remote-model': { type: 'boolean', default: false },
-      recipe: { type: 'string' }, job: { type: 'string' }, orchestrator: { type: 'boolean', default: false },
-      id: { type: 'string' }, preview: { type: 'string' }, version: { type: 'string' }, confirm: { type: 'boolean', default: false },
+      server: { type: 'string' }, protocol: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
+      id: { type: 'string' },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
     strict: true,
+    allowPositionals: true,
   });
-  if (command === 'connect') return connect(home, values);
+  const { values } = parsed;
+  if (command === 'onboard') {
+    const positional = (parsed.positionals as string[] | undefined)?.[0];
+    if (positional && positional !== 'resume') throw new Error(CLI_USAGE);
+    const protocol = values.protocol ?? 'ndjson';
+    if (protocol !== 'ndjson' && protocol !== 'human') {
+      throw new Error('--protocol must be ndjson or human');
+    }
+    return (runtime.onboard ?? defaultOnboard)({
+      home,
+      protocol,
+      serverBaseUrl: typeof values.server === 'string' ? values.server : DEFAULT_SERVER_BASE_URL,
+      ...(positional === 'resume' ? { sessionId: required(values, 'id') } : {}),
+    });
+  }
+  if (command === 'gateway') {
+    const cfg = await loadConfig(home);
+    const connectionId = typeof values.connection === 'string' ? values.connection : cfg.defaultConnectionId;
+    if (!connectionId) throw new Error('gateway requires --connection <id> or a default connection');
+    await (runtime.gateway ?? runGateway)({ home, connectionId });
+    return undefined;
+  }
   if (command === 'uninstall') return uninstall(home, values);
-  if (command === 'preview') return renderPreview(home, required(values, 'id'));
 
   const dependencies = await connectionDependencies(home, typeof values.connection === 'string' ? values.connection : undefined);
-  const commands = createLocalSyncCommands(dependencies);
   if (command === 'doctor') return runDoctor(home, dependencies.connection, {
     client: dependencies.client,
     readApiKey: dependencies.readApiKey,
     run: runner,
   });
-  if (command === 'inspect') return commands.inspect({ path: required(values, 'path') });
-  if (command === 'scan') return commands.prepare({
-    path: required(values, 'path'), spaceId: required(values, 'space'),
-    allowRemoteModel: values['allow-remote-model'] === true,
-  });
-  if (command === 'sync') {
-    if (values.confirm !== true) throw new Error('Explicit user confirmation is required');
-    return commands.sync({ previewId: required(values, 'preview'), confirmed: true });
-  }
-  if (command === 'upgrade') return upgrade(home, values);
-  if (command === 'start') {
-    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
-    return commands.start({ spaceId: required(values, 'space'), recipeId: required(values, 'recipe'), sourcePaths: [required(values, 'path')] });
-  }
-  if (command === 'work') {
-    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
-    const item = await commands.next({ jobId: required(values, 'job') });
-    if (!item) return { done: true };
-    return item;
-  }
-  if (command === 'preview-job') {
-    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
-    return commands.preview({ jobId: required(values, 'job') });
-  }
-  if (command === 'push-job') {
-    if (values.confirm !== true) throw new Error('Explicit user confirmation is required');
-    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
-    return commands.confirmAndPush({ jobId: required(values, 'job'), confirmed: true });
-  }
-  if (command === 'pull') {
-    const commands = await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined);
-    return commands.pull({ spaceId: required(values, 'space') });
-  }
-  if (command === 'mcp') {
-    if (values.orchestrator === true) {
-      await serveOrchestratorMcp(await orchestratorCommands(home, typeof values.connection === 'string' ? values.connection : undefined));
-    } else {
-      await serveLocalSyncMcp(commands);
-    }
-    return undefined;
-  }
   throw new Error(CLI_USAGE);
 }
 
 async function main(): Promise<void> {
   try {
     const result = await runCli();
-    if (result !== undefined) process.stdout.write(`${formatOutput(result)}\n`);
+    if (result !== undefined && process.argv[2] !== 'onboard') process.stdout.write(`${formatOutput(result)}\n`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${formatOutput(message)}\n`);

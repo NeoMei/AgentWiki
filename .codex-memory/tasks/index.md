@@ -4,10 +4,11 @@
 
 ## 活跃任务
 
-- [agent-self-service-onboarding](active/agent-self-service-onboarding/brief.md)：网页 Device Auth、NDJSON 填空、单一 gateway MCP 与首次扫描同步（设计和实施计划已确认，待执行）。
+- 无。
 
 ## 最近完成
 
+- [agent-self-service-onboarding](archive/agent-self-service-onboarding/brief.md)：网页 Device Auth、NDJSON、单一 gateway MCP、首次扫描同步、npm 0.3.1 与生产三客户端/UI 验收（2026-08-11）。
 - [local-knowledge-sync](archive/local-knowledge-sync/brief.md)：零配置本地知识编排、真实代码扫描、双向同步、冲突与审批删除（2026-08-10）。
 - [space-add-agent-member](archive/space-add-agent-member/brief.md)：Space 统一添加用户/智能体成员及桌面/移动端浏览器验收（2026-08-10）。
 - [opencode-model-fallback](archive/opencode-model-fallback/brief.md)：服务端 OpenCode 免费优先、付费模型自动成本路由、共享熔断与成本记录（2026-08-06）。

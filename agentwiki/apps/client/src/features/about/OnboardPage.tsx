@@ -1,98 +1,109 @@
 import React, { useState } from 'react';
-import { Copy, Check, ExternalLink, Bot, UserPlus, Key, BookOpen, Send, Server, Terminal } from 'lucide-react';
+import { Check, CheckCircle2, Copy, ScanSearch, ShieldCheck, Terminal } from 'lucide-react';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
-const ONBOARD_JSON_URL = 'https://agentwiki.quukk.com/api/onboard.json';
-const PROMPT = `请访问 ${ONBOARD_JSON_URL} 获取 AgentWiki 结构化接入计划，然后按 steps 顺序执行。每一步中，把 save 声明的字段保存为变量，用于替换后续步骤 URL、headers、body 中的占位符（如 {{TOKEN}}）。若我没有提供邮箱、密码或昵称，请先问我。每一步执行前告知我你要做什么，执行后把关键结果告诉我。`;
+const ONBOARD_COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.1 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
 
 export const OnboardPage: React.FC = () => {
-  const { language, t } = useLanguage();
+  const { language } = useLanguage();
   const zh = language === 'zh-CN';
-  const [copiedUrl, setCopiedUrl] = useState(false);
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
-  const copy = async (text: string, setter: (v: boolean) => void) => {
-    await navigator.clipboard.writeText(text);
-    setter(true);
-    setTimeout(() => setter(false), 2000);
+  const copyCommand = async () => {
+    setCopyFailed(false);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(ONBOARD_COMMAND);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyFailed(true);
+    }
   };
 
+  const steps = zh ? [
+    ['在浏览器中登录或注册并授权', '命令会打开安全授权页；网页不会展示 Agent 密钥。'],
+    ['确认 Agent、Space、权限和本地扫描计划', '在本地 Agent 中按结构化提示填空确认，不必手写配置文件。'],
+    ['预览整理后的知识并确认同步', '原始代码和文档留在本机，只有你确认的知识内容会同步。'],
+  ] : [
+    ['Authorize in your browser', 'Sign in or register on the secure authorization page. Agent credentials are never displayed there.'],
+    ['Confirm the Agent, Space, permissions, and local scan plan', 'Answer the structured prompts in your local Agent without hand-writing configuration files.'],
+    ['Preview the organized knowledge and confirm sync', 'Raw code and documents stay local; only knowledge you approve is synchronized.'],
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 text-gray-900">
       <GlobalNavigation density="public" />
-      <div className="max-w-2xl mx-auto px-4 py-12 space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold">🚀 {t('onboard.title')}</h1>
-          <p className="text-gray-500">{t('onboard.subtitle')}</p>
-        </div>
+      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+        <header className="mx-auto max-w-2xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+            <ShieldCheck size={14} /> AgentWiki 0.3
+          </span>
+          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">
+            {zh ? '让本地 Agent 帮你完成接入' : 'Let your local Agent handle onboarding'}
+          </h1>
+          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-gray-600">
+            {zh
+              ? '只运行一条命令。Codex、Claude Code、OpenCode 只是示例，任何支持 MCP 的 Agent 都可以使用同一流程。'
+              : 'Run one command. Codex, Claude Code, and OpenCode are examples—the same flow works with any MCP-compatible Agent.'}
+          </p>
+        </header>
 
-        <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><Send size={20} className="text-blue-600" /> {zh ? '方式一：复制提示词（推荐）' : 'Method 1: Copy prompt (recommended)'}</h2>
-          <p className="text-sm text-gray-500">{zh ? '把下面这段话直接粘贴给你的本地 Agent，它会自动读取接入指令并逐步执行：' : 'Paste the following message directly to your local Agent. It will fetch the onboarding instructions and execute step by step:'}</p>
-          <div className="bg-gray-900 text-green-400 rounded-lg p-4 text-sm font-mono break-all relative">
-            {PROMPT}
-            <button onClick={() => copy(PROMPT, setCopiedPrompt)} className="absolute top-2 right-2 p-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300" title={zh ? '复制' : 'Copy'}>
-              {copiedPrompt ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
+        <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <Terminal size={18} className="text-blue-600" />
+            {zh ? '在本地终端运行' : 'Run in your local terminal'}
+          </div>
+          <div className="flex flex-col gap-3 rounded-xl bg-gray-950 p-4 sm:flex-row sm:items-center">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-sm text-green-300">{ONBOARD_COMMAND}</code>
+            <button
+              type="button"
+              onClick={copyCommand}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 hover:bg-gray-700"
+            >
+              {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
+              {copied ? (zh ? '已复制' : 'Copied') : (zh ? '复制' : 'Copy')}
             </button>
           </div>
-        </div>
+          <p className="mt-3 text-xs leading-5 text-gray-500">
+            {zh
+              ? '它会安装一个名为 agentwiki 的 Gateway MCP，统一处理远程 Wiki、本地扫描和知识同步。'
+              : 'It installs one Gateway MCP named agentwiki for remote Wiki actions, local scans, and knowledge sync.'}
+          </p>
+          {copyFailed ? (
+            <p role="alert" className="mt-2 text-xs leading-5 text-red-600">
+              {zh
+                ? '浏览器未允许复制，请选中上方命令后手动复制。'
+                : 'Clipboard access was blocked. Select the command above and copy it manually.'}
+            </p>
+          ) : null}
+        </section>
 
-        <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><ExternalLink size={20} className="text-blue-600" /> {zh ? '方式二：复制 API 指令链接' : 'Method 2: Copy API instruction link'}</h2>
-          <p className="text-sm text-gray-500">{zh ? '复制 API 端点链接，让 Agent 访问以获取原始接入指令：' : 'Copy the API endpoint link for your Agent to fetch raw instructions:'}</p>
-          <div className="flex items-center gap-2 bg-gray-50 border rounded-lg px-4 py-3">
-            <code className="flex-1 text-sm text-blue-600 break-all">{ONBOARD_JSON_URL}</code>
-            <button onClick={() => copy(ONBOARD_JSON_URL, setCopiedUrl)} className="p-2 rounded hover:bg-gray-200 shrink-0">
-              {copiedUrl ? <Check size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-400" />}
-            </button>
-          </div>
-        </div>
+        <section className="mt-6 grid gap-4 md:grid-cols-3">
+          {steps.map(([title, description], index) => (
+            <article key={title} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">{index + 1}</div>
+              <h2 className="font-semibold leading-6">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-500">{description}</p>
+            </article>
+          ))}
+        </section>
 
-        <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold">{t('onboard.stepsTitle')}</h2>
-          <div className="space-y-3">
-            {[
-              { icon: <UserPlus size={18} />, label: zh ? '注册 AgentWiki 账号' : 'Register AgentWiki account', desc: zh ? 'Agent 会引导你设置邮箱和密码' : 'Agent will guide you to set email and password' },
-              { icon: <BookOpen size={18} />, label: zh ? '创建知识空间' : 'Create knowledge space', desc: zh ? '为你的 Agent 创建专属知识库' : 'Create a dedicated knowledge base for your Agent' },
-              { icon: <Bot size={18} />, label: zh ? '注册 Agent 身份' : 'Register Agent identity', desc: zh ? '在 AgentWiki 上创建 Agent 并获取凭据' : 'Create an Agent on AgentWiki and obtain credentials' },
-              { icon: <Key size={18} />, label: zh ? '生成 API Key' : 'Generate API Key', desc: zh ? 'Agent 获得独立的 API 密钥（agk_...）' : 'Agent gets an independent API key (agk_...)' },
-              { icon: <Send size={18} />, label: zh ? '验证并开始使用' : 'Verify and start using', desc: zh ? 'Agent 创建第一个页面，确认一切正常' : 'Agent creates the first page to confirm everything works' },
-            ].map((step, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">{step.icon}</div>
-                <div>
-                  <div className="text-sm font-medium">{i + 1}. {step.label}</div>
-                  <div className="text-xs text-gray-400">{step.desc}</div>
-                </div>
-              </div>
-            ))}
+        <section className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-5 sm:flex sm:items-start sm:gap-4">
+          <ScanSearch className="mb-3 shrink-0 text-blue-600 sm:mb-0" size={24} />
+          <div>
+            <h2 className="font-semibold text-blue-950">{zh ? '三次确认，其余自动完成' : 'Three confirmations; everything else is automatic'}</h2>
+            <p className="mt-1 text-sm leading-6 text-blue-800">
+              {zh
+                ? '安装连接、创建独立 Agent、配置 MCP、首次扫描与同步由本地流程串联完成；同一账号以后仍可再次运行，为另一个本地 Agent 建立独立接入。'
+                : 'The local flow connects the account, creates an independent Agent, configures MCP, and runs the first scan and sync. Run it again later to connect another independent Agent under the same account.'}
+            </p>
+            <div className="mt-3 flex items-center gap-2 text-xs font-medium text-blue-700"><CheckCircle2 size={15} /> {zh ? '原始资料不上传' : 'Raw files never upload'}</div>
           </div>
-        </div>
-
-        <div className="bg-white border rounded-xl p-6 space-y-4">
-          <h2 className="text-lg font-semibold">{zh ? '两种 MCP 接入方式' : 'Two MCP modes'}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="border rounded-lg p-4 space-y-2">
-              <div className="flex items-center gap-2 text-blue-600 font-medium"><Server size={18} /> {zh ? '方式 A：直接远程 MCP' : 'Mode A: Direct remote MCP'}</div>
-              <p className="text-xs text-gray-500">{zh ? '由 AgentWiki 服务端直接暴露。适合直接查询/创建页面、图谱、来源、审核。' : 'Exposed by the AgentWiki server. Use for directly querying/creating pages, graph, sources, and reviews.'}</p>
-              <p className="text-xs text-gray-400">{zh ? '工具：list_spaces, list_pages, get_page, search_pages, propose_page, list_graph, propose_relation, list_sources, get_knowledge_sync_state, start_source_run, recall_memory, list_reviews, approve_change_set' : 'Tools: list_spaces, list_pages, get_page, search_pages, propose_page, list_graph, propose_relation, list_sources, get_knowledge_sync_state, start_source_run, recall_memory, list_reviews, approve_change_set'}</p>
-            </div>
-            <div className="border rounded-lg p-4 space-y-2">
-              <div className="flex items-center gap-2 text-green-600 font-medium"><Terminal size={18} /> {zh ? '方式 B：本地同步 MCP' : 'Mode B: Local sync MCP'}</div>
-              <p className="text-xs text-gray-500">{zh ? '由本地 @neomei/agentwiki-local-sync 包暴露。适合扫描本地代码/文档，整理成知识库后同步到 AgentWiki。' : 'Exposed by the local @neomei/agentwiki-local-sync package. Use for scanning local code/documents, organizing, and syncing to AgentWiki.'}</p>
-              <p className="text-xs text-gray-400">{zh ? '工具：start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict' : 'Tools: start_knowledge_job, get_next_work_item, read_artifacts, submit_organized_item, validate_knowledge_job, preview_knowledge_job, confirm_and_push, pull_space, resolve_conflict'}</p>
-            </div>
-          </div>
-          <div className="text-xs text-gray-500 bg-yellow-50 border border-yellow-100 rounded-lg p-3">
-            {zh ? '注意：不要把两套工具混用。直接远程 MCP 不能执行本地扫描/整理工作流；本地同步 MCP 不能替代 AgentWiki 服务端 MCP。' : 'Note: do not mix the two tool sets. The direct remote MCP cannot run local scan/organize workflows; the local sync MCP cannot replace the AgentWiki server MCP.'}
-          </div>
-        </div>
-
-        <div className="text-center text-sm text-gray-400">
-          {zh ? '支持两种 MCP 接入方式：直接远程 AgentWiki MCP 或本地 agentwiki-local-sync MCP' : 'Supports two MCP modes: direct remote AgentWiki MCP or local agentwiki-local-sync MCP'}
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 };

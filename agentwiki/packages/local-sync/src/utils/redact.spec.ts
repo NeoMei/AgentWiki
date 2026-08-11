@@ -40,3 +40,29 @@ describe('redact', () => {
     expect(isUploadable('review-required')).toBe(true);
   });
 });
+
+describe('onboarding token redaction', () => {
+  it('redacts onboarding device codes (awd_)', () => {
+    const result = redactSecrets('device code is awd_abcdefghijklmnopqrstuvwxyz12345');
+    expect(result.hasSecret).toBe(true);
+    expect(result.text).not.toContain('awd_abcdefghijklmnopqrstuvwxyz12345');
+    expect(result.text).toContain('[REDACTED:onboarding-device-code]');
+  });
+
+  it('redacts onboarding tokens (awo_)', () => {
+    const result = redactSecrets('token awo_abcdefghijklmnopqrstuvwxyz12345 leaked');
+    expect(result.hasSecret).toBe(true);
+    expect(result.text).toContain('[REDACTED:onboarding-token]');
+  });
+
+  it('redacts onboarding user codes (awu_)', () => {
+    const result = redactSecrets('awu_abcdefghijklmnopqrstuvwxyz12345');
+    expect(result.hasSecret).toBe(true);
+    expect(result.text).toContain('[REDACTED:onboarding-user-code]');
+  });
+
+  it('does not redact short lookalikes', () => {
+    const result = redactSecrets('awd_short');
+    expect(result.hasSecret).toBe(false);
+  });
+});

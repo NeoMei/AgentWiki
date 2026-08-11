@@ -37,6 +37,26 @@ export class LocalSyncInstallationService {
     private readonly audit: AuditService,
   ) {}
 
+  issueForBootstrap(input: {
+    ownerId: string;
+    agentId: string;
+    scopes: string[];
+    pluginVersion: string;
+    serverUrl: string;
+  }) {
+    return this.create(
+      input.ownerId,
+      input.agentId,
+      input.scopes,
+      input.pluginVersion,
+      input.serverUrl,
+    );
+  }
+
+  revokeCurrentCredential(ownerId: string, agentId: string, credentialId: string) {
+    return this.agents.revokeCredential(ownerId, agentId, credentialId);
+  }
+
   async create(
     ownerId: string,
     agentId: string,

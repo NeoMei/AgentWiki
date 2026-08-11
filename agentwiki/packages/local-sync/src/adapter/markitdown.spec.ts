@@ -50,6 +50,7 @@ describe('MarkitdownAdapter', () => {
     expect(descriptor.adapterId).toBe('markitdown');
     expect(descriptor.kind).toBe('documents');
     expect(descriptor.estimatedArtifacts).toBe(2);
+    expect(descriptor.metadata).toMatchObject({ requiresManagedRuntime: false });
   });
 
   it('collect converts markdown and text files', async () => {
@@ -81,6 +82,9 @@ describe('MarkitdownAdapter', () => {
       spaceId: 'space-1',
       jobId: 'job-1',
     });
+
+    expect((await adapter.inspect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' })).metadata)
+      .toMatchObject({ requiresManagedRuntime: true });
 
     assertArtifactBatch(batch);
     expect(batch.artifacts.length).toBe(1);

@@ -28,6 +28,7 @@ model User {
   requestedRuns     IngestRun[]
   createdChangeSets ChangeSet[]
   approvals         Approval[]
+  onboardingSessions OnboardingDeviceSession[]
   lockedAt           DateTime?
   mustChangePassword Boolean          @default(false)
   authVersion        Int              @default(0)
@@ -616,4 +617,50 @@ model SpaceKnowledgeRevision {
   @@unique([spaceId, sequence])
   @@unique([spaceId, contentHash])
   @@index([spaceId, createdAt])
+}
+
+model OnboardingDeviceSession {
+  id                    String               @id @default(cuid())
+  deviceCodeHash        String               @unique
+  userCodeHash          String               @unique
+  packageVersion        String
+  clientType            String
+  purpose               String
+  requestedCapabilities String[]
+  status                String               @default("pending")
+  pollIntervalSeconds   Int                  @default(5)
+  pollCount             Int                  @default(0)
+  lastPolledAt          DateTime?
+  authorizedUserId      String?
+  authorizedUser        User?                @relation(fields: [authorizedUserId], references: [id], onDelete: SetNull)
+  approvedAt            DateTime?
+  deniedAt              DateTime?
+  expiresAt             DateTime
+  onboardingTokenHash   String?              @unique
+  tokenExpiresAt        DateTime?
+  tokenConsumedAt       DateTime?
+  bootstrap             OnboardingBootstrap?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([authorizedUserId, createdAt])
+}
+
+model OnboardingBootstrap {
+  id                 String                  @id @default(cuid())
+  deviceSessionId    String                  @unique
+  deviceSession      OnboardingDeviceSession @relation(fields: [deviceSessionId], references: [id], onDelete: Cascade)
+  idempotencyKeyHash String
+  serverPlanHash     String
+  status             String                  @default("running")
+  executionId        String?
+  generation         Int                     @default(0)
+  leaseExpiresAt     DateTime?
+  resourceIds        Json?
+  resultHash         String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@unique([deviceSessionId, idempotencyKeyHash])
 }

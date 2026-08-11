@@ -1,0 +1,58 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { createSessionStore } from '../onboarding/session.js';
+import { readOnboardingStatus, readPreviewArtifactSummaries } from './status.js';
+
+const homes: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+});
+
+describe('readPreviewArtifactSummaries', () => {
+  it('returns bounded metadata without exposing page bodies', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aw-artifact-status-'));
+    homes.push(home);
+    const root = join(home, '.agentwiki', 'runtime', 'previews');
+    await mkdir(root, { recursive: true });
+    await writeFile(join(root, '11111111-1111-4111-8111-111111111111.json'), JSON.stringify({
+      hash: 'preview-hash',
+      data: {
+        schemaVersion: 'knowledge-bundle@1', recipeVersion: 'unified-knowledge@1', spaceId: 'space-1', baseRevision: '0',
+        pages: [{ pageId: 'page-1', title: 'Overview', path: 'overview.md', contentHash: 'hash-1', body: 'private body' }],
+        memories: [], relations: [], provenance: [], deletions: [],
+      },
+    }));
+
+    const result = await readPreviewArtifactSummaries(home, '11111111-1111-4111-8111-111111111111');
+
+    expect(result).toEqual([{ kind: 'page', id: 'page-1', title: 'Overview', path: 'overview.md', contentHash: 'hash-1' }]);
+    expect(JSON.stringify(result)).not.toContain('private body');
+  });
+});
+
+describe('readOnboardingStatus', () => {
+  it('returns the persisted non-secret completion report for the requested session', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aw-status-'));
+    homes.push(home);
+    const store = createSessionStore('session-1', home);
+    await store.save({
+      sessionId: 'session-1', state: 'completed', protocolVersion: 1, serverUrl: 'https://wiki.test/api', clientType: 'codex',
+      createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      inputs: { connectionId: 'connection-1', manifestHash: 'manifest-hash', configBackupPath: '/tmp/backup', reloadRequired: false },
+      bootstrapResult: {
+        space: { id: 'space-1', name: 'Space' }, agent: { id: 'agent-1', name: 'Agent' },
+        revisionId: 'rev-1', status: 'published', submissionId: 'sub-1',
+      },
+    });
+    await store.saveSecret('awo_must_not_leak');
+
+    const report = await readOnboardingStatus(home, 'session-1');
+
+    expect(report).toMatchObject({ sessionId: 'session-1', state: 'completed', revisionId: 'rev-1', connectionId: 'connection-1' });
+    expect(JSON.stringify(report)).not.toContain('awo_must_not_leak');
+  });
+});

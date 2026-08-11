@@ -14,10 +14,15 @@ export interface BusinessErrorPayload {
  */
 const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = {
   AUTH_INVALID_CREDENTIALS: { status: HttpStatus.UNAUTHORIZED, message: 'Invalid credentials' },
+  AUTH_DENIED: { status: HttpStatus.FORBIDDEN, message: 'Authorization was denied' },
+  AUTH_EXPIRED: { status: HttpStatus.UNAUTHORIZED, message: 'Authorization has expired' },
   AUTH_RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many requests' },
   AUTH_SCOPE_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Required scope is missing' },
   LOCAL_SYNC_CODE_INVALID: { status: HttpStatus.UNAUTHORIZED, message: 'Local sync installation code is invalid or expired' },
   LOCAL_SYNC_VERSION_UNSUPPORTED: { status: HttpStatus.CONFLICT, message: 'Local sync plugin version is unsupported' },
+  ONBOARDING_IDEMPOTENCY_KEY_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Idempotency-Key is missing or invalid' },
+  ONBOARDING_PLAN_HASH_MISMATCH: { status: HttpStatus.BAD_REQUEST, message: 'Onboarding server plan does not match the authorized session' },
+  ONBOARDING_REPLAY_MISMATCH: { status: HttpStatus.CONFLICT, message: 'Onboarding replay does not match the original request' },
   SPACE_ACCESS_DENIED: { status: HttpStatus.FORBIDDEN, message: 'Space access denied' },
   SPACE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Space not found' },
   RESOURCE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Resource not found' },

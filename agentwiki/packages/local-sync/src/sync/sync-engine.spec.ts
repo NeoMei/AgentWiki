@@ -70,7 +70,7 @@ function makeClient(): {
   const client = new AgentWikiClient(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     const method = init?.method ?? 'GET';
-    calls.push({ method, args: [url] });
+    calls.push({ method, args: [url, init] });
     if (url.includes('/knowledge-revisions/current') && !url.includes('/snapshot') && !url.includes('/delta')) {
       return new Response(JSON.stringify(head), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -162,6 +162,22 @@ describe('SyncEngine', () => {
     expect(result.currentRevision).toBe('rev-2');
   });
 
+  it('uses a deterministic idempotency key when the same confirmed bundle is retried', async () => {
+    const { client, calls } = makeClient();
+    const bundle = makeBundle();
+    const first = new SyncEngine({ connection, apiKey: 'agk_test', client, home: join(tempHome, 'first'), spaceId: 'space-1' });
+    const second = new SyncEngine({ connection, apiKey: 'agk_test', client, home: join(tempHome, 'second'), spaceId: 'space-1' });
+
+    await first.push(bundle);
+    await second.push(bundle);
+
+    const keys = calls
+      .filter((call) => call.method === 'POST' && (call.args[0] as string).includes('/knowledge-submissions'))
+      .map((call) => JSON.parse(((call.args[1] as RequestInit).body as string)).idempotencyKey as string);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
   it('uses delta when base revision exists and server returns bundle-shaped delta', async () => {
     const { client, setHead, setSnapshot, calls } = makeClient();
     const engine = new SyncEngine({ connection, apiKey: 'agk_test', client, home: tempHome, spaceId: 'space-1' });
@@ -195,6 +211,7 @@ describe('SyncEngine', () => {
     }, 50);
     const result = await pendingPromise;
     expect(result.status).toBe('published');
+    expect(result.changeSetId).toBe('cs-1');
     expect(result.currentRevision).toBe('rev-2');
   });
 
