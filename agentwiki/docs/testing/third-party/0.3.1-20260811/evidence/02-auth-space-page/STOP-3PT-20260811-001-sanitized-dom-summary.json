@@ -1,0 +1,25 @@
+{
+  "stop_id": "STOP-3PT-20260811-001",
+  "timestamp": "2026-08-11T14:39:49.706Z",
+  "environment": "production",
+  "role": "Admin D (dedicated test super_admin)",
+  "last_action": "UI login followed by automatic Dashboard render",
+  "observed_space_link_count": 40,
+  "non_3pt_space_link_count": 40,
+  "non_3pt_reference_hashes": [
+    "ad35345c4b61",
+    "fca4ddea052d",
+    "cf65efdce1a5",
+    "061f23b699b8",
+    "df42c27f3551",
+    "5d67ac38fbfc",
+    "0cc3bba7114b",
+    "6e1e30c9e6d4",
+    "b2781483bdea",
+    "8f913891b8d5"
+  ],
+  "write_actions_after_discovery": 0,
+  "titles_and_descriptions_recorded": false,
+  "observed_distinct_space_count": 20,
+  "non_3pt_distinct_space_count": 20
+}
