@@ -109,13 +109,14 @@
       ]
     },
     "deviceRequests": {
-      "count": 5,
+      "count": 6,
       "handles": [
         "sha256-12:a6718d98bd43",
         "sha256-12:d0d47773ff6c",
         "sha256-12:9f678f3065c8",
         "sha256-12:3c0ed59ce2de",
-        "sha256-12:8c1dd5ec4af9"
+        "sha256-12:8c1dd5ec4af9",
+        "sha256-12:2ddd6ca8a3de"
       ]
     },
     "grantBindings": {

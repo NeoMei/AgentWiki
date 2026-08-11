@@ -1,91 +1,95 @@
-# Task 6 Report: One-time local-sync installation codes
+# Task 6 Report — Three-client onboarding and local knowledge synchronization
 
 ## Status
 
-DONE
+DONE — execution completed with an overall **FAIL** outcome. Spec section 16.8 triggered at SYNC-006, so further production write testing remains stopped pending owner-authorized cleanup remediation.
 
-## Commit
+## Scope and window
 
-- `fd86829` — `feat: add one-time local sync enrollment`
+- Production: `https://agentwiki.quukk.com`
+- Package: `@neomei/agentwiki-local-sync@0.3.1`
+- Cases: ONBOARD-001..007 and SYNC-001..006
+- Production writes were limited to User A and `3PT-20260811-CODEX-*` resources in the existing test Space.
+- No SSH or database operation was used.
 
-## Delivered
+## Case totals
 
-- Added strict Redis security-state operations: `setOnce`, `getDel`, `getStrict`, and `deleteStrict`; these surface Redis failures instead of using permissive cache fallbacks.
-- Added validated installation creation/exchange DTOs and stable business mappings:
-  - `LOCAL_SYNC_CODE_INVALID` → 401
-  - `LOCAL_SYNC_VERSION_UNSUPPORTED` → 409
-  - `SYNC_CONFIRMATION_REQUIRED` → 400
-- Extracted `AgentService.normalizeCredentialScopes` and reused it for ordinary credentials and local-sync installations.
-- Added `LocalSyncInstallationService` with:
-  - 144-bit random visible codes prefixed with `AW-`.
-  - SHA-256 installation IDs and hash-keyed Redis state only.
-  - 600-second TTL, atomic `GETDEL` exchange, and three-attempt collision handling.
-  - Exact `LOCAL_SYNC_PACKAGE_VERSION` enforcement.
-  - Active-Agent and owner checks before issuance and again before credential creation.
-  - Scope validation before any Redis write and before credential creation.
-  - Per-IP fixed-window exchange limiting at 10 attempts per minute, failing closed if rate-limit state is unavailable.
-  - Audit metadata containing the Credential ID but never the API key or visible installation code.
-  - Pinned `npx @agentwiki/local-sync@<version> connect` instructions that request doctor output and state that installation does not scan or sync.
-- Added revocation ownership binding: the stored immutable payload must match the authenticated owner and route Agent before strict deletion.
-- Added a separate controller so creation/revocation use `JwtAuthGuard` + `HumanOnlyGuard`, while exchange remains a public one-time-code route.
-- Restricted request-derived API origins to development only. Configured and derived URLs must be absolute HTTP(S) URLs without embedded credentials and have trailing slashes normalized.
-- Registered the controller/service and documented `PUBLIC_API_URL` and `LOCAL_SYNC_PACKAGE_VERSION`.
-- Updated the existing knowledge-sync HTTP expectation for the planned 400 confirmation-required response.
+- Total: 13
+- PASS: 5
+- FAIL: 8
+- BLOCKED: 0
+- P0: 4 PASS / 7 FAIL
+- P1: 1 PASS / 1 FAIL
 
-## TDD Evidence
+Passed: ONBOARD-002, ONBOARD-005, SYNC-002, SYNC-003, SYNC-005.
 
-- Redis tests first failed because `setOnce`, `getDel`, `getStrict`, and `deleteStrict` did not exist, then passed after implementation.
-- DTO/business-code tests first failed because the DTO module did not exist, then passed after implementation.
-- Installation service tests first failed because the service did not exist; the completed suite covers hash-only storage, TTL, collisions, invalid scopes, ownership-bound revocation, one-time/concurrent exchange, expiration/reuse, version mismatch, paused/revoked Agents, rate limiting, and secret-safe audit metadata.
-- Agent scope tests first failed because the public shared normalizer did not exist, then passed after extraction.
-- Controller tests first failed because the controller did not exist; the completed suite covers guard separation, canonical configured URL, development fallback, staging/production/unset fail-closed behavior, invalid URL rejection, and request IP forwarding.
+Failed: ONBOARD-001, ONBOARD-003, ONBOARD-004, ONBOARD-006, ONBOARD-007, SYNC-001, SYNC-004, SYNC-006.
 
-## Verification
+## Task 6 defect totals and stop condition
 
-All final gates ran with Node.js `v26.5.0`:
+- S0: 0
+- S1: 0
+- S2: 6 — non-canonical device URL; invalid Codex/Claude MCP registrations; incomplete preview totals; omitted deletion; fake-marker handling; uninstall/cleanup stop.
+- S3: 1 — NDJSON onboarding processes remained open after terminal events.
+- S4: 0
+- Stop: `STOP-3PT-20260812-002` — all three normal uninstall paths left the isolated test gateway in configuration; no further production write test is authorized.
 
-- Full server Jest: 32 suites, 228 tests passed.
-- Server TypeScript typecheck: passed.
-- Server ESLint: passed with 0 errors and 0 warnings.
-- Nest production build: passed.
-- `git diff --check`: passed.
-- Independent code review after fixes: no Critical or Important findings; Ready = Yes.
+The earlier Task 4 S1 stop remains separately recorded and is outside these Task 6 defect totals. Downgrading the isolated, unconfirmed fake-marker finding to S2 does not change SYNC-004 or the final release result: both remain **FAIL**.
 
-## Concerns
+No uncontrolled duplication, silent overwrite, non-3PT write, or production health regression was observed.
 
-None.
+## Three-client onboarding result
 
-## Review Fixes (2026-07-29)
+- Codex, Claude Code, and OpenCode each completed Device Auth and created exactly one prefixed Agent, credential, grant binding, and local connection in its own isolated home.
+- The primary Codex flow was interrupted and resumed before plan confirmation and before sync confirmation; exactly one Codex Agent remained.
+- Denied and naturally expired requests created no Agent. Re-polling the consumed request returned `authorization_consumed` and no credential.
+- All three generated authorization URLs used a non-canonical, non-HTTPS origin and required replacing only the origin with the public HTTPS production origin.
+- OpenCode passed all nine doctor checks. Codex and Claude Code failed only `mcp-registration`; their generated entries were present but not accepted by the clients.
 
-- Fixed exchange audit-failure cleanup: if `local-sync.installation.exchange` audit persistence fails after a credential is created, the service revokes that credential before rethrowing the audit error. This prevents an active credential whose API key was never returned to the caller.
-- Hardened generated connect instructions: the normalized server URL is now parsed and restricted to HTTP(S), credential-free URLs with shell-safe hostname, port, and path characters; query strings and fragments are rejected. Unsafe URLs fail with `LOCAL_SYNC_VERSION_UNSUPPORTED` and `Server URL contains unsafe characters` before Redis state is written.
-- Added regression tests for both audit-failure credential revocation and shell-metacharacter URL rejection.
+## Synchronization result
 
-Verification (local runtime Node.js `v24.18.0`, package declares Node.js `>=26 <27`, so pnpm emitted its expected engine warning):
+- SYNC-001 created and updated the expected synthetic pages, but deletion of `obsolete.md` was absent from both the preview contract and the resulting ChangeSet.
+- The second environment pulled the same authoritative Revision as the first.
+- A stale second-environment push was rejected with an explicit authoritative-revision-changed response. Pull, explicit merge, and repush preserved both branches, and observed Revision values advanced consecutively.
+- Two unchanged syncs returned `noop`, retained the same Revision, and created no ChangeSet.
+- The fake-marker preview was isolated and unconfirmed. It created no remote ChangeSet or page and was removed before subsequent synchronization.
 
-- `pnpm --filter @agentwiki/server exec jest src/core/agent/local-sync-installation.service.spec.ts src/core/agent/agent.service.spec.ts src/database/redis.service.spec.ts --runInBand` — 3 suites / 46 tests passed.
-- `pnpm --filter @agentwiki/server typecheck` — passed.
-- `git diff --check` — passed.
+## Resource inventory
 
-## Review Fixes (credential audit compensation, 2026-07-29)
+Sanitized individual handles are in `evidence/04-onboarding-sync/TASK6-resource-inventory.json`:
 
-- Moved local-sync credential creation inside the exchange compensation boundary.
-- If credential creation throws after persisting its row (for example, its internal audit fails), the service lists active credentials, revokes the newest one only when it was created within the prior 30 seconds, and then rethrows the original error.
-- Added regression coverage for this internal-audit-failure cleanup path.
+- 6 Device Request handles, including the separate consumed-request handle retained by ONBOARD-006 evidence
+- 3 Agents
+- 3 credential records
+- 3 Agent-to-Space grant bindings
+- 3 local connections
+- 11 local jobs and 11 previews
+- 7 submissions and 7 ChangeSets
+- 4 pages and 3 recorded page versions
+- 5 authoritative Revisions
+- 0 Sources and 0 Runs created by Task 6
 
-Verification (local runtime Node.js `v24.18.0`; package declares Node.js `>=26 <27`, resulting in the expected pnpm engine warning):
+Raw identifiers and credentials are not present in tracked artifacts.
 
-- `pnpm --filter @agentwiki/server exec jest src/core/agent/local-sync-installation.service.spec.ts --runInBand` — 1 suite / 20 tests passed.
-- `pnpm --filter @agentwiki/server typecheck` — passed.
+## Configuration and uninstall result
 
-## Review Fixes (credential audit resilience, 2026-07-29)
+- Before onboarding, each isolated config contained one synthetic unrelated MCP entry and no `agentwiki` entry.
+- After onboarding, each contained exactly one unrelated entry and one `agentwiki` entry.
+- Product uninstall result:
+  - Codex: non-zero exit; gateway and connection remain.
+  - Claude Code: non-zero exit; gateway and connection remain.
+  - OpenCode: zero exit and connection removed, but the gateway entry remains orphaned.
+- All unrelated entries remain present. No daily client configuration was read or modified.
+- The isolated root remains retained for Task 8 remediation and verification.
 
-- Made `AgentService.createCredential` preserve and return a successfully persisted credential when its own audit write fails, while emitting a warning.
-- Removed the concurrency-unsafe newest-credential/time-window compensation from local-sync exchange.
-- Exchange audit failures still revoke the credential that was returned by `createCredential`; pre-persistence credential creation failures revoke nothing.
+## Evidence and safety validation
 
-Verification (local runtime Node.js `v24.18.0`; package declares Node.js `>=26 <27`, resulting in the expected pnpm engine warning):
+- Four retained PNGs were visually inspected: correct client/version or denial state; no email, credential, code, or raw resource ID visible.
+- Structured evidence stores only counts, statuses, booleans, safe names, and SHA-256 handles.
+- Records-only remediation does not access production or isolated temporary homes.
+- JSON validation, evidence-reference checks, focused secret/raw-ID scans, and `git diff --check` are required before the remediation commit.
 
-- `pnpm --filter @agentwiki/server exec jest src/core/agent/local-sync-installation.service.spec.ts src/core/agent/agent.service.spec.ts --runInBand` — 2 suites / 25 tests passed.
-- `pnpm --filter @agentwiki/server typecheck` — passed.
-- `git diff --check` — passed.
+## Commits
+
+- Task 6 execution records: `7241aa7` — `test: record three-client onboarding and sync acceptance`
+- Records-only independent-review remediation: this remediation commit.

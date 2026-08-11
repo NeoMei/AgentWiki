@@ -16,7 +16,7 @@
 - Actual result: Codex, Claude Code, and OpenCode all received the same non-HTTPS, non-canonical origin; Chrome returned a client-side block. Replacing only the origin with the canonical production origin allowed the same request to be approved.
 - Reproduction rate: 3/3.
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-001-verification-url-summary.json`; `evidence/04-onboarding-sync/ONBOARD-001-codex-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-claude-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-opencode-authorization.png`
-- Affected 3PT resources: Five terminal Device Requests listed by sanitized handle in `TASK6-resource-inventory.json`.
+- Affected 3PT resources: Six sanitized Device Request handles, including the separate consumed-request handle retained by ONBOARD-006 evidence, are listed in `TASK6-resource-inventory.json`.
 - Containment action: Used the canonical production origin while retaining the generated user-code query only in secure process memory; no non-3PT resource was accessed.
 - Retest result: FAIL
 - Cleanup state: NOT_REQUIRED for terminal Device Requests.
@@ -81,7 +81,7 @@
 ### DEF-3PT-20260812-005 — Synthetic credential marker is processed without warning or redaction
 
 - Defect ID: `DEF-3PT-20260812-005`
-- Severity: S1
+- Severity: S2
 - Title: Local preparation accepts and persists a fake-token fixture instead of flagging, skipping, or redacting it
 - Case ID: SYNC-004
 - Discovery time: 2026-08-12T01:06:22+08:00
