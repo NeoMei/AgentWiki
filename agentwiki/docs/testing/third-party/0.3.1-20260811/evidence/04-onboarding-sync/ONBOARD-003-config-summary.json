@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "stage": "after-onboarding-before-uninstall",
+  "clients": {
+    "codex": {
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "unrelatedEntryPresent": true,
+      "pinnedVersionPresent": true,
+      "doctorAllChecksPass": false,
+      "failedDoctorChecks": [
+        "mcp-registration"
+      ],
+      "configMode": "0o600"
+    },
+    "claude": {
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "unrelatedEntryPresent": true,
+      "pinnedVersionPresent": true,
+      "doctorAllChecksPass": false,
+      "failedDoctorChecks": [
+        "mcp-registration"
+      ],
+      "configMode": "0o600"
+    },
+    "opencode": {
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "unrelatedEntryPresent": true,
+      "pinnedVersionPresent": true,
+      "doctorAllChecksPass": true,
+      "failedDoctorChecks": [],
+      "configMode": "0o600"
+    }
+  },
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

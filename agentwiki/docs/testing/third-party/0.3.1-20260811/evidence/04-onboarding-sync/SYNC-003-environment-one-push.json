@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "action": "prepare-confirm",
+  "label": "SYNC-003-environment-one-push",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "prepare": {
+    "jobHandle": "sha256-12:137fa24f9a1b",
+    "previewHandle": "sha256-12:14c9ded18606",
+    "summary": {
+      "filesProcessed": 3,
+      "filesSkipped": 0
+    },
+    "keys": [
+      "jobId",
+      "previewHash",
+      "summary",
+      "warnings"
+    ]
+  },
+  "confirm": {
+    "status": "pending_review",
+    "revisionHandle": "sha256-12:44d6eb366fd4",
+    "changeSetHandle": "sha256-12:0b844557f741",
+    "submissionHandle": "sha256-12:b0b470415850",
+    "conflictHandle": null,
+    "keys": [
+      "changeSetId",
+      "revisionId",
+      "status",
+      "submissionId",
+      "synced"
+    ]
+  }
+}

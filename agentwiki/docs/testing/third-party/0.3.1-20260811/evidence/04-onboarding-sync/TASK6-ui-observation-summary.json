@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "caseObservations": {
+    "ONBOARD-001": {
+      "authorizationPageClientAndVersionShown": true,
+      "passwordEnteredOnlyInBrowser": true,
+      "terminalCodeRedacted": true,
+      "canonicalUrlWorkaroundRequired": true
+    },
+    "ONBOARD-004": {
+      "remoteCandidateObservedBeforePublish": true,
+      "previewReportedProcessedAndSkippedOnly": true
+    },
+    "ONBOARD-005": {
+      "interruptedBeforePlanConfirmation": true,
+      "resumedAtPlanCheckpoint": true,
+      "interruptedBeforeSyncConfirmation": true,
+      "resumedAtSyncCheckpoint": true,
+      "codexAgentCountAfterResume": 1
+    },
+    "ONBOARD-006-denied": {
+      "terminalDenied": true,
+      "activeAgentCreated": false
+    },
+    "ONBOARD-007": {
+      "codexAgentCount": 1,
+      "claudeAgentCount": 1,
+      "opencodeAgentCount": 1,
+      "isolatedHomesSeparate": true
+    },
+    "SYNC-001": {
+      "remoteDiffCreate": 1,
+      "remoteDiffUpdate": 1,
+      "remoteDiffDelete": 0,
+      "publishedCreateAndUpdate": true
+    },
+    "SYNC-003": {
+      "stalePushRejected": true,
+      "explicitPullRequired": true,
+      "mergedBothBranches": true,
+      "mergedCandidatePublished": true
+    },
+    "SYNC-005": {
+      "firstStatus": "noop",
+      "secondStatus": "noop",
+      "revisionUnchanged": true,
+      "newChangeSetCount": 0
+    }
+  },
+  "secretsRedacted": true,
+  "rawIdsRedacted": true
+}

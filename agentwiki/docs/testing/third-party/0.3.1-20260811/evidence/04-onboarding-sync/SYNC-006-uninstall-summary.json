@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "clients": {
+    "codex": {
+      "exitCode": 1,
+      "configPresent": true,
+      "contentMatchesBeforeExactly": false,
+      "contentSha256MatchesBefore": false,
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryPreserved": true,
+      "credentialStoreRetained": true,
+      "connectionStoreRetained": true,
+      "remainingConnectionCount": 1,
+      "defaultConnectionPresent": true,
+      "normalProductCleanupPassed": false
+    },
+    "claude": {
+      "exitCode": 1,
+      "configPresent": true,
+      "contentMatchesBeforeExactly": false,
+      "contentSha256MatchesBefore": false,
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryPreserved": true,
+      "credentialStoreRetained": true,
+      "connectionStoreRetained": true,
+      "remainingConnectionCount": 1,
+      "defaultConnectionPresent": true,
+      "normalProductCleanupPassed": false
+    },
+    "opencode": {
+      "exitCode": 0,
+      "configPresent": true,
+      "contentMatchesBeforeExactly": false,
+      "contentSha256MatchesBefore": false,
+      "entryNames": [
+        "3pt-control",
+        "agentwiki"
+      ],
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryPreserved": true,
+      "credentialStoreRetained": true,
+      "connectionStoreRetained": true,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false,
+      "normalProductCleanupPassed": false
+    }
+  },
+  "isolatedRootRetained": true,
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "stopConditionTriggered": true,
+  "stopReason": "Normal product uninstall did not remove the isolated test gateway; no further production write testing is authorized."
+}

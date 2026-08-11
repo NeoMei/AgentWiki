@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "client": "opencode",
+  "phase": "complete",
+  "resume": false,
+  "result": "COMPLETED",
+  "stopReason": null,
+  "events": [
+    {
+      "type": "input_required",
+      "fields": [
+        "spaceMode",
+        "spaceName",
+        "spaceId",
+        "agentName",
+        "permissionPreset",
+        "approvalMode",
+        "clientType",
+        "sourcePaths",
+        "sourceType"
+      ]
+    },
+    {
+      "type": "authorization_required",
+      "clientVersion": "0.3.1",
+      "expiresInSeconds": 600,
+      "codeRedacted": true,
+      "urlRedacted": true
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "progress",
+      "step": "preflight",
+      "status": "running"
+    },
+    {
+      "type": "preview",
+      "keys": [
+        "configHash",
+        "oldEntries",
+        "reloadRequired",
+        "serverPlan"
+      ]
+    },
+    {
+      "type": "confirmation_required",
+      "requestId": "plan",
+      "planHashHandle": "09d481a7728b"
+    },
+    {
+      "type": "progress",
+      "step": "bootstrap",
+      "status": "running"
+    },
+    {
+      "type": "progress",
+      "step": "scan",
+      "status": "running"
+    },
+    {
+      "type": "preview",
+      "keys": [
+        "jobId",
+        "summary"
+      ],
+      "summary": {
+        "filesProcessed": 3,
+        "filesSkipped": 0
+      }
+    },
+    {
+      "type": "confirmation_required",
+      "requestId": "sync",
+      "planHashHandle": "fbbdf8fe22a4"
+    },
+    {
+      "type": "progress",
+      "step": "sync",
+      "status": "running"
+    },
+    {
+      "type": "completed",
+      "hasSpace": true,
+      "hasAgent": true,
+      "hasRevision": true,
+      "status": "pending_review",
+      "agentReload": true
+    }
+  ],
+  "stderr": [],
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

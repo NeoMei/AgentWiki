@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "clients": {
+    "codex": {
+      "singleCompletedSession": true,
+      "spaceModeExisting": true,
+      "targetSpaceMatches": true,
+      "agentNamePrefixed": true,
+      "permissionEditor": true,
+      "approvalAlwaysReview": true,
+      "clientMatches": true,
+      "sourcePathInsideIsolatedRoot": true,
+      "serverPlanPresent": true,
+      "planHashPresent": true,
+      "completedWithoutDuplicateSession": true
+    },
+    "claude": {
+      "singleCompletedSession": true,
+      "spaceModeExisting": true,
+      "targetSpaceMatches": true,
+      "agentNamePrefixed": true,
+      "permissionEditor": true,
+      "approvalAlwaysReview": true,
+      "clientMatches": true,
+      "sourcePathInsideIsolatedRoot": true,
+      "serverPlanPresent": true,
+      "planHashPresent": true,
+      "completedWithoutDuplicateSession": true
+    },
+    "opencode": {
+      "singleCompletedSession": true,
+      "spaceModeExisting": true,
+      "targetSpaceMatches": true,
+      "agentNamePrefixed": true,
+      "permissionEditor": true,
+      "approvalAlwaysReview": true,
+      "clientMatches": true,
+      "sourcePathInsideIsolatedRoot": true,
+      "serverPlanPresent": true,
+      "planHashPresent": true,
+      "completedWithoutDuplicateSession": true
+    }
+  },
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

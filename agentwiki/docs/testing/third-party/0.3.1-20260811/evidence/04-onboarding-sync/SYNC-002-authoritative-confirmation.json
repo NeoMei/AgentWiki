@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "action": "pull",
+  "label": "SYNC-002-authoritative-confirmation",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "pull": {
+    "revisionHandle": "sha256-12:44d6eb366fd4",
+    "conflictCount": 0,
+    "keys": [
+      "revisionId"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "expectedOrigin": "https://agentwiki.quukk.com",
+  "clients": {
+    "codex": {
+      "schemeIsHttps": false,
+      "hostIsCanonical": false,
+      "pathIsDeviceAuthorization": true,
+      "queryHasUserCode": true
+    },
+    "claude": {
+      "schemeIsHttps": false,
+      "hostIsCanonical": false,
+      "pathIsDeviceAuthorization": true,
+      "queryHasUserCode": true
+    },
+    "opencode": {
+      "schemeIsHttps": false,
+      "hostIsCanonical": false,
+      "pathIsDeviceAuthorization": true,
+      "queryHasUserCode": true
+    }
+  },
+  "rawUrlsRedacted": true
+}

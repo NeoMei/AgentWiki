@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "client": "claude",
+  "action": "pull",
+  "label": "SYNC-005-baseline-pull",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "pull": {
+    "revisionHandle": "sha256-12:f232ebba451f",
+    "conflictCount": 0,
+    "keys": [
+      "revisionId"
+    ]
+  }
+}

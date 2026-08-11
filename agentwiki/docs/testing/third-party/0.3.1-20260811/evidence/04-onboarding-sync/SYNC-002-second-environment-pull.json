@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "client": "claude",
+  "action": "pull",
+  "label": "SYNC-002-second-environment-pull",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "pull": {
+    "revisionHandle": "sha256-12:44d6eb366fd4",
+    "conflictCount": 0,
+    "keys": [
+      "revisionId"
+    ]
+  }
+}

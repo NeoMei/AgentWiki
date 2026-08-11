@@ -1,5 +1,140 @@
 # Defects
 
+## Task 6 defects — onboarding and local synchronization
+
+### DEF-3PT-20260812-001 — Device authorization URL is not the canonical HTTPS production URL
+
+- Defect ID: `DEF-3PT-20260812-001`
+- Severity: S2
+- Title: All three clients receive a non-canonical HTTP device-authorization URL that Chrome blocks
+- Case ID: ONBOARD-001, ONBOARD-007
+- Discovery time: 2026-08-12T00:37:00+08:00
+- Role and environment: User A; production `https://agentwiki.quukk.com`; pinned local-sync 0.3.1
+- Preconditions: A fresh isolated client HOME and the exact pinned onboarding command.
+- Reproduction steps: Start onboarding, provide the approved 3PT plan, and inspect the emitted authorization URL without recording its query value.
+- Expected result: The URL uses `https://agentwiki.quukk.com/onboard/device` and opens directly.
+- Actual result: Codex, Claude Code, and OpenCode all received the same non-HTTPS, non-canonical origin; Chrome returned a client-side block. Replacing only the origin with the canonical production origin allowed the same request to be approved.
+- Reproduction rate: 3/3.
+- Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-001-verification-url-summary.json`; `evidence/04-onboarding-sync/ONBOARD-001-codex-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-claude-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-opencode-authorization.png`
+- Affected 3PT resources: Five terminal Device Requests listed by sanitized handle in `TASK6-resource-inventory.json`.
+- Containment action: Used the canonical production origin while retaining the generated user-code query only in secure process memory; no non-3PT resource was accessed.
+- Retest result: FAIL
+- Cleanup state: NOT_REQUIRED for terminal Device Requests.
+
+### DEF-3PT-20260812-002 — Codex and Claude gateway registrations fail client verification
+
+- Defect ID: `DEF-3PT-20260812-002`
+- Severity: S2
+- Title: Generated Codex and Claude Code MCP entries are present on disk but are not accepted by their clients
+- Case ID: ONBOARD-003, ONBOARD-007
+- Discovery time: 2026-08-12T00:51:00+08:00
+- Role and environment: User A; three isolated client homes; pinned local-sync 0.3.1
+- Preconditions: Complete onboarding through gateway installation for Codex, Claude Code, and OpenCode.
+- Reproduction steps: Inspect each isolated configuration and run product `doctor`.
+- Expected result: Exactly one `agentwiki` MCP is registered and every client-specific registration check passes.
+- Actual result: All three isolated configs contained exactly one `agentwiki` entry and retained the unrelated synthetic entry. OpenCode passed all doctor checks. Codex reported an invalid transport for the generated entry, and Claude Code reported no registered `agentwiki` server; their `mcp-registration` doctor checks failed.
+- Reproduction rate: Codex 1/1; Claude Code 1/1; OpenCode 0/1.
+- Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/ONBOARD-007-doctor-summary.json`
+- Affected 3PT resources: Three local connections, Agents, credentials, and grant bindings listed in `TASK6-resource-inventory.json`.
+- Containment action: Continued synchronization through the package gateway in the isolated homes only; did not modify daily client configuration.
+- Retest result: FAIL
+- Cleanup state: PENDING until SYNC-006 uninstall verification is recorded.
+
+### DEF-3PT-20260812-003 — Preview omits required change and upload counts
+
+- Defect ID: `DEF-3PT-20260812-003`
+- Severity: S2
+- Title: Onboarding and knowledge-sync previews report only processed/skipped files
+- Case ID: ONBOARD-004, SYNC-001
+- Discovery time: 2026-08-12T00:50:00+08:00
+- Role and environment: User A; Codex and Claude isolated homes; production 0.3.1
+- Preconditions: Prepare a synthetic Markdown/TXT bundle containing a create, update, and local deletion.
+- Reproduction steps: Run `knowledge_prepare` and inspect the confirmation preview before synchronization.
+- Expected result: Added, modified, deleted, skipped-file, and upload-size totals are displayed before confirmation.
+- Actual result: The preview returned only `filesProcessed` and `filesSkipped`; no added, modified, deleted, or upload-size totals were available.
+- Reproduction rate: 8/8 retained prepare observations returned the reduced summary shape.
+- Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-codex-until-sync.json`; `evidence/04-onboarding-sync/SYNC-001-diff-push.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
+- Affected 3PT resources: Local jobs and preview handles listed in `TASK6-resource-inventory.json`.
+- Containment action: Confirmed only known synthetic fixtures and independently inspected the scoped 3PT Review diff before publication.
+- Retest result: FAIL
+- Cleanup state: PENDING with isolated-root cleanup in Task 8.
+
+### DEF-3PT-20260812-004 — Deleting a source file does not propose a page deletion
+
+- Defect ID: `DEF-3PT-20260812-004`
+- Severity: S2
+- Title: Local deletion of `obsolete.md` is omitted from preview and ChangeSet
+- Case ID: SYNC-001
+- Discovery time: 2026-08-12T01:02:17+08:00
+- Role and environment: User A; Codex isolated home; production 0.3.1
+- Preconditions: Publish the three-file baseline, Pull the authoritative Revision, modify `setup.md`, add `troubleshooting.md`, and delete only synthetic `obsolete.md`.
+- Reproduction steps: Prepare, confirm, and inspect the resulting scoped Review diff.
+- Expected result: One create, one update, and one delete are proposed; deletion applies only after confirmation and publication.
+- Actual result: Review contained one create and one update but zero deletes. The published `obsolete` page remained present.
+- Reproduction rate: 1/1.
+- Sanitized evidence files: `evidence/04-onboarding-sync/SYNC-001-diff-push.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
+- Affected 3PT resources: Task 6 pages and ChangeSets listed in `TASK6-resource-inventory.json`.
+- Containment action: Published only the visible create/update candidates; did not delete through an out-of-band path.
+- Retest result: FAIL
+- Cleanup state: PENDING with main 3PT Space cleanup in Task 8.
+
+### DEF-3PT-20260812-005 — Synthetic credential marker is processed without warning or redaction
+
+- Defect ID: `DEF-3PT-20260812-005`
+- Severity: S1
+- Title: Local preparation accepts and persists a fake-token fixture instead of flagging, skipping, or redacting it
+- Case ID: SYNC-004
+- Discovery time: 2026-08-12T01:06:22+08:00
+- Role and environment: User A; Claude isolated home; production 0.3.1
+- Preconditions: Add the approved literal fake marker to one synthetic Markdown file.
+- Reproduction steps: Run preparation only, inspect sanitized counts, and search the isolated local-sync home without printing the marker.
+- Expected result: The file or value is flagged, skipped, or redacted; the complete marker is absent from preview state.
+- Actual result: Four files were processed, zero were skipped, no warning was returned, and the complete marker occurred twice in one private local preview-state JSON file. The preview was not confirmed, so the marker was not uploaded.
+- Reproduction rate: 1/1.
+- Sanitized evidence files: `evidence/04-onboarding-sync/SYNC-004-fake-secret-preview.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
+- Affected 3PT resources: One unconfirmed local job/preview only; no remote ChangeSet or page was created from this fixture.
+- Containment action: Did not confirm the preview, removed the synthetic fixture before later syncs, and retained the isolated root for Task 8 cleanup.
+- Retest result: FAIL
+- Cleanup state: PENDING with isolated-root cleanup in Task 8.
+
+### DEF-3PT-20260812-006 — NDJSON onboarding process remains open after a terminal event
+
+- Defect ID: `DEF-3PT-20260812-006`
+- Severity: S3
+- Title: Onboarding emits completed/failed terminal state but does not exit
+- Case ID: ONBOARD-001, ONBOARD-005, ONBOARD-006, ONBOARD-007
+- Discovery time: 2026-08-12T00:50:24+08:00
+- Role and environment: User A; isolated local clients; pinned local-sync 0.3.1
+- Preconditions: Complete or deny an NDJSON onboarding session.
+- Reproduction steps: Allow the coordinator to persist and emit a terminal event, then wait for the command to return.
+- Expected result: The process exits promptly after its terminal event.
+- Actual result: Completed and denied sessions remained open until the already-terminal wrapper was sent SIGTERM. Persisted checkpoints and emitted result events were complete before termination.
+- Reproduction rate: 4/4 completed sessions observed so far, including the resumed Codex flow, plus 1/1 denied session.
+- Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-codex-complete.json`; `evidence/04-onboarding-sync/ONBOARD-claude-complete.json`; `evidence/04-onboarding-sync/ONBOARD-opencode-complete.json`; `evidence/04-onboarding-sync/ONBOARD-codex-denied-complete.json`
+- Affected 3PT resources: No additional server resource; terminal session records are inventoried by sanitized Device Request handle.
+- Containment action: Terminated only after the terminal checkpoint and result event were persisted; no active synchronization was interrupted.
+- Retest result: FAIL
+- Cleanup state: NOT_REQUIRED for the process; local session files remain for Task 8 isolated-root cleanup.
+
+### STOP-3PT-20260812-002 — Product uninstall cannot remove the isolated test gateways
+
+- Defect ID: `STOP-3PT-20260812-002`
+- Severity: S2 (production-safety cleanup stop)
+- Title: All three client uninstall paths fail to restore the isolated pre-test configuration
+- Case ID: SYNC-006
+- Discovery time: 2026-08-12T01:18:00+08:00
+- Role and environment: Three isolated client homes; pinned local-sync 0.3.1
+- Preconditions: Each isolated config contains one synthetic unrelated entry and one onboarding-created `agentwiki` entry; before-config snapshots are retained privately.
+- Reproduction steps: Run the documented `uninstall --agent <client>` path once per client and compare the resulting config with the private before snapshot.
+- Expected result: The `agentwiki` entry is removed, the unrelated entry is byte-for-byte preserved, and the client config exactly matches its before snapshot.
+- Actual result: Codex uninstall failed while loading the generated invalid transport; Claude uninstall could not find the generated user-scope server; OpenCode returned success and removed its local connection record but left the `agentwiki` config entry. All three configs still contain the test gateway and differ from the before snapshot. The unrelated entry remains present.
+- Reproduction rate: 3/3.
+- Sanitized evidence files: `evidence/04-onboarding-sync/CONFIG-01-before-summary.json`; `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/SYNC-006-uninstall-summary.json`
+- Affected 3PT resources: Three isolated client configs; two retained local connection records; one orphaned OpenCode gateway entry. Daily client configurations were never read or modified.
+- Containment action: Stopped further production write testing under Spec section 16.8. Did not manually rewrite the isolated configs or delete the isolated root; Task 8/production owner must choose the cleanup remediation while evidence is retained.
+- Retest result: FAIL
+- Cleanup state: FAIL for normal product uninstall; manual remediation is PENDING owner authorization.
+
 ## Task 5 acceptance note — no new defect
 
 - SOURCE-001, SOURCE-002, REVIEW-001..005, and SPACE-006 completed without a new product defect.

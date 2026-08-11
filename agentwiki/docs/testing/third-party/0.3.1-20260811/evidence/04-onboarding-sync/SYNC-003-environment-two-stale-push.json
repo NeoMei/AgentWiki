@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "client": "claude",
+  "action": "prepare-confirm",
+  "label": "SYNC-003-environment-two-stale-push",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "prepare": {
+    "jobHandle": "sha256-12:9b58c8569d24",
+    "previewHandle": "sha256-12:5e27efca0e10",
+    "summary": {
+      "filesProcessed": 3,
+      "filesSkipped": 0
+    },
+    "keys": [
+      "jobId",
+      "previewHash",
+      "summary",
+      "warnings"
+    ]
+  },
+  "confirm": {
+    "status": null,
+    "revisionHandle": null,
+    "changeSetHandle": null,
+    "submissionHandle": null,
+    "conflictHandle": null,
+    "keys": [
+      "isError",
+      "text"
+    ],
+    "isError": true,
+    "safeMessage": "authoritative revision changed after preview; prepare a new preview"
+  }
+}

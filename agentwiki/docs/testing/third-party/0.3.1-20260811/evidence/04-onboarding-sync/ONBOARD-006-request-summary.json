@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "denied": {
+    "failedCode": "AUTH_DENIED",
+    "activeAgentCreated": false,
+    "terminalEventObserved": true
+  },
+  "expired": {
+    "failedCode": "AUTH_EXPIRED",
+    "activeAgentCreated": false,
+    "terminalEventObserved": true,
+    "heartbeatCount": 114
+  },
+  "consumed": {
+    "httpStatus": 201,
+    "terminalCode": "authorization_consumed",
+    "validInstallationCredentialReturned": false
+  },
+  "processExitIssueObserved": true,
+  "rawCodesRedacted": true,
+  "rawIdsRedacted": true
+}

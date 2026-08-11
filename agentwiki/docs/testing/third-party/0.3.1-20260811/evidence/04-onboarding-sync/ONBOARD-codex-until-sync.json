@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "phase": "until-sync",
+  "resume": true,
+  "result": "INTERRUPTED_AS_PLANNED",
+  "stopReason": "interrupted-before-sync-confirmation",
+  "events": [
+    {
+      "type": "preview",
+      "keys": [
+        "configHash",
+        "oldEntries",
+        "reloadRequired",
+        "serverPlan"
+      ]
+    },
+    {
+      "type": "confirmation_required",
+      "requestId": "plan",
+      "planHashHandle": "f6dd3b012eb8"
+    },
+    {
+      "type": "progress",
+      "step": "bootstrap",
+      "status": "running"
+    },
+    {
+      "type": "progress",
+      "step": "scan",
+      "status": "running"
+    },
+    {
+      "type": "preview",
+      "keys": [
+        "jobId",
+        "summary"
+      ],
+      "summary": {
+        "filesProcessed": 3,
+        "filesSkipped": 0
+      }
+    },
+    {
+      "type": "confirmation_required",
+      "requestId": "sync",
+      "planHashHandle": "891760474062"
+    }
+  ],
+  "stderr": [],
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

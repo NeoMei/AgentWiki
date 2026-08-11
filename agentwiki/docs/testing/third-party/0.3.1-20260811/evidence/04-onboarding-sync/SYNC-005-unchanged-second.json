@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "client": "claude",
+  "action": "prepare-confirm",
+  "label": "SYNC-005-unchanged-second",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "prepare": {
+    "jobHandle": "sha256-12:4607064e8c1f",
+    "previewHandle": "sha256-12:70562b5f93eb",
+    "summary": {
+      "filesProcessed": 3,
+      "filesSkipped": 0
+    },
+    "keys": [
+      "jobId",
+      "previewHash",
+      "summary",
+      "warnings"
+    ]
+  },
+  "confirm": {
+    "status": "noop",
+    "revisionHandle": "sha256-12:f232ebba451f",
+    "changeSetHandle": null,
+    "submissionHandle": null,
+    "conflictHandle": null,
+    "keys": [
+      "changeSetId",
+      "revisionId",
+      "status",
+      "synced"
+    ]
+  }
+}

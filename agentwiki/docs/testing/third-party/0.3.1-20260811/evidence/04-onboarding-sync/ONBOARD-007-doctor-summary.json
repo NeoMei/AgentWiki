@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "command": "doctor",
+  "clients": {
+    "codex": {
+      "exitCode": 0,
+      "client": "codex",
+      "pluginVersion": "0.3.1",
+      "mcpName": "agentwiki",
+      "connectionHandle": "sha256-12:cdaceaf76233",
+      "checks": [
+        {
+          "name": "node",
+          "status": "pass"
+        },
+        {
+          "name": "markitdown",
+          "status": "pass"
+        },
+        {
+          "name": "git",
+          "status": "pass"
+        },
+        {
+          "name": "codebase-memory",
+          "status": "pass"
+        },
+        {
+          "name": "mcp-registration",
+          "status": "fail"
+        },
+        {
+          "name": "file-permissions",
+          "status": "pass"
+        },
+        {
+          "name": "identity",
+          "status": "pass"
+        },
+        {
+          "name": "space-grants",
+          "status": "pass"
+        },
+        {
+          "name": "credential-scopes",
+          "status": "pass"
+        }
+      ],
+      "allChecksPass": false
+    },
+    "claude": {
+      "exitCode": 0,
+      "client": "claude",
+      "pluginVersion": "0.3.1",
+      "mcpName": "agentwiki",
+      "connectionHandle": "sha256-12:015a160f9edb",
+      "checks": [
+        {
+          "name": "node",
+          "status": "pass"
+        },
+        {
+          "name": "markitdown",
+          "status": "pass"
+        },
+        {
+          "name": "git",
+          "status": "pass"
+        },
+        {
+          "name": "codebase-memory",
+          "status": "pass"
+        },
+        {
+          "name": "mcp-registration",
+          "status": "fail"
+        },
+        {
+          "name": "file-permissions",
+          "status": "pass"
+        },
+        {
+          "name": "identity",
+          "status": "pass"
+        },
+        {
+          "name": "space-grants",
+          "status": "pass"
+        },
+        {
+          "name": "credential-scopes",
+          "status": "pass"
+        }
+      ],
+      "allChecksPass": false
+    },
+    "opencode": {
+      "exitCode": 0,
+      "client": "opencode",
+      "pluginVersion": "0.3.1",
+      "mcpName": "agentwiki",
+      "connectionHandle": "sha256-12:617991844d79",
+      "checks": [
+        {
+          "name": "node",
+          "status": "pass"
+        },
+        {
+          "name": "markitdown",
+          "status": "pass"
+        },
+        {
+          "name": "git",
+          "status": "pass"
+        },
+        {
+          "name": "codebase-memory",
+          "status": "pass"
+        },
+        {
+          "name": "mcp-registration",
+          "status": "pass"
+        },
+        {
+          "name": "file-permissions",
+          "status": "pass"
+        },
+        {
+          "name": "identity",
+          "status": "pass"
+        },
+        {
+          "name": "space-grants",
+          "status": "pass"
+        },
+        {
+          "name": "credential-scopes",
+          "status": "pass"
+        }
+      ],
+      "allChecksPass": true
+    }
+  },
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

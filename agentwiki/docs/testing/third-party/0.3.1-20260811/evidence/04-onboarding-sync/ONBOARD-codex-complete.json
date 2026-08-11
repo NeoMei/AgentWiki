@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "phase": "complete",
+  "resume": true,
+  "result": "COMPLETED",
+  "stopReason": null,
+  "events": [
+    {
+      "type": "confirmation_required",
+      "requestId": "sync",
+      "planHashHandle": "891760474062"
+    },
+    {
+      "type": "progress",
+      "step": "sync",
+      "status": "running"
+    },
+    {
+      "type": "completed",
+      "hasSpace": true,
+      "hasAgent": true,
+      "hasRevision": true,
+      "status": "pending_review",
+      "agentReload": false
+    }
+  ],
+  "stderr": [],
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}

@@ -40,3 +40,30 @@ Sanitized isolated-root label: `agentwiki-3pt.<ephemeral>` (the full local files
 - Controller: Task 8 / production owner for final cleanup.
 - Retained resources: three disposable AUTH users, the main test Space, and the Task 5 resources inventoried above.
 - During Task 5, Admin D was used only for narrowly scoped 3PT administration; no non-3PT resource was opened, searched, or modified.
+
+## Task 6 Inventory and Cleanup State
+
+Every individual sanitized handle is listed in `evidence/04-onboarding-sync/TASK6-resource-inventory.json`; raw identifiers remain only in the mode-0600 secure temporary inventory.
+
+| Resource type | Sanitized name | Owning user | Space | Creation case | Deletion method | Deletion time | Verifier | Verification method | Result |
+|---|---|---|---|---|---|---|---|---|---|
+| Device Request set (5) | Task 6 Device Request handles | User A | N/A | ONBOARD-001 / ONBOARD-006 / ONBOARD-007 | Terminal approved-consumed, denied, or expired state; no deletion required | 2026-08-12T01:18:00+08:00 | Codex controller | Sanitized terminal events plus no denied/expired Agent in scoped Agent list | PASS |
+| Agent set (3) | Task 6 onboarding Agent handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-001 / ONBOARD-007 | Revoke credentials and grants, then delete/revoke Agents during Task 8 | PENDING | User A / Admin D | Scoped Agent list and old credential denial | PENDING |
+| Agent Grant binding set (3) | Task 6 Agent-to-Space binding handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-002 / ONBOARD-007 | Remove with Agent or Space during Task 8 | PENDING | User A / Admin D | Agent access view and scoped Space membership | PENDING |
+| Agent credential set (3) | Task 6 credential handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-003 / ONBOARD-007 | Revoke through normal product Agent controls during Task 8 | PENDING | User A / Admin D | Old gateway credential returns denied after revocation | PENDING |
+| Local connection set (3) | Task 6 isolated connection handles | Codex controller | N/A (local) | ONBOARD-003 / ONBOARD-007 | Product uninstall; retain credentials and sync state until Task 8 | 2026-08-12T01:19:00+08:00 | Codex controller | Compare connection store and private before snapshot | FAIL — two retained; OpenCode connection removed |
+| Isolated gateway config set (3) | `agentwiki` gateway in Codex, Claude, OpenCode test homes | Codex controller | N/A (local) | ONBOARD-003 / ONBOARD-007 | Product `uninstall --agent <client>` | 2026-08-12T01:19:00+08:00 | Codex controller | Byte comparison plus entry-name inventory | FAIL — all three gateway entries remain |
+| Unrelated MCP control set (3) | `3pt-control` fixture entry in each isolated config | Codex controller | N/A (local) | SYNC-006 precondition | Preserve exactly through uninstall and Task 8 cleanup | 2026-08-12T01:19:00+08:00 | Codex controller | Entry-name and content comparison | PASS — entry present; full config restore failed because gateway remains |
+| Local knowledge job set (11) | Task 6 job handles | Codex controller | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001..005 | Remove with isolated root during Task 8 | PENDING | Codex controller | Job-handle inventory and isolated-root absence | PENDING |
+| Local preview set (11) | Task 6 preview handles | Codex controller | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001..005 | Remove with isolated root during Task 8 | PENDING | Codex controller | Preview-handle inventory and isolated-root absence | PENDING |
+| Knowledge submission set (7) | Task 6 submission handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001 / SYNC-003 | Remove with parent ChangeSet/Space during Task 8 | PENDING | User A / Admin D | Scoped Review list and unique-marker search | PENDING |
+| ChangeSet set (7) | Task 6 ChangeSet handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001 / SYNC-003 | Remove with main test Space during Task 8 | PENDING | User A / Admin D | Scoped Review list contains no Task 6 handle | PENDING |
+| Page set (4) | `overview`, `setup`, `obsolete`, `troubleshooting` handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001 / SYNC-003 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Page list, direct URL, search, and graph residual checks | PENDING |
+| Page version set (3) | Task 6 page-version handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001 / SYNC-003 | Remove with parent pages/Space during Task 8 | PENDING | User A / Admin D | Version history and direct old resource checks | PENDING |
+| Authoritative Revision set (5) | Task 6 Revision handles | User A | `3PT-20260811-CODEX-MAIN` | ONBOARD-004 / SYNC-001..005 | Remove with main test Space during Task 8 | PENDING | User A / Admin D | Knowledge-sync state and Space deletion verification | PENDING |
+
+### Task 6 stop disposition
+
+- Status: `WRITE TESTING STOPPED` — Spec section 16.8 triggered because normal product uninstall did not remove the three isolated test gateways.
+- No uncontrolled duplicate, silent overwrite, non-3PT write, or production health regression was observed.
+- The isolated root, gateway configs, credentials, and server-side 3PT resources remain retained for owner-authorized Task 8 remediation and independent cleanup verification.

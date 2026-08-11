@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "orderedRevisionHandles": [
+    "sha256-12:25e1a10503b6",
+    "sha256-12:44d6eb366fd4",
+    "sha256-12:79f2cbc6cbcf",
+    "sha256-12:f232ebba451f"
+  ],
+  "strictlyAdvancing": true,
+  "consecutiveWhenNumeric": true,
+  "secondEnvironmentMatchedAuthoritative": true,
+  "rawIdsRedacted": true
+}

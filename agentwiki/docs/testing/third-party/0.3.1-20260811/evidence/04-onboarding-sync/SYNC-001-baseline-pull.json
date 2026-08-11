@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "action": "pull",
+  "label": "SYNC-001-baseline-pull",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "pull": {
+    "revisionHandle": "sha256-12:25e1a10503b6",
+    "conflictCount": 0,
+    "keys": [
+      "revisionId"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "client": "claude",
+  "action": "prepare-confirm",
+  "label": "SYNC-003-merged-push",
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "prepare": {
+    "jobHandle": "sha256-12:35ee9a6836dc",
+    "previewHandle": "sha256-12:62efc123a3f4",
+    "summary": {
+      "filesProcessed": 3,
+      "filesSkipped": 0
+    },
+    "keys": [
+      "jobId",
+      "previewHash",
+      "summary",
+      "warnings"
+    ]
+  },
+  "confirm": {
+    "status": "pending_review",
+    "revisionHandle": "sha256-12:79f2cbc6cbcf",
+    "changeSetHandle": "sha256-12:1ac2681dd2a9",
+    "submissionHandle": "sha256-12:8572b71bc2e5",
+    "conflictHandle": null,
+    "keys": [
+      "changeSetId",
+      "revisionId",
+      "status",
+      "submissionId",
+      "synced"
+    ]
+  }
+}

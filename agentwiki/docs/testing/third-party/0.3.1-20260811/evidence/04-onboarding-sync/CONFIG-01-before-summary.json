@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "stage": "before-onboarding",
+  "clients": {
+    "codex": {
+      "configPresent": true,
+      "mode": "0600",
+      "entryNames": [
+        "3pt-control"
+      ],
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "contentSha256": "192cfd9147b32dd596112716c4b109b8114d6820ea15ca782be8cd65c1921d85"
+    },
+    "claude": {
+      "configPresent": true,
+      "mode": "0600",
+      "entryNames": [
+        "3pt-control"
+      ],
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "contentSha256": "63dc95e848715e0921259f324de09fc6dd49a27d430f28757c81edd2a6ba18f9"
+    },
+    "opencode": {
+      "configPresent": true,
+      "mode": "0600",
+      "entryNames": [
+        "3pt-control"
+      ],
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "contentSha256": "1a83069957fca61100c6c0e5d3470b60fe54cb35ae6548d746fcdbab8b4cf71d"
+    }
+  }
+}

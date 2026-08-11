@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "client": "opencode",
+  "phase": "complete",
+  "resume": false,
+  "result": "FAILED",
+  "stopReason": null,
+  "events": [
+    {
+      "type": "input_required",
+      "fields": [
+        "spaceMode",
+        "spaceName",
+        "spaceId",
+        "agentName",
+        "permissionPreset",
+        "approvalMode",
+        "clientType",
+        "sourcePaths",
+        "sourceType"
+      ]
+    },
+    {
+      "type": "authorization_required",
+      "clientVersion": "0.3.1",
+      "expiresInSeconds": 600,
+      "codeRedacted": true,
+      "urlRedacted": true
+    },
+    {
+      "type": "failed",
+      "code": "AUTH_EXPIRED",
+      "retryable": true,
+      "message": "device authorization expired"
+    }
+  ],
+  "stderr": [
+    "device authorization expired"
+  ],
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true,
+  "heartbeatSummary": {
+    "count": 114,
+    "step": "authorization",
+    "fullSequenceIntentionallyCompacted": true
+  }
+}

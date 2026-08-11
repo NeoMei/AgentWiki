@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "resources": {
+    "agents": {
+      "count": 3,
+      "handles": [
+        "sha256-12:cd97eef2ab56",
+        "sha256-12:4102f9bd9301",
+        "sha256-12:21b345f4d8f1"
+      ]
+    },
+    "revisions": {
+      "count": 5,
+      "handles": [
+        "sha256-12:5feceb66ffc8",
+        "sha256-12:25e1a10503b6",
+        "sha256-12:44d6eb366fd4",
+        "sha256-12:79f2cbc6cbcf",
+        "sha256-12:f232ebba451f"
+      ]
+    },
+    "changeSets": {
+      "count": 7,
+      "handles": [
+        "sha256-12:f96e9011f93a",
+        "sha256-12:9c7a7522a095",
+        "sha256-12:4666292cf8e1",
+        "sha256-12:7164c5b282a3",
+        "sha256-12:7c2325d04b50",
+        "sha256-12:0b844557f741",
+        "sha256-12:1ac2681dd2a9"
+      ]
+    },
+    "submissions": {
+      "count": 7,
+      "handles": [
+        "sha256-12:d03178faf9e8",
+        "sha256-12:d6a3a1e3c3c6",
+        "sha256-12:3c3d46d77434",
+        "sha256-12:65ac57726e87",
+        "sha256-12:5fb65cba3db9",
+        "sha256-12:b0b470415850",
+        "sha256-12:8572b71bc2e5"
+      ]
+    },
+    "connections": {
+      "count": 3,
+      "handles": [
+        "sha256-12:cdaceaf76233",
+        "sha256-12:015a160f9edb",
+        "sha256-12:617991844d79"
+      ]
+    },
+    "jobs": {
+      "count": 11,
+      "handles": [
+        "sha256-12:2a33693c1d02",
+        "sha256-12:9819ee414e26",
+        "sha256-12:137fa24f9a1b",
+        "sha256-12:9b58c8569d24",
+        "sha256-12:35ee9a6836dc",
+        "sha256-12:20ce3a3769d4",
+        "sha256-12:8c44b95390ef",
+        "sha256-12:4607064e8c1f",
+        "sha256-12:005c263e6791",
+        "sha256-12:9e0407440eec",
+        "sha256-12:0e26e45224a3"
+      ]
+    },
+    "previewHashes": {
+      "count": 11,
+      "handles": [
+        "sha256-12:388d1e644358",
+        "sha256-12:8bbf017c4071",
+        "sha256-12:14c9ded18606",
+        "sha256-12:5e27efca0e10",
+        "sha256-12:62efc123a3f4",
+        "sha256-12:2b3e038ee40a",
+        "sha256-12:7088eae16857",
+        "sha256-12:70562b5f93eb",
+        "sha256-12:891760474062",
+        "sha256-12:6bf7a9989821",
+        "sha256-12:fbbdf8fe22a4"
+      ]
+    },
+    "credentials": {
+      "count": 3,
+      "handles": [
+        "sha256-12:4556adb1ec32",
+        "sha256-12:d9a5a3378f22",
+        "sha256-12:153d8f155492"
+      ]
+    },
+    "pages": {
+      "count": 4,
+      "handles": [
+        "sha256-12:bd88e3ce826a",
+        "sha256-12:2b41fe921c8b",
+        "sha256-12:7a4bf6824fd9",
+        "sha256-12:dac161c3c138"
+      ]
+    },
+    "pageVersions": {
+      "count": 3,
+      "handles": [
+        "sha256-12:994443d419e5",
+        "sha256-12:4f5b128cd263",
+        "sha256-12:e951d4b4b336"
+      ]
+    },
+    "deviceRequests": {
+      "count": 5,
+      "handles": [
+        "sha256-12:a6718d98bd43",
+        "sha256-12:d0d47773ff6c",
+        "sha256-12:9f678f3065c8",
+        "sha256-12:3c0ed59ce2de",
+        "sha256-12:8c1dd5ec4af9"
+      ]
+    },
+    "grantBindings": {
+      "count": 3,
+      "handles": [
+        "sha256-12:c7f2f22848c6",
+        "sha256-12:e0f4189a452e",
+        "sha256-12:6c00303cb52b"
+      ]
+    }
+  },
+  "createdSources": 0,
+  "createdRuns": 0,
+  "rawIdsRedacted": true,
+  "credentialsRedacted": true
+}

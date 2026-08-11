@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-006-consumed",
+  "httpStatus": 201,
+  "terminalCode": "authorization_consumed",
+  "validInstallationCredentialReturned": false,
+  "deviceHandle": "sha256-12:2ddd6ca8a3de",
+  "secretsRedacted": true
+}

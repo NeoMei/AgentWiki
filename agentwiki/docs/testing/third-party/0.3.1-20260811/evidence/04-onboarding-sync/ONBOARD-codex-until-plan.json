@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "client": "codex",
+  "phase": "until-plan",
+  "resume": false,
+  "result": "INTERRUPTED_AS_PLANNED",
+  "stopReason": "interrupted-before-plan-confirmation",
+  "events": [
+    {
+      "type": "input_required",
+      "fields": [
+        "spaceMode",
+        "spaceName",
+        "spaceId",
+        "agentName",
+        "permissionPreset",
+        "approvalMode",
+        "clientType",
+        "sourcePaths",
+        "sourceType"
+      ]
+    },
+    {
+      "type": "authorization_required",
+      "clientVersion": "0.3.1",
+      "expiresInSeconds": 600,
+      "codeRedacted": true,
+      "urlRedacted": true
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "heartbeat",
+      "step": "authorization",
+      "status": null
+    },
+    {
+      "type": "progress",
+      "step": "preflight",
+      "status": "running"
+    },
+    {
+      "type": "preview",
+      "keys": [
+        "configHash",
+        "oldEntries",
+        "reloadRequired",
+        "serverPlan"
+      ]
+    },
+    {
+      "type": "confirmation_required",
+      "requestId": "plan",
+      "planHashHandle": "f6dd3b012eb8"
+    }
+  ],
+  "stderr": [],
+  "secretsRedacted": true,
+  "absolutePathsRedacted": true
+}
