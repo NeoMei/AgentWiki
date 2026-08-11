@@ -1,15 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KnowledgeWorkflows, createInMemoryPreviewStore, type PrepareFn, type RemoteSync } from './knowledge-workflows.js';
+import { assertKnowledgeBundle, type KnowledgeBundle } from '../protocol/bundle.js';
+
+function bundle(): KnowledgeBundle {
+  return {
+    schemaVersion: 'knowledge-bundle@1',
+    recipeVersion: 'code-wiki@1',
+    spaceId: 'space-1',
+    baseRevision: '0',
+    pages: [{
+      pageId: 'page-1', spaceId: 'space-1', path: 'architecture/overview.md', title: 'Overview', body: '# Overview',
+      artifactIds: ['artifact-1'], contentHash: 'hash-1', updatedAt: '2026-08-11T00:00:00.000Z',
+    }],
+    memories: [], relations: [],
+    provenance: [{ itemId: 'page-1', artifactIds: ['artifact-1'], sensitivity: 'shareable' }],
+    deletions: [],
+  };
+}
 
 function mockDeps(overrides?: { prepare?: Partial<Awaited<ReturnType<PrepareFn>>>; remoteConflict?: boolean }) {
   const remoteCalls: string[] = [];
+  let pushed: unknown;
   const remote: RemoteSync = {
     pull: vi.fn(async () => {
       remoteCalls.push('pull');
       return { revisionId: 'rev-1' };
     }),
-    push: vi.fn(async () => {
+    push: vi.fn(async (_spaceId, value) => {
       remoteCalls.push('push');
+      pushed = value;
       return { conflict: overrides?.remoteConflict ?? false, revisionId: 'rev-2' };
     }),
   };
@@ -18,9 +37,10 @@ function mockDeps(overrides?: { prepare?: Partial<Awaited<ReturnType<PrepareFn>>
     sourceKey: 'src-1',
     processedFiles: 5,
     skippedFiles: [{ path: 'x', reason: 'binary' }],
+    bundle: bundle(),
     ...overrides?.prepare,
   })) as PrepareFn;
-  return { prepare, remote, remoteCalls, previews: createInMemoryPreviewStore() };
+  return { prepare, remote, remoteCalls, previews: createInMemoryPreviewStore(), pushed: () => pushed };
 }
 
 describe('KnowledgeWorkflows.prepare', () => {
@@ -58,6 +78,7 @@ describe('KnowledgeWorkflows.confirmAndSync', () => {
     expect(result.synced).toBe(true);
     expect(result.revisionId).toBe('rev-2');
     expect(deps.remoteCalls).toEqual(['pull', 'push']);
+    expect(() => assertKnowledgeBundle(deps.pushed())).not.toThrow();
   });
 
   it('removes the preview after a successful sync', async () => {

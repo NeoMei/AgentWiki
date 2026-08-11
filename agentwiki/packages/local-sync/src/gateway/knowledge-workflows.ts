@@ -10,6 +10,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { OnboardingError } from '../onboarding/errors.js';
+import type { KnowledgeBundle } from '../protocol/bundle.js';
 
 export interface PrepareInput {
   spaceId: string;
@@ -37,6 +38,9 @@ export interface ConfirmSyncInput {
 export interface ConfirmSyncResult {
   revisionId: string;
   synced: true;
+  status?: 'pending_review' | 'published' | 'noop' | 'existing';
+  submissionId?: string;
+  changeSetId?: string | null;
 }
 
 export interface PullInput {
@@ -52,7 +56,7 @@ interface StoredPreview {
 /** Injected local knowledge preparation. */
 export interface PrepareFn {
   (input: PrepareInput): Promise<{
-    envelope: { documents: Array<{ path: string; contentHash: string }> };
+    bundle: KnowledgeBundle;
     sourceKey: string;
     processedFiles: number;
     skippedFiles: unknown[];
@@ -68,8 +72,14 @@ export interface PreviewStore {
 
 /** Injected remote sync operations. */
 export interface RemoteSync {
-  pull(): Promise<{ revisionId: string }>;
-  push(bundle: unknown): Promise<{ conflict: boolean; revisionId: string }>;
+  pull(spaceId: string): Promise<{ revisionId: string }>;
+  push(spaceId: string, bundle: KnowledgeBundle): Promise<{
+    conflict: boolean;
+    revisionId: string;
+    status?: 'pending_review' | 'published' | 'noop' | 'existing';
+    submissionId?: string;
+    changeSetId?: string | null;
+  }>;
 }
 
 export interface WorkflowDeps {
@@ -87,11 +97,7 @@ export class KnowledgeWorkflows {
    */
   async prepare(input: PrepareInput): Promise<PrepareResult> {
     const prepared = await this.deps.prepare(input);
-    const previewData = {
-      envelope: prepared.envelope,
-      sourceKey: prepared.sourceKey,
-      spaceId: input.spaceId,
-    };
+    const previewData = prepared.bundle;
     const previewHash = sha256(previewData);
     const jobId = randomUUID();
     await this.deps.previews.save(jobId, { hash: previewHash, data: previewData });
@@ -138,8 +144,9 @@ export class KnowledgeWorkflows {
     }
 
     // Pull before push to check revision and detect conflicts.
-    await this.deps.remote.pull();
-    const pushResult = await this.deps.remote.push(stored.data);
+    const bundle = stored.data as KnowledgeBundle;
+    await this.deps.remote.pull(bundle.spaceId);
+    const pushResult = await this.deps.remote.push(bundle.spaceId, bundle);
     if (pushResult.conflict) {
       throw new OnboardingError({
         code: 'SYNC_CONFLICT',
@@ -149,13 +156,18 @@ export class KnowledgeWorkflows {
     }
 
     await this.deps.previews.remove(input.jobId);
-    return { revisionId: pushResult.revisionId, synced: true };
+    return {
+      revisionId: pushResult.revisionId,
+      synced: true,
+      ...(pushResult.status ? { status: pushResult.status } : {}),
+      ...(pushResult.submissionId ? { submissionId: pushResult.submissionId } : {}),
+      ...(pushResult.changeSetId !== undefined ? { changeSetId: pushResult.changeSetId } : {}),
+    };
   }
 
   /** Refresh the local Space workspace from the authoritative server revision. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async pull(_input: PullInput): Promise<{ revisionId: string }> {
-    return this.deps.remote.pull();
+  async pull(input: PullInput): Promise<{ revisionId: string }> {
+    return this.deps.remote.pull(input.spaceId);
   }
 }
 

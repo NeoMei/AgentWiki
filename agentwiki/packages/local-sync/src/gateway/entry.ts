@@ -6,11 +6,14 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createGatewayServer, type GatewayHandlers } from './server.js';
 import { RemoteMcpBridge } from './remote-mcp-bridge.js';
-import { KnowledgeWorkflows, createInMemoryPreviewStore, type PrepareFn, type RemoteSync } from './knowledge-workflows.js';
+import type { RemoteSync } from './knowledge-workflows.js';
+import { createKnowledgeWorkflowRuntime } from './workflow-runtime.js';
 import { loadConfig, loadCredentials } from '../config.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { SyncEngine } from '../sync/sync-engine.js';
-import { inspectLocalSource, prepareKnowledgeSync, type LocalKnowledgeDeps } from '../local-knowledge.js';
+import { inspectLocalSource, type LocalKnowledgeDeps } from '../local-knowledge.js';
+import { AdapterManager } from '../adapter/manager.js';
+import { join } from 'node:path';
 
 export interface GatewayEntryDeps {
   home: string;
@@ -28,36 +31,27 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
   if (!credential) throw new Error(`credential ${connection.credentialId} not found`);
 
   const client = new AgentWikiClient();
-  const syncEngine = new SyncEngine({
+  const syncEngine = (spaceId: string): SyncEngine => new SyncEngine({
     connection,
     apiKey: credential.apiKey,
     client,
     home: deps.home,
+    spaceId,
   });
-
-  const prepareFn: PrepareFn = async (input) => {
-    const path = input.sourcePaths[0] ?? '.';
-    const prepared = await prepareKnowledgeSync(
-      { path, allowRemoteModel: false },
-      deps.knowledgeDeps ?? { home: deps.home, run: () => ({ status: 0, stdout: '', stderr: '' }), now: () => new Date() },
-    );
-    return {
-      envelope: { documents: prepared.envelope.documents.map((d) => ({ path: d.path, contentHash: d.contentHash })) },
-      sourceKey: prepared.sourceKey,
-      processedFiles: prepared.processedFiles,
-      skippedFiles: prepared.skippedFiles,
-    };
-  };
-
   const remoteSync: RemoteSync = {
-    pull: async () => {
-      const result = await syncEngine.pull();
+    pull: async (spaceId) => {
+      const result = await syncEngine(spaceId).pull();
       return { revisionId: result.revisionId };
     },
-    push: async (bundle) => {
+    push: async (spaceId, bundle) => {
       try {
-        const result = await syncEngine.push(bundle as never);
-        return { conflict: false, revisionId: result.currentRevision };
+        const result = await syncEngine(spaceId).push(bundle);
+        return {
+          conflict: false,
+          revisionId: result.currentRevision,
+          status: result.status,
+          submissionId: result.submissionId,
+        };
       } catch (error) {
         if (error instanceof Error && error.message.includes('conflict')) {
           return { conflict: true, revisionId: '' };
@@ -67,10 +61,10 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
     },
   };
 
-  const workflows = new KnowledgeWorkflows({
-    prepare: prepareFn,
-    previews: createInMemoryPreviewStore(),
-    remote: remoteSync,
+  const workflows = createKnowledgeWorkflowRuntime({
+    home: deps.home,
+    adapters: new AdapterManager({ runtimeHome: join(deps.home, '.agentwiki', 'adapters') }),
+    sync: remoteSync,
   });
 
   const handlers: GatewayHandlers = {
