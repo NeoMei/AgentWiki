@@ -1,7 +1,7 @@
 case_id,priority,domain,tester,start_time,end_time,result,evidence_files,defect_ids,created_resources,cleanup_status,notes
-ENV-001,P0,ENV,,,,NOT_RUN,,,,NOT_REQUIRED,
-ENV-002,P0,ENV,,,,NOT_RUN,,,,NOT_REQUIRED,
-ENV-003,P1,ENV,,,,NOT_RUN,,,,NOT_REQUIRED,
+ENV-001,P0,ENV,,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,PASS,ENV-001-home.png;ENV-001-guide.png;ENV-001-onboard.png,,,NOT_REQUIRED,"Signed-out HTTPS Chrome capture: /, /guide, and /onboard rendered; onboard shows pinned 0.3.1 command."
+ENV-002,P0,ENV,,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,PASS,ENV-002-health.json,,,NOT_REQUIRED,"GET /api/health returned status=ok, database=ok, redis=ok, auditPersistence=ok."
+ENV-003,P1,ENV,,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,2026-08-11 14:19:42 UTC / 2026-08-11 22:19:42 CST,PASS,ENV-003-onboard-json.txt,,,NOT_REQUIRED,GET /api/onboard.json returned HTTP 410 with the pinned 0.3.1 onboarding command and no dual-MCP installation.
 AUTH-001,P0,AUTH,,,,NOT_RUN,,,,PENDING,
 AUTH-002,P0,AUTH,,,,NOT_RUN,,,,PENDING,
 AUTH-003,P0,AUTH,,,,NOT_RUN,,,,PENDING,

@@ -1,0 +1,2 @@
+HTTP 410
+{"statusCode":410,"error":"Gone","replacement":"Use the pinned 0.3.1 onboarding command: npx --yes @neomei/agentwiki-local-sync@0.3.1 onboard --server https://agentwiki.quukk.com/api --protocol ndjson"}
