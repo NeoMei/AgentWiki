@@ -1,0 +1,11 @@
+{
+  "caseId": "REVIEW-005",
+  "resourcePrefix": "3PT-20260811-CODEX-",
+  "sourceName": "3PT-20260811-CODEX-SOURCE-TEXT-01",
+  "candidateMarker": "3PT-20260811-CODEX-REVIEW-005-CANDIDATE",
+  "runTerminalStatus": "completed",
+  "pendingReviewCount": 1,
+  "requesterState": "active",
+  "containsRawIds": false,
+  "containsCredentials": false
+}

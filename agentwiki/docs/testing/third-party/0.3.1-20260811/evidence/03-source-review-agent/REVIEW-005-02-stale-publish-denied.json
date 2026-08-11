@@ -1,0 +1,16 @@
+{
+  "caseId": "REVIEW-005",
+  "resourcePrefix": "3PT-20260811-CODEX-",
+  "authorizationChange": "User A locked after Run completed and before publication",
+  "uiSessionOutcome": "existing session returned to login",
+  "directPublishAttempt": {
+    "endpointKind": "review-publish",
+    "httpStatus": 401,
+    "denied": true
+  },
+  "changeSetStatusAfterAttempt": "pending_review",
+  "candidateSearchAfterUnlock": "no result",
+  "requesterRestored": true,
+  "containsRawIds": false,
+  "containsCredentials": false
+}

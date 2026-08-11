@@ -1,0 +1,11 @@
+{
+  "caseId": "SPACE-006",
+  "resourcePrefix": "3PT-20260811-CODEX-",
+  "operation": "repeat grant with same Agent, Space, role",
+  "visibleGrantRows": 1,
+  "visibleRole": "editor",
+  "agentStatus": "active",
+  "duplicateGrantVisible": false,
+  "containsRawIds": false,
+  "containsCredentials": false
+}

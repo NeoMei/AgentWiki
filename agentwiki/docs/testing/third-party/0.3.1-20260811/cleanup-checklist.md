@@ -18,10 +18,25 @@ Sanitized isolated-root label: `agentwiki-3pt.<ephemeral>` (the full local files
 | Synthetic knowledge fixture set | `knowledge-a` (`overview.md`, `setup.md`, `obsolete.md`) | Codex controller | N/A (local) | Task 2 | Remove isolated root after Task 8 | PENDING | NOT_RECORDED | Confirm all three files are absent with isolated root removal | PENDING |
 | Synthetic knowledge fixture set | `knowledge-b` (`overview.md`, `setup.md`, `obsolete.md`) | Codex controller | N/A (local) | Task 2 | Remove isolated root after Task 8 | PENDING | NOT_RECORDED | Confirm all three files are absent with isolated root removal | PENDING |
 | Local root marker | `agentwiki-3pt-root` (mode `0600`) | Codex controller | N/A (local) | Task 2 | Remove marker after isolated-root removal | PENDING | NOT_RECORDED | Confirm marker is absent and mode was `0600` before removal | PENDING |
+| Source | `3PT-20260811-CODEX-SOURCE-TEXT-01` primary (`sha256-12:a419835a316d`) | User A | `3PT-20260811-CODEX-MAIN` | SOURCE-001 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped Source list and direct resource check within the 3PT Space | PENDING |
+| Source | `3PT-20260811-CODEX-SOURCE-URL-INVALID-01` (`sha256-12:cef2fa9871da`) | User A | `3PT-20260811-CODEX-MAIN` | SOURCE-002 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped Source list and direct resource check within the 3PT Space | PENDING |
+| Source | `3PT-20260811-CODEX-SOURCE-TEXT-01` REVIEW-005 fixture (`sha256-12:10aedee3f008`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-005 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped Source list and direct resource check within the 3PT Space | PENDING |
+| Run | SOURCE-001 completed Run (`sha256-12:44d4ac85fd62`) | User A | `3PT-20260811-CODEX-MAIN` | SOURCE-001 | Delete with parent Source/Space during Task 8 | PENDING | User A / Admin D | Scoped Run list no longer contains the sanitized handle | PENDING |
+| Run | REVIEW-004 completed Run (`sha256-12:93c841b20b95`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-004 | Delete with parent Source/Space during Task 8 | PENDING | User A / Admin D | Scoped Run list no longer contains the sanitized handle | PENDING |
+| Run | SOURCE-002 bounded failure 1 (`sha256-12:b4fb910a28d5`) | User A | `3PT-20260811-CODEX-MAIN` | SOURCE-002 | Delete with parent Source/Space during Task 8 | PENDING | User A / Admin D | Scoped Run list no longer contains the sanitized handle | PENDING |
+| Run | SOURCE-002 controlled retry (`sha256-12:6e86a2b1d33c`) | User A | `3PT-20260811-CODEX-MAIN` | SOURCE-002 | Delete with parent Source/Space during Task 8 | PENDING | User A / Admin D | Scoped Run list no longer contains the sanitized handle | PENDING |
+| Run | REVIEW-005 completed pre-lock Run (`sha256-12:10bae73c973a`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-005 | Delete with parent Source/Space during Task 8 | PENDING | User A / Admin D | Scoped Run list no longer contains the sanitized handle | PENDING |
+| ChangeSet | rejected review fixture (`sha256-12:41c28b7d6b5b`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-003 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped review list no longer contains the sanitized handle | PENDING |
+| ChangeSet | published review fixture (`sha256-12:125cc4e303d3`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-004 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped review list no longer contains the sanitized handle | PENDING |
+| ChangeSet | stale-authority pending fixture (`sha256-12:03930935c063`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-005 | Reject or delete with main test Space during Task 8 | PENDING | User A / Admin D | Scoped review list confirms no pending 3PT ChangeSet remains | PENDING |
+| Page | `3PT-20260811-CODEX-SOURCE-TEXT-01` (`sha256-12:af3eeeb0e020`) | User A | `3PT-20260811-CODEX-MAIN` | REVIEW-004 | Delete with main test Space during Task 8 | PENDING | User A / Admin D | Page list, search, graph, and direct page check show no residual | PENDING |
+| Agent | `3PT-20260811-CODEX-AGENT-01` (`sha256-12:e5a6aea7e81f`) | User A | `3PT-20260811-CODEX-MAIN` | SPACE-006 | Revoke/delete after Task 6, then verify Agent list and credentials | PENDING | User A / Admin D | Agent list absence/revoked state and credential denial | PENDING |
+| Agent Grant | editor Grant (`sha256-12:efc8b3fba4d2`) | User A | `3PT-20260811-CODEX-MAIN` | SPACE-006 | Remove with Agent or Space during Task 8 | PENDING | User A / Admin D | Agent access tab and Space member list show no Grant | PENDING |
 
 ## Task 4 Stop Disposition
 
-- Status: `PENDING` — no cleanup attempted after `STOP-3PT-20260811-001`.
-- Controller: Task 8 / production owner after the human decision.
-- Retained resources: three disposable AUTH users and the main test Space listed above.
-- No Task 4 pages, relations, members, Sources, Runs, Agent grants, or additional Spaces were created before the stop.
+- Status: `RESOLVED FOR CONTINUATION` — the production owner approved Admin D's passive visibility of global administrative metadata while preserving the prohibition on opening or mutating non-3PT resources.
+- Continuation window: `2026-08-11 23:34 CST` through `2026-08-12 05:34 CST`.
+- Controller: Task 8 / production owner for final cleanup.
+- Retained resources: three disposable AUTH users, the main test Space, and the Task 5 resources inventoried above.
+- During Task 5, Admin D was used only for narrowly scoped 3PT administration; no non-3PT resource was opened, searched, or modified.
