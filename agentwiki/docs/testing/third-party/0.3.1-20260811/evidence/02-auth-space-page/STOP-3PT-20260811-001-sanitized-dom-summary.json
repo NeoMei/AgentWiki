@@ -21,5 +21,9 @@
   "write_actions_after_discovery": 0,
   "titles_and_descriptions_recorded": false,
   "observed_distinct_space_count": 20,
-  "non_3pt_distinct_space_count": 20
+  "non_3pt_distinct_space_count": 20,
+  "deduplication_note": "40 link elements deduplicated to 20 distinct href/Space references.",
+  "hashes_are_sample": true,
+  "hash_sample_size": 10,
+  "hash_sample_scope": "Intentional privacy-minimized sample; not complete coverage of the 20 distinct href/Space references."
 }

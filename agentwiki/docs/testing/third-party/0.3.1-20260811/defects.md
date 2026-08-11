@@ -5,16 +5,16 @@
 - Defect ID: `STOP-3PT-20260811-001`
 - Severity: S1 (production safety stop / metadata disclosure concern)
 - Title: Dedicated test super_admin Dashboard automatically rendered non-3PT Space links after login
-- Case ID: AUTH-004; blocks AUTH-004..006, SPACE-002..006, PAGE-001..006, SEARCH-001..002, and GRAPH-001
+- Case ID: AUTH-004; blocks AUTH-004..006, SPACE-002..006, PAGE-001..006, SEARCH-001..002, and GRAPH-001. AUTH-001 and AUTH-002 are independently BLOCKED by record-package review; only AUTH-003 and SPACE-001 remain PASS.
 - Discovery time: 2026-08-11T22:39:49+08:00
 - Role and environment: Admin D, dedicated test `super_admin`; production `https://agentwiki.quukk.com`
-- Preconditions: Approved production window active; only dedicated 3PT test identities were used; AUTH-001..003 and SPACE-001 had completed.
+- Preconditions: Approved production window active; only dedicated 3PT test identities were used; AUTH-003 and SPACE-001 had completed. AUTH-001 and AUTH-002 are not treated as PASS.
 - Reproduction steps:
   1. Open the public login UI in Chrome.
   2. Log in as dedicated Admin D.
   3. Allow the post-login Dashboard to render; perform no Space interaction.
 - Expected result: Under the approved third-party isolation boundary, the dedicated test administrator must not automatically receive metadata for entities outside the `3PT-` test scope.
-- Actual result: The Dashboard automatically rendered links for 20 distinct Spaces whose visible labels did not begin with `3PT-`. Titles and descriptions were not copied into repository evidence or records. No link was opened and no entity was modified.
+- Actual result: The Dashboard rendered 40 link elements, deduplicated to 20 distinct href/Space references, whose visible labels did not begin with `3PT-`. Titles and descriptions were not copied into repository evidence or records. No link was opened and no entity was modified. The ten retained hashes are an intentional privacy-minimized sample, not complete coverage.
 - Reproduction rate: 1/1; not retried because the first observation triggered the mandatory stop condition.
 - Sanitized evidence files: `evidence/02-auth-space-page/STOP-3PT-20260811-001-admin-context-crop.png`; `evidence/02-auth-space-page/STOP-3PT-20260811-001-sanitized-dom-summary.json`
 - Affected 3PT resources: none observed; `3PT-20260811-CODEX-MAIN` was not modified by the stop-triggering step.
