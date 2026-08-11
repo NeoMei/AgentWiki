@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { type AgentWikiClient, redactSecrets, type KnowledgeSyncResult } from './agentwiki-client.js';
+import { type AgentWikiClient, type KnowledgeSyncResult } from './agentwiki-client.js';
 import {
   claimPreview,
   completePreview,

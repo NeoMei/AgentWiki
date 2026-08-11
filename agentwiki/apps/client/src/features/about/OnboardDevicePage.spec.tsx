@@ -21,7 +21,7 @@ vi.mock('../../api/client', () => ({
 const session = {
   clientType: 'codex',
   purpose: 'full-onboarding',
-  packageVersion: '0.3.0',
+  packageVersion: '0.3.1',
   status: 'pending',
   expiresAt: '2026-08-10T12:30:00.000Z',
 };
@@ -65,7 +65,7 @@ describe('OnboardDevicePage', () => {
     expect(await screen.findByText('Codex')).toBeInTheDocument();
     expect(screen.getByText('https://agentwiki.quukk.com')).toBeInTheDocument();
     expect(screen.getByText('完整 Agent 接入')).toBeInTheDocument();
-    expect(screen.getByText('0.3.0')).toBeInTheDocument();
+    expect(screen.getByText('0.3.1')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('ABCD-EFGH');
     expect(document.body.textContent).not.toContain('awo_');
     expect(localStorage.length).toBe(1);

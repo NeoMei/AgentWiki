@@ -40,6 +40,7 @@ export async function runOnboardingHarness(opts) {
   const fixture = { spaceId: null, agentId: null, userId: null };
   const auth = { token: null };
   let child;
+  let primaryError;
   try {
     child = (opts.spawnImpl ?? defaultSpawn)({
       baseUrl,
@@ -60,18 +61,47 @@ export async function runOnboardingHarness(opts) {
     fixture.agentId = result.report?.agent?.id ?? null;
     assertCompletion(result);
     return { sessionId: result.sessionId, report: result.report, fixture, home };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    if (child?.kill) child.kill('SIGKILL');
+    terminateChild(child);
     if (auth.token) {
-      await cleanupFixture(fixture, async (kind, id) => {
-        const route = kind === 'agent' ? `agents/${id}` : kind === 'space' ? `spaces/${id}` : `users/${id}`;
-        const response = await (opts.fetchImpl ?? fetch)(`${baseUrl}/${route}`, {
-          method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` },
+      const fetchImpl = opts.fetchImpl ?? fetch;
+      await discoverFixture(baseUrl, auth.token, fixture, fetchImpl).catch(() => undefined);
+      try {
+        await cleanupFixture(fixture, async (kind, id) => {
+          const route = kind === 'agent' ? `agents/${id}` : kind === 'space' ? `spaces/${id}` : `users/${id}`;
+          const response = await fetchImpl(`${baseUrl}/${route}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` },
+          });
+          if (!response.ok && response.status !== 404) throw new Error(`${kind} cleanup returned ${response.status}`);
         });
-        if (!response.ok && response.status !== 404) throw new Error(`${kind} cleanup returned ${response.status}`);
-      });
+      } catch (cleanupError) {
+        if (!primaryError) throw cleanupError;
+      }
     }
     await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function discoverFixture(baseUrl, token, fixture, fetchImpl) {
+  const headers = { Authorization: `Bearer ${token}` };
+  if (!fixture.agentId) {
+    const response = await fetchImpl(`${baseUrl}/agents`, { headers });
+    if (response.ok) {
+      const body = await response.json();
+      const agents = Array.isArray(body) ? body : body.data ?? [];
+      fixture.agentId = agents.find((item) => String(item.name ?? '').startsWith('aw-e2e-'))?.id ?? null;
+    }
+  }
+  if (!fixture.spaceId) {
+    const response = await fetchImpl(`${baseUrl}/spaces`, { headers });
+    if (response.ok) {
+      const body = await response.json();
+      const spaces = Array.isArray(body) ? body : body.data ?? [];
+      fixture.spaceId = spaces.find((item) => String(item.name ?? '').startsWith('aw-e2e-'))?.id ?? null;
+    }
   }
 }
 
@@ -81,10 +111,19 @@ function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
     ...environment, HOME: home, USERPROFILE: home,
     ...(cliFile ? { AGENTWIKI_E2E_CLI_FILE: resolve(cliFile) } : {}),
   };
-  if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env });
-  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.3.0', ...args], {
-    stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType },
+  const detached = process.platform !== 'win32';
+  if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, detached });
+  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.3.1', ...args], {
+    stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType }, detached,
   });
+}
+
+function terminateChild(child) {
+  if (!child?.kill) return;
+  if (process.platform !== 'win32' && child.pid) {
+    try { process.kill(-child.pid, 'SIGKILL'); return; } catch { /* process already exited */ }
+  }
+  child.kill('SIGKILL');
 }
 
 async function driveProtocol(child, context) {

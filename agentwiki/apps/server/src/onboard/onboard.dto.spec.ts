@@ -31,23 +31,25 @@ const createPlan: ServerPlan = {
   agentName: 'Codex',
   permissionPreset: 'editor',
   approvalMode: 'always-review',
-  packageVersion: '0.3.0',
+  packageVersion: '0.3.1',
 };
 
 describe('onboarding DTO contract', () => {
-  it.each(['codex', 'claude', 'opencode'] as const)(
-    'accepts 0.3.0 full onboarding from the %s client',
-    async (clientType) => {
-      await expect(validationErrors(StartDeviceDto, {
-        packageVersion: '0.3.0',
-        clientType,
-        purpose: 'full-onboarding',
-      })).resolves.toEqual([]);
+  it.each(['0.3.0', '0.3.1'] as const)(
+    'accepts supported package version %s from every client',
+    async (packageVersion) => {
+      for (const clientType of ['codex', 'claude', 'opencode'] as const) {
+        await expect(validationErrors(StartDeviceDto, {
+          packageVersion,
+          clientType,
+          purpose: 'full-onboarding',
+        })).resolves.toEqual([]);
+      }
     },
   );
 
   it.each([
-    { packageVersion: '0.3.1', clientType: 'codex', purpose: 'full-onboarding' },
+    { packageVersion: '0.3.2', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: 'v0.3.0', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'cursor', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'codex', purpose: 'device-auth' },
@@ -57,7 +59,7 @@ describe('onboarding DTO contract', () => {
 
   it('rejects requestedCapabilities and every other unknown start field', async () => {
     const errors = await validationErrors(StartDeviceDto, {
-      packageVersion: '0.3.0',
+      packageVersion: createPlan.packageVersion,
       clientType: 'codex',
       purpose: 'full-onboarding',
       requestedCapabilities: ['bootstrap'],
@@ -138,7 +140,7 @@ describe('onboarding DTO contract', () => {
   it.each([
     { ...createPlan, permissionPreset: 'viewer' },
     { ...createPlan, approvalMode: 'auto-publish' },
-    { ...createPlan, packageVersion: '0.3.1' },
+    { ...createPlan, packageVersion: '0.3.2' },
     { ...createPlan, space: { mode: 'create', id: 'space-id' } },
     { ...createPlan, space: { mode: 'existing', name: '研发知识库' } },
   ])('rejects invalid bootstrap plan %#', async (serverPlan) => {
@@ -232,7 +234,7 @@ describe('onboarding permission presets and canonical plan hashing', () => {
     const reordered: NormalizedServerPlan = {
       spaceRole: 'editor',
       scopes: [...normalized.scopes].reverse(),
-      packageVersion: '0.3.0',
+      packageVersion: createPlan.packageVersion,
       approvalMode: 'always-review',
       permissionPreset: 'editor',
       agentName: 'Codex',
@@ -241,7 +243,7 @@ describe('onboarding permission presets and canonical plan hashing', () => {
 
     expect(hashServerPlan(normalized)).toBe(hashServerPlan(reordered));
     expect(hashServerPlan(normalized)).toBe(
-      '08a6da0a1e2a0924cd37ccafba2d598dd141b18375e6a70eb1f2dd27aef4fc31',
+      '2a3a459c5cfa323ccbe0c2fb8f9522ec36e4cd94928add889807f43a6bb33a8a',
     );
     expect(hashServerPlan(normalized)).toMatch(/^[0-9a-f]{64}$/);
   });

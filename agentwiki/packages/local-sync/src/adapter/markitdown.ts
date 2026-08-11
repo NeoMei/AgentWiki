@@ -58,6 +58,7 @@ export class MarkitdownAdapter implements SourceAdapter {
       sourceHash,
       metadata: {
         fileCount: files.length,
+        requiresManagedRuntime: files.some((file) => !isPlainText(file)),
       },
     };
   }
@@ -215,8 +216,7 @@ async function computeDirectoryHash(sourcePath: string, files: string[]): Promis
 }
 
 async function convertToText(runtimePath: string, filePath: string): Promise<string> {
-  const ext = extname(filePath).toLowerCase();
-  if (ext === '.md' || ext === '.markdown' || ext === '.txt') {
+  if (isPlainText(filePath)) {
     return await readFile(filePath, 'utf8');
   }
 
@@ -229,4 +229,8 @@ async function convertToText(runtimePath: string, filePath: string): Promise<str
     timeout: 120_000,
   });
   return stdout;
+}
+
+function isPlainText(filePath: string): boolean {
+  return ['.md', '.markdown', '.txt'].includes(extname(filePath).toLowerCase());
 }

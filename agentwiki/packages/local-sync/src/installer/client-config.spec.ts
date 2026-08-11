@@ -113,7 +113,7 @@ describe('installGatewayEntry', () => {
     expect(cmd).toEqual([
       'npx',
       '--yes',
-      '@neomei/agentwiki-local-sync@0.3.0',
+      '@neomei/agentwiki-local-sync@0.3.1',
       'gateway',
       '--connection',
       'conn-42',

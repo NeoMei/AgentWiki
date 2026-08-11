@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -57,6 +57,8 @@ afterEach(async () => {
 describe('createKnowledgeWorkflowRuntime', () => {
   it('collects code and documents locally, persists a valid bundle, then pulls before push', async () => {
     const home = await temporaryHome();
+    const source = await temporaryHome();
+    await writeFile(join(source, 'README.md'), '# Runtime fixture');
     const adapters = {
       ensure: vi.fn(async (id: string) => adapter(id === 'codebase-memory' ? 'code' : 'document')),
     };
@@ -71,9 +73,10 @@ describe('createKnowledgeWorkflowRuntime', () => {
     };
 
     const first = createKnowledgeWorkflowRuntime({ home, adapters, sync, now: () => new Date('2026-08-11T00:00:00.000Z') });
-    const preview = await first.prepare({ spaceId: 'space-1', sourcePaths: ['/tmp/source'], sourceType: 'auto' });
+    const preview = await first.prepare({ spaceId: 'space-1', sourcePaths: [source], sourceType: 'auto' });
 
     expect(preview.summary.filesProcessed).toBe(2);
+    expect(adapters.ensure).not.toHaveBeenCalledWith('markitdown');
     expect(calls).toEqual([]);
 
     const resumed = createKnowledgeWorkflowRuntime({ home, adapters, sync, now: () => new Date('2026-08-11T00:00:00.000Z') });

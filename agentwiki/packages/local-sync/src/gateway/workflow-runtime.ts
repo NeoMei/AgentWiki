@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import type { SourceAdapter } from '../protocol/adapter.js';
 import type { SourceArtifact } from '../protocol/artifact.js';
+import { MarkitdownAdapter } from '../adapter/markitdown.js';
 import type { Recipe } from '../protocol/recipe.js';
 import { organizeArtifacts, validateKnowledgeBundle } from '../organize/index.js';
 import { workspacePaths } from '../workspace/layout.js';
@@ -61,9 +62,12 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
 
       for (const sourcePath of input.sourcePaths) {
         for (const adapterId of adapterIds) {
-          const adapter = await options.adapters.ensure(adapterId);
-          const descriptor = await adapter.inspect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
+          const probe = adapterId === 'markitdown' ? new MarkitdownAdapter('') : await options.adapters.ensure(adapterId);
+          const descriptor = await probe.inspect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
           if (descriptor.estimatedArtifacts === 0) continue;
+          const adapter = adapterId === 'markitdown' && descriptor.metadata?.requiresManagedRuntime === true
+            ? await options.adapters.ensure(adapterId)
+            : probe;
           const batch = await adapter.collect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
           artifacts.push(...batch.artifacts);
         }

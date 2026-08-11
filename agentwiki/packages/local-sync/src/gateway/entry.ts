@@ -86,6 +86,6 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
     readCredential: async () => credential.apiKey,
   });
 
-  const { server } = await createGatewayServer({ handlers, bridge, version: '0.3.0' });
+  const { server } = await createGatewayServer({ handlers, bridge, version: '0.3.1' });
   await server.connect(new StdioServerTransport());
 }
