@@ -15,8 +15,9 @@
 - 宿主 Agent 不支持热加载时，独立验证 gateway 后返回 reload_required，不等待宿主刷新。
 - bootstrap、安装、扫描和同步均可由 session/checkpoint 幂等恢复。
 - bootstrap 只接收 serverPlan；扫描路径、Adapter 选择和本地配置 diff 属于 localPlan，永不上传。
-- 目标版本为 local-sync 0.3.0，并明确作为破坏性简化版本；不保留 0.2.9 connect、remote-only 安装分支或旧状态迁移。
-- 旧客户端配置先完整备份，再一次性替换为唯一 gateway；旧本地状态只归档，不做语义迁移。
+- 最终发布版本为 local-sync 0.3.1，并明确作为破坏性简化版本；不保留 0.2.9 connect、remote-only 安装分支或旧状态迁移。
+- 旧客户端配置先完整备份，再一次性替换为唯一 gateway；0.3.0 因纯文本首次扫描会无条件安装 MarkItDown runtime，发布后以 0.3.1 修复并将 0.3.0 视为被替代版本。
+- 旧本地状态只归档，不做语义迁移。
 - 完整 onboarding 因首次同步必做，只提供 `editor` 与 `full` 权限预设；`viewer` 仅允许接入完成后由 Space 管理员降级设置。
 - 每个新的 onboarding device session 表示一个独立本地 Agent 接入；同一账号、同一 Space、同一名称或同一客户端类型都不得触发跨 session 的 Agent 复用。
 - onboarding bootstrap 的幂等边界仅为同一 device session + 同一幂等键 + 同一 canonical server plan hash；精确重放必须返回该 session 原 Agent、Grant 和安装结果，不产生重复资源。

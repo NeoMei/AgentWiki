@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- Agent 自助接入 0.3.0：Task 5-11 全部代码实现完成（NDJSON 协议、单一 gateway MCP、知识工作流、原子安装器、coordinator 状态机、preflight、verifier、CLI 命令、版本/文档/发布面、E2E 门禁）。待用户授权后部署生产。
+- Agent 自助接入 0.3.1 已实现、测试、发布并完成生产验收；当前无活跃开发任务。
 
 # 范围 / 不做
 
@@ -12,40 +12,32 @@
 
 # 当前状态
 
-- 2026-08-11 完成 0.3.0 onboarding 全部 11 个 Task，分支 codex/production-readiness 上共 12 个新提交：
-  - Task 5: NDJSON 协议 + HTTP 客户端 + 安全 session + 稳定错误码 + awd_/awo_ 脱敏
-  - Task 6: 单一 gateway manifest + RemoteMcpBridge + createGatewayServer
-  - Task 7: KnowledgeWorkflows(prepare/confirmAndSync/pull)
-  - Task 8: 原子安装器(Codex/Claude/OpenCode + 备份/回滚/归档)
-  - Task 9: OnboardingCoordinator + preflight + verifier + CLI(onboard/gateway)
-  - Task 10: 版本升 0.3.0 + onboard.controller 重写(410 Gone) + README/SKILL + runtime contract
-  - Task 11: onboarding-e2e.mjs 安全 harness + 7 测试 + 验证文档
-  - 代码审查修复: plan-hash 一致性、sha256 确定性、buildToml 正则、状态机失败转换、clientType 一致性
-- 全量门禁(2026-08-11)：runtime 66、server 486、client 160、local-sync 293，合计 1005 项测试通过；typecheck 0；lint 0；build 0。
-- 生产 https://agentwiki.quukk.com 运行 0.2.9，健康检查全绿，所有现有路由正常。
-- 生产尚未部署 0.3.0 代码（onboarding device auth 端点尚未上线）。
-- npm audit: 0 high/critical，3 moderate（均不可达）。
-- npm token 已恢复（neomei），可发布 0.3.0。
+- 2026-08-11：2026-08-10 Agent 自助接入设计与 11 个实施 Task 全部完成，计划清单已全部勾选并归档。
+- npm `@neomei/agentwiki-local-sync@0.3.1` 已发布，`latest=0.3.1`；纯 Markdown/TXT 首次扫描不再等待 MarkItDown Python runtime，PDF/DOC/DOCX 仍按需安装。
+- 生产 `https://agentwiki.quukk.com` 已部署 0.3.1；API、worker、frontend 均 active，健康检查 database/Redis/audit persistence 全绿，`/api/onboard.json` 实际返回 HTTP 410。
+- Codex、Claude Code、OpenCode 已分别用 npm 公网包在隔离 HOME 完整通过 Device Auth、bootstrap、单一 gateway、扫描、预览、同步和清理；生产残留 0 用户 / 0 Space。
+- Playwright 生产 Device Auth UI E2E 通过。
+- 最终门禁：runtime 67 pass/9 skip、server 486、client 160、local-sync 317；typecheck/lint/build 通过；peer 0；audit 0 high/critical。
+- GitHub PR #4 已用于集成，发布标签与 Release 为 `v0.3.1`。
 
 # 稳定约束
 
 - Agent 权限为 Credential Scope、Space Grant、Agent 状态与 Space Policy 的交集。
 - 本地知识按 Space 隔离；所有采集、整理、合并和敏感检查在本地完成。
 - 服务端 Revision 是权威版本；Push 前 Pull，冲突必须用户确认。
-- 发布流程固定为备份、迁移、部署、健康检查、受控 smoke 和版本核对。
+- 发布流程固定为备份、迁移、部署、健康检查、受控 smoke、三客户端 E2E 和版本核对。
 
 # 关键索引
 
-- 产品代码：`agentwiki/`（版本 0.3.0）
-- 工作目录：`agentwiki/.worktrees/production-readiness/`（分支 codex/production-readiness，领先 master 35 提交）
-- 0.3.0 onboarding 新代码：`packages/local-sync/src/{onboarding,gateway,installer}/`
-- 生产地址：https://agentwiki.quukk.com
+- 产品代码：`agentwiki/`（版本 0.3.1）
+- 设计：`agentwiki/docs/superpowers/specs/2026-08-10-agent-self-service-onboarding-gateway-design.md`
+- 已完成计划：`agentwiki/docs/superpowers/plans/2026-08-10-agent-self-service-onboarding-gateway-plan.md`
+- 验证报告：`agentwiki/docs/verification/agent-self-service-onboarding-0.3.1.md`
+- 生产：https://agentwiki.quukk.com
 - GitHub：https://github.com/NeoMei/AgentWiki
 - npm：https://www.npmjs.com/package/@neomei/agentwiki-local-sync
 
 # 风险 / 下一步
 
-- codex/production-readiness 分支领先 master 35 个提交，未 push 未合并。
-- 生产部署 0.3.0 需要：备份 PostgreSQL → 应用 Prisma 迁移 → 部署 server/client/worker → /api/health → 受控 smoke。
-- master 远程比本地多 11 个提交（需对齐后再合并分支）。
-- onboarding device/start 端点部署后需要受控 E2E 验收。
+- 仅余 NestJS SSE 序列化中危告警 `GHSA-36xv-jgw5-4q75`；项目没有 SSE 路由或 `SseStream` 使用，当前不可达。后续单独规划 NestJS 10→11 大版本升级，不在 0.3.1 补丁发布中冒险处理。
+- 前端 `PageEditor` 构建 chunk 约 710 kB，属于性能优化候选，不阻塞本次功能与安全发布。

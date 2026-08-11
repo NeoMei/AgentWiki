@@ -1,8 +1,10 @@
 # Agent Self-Service Onboarding and Unified Gateway Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** Ship `@neomei/agentwiki-local-sync@0.3.0` so one pinned command can complete web authorization, deterministic form collection, one unified local `agentwiki` MCP installation, first local scan, preview confirmation, and first sync.
+**Goal:** Ship `@neomei/agentwiki-local-sync@0.3.1` so one pinned command can complete web authorization, deterministic form collection, one unified local `agentwiki` MCP installation, first local scan, preview confirmation, and first sync.
+
+> Final release note (2026-08-11): 0.3.1 supersedes the initial 0.3.0 package because the patch makes the MarkItDown runtime lazy for plain Markdown/TXT onboarding.
 
 **Architecture:** Add a first-party Device Auth and idempotent bootstrap flow to the NestJS server. Replace the public 0.2.9 dual-MCP/connect surface with one stdio gateway whose static registry binds `wiki_*` tools to a remote MCP bridge, `local_*` tools to local adapters, and `knowledge_*` tools to high-level local/remote workflows. Drive the installation with an NDJSON state machine, persist non-secret checkpoints, write client configuration atomically, and independently verify the gateway before declaring completion.
 
@@ -13,7 +15,7 @@
 - The public command is exactly:
 
   ```bash
-  npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard --server https://agentwiki.quukk.com/api --protocol ndjson
+  npx --yes @neomei/agentwiki-local-sync@0.3.1 onboard --server https://agentwiki.quukk.com/api --protocol ndjson
   ```
 
 - Passwords, Google credentials, human JWTs, Agent API keys, raw source files, and local paths never enter the server plan or NDJSON output.
@@ -67,13 +69,13 @@
 - Produces `OnboardingDeviceSession`, `OnboardingBootstrap`, `ServerPlan`, permission presets, and validated start/poll/decision/bootstrap DTOs.
 - Consumed by Tasks 2 and 3.
 
-- [ ] **Step 1: Write failing DTO and plan-normalization tests**
+- [x] **Step 1: Write failing DTO and plan-normalization tests**
 
   Cover exact version validation, supported clients, unknown-field rejection, create/existing Space variants, preset scopes, approval modes, and canonical hashing. The canonical plan helper must sort object keys and scope arrays before hashing. The exact public inputs are:
 
   ```ts
   type StartDeviceInput = {
-    packageVersion: '0.3.0';
+    packageVersion: '0.3.1';
     clientType: 'codex' | 'claude' | 'opencode';
     purpose: 'full-onboarding';
   };
@@ -84,7 +86,7 @@
     agentName: string;
     permissionPreset: 'editor' | 'full';
     approvalMode: 'always-review' | 'scoped-auto-publish';
-    packageVersion: '0.3.0';
+    packageVersion: '0.3.1';
   };
   type BootstrapInput = { serverPlan: ServerPlan; serverPlanHash: string };
   ```
@@ -113,7 +115,7 @@
     agentName: 'Codex',
     permissionPreset: 'editor',
     approvalMode: 'always-review',
-    packageVersion: '0.3.0',
+    packageVersion: '0.3.1',
   })).toEqual(expect.objectContaining({
     scopes: [
       'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
@@ -122,7 +124,7 @@
   }));
   ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
   ```bash
   pnpm --filter @agentwiki/server test -- src/onboard/onboard.dto.spec.ts
@@ -130,7 +132,7 @@
 
   Expected: FAIL because the DTO and contract modules do not exist.
 
-- [ ] **Step 3: Add the Prisma models and migration**
+- [x] **Step 3: Add the Prisma models and migration**
 
   Add the user relation and these models, preserving only hashes of device/user codes and onboarding tokens:
 
@@ -181,11 +183,11 @@
   }
   ```
 
-- [ ] **Step 4: Implement strict DTOs and the canonical plan helper**
+- [x] **Step 4: Implement strict DTOs and the canonical plan helper**
 
   Define `PERMISSION_PRESETS` in one server module. `editor` and `full` must map only to scopes already accepted by `AgentService.normalizeCredentialScopes`; bootstrap must reject `viewer`, any client-supplied `scopes`, and every unknown field.
 
-- [ ] **Step 5: Validate schema and run tests**
+- [x] **Step 5: Validate schema and run tests**
 
   ```bash
   pnpm --filter @agentwiki/server exec prisma validate --schema prisma/schema.prisma
@@ -195,7 +197,7 @@
 
   Expected: Prisma validates and all onboarding DTO tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add apps/server/prisma apps/server/src/onboard/onboard.types.ts apps/server/src/onboard/onboard.dto.ts apps/server/src/onboard/onboard.dto.spec.ts
@@ -216,44 +218,44 @@
 - Produces start/session/decision/poll endpoints and `request.onboarding` for bootstrap.
 - Reuses `RedisService.incrementWithWindow`, `AuditService`, `JwtAuthGuard`, and `HumanOnlyGuard`.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
   Test: 32-byte device entropy, hashed persistence, eight-character user code, five-second interval, ten-minute expiry, pending/slow-down/denied/expired responses, approval by a human user, one token returned once, token hash persistence, locked/deleted users denied, and per-IP/per-user/device rate limits.
 
   ```ts
-  const started = await service.start({ packageVersion: '0.3.0', clientType: 'codex', purpose: 'full-onboarding' }, '127.0.0.1');
+  const started = await service.start({ packageVersion: '0.3.1', clientType: 'codex', purpose: 'full-onboarding' }, '127.0.0.1');
   expect(started.deviceCode).toMatch(/^awd_[A-Za-z0-9_-]{43}$/);
   expect(prisma.onboardingDeviceSession.create).toHaveBeenCalledWith(expect.objectContaining({
     data: expect.objectContaining({ deviceCodeHash: expect.not.stringContaining(started.deviceCode) }),
   }));
   ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @agentwiki/server test -- src/onboard/onboard-device.service.spec.ts
   ```
 
-- [ ] **Step 3: Implement the lifecycle**
+- [x] **Step 3: Implement the lifecycle**
 
   Use `randomBytes(32).toString('base64url')`, SHA-256 hashes, constant-time comparisons where raw values are compared, and database compare-and-swap updates on `status`. `poll` returns the raw onboarding token only on the first approved poll; later polls return `authorization_consumed`.
 
-- [ ] **Step 4: Add controller routes and token guard**
+- [x] **Step 4: Add controller routes and token guard**
 
   `OnboardingTokenGuard` accepts only an `awo_` bearer token, validates its hash/expiry/status, and attaches `{ sessionId, userId, packageVersion, requestedCapabilities }`. It must not delegate to the normal JWT/API-key guard. After the first successful bootstrap it may admit only an exact replay for the already-saved bootstrap record; it must reject a new mutation.
 
-- [ ] **Step 5: Add HTTP contract tests**
+- [x] **Step 5: Add HTTP contract tests**
 
   Extend `onboard-device.service.spec.ts` with a Nest test application proving public start/poll, JWT-only decision, no raw token/code in logs or database mocks, and stable business error codes.
 
-- [ ] **Step 6: Run focused and full server tests**
+- [x] **Step 6: Run focused and full server tests**
 
   ```bash
   pnpm --filter @agentwiki/server test -- src/onboard/onboard-device.service.spec.ts
   pnpm --filter @agentwiki/server test
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add apps/server/src/onboard apps/server/src/core/security/audit.service.ts
@@ -274,7 +276,7 @@
 - Consumes authenticated onboarding context, `Idempotency-Key`, confirmed `serverPlan`, and `serverPlanHash`.
 - Produces Space/Agent/Grant IDs and a ten-minute one-use installation code; never returns an Agent API key.
 
-- [ ] **Step 1: Write failing bootstrap tests**
+- [x] **Step 1: Write failing bootstrap tests**
 
   Cover create/reuse Space, one independent Agent per device session (including two sessions using the same Agent name), preset grant scopes, `always-review` versus `scoped-auto-publish`, plan capability narrowing, wrong hash, missing idempotency key, identical same-session replay, changed-plan replay rejection, concurrent replay, failure rollback, and token consumption only after a saved result exists.
 
@@ -286,21 +288,21 @@
   expect(prisma.agent.create).toHaveBeenCalledTimes(1);
   ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @agentwiki/server test -- src/onboard/onboard-bootstrap.service.spec.ts
   ```
 
-- [ ] **Step 3: Implement bootstrap transaction and replay cache**
+- [x] **Step 3: Implement bootstrap transaction and replay cache**
 
   The Prisma transaction may create/reuse the Space owner membership, but every new device session creates an independent Agent and AgentGrant. Agent identity is never reused by owner, Space, name, client type, or approval mode. Idempotency is scoped to the same device session, idempotency key, and canonical server-plan hash: exact same-session replay reads the original Agent and response, while a different idempotency key or plan hash fails with `ONBOARDING_REPLAY_MISMATCH`. Persist resource IDs in `OnboardingBootstrap`; store the short-lived response containing the installation code in Redis under the bootstrap record ID.
 
-- [ ] **Step 4: Reuse installation-code issuance safely**
+- [x] **Step 4: Reuse installation-code issuance safely**
 
   Extract a package-private `issueForBootstrap` path in `LocalSyncInstallationService` that accepts already-authorized resource IDs and the server-selected scopes. It must retain exact-version checking, safe public URL handling, TTL, exchange rate limits, audit, and credential cleanup.
 
-- [ ] **Step 5: Add the HTTP route**
+- [x] **Step 5: Add the HTTP route**
 
   `POST /api/onboard/bootstrap` uses only `OnboardingTokenGuard`, requires `Idempotency-Key`, verifies the canonical plan hash server-side, and returns:
 
@@ -313,14 +315,14 @@
   }
   ```
 
-- [ ] **Step 6: Run focused and full server tests**
+- [x] **Step 6: Run focused and full server tests**
 
   ```bash
   pnpm --filter @agentwiki/server test -- src/onboard/onboard-bootstrap.service.spec.ts src/core/agent/local-sync-installation.service.spec.ts
   pnpm --filter @agentwiki/server test
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add apps/server/src/onboard apps/server/src/core/agent/local-sync-installation.service.ts apps/server/src/core/agent/local-sync-installation.service.spec.ts
@@ -345,36 +347,36 @@
 - `/onboard` shows only the pinned 0.3 command and three-action flow.
 - `/onboard/device?user_code=ABCD-EFGH` authenticates the human and approves/denies the displayed session.
 
-- [ ] **Step 1: Write failing UI tests**
+- [x] **Step 1: Write failing UI tests**
 
   Test missing/invalid/expired codes, logged-out return flow, login/register return-to preservation, displayed client/server/purpose, approve/deny, duplicate click prevention, bilingual copy, and absence of 0.2.9/two-MCP/API-key instructions.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @agentwiki/client test -- src/features/about/OnboardDevicePage.spec.tsx src/features/about/OnboardPage.spec.tsx src/features/auth/safeReturnTo.spec.ts
   ```
 
-- [ ] **Step 3: Implement a safe same-origin return target**
+- [x] **Step 3: Implement a safe same-origin return target**
 
   `safeReturnTo` accepts only an absolute-path URL beginning with `/onboard/device`; reject protocol-relative, cross-origin, backslash, encoded-control, and arbitrary app paths. `ProductPage` navigates there after successful login/registration instead of `/dashboard` when present.
 
-- [ ] **Step 4: Implement the authorization page**
+- [x] **Step 4: Implement the authorization page**
 
   Fetch public session context, require the existing human JWT for decision, show exactly what is being authorized, and never render or persist the device code/onboarding token. The approve and deny buttons use one in-flight request and end in a terminal success message.
 
-- [ ] **Step 5: Replace onboarding public copy**
+- [x] **Step 5: Replace onboarding public copy**
 
   Remove the old prompt, direct `/api/onboard.json` workflow, API-key generation, “two MCP modes,” and old tool lists. Show the pinned command, supported Agents as examples, browser authorization, plan confirmation, first scan, and preview confirmation.
 
-- [ ] **Step 6: Run focused and full client tests**
+- [x] **Step 6: Run focused and full client tests**
 
   ```bash
   pnpm --filter @agentwiki/client test -- src/features/about/OnboardDevicePage.spec.tsx src/features/about/OnboardPage.spec.tsx src/features/auth/safeReturnTo.spec.ts
   pnpm --filter @agentwiki/client test
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add apps/client/src
@@ -398,7 +400,7 @@
 - Produces versioned NDJSON events/replies, monotonic sequence numbers, typed errors, HTTP deadlines, and resumable local checkpoints.
 - Consumed by Task 9.
 
-- [ ] **Step 1: Write failing protocol tests**
+- [x] **Step 1: Write failing protocol tests**
 
   Cover one-object-per-line output, stdout/stderr separation, monotonic `seq`, request ID correlation, duplicate response idempotency, unknown-field rejection, protocol mismatch before side effects, heartbeat within five seconds, EOF/cancel, and exact event schemas.
 
@@ -408,17 +410,17 @@
   expect(stdout).not.toContain('diagnostic');
   ```
 
-- [ ] **Step 2: Write failing client/session tests**
+- [x] **Step 2: Write failing client/session tests**
 
   Test device start/poll/bootstrap deadlines, `slow_down`, retry bounds, redacted errors, `0600` session and secret-file modes, atomic writes, valid state transitions, resume after every checkpoint, and deletion of the transient onboarding token after bootstrap.
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/onboarding/protocol.spec.ts src/onboarding/client.spec.ts src/onboarding/session.spec.ts src/utils/redact.spec.ts
   ```
 
-- [ ] **Step 4: Implement the protocol and state types**
+- [x] **Step 4: Implement the protocol and state types**
 
   Use Zod discriminated unions. The persisted states are:
 
@@ -431,17 +433,17 @@
     | 'failed_terminal' | 'cancelled';
   ```
 
-- [ ] **Step 5: Implement secure persistence**
+- [x] **Step 5: Implement secure persistence**
 
   Save non-secret state at `~/.agentwiki/onboarding/<sessionId>.json`. Save the short-lived onboarding token separately at `~/.agentwiki/onboarding/<sessionId>.secret.json`; both are `0600`, the directory is `0700`, and the secret file is removed immediately after bootstrap. Never persist an Agent API key in either file.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/onboarding/protocol.spec.ts src/onboarding/client.spec.ts src/onboarding/session.spec.ts src/utils/redact.spec.ts
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add packages/local-sync/src/onboarding packages/local-sync/src/utils/redact.ts packages/local-sync/src/utils/redact.spec.ts
@@ -468,7 +470,7 @@
 - `createGatewayServer(context)` registers one exact manifest.
 - `RemoteMcpBridge.listTools()` and `.callTool()` proxy `/api/mcp` using the stored Agent credential.
 
-- [ ] **Step 1: Write failing manifest and routing tests**
+- [x] **Step 1: Write failing manifest and routing tests**
 
   Assert exact names, unique execution planes, no old aliases, no silent collision, deterministic schema hash, offline manifest behavior, and `REMOTE_UNAVAILABLE` without disabling local tools.
 
@@ -479,32 +481,32 @@
   expect(new Set(toolNames).size).toBe(toolNames.length);
   ```
 
-- [ ] **Step 2: Write failing MCP bridge tests**
+- [x] **Step 2: Write failing MCP bridge tests**
 
   Use an in-process MCP HTTP fixture to verify `initialize`, `tools/list`, `tools/call`, authorization header redaction, 30-second deadline, incompatible server manifest rejection, last-known-good cache, and remote error-code preservation.
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/gateway/manifest.spec.ts src/gateway/remote-mcp-bridge.spec.ts src/gateway/server.spec.ts
   ```
 
-- [ ] **Step 4: Implement the bridge and gateway**
+- [x] **Step 4: Implement the bridge and gateway**
 
   Use the MCP SDK client and `StreamableHTTPClientTransport`; do not recreate remote business operations with REST calls. Prefix every compatible remote tool with `wiki_`, cache only its non-sensitive schema/version/hash, and bind every registered handler to its declared plane.
 
-- [ ] **Step 5: Remove public dual-server factories**
+- [x] **Step 5: Remove public dual-server factories**
 
   Delete `createLocalSyncMcpServer`, `serveLocalSyncMcp`, `createOrchestratorMcpServer`, and `serveOrchestratorMcp` from the public runtime. Keep reusable local orchestration classes internal for Task 7.
 
-- [ ] **Step 6: Run focused and package tests**
+- [x] **Step 6: Run focused and package tests**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/gateway/manifest.spec.ts src/gateway/remote-mcp-bridge.spec.ts src/gateway/server.spec.ts
   pnpm --filter @neomei/agentwiki-local-sync test
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add packages/local-sync/src/gateway packages/local-sync/src/mcp.ts
@@ -528,7 +530,7 @@
 - `knowledge_confirm_and_sync` requires `jobId`, `previewHash`, and `confirmed: true`, pulls before push, checks revision/conflicts, then uploads only the confirmed bundle.
 - `knowledge_pull` updates the local Space workspace from the authoritative revision.
 
-- [ ] **Step 1: Write failing workflow tests**
+- [x] **Step 1: Write failing workflow tests**
 
   Cover code/document adapter auto-detection, multiple source paths, ignore rules, zero network calls during prepare, preview hash binding, changed/expired preview rejection, Pull-before-Push order, three-way conflict blocking, approval result propagation, retry idempotency, and cleanup.
 
@@ -539,28 +541,28 @@
   expect(remote.calls.map((call) => call.name)).toEqual(['pull', 'push']);
   ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/gateway/knowledge-workflows.spec.ts src/orchestrator-commands.spec.ts src/sync/sync-engine.spec.ts
   ```
 
-- [ ] **Step 3: Implement the high-level coordinator**
+- [x] **Step 3: Implement the high-level coordinator**
 
   Reuse `AdapterManager`, recipes, organizer, validator, workspace checkpoints, `SyncEngine`, and the existing source-key mechanism. The returned preview includes counts, warnings, paths represented as display-safe relative roots, revision, checksum, and preview file path; it does not include raw full file bodies in NDJSON.
 
-- [ ] **Step 4: Register only the approved public tools**
+- [x] **Step 4: Register only the approved public tools**
 
   `local_scan_sources` returns discovery metadata; `local_read_artifacts` reads bounded local summaries. `knowledge_prepare`, `knowledge_confirm_and_sync`, and `knowledge_pull` wrap the whole safe workflow. Internal job primitives remain ordinary TypeScript functions, not MCP tools.
 
-- [ ] **Step 5: Run package tests**
+- [x] **Step 5: Run package tests**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test
   pnpm --filter @neomei/agentwiki-local-sync typecheck
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add packages/local-sync/src/gateway packages/local-sync/src/orchestrator-commands.ts packages/local-sync/src/orchestrator-commands.spec.ts packages/local-sync/src/sync
@@ -589,43 +591,43 @@
 - `preflightClient()` returns config path/hash, old AgentWiki entries, conflict status, backup path, command, and reload capability.
 - `installGateway(plan)` archives, writes, verifies the post-write hash, and exposes `rollback()` until verification completes.
 
-- [ ] **Step 1: Write failing isolated-HOME tests**
+- [x] **Step 1: Write failing isolated-HOME tests**
 
-  Cover Codex, Claude Code, OpenCode 1/2, exact `0.3.0` gateway command, complete config backup, old remote/local entry removal, unknown same-name refusal, concurrent hash change, atomic JSON/TOML/CLI mutation boundary, rollback, private modes, repeat install, command timeout, and process-group termination.
+  Cover Codex, Claude Code, OpenCode 1/2, exact `0.3.1` gateway command, complete config backup, old remote/local entry removal, unknown same-name refusal, concurrent hash change, atomic JSON/TOML/CLI mutation boundary, rollback, private modes, repeat install, command timeout, and process-group termination.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/installer/plan.spec.ts src/installer/client-config.spec.ts src/installer/archive.spec.ts src/agent-clients.spec.ts src/config.spec.ts
   ```
 
-- [ ] **Step 3: Define the only installed command**
+- [x] **Step 3: Define the only installed command**
 
   ```ts
   const gatewayCommand = [
-    'npx', '--yes', '@neomei/agentwiki-local-sync@0.3.0',
+    'npx', '--yes', '@neomei/agentwiki-local-sync@0.3.1',
     'gateway', '--connection', connectionId,
   ];
   ```
 
   Do not include `mcp`, `--orchestrator`, a remote URL, installation code, or API key in client configuration.
 
-- [ ] **Step 4: Implement archive and clean 0.3 state**
+- [x] **Step 4: Implement archive and clean 0.3 state**
 
   Before mutation, copy the full client config and move every legacy child of `~/.agentwiki` except the active `onboarding/` session directory into a timestamped directory under `~/.agentwiki-archive/`. Mark the archive read-only, initialize schema-version-3 state beside the preserved onboarding checkpoint with `0700/0600`, and never delete the archive automatically. A failure restores the legacy children without overwriting the active session.
 
-- [ ] **Step 5: Implement bounded client mutation**
+- [x] **Step 5: Implement bounded client mutation**
 
   Codex/Claude commands receive explicit non-interactive arguments and a 60-second deadline. OpenCode uses temp-file write, file `fsync`, directory `fsync`, atomic rename, and mode restoration. Re-hash immediately before mutation; a mismatch returns `CONFIG_CONFLICT` without writing.
 
-- [ ] **Step 6: Run focused and package tests**
+- [x] **Step 6: Run focused and package tests**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/installer/plan.spec.ts src/installer/client-config.spec.ts src/installer/archive.spec.ts src/agent-clients.spec.ts src/config.spec.ts
   pnpm --filter @neomei/agentwiki-local-sync test
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add packages/local-sync/src/installer packages/local-sync/src/agent-clients.ts packages/local-sync/src/agent-clients.spec.ts packages/local-sync/src/config.ts packages/local-sync/src/config.spec.ts
@@ -649,11 +651,11 @@
 - Public CLI: `onboard`, `onboard resume <sessionId>`, `doctor`, `uninstall`, and `gateway` only.
 - `onboard_status` reads the non-secret completed session report.
 
-- [ ] **Step 1: Write failing coordinator tests**
+- [x] **Step 1: Write failing coordinator tests**
 
   Exercise every state/terminal state, required field defaults, merged server/local preview, separate hash confirmations, web auth pending/slow-down/expiry, bootstrap replay, installation rollback, child MCP verification, reload-required success, first scan, sync confirmation, cancel cleanup, resume from every checkpoint, and heartbeat cadence.
 
-- [ ] **Step 2: Write failing verifier and CLI-surface tests**
+- [x] **Step 2: Write failing verifier and CLI-surface tests**
 
   Verify child process `initialize`, exact `tools/list`, `onboard_status`, local test tool, remote identity/Space scopes, 30-second deadline, credential revocation on failed install, and absence of old commands/help text.
 
@@ -664,25 +666,25 @@
   expect(help).not.toContain('--orchestrator');
   ```
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/onboarding/coordinator.spec.ts src/onboarding/preflight.spec.ts src/onboarding/verifier.spec.ts src/cli.spec.ts
   ```
 
-- [ ] **Step 4: Implement collection, authorization, and one plan confirmation**
+- [x] **Step 4: Implement collection, authorization, and one plan confirmation**
 
   NDJSON emits `input_required`, opens/emits the verification URL, polls with heartbeat, performs local/server preflight, then emits one merged `preview` and one `confirmation_required`. Only the canonical `serverPlan` and its hash go to bootstrap.
 
-- [ ] **Step 5: Implement install verification and first sync**
+- [x] **Step 5: Implement install verification and first sync**
 
   Exchange the installation code into the private credential store, configure the gateway, launch the child directly, verify MCP and remote access, execute `knowledge_prepare` inside the onboarding process, emit a bounded content summary, and require a second confirmation before `knowledge_confirm_and_sync`.
 
-- [ ] **Step 6: Implement resume and terminal reporting**
+- [x] **Step 6: Implement resume and terminal reporting**
 
   The report contains IDs, tool manifest hash, config backup, scan counts, revision/ChangeSet status, `agentReload`, and redacted next action. A recoverable failure always prints `resumeSessionId`; terminal failure/cancel revokes unused installation/credential material and restores configuration.
 
-- [ ] **Step 7: Run focused and package tests**
+- [x] **Step 7: Run focused and package tests**
 
   ```bash
   pnpm --filter @neomei/agentwiki-local-sync test -- src/onboarding/coordinator.spec.ts src/onboarding/preflight.spec.ts src/onboarding/verifier.spec.ts src/cli.spec.ts
@@ -690,7 +692,7 @@
   pnpm --filter @neomei/agentwiki-local-sync typecheck
   ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add packages/local-sync/src/onboarding packages/local-sync/src/cli.ts packages/local-sync/src/cli.spec.ts packages/local-sync/src/gateway/server.ts
@@ -721,27 +723,27 @@
 - Modify: `scripts/cross-machine-e2e.mjs`
 
 **Interfaces:**
-- Every active instruction surface advertises only `0.3.0 onboard`, one gateway, Device Auth, and separate preview confirmation.
+- Every active instruction surface advertises only `0.3.1 onboard`, one gateway, Device Auth, and separate preview confirmation.
 
-- [ ] **Step 1: Update version contract tests first**
+- [x] **Step 1: Update version contract tests first**
 
-  Require `0.3.0`, reject `0.2.9`, reject `connect`, reject direct remote MCP installation, and assert the pinned public command on the home/onboard/guide/server Markdown/npm README/skill surfaces.
+  Require `0.3.1`, reject `0.2.9`, reject `connect`, reject direct remote MCP installation, and assert the pinned public command on the home/onboard/guide/server Markdown/npm README/skill surfaces.
 
-- [ ] **Step 2: Run runtime contract tests and verify RED**
+- [x] **Step 2: Run runtime contract tests and verify RED**
 
   ```bash
   pnpm test:runtime
   ```
 
-- [ ] **Step 3: Update all release surfaces**
+- [x] **Step 3: Update all release surfaces**
 
-  Set root/server/client/local-sync versions and `LOCAL_SYNC_PACKAGE_VERSION` to `0.3.0`. Rewrite the server `/api/onboard` Markdown as a compact wrapper around the pinned script; remove `/api/onboard.json` or return HTTP 410 with the pinned replacement command so no executable dual-MCP plan remains.
+  Set root/server/client/local-sync versions and `LOCAL_SYNC_PACKAGE_VERSION` to `0.3.1`. Rewrite the server `/api/onboard` Markdown as a compact wrapper around the pinned script; remove `/api/onboard.json` or return HTTP 410 with the pinned replacement command so no executable dual-MCP plan remains.
 
-- [ ] **Step 4: Rewrite README, skill, and usage guide**
+- [x] **Step 4: Rewrite README, skill, and usage guide**
 
   Document supported Agents as examples, the three user actions, local-versus-remote execution planes, privacy boundaries, resume/doctor/uninstall, and expected completed report. Do not describe manual Agent key/install-code handling.
 
-- [ ] **Step 5: Run contracts, UI tests, and package tests**
+- [x] **Step 5: Run contracts, UI tests, and package tests**
 
   ```bash
   pnpm test:runtime
@@ -749,7 +751,7 @@
   pnpm --filter @neomei/agentwiki-local-sync test
   ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add package.json apps/server/package.json apps/client/package.json packages/local-sync/package.json .env.example apps/server/.env.example apps/server/src/onboard/onboard.controller.ts packages/local-sync/README.md packages/local-sync/skill/SKILL.md README.md apps/client/src/features/about scripts
@@ -765,24 +767,24 @@
 - Modify: `package.json`
 - Modify: `scripts/e2e-safety.mjs`
 - Modify: `scripts/e2e-safety.test.mjs`
-- Create: `docs/verification/agent-self-service-onboarding-0.3.0.md`
+- Create: `docs/verification/agent-self-service-onboarding-0.3.1.md`
 
 **Interfaces:**
 - `pnpm test:e2e:onboarding` is destructive only for an explicit loopback target unless production opt-in and cleanup credentials are supplied.
 
-- [ ] **Step 1: Write failing safety and harness tests**
+- [x] **Step 1: Write failing safety and harness tests**
 
   Assert loopback-by-default, explicit production opt-in, unique disposable user/Space/Agent names, cleanup in `finally`, secret redaction, process cleanup, timeout bounds, and non-zero exit on any missing completion criterion.
 
-- [ ] **Step 2: Implement the E2E harness**
+- [x] **Step 2: Implement the E2E harness**
 
   Drive NDJSON stdin/stdout from the pinned built CLI, approve Device Auth through browser/API fixture, confirm the plan, perform one real codebase-memory scan and one real MarkItDown document scan, confirm the preview, verify server revision/ChangeSet, restart/resume once, and assert one `agentwiki` MCP entry.
 
-- [ ] **Step 3: Cover all three clients in isolated HOME directories**
+- [x] **Step 3: Cover all three clients in isolated HOME directories**
 
   Use real installed Codex, Claude Code, and OpenCode CLIs when present. A missing binary is a reported environment skip in local development but a failure in the release/production gate. Validate backup, single gateway entry, child handshake, exact manifest, `agentReload`, and uninstall restore behavior.
 
-- [ ] **Step 4: Run the complete local gate**
+- [x] **Step 4: Run the complete local gate**
 
   ```bash
   pnpm test
@@ -797,7 +799,7 @@
 
   Expected: all unit, integration, browser, real-adapter, cross-machine, and three-client onboarding checks pass with no credential/raw-source leakage.
 
-- [ ] **Step 5: Run security and package inspections**
+- [x] **Step 5: Run security and package inspections**
 
   ```bash
   pnpm audit --prod --audit-level=high
@@ -807,18 +809,18 @@
 
   Expected: no high/critical reachable production advisory, package contains the gateway/onboarding runtime and skill, and no live secret appears.
 
-- [ ] **Step 6: Perform controlled production E2E**
+- [x] **Step 6: Perform controlled production E2E**
 
   Back up production, apply the Prisma migration, deploy server/client/worker, verify health, then run the production-opted harness with disposable resources. Confirm public `/onboard`, Device Auth, one gateway, first code scan, first document scan, preview confirmation, revision/ChangeSet, resume, cleanup, and npm/GitHub version equality.
 
-- [ ] **Step 7: Record evidence**
+- [x] **Step 7: Record evidence**
 
-  Write exact commit, package integrity, migration status, automated counts, browser screenshots, three-client results, production resource IDs, cleanup results, and known non-blocking risks to `docs/verification/agent-self-service-onboarding-0.3.0.md`.
+  Write exact commit, package integrity, migration status, automated counts, browser screenshots, three-client results, production resource IDs, cleanup results, and known non-blocking risks to `docs/verification/agent-self-service-onboarding-0.3.1.md`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
-  git add package.json scripts apps/client/e2e docs/verification/agent-self-service-onboarding-0.3.0.md
+  git add package.json scripts apps/client/e2e docs/verification/agent-self-service-onboarding-0.3.1.md
   git commit -m "test: verify unified onboarding end to end"
   ```
 
@@ -826,11 +828,11 @@
 
 ## Final Completion Gate
 
-- [ ] Re-run `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` from a clean worktree.
-- [ ] Re-run the real codebase-memory, MarkItDown, cross-machine, browser, and three-client E2E suites.
-- [ ] Verify `/api/onboard.json` cannot instruct an Agent to install two MCPs.
-- [ ] Verify CLI help and built tarball contain no `connect`, old low-level tool alias, or remote-only branch.
-- [ ] Verify one `agentwiki` entry remains after repeat onboarding and rollback restores the exact preflight hash on failure.
-- [ ] Verify raw files and all credentials are absent from NDJSON, reports, logs, sessions, git diff, npm tarball, and server request bodies.
-- [ ] Verify production Device Auth and bootstrap rate limits, expiry, denial, idempotency, and cleanup.
-- [ ] Verify GitHub `master`, deployed commit, package version, npm `latest`, server `LOCAL_SYNC_PACKAGE_VERSION`, guide command, and verification report all identify `0.3.0`.
+- [x] Re-run `pnpm test`, `pnpm typecheck`, `pnpm lint`, and `pnpm build` from a clean worktree.
+- [x] Re-run the real codebase-memory, MarkItDown, cross-machine, browser, and three-client E2E suites.
+- [x] Verify `/api/onboard.json` cannot instruct an Agent to install two MCPs.
+- [x] Verify CLI help and built tarball contain no `connect`, old low-level tool alias, or remote-only branch.
+- [x] Verify one `agentwiki` entry remains after repeat onboarding and rollback restores the exact preflight hash on failure.
+- [x] Verify raw files and all credentials are absent from NDJSON, reports, logs, sessions, git diff, npm tarball, and server request bodies.
+- [x] Verify production Device Auth and bootstrap rate limits, expiry, denial, idempotency, and cleanup.
+- [x] Verify GitHub `master`, deployed commit, package version, npm `latest`, server `LOCAL_SYNC_PACKAGE_VERSION`, guide command, and verification report all identify `0.3.1`.
