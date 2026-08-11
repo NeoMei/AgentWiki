@@ -131,7 +131,7 @@ assert len({case_id for case_id, _, _ in rows}) == 52
 creates_data = {'AUTH', 'SPACE', 'PAGE', 'SOURCE', 'REVIEW', 'ONBOARD', 'SYNC', 'ADMIN'}
 output = Path('docs/testing/third-party/0.3.1-20260811/case-matrix.csv')
 with output.open('w', newline='') as handle:
-    writer = csv.writer(handle)
+    writer = csv.writer(handle, lineterminator='\n')
     writer.writerow([
         'case_id', 'priority', 'domain', 'tester', 'start_time', 'end_time',
         'result', 'evidence_files', 'defect_ids', 'created_resources',
