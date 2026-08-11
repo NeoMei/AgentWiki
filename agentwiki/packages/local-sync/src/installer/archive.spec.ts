@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile, stat, chmod, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { archiveLegacyState, initCleanState, agentwikiRoot, ACTIVE_ONBOARDING_DIR } from './archive.js';
+import { archiveLegacyState, initCleanState, restoreArchivedState, agentwikiRoot, ACTIVE_ONBOARDING_DIR } from './archive.js';
 
 let tempHome = '';
 async function freshHome(): Promise<string> {
@@ -56,6 +56,24 @@ describe('archive legacy state', () => {
     const result = await archiveLegacyState(home);
     const s = await stat(result!.archivePath);
     expect(s.mode & 0o777).toBe(0o500);
+  });
+
+  it('restores every archived child without replacing the active onboarding directory', async () => {
+    const home = await freshHome();
+    const root = agentwikiRoot(home);
+    await mkdir(join(root, 'legacy'), { recursive: true });
+    await writeFile(join(root, 'legacy', 'state.json'), '{"old":true}');
+    await mkdir(join(root, ACTIVE_ONBOARDING_DIR), { recursive: true });
+    await writeFile(join(root, ACTIVE_ONBOARDING_DIR, 'session.json'), '{"active":true}');
+    const archived = await archiveLegacyState(home);
+    await initCleanState(home);
+    await writeFile(join(root, 'local-sync.json'), '{"new":true}');
+
+    await restoreArchivedState(home, archived!);
+
+    await expect(readFile(join(root, 'legacy', 'state.json'), 'utf8')).resolves.toBe('{"old":true}');
+    await expect(readFile(join(root, ACTIVE_ONBOARDING_DIR, 'session.json'), 'utf8')).resolves.toBe('{"active":true}');
+    await expect(readFile(join(root, 'local-sync.json'), 'utf8')).rejects.toThrow();
   });
 });
 

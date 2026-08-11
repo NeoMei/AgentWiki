@@ -5,7 +5,7 @@
  * the active onboarding/ session directory), never deleted. If archiving
  * fails the legacy children are left untouched.
  */
-import { chmod, mkdir, readdir, rename } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,4 +67,21 @@ export async function initCleanState(home: string = homedir()): Promise<void> {
   await chmod(root, 0o700);
   await mkdir(join(root, 'spaces'), { recursive: true, mode: 0o700 }).catch(() => undefined);
   await mkdir(join(root, 'runtime'), { recursive: true, mode: 0o700 }).catch(() => undefined);
+}
+
+/** Restore the pre-install state after a failed activation. */
+export async function restoreArchivedState(home: string, archive: ArchiveResult | null): Promise<void> {
+  const root = agentwikiRoot(home);
+  const currentChildren = await readdir(root).catch(() => []);
+  for (const child of currentChildren) {
+    if (child === ACTIVE_ONBOARDING_DIR) continue;
+    await rm(join(root, child), { recursive: true, force: true });
+  }
+
+  if (archive === null) return;
+  await chmod(archive.archivePath, 0o700);
+  for (const child of archive.movedChildren) {
+    await rename(join(archive.archivePath, child), join(root, child));
+  }
+  await chmod(archive.archivePath, 0o500).catch(() => undefined);
 }
