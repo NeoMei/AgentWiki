@@ -151,6 +151,7 @@ test('the local-sync CLI exposes gateway and onboard commands without connect', 
 test('the onboard.json endpoint returns 410 Gone with a replacement command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
   assert.match(source, /410/, 'onboard.json must return 410');
+  assert.match(source, /@HttpCode\(HttpStatus\.GONE\)/, 'onboard.json must use the real HTTP 410 status');
   assert.match(source, /replacement/, 'onboard.json must include a replacement command');
   assert.doesNotMatch(source, /OnboardPlan/, 'the old OnboardPlan type must be removed');
 });

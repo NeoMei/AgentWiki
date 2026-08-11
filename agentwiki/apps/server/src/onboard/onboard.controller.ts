@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Headers, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
@@ -65,6 +65,7 @@ export class OnboardController {
   }
 
   @Get('onboard.json')
+  @HttpCode(HttpStatus.GONE)
   getJsonRedirect(): { statusCode: number; error: string; replacement: string } {
     return {
       statusCode: 410,
