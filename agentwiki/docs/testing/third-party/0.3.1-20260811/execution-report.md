@@ -1,7 +1,16 @@
 # AgentWiki 0.3.1 Third-Party Test Execution Report
 
 ## Gates
-- Entry gate: **ENTRY GATE: PASS** — 2026-08-11 22:09:05 CST; approver: project-owner-codex-thread. Spec §5.1 prerequisites recorded: HTTPS production availability and no severe incident are owner-confirmed for the approved window; controlled-write approval is active; dedicated A/B/C/D identities are provisioned; three isolated client homes are prepared; defects and evidence directories exist in the Task 1 execution pack. No production request was made during Task 2.
+- Entry gate: **ENTRY GATE: PASS** — 2026-08-11 22:09:05 CST; approver: project-owner-codex-thread. No production request was made during Task 2.
+
+| Spec §5.1 condition | Result | Sanitized evidence source | Confirmer | Confirmation time |
+|---|---|---|---|---|
+| Production homepage is reachable through HTTPS | PASS | Owner confirmation in Codex thread for the approved window; Task 2 made no production request | project-owner-codex-thread | 2026-08-11 22:09:05 CST |
+| Test lead confirms controlled write testing is allowed | PASS | Owner authorization in Codex thread: approved window, tester scope, dedicated Admin D, and `3PT-20260811-CODEX-` prefix | project-owner-codex-thread | 2026-08-11 22:09:05 CST |
+| Four A/B/C/D test accounts are available | PASS | README sanitized Test Identities inventory | Codex controller | 2026-08-11 22:09:05 CST |
+| Three isolated client environments are ready | PASS | Cleanup checklist local-home inventory and `0600` root-marker validation | Codex controller | 2026-08-11 22:09:05 CST |
+| Defect log and screenshot storage have been established | PASS | `defects.md` and six Task 1 evidence directories | Codex controller | 2026-08-11 22:09:05 CST |
+| Production has no serious incident in progress | PASS | Owner confirmation in Codex thread for the approved window; Task 2 made no production request | project-owner-codex-thread | 2026-08-11 22:09:05 CST |
 - Baseline gate: NOT_RUN
 - Pre-cleanup defect gate: NOT_RUN
 - Cleanup gate: NOT_RUN

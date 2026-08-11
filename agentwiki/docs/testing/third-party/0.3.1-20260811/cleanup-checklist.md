@@ -4,6 +4,10 @@ Sanitized isolated-root label: `agentwiki-3pt.<ephemeral>` (the full local files
 
 | Resource type | Sanitized name | Owning user | Space | Creation case | Deletion method | Deletion time | Verifier | Verification method | Result |
 |---|---|---|---|---|---|---|---|---|---|
+| Test user | `User A` | User A (dedicated ordinary human test identity) | N/A | Task 2 | Admin D soft-delete after tests | PENDING | Admin D | Confirm denied login and old URL, then verify soft-deleted status in admin controls | PENDING |
+| Test user | `User B` | User B (dedicated ordinary human test identity) | N/A | Task 2 | Admin D soft-delete after tests | PENDING | Admin D | Confirm denied login and old URL, then verify soft-deleted status in admin controls | PENDING |
+| Test user | `User C` | User C (dedicated ordinary human test identity) | N/A | Task 2 | Admin D soft-delete after tests | PENDING | Admin D | Confirm denied login and old URL, then verify soft-deleted status in admin controls | PENDING |
+| Test super_admin | `Admin D` | Admin D (dedicated test super_admin identity) | N/A | Task 2 | Disposition by production owner after A/B/C cleanup | PENDING | project-owner-codex-thread | Production owner confirms Admin D disposition after A/B/C cleanup | PENDING |
 | Isolated client home | `agentwiki-3pt.<ephemeral>/codex` | Codex controller | N/A (local) | Task 2 | Remove isolated root after Task 8 | PENDING | NOT_RECORDED | Confirm path is absent and root marker is removed | PENDING |
 | Isolated client home | `agentwiki-3pt.<ephemeral>/claude` | Codex controller | N/A (local) | Task 2 | Remove isolated root after Task 8 | PENDING | NOT_RECORDED | Confirm path is absent and root marker is removed | PENDING |
 | Isolated client home | `agentwiki-3pt.<ephemeral>/opencode` | Codex controller | N/A (local) | Task 2 | Remove isolated root after Task 8 | PENDING | NOT_RECORDED | Confirm path is absent and root marker is removed | PENDING |
