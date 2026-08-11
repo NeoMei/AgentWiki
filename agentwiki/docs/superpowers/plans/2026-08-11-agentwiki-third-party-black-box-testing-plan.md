@@ -66,9 +66,10 @@ Screenshots and recordings are stored outside Git when they contain account iden
 
 ```bash
 mkdir -p "docs/testing/third-party/0.3.1-20260811"/evidence/{01-baseline,02-auth-space-page,03-source-review-agent,04-onboarding-sync,05-admin-ux-security,06-cleanup}
+touch "docs/testing/third-party/0.3.1-20260811"/evidence/{01-baseline,02-auth-space-page,03-source-review-agent,04-onboarding-sync,05-admin-ux-security,06-cleanup}/.gitkeep
 ```
 
-Expected: exactly six evidence subdirectories exist under the run directory.
+Expected: exactly six evidence subdirectories exist under the run directory, each with a `.gitkeep` so the reusable pack survives cloning.
 
 - [ ] **Step 2: Create the run README**
 
@@ -231,7 +232,7 @@ Expected: all six files and six evidence directories from the File Structure sec
 - [ ] **Step 6: Commit the reusable execution pack**
 
 ```bash
-git add "docs/testing/third-party/0.3.1-20260811"/*.md "docs/testing/third-party/0.3.1-20260811"/case-matrix.csv
+git add "docs/testing/third-party/0.3.1-20260811"
 git commit -m "test: prepare AgentWiki 0.3.1 third-party test pack"
 ```
 
