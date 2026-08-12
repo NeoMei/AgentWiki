@@ -74,15 +74,27 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const [submitting, setSubmitting] = useState(false);
   const [pending, setPending] = useState<PendingReview[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appliedRef = useRef<Set<string>>(new Set());
 
   const loadTasks = useCallback(async () => {
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
-      setTasks(Array.isArray(res.data) ? res.data : res.data.data || []);
+      const list: AssistTask[] = Array.isArray(res.data) ? res.data : res.data.data || [];
+      setTasks(list);
+      // Auto-apply completed changes directly into the editor — WYSIWYG.
+      // Each task is applied exactly once (tracked by appliedRef).
+      if (onApply) {
+        for (const task of list) {
+          if (task.status === 'done' && task.result?.changes && !appliedRef.current.has(task.id)) {
+            appliedRef.current.add(task.id);
+            onApply(task.result.changes);
+          }
+        }
+      }
     } catch {
       /* keep existing */
     }
-  }, [pageId]);
+  }, [pageId, onApply]);
 
   const loadPending = useCallback(async () => {
     try {
@@ -172,20 +184,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                     </div>
                     {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
                     {task.status === 'done' && task.result?.changes ? (
-                      <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-2">
-                        <p className="mb-1 text-xs font-medium text-green-800">{zh ? '助手建议的内容：' : 'Assistant suggestion:'}</p>
-                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs text-gray-700">{task.result.changes}</pre>
-                        {onApply ? (
-                          <button
-                            type="button"
-                            onClick={() => onApply(task.result!.changes!)}
-                            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 transition"
-                          >
-                            <CheckCircle2 size={15} />
-                            {zh ? '应用到编辑器' : 'Apply to editor'}
-                          </button>
-                        ) : null}
-                      </div>
+                      <p className="mt-1 text-[11px] text-green-600">{zh ? '内容已更新到编辑器' : 'Content applied to editor'}</p>
                     ) : null}
                     {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
                   </li>
