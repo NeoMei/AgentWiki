@@ -104,7 +104,7 @@ export class RemoteMcpBridge {
 
   private async connect(): Promise<Client> {
     const client = new Client(
-      { name: 'agentwiki-gateway', version: '0.3.5' },
+      { name: 'agentwiki-gateway', version: '0.3.6' },
       { capabilities: {} },
     );
     const headers: Record<string, string> = {

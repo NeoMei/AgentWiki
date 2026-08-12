@@ -31,11 +31,11 @@ const createPlan: ServerPlan = {
   agentName: 'Codex',
   permissionPreset: 'editor',
   approvalMode: 'always-review',
-  packageVersion: '0.3.5',
+  packageVersion: '0.3.6',
 };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.3.5'] as const)(
+  it.each(['0.3.6'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -243,7 +243,7 @@ describe('onboarding permission presets and canonical plan hashing', () => {
 
     expect(hashServerPlan(normalized)).toBe(hashServerPlan(reordered));
     expect(hashServerPlan(normalized)).toBe(
-      '3e8f02dfe0cbe9472aed7d8535c25b0bfa57ceeea2bf6bbefeb7b2b1a5d9ce24',
+      '068996aa1421258e49a732108e4029335304ae15bb2f7ec62789a47f183ff33f',
     );
     expect(hashServerPlan(normalized)).toMatch(/^[0-9a-f]{64}$/);
   });

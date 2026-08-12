@@ -31,7 +31,7 @@ describe('client-config paths', () => {
   it('locates each client config under an isolated home', async () => {
     const home = await freshHome();
     expect(clientConfigPath('codex', home)).toBe(join(home, '.codex', 'config.toml'));
-    expect(clientConfigPath('claude', home)).toBe(join(home, '.claude', 'settings.json'));
+    expect(clientConfigPath('claude', home)).toBe(join(home, '.claude.json'));
     expect(clientConfigPath('opencode', home)).toBe(join(home, '.config', 'opencode', 'opencode.json'));
   });
 });
@@ -114,7 +114,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
       '--yes',
-      '@neomei/agentwiki-local-sync@0.3.5',
+      '@neomei/agentwiki-local-sync@0.3.6',
       'gateway',
       '--connection',
       'conn-42',
@@ -168,8 +168,33 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.3.5', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.3.6', 'gateway', '--connection', 'conn-1',
     ]);
+  });
+
+  it('writes the Claude gateway to ~/.claude.json and cleans a legacy settings.json entry', async () => {
+    const home = await freshHome();
+    await mkdir(join(home, '.claude'), { recursive: true });
+    await writeFile(join(home, '.claude', 'settings.json'), JSON.stringify({
+      mcpServers: {
+        'agentwiki-legacy': { command: 'npx', args: ['agentwiki-local-sync@0.3.6', 'mcp'] },
+        other: { command: 'echo', args: ['ok'] },
+      },
+    }));
+    const { hash } = await analyzeConfig('claude', home);
+    await installGatewayEntry('claude', 'conn-1', hash, home);
+
+    expect(clientConfigPath('claude', home)).toBe(join(home, '.claude.json'));
+    const main = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(main.mcpServers[GATEWAY_MCP_NAME]).toBeDefined();
+
+    const legacy = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(legacy.mcpServers['agentwiki-legacy']).toBeUndefined();
+    expect(legacy.mcpServers.other).toBeDefined();
   });
 });
 

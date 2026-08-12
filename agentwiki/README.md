@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.3.5** — Unified agent self-service onboarding with Device Auth, single gateway MCP, and deterministic knowledge workflows.
+> **v0.3.6** — Unified agent self-service onboarding with Device Auth, single gateway MCP, and deterministic knowledge workflows.
 
 
 ## Hosted Service
@@ -150,7 +150,7 @@ Agent Skill; it does **not** scan or upload files during installation.
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.3.5; the unified onboarding command is the only recommended Agent connection path. Older releases remain
+Source and generated instructions target 0.3.6; the unified onboarding command is the only recommended Agent connection path. Older releases remain
 the public `latest` only after npm WebAuthn approval.
 
 ### Example local workflow

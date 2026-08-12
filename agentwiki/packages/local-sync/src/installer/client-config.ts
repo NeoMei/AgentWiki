@@ -25,10 +25,30 @@ export function clientConfigPath(client: AgentClient, home: string = homedir()):
     case 'codex':
       return join(home, '.codex', 'config.toml');
     case 'claude':
-      return join(home, '.claude', 'settings.json');
+      // Claude Code reads MCP servers from ~/.claude.json (user scope), not
+      // from ~/.claude/settings.json. Writing the gateway there makes it
+      // visible to `claude mcp get` and to running sessions.
+      return join(home, '.claude.json');
     case 'opencode':
       return join(home, '.config', 'opencode', 'opencode.json');
   }
+}
+
+/** Legacy installs wrote the Claude gateway into ~/.claude/settings.json. */
+function legacyClaudeSettingsPath(home: string): string {
+  return join(home, '.claude', 'settings.json');
+}
+
+/** Best-effort removal of a legacy Claude gateway entry from settings.json. */
+async function cleanupLegacyClaudeSettings(home: string): Promise<void> {
+  let current: string;
+  try {
+    current = await readFile(legacyClaudeSettingsPath(home), 'utf8');
+  } catch {
+    return;
+  }
+  const next = removeJsonGateway(current, ['mcpServers']);
+  if (next !== null) await writeAtomically(legacyClaudeSettingsPath(home), next, 0o600);
 }
 
 export function backupPathFor(client: AgentClient, home: string = homedir()): string {
@@ -92,6 +112,7 @@ export async function installGatewayEntry(
   const backup = await backupConfig(client, home);
   const next = buildConfigWithGateway(client, current, connectionId);
   await writeAtomically(configPath, next, client === 'opencode' ? 0o600 : 0o600);
+  if (client === 'claude') await cleanupLegacyClaudeSettings(home).catch(() => undefined);
 
   return {
     backupPath: backup,
@@ -115,6 +136,7 @@ export async function removeGatewayEntry(
   const next = removeGatewayFromConfig(client, current);
   if (next === null) return { removed: false };
   await writeAtomically(configPath, next, 0o600);
+  if (client === 'claude') await cleanupLegacyClaudeSettings(home).catch(() => undefined);
   return { removed: true };
 }
 
