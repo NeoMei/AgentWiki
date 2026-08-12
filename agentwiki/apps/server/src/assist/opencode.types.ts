@@ -4,11 +4,14 @@ export type FailureCode =
   | 'configuration_error' | 'invalid_output' | 'model_unavailable'
   | 'no_models' | 'output_limit' | 'process_error' | 'rate_limited' | 'timeout';
 
+export type StreamChunkCallback = (chunk: string) => void;
+
 export interface AssistInput {
   intent: string;
   pageSnapshot: unknown;
   leaseExpiresAtMs?: number;
   isActive?: () => Promise<boolean>;
+  onStreamChunk?: StreamChunkCallback;
 }
 export interface ModelUsage {
   input: number; output: number; reasoning: number;

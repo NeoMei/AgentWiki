@@ -109,6 +109,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
           prompt,
           candidate.id,
           Math.min(this.config.attemptTimeoutMs, remaining),
+          task.onStreamChunk,
         );
         const completedAt = this.now();
         this.addUsage(totalUsage, result.usage);

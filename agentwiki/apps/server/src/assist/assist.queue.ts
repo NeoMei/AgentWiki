@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { OpencodeRoutingError, OpencodeRunner } from './opencode.types';
+import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
 
 export type { AssistRunResult, OpencodeRunner } from './opencode.types';
 
@@ -22,6 +23,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     @Inject('OPENCODE_RUNNER')
     private readonly runner: OpencodeRunner,
+    private readonly collaborationGateway: CollaborationGateway,
   ) {}
 
   async onModuleInit() {
@@ -74,7 +76,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
             OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
           },
           orderBy: { createdAt: 'asc' },
-          select: { id: true, intent: true, pageSnapshot: true },
+          select: { id: true, intent: true, pageId: true, pageSnapshot: true },
         });
         if (!candidate) break;
         const leaseExpiresAt = new Date(Date.now() + leaseMs);
@@ -94,7 +96,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processOne(task: { id: string; intent: string; pageSnapshot: unknown; leaseExpiresAtMs?: number }) {
+  private async processOne(task: { id: string; intent: string; pageId: string | null; pageSnapshot: unknown; leaseExpiresAtMs?: number }) {
     try {
       const result = await this.runner.run({
         intent: task.intent,
@@ -108,12 +110,20 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
             space: { deletedAt: null },
           },
         })) === 1,
+        onStreamChunk: (chunk) => {
+          if (task.pageId) {
+            this.collaborationGateway.emitAssistStream(task.pageId, task.id, chunk);
+          }
+        },
       });
       const completion = await this.prisma.assistTask.updateMany({
         where: { id: task.id, status: 'running', leaseOwner: this.workerId },
         data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
       });
       if (completion.count === 0) return;
+      if (task.pageId) {
+        this.collaborationGateway.emitAssistComplete(task.pageId, task.id);
+      }
     } catch (error: unknown) {
       const routing = error instanceof OpencodeRoutingError ? error : undefined;
       const completion = await this.prisma.assistTask.updateMany({
@@ -128,6 +138,9 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (completion.count === 0) return;
+      if (task.pageId) {
+        this.collaborationGateway.emitAssistError(task.pageId, task.id, routing ? routing.message : 'Editing assistant failed');
+      }
     }
   }
 }

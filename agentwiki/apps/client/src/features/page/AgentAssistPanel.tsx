@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, CheckCircle2, Loader2, RefreshCw, Send, XCircle } from 'lucide-react';
+import { Bot, CheckCircle2, Loader2, RefreshCw, Send, XCircle, Brain, Sparkles } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface AgentAssistPanelProps {
@@ -12,6 +14,7 @@ interface AgentAssistPanelProps {
 }
 
 type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
+type AssistPhase = 'thinking' | 'generating' | 'complete' | 'error';
 
 interface AssistAttemptResult {
   errorCode?: string;
@@ -32,6 +35,8 @@ interface AssistTask {
   intent: string;
   status: AssistTaskStatus;
   result?: AssistRoutingResult;
+  streamContent?: string;
+  phase?: AssistPhase;
 }
 
 interface PendingReview {
@@ -42,9 +47,16 @@ interface PendingReview {
 
 const STATUS_LABEL: Record<AssistTaskStatus, { zh: string; en: string; cls: string }> = {
   queued: { zh: '排队中', en: 'Queued', cls: 'text-amber-600' },
-  running: { zh: '生成中…', en: 'Running…', cls: 'text-blue-600' },
+  running: { zh: '执行中', en: 'Running', cls: 'text-blue-600' },
   done: { zh: '已完成', en: 'Done', cls: 'text-green-600' },
   failed: { zh: '失败', en: 'Failed', cls: 'text-red-600' },
+};
+
+const PHASE_LABEL: Record<AssistPhase, { zh: string; en: string; icon: React.ReactNode }> = {
+  thinking: { zh: '思考中…', en: 'Thinking…', icon: <Brain size={11} className="animate-pulse" /> },
+  generating: { zh: '生成中…', en: 'Generating…', icon: <Sparkles size={11} className="animate-pulse" /> },
+  complete: { zh: '已完成', en: 'Complete', icon: <CheckCircle2 size={11} /> },
+  error: { zh: '出错', en: 'Error', icon: <XCircle size={11} /> },
 };
 
 const routingMeta = (result: AssistRoutingResult | undefined, zh: boolean) => {
@@ -68,23 +80,34 @@ const routingErrorCode = (result: AssistRoutingResult | undefined, zh: boolean) 
 
 export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply }) => {
   const { language } = useLanguage();
+  const { user } = useAuth();
   const zh = language === 'zh-CN';
   const [intent, setIntent] = useState('');
   const [tasks, setTasks] = useState<AssistTask[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [pending, setPending] = useState<PendingReview[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const streamBufferRef = useRef<Map<string, string>>(new Map());
   const appliedRef = useRef<Set<string>>(new Set());
 
   const loadTasks = useCallback(async () => {
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
-      const list: AssistTask[] = Array.isArray(res.data) ? res.data : res.data.data || [];
-      setTasks(list);
+      const loadedTasks = Array.isArray(res.data) ? res.data : res.data.data || [];
+      setTasks((prev) => {
+        const streamMap = new Map(prev.map((t) => [t.id, { stream: t.streamContent, phase: t.phase }]));
+        return loadedTasks.map((t: AssistTask) => ({
+          ...t,
+          streamContent: streamMap.get(t.id)?.stream || t.streamContent,
+          phase: streamMap.get(t.id)?.phase || t.phase,
+        }));
+      });
+      
       // Auto-apply completed changes directly into the editor — WYSIWYG.
       // Each task is applied exactly once (tracked by appliedRef).
       if (onApply) {
-        for (const task of list) {
+        for (const task of loadedTasks) {
           if (task.status === 'done' && task.result?.changes && !appliedRef.current.has(task.id)) {
             appliedRef.current.add(task.id);
             onApply(task.result.changes);
@@ -112,6 +135,70 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     timerRef.current = setInterval(() => void loadTasks(), 3000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [loadTasks, loadPending]);
+
+  // Socket.IO connection for streaming
+  useEffect(() => {
+    if (!user?.id || !pageId) return;
+
+    const socketUrl = window.location.origin;
+    const socket = io(socketUrl + '/collaboration', {
+      transports: ['websocket', 'polling'],
+      auth: { token: localStorage.getItem('token') },
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('joinPage', {
+        pageId,
+        userId: user.id,
+        userName: user.name || user.email || 'Anonymous',
+      });
+    });
+
+    socket.on('assistStream', (data: { taskId: string; chunk: string }) => {
+      const current = streamBufferRef.current.get(data.taskId) || '';
+      const updated = current + data.chunk;
+      streamBufferRef.current.set(data.taskId, updated);
+      
+      setTasks((prev) => prev.map((t) => {
+        if (t.id === data.taskId) {
+          return {
+            ...t,
+            streamContent: updated,
+            phase: updated.length > 100 ? 'generating' : 'thinking',
+          };
+        }
+        return t;
+      }));
+    });
+
+    socket.on('assistComplete', (data: { taskId: string }) => {
+      setTasks((prev) => prev.map((t) => {
+        if (t.id === data.taskId) {
+          return { ...t, phase: 'complete' };
+        }
+        return t;
+      }));
+      streamBufferRef.current.delete(data.taskId);
+      void loadTasks();
+    });
+
+    socket.on('assistError', (data: { taskId: string; error: string }) => {
+      setTasks((prev) => prev.map((t) => {
+        if (t.id === data.taskId) {
+          return { ...t, phase: 'error', streamContent: data.error };
+        }
+        return t;
+      }));
+      streamBufferRef.current.delete(data.taskId);
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+      streamBufferRef.current.clear();
+    };
+  }, [user?.id, pageId, loadTasks]);
 
   const submit = async () => {
     if (!intent.trim() || submitting) return;
@@ -169,10 +256,15 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
             <ul className="space-y-2">
               {tasks.map((task) => {
                 const status = STATUS_LABEL[task.status];
+                const phase = task.phase;
+                const phaseLabel = phase ? PHASE_LABEL[phase] : null;
                 const metadata = task.status === 'done' || task.status === 'failed'
                   ? routingMeta(task.result, zh)
                   : null;
                 const errorCode = task.status === 'failed' ? routingErrorCode(task.result, zh) : null;
+                const streamContent = task.streamContent;
+                const isStreaming = task.status === 'running' && streamContent;
+                
                 return (
                   <li key={task.id} className="rounded-lg border border-gray-200 p-2.5" data-testid={`assist-task-${task.id}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -182,6 +274,22 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                         {zh ? status.zh : status.en}
                       </span>
                     </div>
+                    
+                    {/* Phase indicator */}
+                    {phaseLabel && task.status === 'running' && (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-blue-600">
+                        {phaseLabel.icon}
+                        <span>{zh ? phaseLabel.zh : phaseLabel.en}</span>
+                      </div>
+                    )}
+                    
+                    {/* Streaming content */}
+                    {isStreaming && streamContent && (
+                      <div className="mt-2 max-h-48 overflow-auto rounded bg-blue-50 p-2">
+                        <pre className="whitespace-pre-wrap text-xs text-gray-700">{streamContent}</pre>
+                      </div>
+                    )}
+                    
                     {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
                     {task.status === 'done' && task.result?.changes ? (
                       <p className="mt-1 text-[11px] text-green-600">{zh ? '内容已更新到编辑器' : 'Content applied to editor'}</p>
