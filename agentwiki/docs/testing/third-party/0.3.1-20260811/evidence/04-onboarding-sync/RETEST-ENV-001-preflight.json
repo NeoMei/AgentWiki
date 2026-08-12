@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "package": "@neomei/agentwiki-local-sync@0.3.2",
+  "npmExactVersion": "0.3.2",
+  "npmLatestVersion": "0.3.2",
+  "productionHealth": "ok",
+  "databaseHealth": "ok",
+  "redisHealth": "ok",
+  "auditPersistenceHealth": "ok",
+  "credentialFileMode": "0600",
+  "isolatedClientHomes": 3,
+  "dailyClientConfigsTouched": false,
+  "approvedWindowActive": true,
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-001",
+  "packageVersion": "0.3.2",
+  "client": "codex",
+  "onboardingEventTypes": [
+    "input_required",
+    "failed"
+  ],
+  "authorizationRequiredObserved": false,
+  "deviceRequestCreated": false,
+  "httpProbe": {
+    "endpoint": "/api/onboard/device/start",
+    "method": "POST",
+    "status": 400,
+    "error": "Bad Request",
+    "message": "packageVersion must be one of the following values: 0.3.0, 0.3.1"
+  },
+  "cliFailureCode": "REMOTE_UNAVAILABLE",
+  "terminalEvent": "failed",
+  "exitCode": 1,
+  "terminalToExitSeconds": 0.042,
+  "productionHealthAfterFailure": "ok",
+  "serverResourcesCreated": 0,
+  "result": "BLOCKED",
+  "blockReason": "Production rejected packageVersion 0.3.2 before Device Authorization could start.",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "emailsRedacted": true,
+  "absolutePathsRedacted": true
+}

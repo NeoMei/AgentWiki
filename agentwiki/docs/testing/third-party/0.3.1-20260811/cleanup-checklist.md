@@ -67,3 +67,15 @@ Every individual sanitized handle is listed in `evidence/04-onboarding-sync/TASK
 - Status: `WRITE TESTING STOPPED` — Spec section 16.8 triggered because normal product uninstall did not remove the three isolated test gateways.
 - No uncontrolled duplicate, silent overwrite, non-3PT write, or production health regression was observed.
 - The isolated root, gateway configs, credentials, and server-side 3PT resources remain retained for owner-authorized Task 8 remediation and independent cleanup verification.
+
+## 0.3.2 Task 6 retest cleanup
+
+| Resource type | Sanitized name | Creation case | Cleanup action | Verification | Result |
+|---|---|---|---|---|---|
+| Isolated client home set (3) | `agentwiki-3pt.retest.<ephemeral>` / Codex, Claude Code, OpenCode | Retest preflight | Removed the fresh isolated root after the Device Start blocker | Root marker and isolated root absent | PASS |
+| Device Request / Agent / credential / Grant / sync resource set | None created | ONBOARD-001 retest blocker | No cleanup required; production rejected 0.3.2 before Device Request creation | CLI event sequence contained no `authorization_required`; direct start probe returned HTTP 400 | NOT_REQUIRED |
+| Daily client configurations | Not accessed | All retest cases | No action required | Three fresh isolated homes were used exclusively | PASS |
+
+- Retest production writes stopped immediately after the 0.3.2 Device Start blocker was confirmed.
+- No Spec section 16 condition was triggered, and no server-side 3PT resource was created by this retest.
+- The earlier Task 6 resources and cleanup states above are unchanged by this blocked retest.

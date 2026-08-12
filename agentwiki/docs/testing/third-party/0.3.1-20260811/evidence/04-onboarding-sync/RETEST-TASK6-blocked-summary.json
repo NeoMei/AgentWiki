@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.3.2",
+  "blockedCases": [
+    "ONBOARD-001",
+    "ONBOARD-003",
+    "ONBOARD-004",
+    "ONBOARD-006",
+    "ONBOARD-007",
+    "SYNC-001",
+    "SYNC-004",
+    "SYNC-006"
+  ],
+  "passCases": [],
+  "failCases": [],
+  "blocker": {
+    "stage": "device-start",
+    "httpStatus": 400,
+    "allowedPackageVersionsReportedByProduction": [
+      "0.3.0",
+      "0.3.1"
+    ],
+    "authorizationRequiredObserved": false,
+    "serverResourcesCreated": 0,
+    "productionWritesAfterBlocker": 0
+  },
+  "defectConfirmations": {
+    "DEF-3PT-20260812-001": "BLOCKED",
+    "DEF-3PT-20260812-002": "BLOCKED",
+    "DEF-3PT-20260812-003": "BLOCKED",
+    "DEF-3PT-20260812-004": "BLOCKED",
+    "DEF-3PT-20260812-005": "BLOCKED",
+    "DEF-3PT-20260812-006": "BLOCKED",
+    "STOP-3PT-20260812-002": "BLOCKED"
+  },
+  "specSection16Triggered": false,
+  "isolatedRootRemoved": true,
+  "dailyClientConfigsTouched": false,
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}
