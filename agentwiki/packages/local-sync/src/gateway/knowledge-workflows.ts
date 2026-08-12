@@ -27,6 +27,7 @@ export interface PrepareResult {
     sourceKey: string;
   };
   warnings: string[];
+  diff?: { added: number; modified: number; deleted: number; uploadBytes: number };
 }
 
 export interface ConfirmSyncInput {
@@ -55,12 +56,14 @@ interface StoredPreview {
 
 /** Injected local knowledge preparation. */
 export interface PrepareFn {
-  (input: PrepareInput): Promise<{
-    bundle: KnowledgeBundle;
-    sourceKey: string;
-    processedFiles: number;
-    skippedFiles: unknown[];
-  }>;
+ (input: PrepareInput): Promise<{
+   bundle: KnowledgeBundle;
+   sourceKey: string;
+   processedFiles: number;
+   skippedFiles: unknown[];
+    warnings?: string[];
+    diff?: { added: number; modified: number; deleted: number; uploadBytes: number };
+ }>;
 }
 
 /** Injected preview persistence. */
@@ -95,23 +98,24 @@ export class KnowledgeWorkflows {
    * Discover adapters, collect, organize, validate and persist a preview.
    * Makes zero network calls.
    */
-  async prepare(input: PrepareInput): Promise<PrepareResult> {
-    const prepared = await this.deps.prepare(input);
-    const previewData = prepared.bundle;
-    const previewHash = sha256(previewData);
-    const jobId = randomUUID();
-    await this.deps.previews.save(jobId, { hash: previewHash, data: previewData });
-    return {
-      jobId,
-      previewHash,
-      summary: {
-        filesProcessed: prepared.processedFiles,
-        filesSkipped: prepared.skippedFiles.length,
-        sourceKey: prepared.sourceKey,
-      },
-      warnings: [],
-    };
-  }
+ async prepare(input: PrepareInput): Promise<PrepareResult> {
+   const prepared = await this.deps.prepare(input);
+   const previewData = prepared.bundle;
+   const previewHash = sha256(previewData);
+   const jobId = randomUUID();
+   await this.deps.previews.save(jobId, { hash: previewHash, data: previewData });
+   return {
+     jobId,
+     previewHash,
+     summary: {
+       filesProcessed: prepared.processedFiles,
+       filesSkipped: prepared.skippedFiles.length,
+       sourceKey: prepared.sourceKey,
+     },
+      warnings: prepared.warnings ?? [],
+      ...(prepared.diff ? { diff: prepared.diff } : {}),
+   };
+ }
 
   /**
    * Validate the preview, pull before push, and upload only the confirmed

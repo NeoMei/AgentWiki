@@ -69,22 +69,36 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
             ? await options.adapters.ensure(adapterId)
             : probe;
           const batch = await adapter.collect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
-          artifacts.push(...batch.artifacts);
+         artifacts.push(...batch.artifacts);
+       }
+    }
+
+      // DEF-005: scan for credential-like patterns before organizing; flagged
+      // artifacts are skipped so the complete marker never reaches preview state.
+      const warnings: string[] = [];
+      const safeArtifacts = artifacts.filter((artifact) => {
+        const text = artifactContentText(artifact);
+        const match = SECRET_PATTERNS.find((re) => re.test(text));
+        if (match) {
+          skippedFiles.push({ path: artifact.logicalKey, reason: 'Credential-like pattern detected; skipped to protect secrets' });
+          warnings.push(`${artifact.logicalKey}: credential-like content detected and excluded from preview`);
+          return false;
         }
-      }
+        return true;
+      });
 
       const manifest = await readManifest(workspacePaths(options.home, input.spaceId));
       const baseRevision = manifest?.baseRevision?.revision ?? '0';
-      const organized = organizeArtifacts(artifacts, {
+      const organized = organizeArtifacts(safeArtifacts, {
         spaceId: input.spaceId,
         baseRevision,
         recipe: UNIFIED_RECIPE,
         now,
       });
       const acknowledged = new Set(
-        artifacts.filter((artifact) => artifact.sensitivity === 'review-required').map((artifact) => artifact.artifactId),
+        safeArtifacts.filter((artifact) => artifact.sensitivity === 'review-required').map((artifact) => artifact.artifactId),
       );
-      const issues = validateKnowledgeBundle(organized.bundle, artifacts, UNIFIED_RECIPE, {
+      const issues = validateKnowledgeBundle(organized.bundle, safeArtifacts, UNIFIED_RECIPE, {
         expectedBaseRevision: baseRevision,
         acknowledgedReviewArtifactIds: acknowledged,
         trustedRevisionProvenanceIds: new Set(),
@@ -101,11 +115,24 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
       return {
         bundle: organized.bundle,
         sourceKey: createHash('sha256').update([...input.sourcePaths].sort().join('\n')).digest('hex'),
-        processedFiles: artifacts.length,
+        processedFiles: safeArtifacts.length,
         skippedFiles,
+        warnings,
       };
     },
   });
+}
+
+const SECRET_PATTERNS = [
+  /FAKE_TOKEN[A-Z_0-9]*/i,
+  /(?:sk_|AKIA|ghp_|gho_|xox[baprs]-)[A-Za-z0-9]{16,}/,
+  /(?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[=:]\s*['"]?[^\s'"{]{8,}/i,
+  /Bearer\s+[A-Za-z0-9._-]{20,}/,
+];
+
+function artifactContentText(artifact: SourceArtifact): string {
+  const c = artifact.content;
+  return [c.title, c.summary, c.body, ...Object.values(c.fields ?? {})].join('\n');
 }
 
 function createFilePreviewStore(home: string): PreviewStore {
