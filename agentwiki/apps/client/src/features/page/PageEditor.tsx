@@ -453,6 +453,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               handleContentChange(changes);
               setMode('edit');
             }}
+            onStreamUpdate={(partial) => {
+              handleContentChange(partial);
+              setMode('edit');
+            }}
           />
         ) : null}
       </div>

@@ -11,6 +11,7 @@ interface AgentAssistPanelProps {
   spaceId: string;
   snapshot: () => { title: string; content: string; updatedAt?: string };
   onApply?: (changes: string) => void;
+  onStreamUpdate?: (content: string) => void;
 }
 
 type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -78,7 +79,49 @@ const routingErrorCode = (result: AssistRoutingResult | undefined, zh: boolean) 
   return msg ? (zh ? msg.zh : msg.en) : (zh ? '助手运行失败，请稍后重试' : 'Assistant failed, please retry');
 };
 
-export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply }) => {
+/** Extract the current "changes" value from a possibly-incomplete JSON text stream.
+ *  opencode responds with {"summary":"...","changes":"<full markdown>"} — this
+ *  lets us render the markdown live while it is still being generated.
+ *  Tolerates ```json fences and pretty-printed JSON. */
+function extractChangesFromStream(raw: string): string | null {
+  const jsonText = raw.split('\n')
+    .filter((line) => line.startsWith('📝 生成:'))
+    .map((line) => line.slice('📝 生成:'.length).trim())
+    .join('');
+  if (!jsonText) return null;
+  const marker = '"changes"';
+  const markerIdx = jsonText.indexOf(marker);
+  if (markerIdx < 0) return null;
+  // Skip past `"changes"` then optional whitespace + `:` then optional whitespace + `"`.
+  let i = markerIdx + marker.length;
+  while (i < jsonText.length && (jsonText[i] === ' ' || jsonText[i] === '\t' || jsonText[i] === '\n' || jsonText[i] === '\r')) i += 1;
+  if (jsonText[i] !== ':') return null;
+  i += 1;
+  while (i < jsonText.length && (jsonText[i] === ' ' || jsonText[i] === '\t' || jsonText[i] === '\n' || jsonText[i] === '\r')) i += 1;
+  if (jsonText[i] !== '"') return null;
+  i += 1;
+  let out = '';
+  let escaped = false;
+  for (; i < jsonText.length; i += 1) {
+    const c = jsonText[i];
+    if (escaped) {
+      if (c === 'n') out += '\n';
+      else if (c === 't') out += '\t';
+      else if (c === 'r') out += '\r';
+      else if (c === '"') out += '"';
+      else if (c === '\\') out += '\\';
+      else out += c;
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') { escaped = true; continue; }
+    if (c === '"') break; // string closed — changes fully received
+    out += c;
+  }
+  return out.length ? out : null;
+}
+
+export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply, onStreamUpdate }) => {
   const { language } = useLanguage();
   const { user } = useAuth();
   const zh = language === 'zh-CN';
@@ -160,6 +203,12 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       const updated = current + data.chunk;
       streamBufferRef.current.set(data.taskId, updated);
       
+      // Live-apply the markdown currently being generated to the editor.
+      if (onStreamUpdate) {
+        const partial = extractChangesFromStream(updated);
+        if (partial) onStreamUpdate(partial);
+      }
+
       setTasks((prev) => prev.map((t) => {
         if (t.id === data.taskId) {
           return {
