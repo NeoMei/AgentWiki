@@ -13,6 +13,7 @@ import {
   OpencodeAttemptResult,
   OpencodeExecutionError,
   OpencodeRunner,
+  StreamChunkCallback,
 } from './opencode.types';
 
 const MAX_OUTPUT_BYTES = 2_000_000;
@@ -54,11 +55,12 @@ export class OpencodeCliRunner implements OpencodeRunner {
     return this.exec(['models', '--verbose'], timeoutMs, 'catalog');
   }
 
-  async runModel(prompt: string, model: string, timeoutMs: number): Promise<OpencodeAttemptResult> {
+  async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback): Promise<OpencodeAttemptResult> {
     const output = await this.exec(
       ['run', '--model', model, '--format', 'json', prompt],
       timeoutMs,
       'model',
+      onStreamChunk,
     );
     return this.parse(output);
   }
@@ -92,7 +94,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
     return join(cwd, 'node_modules', '.bin', 'opencode');
   }
 
-  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model'): Promise<string> {
+  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback): Promise<string> {
     const bin = this.resolveBin();
     const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
     return new Promise((resolve, reject) => {
@@ -131,6 +133,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
       let closed = false;
       let settled = false;
       let forceKillTimer: NodeJS.Timeout | undefined;
+      let lineBuffer = '';
 
       const settle = (error?: Error, value?: string) => {
         if (settled) return;
@@ -161,6 +164,40 @@ export class OpencodeCliRunner implements OpencodeRunner {
         forceKillTimer.unref();
         settle(error);
       };
+      const emitStreamChunk = (data: Buffer | string) => {
+        if (!onStreamChunk) return;
+        const chunk = data.toString();
+        lineBuffer += chunk;
+        let newlineIndex: number;
+        while ((newlineIndex = lineBuffer.indexOf('\n')) >= 0) {
+          const line = lineBuffer.slice(0, newlineIndex).trim();
+          lineBuffer = lineBuffer.slice(newlineIndex + 1);
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event?.type === 'thinking' && typeof event?.part?.text === 'string') {
+              onStreamChunk(`💭 思考: ${event.part.text}\n`);
+            } else if (event?.type === 'tool_use' && event?.part?.tool) {
+              const toolName = event.part.tool;
+              const toolInput = event.part.input ? JSON.stringify(event.part.input, null, 2) : '';
+              onStreamChunk(`🔧 调用工具: ${toolName}\n${toolInput ? `   输入: ${toolInput}\n` : ''}`);
+            } else if (event?.type === 'tool_result' && event?.part?.output) {
+              const output = typeof event.part.output === 'string' 
+                ? event.part.output.slice(0, 500) 
+                : JSON.stringify(event.part.output).slice(0, 500);
+              onStreamChunk(`✅ 工具结果: ${output}\n`);
+            } else if (event?.type === 'text' && typeof event?.part?.text === 'string') {
+              onStreamChunk(`📝 生成: ${event.part.text}\n`);
+            } else if (event?.type === 'step_start') {
+              onStreamChunk(`🚀 开始执行步骤...\n`);
+            } else if (event?.type === 'step_finish') {
+              const tokens = event?.part?.tokens?.total || 0;
+              const cost = event?.part?.cost || 0;
+              onStreamChunk(`✓ 步骤完成 (${tokens} tokens, $${cost.toFixed(4)})\n`);
+            }
+          } catch { /* not JSON or partial line, skip */ }
+        }
+      };
       const appendOutput = (destination: 'stdout' | 'stderr', data: Buffer | string) => {
         const chunk = data.toString();
         const chunkBytes = Buffer.byteLength(chunk);
@@ -169,8 +206,12 @@ export class OpencodeCliRunner implements OpencodeRunner {
           return;
         }
         outputBytes += chunkBytes;
-        if (destination === 'stdout') out += chunk;
-        else err += chunk;
+        if (destination === 'stdout') {
+          out += chunk;
+          emitStreamChunk(data);
+        } else {
+          err += chunk;
+        }
       };
       function onStdout(data: Buffer | string) { appendOutput('stdout', data); }
       function onStderr(data: Buffer | string) { appendOutput('stderr', data); }
