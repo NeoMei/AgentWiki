@@ -48,3 +48,17 @@
 - Pre-deployment backup: `/root/backups/agentwiki/pre-0.3.6-20260812195644.dump.gz` (420,857 bytes).
 - API, worker, frontend: all `active`.
 - No new Prisma migration required (schema unchanged since 0.3.1).
+
+## RETEST5 — published-package full end-to-end onboarding (0.3.6)
+
+Ran the automated onboarding E2E harness against production `https://agentwiki.quukk.com/api` with the public npm package `@neomei/agentwiki-local-sync@0.3.6`. Each client completed Device Auth (auto-registered disposable user + auto-approved), bootstrap confirmation, single gateway install, first local scan, preview confirmation, and first sync.
+
+| Client | Session | Status |
+|--------|---------|--------|
+| Codex | `fdf341cc-e907-4ce2-95b8-328512feb514` | PASS |
+| Claude Code | `a6c23e9b-f2a9-495d-8ebd-9453e8f6fdb5` | PASS |
+| OpenCode | `c68019fa-59da-4a24-b342-f4e7af3554d7` | PASS |
+
+Post-run residue check (production): `0` active `onboard-e2e-*` users, `0` active `aw-e2e-*` spaces, `0` active `aw-e2e-*` agents. Production health green after all runs.
+
+This closes the open verification boundary: the complete Device Auth → onboarding → first-sync flow now passes end-to-end for all three clients on the public 0.3.6 package, including the Claude gateway fix.
