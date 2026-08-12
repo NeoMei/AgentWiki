@@ -8,6 +8,7 @@ interface AgentAssistPanelProps {
   pageTitle: string;
   spaceId: string;
   snapshot: () => { title: string; content: string; updatedAt?: string };
+  onApply?: (changes: string) => void;
 }
 
 type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -61,7 +62,7 @@ const routingErrorCode = (result: AssistRoutingResult | undefined) => {
   return attempts?.[attempts.length - 1]?.errorCode || null;
 };
 
-export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot }) => {
+export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [intent, setIntent] = useState('');
@@ -170,6 +171,15 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                       <details className="mt-1.5">
                         <summary className="cursor-pointer text-xs text-blue-600">{zh ? '查看建议内容' : 'View suggestion'}</summary>
                         <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">{task.result.changes}</pre>
+                        {onApply ? (
+                          <button
+                            type="button"
+                            onClick={() => onApply(task.result!.changes!)}
+                            className="mt-1.5 inline-flex items-center gap-1 rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
+                          >
+                            {zh ? '应用到编辑器' : 'Apply to editor'}
+                          </button>
+                        ) : null}
                       </details>
                     ) : null}
                     {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
