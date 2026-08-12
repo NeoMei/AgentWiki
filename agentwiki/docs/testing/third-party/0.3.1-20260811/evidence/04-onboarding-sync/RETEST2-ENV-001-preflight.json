@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.3.2",
+  "npmExactAndLatest": true,
+  "deviceStartHttpStatus": 201,
+  "verificationUri": "https://agentwiki.quukk.com/onboard/device",
+  "productionHealth": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok"
+  },
+  "credentialFileMode": "0600",
+  "isolatedClientHomes": 3,
+  "isolatedRootMode": "0700",
+  "dailyClientConfigsTouched": false,
+  "approvedWindowActive": true,
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

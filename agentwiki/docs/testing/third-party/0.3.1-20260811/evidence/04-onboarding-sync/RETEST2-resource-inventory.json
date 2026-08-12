@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "resources": {
+    "agents": {
+      "count": 3,
+      "handles": [
+        "sha256-12:49b6ddd44e85",
+        "sha256-12:1853621ce0df",
+        "sha256-12:d7681b8610cb"
+      ]
+    },
+    "connections": {
+      "count": 3,
+      "handles": [
+        "sha256-12:45403c3c1b7c",
+        "sha256-12:cbd33a3b84e0",
+        "sha256-12:63cfed21b9fc"
+      ]
+    },
+    "changeSets": {
+      "count": 4,
+      "handles": [
+        "sha256-12:208322db4b58",
+        "sha256-12:627e866f9c5b",
+        "sha256-12:54ac4b3b449a",
+        "sha256-12:02de36be4002"
+      ]
+    },
+    "submissions": {
+      "count": 4,
+      "handles": [
+        "sha256-12:3af1b4c18420",
+        "sha256-12:35f72a9f2e3b",
+        "sha256-12:a2b13180866b",
+        "sha256-12:2dd5baa38c33"
+      ]
+    },
+    "revisions": {
+      "count": 4,
+      "handles": [
+        "sha256-12:f232ebba451f",
+        "sha256-12:f232ebba451f",
+        "sha256-12:f232ebba451f",
+        "sha256-12:fab9065456d3"
+      ]
+    }
+  },
+  "deviceRequests": {
+    "count": 5,
+    "terminalApproved": 3,
+    "terminalDenied": 1,
+    "unapprovedPreflightExpiresAutomatically": 1
+  },
+  "agentCredentials": {
+    "count": 3,
+    "rawHandlesPrivateOnly": true
+  },
+  "grantBindings": {
+    "count": 3,
+    "rawHandlesPrivateOnly": true
+  },
+  "baselinePublishOutcomes": [
+    {
+      "client": "codex",
+      "status": 201,
+      "resultStatus": "published"
+    },
+    {
+      "client": "claude",
+      "status": 400,
+      "message": "Archived page must belong to the change set space",
+      "code": "BAD_REQUEST"
+    },
+    {
+      "client": "opencode",
+      "status": 409,
+      "message": "The page changed after this candidate was compiled; create a new run before publishing",
+      "code": "CHANGESET_INVALID_STATE"
+    }
+  ],
+  "sync001AdditionalChangeSet": true,
+  "serverCleanupState": "PENDING_TASK8",
+  "localIsolatedRootCleanupState": "PENDING",
+  "rawIdsRedacted": true,
+  "credentialsRedacted": true,
+  "absolutePathsRedacted": true
+}

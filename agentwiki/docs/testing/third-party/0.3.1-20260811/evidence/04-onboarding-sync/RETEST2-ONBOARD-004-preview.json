@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-004",
+  "clients": {
+    "codex": {
+      "syncPreviewSummaryKeys": [
+        "filesProcessed",
+        "filesSkipped",
+        "sourceKey"
+      ],
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "hasAdded": false,
+      "hasModified": false,
+      "hasDeleted": false,
+      "hasUploadBytes": false
+    },
+    "claude": {
+      "syncPreviewSummaryKeys": [
+        "filesProcessed",
+        "filesSkipped",
+        "sourceKey"
+      ],
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "hasAdded": false,
+      "hasModified": false,
+      "hasDeleted": false,
+      "hasUploadBytes": false
+    },
+    "opencode": {
+      "syncPreviewSummaryKeys": [
+        "filesProcessed",
+        "filesSkipped",
+        "sourceKey"
+      ],
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "hasAdded": false,
+      "hasModified": false,
+      "hasDeleted": false,
+      "hasUploadBytes": false
+    }
+  },
+  "result": "FAIL",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

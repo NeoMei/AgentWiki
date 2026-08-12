@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-006",
+  "completed": {
+    "codex": {
+      "terminalEventObserved": true,
+      "exitCode": 0,
+      "terminalToExitSeconds": 0.024,
+      "sigtermUsed": false
+    },
+    "claude": {
+      "terminalEventObserved": true,
+      "exitCode": 0,
+      "terminalToExitSeconds": 0.024,
+      "sigtermUsed": false
+    },
+    "opencode": {
+      "terminalEventObserved": true,
+      "exitCode": 0,
+      "terminalToExitSeconds": 0.029,
+      "sigtermUsed": false
+    }
+  },
+  "denied": {
+    "terminalCode": "AUTH_DENIED",
+    "exitCode": 1,
+    "terminalToExitSeconds": 0.017,
+    "sigtermUsed": false,
+    "activeAgentCreated": false
+  },
+  "result": "PASS",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

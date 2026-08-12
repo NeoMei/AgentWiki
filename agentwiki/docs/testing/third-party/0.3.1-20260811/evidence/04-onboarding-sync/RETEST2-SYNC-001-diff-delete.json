@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "case": "SYNC-001",
+  "previewDiff": {
+    "added": 1,
+    "modified": 2,
+    "deleted": 1,
+    "uploadBytes": 2630
+  },
+  "summaryKeys": [
+    "filesProcessed",
+    "filesSkipped",
+    "sourceKey"
+  ],
+  "warningsCount": 0,
+  "remoteCandidate": {
+    "confirmStatus": "pending_review",
+    "changeSetCreated": true,
+    "itemCount": 3,
+    "createCount": 1,
+    "updateCount": 1,
+    "deleteCount": 1,
+    "itemTypes": [
+      "archive_page",
+      "create_page",
+      "update_page"
+    ],
+    "allObservedTitlesPrefixed": false,
+    "non3ptItemObserved": false
+  },
+  "result": "PASS",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

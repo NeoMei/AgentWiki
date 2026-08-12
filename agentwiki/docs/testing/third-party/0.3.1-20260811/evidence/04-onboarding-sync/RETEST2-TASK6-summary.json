@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "0.3.2",
+  "caseResults": {
+    "ONBOARD-001": "PASS",
+    "ONBOARD-003": "FAIL",
+    "ONBOARD-004": "FAIL",
+    "ONBOARD-006": "PASS",
+    "ONBOARD-007": "FAIL",
+    "SYNC-001": "PASS",
+    "SYNC-004": "PASS",
+    "SYNC-006": "PASS"
+  },
+  "totals": {
+    "PASS": 5,
+    "FAIL": 3,
+    "BLOCKED": 0
+  },
+  "defectResults": {
+    "DEF-3PT-20260812-001": "PASS",
+    "DEF-3PT-20260812-002": "FAIL",
+    "DEF-3PT-20260812-003": "FAIL",
+    "DEF-3PT-20260812-004": "PASS",
+    "DEF-3PT-20260812-005": "PASS",
+    "DEF-3PT-20260812-006": "PASS",
+    "STOP-3PT-20260812-002": "PASS"
+  },
+  "specSection16Triggered": false,
+  "productionHealthAfter": "ok",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

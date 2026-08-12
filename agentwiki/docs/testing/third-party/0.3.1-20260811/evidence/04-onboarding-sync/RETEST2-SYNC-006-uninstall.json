@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "case": "SYNC-006",
+  "clients": {
+    "codex": {
+      "exitCode": 0,
+      "configMode": "0o600",
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false
+    },
+    "claude": {
+      "exitCode": 0,
+      "configMode": "0o600",
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false
+    },
+    "opencode": {
+      "exitCode": 0,
+      "configMode": "0o600",
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false
+    }
+  },
+  "allConfigsMatchBeforeExactly": true,
+  "allGatewayEntriesRemoved": true,
+  "allUnrelatedEntriesPreserved": true,
+  "allConnectionsRemoved": true,
+  "result": "PASS",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

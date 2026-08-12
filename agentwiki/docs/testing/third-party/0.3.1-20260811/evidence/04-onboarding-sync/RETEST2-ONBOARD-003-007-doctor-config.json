@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    "ONBOARD-003",
+    "ONBOARD-007"
+  ],
+  "clients": {
+    "codex": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCmd": true,
+        "usesArgs": true
+      },
+      "doctorExitCode": 0,
+      "doctorChecks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "fail",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "doctorAllPass": false,
+      "connectionClient": "codex",
+      "pluginVersion": "0.3.2"
+    },
+    "claude": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCommand": true,
+        "usesArgs": true
+      },
+      "doctorExitCode": 0,
+      "doctorChecks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "fail",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "doctorAllPass": false,
+      "connectionClient": "claude",
+      "pluginVersion": "0.3.2"
+    },
+    "opencode": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCommand": true,
+        "usesArgs": true,
+        "type": "local"
+      },
+      "doctorExitCode": 0,
+      "doctorChecks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "pass",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "doctorAllPass": true,
+      "connectionClient": "opencode",
+      "pluginVersion": "0.3.2"
+    }
+  },
+  "allThreeCompletedOnboarding": true,
+  "singleAgentwikiEntryEach": true,
+  "unrelatedEntryPreservedEach": true,
+  "allThreeDoctorPass": false,
+  "result": "FAIL",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

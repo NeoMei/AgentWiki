@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-001",
+  "clients": {
+    "codex": {
+      "schemeIsHttps": true,
+      "hostIsCanonical": true,
+      "pathIsDeviceAuthorization": true,
+      "authorizationApproved": true
+    },
+    "claude": {
+      "schemeIsHttps": true,
+      "hostIsCanonical": true,
+      "pathIsDeviceAuthorization": true,
+      "authorizationApproved": true
+    },
+    "opencode": {
+      "schemeIsHttps": true,
+      "hostIsCanonical": true,
+      "pathIsDeviceAuthorization": true,
+      "authorizationApproved": true
+    }
+  },
+  "chrome": {
+    "topLevelTabLoaded": true,
+    "pageTitle": "AgentWiki",
+    "canonicalUrlLoaded": true,
+    "clientBlockObserved": false
+  },
+  "rawUrlsRedacted": true,
+  "deviceCodesRedacted": true
+}

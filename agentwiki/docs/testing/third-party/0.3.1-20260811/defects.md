@@ -18,7 +18,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-001-verification-url-summary.json`; `evidence/04-onboarding-sync/ONBOARD-001-codex-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-claude-authorization.png`; `evidence/04-onboarding-sync/ONBOARD-007-opencode-authorization.png`
 - Affected 3PT resources: Six sanitized Device Request handles, including the separate consumed-request handle retained by ONBOARD-006 evidence, are listed in `TASK6-resource-inventory.json`.
 - Containment action: Used the canonical production origin while retaining the generated user-code query only in secure process memory; no non-3PT resource was accessed.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: PASS — RETEST2 confirmed canonical HTTPS Device Auth URLs for all three clients and Chrome loaded the AgentWiki page without a client-side block.
 - Cleanup state: NOT_REQUIRED for terminal Device Requests.
 
 ### DEF-3PT-20260812-002 — Codex and Claude gateway registrations fail client verification
@@ -37,7 +37,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/ONBOARD-007-doctor-summary.json`
 - Affected 3PT resources: Three local connections, Agents, credentials, and grant bindings listed in `TASK6-resource-inventory.json`.
 - Containment action: Continued synchronization through the package gateway in the isolated homes only; did not modify daily client configuration.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: FAIL — RETEST2 confirmed the generated cmd/command plus args shapes, but Codex and Claude still failed doctor mcp-registration; only OpenCode passed.
 - Cleanup state: PENDING until SYNC-006 uninstall verification is recorded.
 
 ### DEF-3PT-20260812-003 — Preview omits required change and upload counts
@@ -56,7 +56,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-codex-until-sync.json`; `evidence/04-onboarding-sync/SYNC-001-diff-push.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
 - Affected 3PT resources: Local jobs and preview handles listed in `TASK6-resource-inventory.json`.
 - Containment action: Confirmed only known synthetic fixtures and independently inspected the scoped 3PT Review diff before publication.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: FAIL — RETEST2 onboarding first-sync previews still omitted added/modified/deleted/uploadBytes. The later gateway knowledge_prepare path did include those fields, but that does not satisfy ONBOARD-004.
 - Cleanup state: PENDING with isolated-root cleanup in Task 8.
 
 ### DEF-3PT-20260812-004 — Deleting a source file does not propose a page deletion
@@ -75,7 +75,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/SYNC-001-diff-push.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
 - Affected 3PT resources: Task 6 pages and ChangeSets listed in `TASK6-resource-inventory.json`.
 - Containment action: Published only the visible create/update candidates; did not delete through an out-of-band path.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: PASS — RETEST2 deletion of obsolete.md produced deleted=1 and an archive_page ChangeSet item.
 - Cleanup state: PENDING with main 3PT Space cleanup in Task 8.
 
 ### DEF-3PT-20260812-005 — Synthetic credential marker is processed without warning or redaction
@@ -94,7 +94,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/SYNC-004-fake-secret-preview.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
 - Affected 3PT resources: One unconfirmed local job/preview only; no remote ChangeSet or page was created from this fixture.
 - Containment action: Did not confirm the preview, removed the synthetic fixture before later syncs, and retained the isolated root for Task 8 cleanup.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: PASS — RETEST2 skipped the approved fake-marker artifact, emitted one credential warning, and retained zero complete marker occurrences in preview state.
 - Cleanup state: PENDING with isolated-root cleanup in Task 8.
 
 ### DEF-3PT-20260812-006 — NDJSON onboarding process remains open after a terminal event
@@ -113,7 +113,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-codex-complete.json`; `evidence/04-onboarding-sync/ONBOARD-claude-complete.json`; `evidence/04-onboarding-sync/ONBOARD-opencode-complete.json`; `evidence/04-onboarding-sync/ONBOARD-codex-denied-complete.json`
 - Affected 3PT resources: No additional server resource; terminal session records are inventoried by sanitized Device Request handle.
 - Containment action: Terminated only after the terminal checkpoint and result event were persisted; no active synchronization was interrupted.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: PASS — RETEST2 completed and denied NDJSON commands exited naturally within 0.017–0.029 seconds after terminal events without SIGTERM.
 - Cleanup state: NOT_REQUIRED for the process; local session files remain for Task 8 isolated-root cleanup.
 
 ### STOP-3PT-20260812-002 — Product uninstall cannot remove the isolated test gateways
@@ -132,8 +132,9 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/CONFIG-01-before-summary.json`; `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/SYNC-006-uninstall-summary.json`
 - Affected 3PT resources: Three isolated client configs; two retained local connection records; one orphaned OpenCode gateway entry. Daily client configurations were never read or modified.
 - Containment action: Stopped further production write testing under Spec section 16.8. Did not manually rewrite the isolated configs or delete the isolated root; Task 8/production owner must choose the cleanup remediation while evidence is retained.
-- Retest result: BLOCKED — the 0.3.2 production Device Start API rejected `packageVersion: 0.3.2` with HTTP 400 before Device Authorization; this defect could not be safely re-exercised and is not confirmed fixed.
+- Retest result: PASS — RETEST2 uninstall returned zero for all clients, removed gateway entries and connections, preserved unrelated entries, and restored all configs byte-for-byte.
 - Cleanup state: FAIL for normal product uninstall; manual remediation is PENDING owner authorization.
+
 
 ## Task 5 acceptance note — no new defect
 

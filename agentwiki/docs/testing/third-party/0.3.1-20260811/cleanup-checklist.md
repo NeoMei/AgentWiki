@@ -79,3 +79,19 @@ Every individual sanitized handle is listed in `evidence/04-onboarding-sync/TASK
 - Retest production writes stopped immediately after the 0.3.2 Device Start blocker was confirmed.
 - No Spec section 16 condition was triggered, and no server-side 3PT resource was created by this retest.
 - The earlier Task 6 resources and cleanup states above are unchanged by this blocked retest.
+
+## 0.3.2 Task 6 RETEST2 cleanup
+
+| Resource type | Sanitized name | Creation case | Cleanup action | Verification | Result |
+|---|---|---|---|---|---|
+| Isolated client home set (3) | `agentwiki-3pt.retest2.<ephemeral>` / Codex, Claude Code, OpenCode | RETEST2 preflight | Product uninstall, then remove isolated root | All configs matched before hashes; root and marker absent | PASS |
+| Isolated gateway config set (3) | `agentwiki` gateway plus `3pt-control` fixture | ONBOARD-003 / ONBOARD-007 / SYNC-006 | Product `uninstall` | Gateway count zero; unrelated entry count one; byte-for-byte before match | PASS |
+| Local connection set (3) | RETEST2 onboarding connections | ONBOARD-003 / ONBOARD-007 / SYNC-006 | Product `uninstall` | Remaining connection count zero; no default connection | PASS |
+| Device Request set (5) | Three approved, one denied, one unapproved preflight probe | ONBOARD-001 / ONBOARD-006 / preflight | Approved/denied terminal outcomes; unapproved probe expires normally | Four terminal outcomes recorded; no Agent from denied/probe request | PASS / NOT_REQUIRED |
+| Agent, credential, and Grant sets (3 each) | `3PT-20260811-CODEX-RETEST2-*` | ONBOARD-001 / ONBOARD-007 | Retain in secure Task 8 inventory for server-side revocation/deletion | Raw handles stored only in mode-0600 secure inventory; sanitized counts committed | PENDING_TASK8 |
+| ChangeSet/submission set (4) | Three onboarding baselines plus SYNC-001 candidate | ONBOARD-004 / SYNC-001 | Remove with main 3PT Space during Task 8 | Sanitized handles committed; raw handles stored only in secure inventory | PENDING_TASK8 |
+| Fake-token fixture and unconfirmed preview | Approved fake marker fixture | SYNC-004 | Removed locally without confirmation or upload | One skipped file, one warning, zero full-marker preview occurrences | PASS |
+| Daily client configurations | Not accessed | All RETEST2 cases | No action required | Only three fresh isolated homes were used | PASS |
+
+- RETEST2 created only prefixed Agent resources in the existing main 3PT Space; the raw cleanup inventory was appended to the mode-0600 secure credential file.
+- No Spec section 16 condition triggered. Production health remained green after execution and cleanup.
