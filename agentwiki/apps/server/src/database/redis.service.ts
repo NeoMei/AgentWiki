@@ -124,13 +124,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   /** Subscribe to a Redis channel. Returns an unsubscribe function. */
   async subscribe(channel: string, handler: (message: string) => void): Promise<() => void> {
-    const client = this.getClient();
+    // A connection in subscriber mode cannot run normal commands, so use a
+    // dedicated duplicate connection for subscriptions.
+    const subscriber = this.getClient().duplicate();
+    await new Promise<void>((resolve, reject) => {
+      subscriber.once('ready', resolve);
+      subscriber.once('error', reject);
+    });
     const listener = (_channel: string, message: string) => handler(message);
-    client.on('message', listener);
-    await client.subscribe(channel);
+    subscriber.on('message', listener);
+    await subscriber.subscribe(channel);
     return () => {
-      void client.unsubscribe(channel).catch(() => undefined);
-      client.off('message', listener);
+      void subscriber.unsubscribe(channel).catch(() => undefined);
+      subscriber.off('message', listener);
+      subscriber.disconnect();
     };
   }
 
