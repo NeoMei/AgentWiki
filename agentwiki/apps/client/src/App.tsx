@@ -14,6 +14,11 @@ import { ProductPage } from './features/about/ProductPage';
 import { UsageGuide } from './features/about/UsageGuide';
 import { OnboardPage } from './features/about/OnboardPage';
 import { OnboardDevicePage } from './features/about/OnboardDevicePage';
+import { DocsOverview } from './features/docs/DocsOverview';
+import { DocsArchitecture } from './features/docs/DocsArchitecture';
+import { DocsFeatures } from './features/docs/DocsFeatures';
+import { DocsSecurity } from './features/docs/DocsSecurity';
+import { DocsSync } from './features/docs/DocsSync';
 import { SpaceSettings } from './features/space/SpaceSettings';
 import { AdminPage } from './features/admin/AdminPage';
 
@@ -64,6 +69,11 @@ const AppRoutes: React.FC = () => {
       </Route>
       <Route path="/" element={<ProductPage />} />
       <Route path="/guide" element={<UsageGuide />} />
+      <Route path="/docs" element={<DocsOverview />} />
+      <Route path="/docs/architecture" element={<DocsArchitecture />} />
+      <Route path="/docs/features" element={<DocsFeatures />} />
+      <Route path="/docs/security" element={<DocsSecurity />} />
+      <Route path="/docs/sync" element={<DocsSync />} />
       <Route path="/onboard" element={<OnboardPage />} />
       <Route path="/onboard/device" element={<OnboardDevicePage />} />
       <Route path="*" element={<Navigate to="/" />} />

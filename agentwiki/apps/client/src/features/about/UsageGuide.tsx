@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Bot, ArrowRight, Shield, Key,
   FileText, Network, Search, Users, CheckCircle2,
-  MousePointerClick, UserPlus, Rocket,
-  Server, GitBranch, Brain, Lock, Zap, Layers, List
+  MousePointerClick, UserPlus, Rocket, BookOpen
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -66,18 +65,6 @@ export const UsageGuide: React.FC = () => {
           ? '从创建空间到接入 Agent，几分钟即可开始构建你的多 Agent 协作知识库。'
           : 'From creating a space to connecting an Agent, start building your multi-Agent collaborative knowledge base in minutes.'}
           </p>
-
-          {/* In-page table of contents for deep dives */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-sm">
-            <span className="text-gray-400 flex items-center gap-1"><List size={14} />{zh ? '深入阅读：' : 'Deep dive:'}</span>
-            <a href="#architecture" className="text-blue-600 hover:underline">{zh ? '接入架构' : 'Architecture'}</a>
-            <span className="text-gray-300">·</span>
-            <a href="#sync-workflow" className="text-blue-600 hover:underline">{zh ? '同步工作流' : 'Sync Workflow'}</a>
-            <span className="text-gray-300">·</span>
-            <a href="#features-deep" className="text-blue-600 hover:underline">{zh ? '功能详解' : 'Features in Depth'}</a>
-            <span className="text-gray-300">·</span>
-            <a href="#security" className="text-blue-600 hover:underline">{zh ? '安全模型' : 'Security'}</a>
-          </div>
         </div>
 
         {/* Quick Steps */}
@@ -412,164 +399,25 @@ export const UsageGuide: React.FC = () => {
           </div>
         </section>
 
-        {/* ===== Deep dive: Agent integration architecture ===== */}
-        <section id="architecture" className="mb-16 scroll-mt-20">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <Server className="text-purple-600" size={24} />
-            {zh ? 'Agent 接入架构' : 'Agent Integration Architecture'}
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-8 space-y-5">
-            <p className="text-gray-600 leading-relaxed">
-              {zh
-                ? 'Agent 通过单一本地 MCP 网关（名为 agentwiki）接入。网关自动区分三类工具，Agent 无需选择 MCP server，由网关统一路由。这种设计让同一个 Agent 既能操作远程知识库，又能扫描本地代码，还能执行组合工作流。'
-                : 'Agents connect through a single local MCP gateway named agentwiki. The gateway automatically routes three tool categories, so the Agent never chooses an MCP server. This lets one Agent work with the remote knowledge base, scan local code, and run composite workflows.'}
-            </p>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
-                <code className="text-sm font-mono text-blue-700 font-semibold">wiki_*</code>
-                <p className="text-xs text-gray-600 mt-2 leading-relaxed">
-                  {zh ? '远程 AgentWiki 工具：页面、图谱、审核、记忆。调用服务端 API，受权限和审核策略约束。' : 'Remote AgentWiki tools: pages, graph, review, memory. Calls the server API under permission and review policy.'}
+                {/* Detailed documentation entry */}
+        <section className="mb-16">
+          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-8">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <BookOpen size={24} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">{zh ? '详细文档' : 'Detailed Documentation'}</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  {zh
+                    ? '想深入了解系统架构、功能原理、安全模型和同步机制？详细文档提供分章节、分层级的深度解读。'
+                    : 'Want to dive deeper into system architecture, feature rationale, security model, and sync mechanics? The detailed docs offer chapter-by-chapter, layered deep dives.'}
                 </p>
+                <Link to="/docs" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">
+                  {zh ? '阅读详细文档' : 'Read the Docs'}
+                  <ArrowRight size={16} />
+                </Link>
               </div>
-              <div className="bg-green-50 border border-green-200 rounded-lg p-5">
-                <code className="text-sm font-mono text-green-700 font-semibold">local_*</code>
-                <p className="text-xs text-gray-600 mt-2 leading-relaxed">
-                  {zh ? '本地工具：扫描源代码、读取工件。全部在本地执行，不上传原始代码或凭据。' : 'Local tools: scan sources, read artifacts. Fully local; never uploads raw code or credentials.'}
-                </p>
-              </div>
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-5">
-                <code className="text-sm font-mono text-purple-700 font-semibold">knowledge_*</code>
-                <p className="text-xs text-gray-600 mt-2 leading-relaxed">
-                  {zh ? '组合工作流：扫描→预览→同步→拉取。先本地整理，预览确认后才上传，冲突必须人工解决。' : 'Composite workflows: scan→preview→sync→pull. Organizes locally, uploads only after confirmation, conflicts need human resolution.'}
-                </p>
-              </div>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-700">
-              <Lock size={14} className="inline mr-1 align-text-bottom" />
-              {zh
-                ? '安全设计：服务端从不读取本地路径；本地敏感内容（含凭据特征）在预览阶段就被排除；密码和登录信息不进入 Agent 对话。'
-                : 'Security: the server never reads local paths; sensitive local content (including credential-like patterns) is excluded at preview; passwords never enter the Agent conversation.'}
-            </div>
-          </div>
-        </section>
-
-        {/* ===== Deep dive: Knowledge sync workflow ===== */}
-        <section id="sync-workflow" className="mb-16 scroll-mt-20">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <GitBranch className="text-amber-600" size={24} />
-            {zh ? '知识同步工作流' : 'Knowledge Sync Workflow'}
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-8 space-y-5">
-            <p className="text-gray-600 leading-relaxed">
-              {zh ? '把本地代码库或文档同步到 AgentWiki 的确定性流程，每一步都可预览、可回退、可审计：' : 'The deterministic flow to sync a local codebase or documents into AgentWiki. Every step is previewable, reversible, and auditable:'}
-            </p>
-            <div className="space-y-4">
-              <div className="flex items-start gap-3 border-l-2 border-amber-300 pl-4">
-                <Zap className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                <div>
-                  <div className="font-semibold text-gray-900 text-sm">{zh ? '1. 扫描（prepare）' : '1. Scan (prepare)'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? '本地扫描源、采集工件、组织成知识束、生成预览。全程零网络调用，不上传任何内容。' : 'Scan sources locally, collect artifacts, organize into a knowledge bundle, and generate a preview. Zero network calls; nothing is uploaded.'}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 border-l-2 border-amber-300 pl-4">
-                <Zap className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                <div>
-                  <div className="font-semibold text-gray-900 text-sm">{zh ? '2. 预览确认（confirm）' : '2. Preview confirmation (confirm)'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? '展示 added / modified / deleted / uploadBytes 统计与变更清单，用户明确确认后才上传。预览哈希绑定，确认前任何变化都会被发现。' : 'Shows added / modified / deleted / uploadBytes stats and a change list; uploads only after explicit confirmation. The preview hash is bound, so any change before confirmation is detected.'}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 border-l-2 border-amber-300 pl-4">
-                <Zap className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                <div>
-                  <div className="font-semibold text-gray-900 text-sm">{zh ? '3. 同步（sync）' : '3. Sync (sync)'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? 'Push 前先 Pull，检测三方冲突；冲突时拒绝并要求人工解决，绝不静默覆盖。成功后生成带来源的证据链。' : 'Pull before push to detect three-way conflicts; conflicts are rejected for human resolution, never silently overwritten. Success produces an evidence chain with provenance.'}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 border-l-2 border-amber-300 pl-4">
-                <Zap className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                <div>
-                  <div className="font-semibold text-gray-900 text-sm">{zh ? '4. 拉取（pull）' : '4. Pull (pull)'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? '从服务端权威版本刷新本地工作区，保持本地与生产知识库一致，支持多 Agent 协作下的增量更新。' : 'Refresh the local workspace from the authoritative server revision to stay in sync, supporting incremental updates across multiple Agents.'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ===== Deep dive: Features in depth ===== */}
-        <section id="features-deep" className="mb-16 scroll-mt-20">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <Layers className="text-blue-600" size={24} />
-            {zh ? '功能详解' : 'Features in Depth'}
-          </h2>
-          <div className="space-y-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Layers className="text-blue-600" size={18} />{zh ? '知识空间（Space）' : 'Knowledge Spaces'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? '按项目、团队或主题隔离知识。每个 Space 有独立的成员、权限策略和审核流；Space 之间数据隔离，Agent 必须被显式授权才能访问。' : 'Isolate knowledge by project, team, or topic. Each Space has independent members, permission policies, and review flows; Spaces are data-isolated and Agents need explicit grants.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><FileText className="text-indigo-600" size={18} />{zh ? '页面与文档' : 'Pages & Documents'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Markdown 编写，实时预览，所见即所得。支持层级目录、版本历史、双向链接和多人协作编辑。每次编辑都生成可追溯的版本快照，可随时回溯和对比。' : 'Markdown with live WYSIWYG preview, hierarchical pages, version history, bidirectional links, and real-time collaborative editing. Every edit creates a traceable version snapshot that can be reviewed and restored.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Network className="text-purple-600" size={18} />{zh ? '知识图谱' : 'Knowledge Graph'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? '在页面之间建立带类型、来源、证据和置信度的语义关系。图谱可视化展示知识网络，支持按关系类型过滤和探索。每条边都可审计，追溯到具体页面和提交。' : 'Create typed semantic relationships between pages, each with provenance, evidence, and confidence. Visualize the network, filter by relationship type; every edge is auditable and traceable to a page and commit.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Search className="text-green-600" size={18} />{zh ? '语义搜索' : 'Semantic Search'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? '基于向量嵌入的语义搜索，超越关键词匹配。用自然语言提问即可找到最相关的页面；搜索范围始终受当前用户权限约束，不会越权返回结果。' : 'Vector-embedding semantic search beyond keywords. Ask in natural language to find relevant pages; search scope is always constrained by the user permissions and never leaks unauthorized results.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><GitBranch className="text-amber-600" size={18} />{zh ? '代码库知识摄取' : 'Codebase Ingestion'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? '从 Git 仓库或本地目录自动摄取代码与文档，生成结构化知识。保留完整的来源版本、文件路径和证据链，可追溯到具体提交，便于核对 Agent 写入的内容来源。' : 'Auto-ingest code and docs from Git repos or local directories into structured knowledge with full provenance, file paths, and evidence chains traceable to specific commits, so Agent writes can be verified.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><CheckCircle2 className="text-emerald-600" size={18} />{zh ? '审核与变更集' : 'Review & ChangeSets'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 的写入进入可审计的变更集（ChangeSet），由人工审批后才发布。支持创建、更新、删除页面和图谱关系；审批人可逐项接受或拒绝，所有决策进入审计日志。' : 'Agent writes enter auditable ChangeSets requiring human approval before publishing. Supports page and graph create/update/delete; approvers can accept or reject item by item, and all decisions go to the audit log.'}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-6">
-              <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2"><Brain className="text-rose-600" size={18} />{zh ? '记忆' : 'Memory'}</h3>
-              <p className="text-sm text-gray-600 leading-relaxed">{zh ? '按 Space 隔离的结构化记忆层，让 Agent 跨会话保留上下文。记忆写入同样受审核策略约束，不会绕过权限边界，避免 Agent 把不该存的信息写入共享记忆。' : 'A per-Space structured memory layer letting Agents retain context across sessions. Memory writes follow the same review policy and never bypass permission boundaries.'}</p>
-            </div>
-          </div>
-        </section>
-
-        {/* ===== Deep dive: Security model ===== */}
-        <section id="security" className="mb-16 scroll-mt-20">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <Shield className="text-blue-600" size={24} />
-            {zh ? '安全模型详解' : 'Security Model in Depth'}
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-8 space-y-5">
-            <p className="text-gray-600 leading-relaxed">
-              {zh ? 'Agent 的有效权限是三层交集，确保最小权限原则。任何一层的收紧都会立即生效：' : 'Effective Agent permission is the intersection of three layers, enforcing least-privilege. Tightening any layer takes effect immediately:'}
-            </p>
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Key className="text-blue-600 shrink-0 mt-0.5" size={20} />
-                <div>
-                  <div className="font-semibold text-gray-900">{zh ? '凭据范围（Credential Scope）' : 'Credential Scope'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 凭据的全局能力上限。可在 Space 内进一步收窄，但不能超出。凭据可随时吊销，吊销后所有 Space 的访问立即失效。' : 'The global capability ceiling of an Agent credential. Can be narrowed per Space but never exceeded. Credentials can be revoked at any time, immediately disabling access across all Spaces.'}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Shield className="text-purple-600 shrink-0 mt-0.5" size={20} />
-                <div>
-                  <div className="font-semibold text-gray-900">{zh ? '空间授权（Space Grant）' : 'Space Grant'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 在某个 Space 内被授予的具体权限范围。未被授权的 Space 对 Agent 完全不可见，不会出现在搜索和列表中。' : 'The specific scopes granted to an Agent within a Space. Unauthorized Spaces are completely invisible to the Agent and never appear in search or listings.'}</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Users className="text-green-600 shrink-0 mt-0.5" size={20} />
-                <div>
-                  <div className="font-semibold text-gray-900">{zh ? '审核策略（Approval Policy）' : 'Approval Policy'}</div>
-                  <div className="text-sm text-gray-600 leading-relaxed">{zh ? 'Space 级别的写入策略：always-review（默认，所有 Agent 写入需人工审批）或 scoped-auto-publish（符合策略时自动发布）。可随时切换。' : 'Space-level write policy: always-review (default, all Agent writes need human approval) or scoped-auto-publish (auto-publish when policy allows). Switchable at any time.'}</div>
-                </div>
-              </div>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
-              <Lock size={14} className="inline mr-1 align-text-bottom" />
-              {zh ? '结果：Agent 只能在被授权的 Space 内、执行被授权的操作；任何写入都在审计日志中可追溯。即使 Agent 凭据泄露，攻击面也仅限于已授权的最小范围。' : 'Result: Agents can only perform authorized operations in authorized Spaces; every write is traceable in the audit log. Even if a credential leaks, the attack surface is limited to the authorized minimum.'}
             </div>
           </div>
         </section>
