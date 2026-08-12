@@ -86,7 +86,7 @@ const routingErrorCode = (result: AssistRoutingResult | undefined, zh: boolean) 
 function extractChangesFromStream(raw: string): string | null {
   const jsonText = raw.split('\n')
     .filter((line) => line.startsWith('📝 生成:'))
-    .map((line) => line.slice('📝 生成:'.length).trim())
+    .map((line) => line.slice('📝 生成:'.length).replace(/^\s/, ''))
     .join('');
   if (!jsonText) return null;
   const marker = '"changes"';
@@ -140,6 +140,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
       const loadedTasks = Array.isArray(res.data) ? res.data : res.data.data || [];
+      console.log('[assist] loadTasks got', loadedTasks.length, loadedTasks.map((t: any) => `${(t.id||'').slice(-4)}:${t.status}`).join(','));
       setTasks((prev) => {
         const streamMap = new Map(prev.map((t) => [t.id, { stream: t.streamContent, phase: t.phase }]));
         return loadedTasks.map((t: AssistTask) => ({
@@ -206,6 +207,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     });
 
     socket.on('assistStream', (data: { taskId: string; chunk: string }) => {
+      console.log('[assist] stream event', data.taskId, data.chunk.slice(0, 40).replace(/\n/g, '|'));
       const current = streamBufferRef.current.get(data.taskId) || '';
       const updated = current + data.chunk;
       streamBufferRef.current.set(data.taskId, updated);
@@ -225,8 +227,9 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           streamContent: updated,
           phase: (updated.length > 100 ? 'generating' : 'thinking') as AssistPhase,
         };
-        if (!exists) return [task, ...prev];
-        return prev.map((t) => (t.id === data.taskId ? { ...t, streamContent: updated, phase: task.phase } : t));
+        const next = !exists ? [task, ...prev] : prev.map((t) => (t.id === data.taskId ? { ...t, streamContent: updated, phase: task.phase } : t));
+        console.log('[assist] setTasks ->', next.map((t) => `${t.id.slice(-4)}:${t.status}:${(t.streamContent || '').length}`).join(','));
+        return next;
       });
     });
 
@@ -304,6 +307,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           {tasks.length ? (
             <ul className="space-y-2">
               {tasks.map((task) => {
+                console.log('[assist] render', `${(task.id||'').slice(-4)}:${task.status}:phase=${task.phase||'-'}:streamLen=${(task.streamContent||'').length}`);
                 const status = STATUS_LABEL[task.status];
                 const phase = task.phase;
                 const phaseLabel = phase ? PHASE_LABEL[phase] : null;

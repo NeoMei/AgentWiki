@@ -57,7 +57,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
 
   async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback): Promise<OpencodeAttemptResult> {
     const output = await this.exec(
-      ['run', '--model', model, '--format', 'json', prompt],
+      ['run', '--model', model, '--thinking', '--format', 'json', prompt],
       timeoutMs,
       'model',
       onStreamChunk,
@@ -124,6 +124,31 @@ export class OpencodeCliRunner implements OpencodeRunner {
       let settled = false;
       let forceKillTimer: NodeJS.Timeout | undefined;
       let lineBuffer = '';
+      // Progressive streaming: opencode emits the full text of a step at once
+      // (--format json is step-scoped, not token-scoped). Chunk it and release
+      // it gradually so the editor updates live instead of all at once.
+      const STREAM_PIECE_CHARS = 120;
+      const STREAM_PIECE_INTERVAL_MS = 40;
+      let streamQueue: string[] = [];
+      let streamTimer: NodeJS.Timeout | null = null;
+
+      const pumpStreamQueue = () => {
+        if (streamTimer) return;
+        streamTimer = setInterval(() => {
+          const piece = streamQueue.shift();
+          if (piece === undefined) {
+            if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+            return;
+          }
+          if (onStreamChunk) onStreamChunk(piece);
+        }, STREAM_PIECE_INTERVAL_MS);
+        streamTimer.unref?.();
+      };
+
+      const queueStreamChunk = (text: string) => {
+        streamQueue.push(text);
+        pumpStreamQueue();
+      };
 
       const settle = (error?: Error, value?: string) => {
         if (settled) return;
@@ -165,25 +190,32 @@ export class OpencodeCliRunner implements OpencodeRunner {
           if (!line) continue;
           try {
             const event = JSON.parse(line);
-                if (event?.type === 'thinking' && typeof event?.part?.text === 'string') {
-              onStreamChunk(`💭 思考: ${event.part.text}\n`);
+            if ((event?.type === 'thinking' || event?.type === 'reasoning') && typeof event?.part?.text === 'string') {
+              queueStreamChunk(`💭 思考: ${event.part.text}\n`);
             } else if (event?.type === 'tool_use' && event?.part?.tool) {
               const toolName = event.part.tool;
               const toolInput = event.part.input ? JSON.stringify(event.part.input, null, 2) : '';
-              onStreamChunk(`🔧 调用工具: ${toolName}\n${toolInput ? `   输入: ${toolInput}\n` : ''}`);
+              queueStreamChunk(`🔧 调用工具: ${toolName}\n${toolInput ? `   输入: ${toolInput}\n` : ''}`);
             } else if (event?.type === 'tool_result' && event?.part?.output) {
               const output = typeof event.part.output === 'string' 
                 ? event.part.output.slice(0, 500) 
                 : JSON.stringify(event.part.output).slice(0, 500);
-              onStreamChunk(`✅ 工具结果: ${output}\n`);
+              queueStreamChunk(`✅ 工具结果: ${output}\n`);
             } else if (event?.type === 'text' && typeof event?.part?.text === 'string') {
-              onStreamChunk(`📝 生成: ${event.part.text}\n`);
+              const raw = event.part.text;
+              if (raw.length <= STREAM_PIECE_CHARS) {
+                queueStreamChunk(`📝 生成: ${raw}\n`);
+              } else {
+                for (let i = 0; i < raw.length; i += STREAM_PIECE_CHARS) {
+                  queueStreamChunk(`📝 生成: ${raw.slice(i, i + STREAM_PIECE_CHARS)}\n`);
+                }
+              }
             } else if (event?.type === 'step_start') {
-              onStreamChunk(`🚀 开始执行步骤...\n`);
+              queueStreamChunk(`🚀 开始执行步骤...\n`);
             } else if (event?.type === 'step_finish') {
               const tokens = event?.part?.tokens?.total || 0;
               const cost = event?.part?.cost || 0;
-              onStreamChunk(`✓ 步骤完成 (${tokens} tokens, $${cost.toFixed(4)})\n`);
+              queueStreamChunk(`✓ 步骤完成 (${tokens} tokens, $${cost.toFixed(4)})\n`);
             }
           } catch { /* not JSON or partial line, skip */ }
         }
