@@ -172,19 +172,20 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                     </div>
                     {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
                     {task.status === 'done' && task.result?.changes ? (
-                      <details className="mt-1.5">
-                        <summary className="cursor-pointer text-xs text-blue-600">{zh ? '查看建议内容' : 'View suggestion'}</summary>
-                        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-700">{task.result.changes}</pre>
+                      <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-2">
+                        <p className="mb-1 text-xs font-medium text-green-800">{zh ? '助手建议的内容：' : 'Assistant suggestion:'}</p>
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs text-gray-700">{task.result.changes}</pre>
                         {onApply ? (
                           <button
                             type="button"
                             onClick={() => onApply(task.result!.changes!)}
-                            className="mt-1.5 inline-flex items-center gap-1 rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
+                            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 transition"
                           >
+                            <CheckCircle2 size={15} />
                             {zh ? '应用到编辑器' : 'Apply to editor'}
                           </button>
                         ) : null}
-                      </details>
+                      </div>
                     ) : null}
                     {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
                   </li>
