@@ -3,6 +3,7 @@
 # 当前目标
 
 - Agent 自助接入 0.3.1 已实现、测试、发布并完成生产验收；当前无活跃开发任务。
+Agent 自助接入 0.3.6 已实现、测试、发布并完成生产验收；第三方测试缺陷 DEF-002/003 全部修复并通过 RETEST4；当前无活跃开发任务。
 
 # 范围 / 不做
 
@@ -12,13 +13,14 @@
 
 # 当前状态
 
-- 2026-08-11：2026-08-10 Agent 自助接入设计与 11 个实施 Task 全部完成，计划清单已全部勾选并归档。
-- npm `@neomei/agentwiki-local-sync@0.3.1` 已发布，`latest=0.3.1`；纯 Markdown/TXT 首次扫描不再等待 MarkItDown Python runtime，PDF/DOC/DOCX 仍按需安装。
-- 生产 `https://agentwiki.quukk.com` 已部署 0.3.1；API、worker、frontend 均 active，健康检查 database/Redis/audit persistence 全绿，`/api/onboard.json` 实际返回 HTTP 410。
-- Codex、Claude Code、OpenCode 已分别用 npm 公网包在隔离 HOME 完整通过 Device Auth、bootstrap、单一 gateway、扫描、预览、同步和清理；生产残留 0 用户 / 0 Space。
-- Playwright 生产 Device Auth UI E2E 通过。
-- 最终门禁：runtime 67 pass/9 skip、server 486、client 160、local-sync 317；typecheck/lint/build 通过；peer 0；audit 0 high/critical。
-- GitHub PR #4 已用于集成，发布标签与 Release 为 `v0.3.1`。
+- 2026-08-12：第三方黑盒测试发现的 DEF-002（Codex/Claude mcp-registration）和 DEF-003（preview diff 统计）全部修复并验证。
+- DEF-003 在 0.3.3 修复（首次同步 preview 补全 added/modified/deleted/uploadBytes）。
+- DEF-002 Codex 分支在 0.3.5 修复（doctor spawn runner 转发 env，隔离 HOME 真正生效）。
+- DEF-002 Claude 分支在 0.3.6 修复（网关改写到 ~/.claude.json；旧 settings.json 残留清理）。
+- npm latest=0.3.6；生产 agentwiki.quukk.com 已部署 0.3.6，三服务 active，健康全绿。
+- RETEST4：Codex/Claude/OpenCode 三客户端 mcp-registration 全 PASS（隔离 HOME + 公网包）。
+- 门禁：runtime 67/9 skip、server 486、client 160、local-sync 328；typecheck/lint/build 通过。
+- 四端版本一致：npm、GitHub、生产服务端、onboard 文档均为 0.3.6。
 
 # 稳定约束
 
@@ -30,10 +32,13 @@
 # 关键索引
 
 - 产品代码：`agentwiki/`（版本 0.3.1）
+- 第三方测试验证报告：`agentwiki/docs/verification/third-party-onboarding-0.3.6.md`
 - 设计：`agentwiki/docs/superpowers/specs/2026-08-10-agent-self-service-onboarding-gateway-design.md`
 - 已完成计划：`agentwiki/docs/superpowers/plans/2026-08-10-agent-self-service-onboarding-gateway-plan.md`
 - 验证报告：`agentwiki/docs/verification/agent-self-service-onboarding-0.3.1.md`
 - 生产：https://agentwiki.quukk.com
+- 生产部署目标：`root@113.249.120.24`，应用在 `/root/agentwiki`，user-systemd + linger；`SSHPASS=... bash deploy.sh 113.249.120.24 root`
+- 部署前备份：`pg_dump | gzip > ~/backups/agentwiki/pre-<version>-<ts>.dump.gz`
 - GitHub：https://github.com/NeoMei/AgentWiki
 - npm：https://www.npmjs.com/package/@neomei/agentwiki-local-sync
 
