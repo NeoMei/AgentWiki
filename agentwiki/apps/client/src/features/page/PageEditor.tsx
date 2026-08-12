@@ -450,7 +450,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             spaceId={page.spaceId}
             snapshot={() => ({ title, content, updatedAt: page.updatedAt })}
             onApply={(changes) => {
-              setContent(changes);
+              handleContentChange(changes);
               setMode('edit');
             }}
           />
