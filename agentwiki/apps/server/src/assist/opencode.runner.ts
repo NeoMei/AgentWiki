@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -63,9 +63,37 @@ export class OpencodeCliRunner implements OpencodeRunner {
     return this.parse(output);
   }
 
+  /**
+   * Resolve the opencode CLI binary. Checks OPENCODE_BIN, then the usual
+   * node_modules/.bin locations including the pnpm .pnpm virtual store where
+   * pnpm places bins when the top-level .bin is not linked.
+   */
+  private resolveBin(): string {
+    const configured = this.config.get<string>('OPENCODE_BIN');
+    if (configured) return configured;
+
+    const cwd = process.cwd();
+    const candidates = [
+      join(cwd, 'node_modules', '.bin', 'opencode'),
+      join(cwd, '..', 'node_modules', '.bin', 'opencode'),
+      join(cwd, '..', '..', 'node_modules', '.bin', 'opencode'),
+      join(cwd, '..', '..', 'node_modules', '.pnpm', 'node_modules', '.bin', 'opencode'),
+      join(cwd, 'node_modules', '.pnpm', 'node_modules', '.bin', 'opencode'),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        if (existsSync(candidate)) return candidate;
+      } catch {
+        // ignore FS errors and try the next candidate
+      }
+    }
+
+    return join(cwd, 'node_modules', '.bin', 'opencode');
+  }
+
   private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model'): Promise<string> {
-    const bin = this.config.get<string>('OPENCODE_BIN')
-      || join(process.cwd(), 'node_modules', '.bin', 'opencode');
+    const bin = this.resolveBin();
     const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
     return new Promise((resolve, reject) => {
       // Pass only what opencode needs (config dir + LLM creds), not the whole
