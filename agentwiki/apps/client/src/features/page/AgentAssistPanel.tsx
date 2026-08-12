@@ -26,6 +26,7 @@ interface AssistAttemptResult {
 
 interface AssistRoutingResult {
   changes?: string;
+  summary?: string;
   model?: string;
   modelTier?: 'free' | 'paid';
   attemptCount: number;
@@ -345,7 +346,17 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                     
                     {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
                     {task.status === 'done' && task.result?.changes ? (
-                      <p className="mt-1 text-[11px] text-green-600">{zh ? '内容已更新到编辑器' : 'Content applied to editor'}</p>
+                      <div className="mt-1.5 rounded-md border border-green-200 bg-green-50 p-2">
+                        {task.result?.summary ? (
+                          <p className="text-[11px] leading-relaxed text-green-800">{task.result.summary}</p>
+                        ) : (
+                          <p className="text-[11px] text-green-600">{zh ? '内容已更新到编辑器' : 'Content applied to editor'}</p>
+                        )}
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-[11px] font-medium text-green-700">{zh ? '查看生成内容' : 'View generated content'}</summary>
+                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-[11px] leading-relaxed text-gray-700">{task.result.changes}</pre>
+                        </details>
+                      </div>
                     ) : null}
                     {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
                   </li>
