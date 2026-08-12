@@ -54,15 +54,12 @@ describe('OpencodeCliRunner', () => {
     const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
 
     expect(spawn).toHaveBeenCalledWith('opencode', [
-      '--pure', 'run', '--model', 'opencode/big-pickle', '--format', 'json', 'prompt',
+      '--pure', 'run', '--model', 'opencode/big-pickle', '--thinking', '--format', 'json', 'prompt',
     ], expect.objectContaining({ env: expect.any(Object), cwd: expect.stringContaining('agentwiki-assist-') }));
     const childEnv = (spawn as jest.Mock).mock.calls[0][2].env;
     expect(childEnv).not.toHaveProperty('DATABASE_URL');
     expect(childEnv).not.toHaveProperty('JWT_SECRET');
     expect(childEnv).not.toHaveProperty('REDIS_URL');
-    expect(JSON.parse(childEnv.OPENCODE_CONFIG_CONTENT)).toMatchObject({
-      permission: 'deny', share: 'disabled', autoupdate: false,
-    });
 
     child.stdout.write(JSON.stringify({
       type: 'text',

@@ -280,7 +280,7 @@ describe('OpencodeModelRouter', () => {
 
     await router.run({ ...task, leaseExpiresAtMs: now + 45_000 });
 
-    expect(runner.runModel).toHaveBeenCalledWith('prompt', 'free/one', 40_000);
+    expect(runner.runModel).toHaveBeenCalledWith('prompt', 'free/one', 40_000, undefined);
   });
 
   it('does not spawn when the total budget is already exhausted', async () => {
