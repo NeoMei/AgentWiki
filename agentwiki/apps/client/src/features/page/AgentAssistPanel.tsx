@@ -49,17 +49,21 @@ const STATUS_LABEL: Record<AssistTaskStatus, { zh: string; en: string; cls: stri
 
 const routingMeta = (result: AssistRoutingResult | undefined, zh: boolean) => {
   if (!result?.model) return null;
-  const tier = result.modelTier === 'paid' ? (zh ? '付费' : 'Paid') : (zh ? '免费' : 'Free');
-  const attempts = zh
-    ? `${result.attemptCount} 次尝试`
-    : `${result.attemptCount} ${result.attemptCount === 1 ? 'attempt' : 'attempts'}`;
-  const tokens = `${new Intl.NumberFormat(zh ? 'zh-CN' : 'en-US').format(result.usage?.total || 0)} tokens`;
-  return `${result.model} · ${tier} · ${attempts} · ${tokens} · $${Number(result.cost || 0).toFixed(6)}`;
+  return zh ? '已生成' : 'Generated';
 };
 
-const routingErrorCode = (result: AssistRoutingResult | undefined) => {
+const routingErrorCode = (result: AssistRoutingResult | undefined, zh: boolean) => {
   const attempts = result?.attempts;
-  return attempts?.[attempts.length - 1]?.errorCode || null;
+  const code = attempts?.[attempts.length - 1]?.errorCode;
+  if (!code) return null;
+  const messages: Record<string, { zh: string; en: string }> = {
+    binary_unavailable: { zh: '助手暂时不可用，请稍后重试', en: 'Assistant temporarily unavailable, please retry' },
+    timeout: { zh: '助手响应超时，请稍后重试', en: 'Assistant timed out, please retry' },
+    invalid_output: { zh: '助手返回了无法解析的内容', en: 'Assistant returned unparseable content' },
+    process_error: { zh: '助手运行出错，请稍后重试', en: 'Assistant encountered an error, please retry' },
+  };
+  const msg = messages[code];
+  return msg ? (zh ? msg.zh : msg.en) : (zh ? '助手运行失败，请稍后重试' : 'Assistant failed, please retry');
 };
 
 export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply }) => {
@@ -156,7 +160,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                 const metadata = task.status === 'done' || task.status === 'failed'
                   ? routingMeta(task.result, zh)
                   : null;
-                const errorCode = task.status === 'failed' ? routingErrorCode(task.result) : null;
+                const errorCode = task.status === 'failed' ? routingErrorCode(task.result, zh) : null;
                 return (
                   <li key={task.id} className="rounded-lg border border-gray-200 p-2.5" data-testid={`assist-task-${task.id}`}>
                     <div className="flex items-center justify-between gap-2">

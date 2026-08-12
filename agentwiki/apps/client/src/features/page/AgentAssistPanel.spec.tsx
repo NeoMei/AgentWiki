@@ -44,25 +44,28 @@ describe('AgentAssistPanel routing metadata', () => {
 
   afterEach(cleanup);
 
-  it('renders compact English model, attempts, token, and actual-cost metadata', async () => {
+  it('hides the provider model name and shows a friendly completion label in English', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
 
     renderPanel();
 
-    expect(await screen.findByText(
-      'opencode/big-pickle · Free · 2 attempts · 8,648 tokens · $0.000000',
-    )).toBeInTheDocument();
+    expect(await screen.findByText('Generated')).toBeInTheDocument();
+    // The raw provider model name must never be visible to the user.
+    expect(screen.queryByText(/opencode|big-pickle|free|paid|tokens|\$\d/u))
+      .not.toBeInTheDocument();
   });
 
-  it('renders the free tier and attempt count in Chinese', async () => {
+  it('hides the provider model name and shows a friendly completion label in Chinese', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'zh-CN' } as ReturnType<typeof useLanguage>);
 
     renderPanel();
 
-    expect(await screen.findByText(/免费 · 2 次尝试/u)).toBeInTheDocument();
+    expect(await screen.findByText('已生成')).toBeInTheDocument();
+    expect(screen.queryByText(/opencode|big-pickle|免费|付费|tokens/u))
+      .not.toBeInTheDocument();
   });
 
-  it('renders failed routing metadata and the sanitized error without raw provider details', async () => {
+  it('shows a friendly error message without raw provider details or codes', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
     vi.mocked(api.get).mockImplementation((url) => {
       if (url === '/assist/tasks') return Promise.resolve({ data: [{
@@ -76,7 +79,7 @@ describe('AgentAssistPanel routing metadata', () => {
           attemptCount: 1,
           usage: { total: 12 },
           cost: 0.5,
-          attempts: [{ errorCode: 'auth_failed' }],
+          attempts: [{ errorCode: 'binary_unavailable' }],
           raw: 'raw authentication detail',
         },
       }] });
@@ -86,11 +89,11 @@ describe('AgentAssistPanel routing metadata', () => {
 
     renderPanel();
 
-    expect(await screen.findByText(
-      'provider/paid-model · Paid · 1 attempt · 12 tokens · $0.500000',
-    )).toBeInTheDocument();
-    expect(screen.getByText('auth_failed')).toBeInTheDocument();
-    expect(screen.queryByText(/provider response|raw authentication|sk-fake-secret/u))
+    // A friendly message is shown instead of the raw error code.
+    expect(await screen.findByText('Assistant temporarily unavailable, please retry'))
+      .toBeInTheDocument();
+    // Raw provider details, model names, costs, and error codes are never exposed.
+    expect(screen.queryByText(/provider|paid-model|Paid|tokens|\$0\.5|binary_unavailable|auth_failed|raw authentication/u))
       .not.toBeInTheDocument();
   });
 });
