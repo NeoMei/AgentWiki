@@ -8,43 +8,6 @@ export const DocsOverview: React.FC = () => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
 
-  const archZh = [
-    '┌─────────────────────────────────────────────────┐',
-    '│  本地 Agent（Codex / Claude Code / OpenCode）     │',
-    '│    └─ agentwiki MCP 网关（单一入口，自动路由）      │',
-    '│         ├─ wiki_*      远程知识库工具               │',
-    '│         ├─ local_*     本地扫描工具                 │',
-    '│         └─ knowledge_* 组合同步工作流               │',
-    '└───────────────────────┬───────────────────────┐',
-    '                       │ HTTPS + Bearer Token',
-    '┌───────────────────────▼───────────────────────┐',
-    '│  AgentWiki 服务端                                  │',
-    '│    ├─ NestJS API（页面/图谱/搜索/审核/记忆）       │',
-    '│    ├─ Worker（代码摄取、向量索引）                  │',
-    '│    ├─ PostgreSQL（权威数据 + 证据链）              │',
-    '│    └─ Redis（会话、队列、速率限制）                 │',
-    '└───────────────────────────────────────────────┐',
-  ].join('\n');
-
-  const archEn = [
-    '+---------------------------------------------------+',
-    '|  Local Agent (Codex / Claude Code / OpenCode)     |',
-    '|    +-- agentwiki MCP gateway (single, routed)     |',
-    '|         +-- wiki_*      remote knowledge tools    |',
-    '|         +-- local_*     local scan tools          |',
-    '|         +-- knowledge_* composite sync workflows  |',
-    '+----------------------+----------------------------+',
-    '                       | HTTPS + Bearer Token',
-    '+----------------------v----------------------------+',
-    '|  AgentWiki Server                                 |',
-    '|    +-- NestJS API (pages/graph/search/review)     |',
-    '|    +-- Worker (code ingestion, vector indexing)   |',
-    '|    +-- PostgreSQL (authoritative data + evidence) |',
-    '|    +-- Redis (sessions, queues, rate limits)      |',
-    '+---------------------------------------------------+',
-  ].join('\n');
-
-  const archBox = zh ? archZh : archEn;
 
   return (
     <DocsLayout>
@@ -84,8 +47,8 @@ export const DocsOverview: React.FC = () => {
         </div>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{zh ? '\u6574\u4f53\u67b6\u6784\u4e00\u89c8' : 'Architecture at a Glance'}</h2>
-        <div className="bg-gray-900 rounded-xl p-6 mb-4 not-prose overflow-x-auto">
-          <pre className="text-xs text-green-400 leading-relaxed whitespace-pre">{archBox}</pre>
+        <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm mb-4 not-prose">
+          <img src="/docs/architecture.jpg" alt={zh ? 'AgentWiki 系统架构图' : 'AgentWiki System Architecture'} className="w-full h-auto block" loading="lazy" />
         </div>
         <p className="text-gray-600 leading-relaxed mb-8">
           {zh ? '\u66f4\u8be6\u7ec6\u7684\u67b6\u6784\u89e3\u8bfb\u8bf7\u9605\u8bfb' : 'For a deeper architecture walkthrough, see '}
