@@ -6,6 +6,7 @@ import {
   clientConfigPath,
   readRawConfig,
   installGatewayEntry,
+  removeGatewayEntry,
   analyzeConfig,
 } from './client-config.js';
 import { GATEWAY_MCP_NAME, hashConfig } from './plan.js';
@@ -106,12 +107,12 @@ describe('installGatewayEntry', () => {
     const path = clientConfigPath('opencode', home);
     const { hash } = await analyzeConfig('opencode', home);
     await installGatewayEntry('opencode', 'conn-42', hash, home);
-    const config = JSON.parse(await readFile(path, 'utf8')) as {
-      mcp: { servers: Record<string, { command: string[] }> };
-    };
-    const cmd = config.mcp.servers[GATEWAY_MCP_NAME].command;
-    expect(cmd).toEqual([
-      'npx',
+   const config = JSON.parse(await readFile(path, 'utf8')) as {
+      mcp: { servers: Record<string, { command: string; args: string[] }> };
+   };
+    const entry = config.mcp.servers[GATEWAY_MCP_NAME];
+    expect(entry.command).toBe('npx');
+    expect(entry.args).toEqual([
       '--yes',
       '@neomei/agentwiki-local-sync@0.3.1',
       'gateway',
@@ -139,5 +140,80 @@ describe('installGatewayEntry', () => {
     await resumed.rollback();
 
     await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
+  });
+});
+
+describe('installGatewayEntry client formats', () => {
+  it('writes Codex TOML with cmd string + args array (DEF-002)', async () => {
+    const home = await freshHome();
+    const { hash } = await analyzeConfig('codex', home);
+    await installGatewayEntry('codex', 'conn-1', hash, home);
+    const raw = await readFile(clientConfigPath('codex', home), 'utf8');
+    expect(raw).toContain('[mcp_servers.agentwiki]');
+    expect(raw).toMatch(/cmd = "npx"/);
+    expect(raw).toMatch(/args = \[/);
+    expect(raw).toContain('"--yes"');
+    expect(raw).toContain('"gateway"');
+    expect(raw).toContain('"--connection"');
+    expect(raw).toContain('"conn-1"');
+  });
+
+  it('writes Claude JSON with command string + args array (DEF-002)', async () => {
+    const home = await freshHome();
+    const { hash } = await analyzeConfig('claude', home);
+    await installGatewayEntry('claude', 'conn-1', hash, home);
+    const config = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    const entry = config.mcpServers[GATEWAY_MCP_NAME];
+    expect(entry.command).toBe('npx');
+    expect(entry.args).toEqual([
+      '--yes', '@neomei/agentwiki-local-sync@0.3.1', 'gateway', '--connection', 'conn-1',
+    ]);
+  });
+});
+
+describe('removeGatewayEntry', () => {
+  it('removes the agentwiki gateway and preserves unrelated entries for all three clients (STOP-3PT-20260812-002)', async () => {
+    for (const client of ['codex', 'claude', 'opencode'] as const) {
+      const home = await freshHome();
+      const { hash } = await analyzeConfig(client, home);
+      await installGatewayEntry(client, 'conn-x', hash, home);
+
+      // Install should have added the gateway entry.
+      const before = await readRawConfig(client, home);
+      expect(before).not.toBeNull();
+      expect(before!).toContain('agentwiki');
+
+      const result = await removeGatewayEntry(client, home);
+      expect(result.removed).toBe(true);
+
+      // Gateway entry is gone; the file no longer references the gateway.
+      const after = await readRawConfig(client, home);
+      expect(after).not.toBeNull();
+      expect(after!.toLowerCase()).not.toContain('agentwiki-local-sync');
+    }
+  });
+
+  it('preserves an unrelated MCP entry through install and uninstall round-trip', async () => {
+    const home = await freshHome();
+    const original = JSON.stringify({ mcpServers: { other: { command: 'tool', args: ['-x'] } } });
+    await seedConfig('claude', home, original);
+
+    const installed = await installGatewayEntry('claude', 'conn-1', hashConfig(original), home);
+    const withGateway = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as Record<string, unknown>;
+    expect((withGateway.mcpServers as Record<string, unknown>).other).toBeDefined();
+    expect((withGateway.mcpServers as Record<string, unknown>).agentwiki).toBeDefined();
+
+    await removeGatewayEntry('claude', home);
+    const restored = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as Record<string, unknown>;
+    expect((restored.mcpServers as Record<string, unknown>).other).toBeDefined();
+    expect((restored.mcpServers as Record<string, unknown>).agentwiki).toBeUndefined();
+  });
+
+  it('returns removed=false when the config is absent', async () => {
+    const home = await freshHome();
+    const result = await removeGatewayEntry('claude', home);
+    expect(result.removed).toBe(false);
   });
 });

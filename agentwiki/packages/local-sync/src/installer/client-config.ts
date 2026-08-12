@@ -99,6 +99,91 @@ export async function installGatewayEntry(
   };
 }
 
+/**
+ * Remove only the `agentwiki` gateway entry from the client config, preserving
+ * every other key or TOML block byte-for-byte. Returns { removed: false } when
+ * the file is absent or contains no gateway entry. This is the symmetric
+ * inverse of {@link installGatewayEntry} and is used by `uninstall`.
+ */
+export async function removeGatewayEntry(
+  client: AgentClient,
+  home: string = homedir(),
+): Promise<{ removed: boolean }> {
+  const configPath = clientConfigPath(client, home);
+  const current = await readRawConfig(client, home);
+  if (current === null) return { removed: false };
+  const next = removeGatewayFromConfig(client, current);
+  if (next === null) return { removed: false };
+  await writeAtomically(configPath, next, 0o600);
+  return { removed: true };
+}
+
+function removeGatewayFromConfig(client: AgentClient, current: string): string | null {
+  switch (client) {
+    case 'codex':
+      return removeTomlGateway(current);
+    case 'claude':
+      return removeJsonGateway(current, ['mcpServers']);
+    case 'opencode':
+      return removeJsonGateway(current, ['mcp', 'servers']);
+  }
+}
+
+function removeTomlGateway(current: string): string | null {
+  const lines = current.split('\n');
+  const result: string[] = [];
+  let skipBlock = false;
+  let removed = false;
+  for (const line of lines) {
+    const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
+    if (headerMatch) {
+      const isAgentWiki = line.toLowerCase().includes('agentwiki')
+        || headerMatch[1].toLowerCase().includes('agentwiki');
+      if (isAgentWiki) {
+        skipBlock = true;
+        removed = true;
+        continue;
+      }
+      skipBlock = false;
+    } else if (/^\[/.test(line)) {
+      skipBlock = false;
+    }
+    if (!skipBlock) result.push(line);
+  }
+  if (!removed) return null;
+  return result.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '\n').trimEnd() + '\n';
+}
+
+function removeJsonGateway(current: string, path: string[]): string | null {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(current) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  let container: Record<string, unknown> = config;
+  for (let i = 0; i < path.length - 1; i++) {
+    const next = container[path[i]] as Record<string, unknown> | undefined;
+    if (!next || typeof next !== 'object') return null;
+    container = next;
+  }
+  const servers = container[path[path.length - 1]] as Record<string, unknown> | undefined;
+  if (!servers || typeof servers !== 'object') return null;
+  let removed = false;
+  for (const key of [...Object.keys(servers)]) {
+    if (key === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(key, JSON.stringify(servers[key]))) {
+      delete servers[key];
+      removed = true;
+    }
+  }
+  if (!removed) return null;
+  return JSON.stringify(config, null, 2) + '\n';
+}
+
+function escapeTomlString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function rollbackFromBackup(configPath: string, backup: string): () => Promise<void> {
   return async () => {
     if (!existsSync(backup)) return;
@@ -141,24 +226,25 @@ function buildConfigWithGateway(client: AgentClient, current: string | null, con
 function buildToml(current: string | null, command: string[]): string {
   // Codex uses TOML MCP servers. Remove old AgentWiki blocks, add the gateway.
   const text = current ?? '';
-  // Split into blocks by [mcp_servers.NAME] headers, keeping non-MCP content intact.
-  const lines = text.split('\n');
-  const result: string[] = [];
-  let skipBlock = false;
-  for (const line of lines) {
-    const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
-    if (headerMatch) {
-      // Starting a new mcp_servers block; skip if it references agentwiki.
-      skipBlock = line.toLowerCase().includes('agentwiki') || headerMatch[1].toLowerCase().includes('agentwiki');
-    } else if (/^\[/.test(line)) {
-      // A different section header stops the skip.
-      skipBlock = false;
-    }
-    if (!skipBlock) result.push(line);
-  }
-  const base = result.join('\n').trimEnd();
-  const cmd = command.join('", "');
-  return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = ["${cmd}"]\n`;
+ // Split into blocks by [mcp_servers.NAME] headers, keeping non-MCP content intact.
+ const lines = text.split('\n');
+ const result: string[] = [];
+ let skipBlock = false;
+ for (const line of lines) {
+   const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
+   if (headerMatch) {
+     // Starting a new mcp_servers block; skip if it references agentwiki.
+     skipBlock = line.toLowerCase().includes('agentwiki') || headerMatch[1].toLowerCase().includes('agentwiki');
+   } else if (/^\[/.test(line)) {
+     // A different section header stops the skip.
+     skipBlock = false;
+   }
+   if (!skipBlock) result.push(line);
+ }
+ const base = result.join('\n').trimEnd();
+  const [cmd, ...args] = command;
+  const argsStr = args.map((a) => `"${escapeTomlString(a)}"`).join(', ');
+  return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
 }
 
 function buildJson(current: string | null, command: string[]): string {
@@ -177,7 +263,8 @@ function buildJson(current: string | null, command: string[]): string {
     const text = JSON.stringify(entry);
     if (looksLikeAgentWikiEntry(key, text)) delete mcpServers[key];
   }
-  mcpServers[GATEWAY_MCP_NAME] = { command };
+  const [cmd, ...args] = command;
+  mcpServers[GATEWAY_MCP_NAME] = { command: cmd, args };
   config.mcpServers = mcpServers;
   return JSON.stringify(config, null, 2) + '\n';
 }
@@ -198,7 +285,8 @@ function buildOpenCodeJson(current: string | null, command: string[]): string {
     const text = JSON.stringify(entry);
     if (looksLikeAgentWikiEntry(key, text)) delete servers[key];
   }
-  servers[GATEWAY_MCP_NAME] = { type: 'local', command };
+  const [cmd, ...args] = command;
+  servers[GATEWAY_MCP_NAME] = { type: 'local', command: cmd, args };
   mcp.servers = servers;
   config.mcp = mcp;
   return JSON.stringify(config, null, 2) + '\n';

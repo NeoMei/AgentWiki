@@ -10,7 +10,6 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
 import {
-  removeMcp,
   type AgentClient,
   type CommandResult,
   type CommandRunner,
@@ -23,6 +22,7 @@ import {
   saveCredentials,
   type LocalSyncConnection,
 } from './config.js';
+import { removeGatewayEntry } from './installer/client-config.js';
 import { runGateway } from './gateway/entry.js';
 
 export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--protocol ndjson|human] [--connection ID]';
@@ -103,7 +103,7 @@ async function uninstall(home: string, values: Record<string, string | boolean |
   const requested = clientOption(typeof values.agent === 'string' ? values.agent : undefined);
   const connections = Object.values(config.connections).filter((connection) => requested === 'auto' || connection.client === requested);
   for (const connection of connections) {
-    await removeMcp(connection.client, connection.mcpName, runner, home);
+    await removeGatewayEntry(connection.client, home);
     delete config.connections[connection.id];
   }
   config.defaultConnectionId = Object.keys(config.connections)[0];
