@@ -17,6 +17,9 @@ interface AgentAssistPanelProps {
 type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
 type AssistPhase = 'thinking' | 'generating' | 'complete' | 'error';
 
+/** Keep only the most recent assist interactions in the panel. */
+const MAX_ASSIST_TASKS = 5;
+
 interface AssistAttemptResult {
   errorCode?: string;
 }
@@ -140,9 +143,10 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
       const loadedTasks = Array.isArray(res.data) ? res.data : res.data.data || [];
+      const recentTasks = loadedTasks.slice(0, MAX_ASSIST_TASKS);
       setTasks((prev) => {
         const streamMap = new Map(prev.map((t) => [t.id, { stream: t.streamContent, phase: t.phase }]));
-        return loadedTasks.map((t: AssistTask) => ({
+        return recentTasks.map((t: AssistTask) => ({
           ...t,
           streamContent: streamMap.get(t.id)?.stream || t.streamContent,
           phase: streamMap.get(t.id)?.phase || t.phase,
@@ -152,7 +156,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       // Auto-apply completed changes directly into the editor — WYSIWYG.
       // Each task is applied exactly once (tracked by appliedRef).
       if (onApply) {
-        for (const task of loadedTasks) {
+        for (const task of recentTasks) {
           if (task.status === 'done' && task.result?.changes && !appliedRef.current.has(task.id)) {
             appliedRef.current.add(task.id);
             onApply(task.result.changes);
@@ -225,7 +229,8 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           streamContent: updated,
           phase: (updated.length > 100 ? 'generating' : 'thinking') as AssistPhase,
         };
-        return !exists ? [task, ...prev] : prev.map((t) => (t.id === data.taskId ? { ...t, streamContent: updated, phase: task.phase } : t));
+        const next = !exists ? [task, ...prev] : prev.map((t) => (t.id === data.taskId ? { ...t, streamContent: updated, phase: task.phase } : t));
+        return next.slice(0, MAX_ASSIST_TASKS);
       });
     });
 

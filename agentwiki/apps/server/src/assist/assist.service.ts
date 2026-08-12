@@ -56,7 +56,7 @@ export class AssistService {
     return this.prisma.assistTask.findMany({
       where: { pageId },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 5,
     });
   }
 
