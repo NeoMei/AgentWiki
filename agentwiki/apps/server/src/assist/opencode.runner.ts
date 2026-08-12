@@ -103,16 +103,6 @@ export class OpencodeCliRunner implements OpencodeRunner {
       const env = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({
-          permission: 'deny',
-          share: 'disabled',
-          autoupdate: false,
-          snapshot: false,
-          formatter: false,
-          lsp: false,
-        }),
-        OPENCODE_DISABLE_AUTOUPDATE: 'true',
-        OPENCODE_AUTO_SHARE: 'false',
         ...this.llmEnv(),
       };
       let child: ChildProcessWithoutNullStreams;
@@ -175,7 +165,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
           if (!line) continue;
           try {
             const event = JSON.parse(line);
-            if (event?.type === 'thinking' && typeof event?.part?.text === 'string') {
+                if (event?.type === 'thinking' && typeof event?.part?.text === 'string') {
               onStreamChunk(`💭 思考: ${event.part.text}\n`);
             } else if (event?.type === 'tool_use' && event?.part?.tool) {
               const toolName = event.part.tool;
