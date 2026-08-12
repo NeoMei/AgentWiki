@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { runCli, runDoctor, CLI_USAGE } from './cli.js';
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '', error: undefined })),
+  };
+});
+
+import { spawnSync } from 'node:child_process';
+import { runCli, runDoctor, runner, CLI_USAGE } from './cli.js';
 import { createLocalSyncCommands, type CommandDependencies } from './mcp.js';
 import { formatMcpOutput } from './gateway/output.js';
 import { saveConfig, saveCredentials } from './config.js';
@@ -83,7 +92,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.4' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.5' });
   });
 
   it('prepare returns a diff and saves an upload-free preview', async () => {
@@ -337,5 +346,44 @@ it('doctor checks required tool availability without invoking remote model provi
       expect(options?.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
     }
     expect(client.access).toHaveBeenCalledWith(connection, 'agk_doctor_secret');
+  });
+
+  it('doctor reaches the real spawn with an isolated HOME and strips client overrides', async () => {
+    const home = await temporaryDirectory('agentwiki-doctor-real-spawn-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.1.0', client: 'codex' as const, mcpName: 'agentwiki-local-test',
+    };
+    await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
+    await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });
+
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CODEX_HOME = '/wrong/codex-home';
+    process.env.CLAUDE_CONFIG_DIR = '/wrong/claude-config';
+    const spawnMock = vi.mocked(spawnSync);
+    spawnMock.mockClear();
+    try {
+      await runDoctor(home, connection, {
+        client: { access: vi.fn().mockResolvedValue({ access: [] }) } as never,
+        readApiKey: async () => 'agk_doctor_secret',
+        run: runner,
+      });
+    } finally {
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = originalCodexHome;
+      if (originalClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+    }
+
+    const mcpCalls = spawnMock.mock.calls.filter(([, args]) => args?.[0] === 'mcp');
+    expect(mcpCalls.length).toBeGreaterThan(0);
+    for (const [, , options] of mcpCalls) {
+      const env = options?.env as NodeJS.ProcessEnv | undefined;
+      expect(env).toBeDefined();
+      expect(env).toMatchObject({ HOME: home, USERPROFILE: home });
+      expect(env).not.toHaveProperty('CODEX_HOME');
+      expect(env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    }
   });
 });

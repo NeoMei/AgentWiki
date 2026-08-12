@@ -1,6 +1,6 @@
 {
   "name": "@neomei/agentwiki-local-sync",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Local knowledge adapter and AgentWiki synchronization for coding agents",
   "type": "module",
   "bin": {

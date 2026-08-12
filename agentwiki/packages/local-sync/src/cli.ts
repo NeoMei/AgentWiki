@@ -2,7 +2,7 @@
 
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
@@ -59,8 +59,8 @@ export function formatOutput(value: unknown): string {
   return redactSecrets(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
 }
 
-function runner(command: string, args: string[]): CommandResult {
-  return spawnSync(command, args, { stdio: 'pipe' });
+export function runner(command: string, args: string[], options?: SpawnSyncOptions): CommandResult {
+  return spawnSync(command, args, { stdio: 'pipe', ...options });
 }
 
 interface ConnectionDependencies {

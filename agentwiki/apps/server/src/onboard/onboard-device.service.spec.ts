@@ -38,7 +38,7 @@ function session(overrides: Record<string, unknown> = {}) {
     id: 'session-1',
     deviceCodeHash: 'd'.repeat(64),
     userCodeHash: 'u'.repeat(64),
-    packageVersion: '0.3.4',
+    packageVersion: '0.3.5',
     clientType: 'codex',
     purpose: 'full-onboarding',
     requestedCapabilities: CAPABILITIES,
@@ -97,7 +97,7 @@ describe('OnboardDeviceService', () => {
 
   it('starts a ten-minute session with 32-byte entropy, a formatted eight-character code, and only hashes persisted', async () => {
     const started = await service.start({
-      packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding',
+      packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1');
 
     expect(started).toEqual({
@@ -125,7 +125,7 @@ describe('OnboardDeviceService', () => {
   it('rate limits start after ten requests per IP in sixty seconds', async () => {
     redis.incrementWithWindow.mockResolvedValue(11);
     await expect(service.start({
-      packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding',
+      packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1')).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
     expect(prisma.onboardingDeviceSession.create).not.toHaveBeenCalled();
   });
@@ -133,7 +133,7 @@ describe('OnboardDeviceService', () => {
   it('uses CLIENT_URL when PUBLIC_WEB_URL is absent and never needs a request Host', async () => {
     config.get.mockImplementation((key: string) => key === 'CLIENT_URL' ? 'https://client.agentwiki.example/app' : undefined);
     const started = await service.start({
-      packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding',
+      packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1');
     expect(started).toMatchObject({
       verificationUri: 'https://client.agentwiki.example/onboard/device',
@@ -148,7 +148,7 @@ describe('OnboardDeviceService', () => {
       return undefined;
     });
     const started = await service.start({
-      packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding',
+      packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1');
     expect(started.verificationUri).toBe('https://internal.agentwiki.local/onboard/device');
     expect(started.verificationUriComplete).toMatch(/^https:\/\/internal\.agentwiki\.local\/onboard\/device\?user_code=/);
@@ -158,7 +158,7 @@ describe('OnboardDeviceService', () => {
     audit.record.mockRejectedValue(new Error('both audit stores unavailable'));
     const log = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const started = await service.start({
-      packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding',
+      packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding',
     }, '127.0.0.1');
     expect(started.deviceCode).toMatch(/^awd_[A-Za-z0-9_-]{43}$/);
     expect(log).toHaveBeenCalled();
@@ -171,7 +171,7 @@ describe('OnboardDeviceService', () => {
     prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({ authorizedUserId: 'secret-user' }));
     const result = await service.getPublicSession('abcd-efgh', '127.0.0.1');
     expect(result).toEqual({
-      clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.3.4',
+      clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.3.5',
       status: 'pending', expiresAt: new Date(NOW.getTime() + 600_000),
     });
     expect(Object.keys(result).sort()).toEqual(['clientType', 'expiresAt', 'packageVersion', 'purpose', 'status']);
@@ -492,7 +492,7 @@ describe('OnboardingTokenGuard', () => {
     });
     expect(JSON.stringify(prisma.onboardingDeviceSession.findUnique.mock.calls)).not.toContain(rawToken);
     expect(probe.request.onboarding).toEqual({
-      sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.4',
+      sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.5',
       purpose: 'full-onboarding', requestedCapabilities: CAPABILITIES,
     });
   });
@@ -537,7 +537,7 @@ describe('OnboardController HTTP contract', () => {
       expiresIn: 600, interval: 5,
     }),
     getPublicSession: jest.fn().mockResolvedValue({
-      clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.3.4',
+      clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.3.5',
       status: 'pending', expiresAt: new Date(NOW.getTime() + 600_000),
     }),
     decide: jest.fn().mockResolvedValue({ status: 'approved' }),
@@ -581,7 +581,7 @@ describe('OnboardController HTTP contract', () => {
         canActivate: (context: ExecutionContext) => {
           const request = context.switchToHttp().getRequest();
           request.onboarding = {
-            sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.4',
+            sessionId: 'session-1', userId: 'user-1', packageVersion: '0.3.5',
             purpose: 'full-onboarding', requestedCapabilities: CAPABILITIES,
           };
           return true;
@@ -604,7 +604,7 @@ describe('OnboardController HTTP contract', () => {
   it('keeps start, public session, and poll public', async () => {
     const started = await fetch(`${baseUrl}/api/onboard/device/start`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding' }),
+      body: JSON.stringify({ packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding' }),
     });
     const publicSession = await fetch(`${baseUrl}/api/onboard/device/session?userCode=ABCD-EFGH`);
     const polled = await fetch(`${baseUrl}/api/onboard/device/poll`, {
@@ -621,7 +621,7 @@ describe('OnboardController HTTP contract', () => {
     const serverPlan = {
       space: { mode: 'create', name: '研发知识库' },
       agentName: 'Codex', permissionPreset: 'editor',
-      approvalMode: 'always-review', packageVersion: '0.3.4',
+      approvalMode: 'always-review', packageVersion: '0.3.5',
     };
     const response = await fetch(`${baseUrl}/api/onboard/bootstrap`, {
       method: 'POST',
@@ -661,7 +661,7 @@ describe('OnboardController HTTP contract', () => {
   it('returns a stable business code for invalid public input', async () => {
     const response = await fetch(`${baseUrl}/api/onboard/device/start`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding', requestedCapabilities: ['admin'] }),
+      body: JSON.stringify({ packageVersion: '0.3.5', clientType: 'codex', purpose: 'full-onboarding', requestedCapabilities: ['admin'] }),
     });
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ code: 'BAD_REQUEST' });
