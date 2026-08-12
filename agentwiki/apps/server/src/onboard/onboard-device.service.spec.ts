@@ -139,7 +139,19 @@ describe('OnboardDeviceService', () => {
       verificationUri: 'https://client.agentwiki.example/onboard/device',
       verificationUriComplete: expect.stringMatching(/^https:\/\/client\.agentwiki\.example\/onboard\/device\?user_code=/),
     });
-    expect(config.get.mock.calls.map(([key]) => key)).toEqual(['PUBLIC_WEB_URL', 'CLIENT_URL']);
+    expect(config.get.mock.calls.map(([key]) => key)).toEqual(['PUBLIC_WEB_URL', 'CLIENT_URL', 'NODE_ENV']);
+  });
+
+  it('enforces HTTPS for the device-authorization URL outside development even when PUBLIC_WEB_URL is an HTTP origin (DEF-001)', async () => {
+    config.get.mockImplementation((key: string) => {
+      if (key === 'PUBLIC_WEB_URL') return 'http://internal.agentwiki.local';
+      return undefined;
+    });
+    const started = await service.start({
+      packageVersion: '0.3.0', clientType: 'codex', purpose: 'full-onboarding',
+    }, '127.0.0.1');
+    expect(started.verificationUri).toBe('https://internal.agentwiki.local/onboard/device');
+    expect(started.verificationUriComplete).toMatch(/^https:\/\/internal\.agentwiki\.local\/onboard\/device\?user_code=/);
   });
 
   it('returns committed start credentials when audit persistence is degraded without logging raw codes', async () => {

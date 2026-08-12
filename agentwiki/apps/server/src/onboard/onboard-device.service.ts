@@ -352,7 +352,18 @@ export class OnboardDeviceService {
       || this.config.get<string>('CLIENT_URL')
       || this.config.get<string>('PUBLIC_BASE_URL')
       || 'https://agentwiki.quukk.com';
-    return new URL('/onboard/device', configured).toString().replace(/\/$/, '');
+    const enforced = this.enforceHttpsOrigin(configured);
+    return new URL('/onboard/device', enforced).toString().replace(/\/$/, '');
+  }
+
+  /**
+   * Outside development the device-authorization URL must be HTTPS. A
+   * misconfigured internal HTTP origin is silently upgraded so Chrome does not
+   * block the page and the user code is never sent over plaintext.
+   */
+  private enforceHttpsOrigin(origin: string): string {
+    if (this.config.get<string>('NODE_ENV') === 'development') return origin;
+    return origin.replace(/^http:\/\//i, 'https://');
   }
 
   private hash(value: string): string {
