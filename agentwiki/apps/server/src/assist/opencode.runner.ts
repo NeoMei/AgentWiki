@@ -163,6 +163,8 @@ export class OpencodeCliRunner implements OpencodeRunner {
       const cleanup = () => {
         clearTimeout(timer);
         if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
+        streamQueue = [];
         stopReading();
         child.removeListener('error', onError);
         child.removeListener('close', onClose);

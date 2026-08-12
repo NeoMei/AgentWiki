@@ -12,6 +12,13 @@ type AssistChannelMessage =
   | { kind: 'complete'; pageId: string; taskId: string }
   | { kind: 'error'; pageId: string; taskId: string; error: string };
 
+interface CursorPosition {
+  userId: string;
+  userName: string;
+  position: { line: number; ch: number };
+  color: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -23,6 +30,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   server: Server;
   private logger = new Logger('CollaborationGateway');
   private unsubscribeRedis: (() => void) | null = null;
+  private activeUsers = new Map<string, Map<string, CursorPosition>>();
 
   constructor(
     private jwtService: JwtService,
@@ -72,12 +80,38 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
+    this.activeUsers.forEach((users, pageId) => {
+      if (users.has(client.id)) {
+        const user = users.get(client.id);
+        users.delete(client.id);
+        this.server.to(pageId).emit('userLeft', { userId: user?.userId || client.id });
+        this.broadcastCursors(pageId);
+      }
+    });
   }
 
   @SubscribeMessage('joinPage')
   handleJoinPage(@ConnectedSocket() client: Socket, @MessageBody() body: { pageId: string; userId?: string; userName?: string }) {
     if (!body?.pageId) return;
     client.join(body.pageId);
+    const identity = client.data.user as { sub?: string; userId?: string } | undefined;
+    const userId = String(identity?.userId || identity?.sub || body.userId || '');
+    if (!this.activeUsers.has(body.pageId)) {
+      this.activeUsers.set(body.pageId, new Map());
+    }
+    const users = this.activeUsers.get(body.pageId)!;
+    users.set(client.id, {
+      userId,
+      userName: String(body.userName || ''),
+      position: { line: 0, ch: 0 },
+      color: this.getUserColor(client.id),
+    });
+    client.emit('currentUsers', Array.from(users.values()));
+    client.to(body.pageId).emit('userJoined', {
+      userId,
+      userName: String(body.userName || ''),
+      color: this.getUserColor(client.id),
+    });
     this.logger.log(`Socket ${client.id} joined page room ${body.pageId}`);
   }
 
@@ -85,7 +119,43 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   handleLeavePage(@ConnectedSocket() client: Socket, @MessageBody() body: { pageId: string }) {
     if (!body?.pageId) return;
     client.leave(body.pageId);
+    const users = this.activeUsers.get(body.pageId);
+    if (users) {
+      const user = users.get(client.id);
+      users.delete(client.id);
+      this.broadcastCursors(body.pageId);
+      client.to(body.pageId).emit('userLeft', { userId: user?.userId || client.id });
+    }
     this.logger.log(`Socket ${client.id} left page room ${body.pageId}`);
+  }
+
+  @SubscribeMessage('contentChange')
+  handleContentChange(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { pageId: string; content: string; version: number },
+  ) {
+    if (!body?.pageId || !client.rooms.has(body.pageId)) return;
+    client.to(body.pageId).emit('contentUpdated', {
+      content: body.content,
+      version: body.version,
+      userId: client.id,
+    });
+  }
+
+  @SubscribeMessage('cursorMove')
+  handleCursorMove(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { pageId: string; position: { line: number; ch: number } },
+  ) {
+    if (!body?.pageId || !client.rooms.has(body.pageId)) return;
+    const users = this.activeUsers.get(body.pageId);
+    if (users) {
+      const user = users.get(client.id);
+      if (user && body.position) {
+        user.position = body.position;
+        this.broadcastCursors(body.pageId);
+      }
+    }
   }
 
   emitAssistStream(pageId: string, taskId: string, chunk: string) {
@@ -98,5 +168,21 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   emitAssistError(pageId: string, taskId: string, error: string) {
     void this.redis.publish(ASSIST_CHANNEL, JSON.stringify({ kind: 'error', pageId, taskId, error }));
+  }
+
+  private broadcastCursors(pageId: string) {
+    const users = this.activeUsers.get(pageId);
+    if (users) {
+      this.server.to(pageId).emit('cursorUpdate', Array.from(users.values()));
+    }
+  }
+
+  private getUserColor(socketId: string): string {
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2'];
+    let hash = 0;
+    for (let i = 0; i < socketId.length; i += 1) {
+      hash = ((hash << 5) - hash + socketId.charCodeAt(i)) | 0;
+    }
+    return colors[Math.abs(hash) % colors.length];
   }
 }

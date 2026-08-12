@@ -3,7 +3,7 @@ import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
-    assistTask: { count: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    assistTask: { count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   } as any;
   const config = { get: jest.fn((key: string, def?: any) => ({
     PROCESS_ROLE: 'worker', ASSIST_CONCURRENCY: 2, ASSIST_LEASE_MS: 60000, ASSIST_QUEUE_POLL_MS: 1000,
@@ -19,7 +19,9 @@ describe('AssistQueue task processing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.assistTask.findFirst.mockReset();
+    prisma.assistTask.findMany.mockReset();
     prisma.assistTask.updateMany.mockReset();
+    prisma.assistTask.findMany.mockResolvedValue([]);
     runner.run.mockReset();
     prisma.assistTask.count.mockResolvedValue(1);
     prisma.assistTask.updateMany.mockResolvedValue({ count: 1 });
@@ -141,12 +143,27 @@ describe('AssistQueue task processing', () => {
     expect(log).toHaveBeenCalledWith('Assist queue tick failed', expect.any(String));
   });
 
-  it('re-queues running tasks whose lease expired', async () => {
+  it('re-queues running tasks whose lease expired, below the retry limit', async () => {
+    prisma.assistTask.findMany.mockResolvedValue([
+      { id: 't1', attempts: 1, maxAttempts: 3 },
+    ]);
     const queue = createQueue();
     await (queue as any).recoverExpiredLeases();
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { status: 'running', leaseExpiresAt: { lte: expect.any(Date) } },
-      data: expect.objectContaining({ status: 'queued', leaseOwner: null }),
+      where: { id: { in: ['t1'] } },
+      data: expect.objectContaining({ status: 'queued', leaseOwner: null, attempts: { increment: 1 } }),
+    }));
+  });
+
+  it('fails tasks that exhausted their retry budget instead of requeueing forever', async () => {
+    prisma.assistTask.findMany.mockResolvedValue([
+      { id: 't1', attempts: 3, maxAttempts: 3 },
+    ]);
+    const queue = createQueue();
+    await (queue as any).recoverExpiredLeases();
+    expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['t1'] } },
+      data: expect.objectContaining({ status: 'failed', error: 'Assistant retry budget exhausted' }),
     }));
   });
 });

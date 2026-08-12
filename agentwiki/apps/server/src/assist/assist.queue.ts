@@ -37,10 +37,53 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
 
   // Re-queue tasks whose worker died mid-run (lease expired without completion).
   private async recoverExpiredLeases() {
-    await this.prisma.assistTask.updateMany({
-      where: { status: 'running', leaseExpiresAt: { lte: new Date() } },
-      data: { status: 'queued', lockedAt: null, leaseOwner: null, leaseExpiresAt: null, attempts: { increment: 1 } },
+    const now = new Date();
+    const expired = await this.prisma.assistTask.findMany({
+      where: {
+        status: 'running',
+        leaseExpiresAt: { lte: now },
+      },
+      select: { id: true, attempts: true, maxAttempts: true },
     });
+    if (expired.length === 0) return;
+
+    const exhaustedIds = expired
+      .filter((t) => t.attempts >= t.maxAttempts)
+      .map((t) => t.id);
+    if (exhaustedIds.length > 0) {
+      await this.prisma.assistTask.updateMany({
+        where: { id: { in: exhaustedIds } },
+        data: {
+          status: 'failed',
+          error: 'Assistant retry budget exhausted',
+          lockedAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          completedAt: now,
+        },
+      });
+      this.logger.warn(`Assist retry budget exhausted for ${exhaustedIds.length} task(s)`);
+    }
+
+    const retryIds = expired
+      .filter((t) => t.attempts < t.maxAttempts)
+      .map((t) => t.id);
+    if (retryIds.length > 0) {
+      // Requeue with a backoff delay so a persistently failing model does not
+      // spin hot.
+      await this.prisma.assistTask.updateMany({
+        where: { id: { in: retryIds } },
+        data: {
+          status: 'queued',
+          lockedAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          attempts: { increment: 1 },
+          nextAttemptAt: new Date(now.getTime() + 15_000),
+        },
+      });
+      this.logger.warn(`Recovered ${retryIds.length} expired assist task(s)`);
+    }
   }
 
   async onModuleDestroy() {

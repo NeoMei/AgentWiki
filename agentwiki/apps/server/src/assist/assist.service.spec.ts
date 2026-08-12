@@ -48,6 +48,14 @@ describe('AssistService', () => {
     expect(prisma.assistTask.create).not.toHaveBeenCalled();
   });
 
+  it('rejects an oversized page snapshot before persisting anything', async () => {
+    await expect(service.createTask({
+      spaceId: 'space-1', pageId: 'page-1', intent: 'edit',
+      snapshot: { content: 'x'.repeat(60_000) }, userId: 'user-1',
+    })).rejects.toThrow('Page snapshot is too large');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it('lists tasks for a page newest first', async () => {
     prisma.assistTask.findMany.mockResolvedValue([{ id: 't1' }]);
     const result = await service.listForPage('page-1');

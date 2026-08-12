@@ -16,12 +16,12 @@ export interface CreateAssistTaskInput {
  *  generated content, and failure code. */
 function sanitizeResult(result: unknown): unknown {
   if (!result || typeof result !== 'object') return result;
-  const { model, modelTier, usage, cost, attempts, ...rest } = result as Record<string, unknown>;
+  const { model: _model, modelTier: _modelTier, usage: _usage, cost: _cost, attempts, ...rest } = result as Record<string, unknown>;
   const clean: Record<string, unknown> = { ...rest };
   if (Array.isArray(attempts)) {
     clean.attempts = attempts.map((a: any) => {
       if (!a || typeof a !== 'object') return a;
-      const { model: m, tier: t, cost: c, usage: u, ...restAttempt } = a;
+      const { model: _m, tier: _t, cost: _c, usage: _u, ...restAttempt } = a;
       return restAttempt;
     });
   }
@@ -36,6 +36,11 @@ export class AssistService {
   ) {}
 
   async createTask(input: CreateAssistTaskInput) {
+    // Bound the page snapshot so a single request cannot push an unbounded
+    // payload into the database and the opencode prompt (cost / timeout).
+    if (input.snapshot && JSON.stringify(input.snapshot).length > 50_000) {
+      throw new BadRequestException('Page snapshot is too large');
+    }
     const configured = Number(this.config.get('ASSIST_MAX_OUTSTANDING_PER_USER') || 10);
     const maxOutstanding = Number.isInteger(configured) && configured > 0 ? configured : 10;
     return this.prisma.$transaction(async (tx) => {
