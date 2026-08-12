@@ -77,6 +77,8 @@ describe('createKnowledgeWorkflowRuntime', () => {
     const preview = await first.prepare({ spaceId: 'space-1', sourcePaths: [source], sourceType: 'auto' });
 
     expect(preview.summary.filesProcessed).toBe(2);
+    expect(preview.summary).toMatchObject({ added: 2, modified: 0, deleted: 0 });
+    expect(preview.summary.uploadBytes).toBeGreaterThan(0);
     expect(adapters.ensure).not.toHaveBeenCalledWith('markitdown');
     expect(calls).toEqual([]);
 

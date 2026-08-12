@@ -67,6 +67,12 @@ describe('KnowledgeWorkflows.prepare', () => {
     const b = await wf.prepare({ spaceId: 'space-1', sourcePaths: ['.'] });
     expect(a.previewHash).toBe(b.previewHash);
   });
+
+  it('includes change and upload totals in the onboarding summary (DEF-003)', async () => {
+    const deps = mockDeps({ prepare: { diff: { added: 1, modified: 2, deleted: 3, uploadBytes: 456 } } });
+    const result = await new KnowledgeWorkflows(deps).prepare({ spaceId: 'space-1', sourcePaths: ['.'] });
+    expect(result.summary).toMatchObject({ added: 1, modified: 2, deleted: 3, uploadBytes: 456 });
+  });
 });
 
 describe('KnowledgeWorkflows.confirmAndSync', () => {

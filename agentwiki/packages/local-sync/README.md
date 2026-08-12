@@ -38,12 +38,12 @@ AgentWiki exposes **two different MCP servers** with different tools and purpose
 
 This package provides the **second** one. It does not expose the direct AgentWiki tools and it does not replace the remote MCP server.
 
-## Onboarding (0.3.1)
+## Onboarding (0.3.3)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.3.1 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.3.3 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```

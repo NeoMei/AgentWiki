@@ -175,7 +175,10 @@ function inspectCommand(
 async function inspectMcpRegistration(connection: LocalSyncConnection, home: string, run: CommandRunner): Promise<DoctorCheck> {
   try {
     if (connection.client !== 'opencode') {
-      const result = run(connection.client, ['mcp', 'get', connection.mcpName], { stdio: 'pipe' });
+      const result = run(connection.client, ['mcp', 'get', connection.mcpName], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: home },
+      });
       return check('mcp-registration', !result.error && result.status === 0,
         !result.error && result.status === 0 ? `${connection.client} MCP entry is registered` : `${connection.client} MCP entry is missing`);
     }

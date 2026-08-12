@@ -25,6 +25,10 @@ export interface PrepareResult {
     filesProcessed: number;
     filesSkipped: number;
     sourceKey: string;
+    added?: number;
+    modified?: number;
+    deleted?: number;
+    uploadBytes?: number;
   };
   warnings: string[];
   diff?: { added: number; modified: number; deleted: number; uploadBytes: number };
@@ -111,6 +115,7 @@ export class KnowledgeWorkflows {
        filesProcessed: prepared.processedFiles,
        filesSkipped: prepared.skippedFiles.length,
        sourceKey: prepared.sourceKey,
+       ...(prepared.diff ?? {}),
      },
       warnings: prepared.warnings ?? [],
       ...(prepared.diff ? { diff: prepared.diff } : {}),

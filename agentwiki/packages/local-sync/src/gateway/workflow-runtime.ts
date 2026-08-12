@@ -102,7 +102,14 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
       // locally-removed pages. Falls back gracefully if base is unavailable.
       let bundle = organized.bundle;
       let diff: { added: number; modified: number; deleted: number; uploadBytes: number } | undefined;
-      if (baseRevision && baseRevision !== '0') {
+      if (!baseRevision || baseRevision === '0') {
+        diff = {
+          added: bundle.pages.length,
+          modified: 0,
+          deleted: 0,
+          uploadBytes: Buffer.byteLength(JSON.stringify(bundle), 'utf8'),
+        };
+      } else {
         try {
           const baseData = await readBase(workspacePaths(options.home, input.spaceId), baseRevision);
           if (baseData && typeof baseData === 'object' && 'pages' in baseData && Array.isArray((baseData as { pages: unknown[] }).pages)) {

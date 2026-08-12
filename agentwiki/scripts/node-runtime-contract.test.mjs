@@ -102,7 +102,7 @@ test('the product no longer carries the retired external wiki compiler path', ()
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.3.1');
+  assert.equal(version, '0.3.3');
   for (const path of [
     '.env.example',
     'apps/client/src/config/localSync.ts',
@@ -130,9 +130,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.3.1 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.3.3 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.3\.1/, 'onboard controller must reference 0.3.1');
+  assert.match(source, /0\.3\.3/, 'onboard controller must reference 0.3.3');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');

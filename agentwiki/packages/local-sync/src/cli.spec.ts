@@ -83,7 +83,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.2' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.3' });
   });
 
   it('prepare returns a diff and saves an upload-free preview', async () => {
@@ -308,6 +308,9 @@ it('doctor checks required tool availability without invoking remote model provi
     expect(run).toHaveBeenCalledWith('markitdown', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('git', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('codebase-memory-mcp', ['--version'], expect.anything());
+    expect(run).toHaveBeenCalledWith('codex', ['mcp', 'get', connection.mcpName], expect.objectContaining({
+      env: expect.objectContaining({ HOME: home }),
+    }));
     expect(client.access).toHaveBeenCalledWith(connection, 'agk_doctor_secret');
   });
 });

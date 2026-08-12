@@ -114,7 +114,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
       '--yes',
-      '@neomei/agentwiki-local-sync@0.3.2',
+      '@neomei/agentwiki-local-sync@0.3.3',
       'gateway',
       '--connection',
       'conn-42',
@@ -168,7 +168,7 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.3.2', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.3.3', 'gateway', '--connection', 'conn-1',
     ]);
   });
 });
@@ -200,7 +200,7 @@ describe('removeGatewayEntry', () => {
     const original = JSON.stringify({ mcpServers: { other: { command: 'tool', args: ['-x'] } } });
     await seedConfig('claude', home, original);
 
-    const installed = await installGatewayEntry('claude', 'conn-1', hashConfig(original), home);
+    await installGatewayEntry('claude', 'conn-1', hashConfig(original), home);
     const withGateway = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as Record<string, unknown>;
     expect((withGateway.mcpServers as Record<string, unknown>).other).toBeDefined();
     expect((withGateway.mcpServers as Record<string, unknown>).agentwiki).toBeDefined();
