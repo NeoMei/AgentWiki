@@ -11,9 +11,10 @@ import { OpencodeModelRouter } from './assist/opencode.router';
 import { SourceService } from './knowledge-pipeline/source.service';
 import { ReviewService } from './review/review.service';
 import { SearchCoreModule } from './core/search/search-core.module';
+import { CollaborationModule } from './core/collaboration/collaboration.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule],
   providers: [
     ReviewService,
     SourceService,
