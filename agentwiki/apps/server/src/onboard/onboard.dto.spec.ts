@@ -35,7 +35,7 @@ const createPlan: ServerPlan = {
 };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.3.0', '0.3.1'] as const)(
+  it.each(['0.3.0', '0.3.1', '0.3.2'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -49,7 +49,7 @@ describe('onboarding DTO contract', () => {
   );
 
   it.each([
-    { packageVersion: '0.3.2', clientType: 'codex', purpose: 'full-onboarding' },
+    { packageVersion: '0.3.3', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: 'v0.3.0', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'cursor', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'codex', purpose: 'device-auth' },
@@ -140,7 +140,7 @@ describe('onboarding DTO contract', () => {
   it.each([
     { ...createPlan, permissionPreset: 'viewer' },
     { ...createPlan, approvalMode: 'auto-publish' },
-    { ...createPlan, packageVersion: '0.3.2' },
+    { ...createPlan, packageVersion: '0.3.3' },
     { ...createPlan, space: { mode: 'create', id: 'space-id' } },
     { ...createPlan, space: { mode: 'existing', name: '研发知识库' } },
   ])('rejects invalid bootstrap plan %#', async (serverPlan) => {
