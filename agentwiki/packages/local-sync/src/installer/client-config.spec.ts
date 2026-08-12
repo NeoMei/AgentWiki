@@ -114,7 +114,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
       '--yes',
-      '@neomei/agentwiki-local-sync@0.3.1',
+      '@neomei/agentwiki-local-sync@0.3.2',
       'gateway',
       '--connection',
       'conn-42',
@@ -168,7 +168,7 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.3.1', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.3.2', 'gateway', '--connection', 'conn-1',
     ]);
   });
 });
