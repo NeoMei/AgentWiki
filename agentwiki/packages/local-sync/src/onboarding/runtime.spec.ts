@@ -75,4 +75,25 @@ describe('runOnboarding', () => {
     expect(bootstrapInstall).toHaveBeenCalledTimes(1);
     expect(lines.map((line) => JSON.parse(line).type)).toContain('completed');
   });
+
+  it('closes a closeable stdin source even when onboarding fails (DEF-006 regression)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aw-onboarding-runtime-close-'));
+    homes.push(home);
+    const close = vi.fn();
+    const source: ProtocolSource & { close: () => void } = {
+      // Immediate EOF drives the coordinator into AUTH_DENIED during input collection,
+      // before any network/MCP dependency is touched.
+      read: async () => null,
+      close,
+    };
+    await expect(runOnboarding(
+      { home, protocol: 'ndjson', serverBaseUrl: 'https://wiki.test/api' },
+      {
+        sessionId: () => 'session-close',
+        sink: { write: () => undefined },
+        source,
+      },
+    )).rejects.toThrow();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
 });

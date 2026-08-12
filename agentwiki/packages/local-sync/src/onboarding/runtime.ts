@@ -54,17 +54,29 @@ export async function runOnboarding(
     knowledge,
     sleep: overrides.sleep,
   });
-  return coordinator.run();
+  try {
+    return await coordinator.run();
+  } finally {
+    // NDJSON mode keeps stdin open via a readline interface; close it so the
+    // process exits promptly after a terminal event. Human transport closes
+    // its own readline in the sink; overrides manage their own lifecycle.
+    if ('close' in source && typeof (source as { close?: () => void }).close === 'function') {
+      (source as { close: () => void }).close();
+    }
+  }
 }
 
 function stdinSource(): ProtocolSource {
-  const lines = createInterface({ input: process.stdin, terminal: false })[Symbol.asyncIterator]();
-  return {
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  const lines = rl[Symbol.asyncIterator]();
+  const source: ProtocolSource & { close: () => void } = {
     read: async () => {
       const next = await lines.next();
       return next.done ? null : next.value;
     },
+    close: () => rl.close(),
   };
+  return source;
 }
 
 function installedKnowledge(home: string): KnowledgeWorkflowFn {
