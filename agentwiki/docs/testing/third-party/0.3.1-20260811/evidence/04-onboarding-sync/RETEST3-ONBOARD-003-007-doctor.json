@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    "ONBOARD-003",
+    "ONBOARD-007"
+  ],
+  "clients": {
+    "codex": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCmd": true,
+        "usesArgs": true
+      },
+      "doctorExitCode": 0,
+      "pluginVersion": "0.3.4",
+      "checks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "fail",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "mcpRegistration": "fail",
+      "doctorAllPass": false
+    },
+    "claude": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCommand": true,
+        "usesArgs": true
+      },
+      "doctorExitCode": 0,
+      "pluginVersion": "0.3.4",
+      "checks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "fail",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "mcpRegistration": "fail",
+      "doctorAllPass": false
+    },
+    "opencode": {
+      "configMode": "0o600",
+      "agentwikiEntryCount": 1,
+      "unrelatedEntryCount": 1,
+      "entryShape": {
+        "usesCommand": true,
+        "usesArgs": true,
+        "type": "local"
+      },
+      "doctorExitCode": 0,
+      "pluginVersion": "0.3.4",
+      "checks": {
+        "node": "pass",
+        "markitdown": "pass",
+        "git": "pass",
+        "codebase-memory": "pass",
+        "mcp-registration": "pass",
+        "file-permissions": "pass",
+        "identity": "pass",
+        "space-grants": "pass",
+        "credential-scopes": "pass"
+      },
+      "mcpRegistration": "pass",
+      "doctorAllPass": true
+    }
+  },
+  "allThreeOnboardingCompleted": true,
+  "singleGatewayEach": true,
+  "allThreeMcpRegistrationPass": false,
+  "result": "FAIL",
+  "minimalReproduction": {
+    "setup": "Use a fresh isolated HOME with one unrelated 3pt-control MCP entry.",
+    "onboardCommand": "npx --yes @neomei/agentwiki-local-sync@0.3.4 onboard --server https://agentwiki.quukk.com/api --protocol ndjson",
+    "doctorCommand": "npx --yes @neomei/agentwiki-local-sync@0.3.4 doctor",
+    "observed": "Codex and Claude mcp-registration fail; OpenCode passes.",
+    "sensitiveValuesOmitted": true
+  },
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

@@ -37,3 +37,14 @@
 
 ## Final Decision
 NOT_RUN
+
+## RETEST3 — public package 0.3.4 focused rerun
+
+- Scope: ONBOARD-003, ONBOARD-004, ONBOARD-007 only.
+- Outcome: **1 PASS / 2 FAIL / 0 BLOCKED**.
+- ONBOARD-004 passed: all three onboarding previews included `added`, `modified`, `deleted`, and `uploadBytes`.
+- ONBOARD-003 and ONBOARD-007 failed: Codex and Claude still returned `mcp-registration=fail` from `doctor`; OpenCode passed all checks.
+- Minimal reproduction: use a fresh isolated HOME with one unrelated MCP entry; run the pinned 0.3.4 onboarding command through completion, then run `npx --yes @neomei/agentwiki-local-sync@0.3.4 doctor`. Codex and Claude fail only the MCP registration acceptance relevant to this retest.
+- Evidence: `evidence/04-onboarding-sync/RETEST3-ONBOARD-003-007-doctor.json`, `RETEST3-ONBOARD-004-preview.json`, and `RETEST3-CLEANUP-summary.json`.
+- Cleanup: all three ChangeSets rejected; all RETEST3 credentials, Grants, and Agents removed; all local gateways/connections uninstalled; isolated root removed; production health green.
+- Safety: no Spec section 16 condition triggered; no non-3PT resource was opened, searched, or mutated.

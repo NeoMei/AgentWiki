@@ -37,7 +37,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/ONBOARD-007-doctor-summary.json`
 - Affected 3PT resources: Three local connections, Agents, credentials, and grant bindings listed in `TASK6-resource-inventory.json`.
 - Containment action: Continued synchronization through the package gateway in the isolated homes only; did not modify daily client configuration.
-- Retest result: FAIL — RETEST2 confirmed the generated cmd/command plus args shapes, but Codex and Claude still failed doctor mcp-registration; only OpenCode passed.
+- Retest result: FAIL — RETEST3 with public package 0.3.4 still produced `mcp-registration=fail` for Codex and Claude in fresh isolated homes; OpenCode passed. Minimal reproduction and sanitized doctor evidence: `evidence/04-onboarding-sync/RETEST3-ONBOARD-003-007-doctor.json`.
 - Cleanup state: PENDING until SYNC-006 uninstall verification is recorded.
 
 ### DEF-3PT-20260812-003 — Preview omits required change and upload counts
@@ -56,7 +56,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-codex-until-sync.json`; `evidence/04-onboarding-sync/SYNC-001-diff-push.json`; `evidence/04-onboarding-sync/TASK6-ui-observation-summary.json`
 - Affected 3PT resources: Local jobs and preview handles listed in `TASK6-resource-inventory.json`.
 - Containment action: Confirmed only known synthetic fixtures and independently inspected the scoped 3PT Review diff before publication.
-- Retest result: FAIL — RETEST2 onboarding first-sync previews still omitted added/modified/deleted/uploadBytes. The later gateway knowledge_prepare path did include those fields, but that does not satisfy ONBOARD-004.
+- Retest result: PASS — RETEST3 with public package 0.3.4 confirmed all three onboarding first-sync previews include `added`, `modified`, `deleted`, and `uploadBytes`. Evidence: `evidence/04-onboarding-sync/RETEST3-ONBOARD-004-preview.json`.
 - Cleanup state: PENDING with isolated-root cleanup in Task 8.
 
 ### DEF-3PT-20260812-004 — Deleting a source file does not propose a page deletion
@@ -134,6 +134,7 @@
 - Containment action: Stopped further production write testing under Spec section 16.8. Did not manually rewrite the isolated configs or delete the isolated root; Task 8/production owner must choose the cleanup remediation while evidence is retained.
 - Retest result: PASS — RETEST2 uninstall returned zero for all clients, removed gateway entries and connections, preserved unrelated entries, and restored all configs byte-for-byte.
 - Cleanup state: FAIL for normal product uninstall; manual remediation is PENDING owner authorization.
+
 
 
 ## Task 5 acceptance note — no new defect

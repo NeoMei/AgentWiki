@@ -95,3 +95,18 @@ Every individual sanitized handle is listed in `evidence/04-onboarding-sync/TASK
 
 - RETEST2 created only prefixed Agent resources in the existing main 3PT Space; the raw cleanup inventory was appended to the mode-0600 secure credential file.
 - No Spec section 16 condition triggered. Production health remained green after execution and cleanup.
+
+## 0.3.4 Task 6 RETEST3 cleanup
+
+| Resource type | Sanitized name | Creation case | Cleanup action | Verification | Result |
+|---|---|---|---|---|---|
+| Isolated client home set (3) | `agentwiki-3pt.retest3.<ephemeral>` | RETEST3 preflight | Product uninstall, then remove isolated root | Root and marker absent | PASS |
+| Gateway and local connection set (3 each) | One `agentwiki` plus one unrelated `3pt-control` entry per home | ONBOARD-003 / ONBOARD-007 | Public 0.3.4 `uninstall` | Exit zero; gateway/connection count zero; unrelated entry retained; exact before hash match | PASS |
+| Device Request set (4) | Three approved RETEST3 requests plus one unapproved preflight probe | Preflight / ONBOARD-007 | Approved requests consumed; preflight probe expires normally | No extra Agent from preflight request | PASS / NOT_REQUIRED |
+| ChangeSet/submission set (3 each) | RETEST3 onboarding candidates | ONBOARD-004 | Reject each pending ChangeSet through normal product API | All three returned rejected | PASS |
+| Agent / credential / Grant sets (3 each) | `3PT-20260811-CODEX-RETEST3-*` | ONBOARD-003 / ONBOARD-007 | Revoke credential, remove Grant, revoke Agent through normal product API | All operations succeeded; old Agent GET returned 404 | PASS |
+| Daily client configurations | Not accessed | All RETEST3 cases | No action required | Only fresh isolated homes were used | PASS |
+
+- All RETEST3 server resources were cleaned through normal product APIs; no Task 8 residual remains for this run.
+- Production health remained fully green after cleanup. No Spec section 16 condition triggered.
+- Sanitized cleanup evidence: `evidence/04-onboarding-sync/RETEST3-CLEANUP-summary.json` and `RETEST3-resource-inventory.json`.

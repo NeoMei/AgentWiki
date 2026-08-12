@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "resources": {
+    "deviceRequests": {
+      "count": 4,
+      "approved": 3,
+      "unapprovedPreflightExpiresAutomatically": 1
+    },
+    "agents": {
+      "count": 3,
+      "handles": [
+        "sha256-12:063d32011328",
+        "sha256-12:ae7d85e2da20",
+        "sha256-12:45269ae1b90d"
+      ],
+      "cleanup": "PASS"
+    },
+    "credentials": {
+      "count": 3,
+      "handles": [
+        "sha256-12:e2fb37bbc230",
+        "sha256-12:4794a1546fa7",
+        "sha256-12:7c12d8c943f2"
+      ],
+      "cleanup": "PASS"
+    },
+    "grantBindings": {
+      "count": 3,
+      "handles": [
+        "sha256-12:ea745072f772",
+        "sha256-12:c769dee73d22",
+        "sha256-12:998bcd6b425d"
+      ],
+      "cleanup": "PASS"
+    },
+    "changeSets": {
+      "count": 3,
+      "handles": [
+        "sha256-12:6b4bacbd2f91",
+        "sha256-12:74f14fbc3fb0",
+        "sha256-12:b1384228d542"
+      ],
+      "cleanup": "PASS_REJECTED"
+    },
+    "submissions": {
+      "count": 3,
+      "handles": [
+        "sha256-12:5f7322e652da",
+        "sha256-12:7974a3f4ecbd",
+        "sha256-12:c08e5c3d5c77"
+      ],
+      "cleanup": "PASS_PARENT_REJECTED"
+    },
+    "connections": {
+      "count": 3,
+      "handles": [
+        "sha256-12:7c0281859501",
+        "sha256-12:7868966d75f3",
+        "sha256-12:e1846f796fdd"
+      ],
+      "cleanup": "PASS"
+    }
+  },
+  "rawIdsRedacted": true,
+  "credentialsRedacted": true,
+  "absolutePathsRedacted": true
+}

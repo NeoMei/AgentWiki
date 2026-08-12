@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "changeSets": [
+    {
+      "client": "codex",
+      "httpStatus": 201,
+      "resultStatus": "rejected"
+    },
+    {
+      "client": "claude",
+      "httpStatus": 201,
+      "resultStatus": "rejected"
+    },
+    {
+      "client": "opencode",
+      "httpStatus": 201,
+      "resultStatus": "rejected"
+    }
+  ],
+  "localUninstall": {
+    "codex": {
+      "exitCode": 0,
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false,
+      "configMode": "0o600"
+    },
+    "claude": {
+      "exitCode": 0,
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false,
+      "configMode": "0o600"
+    },
+    "opencode": {
+      "exitCode": 0,
+      "contentMatchesBeforeExactly": true,
+      "agentwikiEntryCount": 0,
+      "unrelatedEntryCount": 1,
+      "remainingConnectionCount": 0,
+      "defaultConnectionPresent": false,
+      "configMode": "0o600"
+    }
+  },
+  "serverResources": [
+    {
+      "client": "codex",
+      "credentialRevokeHttp": 200,
+      "grantRemoveHttp": 200,
+      "agentRevokeHttp": 200,
+      "postRevokeGetHttp": 404,
+      "postRevokeStatus": null
+    },
+    {
+      "client": "claude",
+      "credentialRevokeHttp": 200,
+      "grantRemoveHttp": 200,
+      "agentRevokeHttp": 200,
+      "postRevokeGetHttp": 404,
+      "postRevokeStatus": null
+    },
+    {
+      "client": "opencode",
+      "credentialRevokeHttp": 200,
+      "grantRemoveHttp": 200,
+      "agentRevokeHttp": 200,
+      "postRevokeGetHttp": 404,
+      "postRevokeStatus": null
+    }
+  ],
+  "allChangeSetsRejected": true,
+  "allConfigsRestoredExactly": true,
+  "allGatewaysAndConnectionsRemoved": true,
+  "allCredentialsGrantsAgentsRemoved": true,
+  "productionHealthAfter": "ok",
+  "isolatedRootRemoved": true,
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

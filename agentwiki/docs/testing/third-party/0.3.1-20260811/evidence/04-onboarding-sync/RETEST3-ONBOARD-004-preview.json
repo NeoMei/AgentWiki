@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "case": "ONBOARD-004",
+  "clients": {
+    "codex": {
+      "keys": [
+        "added",
+        "deleted",
+        "filesProcessed",
+        "filesSkipped",
+        "modified",
+        "sourceKey",
+        "uploadBytes"
+      ],
+      "added": 0,
+      "modified": 3,
+      "deleted": 0,
+      "uploadBytes": 2343,
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "allRequiredFieldsPresent": true
+    },
+    "claude": {
+      "keys": [
+        "added",
+        "deleted",
+        "filesProcessed",
+        "filesSkipped",
+        "modified",
+        "sourceKey",
+        "uploadBytes"
+      ],
+      "added": 0,
+      "modified": 3,
+      "deleted": 0,
+      "uploadBytes": 2343,
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "allRequiredFieldsPresent": true
+    },
+    "opencode": {
+      "keys": [
+        "added",
+        "deleted",
+        "filesProcessed",
+        "filesSkipped",
+        "modified",
+        "sourceKey",
+        "uploadBytes"
+      ],
+      "added": 0,
+      "modified": 3,
+      "deleted": 0,
+      "uploadBytes": 2343,
+      "filesProcessed": 3,
+      "filesSkipped": 0,
+      "allRequiredFieldsPresent": true
+    }
+  },
+  "result": "PASS",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}

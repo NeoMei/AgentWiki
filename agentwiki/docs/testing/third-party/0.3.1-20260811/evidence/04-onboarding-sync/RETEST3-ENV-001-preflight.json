@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "package": "@neomei/agentwiki-local-sync@0.3.4",
+  "npmExactVersion": "0.3.4",
+  "npmLatestVersion": "0.3.4",
+  "deviceStartHttpStatus": 201,
+  "verificationUri": "https://agentwiki.quukk.com/onboard/device",
+  "productionHealthBefore": "ok",
+  "isolatedHomes": 3,
+  "dailyClientConfigsTouched": false,
+  "credentialFileMode": "0600",
+  "secretsRedacted": true,
+  "rawIdsRedacted": true,
+  "absolutePathsRedacted": true
+}
