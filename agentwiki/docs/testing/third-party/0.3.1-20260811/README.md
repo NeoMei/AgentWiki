@@ -44,3 +44,11 @@
 - Defects: defects.md
 - Cleanup: cleanup-checklist.md
 - Residual data: residual-data.md
+
+### Continuation authorization after 0.3.2 defect fixes (2026-08-12)
+
+- Decision: production owner authorized retest after all seven Task 6 defects were fixed, tested, and published as `@neomei/agentwiki-local-sync@0.3.2`.
+- Fresh approved window: 2026-08-12 17:30 CST through 2026-08-13 01:30 CST.
+- Scope: re-run Task 6 (ONBOARD-001..007, SYNC-001..006) against 0.3.2 to confirm fixes, then continue Tasks 7-8.
+- Production DEF-001 config fix already verified live; 0.3.2 code adds defense-in-depth.
+- All prior isolation, prefix, evidence-redaction, cleanup, and stop-condition rules remain in force.
