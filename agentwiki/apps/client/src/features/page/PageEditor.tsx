@@ -268,7 +268,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     };
   }, [id, user?.id, page?.id, offerRemotePage]);
 
-  const handleContentChange = (newContent: string) => {
+  const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
     contentRef.current = newContent;
     editRevisionRef.current += 1;
@@ -284,13 +284,26 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         });
       }
     }, 500);
-  };
+  }, [id, updateDirty]);
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(e.target.value);
     editRevisionRef.current += 1;
     updateDirty(true);
-  };
+  }, [updateDirty]);
+
+  // Stable callbacks for the assist panel so its socket connection and task
+  // polling are not recreated on every editor render (which would drop the
+  // live stream events).
+  const applyAgentChanges = useCallback((changes: string) => {
+    handleContentChange(changes);
+    setMode('edit');
+  }, [handleContentChange]);
+
+  const streamAgentChanges = useCallback((partial: string) => {
+    handleContentChange(partial);
+    setMode('edit');
+  }, [handleContentChange]);
 
   const handleSave = async () => {
     const baseline = pageRef.current;
@@ -449,14 +462,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             pageTitle={title || page.title}
             spaceId={page.spaceId}
             snapshot={() => ({ title, content, updatedAt: page.updatedAt })}
-            onApply={(changes) => {
-              handleContentChange(changes);
-              setMode('edit');
-            }}
-            onStreamUpdate={(partial) => {
-              handleContentChange(partial);
-              setMode('edit');
-            }}
+            onApply={applyAgentChanges}
+            onStreamUpdate={streamAgentChanges}
           />
         ) : null}
       </div>

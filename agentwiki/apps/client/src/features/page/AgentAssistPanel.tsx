@@ -133,6 +133,8 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const socketRef = useRef<Socket | null>(null);
   const streamBufferRef = useRef<Map<string, string>>(new Map());
   const appliedRef = useRef<Set<string>>(new Set());
+  const onStreamUpdateRef = useRef(onStreamUpdate);
+  onStreamUpdateRef.current = onStreamUpdate;
 
   const loadTasks = useCallback(async () => {
     try {
@@ -162,6 +164,9 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     }
   }, [pageId, onApply]);
 
+  const loadTasksRef = useRef(loadTasks);
+  loadTasksRef.current = loadTasks;
+
   const loadPending = useCallback(async () => {
     try {
       const res = await api.get('/review', { params: { spaceId } });
@@ -190,6 +195,8 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     });
     socketRef.current = socket;
 
+    let mounted = true;
+
     socket.on('connect', () => {
       socket.emit('joinPage', {
         pageId,
@@ -204,50 +211,43 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       streamBufferRef.current.set(data.taskId, updated);
       
       // Live-apply the markdown currently being generated to the editor.
-      if (onStreamUpdate) {
+      if (onStreamUpdateRef.current) {
         const partial = extractChangesFromStream(updated);
-        if (partial) onStreamUpdate(partial);
+        if (partial) onStreamUpdateRef.current(partial);
       }
 
-      setTasks((prev) => prev.map((t) => {
-        if (t.id === data.taskId) {
-          return {
-            ...t,
-            streamContent: updated,
-            phase: updated.length > 100 ? 'generating' : 'thinking',
-          };
-        }
-        return t;
-      }));
+      setTasks((prev) => {
+        const exists = prev.some((t) => t.id === data.taskId);
+        const task = {
+          id: data.taskId,
+          intent: prev.find((t) => t.id === data.taskId)?.intent || '',
+          status: 'running' as AssistTaskStatus,
+          streamContent: updated,
+          phase: (updated.length > 100 ? 'generating' : 'thinking') as AssistPhase,
+        };
+        if (!exists) return [task, ...prev];
+        return prev.map((t) => (t.id === data.taskId ? { ...t, streamContent: updated, phase: task.phase } : t));
+      });
     });
 
     socket.on('assistComplete', (data: { taskId: string }) => {
-      setTasks((prev) => prev.map((t) => {
-        if (t.id === data.taskId) {
-          return { ...t, phase: 'complete' };
-        }
-        return t;
-      }));
+      setTasks((prev) => prev.map((t) => (t.id === data.taskId ? { ...t, phase: 'complete' } : t)));
       streamBufferRef.current.delete(data.taskId);
-      void loadTasks();
+      if (mounted) void loadTasksRef.current();
     });
 
     socket.on('assistError', (data: { taskId: string; error: string }) => {
-      setTasks((prev) => prev.map((t) => {
-        if (t.id === data.taskId) {
-          return { ...t, phase: 'error', streamContent: data.error };
-        }
-        return t;
-      }));
+      setTasks((prev) => prev.map((t) => (t.id === data.taskId ? { ...t, phase: 'error', streamContent: data.error } : t)));
       streamBufferRef.current.delete(data.taskId);
     });
 
     return () => {
+      mounted = false;
       socket.disconnect();
       socketRef.current = null;
       streamBufferRef.current.clear();
     };
-  }, [user?.id, pageId, loadTasks]);
+  }, [user?.id, pageId]);
 
   const submit = async () => {
     if (!intent.trim() || submitting) return;
