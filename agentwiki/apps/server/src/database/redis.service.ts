@@ -113,6 +113,27 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Publish a message to a Redis channel (fire-and-forget). */
+  async publish(channel: string, message: string): Promise<void> {
+    try {
+      await this.getClient().publish(channel, message);
+    } catch (err: any) {
+      this.logger.error(`Redis publish error on ${channel}: ${err.message}`);
+    }
+  }
+
+  /** Subscribe to a Redis channel. Returns an unsubscribe function. */
+  async subscribe(channel: string, handler: (message: string) => void): Promise<() => void> {
+    const client = this.getClient();
+    const listener = (_channel: string, message: string) => handler(message);
+    client.on('message', listener);
+    await client.subscribe(channel);
+    return () => {
+      void client.unsubscribe(channel).catch(() => undefined);
+      client.off('message', listener);
+    };
+  }
+
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
     try {
       if (ttlSeconds) {
