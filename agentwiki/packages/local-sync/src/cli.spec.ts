@@ -83,7 +83,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.3' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.3.4' });
   });
 
   it('prepare returns a diff and saves an upload-free preview', async () => {
@@ -298,19 +298,44 @@ it('doctor checks required tool availability without invoking remote model provi
       }),
     };
 
-    const report = await runDoctor(home, connection, {
-      client: client as never,
-      readApiKey: async () => 'agk_doctor_secret',
-      run,
-    });
+    const originalCodexHome = process.env.CODEX_HOME;
+    const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CODEX_HOME = '/wrong/codex-home';
+    process.env.CLAUDE_CONFIG_DIR = '/wrong/claude-config';
+    let report;
+    try {
+      report = await runDoctor(home, connection, {
+        client: client as never,
+        readApiKey: async () => 'agk_doctor_secret',
+        run,
+      });
+      await runDoctor(home, { ...connection, client: 'claude' }, {
+        client: client as never,
+        readApiKey: async () => 'agk_doctor_secret',
+        run,
+      });
+    } finally {
+      if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = originalCodexHome;
+      if (originalClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+    }
 
     expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(report.checks.length);
     expect(run).toHaveBeenCalledWith('markitdown', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('git', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('codebase-memory-mcp', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('codex', ['mcp', 'get', connection.mcpName], expect.objectContaining({
-      env: expect.objectContaining({ HOME: home }),
+      env: expect.objectContaining({ HOME: home, USERPROFILE: home }),
     }));
+    expect(run).toHaveBeenCalledWith('claude', ['mcp', 'get', connection.mcpName], expect.objectContaining({
+      env: expect.objectContaining({ HOME: home, USERPROFILE: home }),
+    }));
+    const mcpCalls = run.mock.calls as unknown as Array<[string, string[], { env?: NodeJS.ProcessEnv }?]>;
+    for (const [, , options] of mcpCalls.filter(([, args]) => args[0] === 'mcp')) {
+      expect(options?.env).not.toHaveProperty('CODEX_HOME');
+      expect(options?.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    }
     expect(client.access).toHaveBeenCalledWith(connection, 'agk_doctor_secret');
   });
 });

@@ -3,7 +3,7 @@ import { Check, CheckCircle2, Copy, ScanSearch, ShieldCheck, Terminal } from 'lu
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
-const ONBOARD_COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.3 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
+const ONBOARD_COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.4 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
 
 export const OnboardPage: React.FC = () => {
   const { language } = useLanguage();

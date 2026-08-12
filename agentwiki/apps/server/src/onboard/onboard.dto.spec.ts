@@ -31,11 +31,11 @@ const createPlan: ServerPlan = {
   agentName: 'Codex',
   permissionPreset: 'editor',
   approvalMode: 'always-review',
-  packageVersion: '0.3.1',
+  packageVersion: '0.3.4',
 };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.3.0', '0.3.1', '0.3.2', '0.3.3'] as const)(
+  it.each(['0.3.4'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -49,7 +49,7 @@ describe('onboarding DTO contract', () => {
   );
 
   it.each([
-    { packageVersion: '0.3.4', clientType: 'codex', purpose: 'full-onboarding' },
+    { packageVersion: '0.3.3', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: 'v0.3.0', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'cursor', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'codex', purpose: 'device-auth' },
@@ -140,7 +140,7 @@ describe('onboarding DTO contract', () => {
   it.each([
     { ...createPlan, permissionPreset: 'viewer' },
     { ...createPlan, approvalMode: 'auto-publish' },
-    { ...createPlan, packageVersion: '0.3.4' },
+    { ...createPlan, packageVersion: '0.3.3' },
     { ...createPlan, space: { mode: 'create', id: 'space-id' } },
     { ...createPlan, space: { mode: 'existing', name: '研发知识库' } },
   ])('rejects invalid bootstrap plan %#', async (serverPlan) => {
@@ -243,7 +243,7 @@ describe('onboarding permission presets and canonical plan hashing', () => {
 
     expect(hashServerPlan(normalized)).toBe(hashServerPlan(reordered));
     expect(hashServerPlan(normalized)).toBe(
-      '2a3a459c5cfa323ccbe0c2fb8f9522ec36e4cd94928add889807f43a6bb33a8a',
+      '39a968cacebbf793bd807e375147d2e35cc851f2f0856f01c304f2f17ee7465a',
     );
     expect(hashServerPlan(normalized)).toMatch(/^[0-9a-f]{64}$/);
   });
