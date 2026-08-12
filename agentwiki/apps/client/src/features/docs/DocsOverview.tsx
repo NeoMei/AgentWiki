@@ -48,7 +48,7 @@ export const DocsOverview: React.FC = () => {
 
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{zh ? '\u6574\u4f53\u67b6\u6784\u4e00\u89c8' : 'Architecture at a Glance'}</h2>
         <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm mb-4 not-prose">
-          <img src="/docs/architecture.jpg" alt={zh ? 'AgentWiki 系统架构图' : 'AgentWiki System Architecture'} className="w-full h-auto block" loading="lazy" />
+          <img src={zh ? '/docs/architecture-zh.jpg' : '/docs/architecture-en.jpg'} alt={zh ? 'AgentWiki 系统架构图' : 'AgentWiki System Architecture'} className="w-full h-auto block" loading="lazy" />
         </div>
         <p className="text-gray-600 leading-relaxed mb-8">
           {zh ? '\u66f4\u8be6\u7ec6\u7684\u67b6\u6784\u89e3\u8bfb\u8bf7\u9605\u8bfb' : 'For a deeper architecture walkthrough, see '}
