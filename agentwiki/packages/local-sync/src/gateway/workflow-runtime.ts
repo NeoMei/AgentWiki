@@ -4,11 +4,12 @@ import { join } from 'node:path';
 
 import type { SourceAdapter } from '../protocol/adapter.js';
 import type { SourceArtifact } from '../protocol/artifact.js';
+import type { KnowledgeBundle } from '../protocol/bundle.js';
 import { MarkitdownAdapter } from '../adapter/markitdown.js';
 import type { Recipe } from '../protocol/recipe.js';
 import { organizeArtifacts, validateKnowledgeBundle } from '../organize/index.js';
 import { workspacePaths } from '../workspace/layout.js';
-import { readManifest } from '../workspace/state.js';
+import { readBase, readManifest } from '../workspace/state.js';
 import { OnboardingError } from '../onboarding/errors.js';
 import {
   KnowledgeWorkflows,
@@ -89,16 +90,51 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
 
       const manifest = await readManifest(workspacePaths(options.home, input.spaceId));
       const baseRevision = manifest?.baseRevision?.revision ?? '0';
-      const organized = organizeArtifacts(safeArtifacts, {
-        spaceId: input.spaceId,
-        baseRevision,
-        recipe: UNIFIED_RECIPE,
-        now,
-      });
+     const organized = organizeArtifacts(safeArtifacts, {
+       spaceId: input.spaceId,
+       baseRevision,
+       recipe: UNIFIED_RECIPE,
+       now,
+     });
+
+      // DEF-003/004: compare with the last confirmed base bundle to compute
+      // added/modified/deleted counts and generate deletion proposals for
+      // locally-removed pages. Falls back gracefully if base is unavailable.
+      let bundle = organized.bundle;
+      let diff: { added: number; modified: number; deleted: number; uploadBytes: number } | undefined;
+      if (baseRevision && baseRevision !== '0') {
+        try {
+          const baseData = await readBase(workspacePaths(options.home, input.spaceId), baseRevision);
+          if (baseData && typeof baseData === 'object' && 'pages' in baseData && Array.isArray((baseData as { pages: unknown[] }).pages)) {
+            const basePages = new Map((baseData as KnowledgeBundle).pages.map((p) => [p.pageId, p.contentHash]));
+            const localPageIds = new Set(bundle.pages.map((p) => p.pageId));
+            let added = 0;
+            let modified = 0;
+            for (const page of bundle.pages) {
+              const baseHash = basePages.get(page.pageId);
+              if (baseHash === undefined) added += 1;
+              else if (baseHash !== page.contentHash) modified += 1;
+            }
+            const deletionProposals = [];
+            for (const [pageId] of basePages) {
+              if (!localPageIds.has(pageId)) {
+                deletionProposals.push({ deletionId: `del-${pageId}`, itemType: 'page' as const, itemId: pageId, reason: 'Source file removed since last sync' });
+              }
+            }
+            if (deletionProposals.length > 0) {
+              bundle = { ...bundle, deletions: [...bundle.deletions, ...deletionProposals] };
+            }
+            const uploadBytes = Buffer.byteLength(JSON.stringify(bundle), 'utf8');
+            diff = { added, modified, deleted: deletionProposals.length, uploadBytes };
+          }
+        } catch {
+          // Base bundle unavailable; diff stays undefined.
+        }
+      }
       const acknowledged = new Set(
         safeArtifacts.filter((artifact) => artifact.sensitivity === 'review-required').map((artifact) => artifact.artifactId),
       );
-      const issues = validateKnowledgeBundle(organized.bundle, safeArtifacts, UNIFIED_RECIPE, {
+      const issues = validateKnowledgeBundle(bundle, safeArtifacts, UNIFIED_RECIPE, {
         expectedBaseRevision: baseRevision,
         acknowledgedReviewArtifactIds: acknowledged,
         trustedRevisionProvenanceIds: new Set(),
@@ -112,12 +148,13 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         });
       }
 
-      return {
-        bundle: organized.bundle,
+     return {
+        bundle,
         sourceKey: createHash('sha256').update([...input.sourcePaths].sort().join('\n')).digest('hex'),
         processedFiles: safeArtifacts.length,
         skippedFiles,
         warnings,
+        ...(diff ? { diff } : {}),
       };
     },
   });
