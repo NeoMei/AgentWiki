@@ -37,7 +37,7 @@
 - Sanitized evidence files: `evidence/04-onboarding-sync/ONBOARD-003-config-summary.json`; `evidence/04-onboarding-sync/ONBOARD-007-doctor-summary.json`
 - Affected 3PT resources: Three local connections, Agents, credentials, and grant bindings listed in `TASK6-resource-inventory.json`.
 - Containment action: Continued synchronization through the package gateway in the isolated homes only; did not modify daily client configuration.
-- Retest result: FAIL — RETEST3 with public package 0.3.4 still produced `mcp-registration=fail` for Codex and Claude in fresh isolated homes; OpenCode passed. Minimal reproduction and sanitized doctor evidence: `evidence/04-onboarding-sync/RETEST3-ONBOARD-003-007-doctor.json`.
+- Retest result: PASS — RETEST4 with public package 0.3.6 resolved both root causes. Codex (0.3.5) now forwards spawn options so the isolated HOME reaches `codex mcp get`. Claude (0.3.6) now writes the gateway to `~/.claude.json` instead of `~/.claude/settings.json`. All three clients pass `mcp-registration` in a fresh isolated HOME. Evidence: `evidence/04-onboarding-sync/RETEST4-ONBOARD-003-007-doctor.json`.
 - Cleanup state: PENDING until SYNC-006 uninstall verification is recorded.
 
 ### DEF-3PT-20260812-003 — Preview omits required change and upload counts

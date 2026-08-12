@@ -48,3 +48,14 @@ NOT_RUN
 - Evidence: `evidence/04-onboarding-sync/RETEST3-ONBOARD-003-007-doctor.json`, `RETEST3-ONBOARD-004-preview.json`, and `RETEST3-CLEANUP-summary.json`.
 - Cleanup: all three ChangeSets rejected; all RETEST3 credentials, Grants, and Agents removed; all local gateways/connections uninstalled; isolated root removed; production health green.
 - Safety: no Spec section 16 condition triggered; no non-3PT resource was opened, searched, or mutated.
+
+## RETEST4 — public package 0.3.6 focused rerun
+
+- Scope: ONBOARD-003 and ONBOARD-007 (mcp-registration acceptance for Codex, Claude, OpenCode).
+- Outcome: **3 PASS / 0 FAIL / 0 BLOCKED** — all three clients' `mcp-registration` doctor check passed.
+- Root cause fixed: the Claude gateway was previously written to `~/.claude/settings.json`, which Claude Code does not read. It is now written to `~/.claude.json` (user scope), matching what `claude mcp get` and running sessions load. A legacy-cleanup step removes old entries from `settings.json`.
+- Codex root cause (0.3.5): the doctor spawn runner discarded its options, so the isolated HOME env override never reached the real `codex mcp get` subprocess. 0.3.5 forwards spawn options; Codex mcp-registration now passes.
+- ONBOARD-004 remains PASS from RETEST3 (preview diff totals).
+- Evidence: `evidence/04-onboarding-sync/RETEST4-ONBOARD-003-007-doctor.json`.
+- Cleanup: isolated HOMEs removed after verification.
+- Safety: no production writes; no real credentials used (placeholder API keys); no Spec section 16 condition triggered.

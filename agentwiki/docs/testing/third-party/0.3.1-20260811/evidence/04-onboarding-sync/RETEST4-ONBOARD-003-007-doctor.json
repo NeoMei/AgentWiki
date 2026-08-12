@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cases": ["ONBOARD-003", "ONBOARD-007"],
+  "packageVersion": "0.3.6",
+  "clients": {
+    "codex": {
+      "mcpRegistration": "pass",
+      "note": "identity/space-grants/credential-scopes use placeholder API key; only mcp-registration is in scope for this retest"
+    },
+    "claude": {
+      "mcpRegistration": "pass",
+      "note": "Fixed by writing gateway to ~/.claude.json instead of ~/.claude/settings.json"
+    },
+    "opencode": {
+      "mcpRegistration": "pass"
+    }
+  },
+  "allThreeMcpRegistrationPass": true,
+  "result": "PASS",
+  "defectResolved": "DEF-3PT-20260812-002",
+  "fix": "client-config.ts: write Claude gateway to ~/.claude.json (user scope) so Claude Code can load it; also clean legacy ~/.claude/settings.json entries",
+  "secretsRedacted": true
+}
