@@ -11,6 +11,23 @@ export interface CreateAssistTaskInput {
   userId?: string;
 }
 
+/** Strip internal routing details (model names, costs, usage) from assist
+ *  results before they leave the API. The client only needs the summary,
+ *  generated content, and failure code. */
+function sanitizeResult(result: unknown): unknown {
+  if (!result || typeof result !== 'object') return result;
+  const { model, modelTier, usage, cost, attempts, ...rest } = result as Record<string, unknown>;
+  const clean: Record<string, unknown> = { ...rest };
+  if (Array.isArray(attempts)) {
+    clean.attempts = attempts.map((a: any) => {
+      if (!a || typeof a !== 'object') return a;
+      const { model: m, tier: t, cost: c, usage: u, ...restAttempt } = a;
+      return restAttempt;
+    });
+  }
+  return clean;
+}
+
 @Injectable()
 export class AssistService {
   constructor(
@@ -53,14 +70,23 @@ export class AssistService {
   }
 
   async listForPage(pageId: string) {
-    return this.prisma.assistTask.findMany({
+    const tasks = await this.prisma.assistTask.findMany({
       where: { pageId },
       orderBy: { createdAt: 'desc' },
       take: 5,
     });
+    return tasks.map((task) => ({
+      ...task,
+      result: task.result ? sanitizeResult(task.result) : null,
+    }));
   }
 
   async get(id: string) {
-    return this.prisma.assistTask.findUnique({ where: { id } });
+    const task = await this.prisma.assistTask.findUnique({ where: { id } });
+    if (!task) return null;
+    return {
+      ...task,
+      result: task.result ? sanitizeResult(task.result) : null,
+    };
   }
 }
