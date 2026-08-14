@@ -13,8 +13,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  CreatePushSessionRequestSchema,
+  FinalizePushRequestSchema,
   parsePageLimit,
-  type SyncCapabilities,
+  PushBatchSchema,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { HumanDeviceGuard, type HumanDevicePrincipal } from './human-device.guard';
@@ -22,6 +24,7 @@ import { SyncApiException } from './sync-error';
 import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
+import { PushSessionService } from './push-session.service';
 
 @Controller('sync/v1')
 @UseGuards(HumanDeviceGuard)
@@ -31,6 +34,7 @@ export class SyncV1Controller {
     private readonly revisions: SyncRevisionService,
     private readonly cursors: SyncCursorService,
     private readonly capabilities: SyncCapabilitiesService,
+    private readonly pushSessions: PushSessionService,
   ) {}
 
   @Get('spaces')
@@ -193,5 +197,67 @@ export class SyncV1Controller {
     if (!member || member.space.deletedAt) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
+  }
+
+  @Post('spaces/:spaceId/push-sessions')
+  @HttpCode(HttpStatus.CREATED)
+  async createPushSession(
+    @Param('spaceId') spaceId: string,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    const input = CreatePushSessionRequestSchema.safeParse(body);
+    if (!input.success) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid create push session request');
+    }
+    return this.pushSessions.create(request.user, spaceId, input.data);
+  }
+
+  @Put('spaces/:spaceId/push-sessions/:sessionId/batches/:batchIndex')
+  async uploadBatch(
+    @Param('spaceId') spaceId: string,
+    @Param('sessionId') sessionId: string,
+    @Param('batchIndex') batchIndex: string,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    const batch = PushBatchSchema.safeParse(body);
+    if (!batch.success || batch.data.batchIndex !== Number(batchIndex)) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid batch payload');
+    }
+    return this.pushSessions.upload(request.user, spaceId, sessionId, batch.data);
+  }
+
+  @Post('spaces/:spaceId/push-sessions/:sessionId/finalize')
+  async finalize(
+    @Param('spaceId') spaceId: string,
+    @Param('sessionId') sessionId: string,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    const input = FinalizePushRequestSchema.safeParse(body);
+    if (!input.success) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid finalize request');
+    }
+    return this.pushSessions.finalize(request.user, spaceId, sessionId, input.data.confirmationHash);
+  }
+
+  @Get('spaces/:spaceId/push-sessions/:sessionId')
+  async getPushSession(
+    @Param('spaceId') spaceId: string,
+    @Param('sessionId') sessionId: string,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    return this.pushSessions.get(request.user, spaceId, sessionId);
+  }
+
+  @Delete('spaces/:spaceId/push-sessions/:sessionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async abortPushSession(
+    @Param('spaceId') spaceId: string,
+    @Param('sessionId') sessionId: string,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    await this.pushSessions.abort(request.user, spaceId, sessionId);
   }
 }

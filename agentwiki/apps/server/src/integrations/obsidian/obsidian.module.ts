@@ -11,6 +11,7 @@ import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
+import { PushSessionService } from './push-session.service';
 
 @Module({
   imports: [DatabaseModule, AuthModule, SecurityModule],
@@ -22,6 +23,7 @@ import { SpaceRevisionWriterService } from './space-revision-writer.service';
     SyncCursorService,
     SyncCapabilitiesService,
     SpaceRevisionWriterService,
+    PushSessionService,
   ],
   controllers: [ObsidianIntegrationController, SyncV1Controller],
   exports: [
@@ -32,6 +34,7 @@ import { SpaceRevisionWriterService } from './space-revision-writer.service';
     SyncCursorService,
     SyncCapabilitiesService,
     SpaceRevisionWriterService,
+    PushSessionService,
   ],
 })
 export class ObsidianModule {}
