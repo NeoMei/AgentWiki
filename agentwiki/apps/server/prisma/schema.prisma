@@ -241,7 +241,7 @@ model Page {
   id           String @id @default(cuid())
   title        String
   slug         String
-  knowledgeKey String @default(cuid())
+  knowledgeKey String @unique @default(cuid())
   content      String @default("")
   format       String @default("markdown")
   embedding    Json?
@@ -272,8 +272,8 @@ model Page {
   sourceId              String?
   sourceVersionId       String?
   sourcePath            String?
-  syncPath              String?
-  syncPathKey           String?
+  syncPath              String
+  syncPathKey           String
 
   sourceChangeSet     ChangeSet?          @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
   lastChangeSet       ChangeSet?          @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
@@ -289,7 +289,7 @@ model Page {
 
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
-  @@unique([spaceId, knowledgeKey])
+  @@unique([spaceId, syncPathKey])
   @@index([sourceId, sourceVersionId])
 }
 
@@ -621,8 +621,8 @@ model SpaceKnowledgeRevision {
   schemaVersion              String
   recipeVersion              String
   contentHash                String
-  snapshot                   Json
-  delta                      Json
+  snapshot                   Json?
+  delta                      Json?
   revisionContentHash        String?
   pageCount                  BigInt?
   revisionBodyBytes          BigInt?

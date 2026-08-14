@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { SearchService } from '../core/search/search.service';
  import type { NormalizedKnowledgeBundle } from '../knowledge-pipeline/knowledge-bundle';
@@ -199,10 +199,14 @@ export class ReviewService {
         let resourceId: string;
         if (item.type === 'create_page') {
           if (payload.parentId) await this.assertValidParent(tx, changeSet.spaceId, payload.parentId);
+          const knowledgeKey = payload.knowledgeKey || randomUUID();
+          const createdSyncPath = payload.sourcePath && payload.sourcePath.endsWith('.md')
+            ? payload.sourcePath
+            : `pages/p-${await this.idFileKey(knowledgeKey)}.md`;
           const page = await tx.page.create({
             data: {
               spaceId: changeSet.spaceId,
-              ...(payload.knowledgeKey ? { knowledgeKey: payload.knowledgeKey } : {}),
+              knowledgeKey,
               authorId,
               title: payload.title,
               slug: payload.slug || this.slugify(payload.title) + '-' + Date.now().toString(36) + '-' + item.id.slice(-4),
@@ -218,6 +222,8 @@ export class ReviewService {
               sourceId: payload.sourceId,
               sourceVersionId: payload.sourceVersionId,
               sourcePath: payload.sourcePath,
+              syncPath: createdSyncPath,
+              syncPathKey: pathKey(createdSyncPath),
             },
           });
           resourceId = page.id;

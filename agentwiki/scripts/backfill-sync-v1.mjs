@@ -135,6 +135,12 @@ async function backfillSpace(prisma, spaceId, batchId) {
           })),
           skipDuplicates: true,
         });
+        for (const p of normalizedPages) {
+          await tx.page.updateMany({
+            where: { knowledgeKey: p.pageId, spaceId, syncPath: null },
+            data: { syncPath: p.path, syncPathKey: p.pathKey },
+          });
+        }
       }
       const sidecar = snapshot
         ? {

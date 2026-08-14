@@ -5,6 +5,7 @@ import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
+import { randomUUID } from 'crypto';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -77,8 +78,11 @@ export class PageService {
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
+      const knowledgeKey = randomUUID();
+      const syncPath = `pages/p-${await idFileKey(knowledgeKey)}.md`;
       const created = await tx.page.create({
         data: {
+          knowledgeKey,
           title: data.title,
           slug,
           content: data.content ?? '',
@@ -86,6 +90,8 @@ export class PageService {
           spaceId: data.spaceId,
           authorId: userId,
           parentId: data.parentId,
+          syncPath,
+          syncPathKey: pathKey(syncPath),
           lastModifiedByUserId: userId,
           lastModifiedAt: new Date(),
         },
@@ -94,11 +100,6 @@ export class PageService {
           author: { select: AUTHOR_SELECT },
           knowledgeKey: true,
         },
-      });
-      const syncPath = `pages/p-${await idFileKey(created.knowledgeKey)}.md`;
-      await tx.page.update({
-        where: { id: created.id },
-        data: { syncPath, syncPathKey: pathKey(syncPath) },
       });
       await this.advanceRevision(tx, data.spaceId, [{
         operation: 'upsert',
