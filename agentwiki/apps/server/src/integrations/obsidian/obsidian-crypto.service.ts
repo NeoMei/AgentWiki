@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
@@ -19,11 +19,18 @@ export const DEFAULT_SYNC_CAPABILITIES: SyncCapabilities = {
 };
 
 @Injectable()
-export class ObsidianCryptoService {
+export class ObsidianCryptoService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {}
+
+  async onModuleInit() {
+    // Enforce the deployment-seed gate at startup: a cloned database running
+    // with a different seed must refuse to serve traffic, not silently adopt
+    // the clone. The first empty database is initialized atomically.
+    await this.getServerInstanceId();
+  }
 
   private get pepper(): Buffer {
     const value = this.config.get<string>('AGENTWIKI_SERVER_PEPPER');
