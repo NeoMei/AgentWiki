@@ -48,6 +48,24 @@ export class RevisionRetentionService {
       await tx.legacyRevisionSidecar.deleteMany({ where: { revisionId: { in: ids } } });
       await tx.syncRevisionPageRow.deleteMany({ where: { revisionId: { in: ids } } });
       await tx.spaceKnowledgeRevision.deleteMany({ where: { id: { in: ids } } });
+      // GC content blobs that are no longer referenced by any remaining
+      // revision row, Page row, or push-session staging body.
+      const staleContentHashes = await tx.$queryRaw<Array<{ contentHash: string }>>`
+        SELECT c."contentHash"
+        FROM "SyncPageContentRow" c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "SyncRevisionPageRow" r WHERE r."contentHash" = c."contentHash"
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "PushSessionChange" s
+          WHERE s."contentHash" = c."contentHash" AND s."operation" = 'upsert'
+        )
+      `;
+      if (staleContentHashes.length > 0) {
+        await tx.syncPageContentRow.deleteMany({
+          where: { contentHash: { in: staleContentHashes.map((row) => row.contentHash) } },
+        });
+      }
       return expired.length;
     });
   }
