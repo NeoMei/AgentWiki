@@ -92,9 +92,26 @@ export class ObsidianCryptoService implements OnModuleInit {
       }
       return existing.instanceId;
     }
-    const created = await this.prisma.serverInstanceIdentity.create({
-      data: { instanceId: randomUUID(), deploymentSeedHash: seedHash },
-    });
-    return created.instanceId;
+    try {
+      const created = await this.prisma.serverInstanceIdentity.create({
+        data: { instanceId: randomUUID(), deploymentSeedHash: seedHash },
+      });
+      return created.instanceId;
+    } catch (error: unknown) {
+      if (typeof error === 'object' && error !== null && (error as any).code === 'P2002') {
+        const winner = await this.prisma.serverInstanceIdentity.findFirst({
+          orderBy: { createdAt: 'asc' },
+        });
+        if (!winner || winner.deploymentSeedHash !== seedHash) {
+          const wrapped = new Error(
+            'AGENTWIKI_DEPLOYMENT_SEED does not match the persisted server instance identity; run instance rotate --confirm-new-deployment in maintenance mode',
+          );
+          (wrapped as Error & { cause?: unknown }).cause = error;
+          throw wrapped;
+        }
+        return winner.instanceId;
+      }
+      throw error;
+    }
   }
 }

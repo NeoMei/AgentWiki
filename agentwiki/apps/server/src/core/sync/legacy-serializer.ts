@@ -21,6 +21,7 @@ function jsonString(value: string): string {
     else if (char === '\r') out += '\\r';
     else if (char === '\t') out += '\\t';
     else if (code < 0x20) out += `\\u${code.toString(16).padStart(4, '0')}`;
+    else if (code >= 0xd800 && code <= 0xdfff) out += `\\u${code.toString(16).padStart(4, '0')}`;
     else out += char;
   }
   return `${out}"`;

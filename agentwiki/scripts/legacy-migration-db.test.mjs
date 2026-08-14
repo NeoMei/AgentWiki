@@ -362,9 +362,9 @@ test('real Prisma chain deploys all migrations to an empty schema with the local
     assertPsqlSuccess(verified);
     assert.deepEqual(verified.stdout.trim().split('\n'), [
       String(expectedMigrationCount),
-      'id,spaceId,sequence,parentRevisionId,schemaVersion,recipeVersion,contentHash,snapshot,createdAt,delta,sourceChangeSetId',
+      'id,spaceId,sequence,parentRevisionId,schemaVersion,recipeVersion,contentHash,snapshot,createdAt,delta,sourceChangeSetId,revisionContentHash,pageCount,revisionBodyBytes,revisionManifestByteLength,supersededAt,origin,createdByUserId,humanDeviceCredentialId,migrationBatchId',
       'id,spaceId,baseRevisionId,principalKey,idempotencyKey,schemaVersion,recipeVersion,contentHash,bundle,status,changeSetId,appliedRevisionId,createdAt,updatedAt',
-      '5',
+      '7',
     ]);
   } finally {
     runPsql(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE;`);

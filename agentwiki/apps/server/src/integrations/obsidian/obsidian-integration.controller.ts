@@ -10,6 +10,7 @@ import {
   Post,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { CombinedAuthGuard } from '../../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../../core/auth/human-only.guard';
@@ -20,6 +21,7 @@ import {
   type ExchangeObsidianCredentialRequest,
 } from '@neomei/agentwiki-sync-protocol';
 import { HumanDeviceGuard, type HumanDevicePrincipal } from './human-device.guard';
+import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { ObsidianIntegrationService } from './obsidian-integration.service';
 import { SyncApiException } from './sync-error';
 
@@ -38,6 +40,7 @@ function parseExchange(body: unknown): ExchangeObsidianCredentialRequest {
 }
 
 @Controller('integrations/obsidian')
+@UseInterceptors(SyncNoStoreInterceptor)
 export class ObsidianIntegrationController {
   constructor(private readonly service: ObsidianIntegrationService) {}
 

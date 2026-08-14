@@ -37,17 +37,9 @@ export interface RevisionOrigin {
   humanDeviceCredentialId?: string | null;
   sourceChangeSetId?: string | null;
   migrationBatchId?: string | null;
+  legacySidecarOverride?: Prisma.InputJsonObject;
 }
 
-interface WorkingPage {
-  pageId: string;
-  path: string;
-  pathKey: string;
-  title: string;
-  contentHash: string;
-  body: string;
-  updatedAt: Date;
-}
 
 @Injectable()
 export class SpaceRevisionWriterService {
@@ -63,6 +55,11 @@ export class SpaceRevisionWriterService {
     changes: PageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
+    // All revision creation paths share one transaction-scoped advisory lock.
+    // Some callers also lock explicitly; re-entering the same advisory lock in
+    // the same transaction is safe and keeps page/review callers serialized.
+    await this.lockSpace(tx, spaceId);
+
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },
@@ -119,6 +116,14 @@ export class SpaceRevisionWriterService {
       });
     }
 
+    if (origin.legacySidecarOverride) {
+      await tx.legacyRevisionSidecar.upsert({
+        where: { revisionId: created.id },
+        create: { revisionId: created.id, sidecar: origin.legacySidecarOverride },
+        update: { sidecar: origin.legacySidecarOverride },
+      });
+    }
+
     const deltaRows: Array<{
       ordinal: number;
       operation: string;
@@ -169,6 +174,10 @@ export class SpaceRevisionWriterService {
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         select: { path: true, pathKey: true },
       });
+      const existingExtra = await tx.legacyRevisionPageExtra.findUnique({
+        where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
+      });
+      const existingExtraValue = (existingExtra?.extra ?? {}) as Prisma.InputJsonObject;
       await tx.syncRevisionPageRow.upsert({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         create: {
@@ -188,11 +197,18 @@ export class SpaceRevisionWriterService {
           updatedAt: new Date(),
         },
       });
-      const nextOrdinalAgg = await tx.legacyRevisionPageExtra.aggregate({
-        where: { revisionId: created.id },
-        _max: { ordinal: true },
-      });
-      const legacyOrdinal = (nextOrdinalAgg._max.ordinal ?? -1) + 1;
+      let legacyOrdinal: number;
+      if (existingExtraValue && typeof existingExtraValue.order === 'number') {
+        legacyOrdinal = existingExtraValue.order;
+      } else if (existingExtra) {
+        legacyOrdinal = existingExtra.ordinal;
+      } else {
+        const nextOrdinalAgg = await tx.legacyRevisionPageExtra.aggregate({
+          where: { revisionId: created.id },
+          _max: { ordinal: true },
+        });
+        legacyOrdinal = (nextOrdinalAgg._max.ordinal ?? -1) + 1;
+      }
       await tx.legacyRevisionPageExtra.upsert({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         create: {
@@ -215,14 +231,15 @@ export class SpaceRevisionWriterService {
         update: {
           legacyBodyHash: hash,
           extra: {
+            ...existingExtraValue,
             spaceId,
-            title: change.title ?? undefined,
+            title: change.title ?? existingExtraValue?.title,
             order: legacyOrdinal,
-            metadata: null,
-            artifactIds: [],
+            metadata: existingExtraValue?.metadata ?? null,
+            artifactIds: existingExtraValue?.artifactIds ?? [],
             legacyBodyHash: hash,
             contentHash: hash,
-            path: change.path ?? undefined,
+            path: change.path ?? existingExtraValue?.path,
             updatedAt: new Date().toISOString(),
           },
         },

@@ -130,7 +130,6 @@ export async function runUiRouteSmoke(environment = process.env) {
     for (const [path, expected] of authenticatedRoutes) await assertRoute(page, webUrl, path, expected);
 
     await assertRoute(page, webUrl, `/pages/${pageId}/edit`, /UI route validation/);
-    await page.getByTestId('mode-toggle').click();
     await page.locator('[data-testid="md-editor-surface"] .cm-content[contenteditable="true"]').waitFor({ state: 'visible' });
 
     const screenshotDir = join(os.tmpdir(), 'agentwiki-qa');

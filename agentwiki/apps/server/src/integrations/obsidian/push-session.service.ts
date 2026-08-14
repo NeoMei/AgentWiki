@@ -1,26 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   batchHash,
   canonicalBytes,
   capabilitiesHash,
+  comparePushChanges,
   confirmationHash,
   contentHash,
   normalizeMarkdown,
   pathKey,
   type PushBatch,
-  type PushChange,
   type PushConfirmationManifest,
   type SyncCapabilities,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
+import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
 import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
 import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 
 const SESSION_TTL_MS = 900 * 1_000;
+const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
 @Injectable()
 export class PushSessionService {
@@ -28,6 +30,7 @@ export class PushSessionService {
     private readonly prisma: PrismaService,
     private readonly crypto: ObsidianCryptoService,
     private readonly writer: SpaceRevisionWriterService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async create(principal: HumanDevicePrincipal, spaceId: string, input: {
@@ -48,6 +51,7 @@ export class PushSessionService {
     if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
       throw new SyncApiException('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
     }
+    await this.assertSessionCreateRate(principal, spaceId);
     const existing = await this.prisma.pushSession.findUnique({
       where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
     });
@@ -63,6 +67,9 @@ export class PushSessionService {
         || existing.totalBodyBytes !== BigInt(input.totalBodyBytes)
       ) {
         throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'Existing session has different binding fields');
+      }
+      if (existing.credentialId !== principal.credentialId && existing.status !== 'published') {
+        throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
       }
       return this.sessionResponse(existing, await this.capabilities());
     }
@@ -113,7 +120,10 @@ export class PushSessionService {
   }
 
   async upload(principal: HumanDevicePrincipal, spaceId: string, sessionId: string, batch: PushBatch) {
-    return this.prisma.$transaction(async (tx) => {
+    await this.assertUploadRate(principal);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
@@ -144,11 +154,37 @@ export class PushSessionService {
       if (batch.changes.length === 0) {
         throw new SyncApiException('PAYLOAD_INVALID', 'Batch cannot be empty');
       }
+      if (batch.changes.length > DEFAULT_SYNC_CAPABILITIES.maxBatchItems) {
+        throw new SyncApiException('BATCH_TOO_LARGE', 'Batch exceeds maxBatchItems');
+      }
+      if (canonicalBytes(batch).byteLength > DEFAULT_SYNC_CAPABILITIES.maxBatchBytes) {
+        throw new SyncApiException('BATCH_TOO_LARGE', 'Batch exceeds maxBatchBytes');
+      }
+      let bodyBytes = 0;
+      for (const change of batch.changes) {
+        if (change.operation !== 'upsert') continue;
+        const normalizedBody = normalizeMarkdown(change.body);
+        if (normalizedBody.startsWith('﻿')) {
+          throw new SyncApiException('PAYLOAD_INVALID', 'Page body must not begin with U+FEFF');
+        }
+        const pageBytes = new TextEncoder().encode(normalizedBody).byteLength;
+        if (pageBytes > DEFAULT_SYNC_CAPABILITIES.maxPageBytes) {
+          throw new SyncApiException('PAGE_TOO_LARGE', 'Page exceeds maxPageBytes');
+        }
+        bodyBytes += pageBytes;
+      }
+      const batchPageIds = batch.changes.map((change) => change.pageId);
+      if (new Set(batchPageIds).size !== batchPageIds.length) {
+        throw new SyncApiException('PAYLOAD_INVALID', 'A page ID may only appear once per push session');
+      }
+      const duplicatePageRows = await tx.pushSessionChange.findMany({
+        where: { sessionId, pageId: { in: batchPageIds } },
+        select: { pageId: true },
+      });
+      if (duplicatePageRows.length > 0) {
+        throw new SyncApiException('PAYLOAD_INVALID', 'A page ID may only appear once per push session');
+      }
       const nextChangeCount = session.receivedChangeCount + batch.changes.length;
-      const bodyBytes = batch.changes.reduce((sum, change) =>
-        sum + (change.operation === 'upsert'
-          ? new TextEncoder().encode(normalizeMarkdown(change.body)).byteLength
-          : 0), 0);
       const nextBodyBytes = session.receivedBodyBytes + BigInt(bodyBytes);
       if (nextChangeCount > session.changeCount || nextBodyBytes > session.totalBodyBytes) {
         throw new SyncApiException('PAYLOAD_INVALID', 'Batch exceeds the declared change or byte totals');
@@ -193,11 +229,19 @@ export class PushSessionService {
         receipt,
         receivedBatchCount: session.receivedBatchCount + 1,
       };
-    }, { isolationLevel: 'Serializable' });
+        }, { isolationLevel: 'Serializable' });
+      } catch (error: unknown) {
+        if (this.isSerializationFailure(error) && attempt < 2) continue;
+        throw error;
+      }
+    }
   }
 
   async finalize(principal: HumanDevicePrincipal, spaceId: string, sessionId: string, confirmationHashValue: string) {
-    return this.prisma.$transaction(async (tx) => {
+    await this.assertFinalizeRate(principal, spaceId);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
       await this.writer.lockSpace(tx, spaceId);
       await this.assertPublishableInTx(tx, principal, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
@@ -221,6 +265,18 @@ export class PushSessionService {
       });
       if ((head?.id ?? '0') !== session.baseRevisionId) {
         throw new SyncApiException('BASE_STALE', 'base revision is no longer the current head');
+      }
+
+      const batches = await tx.pushSessionBatch.findMany({
+        where: { sessionId },
+        orderBy: { batchIndex: 'asc' },
+        select: { batchIndex: true },
+      });
+      if (
+        batches.length !== session.receivedBatchCount
+        || batches.some((batch, index) => batch.batchIndex !== index)
+      ) {
+        throw new SyncApiException('PUSH_SESSION_INCOMPLETE', 'Push session is missing one or more batch indexes');
       }
 
       const staged = await tx.pushSessionChange.findMany({
@@ -251,14 +307,19 @@ export class PushSessionService {
           (manifest.changes[i] as any).contentHash = await contentHash(change.body);
         }
       }
-      const computedConfirmation = await confirmationHash(manifest);
-      const computedBytes = canonicalBytes(manifest).byteLength;
+      const sortedManifest: PushConfirmationManifest = {
+        ...manifest,
+        changes: [...manifest.changes].sort(comparePushChanges),
+      };
+      const computedConfirmation = await confirmationHash(sortedManifest);
+      const computedBytes = canonicalBytes(sortedManifest).byteLength;
       if (computedConfirmation !== session.confirmationHash || computedBytes !== session.confirmationByteLength) {
         throw new SyncApiException('CONFIRMATION_MISMATCH', 'Confirmation does not match staged changes');
       }
 
+      const orderedChanges = [...changes].sort(comparePushChanges);
       const noop = session.changeCount === 0
-        || (await this.isNoop(tx, spaceId, changes));
+        || (await this.isNoop(tx, spaceId, orderedChanges));
       if (noop) {
         const result = {
           protocolVersion: '1',
@@ -266,7 +327,7 @@ export class PushSessionService {
           revision: head?.id ?? '0',
           sequence: head?.sequence ?? 0,
           publishedAt: head?.createdAt.toISOString() ?? null,
-          revisionContentHash: head?.revisionContentHash ?? '',
+          revisionContentHash: head?.revisionContentHash ?? EMPTY_REVISION_HASH,
           pageCount: (head?.pageCount ?? 0n).toString(),
           revisionManifestByteLength: (head?.revisionManifestByteLength ?? 0n).toString(),
           revisionBodyBytes: (head?.revisionBodyBytes ?? 0n).toString(),
@@ -276,8 +337,10 @@ export class PushSessionService {
         return result;
       }
 
-      const applied = await this.applyPageChanges(tx, spaceId, principal.userId, changes);
-      const revision = await this.writer.advance(tx, spaceId, changes, {
+      await this.assertNoPathCollisions(tx, spaceId, orderedChanges);
+
+      const applied = await this.applyPageChanges(tx, spaceId, principal.userId, orderedChanges);
+      const revision = await this.writer.advance(tx, spaceId, orderedChanges, {
         origin: 'obsidian_sync',
         createdByUserId: principal.userId,
         humanDeviceCredentialId: principal.credentialId,
@@ -332,7 +395,18 @@ export class PushSessionService {
         data: { status: 'published', result, publishedChangeSetId: changeSet.id },
       });
       return result;
-    }, { isolationLevel: 'Serializable' });
+        }, { isolationLevel: 'Serializable', timeout: 120_000 });
+      } catch (error: unknown) {
+        const serializationConflict = typeof error === 'object' && error !== null && (
+          (error as any).code === 'P2034'
+          || ((error as any).code === 'P2010' && (error as any).meta?.code === '40001')
+        );
+        if (serializationConflict && attempt < 2) {
+          continue;
+        }
+        throw error;
+      }
+    }
   }
 
   async get(principal: HumanDevicePrincipal, spaceId: string, sessionId: string) {
@@ -341,6 +415,9 @@ export class PushSessionService {
       include: { batches: { orderBy: { batchIndex: 'asc' } } },
     });
     if (!session || session.spaceId !== spaceId || session.credentialFamilyId !== principal.credentialFamilyId) {
+      throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+    if (session.credentialId !== principal.credentialId && session.status !== 'published') {
       throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
     }
     const status = session.expiresAt <= new Date() && !['published', 'aborted'].includes(session.status)
@@ -370,16 +447,25 @@ export class PushSessionService {
       if (session.expiresAt <= new Date()) {
         throw new SyncApiException('PUSH_SESSION_EXPIRED', 'Push session has expired');
       }
+      await tx.pushSessionChange.deleteMany({ where: { sessionId } });
+      await tx.pushSessionBatch.deleteMany({ where: { sessionId } });
       await tx.pushSession.update({ where: { id: sessionId }, data: { status: 'aborted' } });
     });
   }
 
   private async assertPublishable(principal: HumanDevicePrincipal, spaceId: string) {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { deletedAt: true },
+    });
+    if (!space || space.deletedAt) {
+      throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
+    }
+    if (principal.platformRole === 'super_admin') return;
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
-      include: { space: { select: { deletedAt: true } } },
     });
-    if (!member || member.space.deletedAt) {
+    if (!member) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
     if (!['editor', 'admin', 'owner'].includes(member.role)) {
@@ -388,11 +474,18 @@ export class PushSessionService {
   }
 
   private async assertPublishableInTx(tx: any, principal: HumanDevicePrincipal, spaceId: string) {
+    const space = await tx.space.findUnique({
+      where: { id: spaceId },
+      select: { deletedAt: true },
+    });
+    if (!space || space.deletedAt) {
+      throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
+    }
+    if (principal.platformRole === 'super_admin') return;
     const member = await tx.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
-      include: { space: { select: { deletedAt: true } } },
     });
-    if (!member || member.space.deletedAt) {
+    if (!member) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
     if (!['editor', 'admin', 'owner'].includes(member.role)) {
@@ -412,6 +505,41 @@ export class PushSessionService {
     }
   }
 
+  private async rateLimit(key: string, limit: number, ttlSeconds: number): Promise<void> {
+    if (!this.redis) return;
+    const count = await this.redis.incrementWithWindow(key, ttlSeconds);
+    if (count === null || count > limit) {
+      throw new SyncApiException('RATE_LIMITED', 'Too many requests');
+    }
+  }
+
+  private async assertSessionCreateRate(principal: HumanDevicePrincipal, spaceId: string): Promise<void> {
+    if (!this.redis) return;
+    const bucket = Math.floor(Date.now() / (60 * 1_000));
+    const identity = this.crypto.credentialHash(`sync-session-create:${principal.credentialId}:${spaceId}`).slice(0, 16);
+    await this.rateLimit(`sync:session-create:${bucket}:${identity}`, 10, 61);
+  }
+
+  private async assertUploadRate(principal: HumanDevicePrincipal): Promise<void> {
+    if (!this.redis) return;
+    const bucket = Math.floor(Date.now() / (60 * 1_000));
+    const identity = this.crypto.credentialHash(`sync-batch-upload:${principal.credentialId}`).slice(0, 16);
+    await this.rateLimit(`sync:batch-upload:${bucket}:${identity}`, 120, 61);
+  }
+
+  private async assertFinalizeRate(principal: HumanDevicePrincipal, spaceId: string): Promise<void> {
+    if (!this.redis) return;
+    const bucket = Math.floor(Date.now() / (60 * 1_000));
+    const identity = this.crypto.credentialHash(`sync-finalize:${principal.credentialId}:${spaceId}`).slice(0, 16);
+    await this.rateLimit(`sync:finalize:${bucket}:${identity}`, 10, 61);
+  }
+
+  private isSerializationFailure(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && (
+      (error as any).code === 'P2034'
+      || ((error as any).code === 'P2010' && (error as any).meta?.code === '40001')
+    );
+  }
   private async capabilities(): Promise<SyncCapabilities> {
     return { ...DEFAULT_SYNC_CAPABILITIES };
   }
@@ -421,14 +549,41 @@ export class PushSessionService {
   }
 
   private async sessionResponse(session: any, capabilities: SyncCapabilities) {
+    const status = session.expiresAt <= new Date() && !['published', 'aborted'].includes(session.status)
+      ? 'expired'
+      : session.status;
     return {
       protocolVersion: '1',
       sessionId: session.id,
-      status: session.status,
+      status,
       expiresAt: session.expiresAt.toISOString(),
       capabilities,
       result: session.result ?? null,
     };
+  }
+
+  private async assertNoPathCollisions(
+    tx: any,
+    spaceId: string,
+    changes: Array<{ operation: string; pageId: string; path?: string; previousPath?: string }>,
+  ) {
+    const ownerByPathKey = new Map<string, string>();
+    for (const change of changes) {
+      if (change.operation !== 'upsert' || !change.path) continue;
+      const key = pathKey(change.path);
+      const owner = ownerByPathKey.get(key);
+      if (owner && owner !== change.pageId) {
+        throw new SyncApiException('PATH_COLLISION', 'Two pages resolve to the same path');
+      }
+      if (!owner) ownerByPathKey.set(key, change.pageId);
+      const existing = await tx.page.findFirst({
+        where: { spaceId, syncPathKey: key },
+        select: { knowledgeKey: true },
+      });
+      if (existing && existing.knowledgeKey !== change.pageId) {
+        throw new SyncApiException('PATH_COLLISION', 'Path is already used by another page');
+      }
+    }
   }
 
   private async isNoop(tx: any, spaceId: string, changes: Array<{ operation: string; pageId: string; path?: string; title?: string; body?: string; previousPath?: string }>) {
@@ -437,7 +592,7 @@ export class PushSessionService {
     if (archives.length > 0) return false;
     for (const change of upserts) {
       const page = await tx.page.findUnique({ where: { knowledgeKey: change.pageId } });
-      if (!page || page.spaceId !== spaceId) return false;
+      if (!page || page.spaceId !== spaceId || page.deletedAt) return false;
       const body = normalizeMarkdown(change.body ?? '');
       if (page.title !== change.title || page.content !== body) return false;
       if (change.path && page.syncPath !== change.path) return false;
@@ -521,7 +676,7 @@ export class PushSessionService {
         data: {
           id: randomUUID(), knowledgeKey: change.pageId,
           title: change.title ?? '',
-          slug: (change.title ?? 'untitled').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled',
+          slug: this.uniqueSlug(change.title ?? 'untitled', change.pageId),
           content: body, format: 'markdown', spaceId, authorId: userId,
           syncPath: change.path, syncPathKey: key,
           lastModifiedByUserId: userId, lastModifiedAt: new Date(),
@@ -530,5 +685,13 @@ export class PushSessionService {
       applied.push({ type: 'create_page', payload: { pageId: change.pageId, path: change.path, title: change.title }, publishedResourceId: page.id });
     }
     return applied;
+  }
+
+  private uniqueSlug(title: string, pageId: string): string {
+    const base = title
+      .toLowerCase()
+      .replace(/[^a-z0-9一-龥]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'untitled';
+    return `${base}-${pageId}`;
   }
 }

@@ -24,7 +24,7 @@ describe('sync v1 HTTP contract', () => {
     deviceId: 'device-1',
     vaultId: 'vault-1',
     status: 'active',
-    user: { deletedAt: null, lockedAt: null, type: 'human' },
+    user: { deletedAt: null, lockedAt: null, type: 'human', platformRole: 'user' },
   };
   const prisma = {
     humanDeviceCredential: {
@@ -32,6 +32,9 @@ describe('sync v1 HTTP contract', () => {
         where.credentialHash === 'h:device-secret' ? activeCredential : null
       )),
       update: jest.fn().mockResolvedValue({}),
+    },
+    space: {
+      findUnique: jest.fn().mockResolvedValue({ deletedAt: null }),
     },
     spaceMember: {
       findUnique: jest.fn().mockResolvedValue({ role: 'editor', space: { deletedAt: null } }),

@@ -11,15 +11,21 @@ import {
   HttpStatus,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   CreatePushSessionRequestSchema,
   FinalizePushRequestSchema,
+  parseBatchIndex,
   parsePageLimit,
+  PushBatchParamsSchema,
   PushBatchSchema,
+  PushSessionParamsSchema,
+  SpaceParamsSchema,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { HumanDeviceGuard, type HumanDevicePrincipal } from './human-device.guard';
+import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { SyncApiException } from './sync-error';
 import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
@@ -28,6 +34,7 @@ import { PushSessionService } from './push-session.service';
 
 @Controller('sync/v1')
 @UseGuards(HumanDeviceGuard)
+@UseInterceptors(SyncNoStoreInterceptor)
 export class SyncV1Controller {
   constructor(
     private readonly prisma: PrismaService,
@@ -39,6 +46,28 @@ export class SyncV1Controller {
 
   @Get('spaces')
   async listSpaces(@Req() request: { user: HumanDevicePrincipal }) {
+    if (request.user.platformRole === 'super_admin') {
+      const allSpaces = await this.prisma.space.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      const spaces = await Promise.all(allSpaces.map(async (space) => {
+        const head = await this.revisions.head(space.id);
+        return {
+          spaceId: space.id,
+          displayName: space.name,
+          role: 'owner' as const,
+          canRead: true,
+          canPublish: true,
+          currentRevision: head.revision,
+          pageCount: head.pageCount.toString(),
+          revisionManifestByteLength: head.revisionManifestByteLength.toString(),
+          revisionBodyBytes: head.revisionBodyBytes.toString(),
+        };
+      }));
+      return { protocolVersion: '1', spaces };
+    }
+
     const memberships = await this.prisma.spaceMember.findMany({
       where: { userId: request.user.userId, space: { deletedAt: null } },
       include: { space: true },
@@ -62,7 +91,8 @@ export class SyncV1Controller {
   }
 
   @Get('spaces/:spaceId/head')
-  async head(@Param('spaceId') spaceId: string, @Req() request: { user: HumanDevicePrincipal }) {
+  async head(@Param('spaceId') spaceIdParam: string, @Req() request: { user: HumanDevicePrincipal }) {
+    const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
     const head = await this.revisions.head(spaceId);
     return {
@@ -80,14 +110,20 @@ export class SyncV1Controller {
 
   @Get('spaces/:spaceId/snapshot')
   async snapshot(
-    @Param('spaceId') spaceId: string,
+    @Param('spaceId') spaceIdParam: string,
     @Query('revision') revisionQuery: string | undefined,
     @Query('cursor') cursor: string | undefined,
     @Query('limit') limitQuery: string | undefined,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
-    const limit = limitQuery ? parsePageLimit(limitQuery) : 100;
+    let limit: number;
+    try {
+      limit = limitQuery ? parsePageLimit(limitQuery) : 100;
+    } catch {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid limit');
+    }
     let revision: string;
     let afterPageId: string | undefined;
     if (cursor) {
@@ -127,18 +163,24 @@ export class SyncV1Controller {
 
   @Get('spaces/:spaceId/delta')
   async delta(
-    @Param('spaceId') spaceId: string,
+    @Param('spaceId') spaceIdParam: string,
     @Query('from') fromQuery: string | undefined,
     @Query('cursor') cursor: string | undefined,
     @Query('limit') limitQuery: string | undefined,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
     if (!fromQuery) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Missing from query parameter');
     }
-    const limit = limitQuery ? parsePageLimit(limitQuery) : 100;
-    let from = fromQuery;
+    let limit: number;
+    try {
+      limit = limitQuery ? parsePageLimit(limitQuery) : 100;
+    } catch {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid limit');
+    }
+    const from = fromQuery;
     let afterPageId: string | undefined;
     if (cursor) {
       const payload = this.cursors.decode(cursor);
@@ -152,6 +194,7 @@ export class SyncV1Controller {
     const items = [];
     let totalBytes = 0;
     let lastPageId = page.nextPageId;
+    const maxResponseBytes = this.capabilities.capabilities().maxResponseBytes;
     for (const row of deltaRows) {
       let item;
       if (row.operation === 'archive') {
@@ -177,11 +220,19 @@ export class SyncV1Controller {
           };
         }
       }
+      const itemPageId = item.operation === 'upsert' ? item.page.pageId : item.pageId;
       const estimate = item.operation === 'upsert'
-        ? item.page.body.length + item.page.title.length + item.page.contentHash.length + 128
-        : item.pageId.length + 64;
-      if (items.length > 0 && totalBytes + estimate > 4 * 1024 * 1024) {
-        lastPageId = row.pageId;
+        ? new TextEncoder().encode(item.page.body).byteLength
+          + new TextEncoder().encode(item.page.title).byteLength
+          + new TextEncoder().encode(item.page.contentHash).byteLength
+          + new TextEncoder().encode(itemPageId).byteLength
+          + 128
+        : new TextEncoder().encode(itemPageId).byteLength + 64;
+      if (items.length > 0 && totalBytes + estimate > maxResponseBytes) {
+        const lastIncluded = items[items.length - 1];
+        lastPageId = lastIncluded.operation === 'upsert'
+          ? lastIncluded.page.pageId
+          : lastIncluded.pageId;
         break;
       }
       items.push(item);
@@ -205,12 +256,35 @@ export class SyncV1Controller {
     };
   }
 
+  private parseSpaceId(spaceId: string): string {
+    const parsed = SpaceParamsSchema.safeParse({ spaceId });
+    if (!parsed.success) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid spaceId');
+    }
+    return parsed.data.spaceId;
+  }
+
+  private parsePushSessionParams(spaceId: string, sessionId: string): { spaceId: string; sessionId: string } {
+    const parsed = PushSessionParamsSchema.safeParse({ spaceId, sessionId });
+    if (!parsed.success) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid push session path parameters');
+    }
+    return parsed.data;
+  }
+
   private async assertReadable(principal: HumanDevicePrincipal, spaceId: string) {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { deletedAt: true },
+    });
+    if (!space || space.deletedAt) {
+      throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
+    }
+    if (principal.platformRole === 'super_admin') return;
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
-      include: { space: { select: { deletedAt: true } } },
     });
-    if (!member || member.space.deletedAt) {
+    if (!member) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
   }
@@ -218,10 +292,11 @@ export class SyncV1Controller {
   @Post('spaces/:spaceId/push-sessions')
   @HttpCode(HttpStatus.CREATED)
   async createPushSession(
-    @Param('spaceId') spaceId: string,
+    @Param('spaceId') spaceIdParam: string,
     @Body() body: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const spaceId = this.parseSpaceId(spaceIdParam);
     const input = CreatePushSessionRequestSchema.safeParse(body);
     if (!input.success) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Invalid create push session request');
@@ -231,14 +306,25 @@ export class SyncV1Controller {
 
   @Put('spaces/:spaceId/push-sessions/:sessionId/batches/:batchIndex')
   async uploadBatch(
-    @Param('spaceId') spaceId: string,
-    @Param('sessionId') sessionId: string,
+    @Param('spaceId') spaceIdParam: string,
+    @Param('sessionId') sessionIdParam: string,
     @Param('batchIndex') batchIndex: string,
     @Body() body: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const { spaceId, sessionId } = this.parsePushSessionParams(spaceIdParam, sessionIdParam);
+    const pushBatchParams = PushBatchParamsSchema.safeParse({ spaceId, sessionId, batchIndex });
+    if (!pushBatchParams.success) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid push batch path parameters');
+    }
+    let parsedBatchIndex: number;
+    try {
+      parsedBatchIndex = parseBatchIndex(batchIndex);
+    } catch {
+      throw new SyncApiException('PAYLOAD_INVALID', 'Invalid batch index');
+    }
     const batch = PushBatchSchema.safeParse(body);
-    if (!batch.success || batch.data.batchIndex !== Number(batchIndex)) {
+    if (!batch.success || batch.data.batchIndex !== parsedBatchIndex) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Invalid batch payload');
     }
     return this.pushSessions.upload(request.user, spaceId, sessionId, batch.data);
@@ -247,11 +333,12 @@ export class SyncV1Controller {
   @Post('spaces/:spaceId/push-sessions/:sessionId/finalize')
   @HttpCode(HttpStatus.OK)
   async finalize(
-    @Param('spaceId') spaceId: string,
-    @Param('sessionId') sessionId: string,
+    @Param('spaceId') spaceIdParam: string,
+    @Param('sessionId') sessionIdParam: string,
     @Body() body: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const { spaceId, sessionId } = this.parsePushSessionParams(spaceIdParam, sessionIdParam);
     const input = FinalizePushRequestSchema.safeParse(body);
     if (!input.success) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Invalid finalize request');
@@ -261,20 +348,22 @@ export class SyncV1Controller {
 
   @Get('spaces/:spaceId/push-sessions/:sessionId')
   async getPushSession(
-    @Param('spaceId') spaceId: string,
-    @Param('sessionId') sessionId: string,
+    @Param('spaceId') spaceIdParam: string,
+    @Param('sessionId') sessionIdParam: string,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const { spaceId, sessionId } = this.parsePushSessionParams(spaceIdParam, sessionIdParam);
     return this.pushSessions.get(request.user, spaceId, sessionId);
   }
 
   @Delete('spaces/:spaceId/push-sessions/:sessionId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async abortPushSession(
-    @Param('spaceId') spaceId: string,
-    @Param('sessionId') sessionId: string,
+    @Param('spaceId') spaceIdParam: string,
+    @Param('sessionId') sessionIdParam: string,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    const { spaceId, sessionId } = this.parsePushSessionParams(spaceIdParam, sessionIdParam);
     await this.pushSessions.abort(request.user, spaceId, sessionId);
   }
 }

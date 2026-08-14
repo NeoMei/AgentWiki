@@ -525,6 +525,10 @@ export class ReviewService {
       if (unsupported.length) throw new BadRequestException(`Unsupported change item type: ${unsupported[0].type}`);
       await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'publishing' }, data: { status: 'published', publishedAt: new Date() } });
+      const needsLegacySidecar = memoryItems.length > 0 || relationItems.length > 0;
+      const legacySidecarOverride = needsLegacySidecar
+        ? await this.buildLegacySidecar(tx, changeSet.spaceId)
+        : undefined;
       if (tx.knowledgeSubmission) {
         const submission = await tx.knowledgeSubmission.findUnique({ where: { changeSetId: id } });
         if (submission) {
@@ -542,7 +546,7 @@ export class ReviewService {
         await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
           ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
           : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
-        ), { origin: 'change_set', sourceChangeSetId: id, createdByUserId: changeSet.createdByUserId });
+        ), { origin: 'change_set', sourceChangeSetId: id, createdByUserId: changeSet.createdByUserId, legacySidecarOverride });
       } else if (memoryItems.length > 0 || relationItems.length > 0) {
         // Relation/Memory-only changesets still advance the authoritative
         // revision sequence: they inherit parent page rows and produce an empty
@@ -551,6 +555,7 @@ export class ReviewService {
           origin: 'change_set',
           sourceChangeSetId: id,
           createdByUserId: changeSet.createdByUserId,
+          legacySidecarOverride,
         });
       }
       return Array.from(new Set(pageIds));
@@ -565,6 +570,7 @@ export class ReviewService {
     submission: { id: string; bundle: unknown; schemaVersion: string; recipeVersion: string; contentHash: string },
     changeSetId: string,
   ): Promise<SpaceKnowledgeRevision> {
+    await this.revisionWriter.lockSpace(tx, spaceId);
     const bundle = submission.bundle as NormalizedKnowledgeBundle;
     const submittedPagesById = new Map(bundle.pages.map((page) => [page.pageId, page]));
     const submittedPagesByPath = new Map(bundle.pages.map((page) => [page.path, page]));
@@ -581,6 +587,8 @@ export class ReviewService {
         sortOrder: true,
         updatedAt: true,
         sourcePath: true,
+        syncPath: true,
+        syncPathKey: true,
         sourceId: true,
       },
     });
@@ -661,8 +669,8 @@ export class ReviewService {
     for (const page of pages) {
       const body = normalizeMarkdown(page.content);
       const hash = await syncContentHash(body);
-      let path: string | undefined = page.sourcePath ?? undefined;
-      let key: string | undefined = path ? pathKey(path) : undefined;
+      let path: string | undefined = page.syncPath ?? page.sourcePath ?? undefined;
+      let key: string | undefined = page.syncPathKey ?? (path ? pathKey(path) : undefined);
       if (!path || occupiedPathKeys.has(key!)) {
         path = `pages/p-${await this.idFileKey(page.knowledgeKey)}.md`;
       }
@@ -784,6 +792,75 @@ export class ReviewService {
     return created;
   }
 
+  private async buildLegacySidecar(tx: any, spaceId: string): Promise<Prisma.InputJsonObject> {
+    const latest = tx.spaceKnowledgeRevision?.findFirst
+      ? await tx.spaceKnowledgeRevision.findFirst({
+          where: { spaceId },
+          orderBy: { sequence: 'desc' },
+          select: { id: true },
+        })
+      : null;
+    const parentSidecar = latest && tx.legacyRevisionSidecar?.findUnique
+      ? await tx.legacyRevisionSidecar.findUnique({ where: { revisionId: latest.id } })
+      : null;
+    const parent = (parentSidecar?.sidecar ?? {}) as Record<string, any>;
+    const memories = tx.agentMemory?.findMany
+      ? await tx.agentMemory.findMany({
+          where: { spaceId, deletedAt: null, archivedAt: null },
+          select: { id: true, type: true, content: true, updatedAt: true },
+        })
+      : [];
+    const relations = tx.knowledgeRelation?.findMany
+      ? await tx.knowledgeRelation.findMany({
+          where: { sourcePage: { spaceId } },
+          select: {
+            id: true,
+            knowledgeKey: true,
+            sourcePageId: true,
+            targetPageId: true,
+            relation: true,
+            strength: true,
+            confidence: true,
+            lastModifiedAt: true,
+          },
+        })
+      : [];
+    const pageKnowledgeKeyById = new Map<string, string>();
+    const pages = tx.page?.findMany
+      ? await tx.page.findMany({
+          where: { spaceId, deletedAt: null },
+          select: { id: true, knowledgeKey: true },
+        })
+      : [];
+    for (const page of pages) pageKnowledgeKeyById.set(page.id, page.knowledgeKey);
+    return {
+      schemaVersion: parent.schemaVersion ?? 'knowledge-bundle@1',
+      recipeVersion: parent.recipeVersion ?? 'none',
+      baseRevision: parent.baseRevision ?? null,
+      memories: memories.map((m: any) => ({
+        memoryId: m.id,
+        spaceId,
+        key: m.type,
+        value: m.content,
+        scope: 'space' as const,
+        pageIds: [] as string[],
+        artifactIds: [] as string[],
+        contentHash: createHash('sha256').update(m.content).digest('hex'),
+        updatedAt: m.updatedAt.toISOString(),
+      })),
+      relations: relations.map((r: any) => ({
+        relationId: r.knowledgeKey,
+        spaceId,
+        sourceId: pageKnowledgeKeyById.get(r.sourcePageId) ?? r.sourcePageId,
+        targetId: pageKnowledgeKeyById.get(r.targetPageId) ?? r.targetPageId,
+        relationType: r.relation,
+        artifactIds: [] as string[],
+        metadata: { strength: r.strength, confidence: r.confidence },
+      })),
+      provenance: parent.provenance ?? [],
+      deletions: parent.deletions ?? [],
+    } as Prisma.InputJsonObject;
+  }
   private async idFileKey(id: string): Promise<string> {
     const { idFileKey } = await import('@neomei/agentwiki-sync-protocol');
     return idFileKey(id);
@@ -936,6 +1013,20 @@ export class ReviewService {
       }
       await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'reverting' }, data: { status: 'reverted', revertedAt: new Date() } });
+      const nonPageTypes = new Set([
+        'upsert_space_memory',
+        'archive_space_memory',
+        'create_relation',
+        'update_relation',
+        'archive_relation',
+        'update_relation_strength',
+      ]);
+      const hasNonPageRevert = changeSet.items.some(
+        (item) => nonPageTypes.has(item.type) && item.publishedResourceId,
+      );
+      const legacySidecarOverride = hasNonPageRevert
+        ? await this.buildLegacySidecar(tx, changeSet.spaceId)
+        : undefined;
       if (pageIds.length > 0) {
         const pages = await tx.page.findMany({
           where: { id: { in: pageIds } },
@@ -944,7 +1035,13 @@ export class ReviewService {
         await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
           ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
           : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
-        ), { origin: 'change_set', sourceChangeSetId: id });
+        ), { origin: 'change_set', sourceChangeSetId: id, legacySidecarOverride });
+      } else if (hasNonPageRevert) {
+        await this.revisionWriter.advance(tx, changeSet.spaceId, [], {
+          origin: 'change_set',
+          sourceChangeSetId: id,
+          legacySidecarOverride,
+        });
       }
       return pageIds;
     });

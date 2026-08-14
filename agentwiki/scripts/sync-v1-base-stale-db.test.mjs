@@ -1,0 +1,83 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const databaseUrl = process.env.DATABASE_URL;
+const psqlAvailable = spawnSync('psql', ['--version'], { encoding: 'utf8' }).status === 0;
+const skip = !databaseUrl ? 'DATABASE_URL is not configured' : !psqlAvailable ? 'psql is unavailable' : false;
+
+function postgresEnvironment(rawUrl) {
+  const parsed = new URL(rawUrl);
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  env.PGHOST = parsed.hostname;
+  env.PGPORT = parsed.port || '5432';
+  env.PGDATABASE = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+  env.PGUSER = decodeURIComponent(parsed.username);
+  env.PGPASSWORD = decodeURIComponent(parsed.password);
+  return env;
+}
+
+function runPsql(sql) {
+  return spawnSync('psql', ['-X', '-q', '-At', '-F', '|', '-v', 'ON_ERROR_STOP=1'], {
+    input: sql, encoding: 'utf8', env: postgresEnvironment(databaseUrl),
+  });
+}
+
+test('finalize returns BASE_STALE when head has advanced', { skip }, async () => {
+  const schema = `sync_base_stale_${randomUUID().replaceAll('-', '')}`;
+  const quoted = `"${schema}"`;
+  try {
+    assert.equal(runPsql(`CREATE SCHEMA ${quoted}`).status, 0);
+    const url = new URL(databaseUrl);
+    url.searchParams.set('schema', schema);
+    const deploy = spawnSync('pnpm', ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, DATABASE_URL: url.href },
+    });
+    assert.equal(deploy.status, 0, `migrate deploy failed:\n${deploy.stdout}\n${deploy.stderr}`);
+
+    const { createRequire } = await import('node:module');
+    const require = createRequire(resolve(root, 'apps/server/package.json'));
+    const { PrismaClient } = require('@prisma/client');
+    const { PushSessionService } = await import('../apps/server/dist/integrations/obsidian/push-session.service.js');
+    const { contentHash, confirmationHash, canonicalBytes } = await import('../packages/sync-protocol/dist/esm/index.js');
+    const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
+    const writer = { lockSpace: async () => {}, advance: async () => { throw new Error('should not advance'); } };
+    const service = new PushSessionService(prisma, {}, writer);
+    try {
+      const spaceId = randomUUID();
+      const userId = randomUUID();
+      const sessionId = randomUUID();
+      const pageId = randomUUID();
+      const body = 'stale';
+      const hash = await contentHash(body);
+      await prisma.space.create({ data: { id: spaceId, name: 'S', slug: `s-${randomUUID().slice(0, 8)}` } });
+      await prisma.user.create({ data: { id: userId, email: `${randomUUID()}@t.local`, type: 'human' } });
+      await prisma.spaceMember.create({ data: { userId, spaceId, role: 'editor' } });
+      const headId = randomUUID();
+      await prisma.spaceKnowledgeRevision.create({ data: { id: headId, spaceId, sequence: 1, parentRevisionId: null, schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', contentHash: 'h', revisionContentHash: 'h', snapshot: null, delta: null, pageCount: 0n, revisionBodyBytes: 0n, revisionManifestByteLength: 0n, origin: 'web_editor' } });
+      const manifest = { protocolVersion: '1', spaceId, baseRevision: '0', changes: [{ operation: 'upsert', pageId, path: 'stale.md', title: 'Stale', contentHash: hash }] };
+      await prisma.pushSession.create({
+        data: {
+          id: sessionId, credentialFamilyId: 'family', credentialId: 'cred', userId, spaceId, baseRevisionId: '0',
+          idempotencyKey: randomUUID(), status: 'ready_to_finalize', capabilitiesHash: 'c', confirmationHash: await confirmationHash(manifest),
+          confirmationByteLength: canonicalBytes(manifest).byteLength, changeCount: 1, totalBodyBytes: new TextEncoder().encode(body).byteLength,
+          expiresAt: new Date(Date.now() + 60000),
+        },
+      });
+      const batch = await prisma.pushSessionBatch.create({ data: { id: randomUUID(), sessionId, batchIndex: 0, batchHash: 'b', receipt: 'r' } });
+      await prisma.pushSessionChange.create({ data: { id: randomUUID(), sessionId, batchId: batch.id, ordinal: 0, operation: 'upsert', pageId, path: 'stale.md', title: 'Stale', body, contentHash: hash } });
+      const confirmation = await confirmationHash(manifest);
+      await assert.rejects(() => service.finalize({ credentialId: 'cred', credentialFamilyId: 'family', userId }, spaceId, sessionId, confirmation), (error) => error.syncCode === 'BASE_STALE');
+      assert.equal(await prisma.page.count({ where: { knowledgeKey: pageId } }), 0);
+    } finally {
+      await prisma.$disconnect();
+    }
+  } finally {
+    runPsql(`DROP SCHEMA IF EXISTS ${quoted} CASCADE`);
+  }
+});

@@ -19,7 +19,7 @@
 
 ## 范围 / 不做
 
-- 只改 AgentWiki 主项目 `agentwiki/` 子树；不修改 `docmost/mnemon/openwiki/outline/swarmvault` gitlink。
+- 只改 AgentWiki 主项目 `agentwiki/` 子树；不修改旧外部 Wiki 子模块 gitlink。
 - 不破坏现有 local-sync Snapshot/Delta 语义；不恢复已退役编译器路径。
 - AgentCredential 不得调用人类设备发布端点；人类设备凭据不得调用 Agent/Review 管理接口。
 
@@ -38,4 +38,9 @@
 - 第五轮深度审计补齐：finalize 顺序（先 Page 后 advance）、writer/review 均持久化 LegacyRevisionSidecar/PageExtra/BodyBlob、流式 legacy contentHash serializer（与 JSON.stringify 逐字节一致）、Release B 后 writer/review 均写 null legacy JSON、finalize 结果超 client capability 返回 SPACE_TOO_LARGE、服务端硬校验 changeCount ≤ 5000 与 confirmationByteLength ≤ 4MiB。
 - 新增真实 HTTP 端到端测试（真实 Prisma 隔离 schema + 真实 Redis）：注册→安装码→exchange→activate→session→spaces→head→push session→upload→finalize→snapshot 回读全链路通过；修复 activate/finalize 误返回 201、batchHash 误含 batchHash 字段两个运行时 bug。
 - 全量 server 测试 502 通过；协议包 22 测试通过；typecheck/build 通过；7 个真实 PostgreSQL/HTTP 集成测试通过（迁移非空、A→B→A、legacy DTO 合成、并发 pageId 唯一、并发 session 幂等唯一、真实 advance、真实 HTTP 全链路）。
-- 尚未完成：插件仓库从本地协议副本切换到已发布包（跨仓），以及需要真实运行服务的并发 finalize/故障注入/5000 页性能端到端（本会话已覆盖 DB 级唯一性收敛，但 HTTP 并发 finalize 的故障注入需运行中服务）。
+- 新增真实 HTTP 覆盖：super_admin 无 membership 仍以 owner 身份列出/读取/发布；exchange 旧请求在后续同 family exchange 后 replay 不得误返回新 provisional；非连续 batch index 即使 changeCount 相同也被拒绝。
+- 新增迁移 `20260814030000_harden_human_device_family_partial_unique`，以 partial unique index 固化每 family 最多一个 provisional/active credential。
+- Obsidian/sync 控制器增加 `SyncNoStoreInterceptor`；安装码创建按 user 限流，Push session create/upload/finalize 按 credential/space 限流。
+- 新增真实 DB/HTTP 覆盖：snapshot 固定 revision、relation/memory-only 空 Delta 与后续 sequence 连续、5000→5001 SPACE_TOO_LARGE、finalize 副作用同事务、human device family partial unique、全路由无 3xx、installation hash 碰撞重试。
+- 全量回归通过：runtime 106、server 505、client 160、protocol 22、local-sync 328；typecheck/lint/`git diff --check`、API smoke、UI route smoke 均通过。
+- 53 项验收均已至少具备 run/unit/code 证据；主项目三项交付已完成当前分支实现与验证。插件仓库切换依赖已发布协议包属于跨仓后续动作。

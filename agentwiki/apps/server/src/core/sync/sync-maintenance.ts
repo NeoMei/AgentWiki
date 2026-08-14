@@ -33,7 +33,7 @@ export class SyncMaintenance implements OnModuleInit, OnModuleDestroy {
     for (const space of spaces) {
       try {
         await this.retention.cleanSpace(space.id);
-      } catch (error) {
+      } catch {
         // A single space failure must not block other spaces.
       }
     }

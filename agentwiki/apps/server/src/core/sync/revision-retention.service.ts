@@ -66,6 +66,18 @@ export class RevisionRetentionService {
           where: { contentHash: { in: staleContentHashes.map((row) => row.contentHash) } },
         });
       }
+      const staleLegacyHashes = await tx.$queryRaw<Array<{ contentHash: string }>>`
+        SELECT b."contentHash"
+        FROM "LegacyPageBodyRow" b
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "LegacyRevisionPageExtra" e WHERE e."legacyBodyHash" = b."contentHash"
+        )
+      `;
+      if (staleLegacyHashes.length > 0) {
+        await tx.legacyPageBodyRow.deleteMany({
+          where: { contentHash: { in: staleLegacyHashes.map((row) => row.contentHash) } },
+        });
+      }
       return expired.length;
     });
   }

@@ -65,14 +65,14 @@ export class SyncRevisionService {
     limit: number,
     afterPageId?: string,
   ) {
+    if (revisionId === '0') {
+      return { rows: [], head: await this.head(spaceId) };
+    }
     const revision = await this.prisma.spaceKnowledgeRevision.findUnique({
       where: { id: revisionId },
     });
     if (!revision || revision.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available');
-    }
-    if (revisionId === '0') {
-      return { rows: [], head: await this.head(spaceId) };
     }
     const rows = await this.prisma.syncRevisionPageRow.findMany({
       where: {
@@ -198,6 +198,10 @@ export class SyncRevisionService {
     };
   }
 
+  private utf8Length(value: string): number {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
   private trimByResponseBytes<T extends { pageId: string; title?: string; contentHash?: string; content?: { body?: string } }>(
     rows: T[],
     limit: number,
@@ -206,7 +210,11 @@ export class SyncRevisionService {
     let total = 0;
     for (const row of rows) {
       if (items.length >= limit) return { items, next: true };
-      const estimate = (row.title?.length ?? 0) + (row.content?.body?.length ?? 0) + (row.contentHash?.length ?? 0) + row.pageId.length + 128;
+      const estimate = this.utf8Length(row.title ?? '')
+        + this.utf8Length(row.content?.body ?? '')
+        + this.utf8Length(row.contentHash ?? '')
+        + this.utf8Length(row.pageId)
+        + 128;
       if (items.length > 0 && total + estimate > MAX_RESPONSE_BYTES) {
         return { items, next: true };
       }

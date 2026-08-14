@@ -59,6 +59,18 @@ test('sync v1 migrations apply and contract fields are non-null', { skip }, asyn
     `);
     assert.equal(check.status, 0, check.stderr);
     assert.deepEqual(check.stdout.trim().split('|'), ['0', '0', '0', '0', '0']);
+
+    const indexCheck = runPsql(`
+      SELECT count(*)
+      FROM pg_indexes
+      WHERE schemaname = '${schema}'
+        AND indexname IN (
+          'HumanDeviceCredential_one_provisional_per_family',
+          'HumanDeviceCredential_one_active_per_family'
+        );
+    `);
+    assert.equal(indexCheck.status, 0, indexCheck.stderr);
+    assert.equal(indexCheck.stdout.trim(), '2');
   } finally {
     runPsql(`DROP SCHEMA IF EXISTS ${quoted} CASCADE`);
   }

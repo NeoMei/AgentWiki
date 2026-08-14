@@ -1,5 +1,9 @@
-import { PrismaClient } from '@prisma/client';
-import {
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const protocol = await import(resolve(dirname(fileURLToPath(import.meta.url)), '../packages/sync-protocol/dist/esm/index.js'));
+const {
   canonicalBytes,
   contentHash,
   idFileKey,
@@ -8,7 +12,7 @@ import {
   pathKey,
   revisionContentHash,
   validatePortablePath,
-} from '@neomei/agentwiki-sync-protocol';
+} = protocol;
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -40,7 +44,7 @@ async function legacyPageRowsFromSnapshot(snapshot, revisionId) {
   }));
 }
 
-async function deriveSyncPath(pageId, legacyPath, spaceId, occupiedKeys) {
+export async function deriveSyncPath(pageId, legacyPath, spaceId, occupiedKeys) {
   if (legacyPath && typeof legacyPath === 'string' && legacyPath.endsWith('.md')) {
     try {
       const validated = validatePortablePath(legacyPath).path;
@@ -57,22 +61,21 @@ async function deriveSyncPath(pageId, legacyPath, spaceId, occupiedKeys) {
   return { path: fallback, key: pathKey(fallback) };
 }
 
-async function normalizePageBody(body) {
+export async function normalizePageBody(body) {
   if (body.startsWith('\uFEFF')) {
     throw new Error('Page body begins with U+FEFF; refuse to silently strip');
   }
   return normalizeMarkdown(body);
 }
 
-async function backfillSpace(prisma, spaceId, batchId) {
+export async function backfillSpace(prisma, spaceId, batchId) {
   await migratePages(prisma, spaceId, batchId);
   const revisions = await prisma.spaceKnowledgeRevision.findMany({
     where: { spaceId },
     orderBy: { sequence: 'asc' },
   });
-  const occupiedKeys = new Set();
-
   for (const revision of revisions) {
+    const occupiedKeys = new Set();
     if (revision.migrationBatchId === batchId && revision.revisionContentHash) {
       continue; // already completed for this batch
     }
@@ -189,13 +192,13 @@ async function backfillSpace(prisma, spaceId, batchId) {
   }
 }
 
-async function migratePages(prisma, spaceId, batchId) {
+export async function migratePages(prisma, spaceId, batchId) {
   const pages = await prisma.page.findMany({
     where: { spaceId },
     select: {
       id: true, knowledgeKey: true, title: true, content: true, format: true,
       slug: true, parentId: true, authorId: true, sourcePath: true,
-      syncPath: true, syncPathKey: true, migrationBatchId: true,
+      syncPath: true, syncPathKey: true,
     },
     orderBy: { createdAt: 'asc' },
   });
@@ -248,12 +251,18 @@ async function migratePages(prisma, spaceId, batchId) {
   }
 }
 
+function prismaClient() {
+  const require = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../apps/server/package.json'));
+  const { PrismaClient } = require('@prisma/client');
+  return new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length > 0 && args[0] !== '--apply') {
     throw new Error('Unknown argument; only --apply is supported');
   }
-  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
+  const prisma = prismaClient();
   try {
     const batchId = crypto.randomUUID();
     const spaces = await prisma.space.findMany({ where: { deletedAt: null }, select: { id: true } });
@@ -266,7 +275,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+const isMain = process.argv[1]
+  && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isMain) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

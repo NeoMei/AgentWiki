@@ -1,4 +1,3 @@
-import { createHmac } from 'crypto';
 import { ObsidianIntegrationService } from './obsidian-integration.service';
 import { exchangeRequestHash } from '@neomei/agentwiki-sync-protocol';
 
@@ -47,6 +46,17 @@ describe('ObsidianIntegrationService', () => {
     }));
   });
 
+  it('retries installation creation when the generated code hash collides', async () => {
+    prisma.obsidianInstallation.create
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockResolvedValueOnce({ id: 'install-2', expiresAt: new Date('2030-01-01T00:10:00.000Z') });
+
+    const result = await service.createInstallation('user-1', '1.2.3.4');
+
+    expect(result.installationId).toBe('install-2');
+    expect(prisma.obsidianInstallation.create).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects revoking an already exchanged installation', async () => {
     prisma.obsidianInstallation.findUnique.mockResolvedValue({
       id: 'install-1', userId: 'user-1', status: 'exchanged',
@@ -84,6 +94,7 @@ describe('ObsidianIntegrationService', () => {
     const hash = await exchangeRequestHash(request);
     const installation = {
       id: 'install-1',
+      userId: 'user-1',
       status: 'exchanged',
       exchangeId: request.exchangeId,
       requestHash: hash,
@@ -92,6 +103,8 @@ describe('ObsidianIntegrationService', () => {
     };
     const credential = {
       id: 'cred-1',
+      status: 'provisional',
+      credentialHash: 'credHash:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
       provisionalExpiresAt: new Date('2030-01-01T00:10:00.000Z'),
     };
     prisma.obsidianInstallation.findUnique.mockResolvedValue(installation);
@@ -102,5 +115,41 @@ describe('ObsidianIntegrationService', () => {
 
     expect(result.credentialId).toBe('cred-1');
     expect(result.credentialStatus).toBe('provisional');
+  });
+
+  it('returns an existing active credential idempotently on activate', async () => {
+    const active = {
+      id: 'cred-1', credentialFamilyId: 'family-1', userId: 'user-1',
+      status: 'active', provisionalExpiresAt: null, createdAt: new Date('2030-01-01T00:00:00.000Z'),
+      lastUsedAt: null, deviceId: 'device-1', vaultId: 'vault-1', deviceName: 'Mac',
+      user: { id: 'user-1', name: 'User' },
+    };
+    const tx = {
+      humanDeviceCredential: {
+        findUnique: jest.fn().mockResolvedValue(active),
+        updateMany: jest.fn(),
+        update: jest.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation((callback: any) => callback(tx));
+
+    const result = await service.activate({ userId: 'user-1', credentialId: 'cred-1', credentialFamilyId: 'family-1' }, 'cred-1');
+
+    expect(result.credentialId).toBe('cred-1');
+    expect(result.credentialStatus).toBe('active');
+    expect(tx.humanDeviceCredential.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects activate for an expired provisional credential', async () => {
+    const expired = {
+      id: 'cred-1', credentialFamilyId: 'family-1', userId: 'user-1',
+      status: 'provisional', provisionalExpiresAt: new Date('2020-01-01T00:00:00.000Z'),
+    };
+    const tx = { humanDeviceCredential: { findUnique: jest.fn().mockResolvedValue(expired) } };
+    prisma.$transaction.mockImplementation((callback: any) => callback(tx));
+
+    await expect(
+      service.activate({ userId: 'user-1', credentialId: 'cred-1', credentialFamilyId: 'family-1' }, 'cred-1'),
+    ).rejects.toMatchObject({ syncCode: 'DEVICE_CREDENTIAL_EXPIRED' });
   });
 });

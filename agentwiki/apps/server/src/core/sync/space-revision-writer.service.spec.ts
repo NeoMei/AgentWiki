@@ -56,6 +56,7 @@ describe('SpaceRevisionWriterService', () => {
         upsert: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
       page: {
         findMany: jest.fn().mockResolvedValue([]),

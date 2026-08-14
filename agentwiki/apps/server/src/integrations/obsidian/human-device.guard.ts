@@ -10,6 +10,7 @@ export interface HumanDevicePrincipal {
   deviceId: string;
   vaultId: string;
   status: 'provisional' | 'active';
+  platformRole: 'user' | 'super_admin';
 }
 
 @Injectable()
@@ -32,7 +33,7 @@ export class HumanDeviceGuard implements CanActivate {
     const credentialHash = this.crypto.credentialHash(credential);
     const record = await this.prisma.humanDeviceCredential.findUnique({
       where: { credentialHash },
-      include: { user: { select: { deletedAt: true, lockedAt: true, type: true } } },
+      include: { user: { select: { deletedAt: true, lockedAt: true, type: true, platformRole: true } } },
     });
     if (!record) {
       throw new SyncApiException('AUTHENTICATION_REQUIRED', 'Device credential not found');
@@ -49,6 +50,8 @@ export class HumanDeviceGuard implements CanActivate {
         });
         throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Provisional device credential has expired');
       }
+    } else if (record.status === 'expired') {
+      throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Device credential has expired');
     } else if (record.status !== 'active') {
       throw new SyncApiException('DEVICE_CREDENTIAL_REVOKED', 'Device credential is not active');
     }
@@ -63,6 +66,7 @@ export class HumanDeviceGuard implements CanActivate {
       deviceId: record.deviceId,
       vaultId: record.vaultId,
       status: record.status as 'provisional' | 'active',
+      platformRole: record.user.platformRole as 'user' | 'super_admin',
     } satisfies HumanDevicePrincipal;
     return true;
   }

@@ -25,6 +25,7 @@ export class ObsidianIntegrationService {
   ) {}
 
   async createInstallation(userId: string, ipAddress: string) {
+    await this.assertInstallationRateLimit(userId);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const code = this.crypto.newCode();
       const codeHash = this.crypto.installationCodeHash(code);
@@ -106,8 +107,17 @@ export class ObsidianIntegrationService {
         installation.exchangeId === request.exchangeId
         && installation.requestHash === requestHash
       ) {
-        const credential = await this.findFamilyProvisional(installation.id, request);
-        if (credential) {
+        const credentialHash = this.crypto.credentialHash(request.credential);
+        const credential = await this.prisma.humanDeviceCredential.findFirst({
+          where: {
+            userId: installation.userId,
+            deviceId: request.deviceId,
+            vaultId: request.vaultId,
+            credentialHash,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (credential?.status === 'provisional' && credential.provisionalExpiresAt && credential.provisionalExpiresAt > now) {
           const serverInstanceId = await this.crypto.getServerInstanceId();
           return this.exchangeResponse(serverInstanceId, credential, installation);
         }
@@ -118,8 +128,9 @@ export class ObsidianIntegrationService {
       throw new SyncApiException('PROTOCOL_UNSUPPORTED', 'No shared protocol version');
     }
 
-    try {
-      return await this.prisma.$transaction(async (tx) => {
+    return this.withSerializableRetry(async () => {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
         const locked = await tx.obsidianInstallation.findUnique({ where: { id: installation.id } });
         if (!locked || locked.status !== 'pending') {
           throw new SyncApiException('INSTALLATION_ALREADY_EXCHANGED', 'Installation code was already exchanged');
@@ -156,13 +167,14 @@ export class ObsidianIntegrationService {
         });
         const serverInstanceId = await this.crypto.getServerInstanceId();
         return this.exchangeResponse(serverInstanceId, credential, installation);
-      }, { isolationLevel: 'Serializable' });
-    } catch (error: unknown) {
-      if (this.isUniqueViolation(error)) {
-        throw new SyncApiException('CREDENTIAL_COLLISION', 'Credential collision; retry with a fresh credential');
+        }, { isolationLevel: 'Serializable' });
+      } catch (error: unknown) {
+        if (this.isUniqueViolation(error)) {
+          throw new SyncApiException('CREDENTIAL_COLLISION', 'Credential collision; retry with a fresh credential');
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async getSession(principal: { userId: string; credentialId: string }) {
@@ -182,7 +194,7 @@ export class ObsidianIntegrationService {
       throw new SyncApiException('PAYLOAD_INVALID', 'credentialId does not match the authenticated credential');
     }
     const now = new Date();
-    return this.prisma.$transaction(async (tx) => {
+    return this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const credential = await tx.humanDeviceCredential.findUnique({
         where: { id: principal.credentialId },
       });
@@ -190,6 +202,9 @@ export class ObsidianIntegrationService {
       if (credential.status === 'active') {
         const serverInstanceId = await this.crypto.getServerInstanceId();
         return this.sessionResponse(serverInstanceId, credential);
+      }
+      if (credential.status === 'revoked') {
+        throw new SyncApiException('DEVICE_CREDENTIAL_REVOKED', 'Provisional credential was replaced by a newer connection');
       }
       if (credential.status !== 'provisional' || !credential.provisionalExpiresAt || credential.provisionalExpiresAt <= now) {
         throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Provisional credential has expired');
@@ -211,7 +226,7 @@ export class ObsidianIntegrationService {
       });
       const serverInstanceId = await this.crypto.getServerInstanceId();
       return this.sessionResponse(serverInstanceId, updated);
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }));
   }
 
   async revokeCurrent(principal: { userId: string; credentialId: string }) {
@@ -238,17 +253,34 @@ export class ObsidianIntegrationService {
       where: { userId },
       orderBy: { createdAt: 'desc' },
     });
-    return credentials.map((c) => ({
-      credentialId: c.id,
-      deviceId: c.deviceId,
-      vaultId: c.vaultId,
-      deviceName: c.deviceName,
-      status: c.status as HumanDeviceCredentialSummary['status'],
-      provisionalExpiresAt: c.provisionalExpiresAt?.toISOString() ?? null,
-      createdAt: c.createdAt.toISOString(),
-      lastUsedAt: c.lastUsedAt?.toISOString() ?? null,
-      revokedAt: c.revokedAt?.toISOString() ?? null,
-    }));
+    const now = new Date();
+    const expiredIds = credentials
+      .filter((c) => c.status === 'provisional' && c.provisionalExpiresAt && c.provisionalExpiresAt <= now)
+      .map((c) => c.id);
+    if (expiredIds.length > 0) {
+      await this.prisma.humanDeviceCredential.updateMany({
+        where: { id: { in: expiredIds }, status: 'provisional' },
+        data: { status: 'expired' },
+      });
+    }
+    return credentials.map((c) => {
+      const status = c.status === 'provisional'
+        && c.provisionalExpiresAt
+        && c.provisionalExpiresAt <= now
+        ? 'expired'
+        : c.status;
+      return {
+        credentialId: c.id,
+        deviceId: c.deviceId,
+        vaultId: c.vaultId,
+        deviceName: c.deviceName,
+        status: status as HumanDeviceCredentialSummary['status'],
+        provisionalExpiresAt: c.provisionalExpiresAt?.toISOString() ?? null,
+        createdAt: c.createdAt.toISOString(),
+        lastUsedAt: c.lastUsedAt?.toISOString() ?? null,
+        revokedAt: c.revokedAt?.toISOString() ?? null,
+      };
+    });
   }
 
   async revokeCredential(userId: string, credentialId: string) {
@@ -276,16 +308,22 @@ export class ObsidianIntegrationService {
     userId: string,
     request: ExchangeObsidianCredentialRequest,
   ) {
-    try {
-      return await tx.humanDeviceCredentialFamily.create({
-        data: { id: randomUUID(), userId, deviceId: request.deviceId, vaultId: request.vaultId },
-      });
-    } catch (error: unknown) {
-      if (!this.isUniqueViolation(error)) throw error;
-      return tx.humanDeviceCredentialFamily.findUnique({
-        where: { userId_deviceId_vaultId: { userId, deviceId: request.deviceId, vaultId: request.vaultId } },
-      });
-    }
+    return tx.humanDeviceCredentialFamily.upsert({
+      where: {
+        userId_deviceId_vaultId: {
+          userId,
+          deviceId: request.deviceId,
+          vaultId: request.vaultId,
+        },
+      },
+      create: {
+        id: randomUUID(),
+        userId,
+        deviceId: request.deviceId,
+        vaultId: request.vaultId,
+      },
+      update: {},
+    });
   }
 
   private async expireFamilyProvisionals(tx: any, familyId: string) {
@@ -305,22 +343,6 @@ export class ObsidianIntegrationService {
         provisionalExpiresAt: { gt: now },
       },
       data: { status: 'revoked', revokedAt: now },
-    });
-  }
-
-  private async findFamilyProvisional(installationId: string, request: ExchangeObsidianCredentialRequest) {
-    const installation = await this.prisma.obsidianInstallation.findUnique({
-      where: { id: installationId },
-    });
-    if (!installation) return null;
-    return this.prisma.humanDeviceCredential.findFirst({
-      where: {
-        userId: installation.userId,
-        deviceId: request.deviceId,
-        vaultId: request.vaultId,
-        status: 'provisional',
-      },
-      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -353,8 +375,35 @@ export class ObsidianIntegrationService {
     };
   }
 
+  private async withSerializableRetry<T>(work: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await work();
+      } catch (error: unknown) {
+        const serializationConflict = typeof error === 'object' && error !== null && (
+          (error as any).code === 'P2034'
+          || ((error as any).code === 'P2010' && (error as any).meta?.code === '40001')
+        );
+        if (serializationConflict && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw new Error('withSerializableRetry exhausted retries');
+  }
   private isUniqueViolation(error: unknown): boolean {
     return typeof error === 'object' && error !== null && (error as any).code === 'P2002';
+  }
+
+  private async assertInstallationRateLimit(userId: string): Promise<void> {
+    const bucket = Math.floor(Date.now() / (60 * 1_000));
+    const userIdHash = this.crypto.credentialHash(`obsidian-installation-rate:${userId}`).slice(0, 16);
+    const count = await this.redis.incrementWithWindow(
+      `obsidian:installation-rate:${bucket}:${userIdHash}`,
+      61,
+    );
+    if (count === null || count > 5) {
+      throw new SyncApiException('RATE_LIMITED', 'Too many installation code requests');
+    }
   }
 
   private async assertExchangeRateLimit(ipAddress: string): Promise<void> {

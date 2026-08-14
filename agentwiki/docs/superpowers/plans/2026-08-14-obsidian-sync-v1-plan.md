@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 产品代码只改 `/Users/neomei/项目/codexprojects/AgentWiki /agentwiki/`；不得修改 `docmost/mnemon/openwiki/outline/swarmvault` gitlink。
+- 产品代码只改 `/Users/neomei/项目/codexprojects/AgentWiki /agentwiki/`；不得修改旧外部 Wiki 子模块 gitlink。
 - 权威契约：`agentwiki/docs/contracts/agentwiki-obsidian-sync-api-v1.md`，53 项验收全部满足。
 - 协议包 `@neomei/agentwiki-sync-protocol` 禁止 `node:crypto`、`Buffer`、Node 内置模块、网络请求与凭据持久化；hash 用 Web Crypto，接受/返回 `Uint8Array` 和字符串。
 - 协议包内嵌 Unicode 15.1 CaseFolding.txt 的 C+F 状态（full case folding），不依赖运行时 locale。
