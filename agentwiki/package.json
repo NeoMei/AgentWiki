@@ -22,7 +22,8 @@
     "postinstall": "pnpm --filter @agentwiki/server exec prisma generate",
     "server:dev": "pnpm --filter server start:dev",
     "client:dev": "pnpm --filter client dev",
-    "test:e2e:onboarding": "node scripts/onboarding-e2e.test.mjs"
+    "test:e2e:onboarding": "node scripts/onboarding-e2e.test.mjs",
+    "backfill:sync-v1": "node scripts/backfill-sync-v1.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
