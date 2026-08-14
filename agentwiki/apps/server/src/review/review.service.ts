@@ -543,6 +543,15 @@ export class ReviewService {
           ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
           : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
         ), { origin: 'change_set', sourceChangeSetId: id, createdByUserId: changeSet.createdByUserId });
+      } else if (memoryItems.length > 0 || relationItems.length > 0) {
+        // Relation/Memory-only changesets still advance the authoritative
+        // revision sequence: they inherit parent page rows and produce an empty
+        // sync v1 Delta with the same revisionContentHash.
+        await this.revisionWriter.advance(tx, changeSet.spaceId, [], {
+          origin: 'change_set',
+          sourceChangeSetId: id,
+          createdByUserId: changeSet.createdByUserId,
+        });
       }
       return Array.from(new Set(pageIds));
     });
