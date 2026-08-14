@@ -18,6 +18,7 @@ describe('ObsidianIntegrationService', () => {
     getServerInstanceId: jest.fn(() => Promise.resolve('instance-1')),
   };
   const audit = { record: jest.fn(() => Promise.resolve()) };
+  const redis = { incrementWithWindow: jest.fn(() => Promise.resolve(1)) };
   let service: ObsidianIntegrationService;
 
   beforeEach(() => {
@@ -26,7 +27,7 @@ describe('ObsidianIntegrationService', () => {
     crypto.installationCodeHash.mockImplementation((code: string) => `codeHash:${code}`);
     crypto.credentialHash.mockImplementation((credential: string) => `credHash:${credential}`);
     crypto.getServerInstanceId.mockResolvedValue('instance-1');
-    service = new ObsidianIntegrationService(prisma as any, crypto as any, audit as any);
+    service = new ObsidianIntegrationService(prisma as any, crypto as any, audit as any, redis as any);
   });
 
   it('creates a single-use installation code', async () => {

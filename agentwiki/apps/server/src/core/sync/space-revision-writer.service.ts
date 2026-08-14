@@ -197,6 +197,13 @@ export class SpaceRevisionWriterService {
       },
     });
 
+    if (parentRevisionId) {
+      await tx.spaceKnowledgeRevision.update({
+        where: { id: parentRevisionId },
+        data: { supersededAt: new Date() },
+      });
+    }
+
     if (orderedPages.length > 0) {
       await tx.syncRevisionPageRow.createMany({
         data: orderedPages.map((p) => ({

@@ -8,6 +8,7 @@ import type {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../../core/security/audit.service';
+import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
 import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
 
@@ -20,6 +21,7 @@ export class ObsidianIntegrationService {
     private readonly prisma: PrismaService,
     private readonly crypto: ObsidianCryptoService,
     private readonly audit: AuditService,
+    private readonly redis: RedisService,
   ) {}
 
   async createInstallation(userId: string, ipAddress: string) {
@@ -79,6 +81,7 @@ export class ObsidianIntegrationService {
   }
 
   async exchange(request: ExchangeObsidianCredentialRequest, ipAddress: string) {
+    await this.assertExchangeRateLimit(ipAddress);
     const codeHash = this.crypto.installationCodeHash(request.code);
     const installation = await this.prisma.obsidianInstallation.findUnique({
       where: { codeHash },
@@ -339,5 +342,17 @@ export class ObsidianIntegrationService {
 
   private isUniqueViolation(error: unknown): boolean {
     return typeof error === 'object' && error !== null && (error as any).code === 'P2002';
+  }
+
+  private async assertExchangeRateLimit(ipAddress: string): Promise<void> {
+    const bucket = Math.floor(Date.now() / (15 * 60 * 1_000));
+    const ipHash = this.crypto.credentialHash(`exchange:${ipAddress}`).slice(0, 16);
+    const count = await this.redis.incrementWithWindow(
+      `obsidian:exchange-rate:${bucket}:${ipHash}`,
+      15 * 60 + 1,
+    );
+    if (count === null || count > 10) {
+      throw new SyncApiException('RATE_LIMITED', 'Too many exchange attempts');
+    }
   }
 }
