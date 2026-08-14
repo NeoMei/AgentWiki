@@ -200,6 +200,7 @@ async function migratePages(prisma, spaceId, batchId) {
     orderBy: { createdAt: 'asc' },
   });
   const occupiedKeys = new Set();
+  const prechecked = [];
   for (const page of pages) {
     const alreadyMigrated = page.syncPath && page.syncPathKey;
     if (alreadyMigrated) {
@@ -212,6 +213,10 @@ async function migratePages(prisma, spaceId, batchId) {
     }
     const normalizedBody = normalizeMarkdown(rawBody);
     const derived = await deriveSyncPath(page.knowledgeKey, page.sourcePath, spaceId, occupiedKeys);
+    prechecked.push({ page, normalizedBody, derived, rawBody });
+  }
+  // All preflight checks passed for the whole space; now apply atomically per page.
+  for (const { page, normalizedBody, derived, rawBody } of prechecked) {
     await prisma.$transaction(async (tx) => {
       const existingVersion = await tx.pageVersion.findFirst({
         where: { pageId: page.id, migrationBatchId: batchId },
