@@ -24,8 +24,9 @@ import {
 } from './config.js';
 import { removeGatewayEntry } from './installer/client-config.js';
 import { runGateway } from './gateway/entry.js';
+import type { AttachCliInput } from './onboarding/attach.js';
 
-export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--protocol ndjson|human] [--connection ID]';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--code CODE] [--protocol ndjson|human] [--connection ID]';
 const DEFAULT_SERVER_BASE_URL = 'https://agentwiki.quukk.com/api';
 const PUBLIC_COMMANDS = new Set(['onboard', 'gateway', 'doctor', 'uninstall']);
 
@@ -38,12 +39,18 @@ export interface OnboardCliInput {
 
 export interface CliRuntime {
   onboard(input: OnboardCliInput): Promise<unknown>;
+  attach(input: AttachCliInput): Promise<unknown>;
   gateway(input: { home: string; connectionId: string }): Promise<void>;
 }
 
 async function defaultOnboard(input: OnboardCliInput): Promise<unknown> {
   const { runOnboarding } = await import('./onboarding/runtime.js');
   return runOnboarding(input);
+}
+
+async function defaultAttach(input: AttachCliInput): Promise<unknown> {
+  const { runAttachment } = await import('./onboarding/attach.js');
+  return runAttachment(input);
 }
 
 const PACKAGE_VERSION = (() => {
@@ -270,6 +277,7 @@ export async function runCli(
     args,
     options: {
       server: { type: 'string' }, protocol: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
+      code: { type: 'string' },
       id: { type: 'string' },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
@@ -280,14 +288,26 @@ export async function runCli(
   if (command === 'onboard') {
     const positional = (parsed.positionals as string[] | undefined)?.[0];
     if (positional && positional !== 'resume') throw new Error(CLI_USAGE);
+    if (positional === 'resume' && values.code !== undefined) throw new Error(CLI_USAGE);
     const protocol = values.protocol ?? 'ndjson';
     if (protocol !== 'ndjson' && protocol !== 'human') {
       throw new Error('--protocol must be ndjson or human');
     }
+    const serverBaseUrl = typeof values.server === 'string' ? values.server : DEFAULT_SERVER_BASE_URL;
+    if (typeof values.code === 'string') {
+      if (!values.code) throw new Error('--code is required');
+      return (runtime.attach ?? defaultAttach)({
+        home,
+        protocol,
+        serverBaseUrl,
+        code: values.code,
+        requestedClient: clientOption(typeof values.agent === 'string' ? values.agent : undefined),
+      });
+    }
     return (runtime.onboard ?? defaultOnboard)({
       home,
       protocol,
-      serverBaseUrl: typeof values.server === 'string' ? values.server : DEFAULT_SERVER_BASE_URL,
+      serverBaseUrl,
       ...(positional === 'resume' ? { sessionId: required(values, 'id') } : {}),
     });
   }

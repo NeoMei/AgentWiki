@@ -264,6 +264,34 @@ describe('local sync command orchestration', () => {
     }
   });
 
+  it('routes onboard --code to existing-Agent attachment without starting full onboarding', async () => {
+    const home = await temporaryDirectory('agentwiki-attach-');
+    const onboard = vi.fn();
+    const attach = vi.fn().mockResolvedValue({ connectionId: 'connection-1', mcpName: 'agentwiki' });
+
+    await runCli([
+      'onboard', '--server', 'https://wiki.test/api', '--code', 'AW-TEST-CODE',
+      '--protocol', 'ndjson', '--agent', 'codex',
+    ], home, { onboard, attach } as never);
+
+    expect(attach).toHaveBeenCalledWith({
+      home,
+      protocol: 'ndjson',
+      serverBaseUrl: 'https://wiki.test/api',
+      code: 'AW-TEST-CODE',
+      requestedClient: 'codex',
+    });
+    expect(onboard).not.toHaveBeenCalled();
+  });
+
+  it('rejects combining a saved onboarding resume with an installation code', async () => {
+    const home = await temporaryDirectory('agentwiki-attach-resume-');
+
+    await expect(runCli([
+      'onboard', 'resume', '--id', 'sess-1', '--code', 'AW-TEST-CODE',
+    ], home, { onboard: vi.fn() })).rejects.toThrow(CLI_USAGE);
+  });
+
   it.each(['connect', 'mcp', 'start', 'work', 'preview', 'preview-job', 'push-job', 'pull', 'scan', 'sync', 'upgrade']) (
     'rejects the retired public command %s',
     async (command) => {

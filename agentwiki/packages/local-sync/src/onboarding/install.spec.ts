@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { BootstrapInstallFn } from './coordinator.js';
-import { createBootstrapInstaller, type BootstrapInstallerDeps } from './install.js';
+import {
+  createBootstrapInstaller,
+  installExchangedGateway,
+  type BootstrapInstallerDeps,
+} from './install.js';
 
 function input(): Parameters<BootstrapInstallFn>[0] {
   return {
@@ -73,7 +77,7 @@ describe('createBootstrapInstaller', () => {
       bootstrap: { space: { id: 'space-1' }, agent: { id: 'agent-1' } },
     });
     expect(fixture.calls).toEqual([
-      'bootstrap', 'archive', 'initialize', 'exchange', 'save-connection', 'install-skill',
+      'bootstrap', 'exchange', 'archive', 'initialize', 'save-connection', 'install-skill',
       'install-client', 'verify-gateway', 'verify-access',
     ]);
   });
@@ -105,5 +109,61 @@ describe('createBootstrapInstaller', () => {
     expect(fixture.deps.exchange).not.toHaveBeenCalled();
     expect(fixture.deps.saveConnection).not.toHaveBeenCalled();
     expect(fixture.calls).toEqual(['bootstrap', 'install-client', 'verify-gateway', 'verify-access']);
+  });
+});
+
+describe('installExchangedGateway', () => {
+  const exchanged = {
+    apiKey: 'agk_attach_secret',
+    agentId: 'agent-1',
+    credentialId: 'credential-1',
+    serverUrl: 'https://wiki.test/api',
+    pluginVersion: '0.3.7',
+    scopes: ['pages:read'],
+  };
+
+  it('persists and verifies the exchanged credential behind one agentwiki gateway', async () => {
+    const fixture = dependencies();
+
+    const result = await installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps);
+
+    expect(result).toMatchObject({
+      connection: {
+        id: 'connection-1', agentId: 'agent-1', credentialId: 'credential-1',
+        pluginVersion: '0.3.7', client: 'codex', mcpName: 'agentwiki',
+      },
+      configBackupPath: '/tmp/config-backup',
+      manifestHash: 'manifest-hash',
+    });
+    expect(fixture.calls).toEqual([
+      'archive', 'initialize', 'save-connection', 'install-skill',
+      'install-client', 'verify-gateway', 'verify-access',
+    ]);
+  });
+
+  it('restores config and local state and revokes the credential when verification fails', async () => {
+    const fixture = dependencies(false);
+
+    await expect(installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps)).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
+
+    expect(fixture.calls).toContain('rollback-config');
+    expect(fixture.calls).toContain('revoke-credential');
+    expect(fixture.calls).toContain('restore-state');
   });
 });

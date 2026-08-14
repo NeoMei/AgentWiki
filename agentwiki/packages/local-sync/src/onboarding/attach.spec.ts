@@ -1,0 +1,105 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { runAttachment, type AttachmentDependencies, type AttachCliInput } from './attach.js';
+
+const input = (): AttachCliInput => ({
+  home: '/tmp/agentwiki-attach-home',
+  protocol: 'ndjson',
+  serverBaseUrl: 'https://wiki.test/api',
+  code: 'AW-ONE-TIME-CODE',
+  requestedClient: 'codex',
+});
+
+function fixture(confirmed = true): { deps: AttachmentDependencies; calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    deps: {
+      detectClient: vi.fn(() => { calls.push('detect-client'); return 'codex' as const; }),
+      analyzeConfig: vi.fn(async () => {
+        calls.push('analyze-config');
+        return { hash: 'config-hash', oldEntries: ['agentwiki-old'], hasConflict: false };
+      }),
+      confirm: vi.fn(async (plan) => {
+        calls.push('confirm-plan');
+        expect(plan).toEqual({
+          client: 'codex',
+          serverUrl: 'https://wiki.test/api',
+          mcpName: 'agentwiki',
+          oldEntries: ['agentwiki-old'],
+          reloadRequired: false,
+        });
+        return confirmed;
+      }),
+      exchange: vi.fn(async () => {
+        calls.push('exchange-code');
+        return {
+          apiKey: 'agk_attach_secret',
+          agentId: 'agent-1',
+          credentialId: 'credential-1',
+          serverUrl: 'https://wiki.test/api',
+          pluginVersion: '0.3.7',
+          scopes: ['spaces:read', 'pages:read'],
+        };
+      }),
+      install: vi.fn(async (installInput) => {
+        calls.push('install-gateway');
+        expect(installInput).toMatchObject({
+          home: '/tmp/agentwiki-attach-home',
+          client: 'codex',
+          expectedConfigHash: 'config-hash',
+          exchange: { agentId: 'agent-1', credentialId: 'credential-1' },
+        });
+        return {
+          connectionId: 'connection-1',
+          configBackupPath: '/tmp/config-backup',
+          manifestHash: 'manifest-hash',
+        };
+      }),
+      complete: vi.fn(),
+    },
+  };
+}
+
+describe('runAttachment', () => {
+  it('confirms migration before consuming the code and installs one agentwiki gateway', async () => {
+    const test = fixture();
+
+    const result = await runAttachment(input(), test.deps);
+
+    expect(test.calls).toEqual([
+      'detect-client', 'analyze-config', 'confirm-plan', 'exchange-code', 'install-gateway',
+    ]);
+    expect(result).toEqual({
+      connectionId: 'connection-1',
+      agentId: 'agent-1',
+      client: 'codex',
+      mcpName: 'agentwiki',
+      migratedEntries: ['agentwiki-old'],
+      configBackupPath: '/tmp/config-backup',
+      manifestHash: 'manifest-hash',
+      reloadRequired: false,
+    });
+  });
+
+  it('does not exchange the one-time code when the user denies the migration', async () => {
+    const test = fixture(false);
+
+    await expect(runAttachment(input(), test.deps)).rejects.toMatchObject({ code: 'AUTH_DENIED' });
+
+    expect(test.deps.exchange).not.toHaveBeenCalled();
+    expect(test.deps.install).not.toHaveBeenCalled();
+  });
+
+  it('stops before confirmation when the fixed agentwiki name is occupied by an unknown entry', async () => {
+    const test = fixture();
+    vi.mocked(test.deps.analyzeConfig).mockResolvedValue({
+      hash: 'config-hash', oldEntries: [], hasConflict: true,
+    });
+
+    await expect(runAttachment(input(), test.deps)).rejects.toMatchObject({ code: 'CONFIG_CONFLICT' });
+
+    expect(test.deps.confirm).not.toHaveBeenCalled();
+    expect(test.deps.exchange).not.toHaveBeenCalled();
+  });
+});

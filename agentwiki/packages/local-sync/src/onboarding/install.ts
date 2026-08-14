@@ -27,7 +27,11 @@ export interface BootstrapInstallerDeps {
     home: string,
   ): Promise<{ backupPath: string; rollback: () => Promise<void> }>;
   verify(connectionId: string, home: string): Promise<VerifyResult>;
-  verifyAccess(connection: LocalSyncConnection, apiKey: string, bootstrap: BootstrapResult): Promise<void>;
+  verifyAccess(
+    connection: LocalSyncConnection,
+    apiKey: string,
+    expected: { agentId: string; spaceId?: string },
+  ): Promise<void>;
   revokeCredential(connection: LocalSyncConnection, apiKey: string): Promise<void>;
   restore(home: string, archive: ArchiveResult | null): Promise<void>;
 }
@@ -36,11 +40,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
   const deps = { ...productionDependencies(), ...overrides };
   return async (input) => {
     const bootstrap = await deps.bootstrap(input);
-    let archive: ArchiveResult | null = null;
     let rollbackConfig: (() => Promise<void>) | undefined;
-    let activatedState = false;
-    let activatedConnection: LocalSyncConnection | undefined;
-    let activatedApiKey: string | undefined;
     try {
       const existing = await deps.loadExisting(input.home, input.connectionId);
       let connection: LocalSyncConnection;
@@ -56,25 +56,25 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
           });
         }
       } else {
-        archive = await deps.archive(input.home);
-        await deps.initialize(input.home);
-        activatedState = true;
         const exchange = await deps.exchange(input.serverBaseUrl, bootstrap.installation.code);
         assertExchange(exchange, bootstrap, input.serverPlan.packageVersion);
-        connection = {
-          id: input.connectionId,
-          serverUrl: exchange.serverUrl,
-          agentId: exchange.agentId,
-          credentialId: exchange.credentialId,
-          pluginVersion: exchange.pluginVersion,
+        const installed = await installExchangedGateway({
+          home: input.home,
           client: input.client,
-          mcpName: 'agentwiki',
+          connectionId: input.connectionId,
+          expectedConfigHash: input.expectedConfigHash,
+          expectedAgentId: bootstrap.agent.id,
+          expectedSpaceId: bootstrap.space.id,
+          expectedPluginVersion: input.serverPlan.packageVersion,
+          exchange,
+        }, deps);
+        return {
+          bootstrap,
+          reloadRequired: input.client === 'opencode',
+          configBackupPath: installed.configBackupPath,
+          manifestHash: installed.manifestHash,
+          connectionId: input.connectionId,
         };
-        apiKey = exchange.apiKey;
-        activatedConnection = connection;
-        activatedApiKey = apiKey;
-        await deps.saveConnection(input.home, connection, apiKey);
-        await deps.installSkill(input.home, input.client);
       }
       const installed = await deps.installClient(input.client, input.connectionId, input.expectedConfigHash, input.home);
       rollbackConfig = installed.rollback;
@@ -87,7 +87,10 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
           retryable: true,
         });
       }
-      await deps.verifyAccess(connection, apiKey, bootstrap);
+      await deps.verifyAccess(connection, apiKey, {
+        agentId: bootstrap.agent.id,
+        spaceId: bootstrap.space.id,
+      });
 
       return {
         bootstrap,
@@ -98,13 +101,90 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
       };
     } catch (error) {
       await rollbackConfig?.().catch(() => undefined);
-      if (activatedConnection && activatedApiKey) {
-        await deps.revokeCredential(activatedConnection, activatedApiKey).catch(() => undefined);
-      }
-      if (activatedState) await deps.restore(input.home, archive).catch(() => undefined);
       throw error;
     }
   };
+}
+
+export interface ExchangedGatewayInstallInput {
+  home: string;
+  client: InstallInput['client'];
+  connectionId: string;
+  expectedConfigHash: string;
+  expectedAgentId: string;
+  expectedSpaceId?: string;
+  expectedPluginVersion: string;
+  exchange: ExchangeResult;
+}
+
+export async function installExchangedGateway(
+  input: ExchangedGatewayInstallInput,
+  overrides: Partial<BootstrapInstallerDeps> = {},
+): Promise<{
+  connection: LocalSyncConnection;
+  configBackupPath: string;
+  manifestHash: string;
+}> {
+  const deps = { ...productionDependencies(), ...overrides };
+  if (
+    input.exchange.agentId !== input.expectedAgentId
+    || input.exchange.pluginVersion !== input.expectedPluginVersion
+  ) {
+    throw new OnboardingError({
+      code: 'PACKAGE_INTEGRITY_FAILED',
+      message: 'installation exchange does not match the requested Agent or package version',
+      retryable: false,
+    });
+  }
+
+  const connection: LocalSyncConnection = {
+    id: input.connectionId,
+    serverUrl: input.exchange.serverUrl,
+    agentId: input.exchange.agentId,
+    credentialId: input.exchange.credentialId,
+    pluginVersion: input.exchange.pluginVersion,
+    client: input.client,
+    mcpName: 'agentwiki',
+  };
+  let archive: ArchiveResult | null = null;
+  let rollbackConfig: (() => Promise<void>) | undefined;
+  let activatedState = false;
+  try {
+    archive = await deps.archive(input.home);
+    await deps.initialize(input.home);
+    activatedState = true;
+    await deps.saveConnection(input.home, connection, input.exchange.apiKey);
+    await deps.installSkill(input.home, input.client);
+    const installed = await deps.installClient(
+      input.client,
+      input.connectionId,
+      input.expectedConfigHash,
+      input.home,
+    );
+    rollbackConfig = installed.rollback;
+    const verified = await deps.verify(input.connectionId, input.home);
+    if (!verified.ok) {
+      throw new OnboardingError({
+        code: 'MCP_HANDSHAKE_FAILED',
+        message: verified.errors.join('; ') || 'gateway verification failed',
+        retryable: true,
+      });
+    }
+    await deps.verifyAccess(connection, input.exchange.apiKey, {
+      agentId: input.expectedAgentId,
+      ...(input.expectedSpaceId ? { spaceId: input.expectedSpaceId } : {}),
+    });
+    return {
+      connection,
+      configBackupPath: installed.backupPath,
+      manifestHash: verified.manifestHash,
+    };
+  } catch (error) {
+    await rollbackConfig?.().catch(() => undefined);
+    await deps.revokeCredential(connection, input.exchange.apiKey).catch(() => undefined);
+    if (activatedState) await deps.restore(input.home, archive).catch(() => undefined);
+    throw error;
+  }
 }
 
 function productionDependencies(): BootstrapInstallerDeps {
@@ -147,10 +227,11 @@ function productionDependencies(): BootstrapInstallerDeps {
       cwd: home,
       env: { ...process.env, HOME: home } as Record<string, string>,
     }),
-    verifyAccess: async (connection, apiKey, bootstrap) => {
+    verifyAccess: async (connection, apiKey, expected) => {
       const access = await agentwiki.access(connection, apiKey);
-      const agent = access.access.find((candidate) => candidate.id === bootstrap.agent.id);
-      const hasSpace = agent?.grants.some((grant) => grant.space.id === bootstrap.space.id) ?? false;
+      const agent = access.access.find((candidate) => candidate.id === expected.agentId);
+      const hasSpace = expected.spaceId === undefined
+        || (agent?.grants.some((grant) => grant.space.id === expected.spaceId) ?? false);
       const hasCredential = agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active) ?? false;
       if (agent?.status !== 'active' || !hasSpace || !hasCredential) {
         throw new OnboardingError({
