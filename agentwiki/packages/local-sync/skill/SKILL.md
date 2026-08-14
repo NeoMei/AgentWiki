@@ -1,29 +1,29 @@
 ---
 name: agentwiki-local-sync
-description: Synchronize locally-organized knowledge to AgentWiki through a deterministic orchestrator. No separate wiki tool init, remote model key, or daemon is required.
+description: Use the single AgentWiki MCP gateway for remote wiki work, local source inspection, and confirmed knowledge synchronization. No second MCP, remote model key, or daemon is required.
 license: MIT
 compatibility: codex, claude-code, opencode
 ---
 
-# AgentWiki Local Sync
+# AgentWiki Unified Gateway
 
-> Important: This is a **local-only MCP server**. The tools below are exposed by the `@neomei/agentwiki-local-sync` package running on your local machine — not by the remote AgentWiki server at `https://agentwiki.quukk.com/api/mcp`.
->
-> - AgentWiki server MCP exposes direct tools like `list_spaces`, `propose_page`, `search_pages`, etc.
-> - `agentwiki-local-sync` exposes workflow tools like `start_knowledge_job`, `get_next_work_item`, `confirm_and_push`, etc.
-> - Do not confuse the two: the local-sync workflow tools are for scanning local code/documents, organizing them locally, and syncing the prepared knowledge envelope to AgentWiki after explicit confirmation.
+Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-sync`. It exposes all AgentWiki capabilities through stable tool families:
 
-Use the `agentwiki-local-sync` MCP tools for local knowledge synchronization.
+- `wiki_*` calls remote AgentWiki tools.
+- `local_*` inspects local sources without uploading.
+- `knowledge_*` coordinates local preparation with confirmed server synchronization.
 
-1. Call `start_knowledge_job` with the target Space and recipe (e.g. `code-wiki@1` for code, `document-library@1` for documents). This creates a deterministic local job and returns a `jobId`.
-2. Repeatedly call `get_next_work_item` with the `jobId`. The Orchestrator returns one structured work item at a time.
-3. For `collect-artifacts` or `inspect-adapter` work items, use `read_artifacts` to inspect source summaries. For code, use the available codebase-memory MCP architecture/search tools first and pass a concise structure summary; never paste secrets or full source files.
-4. For `organize-*` work items, produce the requested page, memory, or relation content. The Orchestrator handles stable IDs, paths, provenance, and hashes.
-5. Call `submit_organized_item` after each work item. The Orchestrator advances the job phase when all items in the current phase are complete.
-6. When the job reaches `validate`, call `validate_knowledge_job`. If validation reports issues, retry only the failed work items.
-7. When the job reaches `preview`, call `preview_knowledge_job`. Show the target Space, added/updated/deleted/unchanged items, skipped files, upload size, and source boundaries exactly as returned.
-8. Ask: “是否同步到 AgentWiki？” Do not infer consent from an earlier install or recipe selection.
-9. Only after a clear yes in the current conversation, call `confirm_and_push` with `confirmed: true`.
-10. To refresh the local workspace from the server, call `pull_space`. If pull reports conflicts, use `resolve_conflict` with a merge proposal before pushing.
+Never create a second direct AgentWiki MCP connection, a credential-specific MCP name, or a separate local-sync MCP entry. API credentials shown in AgentWiki are for APIs, scripts, and external systems; Agent access always uses this gateway.
 
-Never approve a ChangeSet on the Agent's behalf, run a separate local wiki tool interactively, expose API keys, or upload raw source files or binary documents.
+For local knowledge synchronization:
+
+1. Use `wiki_list_spaces` to find the authorized target Space and its internal ID.
+2. Call `local_scan_sources` to inspect the requested local paths. For code, use available codebase-memory architecture/search tools and concise structural summaries; never paste secrets or full source files.
+3. Call `knowledge_prepare` with the Space ID, source paths, and source type. This organizes and validates locally, then returns a reviewable preview without uploading it.
+4. Show the returned target Space, added/updated/deleted/unchanged items, skipped files, upload size, preview hash, and data/model boundaries.
+5. Ask: “是否同步到 AgentWiki？” Do not infer consent from installation, Agent authorization, Space selection, or an earlier request.
+6. Only after a clear yes in the current conversation, call `knowledge_confirm_and_sync` with the exact `jobId`, `previewHash`, and `confirmed: true`.
+7. Report the resulting revision, submission, ChangeSet, and review state. Never approve a ChangeSet on the user's behalf.
+8. Use `knowledge_pull` when the local workspace must be refreshed from the authoritative server revision.
+
+Remote `wiki_*` tools may be used directly for normal AgentWiki work. Never expose API keys, upload raw source files or binary documents, or use retired low-level tools such as `start_knowledge_job`, `confirm_and_push`, `pull_space`, or `resolve_conflict`.

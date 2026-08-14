@@ -161,13 +161,23 @@ test('the product no longer carries the retired external wiki compiler path', ()
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.3.6');
+  assert.equal(version, '0.3.7');
   for (const path of [
     '.env.example',
+    'README.md',
     'apps/client/src/config/localSync.ts',
+    'apps/client/src/features/about/OnboardPage.tsx',
     'apps/server/.env.example',
     'apps/server/src/onboard/onboard.controller.ts',
+    'docker-compose.yml',
+    'packages/local-sync/README.md',
+    'packages/local-sync/src/gateway/entry.ts',
+    'packages/local-sync/src/gateway/remote-mcp-bridge.ts',
+    'packages/local-sync/src/gateway/server.ts',
+    'packages/local-sync/src/installer/plan.ts',
     'packages/local-sync/src/local-knowledge.ts',
+    'packages/local-sync/src/onboarding/runtime.ts',
+    'packages/local-sync/src/onboarding/verifier.ts',
     'scripts/local-sync-e2e.mjs',
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
@@ -189,9 +199,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.3.6 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.3.7 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.3\.6/, 'onboard controller must reference 0.3.6');
+  assert.match(source, /0\.3\.7/, 'onboard controller must reference 0.3.7');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
@@ -205,6 +215,25 @@ test('the local-sync CLI exposes gateway and onboard commands without connect', 
   assert.match(usage[1], /gateway/, 'CLI must expose gateway');
   assert.doesNotMatch(usage[1], /\bconnect\b/, 'CLI must not expose connect');
   assert.doesNotMatch(usage[1], /--orchestrator/, 'CLI must not expose --orchestrator');
+});
+
+test('every active Agent connection surface exposes only the unified gateway', async () => {
+  const sources = await Promise.all([
+    'apps/client/src/features/agent/AgentDetail.tsx',
+    'apps/client/src/features/agent/LocalSyncInstallCard.tsx',
+    'apps/client/src/features/about/OnboardPage.tsx',
+    'apps/server/src/core/agent/local-sync-installation.service.ts',
+    'packages/local-sync/README.md',
+    'packages/local-sync/skill/SKILL.md',
+  ].map(read));
+  const active = sources.join('\n');
+
+  assert.doesNotMatch(active, /mcp add agentwiki-/i, 'must not register a credential-specific remote MCP');
+  assert.doesNotMatch(active, /mcp add[^\n]*\/api\/mcp/i, 'must not register the remote MCP beside the gateway');
+  assert.doesNotMatch(active, /connect --server/i, 'must not advertise the retired connect command');
+  assert.doesNotMatch(active, /two MCP servers|两个 MCP/i, 'must not advertise two AgentWiki MCP servers');
+  assert.match(active, /wiki_\*|wiki_/i, 'the unified gateway must document remote wiki tools');
+  assert.match(active, /knowledge_\*|knowledge_/i, 'the unified gateway must document combined knowledge tools');
 });
 
 test('the onboard.json endpoint returns 410 Gone with a replacement command', async () => {

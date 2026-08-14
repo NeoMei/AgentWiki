@@ -13,7 +13,7 @@ export const PERMISSION_PRESETS = {
 } as const;
 
 export type StartDeviceInput = {
-  packageVersion: '0.3.6';
+  packageVersion: '0.3.7';
   clientType: 'codex' | 'claude' | 'opencode';
   purpose: 'full-onboarding';
 };
@@ -32,7 +32,7 @@ export type ServerPlan = {
   agentName: string;
   permissionPreset: keyof typeof PERMISSION_PRESETS;
   approvalMode: 'always-review' | 'scoped-auto-publish';
-  packageVersion: '0.3.6';
+  packageVersion: '0.3.7';
 };
 
 export type BootstrapInput = {

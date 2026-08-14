@@ -4,7 +4,7 @@
 > It is the recommended installation path for the intended server and Agent identity.
 > No separate wiki tool init, remote model key, or background daemon is required.
 
-`@neomei/agentwiki-local-sync` lets a local coding agent prepare knowledge from a local repository or document folder, review the proposed AgentWiki change, and upload it only after an explicit confirmation in the current conversation. It installs a shared Agent Skill plus a per-connection stdio MCP server. Source files, model providers, and the organization step stay on the local machine; AgentWiki only receives the prepared knowledge envelope after confirmation.
+`@neomei/agentwiki-local-sync` lets a local coding agent use AgentWiki and prepare knowledge from a local repository or document folder through one stdio MCP gateway named `agentwiki`. It installs the gateway plus a shared Agent Skill. Source files, model providers, and the organization step stay on the local machine; AgentWiki only receives the prepared knowledge envelope after confirmation.
 
 ## Prerequisites
 
@@ -22,28 +22,22 @@ environment under `~/.agentwiki/runtime/` and installs the exact Microsoft MarkI
 version automatically; it does not modify the system Python environment or require an
 interactive init.
 
-## Two MCP servers, do not confuse them
+## One AgentWiki gateway
 
-AgentWiki exposes **two different MCP servers** with different tools and purposes:
+The installer creates or updates exactly one MCP entry named `agentwiki`. The gateway exposes three stable tool families:
 
-1. **AgentWiki Direct MCP** (remote, HTTP/SSE/Streamable HTTP)  
-   Endpoint: `https://agentwiki.example/api/mcp` (replace with your server).  
-   Tools: `list_spaces`, `list_pages`, `get_page`, `search_pages`, `propose_page`, `list_graph`, `propose_relation`, `list_sources`, `get_knowledge_sync_state`, `start_source_run`, `recall_memory`, `list_reviews`, `approve_change_set`.  
-   Use case: directly query and create pages, relations, sources, reviews on AgentWiki. No local scanning.
+- `wiki_*` — remote AgentWiki pages, graph, sources, reviews, and memory
+- `local_*` — local source inspection and artifact access
+- `knowledge_*` — combined scan, preview, sync, pull, and conflict workflows
 
-2. **agentwiki-local-sync MCP** (local, stdio)  
-   Command: `npx -y @neomei/agentwiki-local-sync@<version> mcp --connection <id>`.
-   Tools: `start_knowledge_job`, `get_next_work_item`, `read_artifacts`, `submit_organized_item`, `validate_knowledge_job`, `preview_knowledge_job`, `confirm_and_push`, `pull_space`, `resolve_conflict`.  
-   Use case: scan local code or documents, organize them locally, preview the diff, and sync the prepared knowledge envelope to an AgentWiki Space only after explicit user confirmation.
+The gateway bridges to the server internally. Users and Agents must not register a second direct `/api/mcp` connection or a credential-specific MCP name.
 
-This package provides the **second** one. It does not expose the direct AgentWiki tools and it does not replace the remote MCP server.
-
-## Onboarding (0.3.6)
+## Onboarding (0.3.7)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.3.6 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.3.7 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
@@ -61,6 +55,16 @@ The three user actions are:
 After completion, the Agent connects to one local `agentwiki` MCP gateway that
 deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 
+When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
+
+```bash
+npx --yes @neomei/agentwiki-local-sync@0.3.7 onboard \
+  --server https://agentwiki.quukk.com/api \
+  --code <one-time-code> \
+  --protocol ndjson \
+  --agent auto
+```
+
 ## Commands
 
 - `onboard` — Start the self-service onboarding flow
@@ -69,43 +73,10 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 - `doctor` — Check installation health
 - `uninstall` — Remove the gateway MCP and restore configuration
 
-All commands below operate on the default connection unless `--connection <id>` is
-provided where supported.
-
 ```bash
-# Verify the installed MCP entry, local dependencies, provider boundary, permissions,
-# AgentWiki identity, grants, and credential scopes.
+# Verify the installed MCP entry, local dependencies, identity, and permissions.
 agentwiki-local-sync doctor
 
-# Inspect a source locally. This does not upload data or call remote models.
-agentwiki-local-sync inspect --path /absolute/path/to/source
-
-# Prepare a local OKF bundle and report the diff. This does not upload data.
-agentwiki-local-sync scan --path /absolute/path/to/source --space <space-id>
-
-# Show a non-expired prepared preview.
-agentwiki-local-sync preview --id <preview-uuid>
-
-# Upload the prepared preview only after the user explicitly confirms in this conversation.
-agentwiki-local-sync sync --preview <preview-uuid> --confirm
-
-# Start the stdio MCP server for the registered connection.
-agentwiki-local-sync mcp --connection <connection-id>
-```
-
-`--allow-remote-model` lets a local agent use its own model provider during preparation. Only add it after disclosing the provider and data boundary to the user and obtaining explicit consent.
-
-### Upgrade and uninstall
-
-Upgrade one connection by supplying the target exact package version. The registered MCP
-command changes only to that version; the connection ID, local credential, and sync state
-are retained.
-
-```bash
-agentwiki-local-sync upgrade --version <exact-version>
-```
-
-```bash
 # Remove MCP connections for one client (or all clients when --agent is omitted).
 # Credentials and sync-state.json are retained by default.
 agentwiki-local-sync uninstall --agent codex

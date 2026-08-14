@@ -8,13 +8,12 @@ import {
 import { GuideScreenshot } from './GuideScreenshot';
 
 const commands = [
-  ['doctor', '检查安装、依赖、身份和权限', 'Check installation, dependencies, identity, and permissions'],
-  ['inspect', '仅在本地检查目录', 'Inspect a directory locally'],
-  ['scan', '生成本地知识预览，不上传', 'Create a local preview without uploading'],
-  ['preview', '再次查看未过期的预览', 'Review a non-expired preview'],
-  ['sync --confirm', '明确确认后同步预览', 'Sync a preview after explicit confirmation'],
-  ['upgrade', '升级指定连接的精确版本', 'Upgrade one connection to an exact version'],
-  ['uninstall', '移除本地 Agent 的 MCP 连接', 'Remove the local Agent MCP connection'],
+  ['wiki_*', '远程页面、图谱、来源、审核和记忆操作', 'Remote pages, graph, sources, reviews, and memory'],
+  ['local_scan_sources', '仅在本地检查目录，不上传', 'Inspect local directories without uploading'],
+  ['local_read_artifacts', '读取有界的本地工件摘要', 'Read bounded local artifact summaries'],
+  ['knowledge_prepare', '生成本地知识预览，不上传', 'Create a local knowledge preview without uploading'],
+  ['knowledge_confirm_and_sync', '明确确认后同步指定预览', 'Sync the exact preview after explicit confirmation'],
+  ['knowledge_pull', '从服务端权威版本刷新本地工作区', 'Refresh the local workspace from the server revision'],
 ] as const;
 
 interface LocalSyncGuideSectionProps {
@@ -50,8 +49,8 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
       </div>
       <p className="mt-4 text-sm leading-6 text-gray-600">
         {zh
-          ? '已验证自动配置 Codex、Claude Code、OpenCode；底层使用标准 stdio MCP，其他兼容 stdio MCP 的本地 Agent 可按自身配置方式接入。'
-          : 'Automatic setup is verified for Codex, Claude Code, and OpenCode. It uses standard stdio MCP underneath, so other compatible local Agents can connect through their own configuration.'}
+          ? '已验证自动配置 Codex、Claude Code、OpenCode；它只安装一个名为 agentwiki 的 stdio MCP 网关，统一提供远程、本地和组合工具。'
+          : 'Automatic setup is verified for Codex, Claude Code, and OpenCode. It installs one stdio MCP gateway named agentwiki for remote, local, and combined tools.'}
       </p>
     </div>
 
@@ -126,7 +125,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
 
     <details className="mt-6 rounded-xl border border-gray-200 bg-white p-5 sm:p-6">
       <summary className="cursor-pointer select-none font-semibold text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-        {zh ? '高级命令' : 'Advanced commands'}
+        {zh ? '统一网关工具' : 'Unified gateway tools'}
       </summary>
       <div className="mt-4">
         <dl className="space-y-3">

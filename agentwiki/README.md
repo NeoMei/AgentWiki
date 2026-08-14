@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.3.6** — Unified agent self-service onboarding with Device Auth, single gateway MCP, and deterministic knowledge workflows.
+> **v0.3.7** — One AgentWiki gateway for remote wiki operations, local sources, and deterministic knowledge workflows.
 
 
 ## Hosted Service
@@ -135,39 +135,33 @@ pnpm build
 ## Local knowledge sync
 
 Local knowledge sync lets a coding Agent turn a local repository or document folder
-into reviewable AgentWiki knowledge. It installs a small local MCP server and shared
-Agent Skill; it does **not** scan or upload files during installation.
+into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the single
+`agentwiki` MCP gateway; it does **not** scan or upload files during installation.
 
 ### Install
 
 1. In AgentWiki, create an Agent, grant it access to the target Space, then open the
-   Agent details page and select **Generate local sync instructions**.
+   Agent details page and select **Generate unified gateway instructions**.
 2. Paste the complete generated instruction into your local coding Agent. It installs
-   the exact plugin version, creates the MCP connection, and runs `doctor`.
+   the exact plugin version and creates or updates the one `agentwiki` MCP connection.
 3. Ask the Agent to inspect and scan a local folder. Review its local preview and
    explicitly confirm the sync before anything is sent to AgentWiki.
 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.3.6; the unified onboarding command is the only recommended Agent connection path. Older releases remain
-the public `latest` only after npm WebAuthn approval.
+Source and generated instructions target 0.3.7; the unified `onboard` command is the only recommended Agent connection path. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
 
 ### Example local workflow
 
-```bash
-# Verify the connection, local adapters, and permissions.
-agentwiki-local-sync doctor
+The installed gateway exposes one tool set:
 
-# Inspect a local folder without uploading anything.
-agentwiki-local-sync inspect --path /absolute/path/to/source
+- `wiki_*` for remote AgentWiki operations
+- `local_*` for local inspection without upload
+- `knowledge_*` for prepare, preview, confirmed sync, and pull workflows
 
-# Prepare a preview. This runs locally and does not upload data.
-agentwiki-local-sync scan --path /absolute/path/to/source --space <space-id>
-
-# Review the returned preview, then upload it only after explicit confirmation.
-agentwiki-local-sync sync --preview <preview-id> --confirm
-```
+Use `local_scan_sources`, then `knowledge_prepare`. Review its preview and call
+`knowledge_confirm_and_sync` only after explicit confirmation in the current conversation.
 
 See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete guided flow and screenshots.
 
@@ -188,7 +182,7 @@ See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete
 | Codex | User MCP entry installed with `codex mcp add` | Supported |
 | Claude Code | User MCP entry installed with `claude mcp add --scope user` | Supported |
 | OpenCode | User MCP entry in its user configuration | Supported |
-| Other MCP-compatible Agents | Register the package's stdio MCP command manually | Compatible; validate with `doctor` |
+| Other MCP-compatible Agents | Install the package's single `agentwiki` stdio gateway | Compatible; validate with `doctor` |
 
 ## Connecting an Agent
 

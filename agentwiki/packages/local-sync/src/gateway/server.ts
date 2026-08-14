@@ -42,7 +42,7 @@ export interface GatewayServer {
  * tools are registered and remote calls return REMOTE_UNAVAILABLE.
  */
 export async function createGatewayServer(context: GatewayContext): Promise<GatewayServer> {
-  const version = context.version ?? '0.3.6';
+  const version = context.version ?? '0.3.7';
   const server = new McpServer({ name: 'agentwiki', version });
   const toolNames: string[] = [];
 

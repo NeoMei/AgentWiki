@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { OnboardPage } from './OnboardPage';
 
-const COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.6 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
+const COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.7 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
 
 const renderPage = (language: 'zh-CN' | 'en') => {
   localStorage.setItem('agentwiki.language.v1', language);
@@ -27,7 +27,7 @@ describe('OnboardPage 0.3 onboarding guide', () => {
     const { container } = renderPage('zh-CN');
 
     expect(screen.getByText(COMMAND)).toBeInTheDocument();
-    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.3\.6/g)).toHaveLength(1);
+    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.3\.7/g)).toHaveLength(1);
     expect(screen.getByText(/在浏览器中登录或注册并授权/)).toBeInTheDocument();
     expect(screen.getByText(/确认 Agent、Space、权限和本地扫描计划/)).toBeInTheDocument();
     expect(screen.getByText(/预览整理后的知识并确认同步/)).toBeInTheDocument();

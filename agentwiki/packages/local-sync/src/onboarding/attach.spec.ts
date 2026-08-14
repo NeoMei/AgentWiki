@@ -57,6 +57,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
         };
       }),
       complete: vi.fn(),
+      close: vi.fn(),
     },
   };
 }
@@ -80,6 +81,7 @@ describe('runAttachment', () => {
       manifestHash: 'manifest-hash',
       reloadRequired: false,
     });
+    expect(test.deps.close).toHaveBeenCalledOnce();
   });
 
   it('does not exchange the one-time code when the user denies the migration', async () => {
@@ -89,6 +91,7 @@ describe('runAttachment', () => {
 
     expect(test.deps.exchange).not.toHaveBeenCalled();
     expect(test.deps.install).not.toHaveBeenCalled();
+    expect(test.deps.close).toHaveBeenCalledOnce();
   });
 
   it('stops before confirmation when the fixed agentwiki name is occupied by an unknown entry', async () => {
@@ -101,5 +104,6 @@ describe('runAttachment', () => {
 
     expect(test.deps.confirm).not.toHaveBeenCalled();
     expect(test.deps.exchange).not.toHaveBeenCalled();
+    expect(test.deps.close).toHaveBeenCalledOnce();
   });
 });

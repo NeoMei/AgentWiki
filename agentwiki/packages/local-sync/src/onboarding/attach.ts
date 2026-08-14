@@ -52,6 +52,7 @@ export interface AttachmentDependencies {
   exchange(serverBaseUrl: string, code: string): Promise<ExchangeResult>;
   install(input: ExchangedGatewayInstallInput): Promise<AttachmentInstallResult>;
   complete?(report: AttachReport): void;
+  close?(): void;
 }
 
 export async function runAttachment(
@@ -59,51 +60,55 @@ export async function runAttachment(
   overrides: Partial<AttachmentDependencies> = {},
 ): Promise<AttachReport> {
   const deps = { ...productionDependencies(input), ...overrides };
-  const client = deps.detectClient(input.requestedClient);
-  const analysis = await deps.analyzeConfig(client, input.home, input.serverBaseUrl);
-  if (analysis.hasConflict) {
-    throw new OnboardingError({
-      code: 'CONFIG_CONFLICT',
-      message: 'an unknown entry already occupies the agentwiki MCP name',
-      retryable: false,
-    });
-  }
-  const plan: AttachmentPlan = {
-    client,
-    serverUrl: input.serverBaseUrl.replace(/\/+$/, ''),
-    mcpName: 'agentwiki',
-    oldEntries: analysis.oldEntries,
-    reloadRequired: client === 'opencode',
-  };
-  if (!await deps.confirm(plan)) {
-    throw new OnboardingError({
-      code: 'AUTH_DENIED',
-      message: 'user cancelled the unified gateway installation',
-      retryable: false,
-    });
-  }
+  try {
+    const client = deps.detectClient(input.requestedClient);
+    const analysis = await deps.analyzeConfig(client, input.home, input.serverBaseUrl);
+    if (analysis.hasConflict) {
+      throw new OnboardingError({
+        code: 'CONFIG_CONFLICT',
+        message: 'an unknown entry already occupies the agentwiki MCP name',
+        retryable: false,
+      });
+    }
+    const plan: AttachmentPlan = {
+      client,
+      serverUrl: input.serverBaseUrl.replace(/\/+$/, ''),
+      mcpName: 'agentwiki',
+      oldEntries: analysis.oldEntries,
+      reloadRequired: client === 'opencode',
+    };
+    if (!await deps.confirm(plan)) {
+      throw new OnboardingError({
+        code: 'AUTH_DENIED',
+        message: 'user cancelled the unified gateway installation',
+        retryable: false,
+      });
+    }
 
-  const exchange = await deps.exchange(input.serverBaseUrl, input.code);
-  const connectionId = randomUUID();
-  const installed = await deps.install({
-    home: input.home,
-    client,
-    connectionId,
-    expectedConfigHash: analysis.hash,
-    expectedAgentId: exchange.agentId,
-    expectedPluginVersion: GATEWAY_PACKAGE_VERSION,
-    exchange,
-  });
-  const report: AttachReport = {
-    ...installed,
-    agentId: exchange.agentId,
-    client,
-    mcpName: 'agentwiki',
-    migratedEntries: analysis.oldEntries,
-    reloadRequired: client === 'opencode',
-  };
-  deps.complete?.(report);
-  return report;
+    const exchange = await deps.exchange(input.serverBaseUrl, input.code);
+    const connectionId = randomUUID();
+    const installed = await deps.install({
+      home: input.home,
+      client,
+      connectionId,
+      expectedConfigHash: analysis.hash,
+      expectedAgentId: exchange.agentId,
+      expectedPluginVersion: GATEWAY_PACKAGE_VERSION,
+      exchange,
+    });
+    const report: AttachReport = {
+      ...installed,
+      agentId: exchange.agentId,
+      client,
+      mcpName: 'agentwiki',
+      migratedEntries: analysis.oldEntries,
+      reloadRequired: client === 'opencode',
+    };
+    deps.complete?.(report);
+    return report;
+  } finally {
+    deps.close?.();
+  }
 }
 
 function productionDependencies(input: AttachCliInput): AttachmentDependencies {
@@ -125,12 +130,14 @@ function productionDependencies(input: AttachCliInput): AttachmentDependencies {
       };
     },
     complete: protocol.complete,
+    close: protocol.close,
   };
 }
 
 function attachmentProtocol(input: AttachCliInput): {
   confirm(plan: AttachmentPlan): Promise<boolean>;
   complete(report: AttachReport): void;
+  close(): void;
 } {
   if (input.protocol === 'human') {
     const terminal = createPromisesInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -142,8 +149,8 @@ function attachmentProtocol(input: AttachCliInput): {
       },
       complete(report) {
         process.stdout.write(`\n接入完成：\n${JSON.stringify(report, null, 2)}\n`);
-        terminal.close();
       },
+      close: () => terminal.close(),
     };
   }
 
@@ -151,7 +158,8 @@ function attachmentProtocol(input: AttachCliInput): {
   const encoder = new ProtocolEncoder(sessionId, {
     write: (line) => { process.stdout.write(line); },
   });
-  const lines = createInterface({ input: process.stdin, terminal: false })[Symbol.asyncIterator]();
+  const reader = createInterface({ input: process.stdin, terminal: false });
+  const lines = reader[Symbol.asyncIterator]();
   return {
     async confirm(plan) {
       const planHash = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
@@ -170,5 +178,6 @@ function attachmentProtocol(input: AttachCliInput): {
     complete(report) {
       encoder.emit({ type: 'completed', report: report as unknown as Record<string, unknown> });
     },
+    close: () => reader.close(),
   };
 }

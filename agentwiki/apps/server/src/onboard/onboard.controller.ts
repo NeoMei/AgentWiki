@@ -70,7 +70,7 @@ export class OnboardController {
     return {
       statusCode: 410,
       error: 'Gone',
-      replacement: `Use the pinned 0.3.6 onboarding command: ${PUBLIC_COMMAND}`,
+      replacement: `Use the pinned 0.3.7 onboarding command: ${PUBLIC_COMMAND}`,
     };
   }
 
@@ -83,7 +83,7 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.3.6';
+const PACKAGE_VERSION = '0.3.7';
 const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard --server ${API_BASE} --protocol ndjson`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入
