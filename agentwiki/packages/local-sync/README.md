@@ -91,7 +91,7 @@ to keep and may be used by another local connection.
 
 ## Data and credentials
 
-Local source files are processed locally into a temporary knowledge envelope. `scan` produces a preview and does not upload it. Only `sync --confirm` sends the prepared envelope to the selected AgentWiki Space. Do not include secrets in a codebase-memory summary; the adapter requires a concise structural summary rather than source dumps.
+Local source files are processed locally into a temporary knowledge envelope. `knowledge_prepare` produces a preview and does not upload it. Only `knowledge_confirm_and_sync` sends the exact confirmed envelope to the selected AgentWiki Space. Do not include secrets in a codebase-memory summary; the adapter requires a concise structural summary rather than source dumps.
 
 Connection metadata is stored at `~/.agentwiki/local-sync.json`; API keys are stored at
 `~/.agentwiki/credentials.json`. Both are written owner-only (`0600`). Prepared preview
@@ -103,12 +103,12 @@ and connection ID, never the API key.
 
 | Client | Registration behavior | Version tested |
 | --- | --- | --- |
-| Codex | User MCP entry via `codex mcp add` | Codex CLI 0.144.5 |
-| Claude Code | User MCP entry via `claude mcp add --scope user` | Claude Code 2.1.211 |
-| OpenCode | User config at `~/.config/opencode/opencode.json` | OpenCode 1.18.7 |
+| Codex | Atomic `~/.codex/config.toml` entry using `command` + `args` | Codex CLI 0.147.0 |
+| Claude Code | Atomic `~/.claude.json` entry using `command` + `args` | Claude Code 2.1.211 |
+| OpenCode | Version-aware v1/v2 config using a command array | OpenCode 1.18.18 |
 
-These versions were tested with isolated temporary HOME directories on 2026-07-29. The
-package uses an exact version in every registered MCP command.
+These versions were tested with isolated temporary HOME directories on 2026-08-15. The
+package uses an exact version in every registered gateway command.
 
 ## Package contents
 

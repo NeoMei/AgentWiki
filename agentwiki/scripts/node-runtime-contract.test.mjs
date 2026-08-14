@@ -166,6 +166,8 @@ test('every active local-sync release surface uses the package version', async (
     '.env.example',
     'README.md',
     'apps/client/src/config/localSync.ts',
+    'apps/client/e2e/local-sync.spec.ts',
+    'apps/client/e2e/onboarding-device.spec.ts',
     'apps/client/src/features/about/OnboardPage.tsx',
     'apps/server/.env.example',
     'apps/server/src/onboard/onboard.controller.ts',
@@ -179,6 +181,7 @@ test('every active local-sync release surface uses the package version', async (
     'packages/local-sync/src/onboarding/runtime.ts',
     'packages/local-sync/src/onboarding/verifier.ts',
     'scripts/local-sync-e2e.mjs',
+    'scripts/cross-machine-e2e.mjs',
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
   }
@@ -189,6 +192,7 @@ test('every user-facing local-sync surface uses the published npm package name',
     'packages/local-sync/README.md',
     'packages/local-sync/skill/SKILL.md',
     'apps/client/src/features/about/OnboardPage.tsx',
+    'apps/client/e2e/local-sync.spec.ts',
     'apps/server/src/onboard/onboard.controller.ts',
   ]) {
     const source = await read(path);
@@ -232,6 +236,7 @@ test('every active Agent connection surface exposes only the unified gateway', a
   assert.doesNotMatch(active, /mcp add[^\n]*\/api\/mcp/i, 'must not register the remote MCP beside the gateway');
   assert.doesNotMatch(active, /connect --server/i, 'must not advertise the retired connect command');
   assert.doesNotMatch(active, /two MCP servers|两个 MCP/i, 'must not advertise two AgentWiki MCP servers');
+  assert.doesNotMatch(active, /agentwiki-local-sync\s+(?:mcp|scan|sync|upgrade)\b/i, 'must not advertise retired public CLI commands');
   assert.match(active, /wiki_\*|wiki_/i, 'the unified gateway must document remote wiki tools');
   assert.match(active, /knowledge_\*|knowledge_/i, 'the unified gateway must document combined knowledge tools');
 });

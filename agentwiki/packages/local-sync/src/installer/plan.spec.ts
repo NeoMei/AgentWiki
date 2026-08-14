@@ -42,6 +42,14 @@ describe('looksLikeAgentWikiEntry', () => {
     )).toBe(true);
   });
 
+  it('does not confuse a longer endpoint with the exact server MCP endpoint', () => {
+    expect(looksLikeAgentWikiEntry(
+      'proxy',
+      'url = "https://wiki.test/api/mcp-proxy"',
+      'https://wiki.test/api',
+    )).toBe(false);
+  });
+
   it('does not claim an unrelated helper merely because its name contains agentwiki', () => {
     expect(looksLikeAgentWikiEntry(
       'my-agentwiki-helper',

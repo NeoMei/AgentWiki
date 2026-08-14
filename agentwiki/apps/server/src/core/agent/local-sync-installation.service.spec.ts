@@ -7,6 +7,7 @@ describe('LocalSyncInstallationService', () => {
     setOnce: jest.fn(),
     getStrict: jest.fn(),
     getDel: jest.fn(),
+    setStrict: jest.fn(),
     deleteStrict: jest.fn(),
     incrementWithWindow: jest.fn(),
   };
@@ -32,6 +33,8 @@ describe('LocalSyncInstallationService', () => {
     serverUrl: 'https://wiki.test/api',
     expiresAt: '2030-01-01T00:10:00.000Z',
   };
+  const installationKey = `local-sync:install:${payload.installationId}`;
+  const receiptKey = `local-sync:install-receipt:${payload.installationId}`;
 
   beforeEach(() => {
     jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
@@ -40,9 +43,12 @@ describe('LocalSyncInstallationService', () => {
       key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.1.0' : undefined
     ));
     redis.setOnce.mockResolvedValue(true);
+    redis.setStrict.mockResolvedValue(undefined);
     redis.incrementWithWindow.mockResolvedValue(1);
     redis.deleteStrict.mockResolvedValue(1);
-    redis.getStrict.mockResolvedValue(JSON.stringify(payload));
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey ? JSON.stringify(payload) : null
+    ));
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
     agents.normalizeCredentialScopes.mockImplementation((scopes: string[]) => [...new Set(scopes)]);
     agents.createCredential.mockResolvedValue({ id: 'credential-1', apiKey: 'agk_secret' });
@@ -174,7 +180,11 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('revalidates the issuing credential when an Agent-originated code is exchanged', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify({ ...payload, issuerCredentialId: 'credential-read' }));
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey
+        ? JSON.stringify({ ...payload, issuerCredentialId: 'credential-read' })
+        : null
+    ));
 
     await service.exchange(exchangeCode, '127.0.0.1');
 
@@ -211,8 +221,6 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('consumes the code once and returns a newly issued credential once', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify(payload));
-
     await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toMatchObject({
       apiKey: 'agk_secret',
       agentId: 'agent-1',
@@ -221,41 +229,97 @@ describe('LocalSyncInstallationService', () => {
       pluginVersion: '0.1.0',
       scopes: ['sources:read'],
     });
-    expect(redis.getDel).toHaveBeenCalledTimes(1);
+    expect(redis.setStrict).toHaveBeenCalledWith(
+      receiptKey,
+      expect.stringContaining('"credentialId":"credential-1"'),
+      600,
+    );
+    expect(redis.deleteStrict).toHaveBeenCalledWith(installationKey);
     expect(agents.createCredential).toHaveBeenCalledWith('owner-1', 'agent-1', {
       name: 'Local sync plugin',
       scopes: ['sources:read'],
     });
   });
 
-  it('allows only one concurrent redemption of a code', async () => {
-    redis.getDel
-      .mockResolvedValueOnce(JSON.stringify(payload))
-      .mockResolvedValueOnce(null);
+  it('replays a completed exchange without creating a second credential', async () => {
+    const first = await service.exchange(exchangeCode, '127.0.0.1');
+    const receipt = JSON.stringify(first);
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === receiptKey ? receipt : null
+    ));
 
-    const results = await Promise.allSettled([
+    await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toEqual(first);
+
+    expect(agents.createCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes concurrent exchange attempts and returns the same receipt', async () => {
+    jest.useRealTimers();
+    let locked = false;
+    let receipt: string | null = null;
+    redis.setOnce.mockImplementation(async (key: string) => {
+      if (!key.startsWith('local-sync:install-lock:')) return true;
+      if (locked) return false;
+      locked = true;
+      return true;
+    });
+    redis.getStrict.mockImplementation(async (key: string) => {
+      if (key === receiptKey) return receipt;
+      if (key === installationKey) return JSON.stringify(payload);
+      return null;
+    });
+    redis.setStrict.mockImplementation(async (key: string, value: string) => {
+      if (key === receiptKey) receipt = value;
+    });
+    redis.deleteStrict.mockImplementation(async (key: string) => {
+      if (key.startsWith('local-sync:install-lock:')) locked = false;
+      return 1;
+    });
+
+    const [first, second] = await Promise.all([
       service.exchange(exchangeCode, '127.0.0.1'),
       service.exchange(exchangeCode, '127.0.0.1'),
     ]);
 
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(second).toEqual(first);
     expect(agents.createCredential).toHaveBeenCalledTimes(1);
   });
 
-  it.each([null, JSON.stringify({ ...payload, expiresAt: '2029-12-31T23:59:59.000Z' })])(
-    'rejects expired or already-used installation state %p',
-    async (stored) => {
-      redis.getDel.mockResolvedValue(stored);
+  it('invalidates the exchange receipt after the installation credential is revoked', async () => {
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === 'local-sync:credential-receipt:credential-1' ? payload.installationId : null
+    ));
 
-      await expect(service.exchange(exchangeCode, '127.0.0.1'))
-        .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
-      expect(agents.createCredential).not.toHaveBeenCalled();
-    },
-  );
+    await service.revokeCurrentCredential('owner-1', 'agent-1', 'credential-1');
+
+    expect(redis.deleteStrict).toHaveBeenCalledWith(receiptKey);
+    expect(redis.deleteStrict).toHaveBeenCalledWith('local-sync:credential-receipt:credential-1');
+  });
+
+  it('rejects an unknown or already-used code without a receipt', async () => {
+    redis.getStrict.mockResolvedValue(null);
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
+    expect(agents.createCredential).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes an expired installation code', async () => {
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey
+        ? JSON.stringify({ ...payload, expiresAt: '2029-12-31T23:59:59.000Z' })
+        : null
+    ));
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_EXPIRED' });
+    expect(agents.createCredential).not.toHaveBeenCalled();
+  });
 
   it('rejects a payload whose plugin version is no longer supported', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify({ ...payload, pluginVersion: '0.0.9' }));
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey ? JSON.stringify({ ...payload, pluginVersion: '0.0.9' }) : null
+    ));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
@@ -263,7 +327,6 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it.each(['paused', 'revoked'])('rejects a %s Agent after consuming the code', async (status) => {
-    redis.getDel.mockResolvedValue(JSON.stringify(payload));
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status });
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
@@ -272,7 +335,9 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('rejects invalid stored scopes before creating a credential', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify({ ...payload, scopes: ['review:decide'] }));
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey ? JSON.stringify({ ...payload, scopes: ['review:decide'] }) : null
+    ));
     agents.normalizeCredentialScopes.mockImplementation(() => {
       throw new BadRequestException('invalid scopes');
     });
@@ -287,12 +352,10 @@ describe('LocalSyncInstallationService', () => {
 
     await expect(service.exchange(exchangeCode, '192.0.2.10'))
       .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
-    expect(redis.getDel).not.toHaveBeenCalled();
+    expect(redis.getStrict).not.toHaveBeenCalled();
   });
 
   it('records credential ID in audit metadata without recording the API key', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify(payload));
-
     await service.exchange(exchangeCode, '127.0.0.1');
 
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
@@ -305,7 +368,6 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('revokes the created credential when installation audit recording fails', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify(payload));
     audit.record.mockRejectedValue(new Error('audit unavailable'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1')).rejects.toThrow('audit unavailable');
@@ -318,7 +380,6 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('does not revoke a credential when creation fails before persistence', async () => {
-    redis.getDel.mockResolvedValue(JSON.stringify(payload));
     agents.createCredential.mockRejectedValue(new Error('credential constraint violation'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))

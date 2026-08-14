@@ -94,7 +94,7 @@ async function writeJsonAtomically(path: string, value: JsonObject): Promise<voi
   }
 }
 
-function opencodeMajorVersion(runner: CommandRunner): 1 | 2 {
+export function detectOpenCodeMajorVersion(runner: CommandRunner): 1 | 2 {
   const result = run(runner, 'opencode', ['--version']);
   const match = commandOutput(result.stdout).match(/(?:^|\s)v?(\d+)\./);
   const major = match ? Number(match[1]) : NaN;
@@ -152,7 +152,15 @@ function withoutOpenCodeEntry(config: JsonObject, name: string, major: 1 | 2): J
 export function detectClient(requested: AgentClient | 'auto', runner: CommandRunner): AgentClient {
   if (requested !== 'auto') return requested;
 
-  const installed = CLIENTS.filter((client) => {
+  const installed = detectInstalledClients(runner);
+
+  if (installed.length === 1) return installed[0];
+  if (installed.length === 0) throw new Error('No supported Agent client is installed');
+  throw new Error(`More than one supported Agent client is installed. Choose one of: ${installed.join(', ')}`);
+}
+
+export function detectInstalledClients(runner: CommandRunner): AgentClient[] {
+  return CLIENTS.filter((client) => {
     try {
       const result = runner(client, ['--version'], COMMAND_OPTIONS);
       return !result.error && result.status === 0;
@@ -160,10 +168,6 @@ export function detectClient(requested: AgentClient | 'auto', runner: CommandRun
       return false;
     }
   });
-
-  if (installed.length === 1) return installed[0];
-  if (installed.length === 0) throw new Error('No supported Agent client is installed');
-  throw new Error(`More than one supported Agent client is installed. Choose one of: ${installed.join(', ')}`);
 }
 
 export async function installSkill(home: string, skillSource: string, client: AgentClient): Promise<string[]> {
@@ -205,7 +209,7 @@ export async function registerMcp(
     return;
   }
 
-  const major = opencodeMajorVersion(runner);
+  const major = detectOpenCodeMajorVersion(runner);
   const path = opencodePath(home);
   const { config } = await readOpenCodeConfig(path);
   const entries = mcpEntries(mcpContainer(config, major), major);
@@ -238,7 +242,7 @@ export async function removeMcp(
   const { exists, config } = await readOpenCodeConfig(path);
   if (!exists) return;
 
-  const major = opencodeMajorVersion(runner);
+  const major = detectOpenCodeMajorVersion(runner);
   const next = withoutOpenCodeEntry(config, name, major);
   if (next !== undefined) await writeJsonAtomically(path, next);
 }

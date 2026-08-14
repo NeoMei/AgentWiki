@@ -15,7 +15,8 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
   return {
     calls,
     deps: {
-      detectClient: vi.fn(() => { calls.push('detect-client'); return 'codex' as const; }),
+      detectClients: vi.fn(() => { calls.push('detect-client'); return ['codex'] as Array<'codex'>; }),
+      selectClient: vi.fn(async () => 'codex' as const),
       analyzeConfig: vi.fn(async () => {
         calls.push('analyze-config');
         return { hash: 'config-hash', oldEntries: ['agentwiki-old'], hasConflict: false };
@@ -86,6 +87,41 @@ describe('runAttachment', () => {
     expect(test.deps.fail).not.toHaveBeenCalled();
   });
 
+  it('requests a client choice when auto detects more than one supported client', async () => {
+    const test = fixture();
+    vi.mocked(test.deps.detectClients).mockReturnValue(['codex', 'claude']);
+    vi.mocked(test.deps.selectClient).mockImplementation(async (candidates) => {
+      expect(candidates).toEqual(['codex', 'claude']);
+      return 'claude';
+    });
+    vi.mocked(test.deps.analyzeConfig).mockResolvedValue({
+      hash: 'config-hash', oldEntries: [], hasConflict: false,
+    });
+    vi.mocked(test.deps.confirm).mockResolvedValue(true);
+    vi.mocked(test.deps.install).mockResolvedValue({
+      connectionId: 'connection-1',
+      configBackupPath: '/tmp/config-backup',
+      manifestHash: 'manifest-hash',
+    });
+
+    const result = await runAttachment({ ...input(), requestedClient: 'auto' }, test.deps);
+
+    expect(test.deps.selectClient).toHaveBeenCalledOnce();
+    expect(test.deps.analyzeConfig).toHaveBeenCalledWith('claude', input().home, input().serverBaseUrl);
+    expect(result.client).toBe('claude');
+  });
+
+  it('derives the same local connection id when the same code is replayed', async () => {
+    const test = fixture();
+
+    await runAttachment(input(), test.deps);
+    await runAttachment(input(), test.deps);
+
+    const ids = vi.mocked(test.deps.install).mock.calls.map(([installInput]) => installInput.connectionId);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
   it('does not exchange the one-time code when the user denies the migration', async () => {
     const test = fixture(false);
 
@@ -113,13 +149,13 @@ describe('runAttachment', () => {
 
   it('emits a redacted terminal failure when installation fails', async () => {
     const test = fixture();
-    vi.mocked(test.deps.install).mockRejectedValue(new Error('rejected agk_attach_secret'));
+    vi.mocked(test.deps.install).mockRejectedValue(new Error('rejected agk_attach_secret for AW-ABCD-EFGH'));
 
     await expect(runAttachment(input(), test.deps)).rejects.toThrow('agk_attach_secret');
 
     expect(test.deps.fail).toHaveBeenCalledWith({
       code: 'SYNC_FAILED',
-      message: 'rejected [REDACTED]',
+      message: 'rejected [REDACTED] for [REDACTED]',
       retryable: false,
     });
     expect(test.deps.close).toHaveBeenCalledOnce();

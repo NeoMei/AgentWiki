@@ -171,17 +171,17 @@ See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete
   metadata, and the locally stored credential. The credential is written under
   `~/.agentwiki/` with owner-only permissions.
 - **Sent only after confirmation:** the prepared knowledge envelope, its relative paths
-  and provenance, and the target Space selection. `scan` and preview generation do not
-  upload data; `sync --confirm` is the upload step.
+  and provenance, and the target Space selection. `knowledge_prepare` stays local;
+  `knowledge_confirm_and_sync` is the confirmed upload step.
 - **Remote model boundary:** Local Agent may use its own model provider during preparation. A non-local provider is disclosed and requires explicit consent before local content can be processed through it. Do not include secrets in source material or in a codebase-memory summary.
 
 ### Supported Agents
 
 | Agent | Connection method | Status |
 | --- | --- | --- |
-| Codex | User MCP entry installed with `codex mcp add` | Supported |
-| Claude Code | User MCP entry installed with `claude mcp add --scope user` | Supported |
-| OpenCode | User MCP entry in its user configuration | Supported |
+| Codex | Atomic user config entry named `agentwiki` | Supported |
+| Claude Code | Atomic `~/.claude.json` entry named `agentwiki` | Supported |
+| OpenCode | Version-aware user config entry named `agentwiki` | Supported |
 | Other MCP-compatible Agents | Install the package's single `agentwiki` stdio gateway | Compatible; validate with `doctor` |
 
 ## Connecting an Agent

@@ -2,7 +2,7 @@
  * Onboarding installer plan: the single gateway command, preflight result,
  * and installation contract.
  *
- * The only command written to any client configuration is the pinned 0.3.0
+ * The only command written to any client configuration is the pinned release
  * gateway entry. It never carries a remote URL, installation code, or API key.
  */
 import { createHash } from 'node:crypto';
@@ -68,7 +68,14 @@ export function looksLikeAgentWikiEntry(
   try {
     const base = serverBaseUrl.replace(/\/+$/, '');
     const endpoint = new URL(`${base}/mcp`).toString().replace(/\/$/, '').toLowerCase();
-    return lower.includes(endpoint);
+    const urls = commandText.match(/https?:\/\/[^\s"'\\]+/gi) ?? [];
+    return urls.some((value) => {
+      try {
+        return new URL(value).toString().replace(/\/$/, '').toLowerCase() === endpoint;
+      } catch {
+        return false;
+      }
+    });
   } catch {
     return false;
   }

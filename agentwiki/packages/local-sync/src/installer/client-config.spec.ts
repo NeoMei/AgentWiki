@@ -44,6 +44,20 @@ describe('readRawConfig', () => {
 });
 
 describe('analyzeConfig', () => {
+  it.each(['claude', 'opencode'] as const)('rejects malformed %s JSON before confirmation', async (client) => {
+    const home = await freshHome();
+    await seedConfig(client, home, '{broken');
+
+    await expect(analyzeConfig(client, home)).rejects.toThrow('CONFIG_NOT_WRITABLE');
+  });
+
+  it('rejects invalid JSON config containers before confirmation', async () => {
+    const home = await freshHome();
+    await seedConfig('claude', home, JSON.stringify({ mcpServers: [] }));
+
+    await expect(analyzeConfig('claude', home)).rejects.toThrow('CONFIG_NOT_WRITABLE');
+  });
+
   it('detects old AgentWiki entries in claude settings', async () => {
     const home = await freshHome();
     await seedConfig('claude', home, JSON.stringify({
@@ -83,6 +97,21 @@ describe('analyzeConfig', () => {
     expect(analysis.oldEntries).toEqual(['agentwiki-a1b2c3d4']);
     expect(analysis.oldEntries).not.toContain('my-agentwiki-helper');
   });
+
+  it('analyzes OpenCode 1.x top-level MCP entries', async () => {
+    const home = await freshHome();
+    await seedConfig('opencode', home, JSON.stringify({
+      mcp: {
+        'agentwiki-local': { type: 'local', command: ['npx', 'agentwiki-local-sync', 'mcp'] },
+        unrelated: { type: 'local', command: ['other-tool'] },
+      },
+    }));
+
+    const analysis = await analyzeConfig('opencode', home);
+
+    expect(analysis.oldEntries).toEqual(['agentwiki-local']);
+    expect(analysis.hasConflict).toBe(false);
+  });
 });
 
 describe('installGatewayEntry', () => {
@@ -121,19 +150,38 @@ describe('installGatewayEntry', () => {
     const home = await freshHome();
     const path = clientConfigPath('opencode', home);
     const { hash } = await analyzeConfig('opencode', home);
-    await installGatewayEntry('opencode', 'conn-42', hash, home);
+    await installGatewayEntry('opencode', 'conn-42', hash, home, undefined, 1);
    const config = JSON.parse(await readFile(path, 'utf8')) as {
-      mcp: { servers: Record<string, { command: string; args: string[] }> };
+      mcp: Record<string, { type: string; command: string[]; enabled: boolean; timeout: number }>;
    };
-    const entry = config.mcp.servers[GATEWAY_MCP_NAME];
-    expect(entry.command).toBe('npx');
-    expect(entry.args).toEqual([
+    const entry = config.mcp[GATEWAY_MCP_NAME];
+    expect(entry.command).toEqual([
+      'npx',
       '--yes',
       '@neomei/agentwiki-local-sync@0.3.7',
       'gateway',
       '--connection',
       'conn-42',
     ]);
+    expect(entry).toMatchObject({ type: 'local', enabled: true, timeout: 1_800_000 });
+  });
+
+  it('writes the OpenCode 2.x nested gateway shape', async () => {
+    const home = await freshHome();
+    const path = clientConfigPath('opencode', home);
+    const { hash } = await analyzeConfig('opencode', home);
+
+    await installGatewayEntry('opencode', 'conn-v2', hash, home, undefined, 2);
+
+    const config = JSON.parse(await readFile(path, 'utf8')) as {
+      mcp: { servers: Record<string, { command: string[]; disabled: boolean; timeout: { execution: number } }> };
+    };
+    expect(config.mcp.servers.agentwiki).toEqual({
+      type: 'local',
+      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.3.7', 'gateway', '--connection', 'conn-v2'],
+      disabled: false,
+      timeout: { execution: 1_800_000 },
+    });
   });
 
   it('backs up the config at 0600', async () => {
@@ -144,17 +192,18 @@ describe('installGatewayEntry', () => {
     expect(s.mode & 0o777).toBe(0o600);
   });
 
-  it('resumes an identical install and keeps rollback bound to the original config', async () => {
+  it('uses a no-op rollback when an identical gateway is already installed', async () => {
     const home = await freshHome();
     const original = JSON.stringify({ mcpServers: { unrelated: { command: ['tool'] } } });
     await seedConfig('claude', home, original);
     const originalHash = hashConfig(original);
     await installGatewayEntry('claude', 'conn-1', originalHash, home);
+    const installed = await readFile(clientConfigPath('claude', home), 'utf8');
 
     const resumed = await installGatewayEntry('claude', 'conn-1', originalHash, home);
     await resumed.rollback();
 
-    await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
+    await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(installed);
   });
 
   it('replaces the current direct MCP and preserves a similarly named helper', async () => {
@@ -225,13 +274,14 @@ describe('installGatewayEntry', () => {
 });
 
 describe('installGatewayEntry client formats', () => {
-  it('writes Codex TOML with cmd string + args array (DEF-002)', async () => {
+  it('writes Codex TOML with command string + args array', async () => {
     const home = await freshHome();
     const { hash } = await analyzeConfig('codex', home);
     await installGatewayEntry('codex', 'conn-1', hash, home);
     const raw = await readFile(clientConfigPath('codex', home), 'utf8');
     expect(raw).toContain('[mcp_servers.agentwiki]');
-    expect(raw).toMatch(/cmd = "npx"/);
+    expect(raw).toMatch(/command = "npx"/);
+    expect(raw).not.toMatch(/\ncmd =/);
     expect(raw).toMatch(/args = \[/);
     expect(raw).toContain('"--yes"');
     expect(raw).toContain('"gateway"');
@@ -253,7 +303,7 @@ describe('installGatewayEntry client formats', () => {
     ]);
   });
 
-  it('writes the Claude gateway to ~/.claude.json and cleans a legacy settings.json entry', async () => {
+  it('writes the Claude gateway to ~/.claude.json without mutating untracked legacy settings', async () => {
     const home = await freshHome();
     await mkdir(join(home, '.claude'), { recursive: true });
     await writeFile(join(home, '.claude', 'settings.json'), JSON.stringify({
@@ -274,7 +324,7 @@ describe('installGatewayEntry client formats', () => {
     const legacy = JSON.parse(await readFile(join(home, '.claude', 'settings.json'), 'utf8')) as {
       mcpServers: Record<string, unknown>;
     };
-    expect(legacy.mcpServers['agentwiki-legacy']).toBeUndefined();
+    expect(legacy.mcpServers['agentwiki-legacy']).toBeDefined();
     expect(legacy.mcpServers.other).toBeDefined();
   });
 });
@@ -284,7 +334,9 @@ describe('removeGatewayEntry', () => {
     for (const client of ['codex', 'claude', 'opencode'] as const) {
       const home = await freshHome();
       const { hash } = await analyzeConfig(client, home);
-      await installGatewayEntry(client, 'conn-x', hash, home);
+      await installGatewayEntry(
+        client, 'conn-x', hash, home, undefined, client === 'opencode' ? 1 : undefined,
+      );
 
       // Install should have added the gateway entry.
       const before = await readRawConfig(client, home);
@@ -334,5 +386,41 @@ describe('removeGatewayEntry', () => {
 
     expect(result.removed).toBe(false);
     await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
+  });
+
+  it('removes only the owned gateway and preserves legacy entries during uninstall', async () => {
+    const home = await freshHome();
+    await seedConfig('claude', home, JSON.stringify({
+      mcpServers: {
+        agentwiki: { command: 'npx', args: ['@neomei/agentwiki-local-sync@0.3.7', 'gateway'] },
+        'agentwiki-legacy': { command: 'npx', args: ['agentwiki-local-sync@0.3.6', 'mcp'] },
+      },
+    }));
+
+    await removeGatewayEntry('claude', home);
+
+    const config = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(config.mcpServers.agentwiki).toBeUndefined();
+    expect(config.mcpServers['agentwiki-legacy']).toBeDefined();
+  });
+
+  it('uninstalls an owned OpenCode 1.x gateway without removing other entries', async () => {
+    const home = await freshHome();
+    await seedConfig('opencode', home, JSON.stringify({
+      mcp: {
+        agentwiki: { type: 'local', command: ['npx', '@neomei/agentwiki-local-sync@0.3.7', 'gateway'] },
+        other: { type: 'local', command: ['other-tool'] },
+      },
+    }));
+
+    await removeGatewayEntry('opencode', home);
+
+    const config = JSON.parse(await readFile(clientConfigPath('opencode', home), 'utf8')) as {
+      mcp: Record<string, unknown>;
+    };
+    expect(config.mcp.agentwiki).toBeUndefined();
+    expect(config.mcp.other).toBeDefined();
   });
 });

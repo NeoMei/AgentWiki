@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalSyncConnection } from './config.js';
-import { AgentWikiClient } from './agentwiki-client.js';
+import { AgentWikiClient, redactSecrets } from './agentwiki-client.js';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -21,6 +21,12 @@ const connection: LocalSyncConnection = {
 };
 
 describe('AgentWikiClient', () => {
+  it('redacts API keys and one-time installation codes', () => {
+    expect(redactSecrets('agk_secret AW-ABCD-EFGH awk_other')).toBe(
+      '[REDACTED] [REDACTED] [REDACTED]',
+    );
+  });
+
   it('exchanges the short-lived code without logging the returned key', async () => {
     const request = vi.fn().mockResolvedValue(jsonResponse({
       apiKey: 'agk_secret', agentId: 'agent-1', credentialId: 'cred-1',

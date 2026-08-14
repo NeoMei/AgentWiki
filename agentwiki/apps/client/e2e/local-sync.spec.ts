@@ -81,15 +81,18 @@ test.describe('local sync enrollment card', () => {
 
     await page.goto(`/agents/${fixture.agentId}`);
     await page.getByRole('button', { name: /access|访问/i }).click();
-    await page.getByRole('button', { name: /generate local sync instructions|生成本地同步接入指令/i }).click();
+    await page.getByRole('button', { name: /generate unified gateway instructions|生成统一网关接入指令/i }).click();
 
     const instructions = page.locator('pre');
-    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.2.9');
+    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.3.7');
+    await expect(instructions).toContainText('onboard --server');
+    await expect(instructions).toContainText('--code AW-');
+    await expect(instructions).not.toContainText('connect --server');
     await expect(instructions).toContainText('AW-');
     await expect(instructions).not.toContainText('agk_');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.2.9');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.3.7');
     await expect(page.getByText(/expires in|后过期/i)).toBeVisible();
   });
 });

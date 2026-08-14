@@ -166,4 +166,25 @@ describe('installExchangedGateway', () => {
     expect(fixture.calls).toContain('revoke-credential');
     expect(fixture.calls).toContain('restore-state');
   });
+
+  it('reports the credential id when rollback cannot revoke it', async () => {
+    const fixture = dependencies(false);
+    vi.mocked(fixture.deps.revokeCredential).mockRejectedValue(new Error('network unavailable'));
+
+    await expect(installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps)).rejects.toMatchObject({
+      code: 'SYNC_FAILED',
+      nextAction: expect.stringContaining('credential-1'),
+      message: expect.stringContaining('credential-1'),
+    });
+
+    expect(fixture.calls).toContain('restore-state');
+  });
 });

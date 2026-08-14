@@ -11,7 +11,12 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentClient } from '../agent-clients.js';
+import { spawnSync } from 'node:child_process';
+import {
+  detectOpenCodeMajorVersion,
+  OPENCODE_MCP_EXECUTION_TIMEOUT_MS,
+  type AgentClient,
+} from '../agent-clients.js';
 import { GATEWAY_MCP_NAME, gatewayCommand, hashConfig, looksLikeAgentWikiEntry } from './plan.js';
 
 export interface ClientConfigPaths {
@@ -32,23 +37,6 @@ export function clientConfigPath(client: AgentClient, home: string = homedir()):
     case 'opencode':
       return join(home, '.config', 'opencode', 'opencode.json');
   }
-}
-
-/** Legacy installs wrote the Claude gateway into ~/.claude/settings.json. */
-function legacyClaudeSettingsPath(home: string): string {
-  return join(home, '.claude', 'settings.json');
-}
-
-/** Best-effort removal of a legacy Claude gateway entry from settings.json. */
-async function cleanupLegacyClaudeSettings(home: string): Promise<void> {
-  let current: string;
-  try {
-    current = await readFile(legacyClaudeSettingsPath(home), 'utf8');
-  } catch {
-    return;
-  }
-  const next = removeJsonGateway(current, ['mcpServers']);
-  if (next !== null) await writeAtomically(legacyClaudeSettingsPath(home), next, 0o600);
 }
 
 export function backupPathFor(client: AgentClient, home: string = homedir()): string {
@@ -94,6 +82,7 @@ export async function installGatewayEntry(
   expectedHash: string,
   home: string = homedir(),
   serverBaseUrl?: string,
+  openCodeMajor?: 1 | 2,
 ): Promise<{ backupPath: string; rollback: () => Promise<void> }> {
   const configPath = clientConfigPath(client, home);
 
@@ -104,16 +93,21 @@ export async function installGatewayEntry(
     if (current !== null && hasExactGatewayEntry(client, current, connectionId)) {
       const originalBackup = await findOriginalBackup(client, home);
       if (originalBackup) {
-        return { backupPath: originalBackup, rollback: rollbackFromBackup(configPath, originalBackup) };
+        return { backupPath: originalBackup, rollback: async () => undefined };
       }
     }
     throw new Error('CONFIG_CONFLICT: client configuration changed since preflight');
   }
 
   const backup = await backupConfig(client, home);
-  const next = buildConfigWithGateway(client, current, connectionId, serverBaseUrl);
+  const next = buildConfigWithGateway(
+    client,
+    current,
+    connectionId,
+    serverBaseUrl,
+    openCodeMajor ?? (client === 'opencode' ? installedOpenCodeMajor() : undefined),
+  );
   await writeAtomically(configPath, next, client === 'opencode' ? 0o600 : 0o600);
-  if (client === 'claude') await cleanupLegacyClaudeSettings(home).catch(() => undefined);
 
   return {
     backupPath: backup,
@@ -137,7 +131,6 @@ export async function removeGatewayEntry(
   const next = removeGatewayFromConfig(client, current);
   if (next === null) return { removed: false };
   await writeAtomically(configPath, next, 0o600);
-  if (client === 'claude') await cleanupLegacyClaudeSettings(home).catch(() => undefined);
   return { removed: true };
 }
 
@@ -146,9 +139,9 @@ function removeGatewayFromConfig(client: AgentClient, current: string): string |
     case 'codex':
       return removeTomlGateway(current);
     case 'claude':
-      return removeJsonGateway(current, ['mcpServers']);
+      return removeOwnedJsonGateway(current, ['mcpServers']);
     case 'opencode':
-      return removeJsonGateway(current, ['mcp', 'servers']);
+      return removeOwnedOpenCodeGateway(current);
   }
 }
 
@@ -158,7 +151,7 @@ function removeTomlGateway(current: string): string | null {
   ));
 }
 
-function removeJsonGateway(current: string, path: string[]): string | null {
+function removeOwnedJsonGateway(current: string, path: string[]): string | null {
   let config: Record<string, unknown>;
   try {
     config = JSON.parse(current) as Record<string, unknown>;
@@ -174,13 +167,10 @@ function removeJsonGateway(current: string, path: string[]): string | null {
   const servers = container[path[path.length - 1]] as Record<string, unknown> | undefined;
   if (!servers || typeof servers !== 'object') return null;
   let removed = false;
-  for (const key of [...Object.keys(servers)]) {
-    const text = JSON.stringify(servers[key]);
-    const ownedGateway = key === GATEWAY_MCP_NAME && text.toLowerCase().includes('agentwiki-local-sync');
-    if (ownedGateway || looksLikeAgentWikiEntry(key, text)) {
-      delete servers[key];
-      removed = true;
-    }
+  const text = JSON.stringify(servers[GATEWAY_MCP_NAME]) ?? '';
+  if (text.toLowerCase().includes('agentwiki-local-sync')) {
+    delete servers[GATEWAY_MCP_NAME];
+    removed = true;
   }
   if (!removed) return null;
   return JSON.stringify(config, null, 2) + '\n';
@@ -222,6 +212,7 @@ function buildConfigWithGateway(
   current: string | null,
   connectionId: string,
   serverBaseUrl?: string,
+  openCodeMajor?: 1 | 2,
 ): string {
   const command = gatewayCommand(connectionId);
   switch (client) {
@@ -230,7 +221,8 @@ function buildConfigWithGateway(
     case 'claude':
       return buildJson(current, command, serverBaseUrl);
     case 'opencode':
-      return buildOpenCodeJson(current, command, serverBaseUrl);
+      if (openCodeMajor === undefined) throw new Error('OpenCode major version is required');
+      return buildOpenCodeJson(current, command, serverBaseUrl, openCodeMajor);
   }
 }
 
@@ -244,7 +236,7 @@ function buildToml(current: string | null, command: string[], serverBaseUrl?: st
  const base = (filtered ?? text).trimEnd();
   const [cmd, ...args] = command;
   const argsStr = args.map((a) => `"${escapeTomlString(a)}"`).join(', ');
-  return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
+  return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncommand = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
 }
 
 function buildJson(current: string | null, command: string[], serverBaseUrl?: string): string {
@@ -252,11 +244,17 @@ function buildJson(current: string | null, command: string[], serverBaseUrl?: st
   if (current) {
     try {
       config = JSON.parse(current) as Record<string, unknown>;
-    } catch {
-      config = {};
+    } catch (error) {
+      throw new Error('CONFIG_NOT_WRITABLE: Claude configuration is not valid JSON', { cause: error });
     }
   }
-  const mcpServers = ((config.mcpServers as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  if (!isJsonObject(config)) {
+    throw new Error('CONFIG_NOT_WRITABLE: Claude configuration must be a JSON object');
+  }
+  if (config.mcpServers !== undefined && !isJsonObject(config.mcpServers)) {
+    throw new Error('CONFIG_NOT_WRITABLE: Claude mcpServers must be an object');
+  }
+  const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
   // Remove old AgentWiki entries.
   for (const key of Object.keys(mcpServers)) {
     const entry = mcpServers[key];
@@ -269,27 +267,82 @@ function buildJson(current: string | null, command: string[], serverBaseUrl?: st
   return JSON.stringify(config, null, 2) + '\n';
 }
 
-function buildOpenCodeJson(current: string | null, command: string[], serverBaseUrl?: string): string {
+function buildOpenCodeJson(
+  current: string | null,
+  command: string[],
+  serverBaseUrl: string | undefined,
+  major: 1 | 2,
+): string {
   let config: Record<string, unknown> = {};
   if (current) {
     try {
       config = JSON.parse(current) as Record<string, unknown>;
-    } catch {
-      config = {};
+    } catch (error) {
+      throw new Error('CONFIG_NOT_WRITABLE: OpenCode configuration is not valid JSON', { cause: error });
     }
   }
-  const mcp = ((config.mcp as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const servers = ((mcp.servers as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  for (const key of Object.keys(servers)) {
-    const entry = servers[key];
-    const text = JSON.stringify(entry);
-    if (looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete servers[key];
+  if (!isJsonObject(config)) {
+    throw new Error('CONFIG_NOT_WRITABLE: OpenCode configuration must be a JSON object');
   }
-  const [cmd, ...args] = command;
-  servers[GATEWAY_MCP_NAME] = { type: 'local', command: cmd, args };
-  mcp.servers = servers;
-  config.mcp = mcp;
+  if (config.mcp !== undefined && !isJsonObject(config.mcp)) {
+    throw new Error('CONFIG_NOT_WRITABLE: OpenCode mcp configuration must be an object');
+  }
+  const mcp = (config.mcp ?? {}) as Record<string, unknown>;
+  if (mcp.servers !== undefined && !isJsonObject(mcp.servers)) {
+    throw new Error('CONFIG_NOT_WRITABLE: OpenCode mcp.servers configuration must be an object');
+  }
+  const v1Entries = Object.fromEntries(Object.entries(mcp).filter(([key]) => key !== 'servers'));
+  const v2Entries = { ...((mcp.servers ?? {}) as Record<string, unknown>) };
+  const entries = { ...v1Entries, ...v2Entries };
+  for (const key of Object.keys(entries)) {
+    const entry = entries[key];
+    const text = JSON.stringify(entry);
+    if (key === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete entries[key];
+  }
+  entries[GATEWAY_MCP_NAME] = {
+    type: 'local',
+    command,
+    ...(major === 1
+      ? { enabled: true, timeout: OPENCODE_MCP_EXECUTION_TIMEOUT_MS }
+      : { disabled: false, timeout: { execution: OPENCODE_MCP_EXECUTION_TIMEOUT_MS } }),
+  };
+  config.mcp = major === 1 ? entries : { servers: entries };
   return JSON.stringify(config, null, 2) + '\n';
+}
+
+function installedOpenCodeMajor(): 1 | 2 {
+  return detectOpenCodeMajorVersion((command, args, options) => (
+    spawnSync(command, args, { stdio: 'pipe', ...options })
+  ));
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function removeOwnedOpenCodeGateway(current: string): string | null {
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(current) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!isJsonObject(config.mcp)) return null;
+  const mcp = config.mcp;
+  let removed = false;
+  const direct = mcp[GATEWAY_MCP_NAME];
+  if ((JSON.stringify(direct) ?? '').toLowerCase().includes('agentwiki-local-sync')) {
+    delete mcp[GATEWAY_MCP_NAME];
+    removed = true;
+  }
+  if (isJsonObject(mcp.servers)) {
+    const nested = mcp.servers[GATEWAY_MCP_NAME];
+    if ((JSON.stringify(nested) ?? '').toLowerCase().includes('agentwiki-local-sync')) {
+      delete mcp.servers[GATEWAY_MCP_NAME];
+      removed = true;
+    }
+  }
+  return removed ? JSON.stringify(config, null, 2) + '\n' : null;
 }
 
 async function writeAtomically(path: string, contents: string, mode: 0o600): Promise<void> {
@@ -308,6 +361,25 @@ export async function analyzeConfig(
 ): Promise<{ hash: string; oldEntries: string[]; hasConflict: boolean }> {
   const raw = await readRawConfig(client, home);
   const hash = raw !== null ? hashConfig(raw) : hashConfig('');
+  if (raw !== null && client !== 'codex') {
+    try {
+      const config = JSON.parse(raw) as unknown;
+      if (!isJsonObject(config)) throw new Error('configuration root must be an object');
+      if (client === 'claude' && config.mcpServers !== undefined && !isJsonObject(config.mcpServers)) {
+        throw new Error('Claude mcpServers must be an object');
+      }
+      if (client === 'opencode') {
+        if (config.mcp !== undefined && !isJsonObject(config.mcp)) {
+          throw new Error('OpenCode mcp must be an object');
+        }
+        if (isJsonObject(config.mcp) && config.mcp.servers !== undefined && !isJsonObject(config.mcp.servers)) {
+          throw new Error('OpenCode mcp.servers must be an object');
+        }
+      }
+    } catch (error) {
+      throw new Error(`CONFIG_NOT_WRITABLE: ${client} configuration is not valid JSON`, { cause: error });
+    }
+  }
   const oldEntries: string[] = [];
   let hasConflict = false;
 
@@ -366,8 +438,12 @@ function extractEntryNames(client: AgentClient, raw: string | null): Array<[stri
   try {
     if (client === 'opencode') {
       const config = JSON.parse(raw) as Record<string, unknown>;
-      const servers = ((config.mcp as Record<string, unknown>)?.servers as Record<string, unknown>) ?? {};
-      for (const [name, value] of Object.entries(servers)) {
+      const mcp = isJsonObject(config.mcp) ? config.mcp : {};
+      const servers = isJsonObject(mcp.servers) ? mcp.servers : {};
+      for (const [name, value] of [
+        ...Object.entries(mcp).filter(([name]) => name !== 'servers'),
+        ...Object.entries(servers),
+      ]) {
         entries.push([name, JSON.stringify(value)]);
       }
     } else if (client === 'claude') {

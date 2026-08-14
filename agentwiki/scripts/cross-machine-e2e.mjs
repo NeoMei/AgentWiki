@@ -128,9 +128,9 @@ export async function runCrossMachineE2E(environment = process.env) {
       serverUrl: apiUrl,
       agentId: agent.id,
       credentialId: credential.id,
-      pluginVersion: '0.2.9',
+      pluginVersion: '0.3.7',
       client: 'codex',
-      mcpName: 'agentwiki-local',
+      mcpName: 'agentwiki',
     };
     const client = new AgentWikiClient();
     const homeA = join(tempHome, 'machine-a');

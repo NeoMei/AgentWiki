@@ -189,8 +189,21 @@ export async function installExchangedGateway(
     };
   } catch (error) {
     await rollbackConfig?.().catch(() => undefined);
-    await deps.revokeCredential(connection, input.exchange.apiKey).catch(() => undefined);
+    let revokeFailed = false;
+    try {
+      await deps.revokeCredential(connection, input.exchange.apiKey);
+    } catch {
+      revokeFailed = true;
+    }
     if (activatedState) await deps.restore(input.home, archive).catch(() => undefined);
+    if (revokeFailed) {
+      throw new OnboardingError({
+        code: 'SYNC_FAILED',
+        message: `gateway installation failed and credential ${connection.credentialId} may still be active`,
+        retryable: false,
+        nextAction: `Revoke credential ${connection.credentialId} from AgentWiki before retrying.`,
+      });
+    }
     throw error;
   }
 }

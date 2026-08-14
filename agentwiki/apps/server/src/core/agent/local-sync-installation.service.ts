@@ -23,10 +23,22 @@ interface InstallationPayload {
   issuerCredentialId?: string;
 }
 
+export interface InstallationExchangeResult {
+  apiKey: string;
+  agentId: string;
+  credentialId: string;
+  serverUrl: string;
+  pluginVersion: string;
+  scopes: string[];
+}
+
 const INSTALLATION_TTL_SECONDS = 600;
 const MAX_CODE_GENERATION_ATTEMPTS = 3;
 const EXCHANGE_RATE_LIMIT = 10;
 const EXCHANGE_RATE_WINDOW_SECONDS = 60;
+const EXCHANGE_LOCK_TTL_SECONDS = 30;
+const EXCHANGE_LOCK_ATTEMPTS = 20;
+const EXCHANGE_LOCK_WAIT_MS = 50;
 
 @Injectable()
 export class LocalSyncInstallationService {
@@ -53,8 +65,17 @@ export class LocalSyncInstallationService {
     );
   }
 
-  revokeCurrentCredential(ownerId: string, agentId: string, credentialId: string) {
-    return this.agents.revokeCredential(ownerId, agentId, credentialId);
+  async revokeCurrentCredential(ownerId: string, agentId: string, credentialId: string) {
+    const result = await this.agents.revokeCredential(ownerId, agentId, credentialId);
+    await (async () => {
+      const installationId = await this.redis.getStrict(this.credentialReceiptKey(credentialId));
+      if (!installationId) return;
+      await Promise.all([
+        this.redis.deleteStrict(this.exchangeReceiptKey(installationId)).catch(() => undefined),
+        this.redis.deleteStrict(this.credentialReceiptKey(credentialId)).catch(() => undefined),
+      ]);
+    })().catch(() => undefined);
+    return result;
   }
 
   async create(
@@ -144,22 +165,44 @@ export class LocalSyncInstallationService {
     return { success: true };
   }
 
-  async exchange(code: string, ipAddress: string): Promise<{
-    apiKey: string;
-    agentId: string;
-    credentialId: string;
-    serverUrl: string;
-    pluginVersion: string;
-    scopes: string[];
-  }> {
+  async exchange(code: string, ipAddress: string): Promise<InstallationExchangeResult> {
     await this.assertExchangeRateLimit(ipAddress);
     const installationId = this.hash(code);
-    const stored = await this.redis.getDel(this.installationKey(installationId));
+    const replay = await this.readExchangeReceipt(installationId);
+    if (replay) return replay;
+
+    const lockKey = this.exchangeLockKey(installationId);
+    let acquired = false;
+    for (let attempt = 0; attempt < EXCHANGE_LOCK_ATTEMPTS; attempt += 1) {
+      acquired = await this.redis.setOnce(lockKey, 'locked', EXCHANGE_LOCK_TTL_SECONDS);
+      if (acquired) break;
+      await new Promise((resolve) => setTimeout(resolve, EXCHANGE_LOCK_WAIT_MS));
+      const concurrentReplay = await this.readExchangeReceipt(installationId);
+      if (concurrentReplay) return concurrentReplay;
+    }
+    if (!acquired) {
+      throw new BusinessException('AUTH_RATE_LIMITED', 'Local sync code exchange is already in progress');
+    }
+
+    try {
+      const lockedReplay = await this.readExchangeReceipt(installationId);
+      if (lockedReplay) return lockedReplay;
+      return await this.exchangeLocked(installationId, ipAddress);
+    } finally {
+      await this.redis.deleteStrict(lockKey).catch(() => undefined);
+    }
+  }
+
+  private async exchangeLocked(
+    installationId: string,
+    ipAddress: string,
+  ): Promise<InstallationExchangeResult> {
+    const stored = await this.redis.getStrict(this.installationKey(installationId));
     if (!stored) throw new BusinessException('LOCAL_SYNC_CODE_INVALID');
 
     const payload = this.parsePayload(stored, installationId);
     if (new Date(payload.expiresAt).getTime() <= Date.now()) {
-      throw new BusinessException('LOCAL_SYNC_CODE_INVALID');
+      throw new BusinessException('LOCAL_SYNC_CODE_EXPIRED');
     }
     this.assertSupportedVersion(payload.pluginVersion);
     const agent = await this.agents.getOwned(payload.ownerId, payload.agentId);
@@ -193,7 +236,7 @@ export class LocalSyncInstallationService {
         },
       });
 
-      return {
+      const result: InstallationExchangeResult = {
         apiKey: credential.apiKey,
         agentId: payload.agentId,
         credentialId: credential.id,
@@ -201,13 +244,53 @@ export class LocalSyncInstallationService {
         pluginVersion: payload.pluginVersion,
         scopes,
       };
+      await this.redis.setStrict(
+        this.credentialReceiptKey(credential.id),
+        installationId,
+        INSTALLATION_TTL_SECONDS,
+      );
+      await this.redis.setStrict(
+        this.exchangeReceiptKey(installationId),
+        JSON.stringify(result),
+        INSTALLATION_TTL_SECONDS,
+      );
+      await this.redis.deleteStrict(this.installationKey(installationId)).catch(() => undefined);
+      return result;
     } catch (error) {
+      await Promise.all([
+        this.redis.deleteStrict(this.exchangeReceiptKey(installationId)).catch(() => undefined),
+        this.redis.deleteStrict(this.credentialReceiptKey(credential.id)).catch(() => undefined),
+      ]);
       try {
         await this.agents.revokeCredential(payload.ownerId, payload.agentId, credential.id);
       } catch {
         // Preserve the original audit failure after attempting cleanup.
       }
       throw error;
+    }
+  }
+
+  private async readExchangeReceipt(
+    installationId: string,
+  ): Promise<InstallationExchangeResult | null> {
+    const serialized = await this.redis.getStrict(this.exchangeReceiptKey(installationId));
+    if (!serialized) return null;
+    try {
+      const value = JSON.parse(serialized) as Record<string, unknown>;
+      if (
+        typeof value.apiKey !== 'string'
+        || typeof value.agentId !== 'string'
+        || typeof value.credentialId !== 'string'
+        || typeof value.serverUrl !== 'string'
+        || typeof value.pluginVersion !== 'string'
+        || !Array.isArray(value.scopes)
+        || value.scopes.some((scope) => typeof scope !== 'string')
+      ) {
+        throw new Error('invalid exchange receipt');
+      }
+      return value as unknown as InstallationExchangeResult;
+    } catch {
+      throw new BusinessException('LOCAL_SYNC_CODE_INVALID');
     }
   }
 
@@ -279,6 +362,18 @@ export class LocalSyncInstallationService {
 
   private installationKey(installationId: string): string {
     return `local-sync:install:${installationId}`;
+  }
+
+  private exchangeReceiptKey(installationId: string): string {
+    return `local-sync:install-receipt:${installationId}`;
+  }
+
+  private exchangeLockKey(installationId: string): string {
+    return `local-sync:install-lock:${installationId}`;
+  }
+
+  private credentialReceiptKey(credentialId: string): string {
+    return `local-sync:credential-receipt:${credentialId}`;
   }
 
   private hash(value: string): string {

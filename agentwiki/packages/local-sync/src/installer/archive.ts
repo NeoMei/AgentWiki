@@ -1,5 +1,5 @@
 /**
- * Archive legacy ~/.agentwiki state before activating a clean 0.3.0 layout.
+ * Archive legacy ~/.agentwiki state before activating the unified gateway layout.
  *
  * The archive is read-only and timestamped. Legacy children are moved (except
  * the active onboarding/ session directory), never deleted. If archiving
@@ -60,7 +60,7 @@ export async function archiveLegacyState(home: string = homedir()): Promise<Arch
   return { archivePath: dest, movedChildren: moved };
 }
 
-/** Initialize a clean 0.3.0 state layout beside the preserved onboarding dir. */
+/** Initialize a clean unified-gateway state layout beside the preserved onboarding dir. */
 export async function initCleanState(home: string = homedir()): Promise<void> {
   const root = agentwikiRoot(home);
   await mkdir(root, { recursive: true, mode: 0o700 });
