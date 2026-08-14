@@ -5,7 +5,15 @@ import { createHash } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
 import { SearchService } from '../core/search/search.service';
  import type { NormalizedKnowledgeBundle } from '../knowledge-pipeline/knowledge-bundle';
- import type { SpaceKnowledgeRevision } from '@prisma/client';
+import type { SpaceKnowledgeRevision } from '@prisma/client';
+import {
+  canonicalBytes,
+  contentHash as syncContentHash,
+  normalizeMarkdown,
+  pathKey,
+  revisionContentHash,
+  type RevisionContentManifest,
+} from '@neomei/agentwiki-sync-protocol';
 
 @Injectable()
 export class ReviewService {
@@ -619,21 +627,95 @@ export class ReviewService {
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },
-      select: { sequence: true },
+      select: { id: true, sequence: true },
     });
     const sequence = (latest?.sequence ?? 0) + 1;
-    return tx.spaceKnowledgeRevision.create({
+    const normalizedPages = [];
+    const occupiedPathKeys = new Set<string>();
+    for (const page of pages) {
+      const body = normalizeMarkdown(page.content);
+      const hash = await syncContentHash(body);
+      let path: string | undefined = page.sourcePath ?? undefined;
+      let key: string | undefined = path ? pathKey(path) : undefined;
+      if (!path || occupiedPathKeys.has(key!)) {
+        path = `pages/p-${await this.idFileKey(page.knowledgeKey)}.md`;
+      }
+      key = pathKey(path);
+      occupiedPathKeys.add(key);
+      normalizedPages.push({
+        pageId: page.knowledgeKey,
+        path,
+        pathKey: key as string,
+        title: page.title,
+        contentHash: hash,
+        body,
+        updatedAt: page.updatedAt,
+      });
+    }
+    normalizedPages.sort((a, b) => (a.pageId < b.pageId ? -1 : 1));
+    const manifest: RevisionContentManifest = {
+      protocolVersion: '1',
+      spaceId,
+      pages: normalizedPages.map((p) => ({
+        pageId: p.pageId,
+        path: p.path,
+        title: p.title,
+        contentHash: p.contentHash,
+      })),
+    };
+    const computedRevisionContentHash = normalizedPages.length === 0
+      ? 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+      : await revisionContentHash(manifest);
+    const manifestBytes = normalizedPages.length === 0 ? 0 : canonicalBytes(manifest).byteLength;
+    const revisionBodyBytes = normalizedPages.reduce(
+      (sum, p) => sum + new TextEncoder().encode(p.body).byteLength,
+      0,
+    );
+    for (const page of normalizedPages) {
+      await tx.syncPageContentRow.upsert({
+        where: { contentHash: page.contentHash },
+        create: { contentHash: page.contentHash, body: page.body, byteLength: new TextEncoder().encode(page.body).byteLength },
+        update: {},
+      });
+    }
+    const created = await tx.spaceKnowledgeRevision.create({
       data: {
         spaceId,
         sequence,
+        parentRevisionId: latest?.id ?? null,
         schemaVersion: submission.schemaVersion,
         recipeVersion: submission.recipeVersion,
         contentHash,
+        revisionContentHash: computedRevisionContentHash,
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
         delta: bundle as unknown as Prisma.InputJsonValue,
+        pageCount: BigInt(normalizedPages.length),
+        revisionBodyBytes: BigInt(revisionBodyBytes),
+        revisionManifestByteLength: BigInt(manifestBytes),
+        origin: 'change_set',
+        createdByUserId: null,
         sourceChangeSetId: changeSetId,
       },
     });
+    if (normalizedPages.length > 0) {
+      await tx.syncRevisionPageRow.createMany({
+        data: normalizedPages.map((p) => ({
+          revisionId: created.id,
+          pageId: p.pageId,
+          path: p.path,
+          pathKey: p.pathKey,
+          title: p.title,
+          contentHash: p.contentHash,
+          updatedAt: p.updatedAt,
+        })),
+      });
+    }
+    return created;
+  }
+
+  private async idFileKey(id: string): Promise<string> {
+    const { idFileKey } = await import('@neomei/agentwiki-sync-protocol');
+    return idFileKey(id);
   }
 
   private pagePathFromTitle(title: string): string {
