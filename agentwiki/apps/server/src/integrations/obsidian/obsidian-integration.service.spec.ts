@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
 import { ObsidianIntegrationService } from './obsidian-integration.service';
+import { exchangeRequestHash } from '@neomei/agentwiki-sync-protocol';
 
 describe('ObsidianIntegrationService', () => {
   const prisma = {
@@ -67,5 +68,39 @@ describe('ObsidianIntegrationService', () => {
 
     expect(result).toEqual([expect.objectContaining({ credentialId: 'cred-1', status: 'active' })]);
     expect(JSON.stringify(result)).not.toContain('credentialHash');
+  });
+
+  it('returns the same provisional metadata for an exact exchange replay', async () => {
+    const request = {
+      code: 'C'.repeat(43),
+      exchangeId: '11111111-1111-4111-8111-111111111111',
+      credential: 'D'.repeat(43),
+      deviceId: '22222222-2222-4222-8222-222222222222',
+      deviceName: 'Mac',
+      vaultId: '33333333-3333-4333-8333-333333333333',
+      pluginVersion: '1.0.0',
+      supportedProtocolVersions: ['1'] as [string, ...string[]],
+    };
+    const hash = await exchangeRequestHash(request);
+    const installation = {
+      id: 'install-1',
+      status: 'exchanged',
+      exchangeId: request.exchangeId,
+      requestHash: hash,
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      user: { id: 'user-1', name: 'User', deletedAt: null, lockedAt: null, type: 'human' },
+    };
+    const credential = {
+      id: 'cred-1',
+      provisionalExpiresAt: new Date('2030-01-01T00:10:00.000Z'),
+    };
+    prisma.obsidianInstallation.findUnique.mockResolvedValue(installation);
+    prisma.humanDeviceCredential.findFirst.mockResolvedValue(credential);
+    crypto.installationCodeHash.mockImplementation(() => 'codeHash:C');
+
+    const result = await service.exchange(request as any, '1.2.3.4');
+
+    expect(result.credentialId).toBe('cred-1');
+    expect(result.credentialStatus).toBe('provisional');
   });
 });
