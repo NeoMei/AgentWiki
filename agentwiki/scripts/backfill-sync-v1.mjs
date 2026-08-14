@@ -277,7 +277,9 @@ async function main() {
   const prisma = prismaClient();
   try {
     const batchId = crypto.randomUUID();
-    const spaces = await prisma.space.findMany({ where: { deletedAt: null }, select: { id: true } });
+    // Release B constrains the whole Page table, including pages retained under
+    // soft-deleted spaces, so every persisted space must participate.
+    const spaces = await prisma.space.findMany({ select: { id: true } });
     for (const space of spaces) {
       await backfillSpace(prisma, space.id, batchId);
     }

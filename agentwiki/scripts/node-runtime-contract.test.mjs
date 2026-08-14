@@ -111,6 +111,8 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.match(backfill, /const computedRevisionContentHash\s*=/);
   assert.match(backfill, /if \(revision\.revisionContentHash\)/);
   assert.match(backfill, /migrationBatchId: `\$\{batchId\}:\$\{revision\.id\}`/);
+  assert.doesNotMatch(backfill, /space\.findMany\(\{\s*where:\s*\{\s*deletedAt:\s*null/);
+  assert.match(backfill, /space\.findMany\(\{\s*select:\s*\{\s*id:\s*true\s*\}\s*\}\)/);
   assert.match(backfill, /FROM "Page"/);
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
 });
