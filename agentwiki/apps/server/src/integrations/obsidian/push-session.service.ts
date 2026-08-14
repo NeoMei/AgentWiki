@@ -136,7 +136,8 @@ export class PushSessionService {
           receivedBatchCount: session.receivedBatchCount,
         };
       }
-      const computedHash = await batchHash(batch);
+      const { batchHash: _sentHash, ...batchWithoutHash } = batch;
+      const computedHash = await batchHash(batchWithoutHash);
       if (computedHash !== batch.batchHash) {
         throw new SyncApiException('PAYLOAD_INVALID', 'Batch hash does not match its contents');
       }

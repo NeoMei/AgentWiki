@@ -74,6 +74,7 @@ export class ObsidianIntegrationController {
   }
 
   @Post('credentials/current/activate')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(HumanDeviceGuard)
   async activate(
     @Body() body: unknown,

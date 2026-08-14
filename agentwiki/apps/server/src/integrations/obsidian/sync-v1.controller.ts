@@ -245,6 +245,7 @@ export class SyncV1Controller {
   }
 
   @Post('spaces/:spaceId/push-sessions/:sessionId/finalize')
+  @HttpCode(HttpStatus.OK)
   async finalize(
     @Param('spaceId') spaceId: string,
     @Param('sessionId') sessionId: string,
