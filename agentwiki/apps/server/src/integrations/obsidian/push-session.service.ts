@@ -269,12 +269,12 @@ export class PushSessionService {
         return result;
       }
 
+      const applied = await this.applyPageChanges(tx, spaceId, principal.userId, changes);
       const revision = await this.writer.advance(tx, spaceId, changes, {
         origin: 'obsidian_sync',
         createdByUserId: principal.userId,
         humanDeviceCredentialId: principal.credentialId,
       });
-      const applied = await this.applyPageChanges(tx, spaceId, principal.userId, changes);
       const changeSet = await tx.changeSet.create({
         data: {
           title: 'Obsidian sync',

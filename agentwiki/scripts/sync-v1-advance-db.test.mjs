@@ -78,6 +78,15 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
       assert.equal(delta.length, 1);
       assert.equal(delta[0].operation, 'archive');
       assert.equal(delta[0].previousPath, 'a.md');
+
+      // Sidecar, page extra, and body blob must be written so the legacy DTO
+      // remains synthesizable after snapshot/delta become null in Release B.
+      const rev1Extras = await prisma.legacyRevisionPageExtra.findMany({ where: { revisionId: rev1.revisionId }, orderBy: { ordinal: 'asc' } });
+      assert.equal(rev1Extras.length, 2);
+      const rev2Extras = await prisma.legacyRevisionPageExtra.findMany({ where: { revisionId: rev2.revisionId }, orderBy: { ordinal: 'asc' } });
+      assert.deepEqual(rev2Extras.map((e) => e.pageId), [pageB]);
+      const blob = await prisma.legacyPageBodyRow.findUnique({ where: { contentHash: rev2Extras[0].legacyBodyHash } });
+      assert.equal(blob.body, 'BB\n');
     } finally {
       await prisma.$disconnect();
     }

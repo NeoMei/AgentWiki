@@ -45,6 +45,14 @@ describe('SpaceRevisionWriterService', () => {
       syncPageContentRow: {
         upsert: jest.fn().mockResolvedValue({}),
       },
+      legacyPageBodyRow: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      legacyRevisionPageExtra: {
+        aggregate: jest.fn().mockResolvedValue({ _max: { ordinal: null } }),
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       page: {
         findMany: jest.fn().mockResolvedValue([]),
       },

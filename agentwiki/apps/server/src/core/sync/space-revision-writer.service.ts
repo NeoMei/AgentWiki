@@ -103,6 +103,16 @@ export class SpaceRevisionWriterService {
         SELECT ${created.id}, "pageId", "path", "pathKey", "title", "contentHash", "updatedAt"
         FROM "SyncRevisionPageRow" WHERE "revisionId" = ${parentRevisionId}
       `;
+      await tx.$executeRaw`
+        INSERT INTO "LegacyRevisionPageExtra" ("revisionId", "pageId", "ordinal", "extra", "legacyBodyHash")
+        SELECT ${created.id}, "pageId", "ordinal", "extra", "legacyBodyHash"
+        FROM "LegacyRevisionPageExtra" WHERE "revisionId" = ${parentRevisionId}
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "LegacyRevisionSidecar" ("revisionId", "sidecar")
+        SELECT ${created.id}, "sidecar"
+        FROM "LegacyRevisionSidecar" WHERE "revisionId" = ${parentRevisionId}
+      `;
       await tx.spaceKnowledgeRevision.update({
         where: { id: parentRevisionId },
         data: { supersededAt: new Date() },
@@ -127,6 +137,9 @@ export class SpaceRevisionWriterService {
         await tx.syncRevisionPageRow.deleteMany({
           where: { revisionId: created.id, pageId: change.pageId },
         });
+        await tx.legacyRevisionPageExtra.deleteMany({
+          where: { revisionId: created.id, pageId: change.pageId },
+        });
         deltaRows.push({
           ordinal: ordinal++,
           operation: 'archive',
@@ -145,6 +158,11 @@ export class SpaceRevisionWriterService {
           body,
           byteLength: new TextEncoder().encode(body).byteLength,
         },
+        update: {},
+      });
+      await tx.legacyPageBodyRow.upsert({
+        where: { contentHash: hash },
+        create: { contentHash: hash, body },
         update: {},
       });
       const prior = await tx.syncRevisionPageRow.findUnique({
@@ -168,6 +186,45 @@ export class SpaceRevisionWriterService {
           title: change.title,
           contentHash: hash,
           updatedAt: new Date(),
+        },
+      });
+      const nextOrdinalAgg = await tx.legacyRevisionPageExtra.aggregate({
+        where: { revisionId: created.id },
+        _max: { ordinal: true },
+      });
+      const legacyOrdinal = (nextOrdinalAgg._max.ordinal ?? -1) + 1;
+      await tx.legacyRevisionPageExtra.upsert({
+        where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
+        create: {
+          revisionId: created.id,
+          pageId: change.pageId,
+          ordinal: legacyOrdinal,
+          legacyBodyHash: hash,
+          extra: {
+            spaceId,
+            title: change.title ?? '',
+            order: legacyOrdinal,
+            metadata: null,
+            artifactIds: [],
+            legacyBodyHash: hash,
+            contentHash: hash,
+            path: change.path ?? '',
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        update: {
+          legacyBodyHash: hash,
+          extra: {
+            spaceId,
+            title: change.title ?? undefined,
+            order: legacyOrdinal,
+            metadata: null,
+            artifactIds: [],
+            legacyBodyHash: hash,
+            contentHash: hash,
+            path: change.path ?? undefined,
+            updatedAt: new Date().toISOString(),
+          },
         },
       });
       deltaRows.push({
