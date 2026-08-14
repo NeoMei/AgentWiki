@@ -33,5 +33,6 @@
 - 补充 revision retention cleanup、instance rotate 命令、exchange 限流、真实数据库迁移集成测试。
 - 多轮审查补齐（汇总）：finalize 角色重检、archive 删搜索索引、revert/无 submission page changeset/memory-relation-only changeset 推进 revision、Page 迁移与整空间预检、词法索引同事务、blob GC 与定时维护、deployment seed 启动门禁、session 保留期删除、provisional 过期/撤销区分、sync 错误 envelope 原样返回、changeCount=0 校验、Snapshot/Delta response 字节预算。
 - 协议包 `@neomei/agentwiki-sync-protocol@0.1.0` 已发布到 npm，`npm install` 验证导出符号完整；主仓 server 已通过 `workspace:*` 依赖该包。
-- 全量 server 测试 497 通过；协议包 22 测试通过（含 3.5 fixture 公开入口断言）；typecheck/build 通过；3 个真实 PostgreSQL 集成测试通过（迁移非空、A→B→A 三 revision、Release B 后 legacy DTO 合成）。
-- 尚未完成：插件仓库从本地协议副本切换到已发布包（跨仓），以及需要真实运行服务的并发/故障注入/性能端到端测试（5000 页 100MiB、并发 finalize、故障注入回滚、local-sync 逐字段等价回归）。
+- 统一 revision 写入器改为 INSERT…SELECT 复制父 rows + 正文按需 upsert + SQL 聚合指标，不再把整个 Space 读入 Node 内存（满足契约 5.1 与验收 12 的有界内存要求），真实 advance 集成测试验证。
+- 全量 server 测试 497 通过；协议包 22 测试通过（含 3.5 fixture 公开入口断言）；typecheck/build 通过；6 个真实 PostgreSQL 集成测试通过（迁移非空、A→B→A、legacy DTO 合成、并发 pageId 唯一、并发 session 幂等唯一、真实 advance 复制/归档/指标）。
+- 尚未完成：插件仓库从本地协议副本切换到已发布包（跨仓），以及需要真实运行服务的并发 finalize/故障注入/5000 页性能端到端（本会话已覆盖 DB 级唯一性收敛，但 HTTP 并发 finalize 的故障注入需运行中服务）。
