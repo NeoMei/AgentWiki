@@ -4,7 +4,7 @@
 
 -- Drop the legacy (spaceId, contentHash) unique constraint so A -> B -> A is
 -- still represented by three distinct revisions.
-ALTER TABLE "SpaceKnowledgeRevision" DROP CONSTRAINT IF EXISTS "SpaceKnowledgeRevision_spaceId_contentHash_key";
+DROP INDEX IF EXISTS "SpaceKnowledgeRevision_spaceId_contentHash_key";
 
 -- Keep a plain index for lookups without enforcing identity.
 CREATE INDEX IF NOT EXISTS "SpaceKnowledgeRevision_spaceId_contentHash_idx" ON "SpaceKnowledgeRevision"("spaceId", "contentHash");
@@ -32,7 +32,7 @@ ALTER TABLE "Page" ADD CONSTRAINT "Page_spaceId_syncPathKey_key" UNIQUE ("spaceI
 ALTER TABLE "Page" ADD CONSTRAINT "Page_knowledgeKey_key" UNIQUE ("knowledgeKey");
 
 -- The old (spaceId, knowledgeKey) unique is now redundant with the global one.
-ALTER TABLE "Page" DROP CONSTRAINT IF EXISTS "Page_spaceId_knowledgeKey_key";
+DROP INDEX IF EXISTS "Page_spaceId_knowledgeKey_key";
 
 -- NOTE: The bulk UPDATE that clears historical legacy JSON is a separate
 -- operations step, run only after normalized rows/sidecar/blob validation and

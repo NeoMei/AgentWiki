@@ -82,7 +82,7 @@ CREATE INDEX "HumanDeviceCredential_credentialFamilyId_status_idx" ON "HumanDevi
 CREATE INDEX "HumanDeviceCredential_userId_createdAt_idx" ON "HumanDeviceCredential"("userId", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "HumanDeviceCredential_credentialFamilyId_provisionalExpiresAt_idx" ON "HumanDeviceCredential"("credentialFamilyId", "provisionalExpiresAt");
+CREATE INDEX "HumanDeviceCredential_credentialFamilyId_provisionalExpires_idx" ON "HumanDeviceCredential"("credentialFamilyId", "provisionalExpiresAt");
 
 -- Partial unique indexes: at most one provisional and one active credential per family.
 CREATE UNIQUE INDEX "HumanDeviceCredential_family_provisional_unique" ON "HumanDeviceCredential"("credentialFamilyId") WHERE "status" = 'provisional';

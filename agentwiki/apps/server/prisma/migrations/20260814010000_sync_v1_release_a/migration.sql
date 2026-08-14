@@ -155,8 +155,6 @@ CREATE UNIQUE INDEX "SpaceKnowledgeRevision_spaceId_migrationBatchId_key" ON "Sp
 CREATE UNIQUE INDEX "SyncRevisionPageRow_revisionId_pathKey_key" ON "SyncRevisionPageRow"("revisionId", "pathKey");
 
 -- CreateIndex
-CREATE INDEX "SyncRevisionPageRow_revisionId_pageId_idx" ON "SyncRevisionPageRow"("revisionId", "pageId");
-
 -- CreateIndex
 CREATE UNIQUE INDEX "SyncRevisionDeltaRow_revisionId_pageId_key" ON "SyncRevisionDeltaRow"("revisionId", "pageId");
 
