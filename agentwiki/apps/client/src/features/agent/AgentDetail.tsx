@@ -5,7 +5,6 @@ import api from '../../api/client';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useLanguage } from '../../context/LanguageContext';
-import { buildAgentConnectInstructions } from './connectInstructions';
 
 const SCOPES = ['spaces:read', 'pages:read', 'pages:write', 'graph:read', 'graph:write', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read', 'review:auto-publish', 'memory:read', 'memory:write'];
 type Tab = 'overview' | 'access' | 'activity' | 'memory' | 'settings';
@@ -19,7 +18,6 @@ export const AgentDetail: React.FC = () => {
   const [tab, setTab] = useState<Tab>('overview');
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [copiedInstructions, setCopiedInstructions] = useState(false);
   const [grant, setGrant] = useState({ spaceId: '', role: 'viewer' });
   const [credential, setCredential] = useState({ name: 'Default credential', scopes: ['spaces:read', 'pages:read'] });
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +57,6 @@ export const AgentDetail: React.FC = () => {
   const createCredential = async () => {
     const response = await api.post('/agents/' + id + '/credentials', credential);
     setNewKey(response.data.apiKey);
-    setCopiedInstructions(false);
     await load();
   };
 
@@ -132,33 +129,7 @@ export const AgentDetail: React.FC = () => {
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
                 <p className="text-sm text-green-800 mb-2">{t('agent.copyKey')}</p>
                 <div className="flex gap-2"><code className="flex-1 bg-white border rounded px-2 py-1 text-xs break-all">{newKey}</code><button onClick={() => { void navigator.clipboard.writeText(newKey); setCopied(true); }} className="p-2 border bg-white rounded">{copied ? <Check size={15} /> : <Copy size={15} />}</button></div>
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-medium text-green-900">{language === 'zh-CN' ? '一键接入指令（粘贴给你的本地 Agent 即可让它自行接入）' : 'One-shot connect instructions (paste to your local agent so it connects itself)'}</p>
-                    <button
-                      onClick={() => {
-                        const text = buildAgentConnectInstructions({
-                          baseUrl: `${window.location.origin}/api`,
-                          apiKey: newKey,
-                          agentName: agent.name,
-                        }, language === 'zh-CN');
-                        void navigator.clipboard.writeText(text);
-                        setCopiedInstructions(true);
-                      }}
-                      className="flex items-center gap-1 text-xs px-2 py-1 border bg-white rounded hover:bg-gray-50"
-                    >
-                      {copiedInstructions ? <Check size={13} /> : <Copy size={13} />}
-                      {copiedInstructions
-                        ? (language === 'zh-CN' ? '已复制' : 'Copied')
-                        : (language === 'zh-CN' ? '复制接入指令' : 'Copy instructions')}
-                    </button>
-                  </div>
-                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs bg-white border rounded p-2 text-gray-700">{buildAgentConnectInstructions({
-                    baseUrl: `${window.location.origin}/api`,
-                    apiKey: newKey,
-                    agentName: agent.name,
-                  }, language === 'zh-CN')}</pre>
-                </div>
+                <p className="mt-2 text-xs text-green-800">{t('agent.apiCredentialHelp')}</p>
               </div>
             ) : null}
             <input value={credential.name} onChange={(event) => setCredential({ ...credential, name: event.target.value })} className="h-8 w-full border rounded-lg px-3 text-sm mb-3" />

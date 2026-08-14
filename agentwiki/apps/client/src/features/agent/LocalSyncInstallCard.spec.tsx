@@ -8,7 +8,7 @@ vi.mock('../../api/client', () => ({
   default: { post: vi.fn() },
 }));
 
-const instruction = '# 接入\nnpx -y @neomei/agentwiki-local-sync@0.2.0 connect --code AW-ABCD-EFGH';
+const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.3.7 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
 
 const renderCard = () => render(
   <LanguageProvider>
@@ -17,8 +17,8 @@ const renderCard = () => render(
 );
 
 const generate = async () => {
-  fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
-  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.2\.0/);
+  fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
+  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.3\.7/);
 };
 
 describe('LocalSyncInstallCard', () => {
@@ -45,17 +45,19 @@ describe('LocalSyncInstallCard', () => {
     await generate();
 
     expect(api.post).toHaveBeenCalledWith('/agents/agent-1/local-sync-installations', {
-      pluginVersion: '0.3.6',
+      pluginVersion: '0.3.7',
       scopes: ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'],
     });
     expect(screen.queryByText(/agk_/)).not.toBeInTheDocument();
+    expect(screen.getByText(/onboard --server/)).toBeInTheDocument();
+    expect(screen.queryByText(/\bconnect\b/)).not.toBeInTheDocument();
   });
 
   it('adds auto-publish only when the user opts in', async () => {
     renderCard();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '允许符合空间策略时直接发布' }));
-    fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect(vi.mocked(api.post).mock.calls[0][1]).toMatchObject({
@@ -78,7 +80,7 @@ describe('LocalSyncInstallCard', () => {
     vi.mocked(api.post).mockImplementation(() => new Promise((done) => { resolve = done; }) as any);
     renderCard();
 
-    const button = screen.getByRole('button', { name: '生成本地同步接入指令' });
+    const button = screen.getByRole('button', { name: '生成统一网关接入指令' });
     fireEvent.click(button);
 
     expect(button).toBeDisabled();
@@ -89,7 +91,7 @@ describe('LocalSyncInstallCard', () => {
     vi.mocked(api.post).mockRejectedValue({ response: { data: { message: '无法生成安装码' } } });
     renderCard();
 
-    fireEvent.click(screen.getByRole('button', { name: '生成本地同步接入指令' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
@@ -140,6 +142,6 @@ describe('LocalSyncInstallCard', () => {
     renderCard();
 
     expect(screen.getByRole('checkbox', { name: 'Allow direct publishing when space policy permits' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Generate local sync instructions' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate unified gateway instructions' })).toBeInTheDocument();
   });
 });

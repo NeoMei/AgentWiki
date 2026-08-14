@@ -84,7 +84,10 @@ describe('LocalSyncInstallationService', () => {
       serverUrl: 'https://wiki.test/api',
     }));
     expect(stored).not.toHaveProperty('code');
-    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.1.0 connect');
+    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.1.0 onboard');
+    expect(result.instructions).toContain(`--code ${result.code}`);
+    expect(result.instructions).toContain('--protocol ndjson');
+    expect(result.instructions).not.toMatch(/\bconnect\b/);
     expect(result.instructions).toContain(result.code);
     expect(result.instructions).toContain('doctor');
     expect(result.instructions).toContain('does not scan or sync');
