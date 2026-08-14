@@ -39,6 +39,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
       const responseBody = exception.getResponse();
+      if (typeof responseBody === 'object' && responseBody !== null && 'protocolVersion' in responseBody) {
+        // Sync v1 error envelope must be returned verbatim with Retry-After on 429.
+        const body = responseBody as Record<string, any>;
+        this.logger.error(
+          `[${request.method}] ${request.url} - ${statusCode}: ${body?.error?.message ?? exception.message}`,
+        );
+        const headers: Record<string, string> = {};
+        if (statusCode === HttpStatus.TOO_MANY_REQUESTS) {
+          headers['Retry-After'] = '1';
+        }
+        httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+        if (headers['Retry-After']) httpAdapter.setHeader(response, 'Retry-After', headers['Retry-After']);
+        httpAdapter.reply(response, body, statusCode);
+        return;
+      }
       if (typeof responseBody === 'string') {
         message = responseBody;
       } else if (typeof responseBody === 'object' && responseBody !== null) {
