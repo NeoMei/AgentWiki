@@ -148,32 +148,48 @@ export class SyncV1Controller {
       afterPageId = payload.lastPageId;
     }
     const page = await this.revisions.deltaPage(spaceId, from, limit, afterPageId);
-    const nextCursor = page.nextPageId
-      ? this.cursors.encode({ kind: 'delta', spaceId, revision: page.toRevision, fromRevision: fromQuery, lastPageId: page.nextPageId })
-      : null;
-    const items = await Promise.all((page.items ?? []).map(async (row) => {
+    const deltaRows = page.items ?? [];
+    const items = [];
+    let totalBytes = 0;
+    let lastPageId = page.nextPageId;
+    for (const row of deltaRows) {
+      let item;
       if (row.operation === 'archive') {
-        return { operation: 'archive' as const, pageId: row.pageId, previousPath: row.previousPath };
+        item = { operation: 'archive' as const, pageId: row.pageId, previousPath: row.previousPath };
+      } else {
+        const pageRow = await this.prisma.syncRevisionPageRow.findUnique({
+          where: { revisionId_pageId: { revisionId: page.toRevision, pageId: row.pageId } },
+          include: { content: true },
+        });
+        if (!pageRow) {
+          item = { operation: 'archive' as const, pageId: row.pageId, previousPath: '' };
+        } else {
+          item = {
+            operation: 'upsert' as const,
+            page: {
+              pageId: pageRow.pageId,
+              path: pageRow.path,
+              title: pageRow.title,
+              body: pageRow.content.body,
+              contentHash: pageRow.contentHash,
+              updatedAt: pageRow.updatedAt.toISOString(),
+            },
+          };
+        }
       }
-      const pageRow = await this.prisma.syncRevisionPageRow.findUnique({
-        where: { revisionId_pageId: { revisionId: page.toRevision, pageId: row.pageId } },
-        include: { content: true },
-      });
-      if (!pageRow) {
-        return { operation: 'archive' as const, pageId: row.pageId, previousPath: '' };
+      const estimate = item.operation === 'upsert'
+        ? item.page.body.length + item.page.title.length + item.page.contentHash.length + 128
+        : item.pageId.length + 64;
+      if (items.length > 0 && totalBytes + estimate > 4 * 1024 * 1024) {
+        lastPageId = row.pageId;
+        break;
       }
-      return {
-        operation: 'upsert' as const,
-        page: {
-          pageId: pageRow.pageId,
-          path: pageRow.path,
-          title: pageRow.title,
-          body: pageRow.content.body,
-          contentHash: pageRow.contentHash,
-          updatedAt: pageRow.updatedAt.toISOString(),
-        },
-      };
-    }));
+      items.push(item);
+      totalBytes += estimate;
+    }
+    const nextCursor = lastPageId
+      ? this.cursors.encode({ kind: 'delta', spaceId, revision: page.toRevision, fromRevision: fromQuery, lastPageId })
+      : null;
     return {
       protocolVersion: '1',
       spaceId,
