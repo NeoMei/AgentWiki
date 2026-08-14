@@ -39,6 +39,9 @@ export class PushSessionService {
     changeCount: number;
     totalBodyBytes: number;
   }) {
+    if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
+      throw new SyncApiException('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
+    }
     const existing = await this.prisma.pushSession.findUnique({
       where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
     });
