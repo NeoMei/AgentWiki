@@ -289,9 +289,22 @@ export class ObsidianIntegrationService {
   }
 
   private async expireFamilyProvisionals(tx: any, familyId: string) {
+    const now = new Date();
     await tx.humanDeviceCredential.updateMany({
-      where: { credentialFamilyId: familyId, status: 'provisional' },
-      data: { status: 'revoked', revokedAt: new Date() },
+      where: {
+        credentialFamilyId: familyId,
+        status: 'provisional',
+        provisionalExpiresAt: { lte: now },
+      },
+      data: { status: 'expired' },
+    });
+    await tx.humanDeviceCredential.updateMany({
+      where: {
+        credentialFamilyId: familyId,
+        status: 'provisional',
+        provisionalExpiresAt: { gt: now },
+      },
+      data: { status: 'revoked', revokedAt: now },
     });
   }
 
