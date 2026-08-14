@@ -26,4 +26,6 @@
 ## 当前状态
 
 - 分支 `codex/obsidian-sync-v1` 已建立。
-- 未开始实现。
+- Milestone 1 协议包 `@neomei/agentwiki-sync-protocol` 已实现并提交：canonical serialization、hash、Unicode 15.1 full case folding、normalize/parse、类型与 Schema、批次划分。
+- 21 项单元测试通过（含契约 3.5 全部固定 hash fixture）；typecheck/build 通过；dist 无 Node 内置模块或 Buffer。
+- Milestone 2 人类设备身份、Milestone 3 sync v1 与迁移尚未开始。
