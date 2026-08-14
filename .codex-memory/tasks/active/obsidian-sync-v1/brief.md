@@ -44,3 +44,4 @@
 - 新增真实 DB/HTTP 覆盖：snapshot 固定 revision、relation/memory-only 空 Delta 与后续 sequence 连续、5000→5001 SPACE_TOO_LARGE、finalize 副作用同事务、human device family partial unique、全路由无 3xx、installation hash 碰撞重试。
 - 全量回归通过：runtime 106、server 505、client 160、protocol 22、local-sync 328；typecheck/lint/`git diff --check`、API smoke、UI route smoke 均通过。
 - 53 项验收均已至少具备 run/unit/code 证据；主项目三项交付已完成当前分支实现与验证。插件仓库切换依赖已发布协议包属于跨仓后续动作。
+- 已提交并推送分支 `codex/obsidian-sync-v1`，创建 draft PR：https://github.com/NeoMei/AgentWiki/pull/5。

@@ -13,7 +13,7 @@ Agent 自助接入 0.3.6 已实现、测试、发布并完成生产验收；第�
 
 # 当前状态
 
-- 2026-08-14：Obsidian Sync v1 主项目三项交付已在分支 `codex/obsidian-sync-v1` 实现（协议包、人类设备身份、sync v1 路由与两阶段迁移），未合并 master、未发布。
+- 2026-08-14：Obsidian Sync v1 主项目三项交付已在分支 `codex/obsidian-sync-v1` 完成并推送；已创建 draft PR https://github.com/NeoMei/AgentWiki/pull/5，未合并 master、未发布生产。
 - 2026-08-12：第三方黑盒测试发现的 DEF-002（Codex/Claude mcp-registration）和 DEF-003（preview diff 统计）全部修复并验证。
 - DEF-003 在 0.3.3 修复（首次同步 preview 补全 added/modified/deleted/uploadBytes）。
 - DEF-002 Codex 分支在 0.3.5 修复（doctor spawn runner 转发 env，隔离 HOME 真正生效）。
