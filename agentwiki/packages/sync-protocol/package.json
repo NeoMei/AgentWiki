@@ -1,0 +1,37 @@
+{
+  "name": "@neomei/agentwiki-sync-protocol",
+  "version": "0.1.0",
+  "description": "Browser-compatible canonicalization, hashing, and schema primitives for AgentWiki Sync v1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.spec.d.ts",
+    "!dist/**/*.spec.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "vitest run",
+    "prepack": "pnpm build && pnpm test"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.7"
+  }
+}

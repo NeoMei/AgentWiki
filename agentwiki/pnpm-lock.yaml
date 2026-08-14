@@ -297,6 +297,19 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/sync-protocol:
+    dependencies:
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@26.1.1)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(terser@5.48.0)
+
 packages:
 
   '@adobe/css-tools@4.5.0':
