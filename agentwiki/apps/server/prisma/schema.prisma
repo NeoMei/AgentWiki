@@ -27,6 +27,7 @@ model User {
   createdSources                Source[]
   requestedRuns                 IngestRun[]
   createdChangeSets             ChangeSet[]
+  createdRevisions              SpaceKnowledgeRevision[]      @relation("RevisionCreatedByUser")
   approvals                     Approval[]
   onboardingSessions            OnboardingDeviceSession[]
   obsidianInstallations         ObsidianInstallation[]
@@ -271,6 +272,8 @@ model Page {
   sourceId              String?
   sourceVersionId       String?
   sourcePath            String?
+  syncPath              String?
+  syncPathKey           String?
 
   sourceChangeSet     ChangeSet?          @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
   lastChangeSet       ChangeSet?          @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
@@ -311,20 +314,24 @@ model Tag {
 }
 
 model PageVersion {
-  id       String  @id @default(cuid())
-  pageId   String
-  title    String
-  content  String
-  authorId String?
-  slug     String?
-  format   String?
-  parentId String?
+  id               String  @id @default(cuid())
+  pageId           String
+  title            String
+  content          String
+  authorId         String?
+  slug             String?
+  format           String?
+  parentId         String?
+  syncPath         String?
+  syncPathKey      String?
+  migrationBatchId String?
 
   page   Page? @relation(fields: [pageId], references: [id], onDelete: Cascade)
   author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
+  @@unique([pageId, migrationBatchId])
   @@index([pageId])
   @@index([authorId])
 }
@@ -491,29 +498,35 @@ model Evidence {
 }
 
 model ChangeSet {
-  id                  String                  @id @default(cuid())
-  title               String
-  status              String                  @default("draft")
-  space               Space                   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  spaceId             String
-  run                 IngestRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
-  runId               String?                 @unique
-  createdByUser       User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdByUserId     String?
-  createdByAgent      Agent?                  @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  createdByAgentId    String?
-  items               ChangeItem[]
-  approvals           Approval[]
-  knowledgeSubmission KnowledgeSubmission?    @relation("ChangeSetKnowledgeSubmission")
-  knowledgeRevision   SpaceKnowledgeRevision? @relation("ChangeSetKnowledgeRevision")
-  originPages         Page[]                  @relation("PageOriginChangeSet")
-  changedPages        Page[]                  @relation("PageLastChangeSet")
-  relations           KnowledgeRelation[]
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  reviewedAt          DateTime?
-  publishedAt         DateTime?
-  revertedAt          DateTime?
+  id                      String                  @id @default(cuid())
+  title                   String
+  status                  String                  @default("draft")
+  space                   Space                   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId                 String
+  run                     IngestRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
+  runId                   String?                 @unique
+  createdByUser           User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId         String?
+  createdByAgent          Agent?                  @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  createdByAgentId        String?
+  items                   ChangeItem[]
+  approvals               Approval[]
+  knowledgeSubmission     KnowledgeSubmission?    @relation("ChangeSetKnowledgeSubmission")
+  knowledgeRevision       SpaceKnowledgeRevision? @relation("ChangeSetKnowledgeRevision")
+  originPages             Page[]                  @relation("PageOriginChangeSet")
+  changedPages            Page[]                  @relation("PageLastChangeSet")
+  relations               KnowledgeRelation[]
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  reviewedAt              DateTime?
+  publishedAt             DateTime?
+  revertedAt              DateTime?
+  origin                  String                  @default("review")
+  humanDeviceCredentialId String?
+  confirmationHash        String?
+  baseRevisionId          String?
+
+  humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
 
   @@index([spaceId, status, createdAt])
 }
@@ -601,24 +614,36 @@ model KnowledgeSubmission {
 }
 
 model SpaceKnowledgeRevision {
-  id                String   @id @default(cuid())
-  spaceId           String
-  sequence          Int
-  parentRevisionId  String?
-  schemaVersion     String
-  recipeVersion     String
-  contentHash       String
-  snapshot          Json
-  delta             Json
-  sourceChangeSetId String?  @unique
-  createdAt         DateTime @default(now())
+  id                         String    @id @default(cuid())
+  spaceId                    String
+  sequence                   Int
+  parentRevisionId           String?
+  schemaVersion              String
+  recipeVersion              String
+  contentHash                String
+  snapshot                   Json
+  delta                      Json
+  revisionContentHash        String?
+  pageCount                  BigInt?
+  revisionBodyBytes          BigInt?
+  revisionManifestByteLength BigInt?
+  supersededAt               DateTime?
+  origin                     String?
+  createdByUserId            String?
+  humanDeviceCredentialId    String?
+  migrationBatchId           String?
+  sourceChangeSetId          String?   @unique
+  createdAt                  DateTime  @default(now())
 
-  space             Space                @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  appliedSubmission KnowledgeSubmission? @relation("AppliedKnowledgeRevision")
-  sourceChangeSet   ChangeSet?           @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  appliedSubmission     KnowledgeSubmission?   @relation("AppliedKnowledgeRevision")
+  sourceChangeSet       ChangeSet?             @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  createdByUser         User?                  @relation("RevisionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
 
   @@unique([spaceId, sequence])
   @@unique([spaceId, contentHash])
+  @@unique([spaceId, migrationBatchId])
   @@index([spaceId, createdAt])
 }
 
@@ -666,6 +691,130 @@ model OnboardingBootstrap {
   updatedAt          DateTime                @updatedAt
 
   @@unique([deviceSessionId, idempotencyKeyHash])
+}
+
+model SyncPageContentRow {
+  contentHash String @id
+  body        String
+  byteLength  Int
+
+  revisionRows SyncRevisionPageRow[]
+}
+
+model SyncRevisionPageRow {
+  revisionId  String
+  pageId      String
+  path        String
+  pathKey     String
+  title       String
+  contentHash String
+  updatedAt   DateTime
+
+  content SyncPageContentRow @relation(fields: [contentHash], references: [contentHash], onDelete: Restrict)
+
+  @@unique([revisionId, pageId])
+  @@unique([revisionId, pathKey])
+  @@index([revisionId, pageId])
+}
+
+model SyncRevisionDeltaRow {
+  revisionId   String
+  ordinal      Int
+  operation    String
+  pageId       String
+  previousPath String?
+  contentHash  String?
+
+  @@unique([revisionId, ordinal])
+  @@unique([revisionId, pageId])
+}
+
+model LegacyRevisionSidecar {
+  revisionId String @id
+  sidecar    Json
+}
+
+model LegacyRevisionPageExtra {
+  revisionId     String
+  pageId         String
+  ordinal        Int
+  extra          Json
+  legacyBodyHash String
+
+  @@unique([revisionId, pageId])
+  @@unique([revisionId, ordinal])
+}
+
+model LegacyPageBodyRow {
+  contentHash String @id
+  body        Json
+}
+
+model PushSession {
+  id                     String   @id @default(uuid())
+  credentialFamilyId     String
+  credentialId           String
+  userId                 String
+  spaceId                String
+  baseRevisionId         String
+  idempotencyKey         String
+  status                 String   @default("uploading")
+  capabilitiesHash       String
+  confirmationHash       String
+  confirmationByteLength Int
+  changeCount            Int
+  totalBodyBytes         BigInt
+  receivedBatchCount     Int      @default(0)
+  receivedChangeCount    Int      @default(0)
+  receivedBodyBytes      BigInt   @default(0)
+  expiresAt              DateTime
+  publishedChangeSetId   String?
+  result                 Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  batches           PushSessionBatch[]
+  PushSessionChange PushSessionChange[]
+
+  @@unique([credentialFamilyId, idempotencyKey])
+  @@unique([spaceId, publishedChangeSetId])
+  @@index([spaceId, status, expiresAt])
+  @@index([credentialId, spaceId])
+}
+
+model PushSessionBatch {
+  id         String              @id @default(uuid())
+  sessionId  String
+  batchIndex Int
+  batchHash  String
+  receipt    String
+  changes    PushSessionChange[]
+  createdAt  DateTime            @default(now())
+
+  session PushSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, batchIndex])
+  @@unique([sessionId, batchHash])
+}
+
+model PushSessionChange {
+  id           String  @id @default(uuid())
+  sessionId    String
+  batchId      String
+  ordinal      Int
+  operation    String
+  pageId       String
+  path         String?
+  title        String?
+  body         String?
+  contentHash  String?
+  previousPath String?
+
+  batch   PushSessionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  session PushSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, pageId])
+  @@index([sessionId, ordinal])
 }
 
 model ServerInstanceIdentity {
@@ -727,6 +876,9 @@ model HumanDeviceCredential {
   family HumanDeviceCredentialFamily @relation(fields: [credentialFamilyId], references: [id], onDelete: Cascade)
   user   User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
+
+  changeSets ChangeSet[]
+  revisions  SpaceKnowledgeRevision[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
