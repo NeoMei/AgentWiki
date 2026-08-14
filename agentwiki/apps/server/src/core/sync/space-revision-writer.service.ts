@@ -71,26 +71,43 @@ export class SpaceRevisionWriterService {
     const parentRevisionId = latest?.id ?? null;
     const sequence = (latest?.sequence ?? 0) + 1;
 
-    const existingRows = parentRevisionId
-      ? await tx.syncRevisionPageRow.findMany({
-          where: { revisionId: parentRevisionId },
-          include: { content: true },
-        })
-      : [];
-    const pages = new Map<string, WorkingPage>(
-      existingRows.map((row) => [
-        row.pageId,
-        {
-          pageId: row.pageId,
-          path: row.path,
-          pathKey: row.pathKey,
-          title: row.title,
-          contentHash: row.contentHash,
-          body: row.content.body,
-          updatedAt: row.updatedAt,
-        },
-      ]),
-    );
+    const created = await tx.spaceKnowledgeRevision.create({
+      data: {
+        spaceId,
+        sequence,
+        parentRevisionId,
+        schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none',
+        // contentHash/revisionContentHash/pageCount/byte metrics are computed
+        // and written in a second update once the normalized rows are settled.
+        contentHash: EMPTY_REVISION_HASH,
+        revisionContentHash: EMPTY_REVISION_HASH,
+        snapshot: Prisma.JsonNull,
+        delta: Prisma.JsonNull,
+        pageCount: 0n,
+        revisionBodyBytes: 0n,
+        revisionManifestByteLength: 0n,
+        origin: origin.origin,
+        createdByUserId: origin.createdByUserId ?? null,
+        humanDeviceCredentialId: origin.humanDeviceCredentialId ?? null,
+        sourceChangeSetId: origin.sourceChangeSetId ?? null,
+        migrationBatchId: origin.migrationBatchId ?? null,
+      },
+    });
+
+    if (parentRevisionId) {
+      // Copy the parent's normalized page rows in the database without ever
+      // reading full bodies into Node memory.
+      await tx.$executeRaw`
+        INSERT INTO "SyncRevisionPageRow" ("revisionId", "pageId", "path", "pathKey", "title", "contentHash", "updatedAt")
+        SELECT ${created.id}, "pageId", "path", "pathKey", "title", "contentHash", "updatedAt"
+        FROM "SyncRevisionPageRow" WHERE "revisionId" = ${parentRevisionId}
+      `;
+      await tx.spaceKnowledgeRevision.update({
+        where: { id: parentRevisionId },
+        data: { supersededAt: new Date() },
+      });
+    }
 
     const deltaRows: Array<{
       ordinal: number;
@@ -103,8 +120,13 @@ export class SpaceRevisionWriterService {
     let ordinal = 0;
     for (const change of changes) {
       if (change.operation === 'archive') {
-        const prior = pages.get(change.pageId);
-        pages.delete(change.pageId);
+        const prior = await tx.syncRevisionPageRow.findUnique({
+          where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
+          select: { path: true },
+        });
+        await tx.syncRevisionPageRow.deleteMany({
+          where: { revisionId: created.id, pageId: change.pageId },
+        });
         deltaRows.push({
           ordinal: ordinal++,
           operation: 'archive',
@@ -116,7 +138,6 @@ export class SpaceRevisionWriterService {
       }
       const body = normalizeMarkdown(change.body ?? '');
       const hash = await contentHash(body);
-      const prior = pages.get(change.pageId);
       await tx.syncPageContentRow.upsert({
         where: { contentHash: hash },
         create: {
@@ -126,14 +147,28 @@ export class SpaceRevisionWriterService {
         },
         update: {},
       });
-      pages.set(change.pageId, {
-        pageId: change.pageId,
-        path: change.path ?? prior?.path ?? '',
-        pathKey: change.path ? pathKey(change.path) : prior?.pathKey ?? '',
-        title: change.title ?? prior?.title ?? '',
-        contentHash: hash,
-        body,
-        updatedAt: new Date(),
+      const prior = await tx.syncRevisionPageRow.findUnique({
+        where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
+        select: { path: true, pathKey: true },
+      });
+      await tx.syncRevisionPageRow.upsert({
+        where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
+        create: {
+          revisionId: created.id,
+          pageId: change.pageId,
+          path: change.path ?? prior?.path ?? '',
+          pathKey: change.path ? pathKey(change.path) : prior?.pathKey ?? '',
+          title: change.title ?? '',
+          contentHash: hash,
+          updatedAt: new Date(),
+        },
+        update: {
+          path: change.path ?? prior?.path ?? undefined,
+          pathKey: change.path ? pathKey(change.path) : undefined,
+          title: change.title,
+          contentHash: hash,
+          updatedAt: new Date(),
+        },
       });
       deltaRows.push({
         ordinal: ordinal++,
@@ -141,80 +176,6 @@ export class SpaceRevisionWriterService {
         pageId: change.pageId,
         previousPath: null,
         contentHash: hash,
-      });
-    }
-
-    const orderedPages = [...pages.values()].sort((a, b) =>
-      a.pageId < b.pageId ? -1 : a.pageId > b.pageId ? 1 : 0,
-    );
-    const manifest: RevisionContentManifest = {
-      protocolVersion: '1',
-      spaceId,
-      pages: orderedPages.map((p) => ({
-        pageId: p.pageId,
-        path: p.path,
-        title: p.title,
-        contentHash: p.contentHash,
-      })),
-    };
-    const revisionManifestBytes = orderedPages.length === 0
-      ? new Uint8Array()
-      : canonicalBytes(manifest);
-    const revisionContentHash = orderedPages.length === 0
-      ? EMPTY_REVISION_HASH
-      : await computeRevisionContentHash(manifest);
-    const revisionBodyBytes = orderedPages.reduce(
-      (sum, p) => sum + BigInt(new TextEncoder().encode(p.body).byteLength),
-      0n,
-    );
-
-    const legacySnapshot = await this.legacySnapshot(tx, spaceId, changes);
-    const legacyContentHash = createHash('sha256')
-      .update(JSON.stringify(legacySnapshot))
-      .digest('hex');
-
-    const created = await tx.spaceKnowledgeRevision.create({
-      // Release A dual-write: keep legacy snapshot/delta populated so existing
-      // local-sync keeps working. Release B will set these to null.
-      data: {
-        spaceId,
-        sequence,
-        parentRevisionId,
-        schemaVersion: 'knowledge-bundle@1',
-        recipeVersion: 'none',
-        contentHash: legacyContentHash,
-        revisionContentHash,
-        snapshot: legacySnapshot as unknown as Prisma.InputJsonValue,
-        delta: legacySnapshot as unknown as Prisma.InputJsonValue,
-        pageCount: BigInt(orderedPages.length),
-        revisionBodyBytes,
-        revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
-        origin: origin.origin,
-        createdByUserId: origin.createdByUserId ?? null,
-        humanDeviceCredentialId: origin.humanDeviceCredentialId ?? null,
-        sourceChangeSetId: origin.sourceChangeSetId ?? null,
-        migrationBatchId: origin.migrationBatchId ?? null,
-      },
-    });
-
-    if (parentRevisionId) {
-      await tx.spaceKnowledgeRevision.update({
-        where: { id: parentRevisionId },
-        data: { supersededAt: new Date() },
-      });
-    }
-
-    if (orderedPages.length > 0) {
-      await tx.syncRevisionPageRow.createMany({
-        data: orderedPages.map((p) => ({
-          revisionId: created.id,
-          pageId: p.pageId,
-          path: p.path,
-          pathKey: p.pathKey,
-          title: p.title,
-          contentHash: p.contentHash,
-          updatedAt: p.updatedAt,
-        })),
       });
     }
 
@@ -227,11 +188,61 @@ export class SpaceRevisionWriterService {
       });
     }
 
+    // Compute the settled page set, manifest hash, and bigint metrics from
+    // normalized rows without loading page bodies into Node memory.
+    const settled = await tx.syncRevisionPageRow.findMany({
+      where: { revisionId: created.id },
+      select: { pageId: true, path: true, title: true, contentHash: true },
+      orderBy: { pageId: 'asc' },
+    });
+    const pageCount = settled.length;
+    const manifest: RevisionContentManifest = {
+      protocolVersion: '1',
+      spaceId,
+      pages: settled.map((p) => ({
+        pageId: p.pageId,
+        path: p.path,
+        title: p.title,
+        contentHash: p.contentHash,
+      })),
+    };
+    const revisionManifestBytes = pageCount === 0
+      ? new Uint8Array()
+      : canonicalBytes(manifest);
+    const revisionContentHash = pageCount === 0
+      ? EMPTY_REVISION_HASH
+      : await computeRevisionContentHash(manifest);
+    const bodyAggregate = await tx.$queryRaw<Array<{ bytes: bigint }>>`
+      SELECT COALESCE(SUM(c."byteLength"), 0) AS bytes
+      FROM "SyncRevisionPageRow" r
+      JOIN "SyncPageContentRow" c ON c."contentHash" = r."contentHash"
+      WHERE r."revisionId" = ${created.id}
+    `;
+    const revisionBodyBytes = bodyAggregate[0]?.bytes ?? 0n;
+
+    const legacySnapshot = await this.legacySnapshot(tx, spaceId, changes);
+    const legacyContentHash = createHash('sha256')
+      .update(JSON.stringify(legacySnapshot))
+      .digest('hex');
+
+    await tx.spaceKnowledgeRevision.update({
+      where: { id: created.id },
+      data: {
+        contentHash: legacyContentHash,
+        revisionContentHash,
+        snapshot: legacySnapshot as unknown as Prisma.InputJsonValue,
+        delta: legacySnapshot as unknown as Prisma.InputJsonValue,
+        pageCount: BigInt(pageCount),
+        revisionBodyBytes,
+        revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
+      },
+    });
+
     return {
       revisionId: created.id,
       sequence,
       revisionContentHash,
-      pageCount: BigInt(orderedPages.length),
+      pageCount: BigInt(pageCount),
       revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
       revisionBodyBytes,
     };

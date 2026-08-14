@@ -22,13 +22,22 @@ describe('SpaceRevisionWriterService', () => {
     };
     const tx = {
       $executeRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ bytes: 6n }]),
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(createdRevision),
+        update: jest.fn().mockResolvedValue({}),
       },
       syncRevisionPageRow: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([{
+          pageId: '11111111-1111-4111-8111-111111111111',
+          path: 'Guide.md',
+          title: 'Guide',
+          contentHash: '66a045b452102c59d840ec097d59d9467e13a3f34f6494e539ffd32c1bb35f18',
+        }]),
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       syncRevisionDeltaRow: {
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -57,14 +66,15 @@ describe('SpaceRevisionWriterService', () => {
 
     expect(result.sequence).toBe(1);
     expect(result.pageCount).toBe(1n);
-    expect(tx.syncRevisionPageRow.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({
+    expect(tx.syncRevisionPageRow.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { revisionId_pageId: { revisionId: 'rev-1', pageId: '11111111-1111-4111-8111-111111111111' } },
+      create: expect.objectContaining({
         revisionId: 'rev-1',
         pageId: '11111111-1111-4111-8111-111111111111',
         path: 'Guide.md',
         pathKey: pathKey('Guide.md'),
         contentHash: await contentHash(body),
-      })],
-    });
+      }),
+    }));
   });
 });

@@ -28,7 +28,8 @@
     "test:e2e:sync-v1-db": "node --test scripts/sync-v1-db.test.mjs",
     "test:e2e:sync-v1-writer-db": "node --test scripts/sync-v1-writer-db.test.mjs",
     "test:e2e:sync-v1-compat-db": "node --test scripts/sync-v1-compat-db.test.mjs",
-    "test:e2e:sync-v1-concurrency-db": "node --test scripts/sync-v1-concurrency-db.test.mjs"
+    "test:e2e:sync-v1-concurrency-db": "node --test scripts/sync-v1-concurrency-db.test.mjs",
+    "test:e2e:sync-v1-advance-db": "node --test scripts/sync-v1-advance-db.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
