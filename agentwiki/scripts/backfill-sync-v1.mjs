@@ -82,8 +82,8 @@ export async function backfillSpace(prisma, spaceId, batchId) {
   );
   for (const revision of revisions) {
     const occupiedKeys = new Set();
-    if (revision.migrationBatchId === batchId && revision.revisionContentHash) {
-      continue; // already completed for this batch
+    if (revision.revisionContentHash) {
+      continue; // already completed by this or an earlier resumable batch
     }
     const snapshot = revision.snapshot ?? null;
     const legacyPages = await legacyPageRowsFromSnapshot(snapshot, revision.id);
@@ -197,7 +197,7 @@ export async function backfillSpace(prisma, spaceId, batchId) {
           pageCount: BigInt(normalizedPages.length),
           revisionBodyBytes: BigInt(bodyBytes),
           revisionManifestByteLength: BigInt(manifestBytes),
-          migrationBatchId: batchId,
+          migrationBatchId: `${batchId}:${revision.id}`,
           origin: revision.origin ?? 'migration',
         },
       });
