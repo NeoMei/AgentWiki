@@ -26,6 +26,9 @@
 ## 当前状态
 
 - 分支 `codex/obsidian-sync-v1` 已建立。
-- Milestone 1 协议包 `@neomei/agentwiki-sync-protocol` 已实现并提交：canonical serialization、hash、Unicode 15.1 full case folding、normalize/parse、类型与 Schema、批次划分。
-- 21 项单元测试通过（含契约 3.5 全部固定 hash fixture）；typecheck/build 通过；dist 无 Node 内置模块或 Buffer。
-- Milestone 2 人类设备身份、Milestone 3 sync v1 与迁移尚未开始。
+- M1 协议包 `@neomei/agentwiki-sync-protocol`：canonical/hash/Unicode 15.1 full folding/normalize/parse/Schema/batching，21 测试含契约 3.5 全部 fixture，双构建（ESM+CJS）供浏览器与服务端。
+- M2 人类设备身份：HumanDeviceCredential/Family/Installation/ServerInstanceIdentity 模型、连接码、exchange（含 requestHash 幂等恢复）、session、activate、revoke、设备管理、exchange 限流。
+- M3 sync v1：Release A/B 两阶段迁移、规范化 Page rows/sidecar/blob/bigint 指标、统一 revision 写入器（含 legacy 双写 + supersede）、Snapshot/Delta/head/spaces 读路径、Push session 生命周期、回填脚本、local-sync 兼容适配器。
+- page 与 review ChangeSet 写入路径均已接入统一 revision 写入器。
+- 全量 server 测试 496 通过；typecheck 通过。
+- 尚未完成：契约 17 节 53 项验收的端到端/并发/故障注入自动化测试，以及若干运维细节（revision retention cleanup worker、内容 blob GC、instance rotate 命令）。
