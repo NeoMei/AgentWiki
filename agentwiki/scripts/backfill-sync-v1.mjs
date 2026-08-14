@@ -65,6 +65,7 @@ async function normalizePageBody(body) {
 }
 
 async function backfillSpace(prisma, spaceId, batchId) {
+  await migratePages(prisma, spaceId, batchId);
   const revisions = await prisma.spaceKnowledgeRevision.findMany({
     where: { spaceId },
     orderBy: { sequence: 'asc' },
@@ -182,6 +183,60 @@ async function backfillSpace(prisma, spaceId, batchId) {
           revisionManifestByteLength: BigInt(manifestBytes),
           migrationBatchId: batchId,
           origin: revision.origin ?? 'migration',
+        },
+      });
+    });
+  }
+}
+
+async function migratePages(prisma, spaceId, batchId) {
+  const pages = await prisma.page.findMany({
+    where: { spaceId },
+    select: {
+      id: true, knowledgeKey: true, title: true, content: true, format: true,
+      slug: true, parentId: true, authorId: true, sourcePath: true,
+      syncPath: true, syncPathKey: true, migrationBatchId: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  const occupiedKeys = new Set();
+  for (const page of pages) {
+    const alreadyMigrated = page.syncPath && page.syncPathKey;
+    if (alreadyMigrated) {
+      occupiedKeys.add(page.syncPathKey);
+      continue;
+    }
+    const rawBody = page.content ?? '';
+    if (rawBody.startsWith('\uFEFF')) {
+      throw new Error(`Page ${page.id} begins with U+FEFF; refuse to silently strip`);
+    }
+    const normalizedBody = normalizeMarkdown(rawBody);
+    const derived = await deriveSyncPath(page.knowledgeKey, page.sourcePath, spaceId, occupiedKeys);
+    await prisma.$transaction(async (tx) => {
+      const existingVersion = await tx.pageVersion.findFirst({
+        where: { pageId: page.id, migrationBatchId: batchId },
+      });
+      if (!existingVersion) {
+        await tx.pageVersion.create({
+          data: {
+            pageId: page.id,
+            title: page.title,
+            content: rawBody,
+            authorId: page.authorId,
+            slug: page.slug,
+            format: page.format,
+            parentId: page.parentId,
+            migrationBatchId: batchId,
+          },
+        });
+      }
+      await tx.page.update({
+        where: { id: page.id },
+        data: {
+          content: normalizedBody,
+          format: 'markdown',
+          syncPath: derived.path,
+          syncPathKey: derived.key,
         },
       });
     });
