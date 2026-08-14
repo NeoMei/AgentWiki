@@ -36,5 +36,6 @@
 - 统一 revision 写入器改为 INSERT…SELECT 复制父 rows + 正文按需 upsert + SQL 聚合指标，不再把整个 Space 读入 Node 内存（满足契约 5.1 与验收 12 的有界内存要求），真实 advance 集成测试验证。
 - 新增 sync v1 HTTP 契约集成测试：无 3xx、AgentCredential 被拒、标准错误 envelope、缺 Bearer 401 终态。
 - 第五轮深度审计补齐：finalize 顺序（先 Page 后 advance）、writer/review 均持久化 LegacyRevisionSidecar/PageExtra/BodyBlob、流式 legacy contentHash serializer（与 JSON.stringify 逐字节一致）、Release B 后 writer/review 均写 null legacy JSON、finalize 结果超 client capability 返回 SPACE_TOO_LARGE、服务端硬校验 changeCount ≤ 5000 与 confirmationByteLength ≤ 4MiB。
-- 全量 server 测试 502 通过；协议包 22 测试通过（含 3.5 fixture 公开入口断言）；typecheck/build 通过；6 个真实 PostgreSQL 集成测试通过（迁移非空、A→B→A、legacy DTO 合成、并发 pageId 唯一、并发 session 幂等唯一、真实 advance 复制/归档/指标/流式 hash 一致）。
+- 新增真实 HTTP 端到端测试（真实 Prisma 隔离 schema + 真实 Redis）：注册→安装码→exchange→activate→session→spaces→head→push session→upload→finalize→snapshot 回读全链路通过；修复 activate/finalize 误返回 201、batchHash 误含 batchHash 字段两个运行时 bug。
+- 全量 server 测试 502 通过；协议包 22 测试通过；typecheck/build 通过；7 个真实 PostgreSQL/HTTP 集成测试通过（迁移非空、A→B→A、legacy DTO 合成、并发 pageId 唯一、并发 session 幂等唯一、真实 advance、真实 HTTP 全链路）。
 - 尚未完成：插件仓库从本地协议副本切换到已发布包（跨仓），以及需要真实运行服务的并发 finalize/故障注入/5000 页性能端到端（本会话已覆盖 DB 级唯一性收敛，但 HTTP 并发 finalize 的故障注入需运行中服务）。
