@@ -25,7 +25,8 @@
     "test:e2e:onboarding": "node scripts/onboarding-e2e.test.mjs",
     "backfill:sync-v1": "node scripts/backfill-sync-v1.mjs",
     "instance:rotate": "node scripts/instance-rotate.mjs",
-    "test:e2e:sync-v1-db": "node --test scripts/sync-v1-db.test.mjs"
+    "test:e2e:sync-v1-db": "node --test scripts/sync-v1-db.test.mjs",
+    "test:e2e:sync-v1-writer-db": "node --test scripts/sync-v1-writer-db.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
