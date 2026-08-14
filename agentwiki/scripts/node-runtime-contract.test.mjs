@@ -98,6 +98,10 @@ test('direct production deployment rejects a stale non-HTTPS public Agent API UR
   assert.match(deploy, /must be the externally reachable HTTPS \/api URL/);
   assert.match(deploy, /packages\/local-sync\/package\.json/);
   assert.match(deploy, /LOCAL_SYNC_PACKAGE_VERSION/);
+  assert.match(deploy, /AGENTWIKI_SERVER_PEPPER/);
+  assert.match(deploy, /AGENTWIKI_DEPLOYMENT_SEED/);
+  assert.match(deploy, /openssl rand -base64 32/);
+  assert.match(deploy, /Buffer\.from\(process\.argv\[1\], "base64"\)\.length !== 32/);
 });
 
 test('the sync v1 backfill can read nullable Release A rows with the final Prisma Client', async () => {

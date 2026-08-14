@@ -112,6 +112,19 @@ esac
 set_env_value .env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
 set_env_value apps/server/.env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
 
+ensure_base64_secret() {
+  local key="\$1" value
+  if grep -q "^\${key}=" .env; then
+    return
+  fi
+  value="\$(openssl rand -base64 32 | tr -d '\n')"
+  "\$node_binary" -e 'if (Buffer.from(process.argv[1], "base64").length !== 32) process.exit(1)' "\$value"
+  set_env_value .env "\$key" "\$value"
+}
+
+ensure_base64_secret AGENTWIKI_SERVER_PEPPER
+ensure_base64_secret AGENTWIKI_DEPLOYMENT_SEED
+
 if ! grep -q '^JWT_SECRET=' .env; then
   secret="\$(sed -n 's/^APP_SECRET=//p' .env | head -n1)"
   test -n "\$secret"
