@@ -6,6 +6,7 @@ import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
 import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -108,6 +109,12 @@ export class PageService {
         title: data.title,
         body: data.content ?? '',
       }], { origin: 'web_editor', createdByUserId: userId });
+      const text = `${created.title}\n${created.content ?? ''}`;
+      await tx.pageSearchDocument.upsert({
+        where: { pageId: created.id },
+        create: { pageId: created.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
+        update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
+      });
       return { ...created, syncPath };
     });
 
@@ -373,6 +380,12 @@ export class PageService {
           title: result.title,
           body: result.content,
         }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
+        const text = `${result.title}\n${result.content ?? ''}`;
+        await tx.pageSearchDocument.upsert({
+          where: { pageId: result.id },
+          create: { pageId: result.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
+          update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
+        });
       }
       return result;
     });
@@ -444,6 +457,12 @@ export class PageService {
         title: updated.title,
         body: updated.content,
       }], { origin: 'web_editor', createdByUserId: page.authorId });
+      const text = `${updated.title}\n${updated.content ?? ''}`;
+      await tx.pageSearchDocument.upsert({
+        where: { pageId: updated.id },
+        create: { pageId: updated.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
+        update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
+      });
       return updated;
     });
 
@@ -464,6 +483,7 @@ export class PageService {
         pageId: archived.knowledgeKey,
         previousPath: archived.syncPath ?? undefined,
       }], { origin: 'web_editor', createdByUserId: archived.authorId });
+      await tx.pageSearchDocument.deleteMany({ where: { pageId: archived.id } });
       return archived;
     });
 

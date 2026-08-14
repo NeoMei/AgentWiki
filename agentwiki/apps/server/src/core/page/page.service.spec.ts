@@ -17,6 +17,10 @@ const mockPrisma = {
     update: jest.fn(),
     updateMany: jest.fn(),
   },
+  pageSearchDocument: {
+    upsert: jest.fn().mockResolvedValue({}),
+    deleteMany: jest.fn().mockResolvedValue({}),
+  },
   pageVersion: {
     create: jest.fn(),
     findMany: jest.fn(),
