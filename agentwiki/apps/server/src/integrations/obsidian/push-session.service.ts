@@ -17,7 +17,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
-import { SpaceRevisionWriterService } from './space-revision-writer.service';
+import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 
 const SESSION_TTL_MS = 900 * 1_000;

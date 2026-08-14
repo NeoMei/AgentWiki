@@ -3,6 +3,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
 import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
+import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
+import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -47,6 +49,7 @@ export class PageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   private slugify(text: string): string {
@@ -54,6 +57,15 @@ export class PageService {
       .toLowerCase()
       .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  }
+
+  private async advanceRevision(
+    tx: any,
+    spaceId: string,
+    changes: Array<{ operation: 'upsert' | 'archive'; pageId: string; path?: string; title?: string; body?: string; previousPath?: string }>,
+    origin: { origin: 'web_editor' | 'change_set' | 'obsidian_sync' | 'migration'; createdByUserId?: string | null },
+  ) {
+    await this.revisionWriter.advance(tx, spaceId, changes, origin);
   }
 
   async create(data: CreatePageDto, userId: string) {
@@ -64,22 +76,38 @@ export class PageService {
     await this.assertValidParent(data.spaceId, data.parentId);
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
-    const page = await this.prisma.page.create({
-      data: {
+    const page = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.page.create({
+        data: {
+          title: data.title,
+          slug,
+          content: data.content ?? '',
+          format: data.format ?? 'markdown',
+          spaceId: data.spaceId,
+          authorId: userId,
+          parentId: data.parentId,
+          lastModifiedByUserId: userId,
+          lastModifiedAt: new Date(),
+        },
+        select: {
+          ...PAGE_PUBLIC_FIELDS,
+          author: { select: AUTHOR_SELECT },
+          knowledgeKey: true,
+        },
+      });
+      const syncPath = `pages/p-${await idFileKey(created.knowledgeKey)}.md`;
+      await tx.page.update({
+        where: { id: created.id },
+        data: { syncPath, syncPathKey: pathKey(syncPath) },
+      });
+      await this.advanceRevision(tx, data.spaceId, [{
+        operation: 'upsert',
+        pageId: created.knowledgeKey,
+        path: syncPath,
         title: data.title,
-        slug,
-        content: data.content ?? '',
-        format: data.format ?? 'markdown',
-        spaceId: data.spaceId,
-        authorId: userId,
-        parentId: data.parentId,
-        lastModifiedByUserId: userId,
-        lastModifiedAt: new Date(),
-      },
-      select: {
-        ...PAGE_PUBLIC_FIELDS,
-        author: { select: AUTHOR_SELECT },
-      },
+        body: data.content ?? '',
+      }], { origin: 'web_editor', createdByUserId: userId });
+      return { ...created, syncPath };
     });
 
     await this.searchService.indexPage(page.id);
@@ -330,9 +358,21 @@ export class PageService {
         select: {
           ...PAGE_PUBLIC_FIELDS,
           author: { select: AUTHOR_SELECT },
+          knowledgeKey: true,
+          syncPath: true,
         },
       });
       if (!result) throw new NotFoundException('Page not found');
+      if (changes.title !== undefined || changes.content !== undefined) {
+        const fallbackPath = `pages/p-${await idFileKey(result.knowledgeKey)}.md`;
+        await this.advanceRevision(tx, page.spaceId, [{
+          operation: 'upsert',
+          pageId: result.knowledgeKey,
+          path: result.syncPath ?? fallbackPath,
+          title: result.title,
+          body: result.content,
+        }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
+      }
       return result;
     });
 
@@ -374,23 +414,36 @@ export class PageService {
       },
     });
 
-    const restored = await this.prisma.page.update({
-      where: { id: pageId },
-      data: {
-        title: version.title,
-        content: version.content,
-        slug: version.slug ?? page.slug,
-        format: version.format ?? page.format,
-        parentId: version.parentId,
-        lastChangeSetId: null,
-        lastModifiedByUserId: page.authorId,
-        lastModifiedByAgentId: null,
-        lastModifiedAt: new Date(),
-      },
-      select: {
-        ...PAGE_PUBLIC_FIELDS,
-        author: { select: AUTHOR_SELECT },
-      },
+    const restored = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.page.update({
+        where: { id: pageId },
+        data: {
+          title: version.title,
+          content: version.content,
+          slug: version.slug ?? page.slug,
+          format: version.format ?? page.format,
+          parentId: version.parentId,
+          lastChangeSetId: null,
+          lastModifiedByUserId: page.authorId,
+          lastModifiedByAgentId: null,
+          lastModifiedAt: new Date(),
+        },
+        select: {
+          ...PAGE_PUBLIC_FIELDS,
+          author: { select: AUTHOR_SELECT },
+          knowledgeKey: true,
+          syncPath: true,
+        },
+      });
+      const fallbackPath = `pages/p-${await idFileKey(updated.knowledgeKey)}.md`;
+      await this.advanceRevision(tx, page.spaceId, [{
+        operation: 'upsert',
+        pageId: updated.knowledgeKey,
+        path: updated.syncPath ?? fallbackPath,
+        title: updated.title,
+        body: updated.content,
+      }], { origin: 'web_editor', createdByUserId: page.authorId });
+      return updated;
     });
 
     await this.searchService.indexPage(pageId);
@@ -398,11 +451,19 @@ export class PageService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
-    const page = await this.prisma.page.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-      select: PAGE_PUBLIC_FIELDS,
+    const existing = await this.findOne(id);
+    const page = await this.prisma.$transaction(async (tx) => {
+      const archived = await tx.page.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+        select: { ...PAGE_PUBLIC_FIELDS, knowledgeKey: true, syncPath: true },
+      });
+      await this.advanceRevision(tx, existing.spaceId, [{
+        operation: 'archive',
+        pageId: archived.knowledgeKey,
+        previousPath: archived.syncPath ?? undefined,
+      }], { origin: 'web_editor', createdByUserId: archived.authorId });
+      return archived;
     });
 
     await this.searchService.deletePageIndex(id);

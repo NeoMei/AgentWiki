@@ -10,7 +10,7 @@ import { SyncV1Controller } from './sync-v1.controller';
 import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
-import { SpaceRevisionWriterService } from './space-revision-writer.service';
+import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
 import { PushSessionService } from './push-session.service';
 
 @Module({

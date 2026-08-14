@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { PageService } from './page.service';
 import { PrismaService } from '../../database/prisma.service';
 import { SearchService } from '../search/search.service';
+import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 
 const mockPrisma = {
   space: {
@@ -33,6 +34,11 @@ const mockSearch = {
   deletePageIndex: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockRevisionWriter = {
+  advance: jest.fn().mockResolvedValue({}),
+  lockSpace: jest.fn().mockResolvedValue(undefined),
+};
+
 describe('PageService', () => {
   let service: PageService;
 
@@ -45,6 +51,7 @@ describe('PageService', () => {
         PageService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
+        { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
       ],
     }).compile();
 
@@ -137,6 +144,7 @@ describe('page ordering', () => {
         PageService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
+        { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
       ],
     }).compile();
     service = module.get<PageService>(PageService);
