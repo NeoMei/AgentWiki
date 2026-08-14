@@ -3,6 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { RevisionRetentionService } from './revision-retention.service';
 
 const INTERVAL_MS = 60 * 60 * 1_000;
+const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 @Injectable()
 export class SyncMaintenance implements OnModuleInit, OnModuleDestroy {
@@ -47,6 +48,14 @@ export class SyncMaintenance implements OnModuleInit, OnModuleDestroy {
         expiresAt: { lt: new Date() },
       },
       data: { status: 'expired' },
+    });
+    // After the retention window, physically remove expired sessions and their
+    // staging so GET returns 404 rather than 200 + expired.
+    await this.prisma.pushSession.deleteMany({
+      where: {
+        status: 'expired',
+        expiresAt: { lt: new Date(Date.now() - SESSION_RETENTION_MS) },
+      },
     });
   }
 }
