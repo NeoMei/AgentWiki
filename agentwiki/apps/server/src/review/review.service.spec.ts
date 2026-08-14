@@ -38,7 +38,7 @@ describe('ReviewService approval boundaries', () => {
       ], approvals: [], space: {}, run: null,
     });
     const tx = {
-      page: { create: jest.fn().mockResolvedValue({ id: 'page-1' }), findUnique: jest.fn().mockResolvedValue({ title: 'A', content: 'ok', deletedAt: null }) },
+      page: { create: jest.fn().mockResolvedValue({ id: 'page-1' }), findUnique: jest.fn().mockResolvedValue({ title: 'A', content: 'ok', deletedAt: null }), findMany: jest.fn().mockResolvedValue([]) },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       evidence: { updateMany: jest.fn() },
       changeItem: { update: jest.fn() },
@@ -630,6 +630,7 @@ describe('ReviewService approval boundaries', () => {
       page: {
         findFirst: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old', parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null, authorId: 'owner-1' }),
         findUnique: jest.fn().mockResolvedValue({ title: 'After', content: 'New', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
@@ -653,7 +654,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     space: { findUnique: jest.fn() },
     agent: { findUnique: jest.fn() },
     agentGrant: { findUnique: jest.fn() },
-    page: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
+    page: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
     evidence: { updateMany: jest.fn() },
     $transaction: jest.fn(),

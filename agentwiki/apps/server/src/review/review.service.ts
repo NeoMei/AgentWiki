@@ -534,6 +534,15 @@ export class ReviewService {
             data: { status: 'published', appliedRevisionId: revision.id },
           });
         }
+      } else if (pageIds.length > 0) {
+        const pages = await tx.page.findMany({
+          where: { id: { in: pageIds } },
+          select: { knowledgeKey: true, syncPath: true, title: true, content: true, deletedAt: true },
+        });
+        await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
+          ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
+          : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
+        ), { origin: 'change_set', sourceChangeSetId: id, createdByUserId: changeSet.createdByUserId });
       }
       return Array.from(new Set(pageIds));
     });
