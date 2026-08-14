@@ -67,13 +67,16 @@ export class KnowledgeRevisionService {
     if (!revision || revision.spaceId !== spaceId) {
       throw new BusinessException('KNOWLEDGE_REVISION_NOT_FOUND');
     }
+    const bundle = revision.snapshot
+      ? revision.snapshot
+      : await this.synthesizeLegacyBundle(spaceId, revision.id);
     return {
       revisionId: revision.id,
       sequence: revision.sequence,
       contentHash: revision.contentHash,
       schemaVersion: revision.schemaVersion,
       recipeVersion: revision.recipeVersion,
-      bundle: revision.snapshot,
+      bundle,
     };
   }
 
@@ -104,15 +107,57 @@ export class KnowledgeRevisionService {
       orderBy: { sequence: 'asc' },
       take: maxCount,
     });
+    const synthesized = await Promise.all(revisions.map(async (r) => ({
+      revisionId: r.id,
+      sequence: r.sequence,
+      contentHash: r.contentHash,
+      delta: r.delta ?? await this.synthesizeLegacyBundle(spaceId, r.id),
+    })));
     return {
       fromRevision: fromRevisionId,
       toRevision: head.revisionId,
-      revisions: revisions.map((r) => ({
-        revisionId: r.id,
-        sequence: r.sequence,
-        contentHash: r.contentHash,
-        delta: r.delta,
-      })),
+      revisions: synthesized,
+    };
+  }
+
+  private async synthesizeLegacyBundle(spaceId: string, revisionId: string): Promise<unknown> {
+    const [sidecar, extras] = await Promise.all([
+      this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId } }),
+      this.prisma.legacyRevisionPageExtra.findMany({
+        where: { revisionId },
+        orderBy: { ordinal: 'asc' },
+      }),
+    ]);
+    const pages = [];
+    for (const extra of extras) {
+      const value = extra.extra as Record<string, unknown>;
+      const bodyRow = await this.prisma.legacyPageBodyRow.findUnique({
+        where: { contentHash: extra.legacyBodyHash },
+      });
+      pages.push({
+        pageId: extra.pageId,
+        spaceId,
+        path: value.path ?? '',
+        title: value.title ?? '',
+        body: bodyRow?.body ?? '',
+        order: value.order ?? 0,
+        ...(value.metadata ? { metadata: value.metadata } : {}),
+        artifactIds: value.artifactIds ?? [],
+        contentHash: value.contentHash ?? extra.legacyBodyHash,
+        updatedAt: value.updatedAt ?? new Date(0).toISOString(),
+      });
+    }
+    const sidecarValue = (sidecar?.sidecar ?? {}) as Record<string, unknown>;
+    return {
+      schemaVersion: sidecarValue.schemaVersion ?? 'knowledge-bundle@1',
+      recipeVersion: sidecarValue.recipeVersion ?? 'none',
+      spaceId,
+      baseRevision: sidecarValue.baseRevision ?? null,
+      pages,
+      memories: sidecarValue.memories ?? [],
+      relations: sidecarValue.relations ?? [],
+      provenance: sidecarValue.provenance ?? [],
+      deletions: sidecarValue.deletions ?? [],
     };
   }
 }

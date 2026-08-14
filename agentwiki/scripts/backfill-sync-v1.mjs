@@ -79,7 +79,8 @@ async function backfillSpace(prisma, spaceId, batchId) {
     const legacyPages = await legacyPageRowsFromSnapshot(snapshot, revision.id);
     const normalizedPages = [];
     for (const page of legacyPages) {
-      const body = await normalizePageBody(page.body);
+      const rawBody = page.body;
+      const body = await normalizePageBody(rawBody);
       const hash = await contentHash(body);
       const { path, key } = await deriveSyncPath(page.pageId, page.path, spaceId, occupiedKeys);
       normalizedPages.push({
@@ -89,9 +90,12 @@ async function backfillSpace(prisma, spaceId, batchId) {
         title: page.title,
         contentHash: hash,
         body,
+        rawBody,
         updatedAt: page.updatedAt,
         ordinal: page.ordinal,
         extra: {
+          spaceId,
+          title: page.title,
           order: page.order,
           metadata: page.metadata,
           artifactIds: page.artifactIds,
@@ -108,6 +112,11 @@ async function backfillSpace(prisma, spaceId, batchId) {
         await tx.syncPageContentRow.upsert({
           where: { contentHash: page.contentHash },
           create: { contentHash: page.contentHash, body: page.body, byteLength: new TextEncoder().encode(page.body).byteLength },
+          update: {},
+        });
+        await tx.legacyPageBodyRow.upsert({
+          where: { contentHash: page.extra.legacyBodyHash },
+          create: { contentHash: page.extra.legacyBodyHash, body: page.rawBody },
           update: {},
         });
       }
