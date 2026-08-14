@@ -42,6 +42,11 @@
 - 新增迁移 `20260814030000_harden_human_device_family_partial_unique`，以 partial unique index 固化每 family 最多一个 provisional/active credential。
 - Obsidian/sync 控制器增加 `SyncNoStoreInterceptor`；安装码创建按 user 限流，Push session create/upload/finalize 按 credential/space 限流。
 - 新增真实 DB/HTTP 覆盖：snapshot 固定 revision、relation/memory-only 空 Delta 与后续 sequence 连续、5000→5001 SPACE_TOO_LARGE、finalize 副作用同事务、human device family partial unique、全路由无 3xx、installation hash 碰撞重试。
-- 全量回归通过：runtime 106、server 505、client 160、protocol 22、local-sync 328；typecheck/lint/`git diff --check`、API smoke、UI route smoke 均通过。
-- 53 项验收均已至少具备 run/unit/code 证据；主项目三项交付已完成当前分支实现与验证。插件仓库切换依赖已发布协议包属于跨仓后续动作。
+- 全量回归通过：runtime 107、server 505、client 160、protocol 22、local-sync 328；typecheck/lint/`git diff --check`、生产构建、API smoke、UI route smoke 均通过。
+- 53 项验收均已至少具备 run/unit/code 证据；主项目三项交付已完成实现、合并、生产发布与验收。插件仓库切换依赖已发布协议包属于跨仓后续动作。
 - 已提交并推送分支 `codex/obsidian-sync-v1`，创建 draft PR：https://github.com/NeoMei/AgentWiki/pull/5。
+- 2026-08-14 已将功能提交快进合并并推送 `master`；生产 `agentwiki.quukk.com` 已部署应用提交 `626af9d`，三项服务 active，API 健康状态全绿且无重启。
+- 实际部署演练发现并修复了协议包构建顺序、部署遗漏迁移脚本、Release A nullable 数据回填、历史 revision 幂等续跑、软删除 Space 回填，以及服务器 pepper/deployment seed 自动配置等问题；修复均有部署契约回归测试并已推送。
+- 生产迁移已完整应用：设备身份、Release A、Release B、family partial unique 加固迁移无未解决失败；Release B 的一次失败尝试已显式标记 rolled back，后续成功记录有效。
+- 上线前备份位于 `/root/backups/agentwiki/pre-obsidian-sync-v1-20260814222116.dump`，SHA-256 `e3ad520ba8ce37ba46beac84321428b2ca2730ab51ae4bde411a1e0fa9d339d7`，可被 `pg_restore` 识别。
+- 生产验收通过：API smoke 18 项；UI routes 3 public / 16 authenticated / 6 mobile；公网 Sync v1 安装码→exchange→activate→head→push→finalize→snapshot 全链路通过并清理测试数据；既有 local-sync 0.3.6 回归通过。
