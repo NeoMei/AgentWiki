@@ -107,6 +107,8 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.doesNotMatch(backfill, /syncPath:\s*null/);
   assert.match(backfill, /prisma\.\$queryRawUnsafe/);
   assert.match(backfill, /tx\.\$executeRawUnsafe/);
+  assert.doesNotMatch(backfill, /const revisionContentHash\s*=/);
+  assert.match(backfill, /const computedRevisionContentHash\s*=/);
   assert.match(backfill, /FROM "Page"/);
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
 });

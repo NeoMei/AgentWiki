@@ -185,7 +185,7 @@ export async function backfillSpace(prisma, spaceId, batchId) {
           .sort((a, b) => (a.pageId < b.pageId ? -1 : 1))
           .map((p) => ({ pageId: p.pageId, path: p.path, title: p.title, contentHash: p.contentHash })),
       };
-      const revisionContentHash = normalizedPages.length === 0
+      const computedRevisionContentHash = normalizedPages.length === 0
         ? EMPTY_REVISION_HASH
         : await revisionContentHash(manifest);
       const manifestBytes = normalizedPages.length === 0 ? 0 : canonicalBytes(manifest).byteLength;
@@ -193,7 +193,7 @@ export async function backfillSpace(prisma, spaceId, batchId) {
       await tx.spaceKnowledgeRevision.update({
         where: { id: revision.id },
         data: {
-          revisionContentHash,
+          revisionContentHash: computedRevisionContentHash,
           pageCount: BigInt(normalizedPages.length),
           revisionBodyBytes: BigInt(bodyBytes),
           revisionManifestByteLength: BigInt(manifestBytes),
