@@ -39,6 +39,12 @@ export class PushSessionService {
     changeCount: number;
     totalBodyBytes: number;
   }) {
+    if (input.changeCount > 5_000) {
+      throw new SyncApiException('BATCH_TOO_LARGE', 'changeCount exceeds the maximum of 5000');
+    }
+    if (input.confirmationByteLength > 4_194_304) {
+      throw new SyncApiException('BATCH_TOO_LARGE', 'confirmationByteLength exceeds 4 MiB');
+    }
     if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
       throw new SyncApiException('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
     }
