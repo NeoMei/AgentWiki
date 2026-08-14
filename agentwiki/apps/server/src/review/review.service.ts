@@ -736,6 +736,51 @@ export class ReviewService {
         })),
       });
     }
+    // Persist the legacy projection so local-sync remains synthesizable after
+    // snapshot/delta become null in Release B.
+    for (const [ordinal, page] of (snapshot as any).pages.entries()) {
+      const legacyBodyHash = page.contentHash;
+      await tx.legacyPageBodyRow.upsert({
+        where: { contentHash: legacyBodyHash },
+        create: { contentHash: legacyBodyHash, body: page.body },
+        update: {},
+      });
+      await tx.legacyRevisionPageExtra.create({
+        data: {
+          revisionId: created.id,
+          pageId: page.pageId,
+          ordinal,
+          legacyBodyHash,
+          extra: {
+            spaceId,
+            title: page.title,
+            order: page.order ?? ordinal,
+            metadata: page.metadata ?? null,
+            artifactIds: page.artifactIds ?? [],
+            legacyBodyHash,
+            contentHash: legacyBodyHash,
+            path: page.path,
+            updatedAt: page.updatedAt,
+          },
+        },
+      });
+    }
+    await tx.legacyRevisionSidecar.upsert({
+      where: { revisionId: created.id },
+      create: {
+        revisionId: created.id,
+        sidecar: {
+          schemaVersion: (snapshot as any).schemaVersion,
+          recipeVersion: (snapshot as any).recipeVersion,
+          baseRevision: (snapshot as any).baseRevision ?? null,
+          memories: (snapshot as any).memories ?? [],
+          relations: (snapshot as any).relations ?? [],
+          provenance: (snapshot as any).provenance ?? [],
+          deletions: (snapshot as any).deletions ?? [],
+        },
+      },
+      update: {},
+    });
     return created;
   }
 

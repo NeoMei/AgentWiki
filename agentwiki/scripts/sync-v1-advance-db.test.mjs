@@ -45,6 +45,7 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
     const { PrismaClient } = require('@prisma/client');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
+    const { LegacyBundleHashStream } = await import('../apps/server/dist/core/sync/legacy-serializer.js');
     const writer = new SpaceRevisionWriterService(prisma);
     try {
       const spaceId = randomUUID();
@@ -87,6 +88,23 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
       assert.deepEqual(rev2Extras.map((e) => e.pageId), [pageB]);
       const blob = await prisma.legacyPageBodyRow.findUnique({ where: { contentHash: rev2Extras[0].legacyBodyHash } });
       assert.equal(blob.body, 'BB\n');
+
+      // The persisted revision contentHash must equal the hash of the legacy
+      // bundle reconstructed from sidecar + extras + body blobs.
+      const rev2Record = await prisma.spaceKnowledgeRevision.findUnique({ where: { id: rev2.revisionId } });
+      const sidecar = await prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: rev2.revisionId } });
+      const stream = new LegacyBundleHashStream('knowledge-bundle@1', 'none', spaceId, null);
+      for (const extra of rev2Extras) {
+        const value = extra.extra;
+        const bodyRow = await prisma.legacyPageBodyRow.findUnique({ where: { contentHash: extra.legacyBodyHash } });
+        stream.appendPage({
+          pageId: extra.pageId, spaceId, path: value.path, title: value.title, body: bodyRow.body,
+          order: value.order ?? 0, metadata: value.metadata ?? null, artifactIds: value.artifactIds ?? [],
+          contentHash: value.contentHash ?? extra.legacyBodyHash, updatedAt: value.updatedAt,
+        });
+      }
+      const synthesizedHash = stream.digest([], [], [], []);
+      assert.equal(rev2Record.contentHash, synthesizedHash, 'persisted legacy contentHash matches synthesized bundle hash');
     } finally {
       await prisma.$disconnect();
     }

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
 import {
   canonicalBytes,
   contentHash,
@@ -10,6 +9,7 @@ import {
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
+import { LegacyBundleHashStream } from './legacy-serializer';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -277,18 +277,15 @@ export class SpaceRevisionWriterService {
     `;
     const revisionBodyBytes = bodyAggregate[0]?.bytes ?? 0n;
 
-    const legacySnapshot = await this.legacySnapshot(tx, spaceId, changes);
-    const legacyContentHash = createHash('sha256')
-      .update(JSON.stringify(legacySnapshot))
-      .digest('hex');
+    const legacyContentHash = await this.legacyContentHash(tx, spaceId, created.id);
 
     await tx.spaceKnowledgeRevision.update({
       where: { id: created.id },
       data: {
         contentHash: legacyContentHash,
         revisionContentHash,
-        snapshot: legacySnapshot as unknown as Prisma.InputJsonValue,
-        delta: legacySnapshot as unknown as Prisma.InputJsonValue,
+        snapshot: Prisma.JsonNull,
+        delta: Prisma.JsonNull,
         pageCount: BigInt(pageCount),
         revisionBodyBytes,
         revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
@@ -305,81 +302,49 @@ export class SpaceRevisionWriterService {
     };
   }
 
-  private async legacySnapshot(
+  private async legacyContentHash(
     tx: Prisma.TransactionClient,
     spaceId: string,
-    changes: PageChange[],
-  ) {
-    const pages = await tx.page.findMany({
-      where: { spaceId, deletedAt: null },
-      select: {
-        knowledgeKey: true,
-        title: true,
-        content: true,
-        parentId: true,
-        sortOrder: true,
-        updatedAt: true,
-        sourcePath: true,
-        syncPath: true,
-      },
+    revisionId: string,
+  ): Promise<string> {
+    const sidecar = await tx.legacyRevisionSidecar.findUnique({
+      where: { revisionId },
     });
-    const changedByPageId = new Map(changes.map((change) => [change.pageId, change]));
-    const memories = await tx.agentMemory.findMany({
-      where: { spaceId, deletedAt: null, archivedAt: null },
-      select: { id: true, type: true, content: true, updatedAt: true },
-    });
-    const relations = await tx.knowledgeRelation.findMany({
-      where: { sourcePage: { spaceId } },
-      select: { knowledgeKey: true, sourcePageId: true, targetPageId: true, relation: true, strength: true, confidence: true },
-    });
-    const pageKnowledgeKeyById = new Map(
-      (await tx.page.findMany({ where: { spaceId }, select: { id: true, knowledgeKey: true } }))
-        .map((page) => [page.id, page.knowledgeKey]),
-    );
-    return {
-      schemaVersion: 'knowledge-bundle@1',
-      recipeVersion: 'none',
+    const sidecarValue = (sidecar?.sidecar ?? {}) as Record<string, unknown>;
+    const stream = new LegacyBundleHashStream(
+      (sidecarValue.schemaVersion as string) ?? 'knowledge-bundle@1',
+      (sidecarValue.recipeVersion as string) ?? 'none',
       spaceId,
-      baseRevision: null,
-      pages: pages.map((page) => ({
-        pageId: page.knowledgeKey,
+      (sidecarValue.baseRevision as string) ?? null,
+    );
+    const extras = await tx.legacyRevisionPageExtra.findMany({
+      where: { revisionId },
+      orderBy: { ordinal: 'asc' },
+    });
+    for (const extra of extras) {
+      const value = extra.extra as Record<string, unknown>;
+      const bodyRow = await tx.legacyPageBodyRow.findUnique({
+        where: { contentHash: extra.legacyBodyHash },
+      });
+      stream.appendPage({
+        pageId: extra.pageId,
         spaceId,
-        path: page.syncPath || page.sourcePath || this.pagePathFromTitle(page.title),
-        title: page.title,
-        body: page.content,
-        order: page.sortOrder ?? 0,
-        ...(page.parentId ? { metadata: { parentId: page.parentId } } : {}),
-        artifactIds: [],
-        contentHash: createHash('sha256').update(page.content).digest('hex'),
-        updatedAt: page.updatedAt.toISOString(),
-      })),
-      memories: memories.map((memory) => ({
-        memoryId: memory.id,
-        spaceId,
-        key: memory.type,
-        value: memory.content,
-        scope: 'space' as const,
-        pageIds: [] as string[],
-        artifactIds: [],
-        contentHash: createHash('sha256').update(memory.content).digest('hex'),
-        updatedAt: memory.updatedAt.toISOString(),
-      })),
-      relations: relations.map((relation) => ({
-        relationId: relation.knowledgeKey,
-        spaceId,
-        sourceId: pageKnowledgeKeyById.get(relation.sourcePageId) ?? relation.sourcePageId,
-        targetId: pageKnowledgeKeyById.get(relation.targetPageId) ?? relation.targetPageId,
-        relationType: relation.relation,
-        artifactIds: [],
-        metadata: { strength: relation.strength, confidence: relation.confidence },
-      })),
-      provenance: [],
-      deletions: [],
-    };
+        path: (value.path as string) ?? '',
+        title: (value.title as string) ?? '',
+        body: (bodyRow?.body as string) ?? '',
+        order: (value.order as number) ?? 0,
+        metadata: (value.metadata as { parentId: string } | null) ?? null,
+        artifactIds: (value.artifactIds as string[]) ?? [],
+        contentHash: (value.contentHash as string) ?? extra.legacyBodyHash,
+        updatedAt: (value.updatedAt as string) ?? new Date(0).toISOString(),
+      });
+    }
+    return stream.digest(
+      (sidecarValue.memories as unknown[]) ?? [],
+      (sidecarValue.relations as unknown[]) ?? [],
+      (sidecarValue.provenance as unknown[]) ?? [],
+      (sidecarValue.deletions as unknown[]) ?? [],
+    );
   }
 
-  private pagePathFromTitle(title: string): string {
-    const slug = title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
-    return `pages/${slug}.md`;
-  }
 }

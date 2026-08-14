@@ -42,6 +42,9 @@ describe('SpaceRevisionWriterService', () => {
       syncRevisionDeltaRow: {
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      legacyRevisionSidecar: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       syncPageContentRow: {
         upsert: jest.fn().mockResolvedValue({}),
       },
@@ -52,6 +55,7 @@ describe('SpaceRevisionWriterService', () => {
         aggregate: jest.fn().mockResolvedValue({ _max: { ordinal: null } }),
         upsert: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       page: {
         findMany: jest.fn().mockResolvedValue([]),
