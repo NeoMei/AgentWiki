@@ -31,5 +31,6 @@
 - M3 sync v1：Release A/B 两阶段迁移、规范化 Page rows/sidecar/blob/bigint 指标、统一 revision 写入器（含 legacy 双写 + supersede）、Snapshot/Delta/head/spaces 读路径、Push session 生命周期、回填脚本、local-sync 兼容适配器。
 - page 与 review ChangeSet 写入路径均已接入统一 revision 写入器。
 - 补充 revision retention cleanup、instance rotate 命令、exchange 限流、真实数据库迁移集成测试。
-- 全量 server 测试 496 通过；协议包 21 测试通过；typecheck/build 通过；真实数据库迁移测试通过。
-- 尚未完成：契约 17 节 53 项验收的端到端/并发/故障注入自动化测试，协议包 npm 发布，以及插件仓库从本地协议副本切换到已发布包（需跨仓协作与 npm 凭据）。
+- 第五轮审查补齐：finalize 角色重检、archive 删搜索索引、revert 与无 submission page changeset 推进 revision、Page 迁移与整空间预检、词法索引同事务、blob GC 与定时维护、deployment seed 启动门禁、session 保留期删除、provisional 过期/撤销区分、sync 错误 envelope 原样返回。
+- 全量 server 测试 497 通过；协议包 22 测试通过（含 3.5 fixture 公开入口断言）；typecheck/build 通过；2 个真实 PostgreSQL 集成测试通过（迁移非空、A→B→A 三 revision）。
+- 尚未完成：协议包 npm 发布、插件仓库从本地协议副本切换到已发布包（跨仓 + npm 凭据），以及需要真实运行服务的并发/故障注入/性能端到端测试（5000 页 100MiB、并发 finalize、故障注入回滚、local-sync 逐字段等价回归）。
