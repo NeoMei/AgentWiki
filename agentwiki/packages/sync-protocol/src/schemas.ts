@@ -106,8 +106,8 @@ export const ExchangeObsidianCredentialRequestSchema = z
     pluginVersion: z.string().max(64),
     supportedProtocolVersions: z
       .array(z.string().regex(/^(0|[1-9][0-9]*)$/))
-      .min(1)
       .max(8)
+      .min(1)
       .refine(
         (values) =>
           new Set(values).size === values.length && values.includes("1"),

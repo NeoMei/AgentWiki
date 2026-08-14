@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
-    "declaration": true,
-    "outDir": "./dist",
+    "declaration": false,
+    "outDir": "./dist/esm",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,

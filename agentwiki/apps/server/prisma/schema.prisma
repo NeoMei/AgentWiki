@@ -16,24 +16,27 @@ model User {
   platformRole String  @default("user")
   password     String?
 
-  spaces            SpaceMember[]
-  pages             Page[]               @relation("PageAuthor")
-  modifiedPages     Page[]               @relation("PageLastModifiedByUser")
-  modifiedRelations KnowledgeRelation[]  @relation("RelationLastModifiedByUser")
-  pageVersions      PageVersion[]
-  apiKeys           ApiKeyCredential[]
-  auditEvents       SecurityAuditEvent[]
-  ownedAgents       Agent[]
-  createdSources    Source[]
-  requestedRuns     IngestRun[]
-  createdChangeSets ChangeSet[]
-  approvals         Approval[]
-  onboardingSessions OnboardingDeviceSession[]
-  lockedAt           DateTime?
-  mustChangePassword Boolean          @default(false)
-  authVersion        Int              @default(0)
+  spaces                        SpaceMember[]
+  pages                         Page[]                        @relation("PageAuthor")
+  modifiedPages                 Page[]                        @relation("PageLastModifiedByUser")
+  modifiedRelations             KnowledgeRelation[]           @relation("RelationLastModifiedByUser")
+  pageVersions                  PageVersion[]
+  apiKeys                       ApiKeyCredential[]
+  auditEvents                   SecurityAuditEvent[]
+  ownedAgents                   Agent[]
+  createdSources                Source[]
+  requestedRuns                 IngestRun[]
+  createdChangeSets             ChangeSet[]
+  approvals                     Approval[]
+  onboardingSessions            OnboardingDeviceSession[]
+  obsidianInstallations         ObsidianInstallation[]
+  humanDeviceCredentialFamilies HumanDeviceCredentialFamily[]
+  humanDeviceCredentials        HumanDeviceCredential[]
+  lockedAt                      DateTime?
+  mustChangePassword            Boolean                       @default(false)
+  authVersion                   Int                           @default(0)
 
-  assistTasks       AssistTask[]
+  assistTasks AssistTask[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -663,4 +666,72 @@ model OnboardingBootstrap {
   updatedAt          DateTime                @updatedAt
 
   @@unique([deviceSessionId, idempotencyKeyHash])
+}
+
+model ServerInstanceIdentity {
+  id                 String   @id @default(cuid())
+  instanceId         String   @unique
+  deploymentSeedHash String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ObsidianInstallation {
+  id          String    @id @default(uuid())
+  codeHash    String    @unique
+  status      String    @default("pending")
+  exchangeId  String?
+  requestHash String?
+  expiresAt   DateTime
+  exchangedAt DateTime?
+  revokedAt   DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model HumanDeviceCredentialFamily {
+  id       String @id @default(uuid())
+  deviceId String
+  vaultId  String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  credentials HumanDeviceCredential[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, deviceId, vaultId])
+}
+
+model HumanDeviceCredential {
+  id                   String    @id @default(uuid())
+  credentialFamilyId   String
+  deviceId             String
+  vaultId              String
+  deviceName           String
+  credentialHash       String    @unique
+  status               String    @default("provisional")
+  provisionalExpiresAt DateTime?
+  activatedAt          DateTime?
+  lastUsedAt           DateTime?
+  revokedAt            DateTime?
+
+  family HumanDeviceCredentialFamily @relation(fields: [credentialFamilyId], references: [id], onDelete: Cascade)
+  user   User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([credentialFamilyId, status])
+  @@index([userId, createdAt])
+  @@index([credentialFamilyId, provisionalExpiresAt])
 }
