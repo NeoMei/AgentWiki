@@ -48,7 +48,7 @@ tar \
   --exclude='*.tar.gz' \
   -czf "${ARCHIVE}" \
   package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json .dockerignore \
-  apps packages deploy deploy.sh
+  apps packages scripts deploy deploy.sh
 
 "${SCP_TOOL[@]}" "${ARCHIVE}" "${REMOTE_USER}@${REMOTE_HOST}:~/"
 
@@ -75,6 +75,7 @@ rsync -a --delete --exclude='.env' --exclude='node_modules' --exclude='dist' \
   "\$release_dir/apps/" "\$HOME/${PROJECT_DIR}/apps/"
 rsync -a --delete --exclude='node_modules' --exclude='dist' \
   "\$release_dir/packages/" "\$HOME/${PROJECT_DIR}/packages/"
+rsync -a --delete "\$release_dir/scripts/" "\$HOME/${PROJECT_DIR}/scripts/"
 rsync -a --delete "\$release_dir/deploy/" "\$HOME/${PROJECT_DIR}/deploy/"
 install -m 0644 "\$release_dir/package.json" "\$HOME/${PROJECT_DIR}/package.json"
 install -m 0644 "\$release_dir/pnpm-lock.yaml" "\$HOME/${PROJECT_DIR}/pnpm-lock.yaml"
