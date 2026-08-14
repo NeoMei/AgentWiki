@@ -104,7 +104,9 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   const backfill = await read('scripts/backfill-sync-v1.mjs');
   assert.doesNotMatch(backfill, /prisma\.page\.findMany/);
   assert.doesNotMatch(backfill, /prisma\.spaceKnowledgeRevision\.findMany/);
+  assert.doesNotMatch(backfill, /syncPath:\s*null/);
   assert.match(backfill, /prisma\.\$queryRawUnsafe/);
+  assert.match(backfill, /tx\.\$executeRawUnsafe/);
   assert.match(backfill, /FROM "Page"/);
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
 });

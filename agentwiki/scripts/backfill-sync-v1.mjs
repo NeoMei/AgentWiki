@@ -146,10 +146,17 @@ export async function backfillSpace(prisma, spaceId, batchId) {
           skipDuplicates: true,
         });
         for (const p of normalizedPages) {
-          await tx.page.updateMany({
-            where: { knowledgeKey: p.pageId, spaceId, syncPath: null },
-            data: { syncPath: p.path, syncPathKey: p.pathKey },
-          });
+          await tx.$executeRawUnsafe(
+            `UPDATE "Page"
+                SET "syncPath" = $1, "syncPathKey" = $2
+              WHERE "knowledgeKey" = $3
+                AND "spaceId" = $4
+                AND "syncPath" IS NULL`,
+            p.path,
+            p.pathKey,
+            p.pageId,
+            spaceId,
+          );
         }
       }
       const sidecar = snapshot
