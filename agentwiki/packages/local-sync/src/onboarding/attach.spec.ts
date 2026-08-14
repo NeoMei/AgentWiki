@@ -57,6 +57,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
         };
       }),
       complete: vi.fn(),
+      fail: vi.fn(),
       close: vi.fn(),
     },
   };
@@ -82,6 +83,7 @@ describe('runAttachment', () => {
       reloadRequired: false,
     });
     expect(test.deps.close).toHaveBeenCalledOnce();
+    expect(test.deps.fail).not.toHaveBeenCalled();
   });
 
   it('does not exchange the one-time code when the user denies the migration', async () => {
@@ -91,6 +93,7 @@ describe('runAttachment', () => {
 
     expect(test.deps.exchange).not.toHaveBeenCalled();
     expect(test.deps.install).not.toHaveBeenCalled();
+    expect(test.deps.fail).toHaveBeenCalledWith(expect.objectContaining({ code: 'AUTH_DENIED' }));
     expect(test.deps.close).toHaveBeenCalledOnce();
   });
 
@@ -104,6 +107,21 @@ describe('runAttachment', () => {
 
     expect(test.deps.confirm).not.toHaveBeenCalled();
     expect(test.deps.exchange).not.toHaveBeenCalled();
+    expect(test.deps.fail).toHaveBeenCalledWith(expect.objectContaining({ code: 'CONFIG_CONFLICT' }));
+    expect(test.deps.close).toHaveBeenCalledOnce();
+  });
+
+  it('emits a redacted terminal failure when installation fails', async () => {
+    const test = fixture();
+    vi.mocked(test.deps.install).mockRejectedValue(new Error('rejected agk_attach_secret'));
+
+    await expect(runAttachment(input(), test.deps)).rejects.toThrow('agk_attach_secret');
+
+    expect(test.deps.fail).toHaveBeenCalledWith({
+      code: 'SYNC_FAILED',
+      message: 'rejected [REDACTED]',
+      retryable: false,
+    });
     expect(test.deps.close).toHaveBeenCalledOnce();
   });
 });

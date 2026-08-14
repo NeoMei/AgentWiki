@@ -200,6 +200,28 @@ describe('installGatewayEntry', () => {
     expect(config).not.toContain('[mcp_servers.agentwiki-a1b2c3d4]');
     expect(config).toContain('[mcp_servers.agentwiki]');
   });
+
+  it('preserves non-MCP Codex sections that follow a migrated MCP block', async () => {
+    const home = await freshHome();
+    const original = [
+      '[mcp_servers.agentwiki-old]',
+      'url = "https://wiki.test/api/mcp"',
+      '',
+      '[projects."/workspace"]',
+      'trust_level = "trusted"',
+      '',
+    ].join('\n');
+    await seedConfig('codex', home, original);
+
+    await installGatewayEntry(
+      'codex', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
+    );
+
+    const config = await readFile(clientConfigPath('codex', home), 'utf8');
+    expect(config).not.toContain('[mcp_servers.agentwiki-old]');
+    expect(config).toContain('[projects."/workspace"]');
+    expect(config).toContain('trust_level = "trusted"');
+  });
 });
 
 describe('installGatewayEntry client formats', () => {

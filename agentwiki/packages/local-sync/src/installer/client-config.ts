@@ -332,26 +332,31 @@ function filterTomlMcpBlocks(
   current: string,
   shouldRemove: (name: string, block: string) => boolean,
 ): string | null {
-  const matches = [...current.matchAll(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/gm)];
-  if (matches.length === 0) return null;
-  let cursor = 0;
-  let removed = false;
-  const parts: string[] = [];
-  for (let index = 0; index < matches.length; index += 1) {
-    const match = matches[index];
-    const start = match.index ?? 0;
-    const end = matches[index + 1]?.index ?? current.length;
-    parts.push(current.slice(cursor, start));
-    const block = current.slice(start, end);
-    if (shouldRemove(match[1], block)) {
-      removed = true;
-    } else {
-      parts.push(block);
+  const sections = [...current.matchAll(/^\[([^\]\r\n]+)\]\s*$/gm)];
+  const removals: Array<{ start: number; end: number }> = [];
+  for (let index = 0; index < sections.length; index += 1) {
+    const section = sections[index];
+    const topLevel = section[1].match(/^mcp_servers\.([A-Za-z0-9_-]+)$/);
+    if (!topLevel) continue;
+    const name = topLevel[1];
+    const nestedPrefix = `mcp_servers.${name}.`;
+    let nextIndex = index + 1;
+    while (nextIndex < sections.length && sections[nextIndex][1].startsWith(nestedPrefix)) {
+      nextIndex += 1;
     }
-    cursor = end;
+    const start = section.index ?? 0;
+    const end = sections[nextIndex]?.index ?? current.length;
+    const block = current.slice(start, end);
+    if (shouldRemove(name, block)) removals.push({ start, end });
+  }
+  if (removals.length === 0) return null;
+  let cursor = 0;
+  const parts: string[] = [];
+  for (const removal of removals) {
+    parts.push(current.slice(cursor, removal.start));
+    cursor = removal.end;
   }
   parts.push(current.slice(cursor));
-  if (!removed) return null;
   return parts.join('').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '\n').trimEnd() + '\n';
 }
 

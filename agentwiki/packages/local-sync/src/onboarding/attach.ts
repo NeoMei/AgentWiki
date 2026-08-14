@@ -3,12 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createInterface as createPromisesInterface } from 'node:readline/promises';
 
-import { AgentWikiClient, type ExchangeResult } from '../agentwiki-client.js';
+import { AgentWikiClient, redactSecrets, type ExchangeResult } from '../agentwiki-client.js';
 import { detectClient, type AgentClient } from '../agent-clients.js';
 import { analyzeConfig } from '../installer/client-config.js';
 import { GATEWAY_PACKAGE_VERSION } from '../installer/plan.js';
 import { installExchangedGateway, type ExchangedGatewayInstallInput } from './install.js';
-import { OnboardingError } from './errors.js';
+import { OnboardingError, type OnboardingFailure } from './errors.js';
 import { ProtocolEncoder, isConfirmationReply, parseReply } from './protocol.js';
 
 export interface AttachCliInput {
@@ -52,6 +52,7 @@ export interface AttachmentDependencies {
   exchange(serverBaseUrl: string, code: string): Promise<ExchangeResult>;
   install(input: ExchangedGatewayInstallInput): Promise<AttachmentInstallResult>;
   complete?(report: AttachReport): void;
+  fail?(failure: OnboardingFailure): void;
   close?(): void;
 }
 
@@ -106,6 +107,9 @@ export async function runAttachment(
     };
     deps.complete?.(report);
     return report;
+  } catch (error) {
+    deps.fail?.(attachmentFailure(error));
+    throw error;
   } finally {
     deps.close?.();
   }
@@ -130,6 +134,7 @@ function productionDependencies(input: AttachCliInput): AttachmentDependencies {
       };
     },
     complete: protocol.complete,
+    fail: protocol.fail,
     close: protocol.close,
   };
 }
@@ -137,6 +142,7 @@ function productionDependencies(input: AttachCliInput): AttachmentDependencies {
 function attachmentProtocol(input: AttachCliInput): {
   confirm(plan: AttachmentPlan): Promise<boolean>;
   complete(report: AttachReport): void;
+  fail(failure: OnboardingFailure): void;
   close(): void;
 } {
   if (input.protocol === 'human') {
@@ -150,6 +156,7 @@ function attachmentProtocol(input: AttachCliInput): {
       complete(report) {
         process.stdout.write(`\n接入完成：\n${JSON.stringify(report, null, 2)}\n`);
       },
+      fail: () => undefined,
       close: () => terminal.close(),
     };
   }
@@ -178,6 +185,18 @@ function attachmentProtocol(input: AttachCliInput): {
     complete(report) {
       encoder.emit({ type: 'completed', report: report as unknown as Record<string, unknown> });
     },
+    fail: (failure) => { encoder.emitFailure(failure); },
     close: () => reader.close(),
+  };
+}
+
+function attachmentFailure(error: unknown): OnboardingFailure {
+  if (error instanceof OnboardingError) {
+    return { ...error.toFailure(), message: redactSecrets(error.message) };
+  }
+  return {
+    code: 'SYNC_FAILED',
+    message: redactSecrets(error instanceof Error ? error.message : String(error)),
+    retryable: false,
   };
 }
