@@ -9,7 +9,7 @@ describe('ReviewService approval boundaries', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
-  const service = new ReviewService(prisma, search);
+  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -141,6 +141,7 @@ describe('ReviewService approval boundaries', () => {
       page: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue({ deletedAt: new Date(), title: 'A', content: '' }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
@@ -177,6 +178,7 @@ describe('ReviewService approval boundaries', () => {
       page: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
@@ -657,7 +659,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
-  const service = new ReviewService(prisma, search);
+  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
 
   beforeEach(() => {
     jest.clearAllMocks();

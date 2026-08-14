@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { SearchService } from '../core/search/search.service';
  import type { NormalizedKnowledgeBundle } from '../knowledge-pipeline/knowledge-bundle';
 import type { SpaceKnowledgeRevision } from '@prisma/client';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import {
   canonicalBytes,
   contentHash as syncContentHash,
@@ -20,6 +21,7 @@ export class ReviewService {
   constructor(
     private prisma: PrismaService,
     private search: SearchService,
+    private revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async propose(
@@ -871,6 +873,16 @@ export class ReviewService {
       }
       await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'reverting' }, data: { status: 'reverted', revertedAt: new Date() } });
+      if (pageIds.length > 0) {
+        const pages = await tx.page.findMany({
+          where: { id: { in: pageIds } },
+          select: { knowledgeKey: true, syncPath: true, title: true, content: true, deletedAt: true },
+        });
+        await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
+          ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
+          : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
+        ), { origin: 'change_set', sourceChangeSetId: id });
+      }
       return pageIds;
     });
     await Promise.allSettled(affectedPageIds.map((pageId) => this.search.indexPage(pageId)));

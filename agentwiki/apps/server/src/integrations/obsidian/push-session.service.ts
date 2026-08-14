@@ -189,6 +189,7 @@ export class PushSessionService {
   async finalize(principal: HumanDevicePrincipal, spaceId: string, sessionId: string, confirmationHashValue: string) {
     return this.prisma.$transaction(async (tx) => {
       await this.writer.lockSpace(tx, spaceId);
+      await this.assertPublishableInTx(tx, principal, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
@@ -368,6 +369,19 @@ export class PushSessionService {
     }
   }
 
+  private async assertPublishableInTx(tx: any, principal: HumanDevicePrincipal, spaceId: string) {
+    const member = await tx.spaceMember.findUnique({
+      where: { userId_spaceId: { userId: principal.userId, spaceId } },
+      include: { space: { select: { deletedAt: true } } },
+    });
+    if (!member || member.space.deletedAt) {
+      throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
+    }
+    if (!['editor', 'admin', 'owner'].includes(member.role)) {
+      throw new SyncApiException('SPACE_READ_ONLY', 'Space role does not permit publishing');
+    }
+  }
+
   private assertMutable(session: { status: string; expiresAt: Date }) {
     if (session.expiresAt <= new Date()) {
       throw new SyncApiException('PUSH_SESSION_EXPIRED', 'Push session has expired');
@@ -436,6 +450,7 @@ export class PushSessionService {
           where: { id: page.id },
           data: { deletedAt: new Date(), lastModifiedByUserId: userId, lastModifiedAt: new Date() },
         });
+        await tx.pageSearchDocument.deleteMany({ where: { pageId: page.id } });
         applied.push({ type: 'archive_page', payload: { pageId: change.pageId, previousPath: change.previousPath ?? page.syncPath }, publishedResourceId: page.id });
         continue;
       }
