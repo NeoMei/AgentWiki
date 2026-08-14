@@ -12,6 +12,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/server/package.json ./apps/server/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/sync-protocol/package.json ./packages/sync-protocol/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
@@ -19,13 +20,16 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY apps/server ./apps/server
 COPY packages/shared ./packages/shared
+COPY packages/sync-protocol ./packages/sync-protocol
 COPY tsconfig.json ./
 
 # Generate Prisma client before build
 RUN cd apps/server && npx prisma generate
 
-# Build shared contracts before compiling the application.
-RUN pnpm --filter @agentwiki/shared build && pnpm --filter @agentwiki/server build
+# Build workspace contracts before compiling the application.
+RUN pnpm --filter @agentwiki/shared build \
+    && pnpm --filter @neomei/agentwiki-sync-protocol build \
+    && pnpm --filter @agentwiki/server build
 
 # Production stage
 FROM ${NODE_IMAGE} AS production
@@ -39,6 +43,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/server/package.json ./apps/server/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/sync-protocol/package.json ./packages/sync-protocol/
 
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
@@ -46,6 +51,7 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy built files from builder
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/sync-protocol/dist ./packages/sync-protocol/dist
 
 # Copy Prisma schema for migrations
 COPY apps/server/prisma ./apps/server/prisma

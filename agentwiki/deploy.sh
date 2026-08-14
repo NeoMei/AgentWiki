@@ -142,6 +142,7 @@ chmod 600 .env apps/server/.env
 pnpm install --frozen-lockfile
 pnpm --filter @agentwiki/server exec prisma generate --schema=prisma/schema.prisma
 pnpm --filter @agentwiki/shared build
+pnpm --filter @neomei/agentwiki-sync-protocol build
 pnpm --filter @agentwiki/server build
 pnpm --filter @agentwiki/client build
 pnpm --filter @agentwiki/server exec prisma migrate deploy

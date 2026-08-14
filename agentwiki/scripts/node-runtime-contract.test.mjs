@@ -41,14 +41,42 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
     assert.doesNotMatch(source, /node:20-alpine/);
   }
 
+  const serverDocker = runtimeFiles[0];
+  assert.match(
+    serverDocker,
+    /COPY packages\/sync-protocol\/package\.json \.\/packages\/sync-protocol\//,
+    'the server image must install the workspace sync protocol dependency',
+  );
+  assert.match(
+    serverDocker,
+    /pnpm --filter @neomei\/agentwiki-sync-protocol build/,
+    'the server image must build the workspace sync protocol dependency',
+  );
+  assert.match(
+    serverDocker,
+    /COPY --from=builder \/app\/packages\/sync-protocol\/dist \.\/packages\/sync-protocol\/dist/,
+    'the server image must include the runtime sync protocol artifacts',
+  );
+
   const deploy = await read('deploy.sh');
   assert.match(deploy, /SUPPORTED_NODE_MAJORS="24 26"/);
   assert.match(deploy, /\/usr\/bin\/node/);
   assert.match(deploy, /requires Node\.js 24 or 26/);
   assert.match(deploy, /chown -R -- .*\$HOME\/\$\{PROJECT_DIR\}/);
   const generateIndex = deploy.indexOf('pnpm --filter @agentwiki/server exec prisma generate');
+  const protocolBuildIndex = deploy.indexOf(
+    'pnpm --filter @neomei/agentwiki-sync-protocol build',
+  );
   const buildIndex = deploy.indexOf('pnpm --filter @agentwiki/server build');
   assert.ok(generateIndex >= 0, 'direct deployment must explicitly regenerate Prisma Client');
+  assert.ok(
+    protocolBuildIndex >= 0,
+    'direct deployment must build the workspace sync protocol package',
+  );
+  assert.ok(
+    protocolBuildIndex < buildIndex,
+    'the sync protocol package must be built before the server',
+  );
   assert.ok(generateIndex < buildIndex, 'Prisma Client must be generated before the server build');
   assert.notEqual((await stat(resolve(root, 'deploy.sh'))).mode & 0o111, 0, 'deploy.sh must be executable');
 });
