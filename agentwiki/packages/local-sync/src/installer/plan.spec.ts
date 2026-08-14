@@ -35,7 +35,19 @@ describe('looksLikeAgentWikiEntry', () => {
   });
 
   it('detects entries pointing at the server', () => {
-    expect(looksLikeAgentWikiEntry('my-wiki', 'agentwiki.quukk.com')).toBe(true);
+    expect(looksLikeAgentWikiEntry(
+      'my-wiki',
+      'url = "https://wiki.test/api/mcp"',
+      'https://wiki.test/api',
+    )).toBe(true);
+  });
+
+  it('does not claim an unrelated helper merely because its name contains agentwiki', () => {
+    expect(looksLikeAgentWikiEntry(
+      'my-agentwiki-helper',
+      'npx --yes @example/helper',
+      'https://wiki.test/api',
+    )).toBe(false);
   });
 
   it('does not flag the new gateway name itself', () => {

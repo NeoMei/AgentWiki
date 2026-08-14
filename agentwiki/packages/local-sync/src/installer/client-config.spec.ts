@@ -68,6 +68,21 @@ describe('analyzeConfig', () => {
     const analysis = await analyzeConfig('claude', home);
     expect(analysis.hasConflict).toBe(true);
   });
+
+  it('migrates the current remote endpoint but preserves a similarly named third-party helper', async () => {
+    const home = await freshHome();
+    await seedConfig('claude', home, JSON.stringify({
+      mcpServers: {
+        'agentwiki-a1b2c3d4': { url: 'https://wiki.test/api/mcp' },
+        'my-agentwiki-helper': { command: 'npx', args: ['@example/helper'] },
+      },
+    }));
+
+    const analysis = await analyzeConfig('claude', home, 'https://wiki.test/api');
+
+    expect(analysis.oldEntries).toEqual(['agentwiki-a1b2c3d4']);
+    expect(analysis.oldEntries).not.toContain('my-agentwiki-helper');
+  });
 });
 
 describe('installGatewayEntry', () => {
@@ -140,6 +155,50 @@ describe('installGatewayEntry', () => {
     await resumed.rollback();
 
     await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
+  });
+
+  it('replaces the current direct MCP and preserves a similarly named helper', async () => {
+    const home = await freshHome();
+    const original = JSON.stringify({
+      mcpServers: {
+        'agentwiki-a1b2c3d4': { url: 'https://wiki.test/api/mcp' },
+        'my-agentwiki-helper': { command: 'npx', args: ['@example/helper'] },
+      },
+    });
+    await seedConfig('claude', home, original);
+
+    await installGatewayEntry(
+      'claude', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
+    );
+
+    const config = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(config.mcpServers['agentwiki-a1b2c3d4']).toBeUndefined();
+    expect(config.mcpServers['my-agentwiki-helper']).toBeDefined();
+    expect(config.mcpServers.agentwiki).toBeDefined();
+  });
+
+  it('preserves a similarly named Codex TOML block while migrating the direct endpoint', async () => {
+    const home = await freshHome();
+    const original = [
+      '[mcp_servers.my-agentwiki-helper]',
+      'cmd = "helper"',
+      '',
+      '[mcp_servers.agentwiki-a1b2c3d4]',
+      'url = "https://wiki.test/api/mcp"',
+      '',
+    ].join('\n');
+    await seedConfig('codex', home, original);
+
+    await installGatewayEntry(
+      'codex', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
+    );
+
+    const config = await readFile(clientConfigPath('codex', home), 'utf8');
+    expect(config).toContain('[mcp_servers.my-agentwiki-helper]');
+    expect(config).not.toContain('[mcp_servers.agentwiki-a1b2c3d4]');
+    expect(config).toContain('[mcp_servers.agentwiki]');
   });
 });
 
@@ -240,5 +299,18 @@ describe('removeGatewayEntry', () => {
     const home = await freshHome();
     const result = await removeGatewayEntry('claude', home);
     expect(result.removed).toBe(false);
+  });
+
+  it('does not uninstall an unknown command that later occupies the agentwiki name', async () => {
+    const home = await freshHome();
+    const original = JSON.stringify({
+      mcpServers: { agentwiki: { command: 'npx', args: ['@example/unrelated'] } },
+    });
+    await seedConfig('claude', home, original);
+
+    const result = await removeGatewayEntry('claude', home);
+
+    expect(result.removed).toBe(false);
+    await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(original);
   });
 });

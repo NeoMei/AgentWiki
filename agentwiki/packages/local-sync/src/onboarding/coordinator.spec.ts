@@ -98,6 +98,7 @@ describe('OnboardingCoordinator happy path', () => {
     const events = sink.lines.map((l) => JSON.parse(l));
     expect(events.some((e) => e.type === 'completed')).toBe(true);
     expect(events.some((e) => e.type === 'authorization_required')).toBe(true);
+    expect(deps.preflight).toHaveBeenCalledWith('codex', expect.any(String), 'https://test/api');
 
     // The single-use token was deleted after bootstrap.
     expect(await deps.store.loadSecret()).toBeNull();

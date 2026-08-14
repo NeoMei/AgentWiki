@@ -17,7 +17,7 @@ export interface PreflightResult {
 }
 
 /** True when the host Agent binary supports MCP hot-reload without restart. */
-function supportsHotReload(client: AgentClient): boolean {
+export function supportsHotReload(client: AgentClient): boolean {
   // Codex and Claude Code reload MCP servers on config change; OpenCode needs
   // a restart after JSON mutation. This is conservative and testable.
   return client === 'codex' || client === 'claude';
@@ -29,8 +29,12 @@ function supportsHotReload(client: AgentClient): boolean {
  * This is deliberately read-only. Archiving and clean-state activation happen
  * only after the user confirms the plan.
  */
-export async function preflight(client: ClientType, home: string): Promise<PreflightResult> {
-  const analysis = await analyzeConfig(client as AgentClient, home);
+export async function preflight(
+  client: ClientType,
+  home: string,
+  serverBaseUrl?: string,
+): Promise<PreflightResult> {
+  const analysis = await analyzeConfig(client as AgentClient, home, serverBaseUrl);
 
   return {
     configHash: analysis.hash,

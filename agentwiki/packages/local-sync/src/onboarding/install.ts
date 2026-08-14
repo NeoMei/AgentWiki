@@ -25,6 +25,7 @@ export interface BootstrapInstallerDeps {
     connectionId: string,
     expectedConfigHash: string,
     home: string,
+    serverBaseUrl?: string,
   ): Promise<{ backupPath: string; rollback: () => Promise<void> }>;
   verify(connectionId: string, home: string): Promise<VerifyResult>;
   verifyAccess(
@@ -76,7 +77,13 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
           connectionId: input.connectionId,
         };
       }
-      const installed = await deps.installClient(input.client, input.connectionId, input.expectedConfigHash, input.home);
+      const installed = await deps.installClient(
+        input.client,
+        input.connectionId,
+        input.expectedConfigHash,
+        input.home,
+        connection.serverUrl,
+      );
       rollbackConfig = installed.rollback;
 
       const verified = await deps.verify(input.connectionId, input.home);
@@ -160,6 +167,7 @@ export async function installExchangedGateway(
       input.connectionId,
       input.expectedConfigHash,
       input.home,
+      input.exchange.serverUrl,
     );
     rollbackConfig = installed.rollback;
     const verified = await deps.verify(input.connectionId, input.home);

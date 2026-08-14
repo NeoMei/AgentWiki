@@ -18,7 +18,7 @@ import { OnboardingError, type OnboardingFailure } from './errors.js';
 
 /** Injected preflight: analyse client config and archive legacy state. */
 export interface PreflightFn {
-  (client: ClientType, home: string): Promise<{
+  (client: ClientType, home: string, serverBaseUrl?: string): Promise<{
     configHash: string;
     oldEntries: string[];
     hasConflict: boolean;
@@ -236,7 +236,11 @@ export class OnboardingCoordinator {
 
   private async preflight(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'preflight', status: 'running' });
-    const result = await this.deps.preflight(prev.clientType ?? 'codex', this.deps.home);
+    const result = await this.deps.preflight(
+      prev.clientType ?? 'codex',
+      this.deps.home,
+      this.deps.serverBaseUrl,
+    );
     if (result.hasConflict) {
       throw this.fail('CONFIG_CONFLICT', 'an unknown entry already occupies the agentwiki MCP name', false);
     }

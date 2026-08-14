@@ -42,6 +42,19 @@ describe('preflight', () => {
     expect(result.oldEntries).toContain('agentwiki-local');
   });
 
+  it('uses the current server URL to identify a direct remote entry', async () => {
+    const home = await freshHome();
+    const path = clientConfigPath('claude', home);
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, JSON.stringify({
+      mcpServers: { remote: { url: 'https://wiki.test/api/mcp' } },
+    }));
+
+    const result = await preflight('claude', home, 'https://wiki.test/api');
+
+    expect(result.oldEntries).toEqual(['remote']);
+  });
+
   it('flags an unknown agentwiki conflict', async () => {
     const home = await freshHome();
     const path = clientConfigPath('claude', home);

@@ -113,7 +113,7 @@ function productionDependencies(input: AttachCliInput): AttachmentDependencies {
     detectClient: (requested) => detectClient(requested, (command, args, options) => (
       spawnSync(command, args, { stdio: 'pipe', ...options })
     )),
-    analyzeConfig: (client, home) => analyzeConfig(client, home),
+    analyzeConfig: (client, home, serverBaseUrl) => analyzeConfig(client, home, serverBaseUrl),
     confirm: protocol.confirm,
     exchange: (serverBaseUrl, code) => agentwiki.exchange(serverBaseUrl, code),
     install: async (installInput) => {

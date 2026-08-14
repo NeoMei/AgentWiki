@@ -23,8 +23,11 @@ export function gatewayCommand(connectionId: string): string[] {
   ];
 }
 
-/** Strings that identify an MCP entry as pointing at AgentWiki (legacy or current). */
-export const AGENTWIKI_SERVER_HINTS = ['agentwiki', 'AgentWiki', 'agentwiki-local', 'agentwiki-quukk'];
+const LEGACY_LOCAL_SYNC_NAMES = [
+  /^agentwiki-local(?:-|$)/i,
+  /^agentwiki-legacy(?:-|$)/i,
+  /^agentwiki-quukk(?:-|$)/i,
+];
 
 export interface PreflightPlan {
   client: AgentClient;
@@ -51,13 +54,22 @@ export function hashConfig(config: string): string {
   return createHash('sha256').update(config, 'utf8').digest('hex');
 }
 
-/** True if an MCP entry name or command looks like it belongs to AgentWiki. */
-export function looksLikeAgentWikiEntry(name: string, commandText: string): boolean {
+/** True if an MCP entry is an owned legacy local-sync entry or targets this server. */
+export function looksLikeAgentWikiEntry(
+  name: string,
+  commandText: string,
+  serverBaseUrl?: string,
+): boolean {
   const lower = commandText.toLowerCase();
   if (name === GATEWAY_MCP_NAME) return false; // the new gateway name itself
-  return (
-    AGENTWIKI_SERVER_HINTS.some((hint) => name.toLowerCase().includes(hint.toLowerCase())) ||
-    lower.includes('agentwiki-local-sync') ||
-    lower.includes('agentwiki.quukk')
-  );
+  if (LEGACY_LOCAL_SYNC_NAMES.some((pattern) => pattern.test(name))) return true;
+  if (lower.includes('agentwiki-local-sync')) return true;
+  if (!serverBaseUrl) return false;
+  try {
+    const base = serverBaseUrl.replace(/\/+$/, '');
+    const endpoint = new URL(`${base}/mcp`).toString().replace(/\/$/, '').toLowerCase();
+    return lower.includes(endpoint);
+  } catch {
+    return false;
+  }
 }

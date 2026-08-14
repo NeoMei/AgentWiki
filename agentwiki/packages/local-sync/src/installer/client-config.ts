@@ -93,6 +93,7 @@ export async function installGatewayEntry(
   connectionId: string,
   expectedHash: string,
   home: string = homedir(),
+  serverBaseUrl?: string,
 ): Promise<{ backupPath: string; rollback: () => Promise<void> }> {
   const configPath = clientConfigPath(client, home);
 
@@ -110,7 +111,7 @@ export async function installGatewayEntry(
   }
 
   const backup = await backupConfig(client, home);
-  const next = buildConfigWithGateway(client, current, connectionId);
+  const next = buildConfigWithGateway(client, current, connectionId, serverBaseUrl);
   await writeAtomically(configPath, next, client === 'opencode' ? 0o600 : 0o600);
   if (client === 'claude') await cleanupLegacyClaudeSettings(home).catch(() => undefined);
 
@@ -152,28 +153,9 @@ function removeGatewayFromConfig(client: AgentClient, current: string): string |
 }
 
 function removeTomlGateway(current: string): string | null {
-  const lines = current.split('\n');
-  const result: string[] = [];
-  let skipBlock = false;
-  let removed = false;
-  for (const line of lines) {
-    const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
-    if (headerMatch) {
-      const isAgentWiki = line.toLowerCase().includes('agentwiki')
-        || headerMatch[1].toLowerCase().includes('agentwiki');
-      if (isAgentWiki) {
-        skipBlock = true;
-        removed = true;
-        continue;
-      }
-      skipBlock = false;
-    } else if (/^\[/.test(line)) {
-      skipBlock = false;
-    }
-    if (!skipBlock) result.push(line);
-  }
-  if (!removed) return null;
-  return result.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '\n').trimEnd() + '\n';
+  return filterTomlMcpBlocks(current, (name, block) => (
+    name === GATEWAY_MCP_NAME && block.toLowerCase().includes('agentwiki-local-sync')
+  ));
 }
 
 function removeJsonGateway(current: string, path: string[]): string | null {
@@ -193,7 +175,9 @@ function removeJsonGateway(current: string, path: string[]): string | null {
   if (!servers || typeof servers !== 'object') return null;
   let removed = false;
   for (const key of [...Object.keys(servers)]) {
-    if (key === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(key, JSON.stringify(servers[key]))) {
+    const text = JSON.stringify(servers[key]);
+    const ownedGateway = key === GATEWAY_MCP_NAME && text.toLowerCase().includes('agentwiki-local-sync');
+    if (ownedGateway || looksLikeAgentWikiEntry(key, text)) {
       delete servers[key];
       removed = true;
     }
@@ -233,43 +217,37 @@ function hasExactGatewayEntry(client: AgentClient, current: string, connectionId
 }
 
 /** Build the post-install config text for each client format. */
-function buildConfigWithGateway(client: AgentClient, current: string | null, connectionId: string): string {
+function buildConfigWithGateway(
+  client: AgentClient,
+  current: string | null,
+  connectionId: string,
+  serverBaseUrl?: string,
+): string {
   const command = gatewayCommand(connectionId);
   switch (client) {
     case 'codex':
-      return buildToml(current, command);
+      return buildToml(current, command, serverBaseUrl);
     case 'claude':
-      return buildJson(current, command);
+      return buildJson(current, command, serverBaseUrl);
     case 'opencode':
-      return buildOpenCodeJson(current, command);
+      return buildOpenCodeJson(current, command, serverBaseUrl);
   }
 }
 
-function buildToml(current: string | null, command: string[]): string {
+function buildToml(current: string | null, command: string[], serverBaseUrl?: string): string {
   // Codex uses TOML MCP servers. Remove old AgentWiki blocks, add the gateway.
   const text = current ?? '';
  // Split into blocks by [mcp_servers.NAME] headers, keeping non-MCP content intact.
- const lines = text.split('\n');
- const result: string[] = [];
- let skipBlock = false;
- for (const line of lines) {
-   const headerMatch = line.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/);
-   if (headerMatch) {
-     // Starting a new mcp_servers block; skip if it references agentwiki.
-     skipBlock = line.toLowerCase().includes('agentwiki') || headerMatch[1].toLowerCase().includes('agentwiki');
-   } else if (/^\[/.test(line)) {
-     // A different section header stops the skip.
-     skipBlock = false;
-   }
-   if (!skipBlock) result.push(line);
- }
- const base = result.join('\n').trimEnd();
+ const filtered = filterTomlMcpBlocks(text, (name, block) => (
+   name === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(name, block, serverBaseUrl)
+ ));
+ const base = (filtered ?? text).trimEnd();
   const [cmd, ...args] = command;
   const argsStr = args.map((a) => `"${escapeTomlString(a)}"`).join(', ');
   return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncmd = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
 }
 
-function buildJson(current: string | null, command: string[]): string {
+function buildJson(current: string | null, command: string[], serverBaseUrl?: string): string {
   let config: Record<string, unknown> = {};
   if (current) {
     try {
@@ -283,7 +261,7 @@ function buildJson(current: string | null, command: string[]): string {
   for (const key of Object.keys(mcpServers)) {
     const entry = mcpServers[key];
     const text = JSON.stringify(entry);
-    if (looksLikeAgentWikiEntry(key, text)) delete mcpServers[key];
+    if (looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete mcpServers[key];
   }
   const [cmd, ...args] = command;
   mcpServers[GATEWAY_MCP_NAME] = { command: cmd, args };
@@ -291,7 +269,7 @@ function buildJson(current: string | null, command: string[]): string {
   return JSON.stringify(config, null, 2) + '\n';
 }
 
-function buildOpenCodeJson(current: string | null, command: string[]): string {
+function buildOpenCodeJson(current: string | null, command: string[], serverBaseUrl?: string): string {
   let config: Record<string, unknown> = {};
   if (current) {
     try {
@@ -305,7 +283,7 @@ function buildOpenCodeJson(current: string | null, command: string[]): string {
   for (const key of Object.keys(servers)) {
     const entry = servers[key];
     const text = JSON.stringify(entry);
-    if (looksLikeAgentWikiEntry(key, text)) delete servers[key];
+    if (looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete servers[key];
   }
   const [cmd, ...args] = command;
   servers[GATEWAY_MCP_NAME] = { type: 'local', command: cmd, args };
@@ -326,6 +304,7 @@ async function writeAtomically(path: string, contents: string, mode: 0o600): Pro
 export async function analyzeConfig(
   client: AgentClient,
   home: string = homedir(),
+  serverBaseUrl?: string,
 ): Promise<{ hash: string; oldEntries: string[]; hasConflict: boolean }> {
   const raw = await readRawConfig(client, home);
   const hash = raw !== null ? hashConfig(raw) : hashConfig('');
@@ -341,12 +320,39 @@ export async function analyzeConfig(
       }
       continue;
     }
-    if (looksLikeAgentWikiEntry(name, text)) {
+    if (looksLikeAgentWikiEntry(name, text, serverBaseUrl)) {
       oldEntries.push(name);
     }
   }
 
   return { hash, oldEntries, hasConflict };
+}
+
+function filterTomlMcpBlocks(
+  current: string,
+  shouldRemove: (name: string, block: string) => boolean,
+): string | null {
+  const matches = [...current.matchAll(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/gm)];
+  if (matches.length === 0) return null;
+  let cursor = 0;
+  let removed = false;
+  const parts: string[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const start = match.index ?? 0;
+    const end = matches[index + 1]?.index ?? current.length;
+    parts.push(current.slice(cursor, start));
+    const block = current.slice(start, end);
+    if (shouldRemove(match[1], block)) {
+      removed = true;
+    } else {
+      parts.push(block);
+    }
+    cursor = end;
+  }
+  parts.push(current.slice(cursor));
+  if (!removed) return null;
+  return parts.join('').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '\n').trimEnd() + '\n';
 }
 
 function extractEntryNames(client: AgentClient, raw: string | null): Array<[string, string]> {
