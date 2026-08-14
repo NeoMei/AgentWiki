@@ -36,6 +36,15 @@ describe('SpaceRevisionWriterService', () => {
       syncPageContentRow: {
         upsert: jest.fn().mockResolvedValue({}),
       },
+      page: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      agentMemory: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      knowledgeRelation: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const body = 'Hello\n';
     const result = await service.advance(tx as any, 'space-1', [{
