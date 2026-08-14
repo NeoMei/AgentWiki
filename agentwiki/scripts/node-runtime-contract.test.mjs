@@ -100,6 +100,15 @@ test('direct production deployment rejects a stale non-HTTPS public Agent API UR
   assert.match(deploy, /LOCAL_SYNC_PACKAGE_VERSION/);
 });
 
+test('the sync v1 backfill can read nullable Release A rows with the final Prisma Client', async () => {
+  const backfill = await read('scripts/backfill-sync-v1.mjs');
+  assert.doesNotMatch(backfill, /prisma\.page\.findMany/);
+  assert.doesNotMatch(backfill, /prisma\.spaceKnowledgeRevision\.findMany/);
+  assert.match(backfill, /prisma\.\$queryRawUnsafe/);
+  assert.match(backfill, /FROM "Page"/);
+  assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
+});
+
 test('Nginx sends Socket.IO websocket upgrades directly to the API', async () => {
   const nginx = await read('deploy/nginx/agentwiki.conf');
   const socketLocation = nginx.match(/location \/socket\.io\/ \{([\s\S]*?)\n    \}/)?.[1];

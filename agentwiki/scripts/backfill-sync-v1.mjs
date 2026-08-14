@@ -70,10 +70,16 @@ export async function normalizePageBody(body) {
 
 export async function backfillSpace(prisma, spaceId, batchId) {
   await migratePages(prisma, spaceId, batchId);
-  const revisions = await prisma.spaceKnowledgeRevision.findMany({
-    where: { spaceId },
-    orderBy: { sequence: 'asc' },
-  });
+  // Release A deliberately leaves the new fields nullable, while the generated
+  // Prisma Client reflects the final Release B schema. Raw parameterized reads
+  // avoid Prisma's non-null model decoder until backfill has populated them.
+  const revisions = await prisma.$queryRawUnsafe(
+    `SELECT "id", "migrationBatchId", "revisionContentHash", "snapshot", "origin"
+       FROM "SpaceKnowledgeRevision"
+      WHERE "spaceId" = $1
+      ORDER BY "sequence" ASC`,
+    spaceId,
+  );
   for (const revision of revisions) {
     const occupiedKeys = new Set();
     if (revision.migrationBatchId === batchId && revision.revisionContentHash) {
@@ -193,15 +199,14 @@ export async function backfillSpace(prisma, spaceId, batchId) {
 }
 
 export async function migratePages(prisma, spaceId, batchId) {
-  const pages = await prisma.page.findMany({
-    where: { spaceId },
-    select: {
-      id: true, knowledgeKey: true, title: true, content: true, format: true,
-      slug: true, parentId: true, authorId: true, sourcePath: true,
-      syncPath: true, syncPathKey: true,
-    },
-    orderBy: { createdAt: 'asc' },
-  });
+  const pages = await prisma.$queryRawUnsafe(
+    `SELECT "id", "knowledgeKey", "title", "content", "format", "slug",
+            "parentId", "authorId", "sourcePath", "syncPath", "syncPathKey"
+       FROM "Page"
+      WHERE "spaceId" = $1
+      ORDER BY "createdAt" ASC`,
+    spaceId,
+  );
   const occupiedKeys = new Set();
   const prechecked = [];
   for (const page of pages) {
