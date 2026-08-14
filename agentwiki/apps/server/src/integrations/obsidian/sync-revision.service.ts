@@ -3,6 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export interface SyncHead {
   revision: string;
@@ -82,11 +83,10 @@ export class SyncRevisionService {
       take: limit + 1,
       include: { content: true },
     });
-    const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit);
+    const { items, next } = this.trimByResponseBytes(rows, limit);
     return {
       items,
-      nextPageId: hasMore ? items[items.length - 1]?.pageId : undefined,
+      nextPageId: next ? items[items.length - 1]?.pageId : undefined,
       head: {
         revision: revision.id,
         sequence: revision.sequence,
@@ -196,5 +196,23 @@ export class SyncRevisionService {
       toRevision: head.revision,
       head,
     };
+  }
+
+  private trimByResponseBytes<T extends { pageId: string; title?: string; contentHash?: string; content?: { body?: string } }>(
+    rows: T[],
+    limit: number,
+  ): { items: T[]; next: boolean } {
+    const items: T[] = [];
+    let total = 0;
+    for (const row of rows) {
+      if (items.length >= limit) return { items, next: true };
+      const estimate = (row.title?.length ?? 0) + (row.content?.body?.length ?? 0) + (row.contentHash?.length ?? 0) + row.pageId.length + 128;
+      if (items.length > 0 && total + estimate > MAX_RESPONSE_BYTES) {
+        return { items, next: true };
+      }
+      items.push(row);
+      total += estimate;
+    }
+    return { items, next: false };
   }
 }
