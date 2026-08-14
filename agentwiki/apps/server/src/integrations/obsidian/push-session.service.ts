@@ -275,6 +275,14 @@ export class PushSessionService {
         createdByUserId: principal.userId,
         humanDeviceCredentialId: principal.credentialId,
       });
+      const capabilities = await this.capabilities();
+      if (
+        revision.pageCount > BigInt(capabilities.maxClientSpacePages)
+        || revision.revisionBodyBytes > BigInt(capabilities.maxClientTotalBodyBytes)
+        || revision.revisionManifestByteLength > BigInt(capabilities.maxClientManifestBytes)
+      ) {
+        throw new SyncApiException('SPACE_TOO_LARGE', 'Resulting space exceeds the client capability');
+      }
       const changeSet = await tx.changeSet.create({
         data: {
           title: 'Obsidian sync',
