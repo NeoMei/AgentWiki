@@ -30,5 +30,6 @@
 - M2 人类设备身份：HumanDeviceCredential/Family/Installation/ServerInstanceIdentity 模型、连接码、exchange（含 requestHash 幂等恢复）、session、activate、revoke、设备管理、exchange 限流。
 - M3 sync v1：Release A/B 两阶段迁移、规范化 Page rows/sidecar/blob/bigint 指标、统一 revision 写入器（含 legacy 双写 + supersede）、Snapshot/Delta/head/spaces 读路径、Push session 生命周期、回填脚本、local-sync 兼容适配器。
 - page 与 review ChangeSet 写入路径均已接入统一 revision 写入器。
-- 全量 server 测试 496 通过；typecheck 通过。
-- 尚未完成：契约 17 节 53 项验收的端到端/并发/故障注入自动化测试，以及若干运维细节（revision retention cleanup worker、内容 blob GC、instance rotate 命令）。
+- 补充 revision retention cleanup、instance rotate 命令、exchange 限流、真实数据库迁移集成测试。
+- 全量 server 测试 496 通过；协议包 21 测试通过；typecheck/build 通过；真实数据库迁移测试通过。
+- 尚未完成：契约 17 节 53 项验收的端到端/并发/故障注入自动化测试，协议包 npm 发布，以及插件仓库从本地协议副本切换到已发布包（需跨仓协作与 npm 凭据）。
