@@ -12,7 +12,8 @@
 - 三轮独立只读代码评审已完成：第三轮结论 ready to merge，Critical/Important 全部闭环；其剩余 Minor 项（瞬时故障误删 receipt、重放分支吞 rollback 错误、错误掩盖、命名、JWT_SECRET 轮换说明、文档计数）也已修复或补充。
 - 服务端 exchange 幂等改为数据库唯一认领（`AgentCredential.localSyncInstallationId`，迁移 `20260815010000_add_local_sync_installation_claim`），API key 由 HMAC 确定性派生；Redis receipt 只存元数据且 TTL 受安装码剩余寿命约束。
 - 最新门禁：runtime 69 pass/39 skip、server 517、client 156、sync-protocol 22、local-sync 358；typecheck、lint、build、diff check 全过。
-- npm 发布、Git 推送/合并和生产部署均未执行。
+- Git 推送/合并和生产部署已完成；npm 发布因 token 无发布权限阻塞，等待用户重新授权。
+- 2026-08-15 生产部署 0.3.7 完成：备份 `pre-unified-mcp-0.3.7-20260815160411.dump`（SHA-256 `6dafe895...`）校验通过；33 个迁移全部应用，`localSyncInstallationId` 列+唯一索引核验存在；三服务 active、公网 health 200、API smoke 18 项、UI 路由 smoke 25 条全过。
 
 ## 已实现范围
 

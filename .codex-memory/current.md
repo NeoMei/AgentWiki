@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 完成 AgentWiki 单一 MCP 入口修复：实现、本地验证与三轮独立评审均已完成（第三轮结论 ready to merge，Minor 项也已收口）；npm 发布、合并 `master` 和生产部署尚未执行。
+- 完成 AgentWiki 单一 MCP 入口修复并发布上线：三轮独立评审收口后，`master` 已合并推送（`8e12385`），生产已备份并部署 0.3.7；npm 发布因 token 无发布权限暂阻塞，等待用户重新登录。
 
 # 范围 / 不做
 
@@ -19,7 +19,8 @@
 - `onboard --code` 的 NDJSON 成功/失败终态、输入流关闭、失败脱敏、安装回滚和凭据吊销均有测试；真实 CLI 子进程已验证 `preview → confirmation_required → failed` 序列且不泄漏安装码/API Key。
 - 服务端 exchange 幂等改为数据库唯一认领（`AgentCredential.localSyncInstallationId` 唯一列 + 迁移 `20260815010000_add_local_sync_installation_claim`），API key 由 HMAC-SHA256(JWT_SECRET, installationId) 确定性派生；Redis receipt 只存元数据、TTL 受安装码剩余寿命约束；exchange 锁为随机 owner token + Lua compare-and-delete；重放安装码不再归档活动 `~/.agentwiki` 状态。轮换 JWT_SECRET 会使旧安装码无法重新派生 key（已安装凭据不受影响），需与签发新码一起操作。
 - 最新门禁：runtime 69 pass/39 skip、server 517、client 156、sync-protocol 22、local-sync 358；typecheck、lint、build、diff check 和 0.3.7 npm tarball 检查通过。
-- npm 和生产仍为 0.3.6；本分支未执行任何外部发布动作。
+- 2026-08-15 生产部署 0.3.7：部署前备份 `/root/backups/agentwiki/pre-unified-mcp-0.3.7-20260815160411.dump`（SHA-256 `6dafe895915aae8b8e148b367e9b969af5953d3f4512f23d096f745909533885`，`pg_restore --list` 通过）；`prisma migrate status` 33 个迁移全部应用，`AgentCredential.localSyncInstallationId` 列与唯一索引核验存在；三服务 active，公网 health 200，API smoke 18 项、UI 路由 smoke 3 public/16 auth/6 mobile 全部通过。
+- npm latest 仍为 0.3.6：本地 token `whoami` 401、publish 404（无该包发布权限），需要用户重新 `npm login --auth-type=web` 或提供有发布权限的 granular token 后执行 `npm publish`，再做三客户端公网 E2E。
 - 2026-08-14：Obsidian Sync v1 主项目三项交付已合并并推送 `master`，生产 `agentwiki.quukk.com` 已部署应用提交 `626af9d`；协议包、人类设备身份、`/api/sync/v1`、Release A/B 数据迁移与加固迁移全部上线。
 - 生产迁移无未解决失败：Release B 曾有一次已回滚尝试，随后成功应用；Page/Revision 回填、约束、索引与服务端身份数据不变量均通过 SQL 核验。
 - 线上 API smoke 18 项、UI 路由 smoke（3 public / 16 authenticated / 6 mobile）、真实公网 Sync v1 安装→exchange→activate→head→push→finalize→snapshot 全链路均通过，测试数据已清理。
@@ -59,7 +60,7 @@
 
 # 风险 / 下一步
 
-- 评审已收口（ready to merge）。后续由用户单独决定 npm 0.3.7 发布、分支推送/合并和生产备份部署。
+- 唯一剩余项：用户重新授权 npm 后发布 `@neomei/agentwiki-local-sync@0.3.7`（包内容已通过本地 tarball 与安装验证），随后跑 Codex/Claude/OpenCode 三客户端公网 E2E。
 - 生产验收必须重新验证生成指令、三客户端单一 `agentwiki` 配置、gateway 工具清单与 Credential 面板；本地验证不能替代公网发布包和生产 E2E。
 - 仅余 NestJS SSE 序列化中危告警 `GHSA-36xv-jgw5-4q75`；项目没有 SSE 路由或 `SseStream` 使用，当前不可达。后续单独规划 NestJS 10→11 大版本升级，不在 0.3.1 补丁发布中冒险处理。
 - 前端 `PageEditor` 构建 chunk 约 710 kB，属于性能优化候选，不阻塞本次功能与安全发布。
