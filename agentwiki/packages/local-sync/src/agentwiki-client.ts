@@ -90,7 +90,7 @@ export class AgentWikiClientError extends Error {
 export function redactSecrets(text: string): string {
   return text
     .replace(/\b(?:agk|awk)_[A-Za-z0-9_-]+\b/g, '[REDACTED]')
-    .replace(/\bAW-[A-Z0-9]+(?:-[A-Z0-9]+)+\b/gi, '[REDACTED]');
+    .replace(/\bAW-[A-Z0-9-]{4,64}\b/gi, '[REDACTED]');
 }
 
 function normalizeServerUrl(serverUrl: string): string {

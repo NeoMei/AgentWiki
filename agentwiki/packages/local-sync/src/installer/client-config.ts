@@ -6,7 +6,7 @@
  * the current config hash is re-checked; a mismatch means someone changed the
  * file concurrently and the install aborts without overwriting.
  */
-import { chmod, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -293,7 +293,7 @@ function buildOpenCodeJson(
   }
   const v1Entries = Object.fromEntries(Object.entries(mcp).filter(([key]) => key !== 'servers'));
   const v2Entries = { ...((mcp.servers ?? {}) as Record<string, unknown>) };
-  const entries = { ...v1Entries, ...v2Entries };
+  const entries = major === 1 ? { ...v1Entries, ...v2Entries } : v2Entries;
   for (const key of Object.keys(entries)) {
     const entry = entries[key];
     const text = JSON.stringify(entry);
@@ -306,7 +306,19 @@ function buildOpenCodeJson(
       ? { enabled: true, timeout: OPENCODE_MCP_EXECUTION_TIMEOUT_MS }
       : { disabled: false, timeout: { execution: OPENCODE_MCP_EXECUTION_TIMEOUT_MS } }),
   };
-  config.mcp = major === 1 ? entries : { servers: entries };
+  if (major === 1) {
+    config.mcp = entries;
+  } else {
+    const preservedMcp = { ...mcp };
+    delete preservedMcp.servers;
+    for (const [key, entry] of Object.entries(v1Entries)) {
+      const text = JSON.stringify(entry);
+      if (key === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(key, text, serverBaseUrl)) {
+        delete preservedMcp[key];
+      }
+    }
+    config.mcp = { ...preservedMcp, servers: entries };
+  }
   return JSON.stringify(config, null, 2) + '\n';
 }
 
@@ -346,11 +358,23 @@ function removeOwnedOpenCodeGateway(current: string): string | null {
 }
 
 async function writeAtomically(path: string, contents: string, mode: 0o600): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, contents, { encoding: 'utf8', mode });
-  await chmod(temporary, mode);
-  await rename(temporary, path);
+  try {
+    const file = await open(temporary, 'w', mode);
+    try {
+      await file.writeFile(contents, { encoding: 'utf8' });
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await chmod(temporary, mode);
+    await rename(temporary, path);
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined);
+    throw error;
+  }
 }
 
 /** Scan a config for old AgentWiki entries and conflicts. */

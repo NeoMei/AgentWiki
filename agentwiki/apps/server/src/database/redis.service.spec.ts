@@ -72,6 +72,19 @@ describe('RedisService strict hash operations', () => {
     await expect(service.getDel('install:hash')).resolves.toBe('payload');
   });
 
+  it('deletes a lock only when the caller still owns it', async () => {
+    const client = { eval: jest.fn().mockResolvedValue(1) };
+    const service = serviceWithClient(client);
+
+    await expect(service.deleteIfValueMatches('install:lock', 'owner-token')).resolves.toBe(true);
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
+      1,
+      'install:lock',
+      'owner-token',
+    );
+  });
+
   it('strictly reads revocation state', async () => {
     const client = { get: jest.fn().mockResolvedValue('payload') };
     const service = serviceWithClient(client);

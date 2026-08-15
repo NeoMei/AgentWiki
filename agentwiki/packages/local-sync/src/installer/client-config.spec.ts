@@ -169,12 +169,21 @@ describe('installGatewayEntry', () => {
   it('writes the OpenCode 2.x nested gateway shape', async () => {
     const home = await freshHome();
     const path = clientConfigPath('opencode', home);
+    await seedConfig('opencode', home, JSON.stringify({
+      mcp: {
+        telemetry: { enabled: false },
+        servers: { unrelated: { type: 'local', command: ['other-tool'] } },
+      },
+    }));
     const { hash } = await analyzeConfig('opencode', home);
 
     await installGatewayEntry('opencode', 'conn-v2', hash, home, undefined, 2);
 
     const config = JSON.parse(await readFile(path, 'utf8')) as {
-      mcp: { servers: Record<string, { command: string[]; disabled: boolean; timeout: { execution: number } }> };
+      mcp: {
+        telemetry?: { enabled: boolean };
+        servers: Record<string, { command: string[]; disabled: boolean; timeout: { execution: number } }>;
+      };
     };
     expect(config.mcp.servers.agentwiki).toEqual({
       type: 'local',
@@ -182,6 +191,8 @@ describe('installGatewayEntry', () => {
       disabled: false,
       timeout: { execution: 1_800_000 },
     });
+    expect(config.mcp).toMatchObject({ telemetry: { enabled: false } });
+    expect(config.mcp.servers.unrelated).toBeDefined();
   });
 
   it('backs up the config at 0600', async () => {

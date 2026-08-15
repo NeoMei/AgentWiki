@@ -170,14 +170,15 @@ model Agent {
 }
 
 model AgentCredential {
-  id         String    @id @default(cuid())
-  name       String
-  prefix     String
-  keyHash    String    @unique
-  scopes     String[]
-  expiresAt  DateTime?
-  revokedAt  DateTime?
-  lastUsedAt DateTime?
+  id                      String    @id @default(cuid())
+  name                    String
+  prefix                  String
+  keyHash                 String    @unique
+  localSyncInstallationId String?   @unique
+  scopes                  String[]
+  expiresAt               DateTime?
+  revokedAt               DateTime?
+  lastUsedAt              DateTime?
 
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String

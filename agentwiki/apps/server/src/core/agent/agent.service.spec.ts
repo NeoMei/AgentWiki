@@ -4,7 +4,7 @@ import { AgentService } from './agent.service';
 describe('AgentService grant scope validation', () => {
   const prisma = {
     agent: { findUnique: jest.fn() },
-    agentCredential: { create: jest.fn() },
+    agentCredential: { create: jest.fn(), findUnique: jest.fn() },
     agentGrant: { findUnique: jest.fn(), upsert: jest.fn() },
     agentAuditEvent: { create: jest.fn() },
   } as any;
@@ -81,6 +81,70 @@ describe('AgentService grant scope validation', () => {
       id: 'credential-1',
       apiKey: expect.stringMatching(/^agk_/),
     }));
+  });
+
+  it('claims one credential per local-sync installation and reuses it after a retry', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentCredential.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'credential-1', agentId: 'agent-1',
+        keyHash: '58f5ceceff4ed07826c298f6b62e3fdb2cebfec07f946843c538fd45819e87ac',
+        scopes: ['sources:read'], revokedAt: null,
+      });
+    prisma.agentCredential.create.mockResolvedValue({
+      id: 'credential-1', agentId: 'agent-1',
+      keyHash: '58f5ceceff4ed07826c298f6b62e3fdb2cebfec07f946843c538fd45819e87ac',
+      scopes: ['sources:read'], revokedAt: null,
+    });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    const first = await service.createInstallationCredential(
+      'owner-1', 'agent-1', 'installation-1', 'agk_deterministic', ['sources:read'],
+    );
+    const replay = await service.createInstallationCredential(
+      'owner-1', 'agent-1', 'installation-1', 'agk_deterministic', ['sources:read'],
+    );
+
+    expect(first).toMatchObject({ id: 'credential-1', created: true, apiKey: 'agk_deterministic' });
+    expect(replay).toMatchObject({ id: 'credential-1', created: false, apiKey: 'agk_deterministic' });
+    expect(prisma.agentCredential.create).toHaveBeenCalledTimes(1);
+    expect(prisma.agentCredential.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ localSyncInstallationId: 'installation-1' }),
+    }));
+  });
+
+  it('recovers the uniquely claimed installation credential after a concurrent create', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    const claimed = {
+      id: 'credential-1', agentId: 'agent-1',
+      keyHash: '58f5ceceff4ed07826c298f6b62e3fdb2cebfec07f946843c538fd45819e87ac',
+      scopes: ['sources:read'], revokedAt: null,
+    };
+    prisma.agentCredential.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(claimed);
+    prisma.agentCredential.create.mockRejectedValue(new Error('unique constraint'));
+
+    await expect(service.createInstallationCredential(
+      'owner-1', 'agent-1', 'installation-1', 'agk_deterministic', ['sources:read'],
+    )).resolves.toMatchObject({ id: 'credential-1', created: false });
+  });
+
+  it('surfaces the original create error when the recovery lookup also fails', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentCredential.findUnique
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error('lookup unavailable'));
+    prisma.agentCredential.create.mockRejectedValue(new Error('credential constraint violation'));
+
+    await expect(service.createInstallationCredential(
+      'owner-1', 'agent-1', 'installation-1', 'agk_deterministic', ['sources:read'],
+    )).rejects.toThrow('credential constraint violation');
   });
 
   it('rejects invalid grant scopes before persisting the grant', async () => {

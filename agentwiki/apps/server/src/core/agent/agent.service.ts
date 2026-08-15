@@ -109,6 +109,72 @@ export class AgentService {
     return { ...credential, apiKey: rawKey };
   }
 
+  async createInstallationCredential(
+    ownerId: string,
+    agentId: string,
+    installationId: string,
+    rawKey: string,
+    scopes: string[],
+  ) {
+    const agent = await this.getOwned(ownerId, agentId);
+    if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
+    const normalizedScopes = this.normalizeCredentialScopes(scopes);
+    const select = {
+      id: true,
+      agentId: true,
+      keyHash: true,
+      scopes: true,
+      revokedAt: true,
+    } as const;
+    let credential = await this.prisma.agentCredential.findUnique({
+      where: { localSyncInstallationId: installationId },
+      select,
+    });
+    let created = false;
+    if (!credential) {
+      try {
+        credential = await this.prisma.agentCredential.create({
+          data: {
+            agentId,
+            name: 'Local sync plugin',
+            prefix: rawKey.slice(0, 12),
+            keyHash: createHash('sha256').update(rawKey).digest('hex'),
+            localSyncInstallationId: installationId,
+            scopes: normalizedScopes,
+          },
+          select,
+        });
+        created = true;
+      } catch (error) {
+        try {
+          credential = await this.prisma.agentCredential.findUnique({
+            where: { localSyncInstallationId: installationId },
+            select,
+          });
+        } catch {
+          throw error;
+        }
+        if (!credential) throw error;
+      }
+    }
+    if (
+      credential.agentId !== agentId
+      || credential.keyHash !== createHash('sha256').update(rawKey).digest('hex')
+      || credential.revokedAt
+      || normalizedScopes.some((scope) => !credential.scopes.includes(scope))
+      || credential.scopes.some((scope) => !normalizedScopes.includes(scope))
+    ) {
+      throw new ForbiddenException('Local sync installation credential is unavailable');
+    }
+    if (created) {
+      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id)
+        .catch((error) => this.logger.warn(
+          `Installation credential ${credential!.id} audit failed: ${error instanceof Error ? error.message : String(error)}`,
+        ));
+    }
+    return { ...credential, apiKey: rawKey, created };
+  }
+
   normalizeCredentialScopes(scopes: string[]): string[] {
     const input = Array.from(new Set(scopes));
     if (input.length === 0) {

@@ -5,6 +5,7 @@ import { HumanOnlyGuard } from '../auth/human-only.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { CreateAgentCredentialDto, CreateAgentDto, UpdateAgentDto, UpsertAgentGrantDto } from '../dto/agent.dto';
 import { AgentService } from './agent.service';
+import { LocalSyncInstallationService } from './local-sync-installation.service';
 import { parseLimit, parseOffset } from '../utils/pagination';
 
 @Controller('agents')
@@ -13,6 +14,7 @@ export class AgentController {
   constructor(
     private readonly agents: AgentService,
     private readonly authorization: AuthorizationService,
+    private readonly localSyncInstallations: LocalSyncInstallationService,
   ) {}
 
   @Post()
@@ -56,7 +58,11 @@ export class AgentController {
     @Param('id') id: string,
     @Param('credentialId') credentialId: string,
   ) {
-    return this.agents.revokeCredential((req.user as any).userId, id, credentialId);
+    return this.localSyncInstallations.revokeCredentialAndReceipts(
+      (req.user as any).userId,
+      id,
+      credentialId,
+    );
   }
 
   @Put(':id/grants/:spaceId')

@@ -8,7 +8,7 @@ describe('AgentController platform authorization', () => {
     const authorization = {
       assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner', isSuperAdmin: true }),
     } as any;
-    const controller = new AgentController(agents, authorization);
+    const controller = new AgentController(agents, authorization, {} as any);
     const principal = { userId: 'admin-1', type: 'human', platformRole: 'super_admin' };
 
     await controller.upsertGrant(
@@ -22,6 +22,22 @@ describe('AgentController platform authorization', () => {
       principal,
       'space-1',
       ['owner', 'admin'],
+    );
+  });
+
+  it('revokes credentials through the local-sync lifecycle cleanup wrapper', async () => {
+    const installations = {
+      revokeCredentialAndReceipts: jest.fn().mockResolvedValue({ success: true }),
+    } as any;
+    const controller = new AgentController({} as any, {} as any, installations);
+
+    await expect(controller.revokeCredential(
+      { user: { userId: 'owner-1' } } as any,
+      'agent-1',
+      'credential-1',
+    )).resolves.toEqual({ success: true });
+    expect(installations.revokeCredentialAndReceipts).toHaveBeenCalledWith(
+      'owner-1', 'agent-1', 'credential-1',
     );
   });
 });

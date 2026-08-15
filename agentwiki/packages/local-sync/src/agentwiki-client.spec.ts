@@ -22,8 +22,8 @@ const connection: LocalSyncConnection = {
 
 describe('AgentWikiClient', () => {
   it('redacts API keys and one-time installation codes', () => {
-    expect(redactSecrets('agk_secret AW-ABCD-EFGH awk_other')).toBe(
-      '[REDACTED] [REDACTED] [REDACTED]',
+    expect(redactSecrets('agk_secret AW-ABCDEFGHIJKLMNOPQRSTUVWX AW-ABCD-EFGH awk_other')).toBe(
+      '[REDACTED] [REDACTED] [REDACTED] [REDACTED]',
     );
   });
 

@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [unified-agentwiki-mcp-fix](active/unified-agentwiki-mcp-fix/brief.md)：消除 Credential 与本地同步两套 MCP 接入指令，统一为 0.3.7 单一 `agentwiki` gateway；本地实现和验证完成，待评审与外部发布决策。
 
 ## 最近完成
 

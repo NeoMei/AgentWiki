@@ -14,6 +14,12 @@ if count == 1 then
 end
 return count
 `;
+const DELETE_IF_VALUE_MATCHES_SCRIPT = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`;
 const MODEL_HEALTH_TRANSITION_SCRIPT = `
 local incoming_at = tonumber(ARGV[1])
 local kind = ARGV[2]
@@ -173,6 +179,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async deleteStrict(key: string): Promise<number> {
     return this.getClient().del(key);
+  }
+
+  async deleteIfValueMatches(key: string, expectedValue: string): Promise<boolean> {
+    const deleted = await this.getClient().eval(
+      DELETE_IF_VALUE_MATCHES_SCRIPT,
+      1,
+      key,
+      expectedValue,
+    );
+    return deleted === 1;
   }
 
   async del(key: string): Promise<void> {

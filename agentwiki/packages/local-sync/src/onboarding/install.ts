@@ -107,7 +107,20 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
         connectionId: input.connectionId,
       };
     } catch (error) {
-      await rollbackConfig?.().catch(() => undefined);
+      let rollbackFailed = false;
+      try {
+        await rollbackConfig?.();
+      } catch {
+        rollbackFailed = true;
+      }
+      if (rollbackFailed) {
+        throw new OnboardingError({
+          code: 'SYNC_FAILED',
+          message: 'gateway replay failed; cleanup is incomplete: client configuration rollback',
+          retryable: false,
+          nextAction: 'Restore the client configuration from the latest backup before retrying.',
+        });
+      }
       throw error;
     }
   };
@@ -153,6 +166,68 @@ export async function installExchangedGateway(
     client: input.client,
     mcpName: 'agentwiki',
   };
+  const existing = await deps.loadExisting(input.home, input.connectionId);
+  if (existing) {
+    if (
+      existing.connection.agentId !== connection.agentId
+      || existing.connection.credentialId !== connection.credentialId
+      || existing.connection.serverUrl !== connection.serverUrl
+      || existing.connection.pluginVersion !== connection.pluginVersion
+      || existing.connection.client !== connection.client
+      || existing.connection.mcpName !== connection.mcpName
+      || existing.apiKey !== input.exchange.apiKey
+    ) {
+      throw new OnboardingError({
+        code: 'PACKAGE_INTEGRITY_FAILED',
+        message: 'existing local connection does not match the installation exchange replay',
+        retryable: false,
+      });
+    }
+    let rollbackConfig: (() => Promise<void>) | undefined;
+    try {
+      const installed = await deps.installClient(
+        input.client,
+        input.connectionId,
+        input.expectedConfigHash,
+        input.home,
+        input.exchange.serverUrl,
+      );
+      rollbackConfig = installed.rollback;
+      const verified = await deps.verify(input.connectionId, input.home);
+      if (!verified.ok) {
+        throw new OnboardingError({
+          code: 'MCP_HANDSHAKE_FAILED',
+          message: verified.errors.join('; ') || 'gateway verification failed',
+          retryable: true,
+        });
+      }
+      await deps.verifyAccess(existing.connection, existing.apiKey, {
+        agentId: input.expectedAgentId,
+        ...(input.expectedSpaceId ? { spaceId: input.expectedSpaceId } : {}),
+      });
+      return {
+        connection: existing.connection,
+        configBackupPath: installed.backupPath,
+        manifestHash: verified.manifestHash,
+      };
+    } catch (error) {
+      let replayRollbackFailed = false;
+      try {
+        await rollbackConfig?.();
+      } catch {
+        replayRollbackFailed = true;
+      }
+      if (replayRollbackFailed) {
+        throw new OnboardingError({
+          code: 'SYNC_FAILED',
+          message: 'gateway replay failed; cleanup is incomplete: client configuration rollback',
+          retryable: false,
+          nextAction: 'Restore the client configuration from the latest backup before retrying.',
+        });
+      }
+      throw error;
+    }
+  }
   let archive: ArchiveResult | null = null;
   let rollbackConfig: (() => Promise<void>) | undefined;
   let activatedState = false;
@@ -188,20 +263,37 @@ export async function installExchangedGateway(
       manifestHash: verified.manifestHash,
     };
   } catch (error) {
-    await rollbackConfig?.().catch(() => undefined);
+    let rollbackFailed = false;
+    let restoreFailed = false;
     let revokeFailed = false;
+    try {
+      await rollbackConfig?.();
+    } catch {
+      rollbackFailed = true;
+    }
     try {
       await deps.revokeCredential(connection, input.exchange.apiKey);
     } catch {
       revokeFailed = true;
     }
-    if (activatedState) await deps.restore(input.home, archive).catch(() => undefined);
-    if (revokeFailed) {
+    if (activatedState) {
+      try {
+        await deps.restore(input.home, archive);
+      } catch {
+        restoreFailed = true;
+      }
+    }
+    if (rollbackFailed || restoreFailed || revokeFailed) {
+      const incomplete = [
+        rollbackFailed ? 'client configuration rollback' : null,
+        restoreFailed ? 'local state restore' : null,
+        revokeFailed ? `credential ${connection.credentialId} revoke` : null,
+      ].filter(Boolean).join(', ');
       throw new OnboardingError({
         code: 'SYNC_FAILED',
-        message: `gateway installation failed and credential ${connection.credentialId} may still be active`,
+        message: `gateway installation failed; cleanup is incomplete: ${incomplete}`,
         retryable: false,
-        nextAction: `Revoke credential ${connection.credentialId} from AgentWiki before retrying.`,
+        nextAction: `Repair ${incomplete} manually before retrying.`,
       });
     }
     throw error;

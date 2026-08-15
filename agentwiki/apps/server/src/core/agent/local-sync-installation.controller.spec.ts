@@ -9,7 +9,7 @@ describe('LocalSyncInstallationController', () => {
   const installations = {
     create: jest.fn(),
     revoke: jest.fn(),
-    revokeCurrentCredential: jest.fn(),
+  revokeCredentialAndReceipts: jest.fn(),
     exchange: jest.fn(),
   };
   const config = { get: jest.fn() };
@@ -42,10 +42,10 @@ describe('LocalSyncInstallationController', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.revokeCurrentCredential)).toEqual([
       CombinedAuthGuard,
     ]);
-    installations.revokeCurrentCredential.mockResolvedValue({ success: true });
+    installations.revokeCredentialAndReceipts.mockResolvedValue({ success: true });
     const request = { user: { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' } } as any;
     await expect(controller.revokeCurrentCredential(request)).resolves.toEqual({ success: true });
-    expect(installations.revokeCurrentCredential).toHaveBeenCalledWith('owner-1', 'agent-1', 'credential-1');
+    expect(installations.revokeCredentialAndReceipts).toHaveBeenCalledWith('owner-1', 'agent-1', 'credential-1');
   });
 
   it('creates an install code with the ownerId and agentId from the authenticated principal', async () => {

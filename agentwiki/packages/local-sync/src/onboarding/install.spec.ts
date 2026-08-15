@@ -149,6 +149,34 @@ describe('installExchangedGateway', () => {
     ]);
   });
 
+  it('replays an exchanged installation without archiving or replacing active local state', async () => {
+    const fixture = dependencies();
+    fixture.deps.loadExisting = vi.fn(async () => ({
+      connection: {
+        id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
+        credentialId: 'credential-1', pluginVersion: '0.3.7', client: 'codex' as const,
+        mcpName: 'agentwiki',
+      },
+      apiKey: 'agk_attach_secret',
+    }));
+
+    await installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps);
+
+    expect(fixture.deps.archive).not.toHaveBeenCalled();
+    expect(fixture.deps.initialize).not.toHaveBeenCalled();
+    expect(fixture.deps.saveConnection).not.toHaveBeenCalled();
+    expect(fixture.deps.installSkill).not.toHaveBeenCalled();
+    expect(fixture.calls).toEqual(['install-client', 'verify-gateway', 'verify-access']);
+  });
+
   it('restores config and local state and revokes the credential when verification fails', async () => {
     const fixture = dependencies(false);
 
@@ -186,5 +214,55 @@ describe('installExchangedGateway', () => {
     });
 
     expect(fixture.calls).toContain('restore-state');
+  });
+
+  it('reports configuration and local-state cleanup failures explicitly', async () => {
+    const fixture = dependencies(false);
+    fixture.rollback.mockRejectedValue(new Error('rollback unavailable'));
+    vi.mocked(fixture.deps.restore).mockRejectedValue(new Error('restore unavailable'));
+
+    await expect(installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps)).rejects.toMatchObject({
+      code: 'SYNC_FAILED',
+      message: expect.stringContaining('client configuration rollback'),
+      nextAction: expect.stringContaining('local state restore'),
+    });
+  });
+
+  it('reports a replay rollback failure instead of swallowing it', async () => {
+    const fixture = dependencies();
+    fixture.deps.loadExisting = vi.fn(async () => ({
+      connection: {
+        id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
+        credentialId: 'credential-1', pluginVersion: '0.3.7', client: 'codex' as const,
+        mcpName: 'agentwiki',
+      },
+      apiKey: 'agk_attach_secret',
+    }));
+    fixture.deps.verify = vi.fn(async () => ({
+      ok: false, toolNames: [], manifestHash: 'manifest-hash', errors: ['failed'],
+    }));
+    fixture.rollback.mockRejectedValue(new Error('rollback unavailable'));
+
+    await expect(installExchangedGateway({
+      home: '/tmp/home',
+      client: 'codex',
+      connectionId: 'connection-1',
+      expectedConfigHash: 'config-hash',
+      expectedAgentId: 'agent-1',
+      expectedPluginVersion: '0.3.7',
+      exchange: exchanged,
+    }, fixture.deps)).rejects.toMatchObject({
+      code: 'SYNC_FAILED',
+      message: expect.stringContaining('client configuration rollback'),
+      nextAction: expect.stringContaining('backup'),
+    });
   });
 });

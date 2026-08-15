@@ -99,7 +99,7 @@ export class LocalSyncInstallationController {
     if (!principal.agentId || !principal.credentialId) {
       throw new ForbiddenException('Only an Agent credential can revoke itself');
     }
-    return this.installations.revokeCurrentCredential(
+    return this.installations.revokeCredentialAndReceipts(
       principal.userId,
       principal.agentId,
       principal.credentialId,
