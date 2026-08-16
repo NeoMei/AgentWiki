@@ -4,6 +4,7 @@
 
 - 完成 AgentWiki 单一 MCP 入口修复并全面发布上线（详见下文状态）。
 - 使用指南整合已上线：使用指南、详细文档、Agent 自助接入合并为单一 `/guide` 文档式页面，左侧目录分「快速上手」（快速开始 / Agent 自助接入 / Obsidian 插件）与「详细文档」（五个章节）；新增 Obsidian 插件安装说明，链接社区列表页与 GitHub 仓库，并提供站内设备管理入口。
+- 知识图谱自动生成已上线：三层方案（wiki-link 提取 origin=auto_wikilink、embedding 相似度 origin=auto_similar、LLM 语义提案走 ChangeSet 审核 origin=auto_llm），含 SpaceGraphState 设置表、手动刷新 API、worker 定时扫描、发布后增量钩子、图谱 origin 过滤/徽标与空间设置卡片。
 
 # 范围 / 不做
 
