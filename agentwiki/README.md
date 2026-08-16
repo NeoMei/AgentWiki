@@ -30,6 +30,7 @@ for setup details.
 
 ### Knowledge Graph
 - **Semantic relationships** — connect pages with typed relations (supports, contradicts, extends...)
+- **Auto-generation** — wiki-link extraction, embedding similarity, and reviewed LLM proposals keep the graph current
 - **Visual exploration** — interactive graph view with node/edge inspection
 - **Evidence & provenance** — every relationship tracks its source, run and confidence level
 
