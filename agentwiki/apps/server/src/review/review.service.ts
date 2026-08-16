@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
@@ -7,6 +7,7 @@ import { SearchService } from '../core/search/search.service';
  import type { NormalizedKnowledgeBundle } from '../knowledge-pipeline/knowledge-bundle';
 import type { SpaceKnowledgeRevision } from '@prisma/client';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
+import { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
 import {
   canonicalBytes,
   contentHash as syncContentHash,
@@ -22,6 +23,7 @@ export class ReviewService {
     private prisma: PrismaService,
     private search: SearchService,
     private revisionWriter: SpaceRevisionWriterService,
+    @Optional() private graphMaintenance?: GraphMaintenance,
   ) {}
 
   async propose(
@@ -561,6 +563,7 @@ export class ReviewService {
       return Array.from(new Set(pageIds));
     });
     await Promise.allSettled(publishedPageIds.map((pageId) => this.search.indexPage(pageId)));
+    this.graphMaintenance?.enqueue(changeSet.spaceId);
     return this.get(id);
   }
 

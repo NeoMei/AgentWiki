@@ -85,6 +85,22 @@ export class GraphRefreshService {
     });
   }
 
+  async updateSettings(
+    spaceId: string,
+    input: {
+      wikilinkEnabled: boolean;
+      similarEnabled: boolean;
+      similarThreshold: number;
+      llmEnabled: boolean;
+    },
+  ) {
+    return this.prisma.spaceGraphState.upsert({
+      where: { spaceId },
+      create: { spaceId, ...input },
+      update: input,
+    });
+  }
+
   private async refreshWikilinks(
     spaceId: string,
     pages: Array<{ id: string; title: string; slug: string; content: string }>,
