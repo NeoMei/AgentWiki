@@ -24,6 +24,8 @@
 - 2026-08-15 npm 发布 0.3.7 完成：`npm view` 确认 latest=0.3.7，shasum `4a630fe688e7dd82dc726580e472342b12cde4e2` 与本地构建一致。
 - 2026-08-15 三客户端公网 E2E（npm 公网包 0.3.7 + 生产 agentwiki.quukk.com + 隔离 HOME）：codex PASS（54s）、claude PASS（53s）、opencode PASS（58s），fixture 已自动清理。
 - 2026-08-16 使用指南整合上线：提交 `fcf5f9c` 合并 `master`；旧路由 `/onboard`、`/docs*` 重定向进 `/guide/*` 子页，`/onboard/device` 保持不变，顶部导航移除独立自助接入入口。部署时发现 Obsidian 插件 PR 漏更新 `pnpm-lock.yaml`（`apps/obsidian-plugin` 缺失 importer，`--frozen-lockfile` 拒绝安装），补提交 `a1c0bbc` 修复后部署成功。生产三服务 active，公网 health 200，API smoke 18 项通过，UI 路由 smoke 5 public / 16 authenticated / 6 mobile + 6 个旧路由重定向断言全部通过。部署前备份 `/root/backups/agentwiki/pre-guide-reorg-20260816181149.dump`（SHA-256 `af074a846056f5ead66782312df7bddfdcc0f30fc57f043e425a4b3a62cfd020`，`pg_restore --list` 通过）。
+- 2026-08-16 指南嵌套 bug 修复：`2fa0666` 移除五个 docs 子组件内部自带的 GuideLayout（路由层已提供，此前 `/guide/docs*` 双导航/双侧边栏）。
+- 2026-08-16 接入面盘点收口：`5d9aa9a` 修正使用指南第 4 步文案（0.3.7 起普通凭据只出 API Key，MCP 接入指令是独立的一次性 `onboard --code` 卡片），删除已被 smoke-test 取代的 `deep-test.mjs`、`edge-test.mjs` 临时探针。三个接入链路核验仍在用：① `/guide/agent-onboard` bootstrap 命令 → `/onboard/device/start|poll` + `OnboardDevicePage`；② Agent 详情一次性码 → `onboard --code` attach → `/integrations/local-sync/exchange`；③ Obsidian 插件 → `/integrations/obsidian/*` + `/guide/obsidian` + 集成页设备管理。`/onboard` Markdown 由包版本动态拼版，始终最新。部署后备份 `pre-guide-copy-fix-20260816185432.dump`（SHA-256 `7e3ee4a4...c953f`），UI smoke 与 health 200 通过。
 - 四端一致：npm latest、GitHub master、生产服务端、安装指令均为 0.3.7。
 - 2026-08-14：Obsidian Sync v1 主项目三项交付已合并并推送 `master`，生产 `agentwiki.quukk.com` 已部署应用提交 `626af9d`；协议包、人类设备身份、`/api/sync/v1`、Release A/B 数据迁移与加固迁移全部上线。
 - 生产迁移无未解决失败：Release B 曾有一次已回滚尝试，随后成功应用；Page/Revision 回填、约束、索引与服务端身份数据不变量均通过 SQL 核验。
