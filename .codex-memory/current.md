@@ -2,7 +2,8 @@
 
 # 当前目标
 
-- 完成 AgentWiki 单一 MCP 入口修复并全面发布上线：三轮独立评审收口后，`master` 已合并推送，生产已备份部署 0.3.7，npm 0.3.7 已发布，三客户端公网 E2E 全部通过。任务全部完成。
+- 完成 AgentWiki 单一 MCP 入口修复并全面发布上线（详见下文状态）。
+- 使用指南整合已上线：使用指南、详细文档、Agent 自助接入合并为单一 `/guide` 文档式页面，左侧目录分「快速上手」（快速开始 / Agent 自助接入 / Obsidian 插件）与「详细文档」（五个章节）；新增 Obsidian 插件安装说明，链接社区列表页与 GitHub 仓库，并提供站内设备管理入口。
 
 # 范围 / 不做
 
@@ -22,6 +23,7 @@
 - 2026-08-15 生产部署 0.3.7：部署前备份 `/root/backups/agentwiki/pre-unified-mcp-0.3.7-20260815160411.dump`（SHA-256 `6dafe895915aae8b8e148b367e9b969af5953d3f4512f23d096f745909533885`，`pg_restore --list` 通过）；`prisma migrate status` 33 个迁移全部应用，`AgentCredential.localSyncInstallationId` 列与唯一索引核验存在；三服务 active，公网 health 200，API smoke 18 项、UI 路由 smoke 3 public/16 auth/6 mobile 全部通过。
 - 2026-08-15 npm 发布 0.3.7 完成：`npm view` 确认 latest=0.3.7，shasum `4a630fe688e7dd82dc726580e472342b12cde4e2` 与本地构建一致。
 - 2026-08-15 三客户端公网 E2E（npm 公网包 0.3.7 + 生产 agentwiki.quukk.com + 隔离 HOME）：codex PASS（54s）、claude PASS（53s）、opencode PASS（58s），fixture 已自动清理。
+- 2026-08-16 使用指南整合上线：提交 `fcf5f9c` 合并 `master`；旧路由 `/onboard`、`/docs*` 重定向进 `/guide/*` 子页，`/onboard/device` 保持不变，顶部导航移除独立自助接入入口。部署时发现 Obsidian 插件 PR 漏更新 `pnpm-lock.yaml`（`apps/obsidian-plugin` 缺失 importer，`--frozen-lockfile` 拒绝安装），补提交 `a1c0bbc` 修复后部署成功。生产三服务 active，公网 health 200，API smoke 18 项通过，UI 路由 smoke 5 public / 16 authenticated / 6 mobile + 6 个旧路由重定向断言全部通过。部署前备份 `/root/backups/agentwiki/pre-guide-reorg-20260816181149.dump`（SHA-256 `af074a846056f5ead66782312df7bddfdcc0f30fc57f043e425a4b3a62cfd020`，`pg_restore --list` 通过）。
 - 四端一致：npm latest、GitHub master、生产服务端、安装指令均为 0.3.7。
 - 2026-08-14：Obsidian Sync v1 主项目三项交付已合并并推送 `master`，生产 `agentwiki.quukk.com` 已部署应用提交 `626af9d`；协议包、人类设备身份、`/api/sync/v1`、Release A/B 数据迁移与加固迁移全部上线。
 - 生产迁移无未解决失败：Release B 曾有一次已回滚尝试，随后成功应用；Page/Revision 回填、约束、索引与服务端身份数据不变量均通过 SQL 核验。
@@ -62,7 +64,7 @@
 
 # 风险 / 下一步
 
-- 无剩余项。unified-agentwiki-mcp-fix 任务全部完成，可将活跃任务目录归档。
+- 无剩余项。unified-agentwiki-mcp-fix 与使用指南整合任务均已完成，可将对应活跃任务目录归档。
 - 生产验收必须重新验证生成指令、三客户端单一 `agentwiki` 配置、gateway 工具清单与 Credential 面板；本地验证不能替代公网发布包和生产 E2E。
 - 仅余 NestJS SSE 序列化中危告警 `GHSA-36xv-jgw5-4q75`；项目没有 SSE 路由或 `SseStream` 使用，当前不可达。后续单独规划 NestJS 10→11 大版本升级，不在 0.3.1 补丁发布中冒险处理。
 - 前端 `PageEditor` 构建 chunk 约 710 kB，属于性能优化候选，不阻塞本次功能与安全发布。
