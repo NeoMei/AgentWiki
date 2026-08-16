@@ -117,7 +117,7 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
               <span className="hidden md:inline text-lg font-bold text-gray-900">AgentWiki</span>
             </Link>
             <span className="text-gray-300 hidden md:inline">/</span>
-            <span className="hidden md:inline text-sm font-medium text-gray-600 flex items-center gap-1 min-w-0">
+            <span className="hidden md:flex shrink-0 items-center gap-1 text-sm font-medium text-gray-600 whitespace-nowrap">
               <BookOpen size={15} className="shrink-0" />
               {zh ? '使用指南' : 'Usage Guide'}
             </span>
