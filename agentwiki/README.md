@@ -300,6 +300,9 @@ agentwiki/
 │   │       ├── features/    # page, space, agent, review, search, about
 │   │       └── context/     # auth, language
 │   └── shared/              # shared types and utilities
+├── packages/
+│   ├── local-sync/          # @neomei/agentwiki-local-sync CLI and gateway
+│   └── sync-protocol/      # @neomei/agentwiki-sync-protocol shared contract
 ├── deploy/                  # systemd units and deployment scripts
 └── scripts/                 # dev runner and utilities
 ```

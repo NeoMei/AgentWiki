@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_SYNC_ONBOARD_COMMAND as COMMAND } from '../../config/localSync';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { GuideLayout } from '../guide/GuideLayout';
 import { OnboardPage } from './OnboardPage';
@@ -9,7 +10,6 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ token: null }),
 }));
 
-const COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.7 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
 
 const renderPage = (language: 'zh-CN' | 'en') => {
   localStorage.setItem('agentwiki.language.v1', language);

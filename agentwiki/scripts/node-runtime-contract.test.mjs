@@ -168,7 +168,6 @@ test('every active local-sync release surface uses the package version', async (
     'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
     'apps/client/e2e/onboarding-device.spec.ts',
-    'apps/client/src/features/about/OnboardPage.tsx',
     'apps/server/.env.example',
     'apps/server/src/onboard/onboard.controller.ts',
     'docker-compose.yml',
@@ -180,7 +179,6 @@ test('every active local-sync release surface uses the package version', async (
     'packages/local-sync/src/local-knowledge.ts',
     'packages/local-sync/src/onboarding/runtime.ts',
     'packages/local-sync/src/onboarding/verifier.ts',
-    'scripts/local-sync-e2e.mjs',
     'scripts/cross-machine-e2e.mjs',
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
@@ -191,7 +189,7 @@ test('every user-facing local-sync surface uses the published npm package name',
   for (const path of [
     'packages/local-sync/README.md',
     'packages/local-sync/skill/SKILL.md',
-    'apps/client/src/features/about/OnboardPage.tsx',
+    'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
     'apps/server/src/onboard/onboard.controller.ts',
   ]) {

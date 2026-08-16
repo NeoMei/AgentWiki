@@ -14,7 +14,6 @@
     "lint": "eslint \"apps/{server,client}/src/**/*.{ts,tsx}\" \"packages/local-sync/src/**/*.ts\"",
     "test:runtime": "node --test scripts/*.test.mjs",
     "test:e2e:assist": "node scripts/assist-routing-e2e.mjs",
-    "test:e2e:local-sync": "node scripts/local-sync-e2e.mjs",
     "test:e2e:smoke": "node scripts/smoke-test.mjs",
     "test:e2e:cross-machine": "pnpm --filter @neomei/agentwiki-local-sync build && node scripts/cross-machine-e2e.mjs",
     "test:e2e:space-agent-ui": "node scripts/test-space-agent-member.mjs",
