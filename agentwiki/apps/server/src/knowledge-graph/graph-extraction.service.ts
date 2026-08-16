@@ -16,7 +16,7 @@ export interface SimilarPair {
   score: number;
 }
 
-const WIKILINK_PATTERN = /\[\[([^\[\]|]+)(?:\|[^\[\]]+)?\]\]/g;
+const WIKILINK_PATTERN = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
 @Injectable()
 export class GraphExtractionService {

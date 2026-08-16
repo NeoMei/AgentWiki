@@ -6,9 +6,10 @@ import { GraphMaintenance } from './graph-maintenance';
 import { AuthorizationModule } from '../core/authorization/authorization.module';
 import { LlmModule } from '../integrations/llm/llm.module';
 import { ConfigModule } from '@nestjs/config';
+import { DatabaseModule } from '../database/database.module';
 
 @Module({
-  imports: [AuthorizationModule, LlmModule, ConfigModule],
+  imports: [DatabaseModule, AuthorizationModule, LlmModule, ConfigModule],
   controllers: [KnowledgeGraphController],
   providers: [GraphExtractionService, GraphRefreshService, GraphMaintenance],
   exports: [GraphRefreshService, GraphMaintenance],

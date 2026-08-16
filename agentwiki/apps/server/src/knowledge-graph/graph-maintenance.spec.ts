@@ -23,7 +23,8 @@ describe('GraphMaintenance', () => {
 
   it('collapses repeated enqueue calls into one debounced refresh', () => {
     jest.useFakeTimers();
-    const { maintenance, refresh } = build('api');
+    const { maintenance, refresh } = build('worker');
+    maintenance.onModuleInit();
     maintenance.enqueue('space-1');
     maintenance.enqueue('space-1');
     maintenance.enqueue('space-1');
