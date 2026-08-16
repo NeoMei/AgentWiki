@@ -38,6 +38,26 @@ interface Page {
   title: string;
 }
 
+const ORIGIN_LABELS: Record<string, { zh: string; en: string; className: string }> = {
+  auto_wikilink: { zh: '自动·链接', en: 'Auto·Link', className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  auto_similar: { zh: '自动·相似', en: 'Auto·Similar', className: 'bg-purple-50 text-purple-700 border-purple-200' },
+  auto_llm: { zh: '自动·LLM', en: 'Auto·LLM', className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  manual: { zh: '手动', en: 'Manual', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+  compiled: { zh: '采集', en: 'Compiled', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  change_set: { zh: '审核', en: 'Reviewed', className: 'bg-rose-50 text-rose-700 border-rose-200' },
+  obsidian_sync: { zh: '同步', en: 'Sync', className: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+};
+
+const OriginBadge: React.FC<{ origin: string; zh: boolean }> = ({ origin, zh }) => {
+  const label = ORIGIN_LABELS[origin];
+  if (!label) return null;
+  return (
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${label.className}`}>
+      {zh ? label.zh : label.en}
+    </span>
+  );
+};
+
 export const KnowledgeGraph: React.FC = () => {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
@@ -56,6 +76,8 @@ export const KnowledgeGraph: React.FC = () => {
   const [linkRelation, setLinkRelation] = useState('related_to');
   const [linkStrength, setLinkStrength] = useState(0.8);
   const [creating, setCreating] = useState(false);
+  const [hiddenOrigins, setHiddenOrigins] = useState<Set<string>>(new Set());
+  const visibleEdges = edges.filter((edge) => !hiddenOrigins.has(edge.origin));
 
   const fetchGraph = async () => {
     if (!spaceId) return;
@@ -94,7 +116,7 @@ export const KnowledgeGraph: React.FC = () => {
     ctx.clearRect(0, 0, width, height);
 
     // Draw edges
-    edges.forEach(edge => {
+    visibleEdges.forEach(edge => {
       const source = nodes.find(n => n.id === edge.source);
       const target = nodes.find(n => n.id === edge.target);
       if (source && target) {
@@ -133,7 +155,7 @@ export const KnowledgeGraph: React.FC = () => {
       ctx.textAlign = 'center';
       ctx.fillText(node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title, node.x, node.y + node.radius + 15);
     });
-  }, [nodes, edges, selectedNode, linkingFrom]);
+  }, [nodes, visibleEdges, selectedNode, linkingFrom]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -229,6 +251,32 @@ export const KnowledgeGraph: React.FC = () => {
   return (
     <div>
       <SpaceNav spaceId={spaceId} />
+      <div className='flex flex-wrap items-center gap-2 mb-3'>
+        {[...new Set(edges.map((edge) => edge.origin))].map((origin) => {
+          const hidden = hiddenOrigins.has(origin);
+          const label = ORIGIN_LABELS[origin];
+          if (!label) return null;
+          const toggle = () => setHiddenOrigins((current) => {
+            const next = new Set(current);
+            if (next.has(origin)) next.delete(origin);
+            else next.add(origin);
+            return next;
+          });
+          const chipClass = hidden
+            ? 'bg-white text-gray-400 border-gray-200 line-through'
+            : label.className;
+          return (
+            <button
+              key={origin}
+              type='button'
+              onClick={toggle}
+              className={'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ' + chipClass}
+            >
+              {zh ? label.zh : label.en}
+            </button>
+          );
+        })}
+      </div>
       <div className="flex items-center gap-3 mb-4">
         <Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="p-2 hover:bg-gray-100 rounded" title={zh ? '返回空间' : 'Back to space'}>
           <ArrowLeft size={20} />
@@ -275,11 +323,11 @@ export const KnowledgeGraph: React.FC = () => {
                   {nodes.find(n => n.id === selectedNode)?.title}
                 </h3>
                 <p className="text-sm text-blue-700 mt-1">
-                  {zh ? `已连接 ${edges.filter(e => e.source === selectedNode || e.target === selectedNode).length} 个其他页面` : `Connected to ${edges.filter(e => e.source === selectedNode || e.target === selectedNode).length} other page(s)`}
+                  {zh ? `已连接 ${visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length} 个其他页面` : `Connected to ${visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length} other page(s)`}
                 </p>
-                {edges.filter(e => e.source === selectedNode || e.target === selectedNode).length > 0 && (
+                {visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length > 0 && (
                   <div className="mt-2 space-y-1">
-                    {edges.filter(e => e.source === selectedNode || e.target === selectedNode).map(edge => {
+                    {visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).map(edge => {
                       const otherId = edge.source === selectedNode ? edge.target : edge.source;
                       const otherNode = nodes.find(n => n.id === otherId);
                       return (
@@ -289,6 +337,7 @@ export const KnowledgeGraph: React.FC = () => {
                               {edge.source === selectedNode ? '→' : '←'} {otherNode?.title || (zh ? '未知' : 'Unknown')}
                             </span>
                             <span className="text-xs text-gray-500">({edge.relation})</span>
+                            <OriginBadge origin={edge.origin} zh={zh} />
                           <button
                             onClick={() => handleDeleteRelation(edge.id)}
                             className="ml-auto p-1 text-gray-400 hover:text-red-600 rounded"
