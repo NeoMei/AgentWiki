@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Zap, ArrowRight } from 'lucide-react';
-import { DocsLayout } from './DocsLayout';
+import { GuideLayout } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsSync: React.FC = () => {
@@ -36,7 +36,7 @@ export const DocsSync: React.FC = () => {
   ];
 
   return (
-    <DocsLayout>
+    <GuideLayout>
       <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? '知识同步工作流' : 'Knowledge Sync Workflow'}</h1>
         <p className="text-gray-500 mb-10">{zh ? '扫描、预览、同步、拉取的确定性流程与冲突处理机制' : 'The deterministic scan, preview, sync, pull flow and conflict handling'}</p>
@@ -71,10 +71,10 @@ export const DocsSync: React.FC = () => {
         </div>
 
         <div className="flex justify-between items-center pt-8 border-t border-gray-200">
-          <Link to="/docs/security" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '安全模型' : 'Security'}</Link>
+          <Link to="/guide/docs/security" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '安全模型' : 'Security'}</Link>
           <Link to="/guide" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '使用指南' : 'Guide'} <ArrowRight size={14} /></Link>
         </div>
       </article>
-    </DocsLayout>
+    </GuideLayout>
   );
 };

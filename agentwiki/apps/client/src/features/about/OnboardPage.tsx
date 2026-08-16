@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Check, CheckCircle2, Copy, ScanSearch, ShieldCheck, Terminal } from 'lucide-react';
-import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 
 const ONBOARD_COMMAND = 'npx --yes @neomei/agentwiki-local-sync@0.3.7 onboard --server https://agentwiki.quukk.com/api --protocol ndjson';
@@ -34,22 +33,20 @@ export const OnboardPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <GlobalNavigation density="public" />
-      <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
-        <header className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-            <ShieldCheck size={14} /> AgentWiki 0.3
-          </span>
-          <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">
-            {zh ? '让本地 Agent 帮你完成接入' : 'Let your local Agent handle onboarding'}
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-gray-600">
-            {zh
-              ? '只运行一条命令。Codex、Claude Code、OpenCode 只是示例，任何支持 MCP 的 Agent 都可以使用同一流程。'
-              : 'Run one command. Codex, Claude Code, and OpenCode are examples—the same flow works with any MCP-compatible Agent.'}
-          </p>
-        </header>
+    <div className="text-gray-900">
+      <header className="mx-auto max-w-2xl text-center">
+        <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+          <ShieldCheck size={14} /> AgentWiki 0.3
+        </span>
+        <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">
+          {zh ? '让本地 Agent 帮你完成接入' : 'Let your local Agent handle onboarding'}
+        </h1>
+        <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-gray-600">
+          {zh
+            ? '只运行一条命令。Codex、Claude Code、OpenCode 只是示例，任何支持 MCP 的 Agent 都可以使用同一流程。'
+            : 'Run one command. Codex, Claude Code, and OpenCode are examples—the same flow works with any MCP-compatible Agent.'}
+        </p>
+      </header>
 
         <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
@@ -102,8 +99,7 @@ export const OnboardPage: React.FC = () => {
             </p>
             <div className="mt-3 flex items-center gap-2 text-xs font-medium text-blue-700"><CheckCircle2 size={15} /> {zh ? '原始资料不上传' : 'Raw files never upload'}</div>
           </div>
-        </section>
-      </main>
+         </section>
     </div>
   );
 };

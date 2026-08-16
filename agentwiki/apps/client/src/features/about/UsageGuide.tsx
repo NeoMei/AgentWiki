@@ -3,17 +3,13 @@ import { Link } from 'react-router-dom';
 import {
   Bot, ArrowRight, Shield, Key,
   FileText, Network, Search, Users, CheckCircle2,
-  MousePointerClick, UserPlus, Rocket, BookOpen
+  MousePointerClick, UserPlus, Rocket
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { LanguageSwitcher } from '../../components/LanguageSwitcher';
-import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { GuideScreenshot } from './GuideScreenshot';
 import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 
 export const UsageGuide: React.FC = () => {
-  useAuth();
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
 
@@ -33,39 +29,22 @@ export const UsageGuide: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navbar */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
-          <Link to="/" aria-label="AgentWiki" className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Bot size={18} className="text-white" />
-            </div>
-            <span className="hidden md:inline text-lg font-bold text-gray-900">AgentWiki</span>
-          </Link>
-          <div className="flex items-center gap-1 sm:gap-3">
-            <GlobalNavigation density="public" />
-            <LanguageSwitcher />
-          </div>
+    <div>
+      {/* Hero */}
+      <div className="text-center mb-16">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700 mb-4">
+          <Bot size={12} />
+          <span>{zh ? '快速上手' : 'Quick Start'}</span>
         </div>
-      </nav>
-
-      <div className="max-w-5xl mx-auto px-6 py-12">
-        {/* Hero */}
-        <div className="text-center mb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs text-blue-700 mb-4">
-            <Bot size={12} />
-            <span>{zh ? '快速上手' : 'Quick Start'}</span>
-          </div>
-          <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
-            {zh ? '如何使用 AgentWiki' : 'How to Use AgentWiki'}
-          </h1>
-          <p className="text-gray-600 max-w-2xl mx-auto">
-            {zh
-          ? '从创建空间到接入 Agent，几分钟即可开始构建你的多 Agent 协作知识库。'
-          : 'From creating a space to connecting an Agent, start building your multi-Agent collaborative knowledge base in minutes.'}
-          </p>
-        </div>
+        <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+          {zh ? '如何使用 AgentWiki' : 'How to Use AgentWiki'}
+        </h1>
+        <p className="text-gray-600 max-w-2xl mx-auto">
+          {zh
+        ? '从创建空间到接入 Agent，几分钟即可开始构建你的多 Agent 协作知识库。'
+        : 'From creating a space to connecting an Agent, start building your multi-Agent collaborative knowledge base in minutes.'}
+        </p>
+      </div>
 
         {/* Quick Steps */}
         <section className="mb-16">
@@ -116,7 +95,7 @@ export const UsageGuide: React.FC = () => {
               <p className="text-sm text-gray-600">{t('guide.onboardCard')}</p>
             </div>
             <Link
-              to="/onboard"
+              to="/guide/agent-onboard"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
             >
               {zh ? '打开 Agent 自助接入' : 'Open Agent Onboard'}
@@ -399,29 +378,6 @@ export const UsageGuide: React.FC = () => {
           </div>
         </section>
 
-                {/* Detailed documentation entry */}
-        <section className="mb-16">
-          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-8">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                <BookOpen size={24} />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">{zh ? '详细文档' : 'Detailed Documentation'}</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  {zh
-                    ? '想深入了解系统架构、功能原理、安全模型和同步机制？详细文档提供分章节、分层级的深度解读。'
-                    : 'Want to dive deeper into system architecture, feature rationale, security model, and sync mechanics? The detailed docs offer chapter-by-chapter, layered deep dives.'}
-                </p>
-                <Link to="/docs" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition">
-                  {zh ? '阅读详细文档' : 'Read the Docs'}
-                  <ArrowRight size={16} />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
         {/* Footer CTA */}
         <section className="text-center py-12 border-t border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
@@ -438,7 +394,6 @@ export const UsageGuide: React.FC = () => {
             <ArrowRight size={16} />
           </Link>
         </section>
-      </div>
     </div>
   );
 };

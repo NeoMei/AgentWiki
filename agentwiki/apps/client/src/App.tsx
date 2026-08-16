@@ -14,6 +14,8 @@ import { ProductPage } from './features/about/ProductPage';
 import { UsageGuide } from './features/about/UsageGuide';
 import { OnboardPage } from './features/about/OnboardPage';
 import { OnboardDevicePage } from './features/about/OnboardDevicePage';
+import { GuideLayout } from './features/guide/GuideLayout';
+import { ObsidianGuide } from './features/guide/ObsidianGuide';
 import { DocsOverview } from './features/docs/DocsOverview';
 import { DocsArchitecture } from './features/docs/DocsArchitecture';
 import { DocsFeatures } from './features/docs/DocsFeatures';
@@ -68,14 +70,21 @@ const AppRoutes: React.FC = () => {
         <Route path="/settings/integrations" element={<Suspense fallback={<RouteLoading />}><IntegrationsPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />
-      <Route path="/guide" element={<UsageGuide />} />
-      <Route path="/docs" element={<DocsOverview />} />
-      <Route path="/docs/architecture" element={<DocsArchitecture />} />
-      <Route path="/docs/features" element={<DocsFeatures />} />
-      <Route path="/docs/security" element={<DocsSecurity />} />
-      <Route path="/docs/sync" element={<DocsSync />} />
-      <Route path="/onboard" element={<OnboardPage />} />
+      <Route path="/guide" element={<GuideLayout><UsageGuide /></GuideLayout>} />
+      <Route path="/guide/agent-onboard" element={<GuideLayout><OnboardPage /></GuideLayout>} />
+      <Route path="/guide/obsidian" element={<GuideLayout><ObsidianGuide /></GuideLayout>} />
+      <Route path="/guide/docs" element={<GuideLayout><DocsOverview /></GuideLayout>} />
+      <Route path="/guide/docs/architecture" element={<GuideLayout><DocsArchitecture /></GuideLayout>} />
+      <Route path="/guide/docs/features" element={<GuideLayout><DocsFeatures /></GuideLayout>} />
+      <Route path="/guide/docs/security" element={<GuideLayout><DocsSecurity /></GuideLayout>} />
+      <Route path="/guide/docs/sync" element={<GuideLayout><DocsSync /></GuideLayout>} />
+      <Route path="/onboard" element={<Navigate to="/guide/agent-onboard" replace />} />
       <Route path="/onboard/device" element={<OnboardDevicePage />} />
+      <Route path="/docs" element={<Navigate to="/guide/docs" replace />} />
+      <Route path="/docs/architecture" element={<Navigate to="/guide/docs/architecture" replace />} />
+      <Route path="/docs/features" element={<Navigate to="/guide/docs/features" replace />} />
+      <Route path="/docs/security" element={<Navigate to="/guide/docs/security" replace />} />
+      <Route path="/docs/sync" element={<Navigate to="/guide/docs/sync" replace />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

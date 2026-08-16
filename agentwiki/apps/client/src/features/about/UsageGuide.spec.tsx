@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { GuideLayout } from '../guide/GuideLayout';
 import { GuideScreenshot } from './GuideScreenshot';
 import { UsageGuide } from './UsageGuide';
 
@@ -13,7 +14,7 @@ vi.mock('../../context/AuthContext', () => ({
 const renderGuide = () => render(
   <LanguageProvider>
     <MemoryRouter initialEntries={['/guide']}>
-      <UsageGuide />
+      <GuideLayout><UsageGuide /></GuideLayout>
     </MemoryRouter>
   </LanguageProvider>,
 );
@@ -28,6 +29,10 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
+    expect(screen.getByRole('link', { name: '快速开始' })).toHaveAttribute('href', '/guide');
+    expect(screen.getByRole('link', { name: 'Agent 自助接入' })).toHaveAttribute('href', '/guide/agent-onboard');
+    expect(screen.getByRole('link', { name: 'Obsidian 插件' })).toHaveAttribute('href', '/guide/obsidian');
+    expect(screen.getByRole('link', { name: '项目解读' })).toHaveAttribute('href', '/guide/docs');
     expect(screen.getByRole('heading', { name: '生成 Key 与接入指令' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
     expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();

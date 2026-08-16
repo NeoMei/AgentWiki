@@ -1,14 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, ArrowRight } from 'lucide-react';
-import { DocsLayout } from './DocsLayout';
+import { GuideLayout } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsArchitecture: React.FC = () => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   return (
-    <DocsLayout>
+    <GuideLayout>
       <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? '系统架构' : 'System Architecture'}</h1>
         <p className="text-gray-500 mb-10">{zh ? 'MCP 网关路由、本地与远程执行平面、工具分层设计' : 'MCP gateway routing, local vs remote execution planes, tool layering'}</p>
@@ -83,10 +83,10 @@ export const DocsArchitecture: React.FC = () => {
         </div>
 
         <div className="flex justify-between items-center pt-8 border-t border-gray-200">
-          <Link to="/docs" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '项目解读' : 'Overview'}</Link>
-          <Link to="/docs/features" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '功能详解' : 'Features'} <ArrowRight size={14} /></Link>
+          <Link to="/guide/docs" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '项目解读' : 'Overview'}</Link>
+          <Link to="/guide/docs/features" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '功能详解' : 'Features'} <ArrowRight size={14} /></Link>
         </div>
       </article>
-    </DocsLayout>
+    </GuideLayout>
   );
 };

@@ -98,10 +98,25 @@ export async function runUiRouteSmoke(environment = process.env) {
 
     const publicRoutes = [
       ['/', /AgentWiki/i],
-      ['/guide', /AgentWiki|Guide|使用指南/i],
-      ['/onboard', /AgentWiki|onboard|接入/i],
+      ['/guide', /AgentWiki|Guide|使用指南|快速开始/i],
+      ['/guide/agent-onboard', /AgentWiki|onboard|接入/i],
+      ['/guide/obsidian', /Obsidian/i],
+      ['/guide/docs', /AgentWiki|Documentation|详细文档/i],
     ];
     for (const [path, expected] of publicRoutes) await assertRoute(page, webUrl, path, expected);
+
+    const legacyRedirects = [
+      ['/onboard', '/guide/agent-onboard'],
+      ['/docs', '/guide/docs'],
+      ['/docs/architecture', '/guide/docs/architecture'],
+      ['/docs/features', '/guide/docs/features'],
+      ['/docs/security', '/guide/docs/security'],
+      ['/docs/sync', '/guide/docs/sync'],
+    ];
+    for (const [from, to] of legacyRedirects) {
+      await page.goto(`${webUrl}${from}`, { waitUntil: 'networkidle', timeout: 30_000 });
+      assert.equal(new URL(page.url()).pathname, to, `${from} should redirect to ${to}`);
+    }
 
     await page.goto(`${webUrl}/?intent=workspace#login`, { waitUntil: 'networkidle' });
     await page.locator('input[type="email"]').fill(email);
@@ -140,7 +155,7 @@ export async function runUiRouteSmoke(environment = process.env) {
     mobile.on('pageerror', (error) => browserErrors.push(error.message));
     mobile.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
     await mobile.setViewportSize({ width: 390, height: 844 });
-    for (const path of ['/', '/guide', '/onboard', '/dashboard', `/spaces/${space.id}`, `/pages/${pageId}`]) {
+    for (const path of ['/', '/guide', '/guide/obsidian', '/guide/docs', '/dashboard', `/spaces/${space.id}`, `/pages/${pageId}`]) {
       await assertRoute(mobile, webUrl, path);
       await assertNoHorizontalOverflow(mobile, path);
     }

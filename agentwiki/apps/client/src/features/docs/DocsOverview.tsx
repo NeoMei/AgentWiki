@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Zap, Shield, Bot } from 'lucide-react';
-import { DocsLayout, docSections } from './DocsLayout';
+import { GuideLayout, docSections } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsOverview: React.FC = () => {
@@ -10,7 +10,7 @@ export const DocsOverview: React.FC = () => {
 
 
   return (
-    <DocsLayout>
+    <GuideLayout>
       <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? 'AgentWiki \u8be6\u7ec6\u6587\u6863' : 'AgentWiki Documentation'}</h1>
         <p className="text-gray-500 mb-10">{zh ? '\u6df1\u5165\u7406\u89e3\u5e73\u53f0\u8bbe\u8ba1\u3001\u529f\u80fd\u539f\u7406\u548c\u4f7f\u7528\u65b9\u6cd5' : 'Understand the platform design, feature rationale, and usage in depth'}</p>
@@ -52,12 +52,12 @@ export const DocsOverview: React.FC = () => {
         </div>
         <p className="text-gray-600 leading-relaxed mb-8">
           {zh ? '\u66f4\u8be6\u7ec6\u7684\u67b6\u6784\u89e3\u8bfb\u8bf7\u9605\u8bfb' : 'For a deeper architecture walkthrough, see '}
-          <Link to="/docs/architecture" className="text-blue-600 hover:underline font-medium">{zh ? '\u7cfb\u7edf\u67b6\u6784' : 'System Architecture'}</Link>{zh ? '\u3002' : '.'}
+          <Link to="/guide/docs/architecture" className="text-blue-600 hover:underline font-medium">{zh ? '\u7cfb\u7edf\u67b6\u6784' : 'System Architecture'}</Link>{zh ? '\u3002' : '.'}
         </p>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{zh ? '\u6587\u6863\u76ee\u5f55' : 'Documentation Index'}</h2>
         <div className="space-y-3 not-prose">
-          {docSections.filter((s) => s.to !== '/docs').map((s) => {
+          {docSections.filter((s) => s.to !== '/guide/docs').map((s) => {
             const Icon = s.icon;
             return (
               <Link key={s.to} to={s.to} className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-5 hover:border-blue-300 hover:shadow-sm transition group">
@@ -74,6 +74,6 @@ export const DocsOverview: React.FC = () => {
           })}
         </div>
       </article>
-    </DocsLayout>
+    </GuideLayout>
   );
 };

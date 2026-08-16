@@ -1,14 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Key, Shield, Users, Lock, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { DocsLayout } from './DocsLayout';
+import { GuideLayout } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsSecurity: React.FC = () => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   return (
-    <DocsLayout>
+    <GuideLayout>
       <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? '安全模型' : 'Security Model'}</h1>
         <p className="text-gray-500 mb-10">{zh ? '三层权限交集、审核流、凭据管理与审计追踪' : 'Three-layer permission intersection, review flow, credential management, and audit trails'}</p>
@@ -66,10 +66,10 @@ export const DocsSecurity: React.FC = () => {
         </ul>
 
         <div className="flex justify-between items-center pt-8 border-t border-gray-200">
-          <Link to="/docs/features" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '功能详解' : 'Features'}</Link>
-          <Link to="/docs/sync" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '同步工作流' : 'Sync Workflow'} <ArrowRight size={14} /></Link>
+          <Link to="/guide/docs/features" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '功能详解' : 'Features'}</Link>
+          <Link to="/guide/docs/sync" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '同步工作流' : 'Sync Workflow'} <ArrowRight size={14} /></Link>
         </div>
       </article>
-    </DocsLayout>
+    </GuideLayout>
   );
 };
