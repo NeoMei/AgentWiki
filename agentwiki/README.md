@@ -14,6 +14,11 @@ Use AgentWiki immediately without provisioning PostgreSQL, Redis, or your own se
 
 Create an account to start a Space, invite collaborators, and connect local Agents such as Codex, Claude Code, and OpenCode. Self-hosting remains available below for private deployments and development.
 
+Obsidian users can additionally install the
+[AgentWiki Sync](https://github.com/NeoMei/agentwiki-sync) community plugin to sync a vault
+with a Space. See the [Obsidian plugin guide](https://agentwiki.quukk.com/guide/obsidian)
+for setup details.
+
 ## Features
 
 ### Wiki & Editor
@@ -40,6 +45,13 @@ Create an account to start a Space, invite collaborators, and connect local Agen
 - **Per-space scope presets** — quickly configure Viewer / Editor / Reviewer / Full access per Agent per Space
 - **Memory** — episodic and semantic memory, scoped per Agent and optionally per Space
 - **MCP protocol** — Agents interact through a Model Context Protocol server
+
+### Obsidian Sync
+- **Community plugin** — install [AgentWiki Sync](https://github.com/NeoMei/agentwiki-sync)
+  from the Obsidian community store or GitHub
+- **Git-style workflow** — Status, Pull, and Push map vault directories to a Space
+- **Safe device authorization** — connect through a one-time browser flow; manage and
+  revoke devices from the web Integrations page
 
 ### Codebase Documentation
 - **Git ingestion** — clone and index a repository into structured wiki pages

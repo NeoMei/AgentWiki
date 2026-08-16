@@ -4,7 +4,7 @@ AgentWiki Sync 是一个移动端兼容的 Obsidian 社区插件，用 Git 风�
 
 ## 当前状态
 
-插件核心、事务恢复、原生 UI 和公开 API 客户端已实现。AgentWiki 服务端的人类设备同步 API v1 与 `@neomei/agentwiki-sync-protocol` 仍未发布，因此当前版本默认不会把连接码发送到不支持该契约的服务端。仓库使用独立 fake AgentWiki 验证端到端客户端流程，不复制 AgentWiki 主项目内部实现。
+插件核心、事务恢复、原生 UI 和公开 API 客户端已实现。AgentWiki 服务端的人类设备同步 API v1 与 `@neomei/agentwiki-sync-protocol` 已在官方部署上线；插件会先检查服端契约，对不支持的服端不会发送连接码。仓库使用独立 fake AgentWiki 验证端到端客户端流程，不复制 AgentWiki 主项目内部实现。
 
 ## 开发
 
