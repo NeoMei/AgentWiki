@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Zap, Shield, Bot } from 'lucide-react';
-import { GuideLayout, docSections } from '../guide/GuideLayout';
+import { docSections } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsOverview: React.FC = () => {
@@ -10,8 +10,7 @@ export const DocsOverview: React.FC = () => {
 
 
   return (
-    <GuideLayout>
-      <article className="prose prose-gray max-w-none">
+    <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? 'AgentWiki \u8be6\u7ec6\u6587\u6863' : 'AgentWiki Documentation'}</h1>
         <p className="text-gray-500 mb-10">{zh ? '\u6df1\u5165\u7406\u89e3\u5e73\u53f0\u8bbe\u8ba1\u3001\u529f\u80fd\u539f\u7406\u548c\u4f7f\u7528\u65b9\u6cd5' : 'Understand the platform design, feature rationale, and usage in depth'}</p>
 
@@ -73,7 +72,6 @@ export const DocsOverview: React.FC = () => {
             );
           })}
         </div>
-      </article>
-    </GuideLayout>
+    </article>
   );
 };

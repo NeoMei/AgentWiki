@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Layers, FileText, Network, Search, GitBranch, CheckCircle2, Brain, ArrowRight } from 'lucide-react';
-import { GuideLayout } from '../guide/GuideLayout';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsFeatures: React.FC = () => {
@@ -64,8 +63,7 @@ export const DocsFeatures: React.FC = () => {
   };
 
   return (
-    <GuideLayout>
-      <article className="prose prose-gray max-w-none">
+    <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? '功能详解' : 'Features in Depth'}</h1>
         <p className="text-gray-500 mb-10">{zh ? '每个功能模块的设计原理、使用方法和最佳实践' : 'Design rationale, usage, and best practices for each feature module'}</p>
 
@@ -96,7 +94,6 @@ export const DocsFeatures: React.FC = () => {
           <Link to="/guide/docs/architecture" className="text-sm text-gray-500 hover:text-gray-700">&larr; {zh ? '系统架构' : 'Architecture'}</Link>
           <Link to="/guide/docs/security" className="text-sm text-blue-600 hover:underline font-medium flex items-center gap-1">{zh ? '安全模型' : 'Security'} <ArrowRight size={14} /></Link>
         </div>
-      </article>
-    </GuideLayout>
+    </article>
   );
 };
