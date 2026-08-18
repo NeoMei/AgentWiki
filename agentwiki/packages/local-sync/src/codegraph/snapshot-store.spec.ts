@@ -83,4 +83,21 @@ describe('Code snapshot store', () => {
     await expect(failing.write(snapshot('src/new.ts'))).rejects.toThrow('stop after recovery');
     await expect(first.read(sourceKey)).resolves.toMatchObject({ files: [{ path: 'src/old.ts' }] });
   });
+
+  it.each(['after-current-to-backup', 'after-staging-to-current'] as const)('restores old current when fsync fails %s', async (checkpoint) => {
+    const home = await temporaryDirectory();
+    const first = new CodeSnapshotStore({ home });
+    await first.write(snapshot('src/old.ts'));
+    let failed = false;
+    const failing = new CodeSnapshotStore({
+      home,
+      fsyncDirectory: async (path, actualCheckpoint) => {
+        if (!failed && actualCheckpoint === checkpoint) { failed = true; throw new Error(`fsync ${checkpoint} failed`); }
+        const handle = await (await import('node:fs/promises')).open(path, 'r');
+        try { await handle.sync(); } finally { await handle.close(); }
+      },
+    });
+    await expect(failing.write(snapshot('src/new.ts'))).rejects.toThrow(`fsync ${checkpoint} failed`);
+    await expect(first.read('a'.repeat(64))).resolves.toMatchObject({ files: [{ path: 'src/old.ts' }] });
+  });
 });

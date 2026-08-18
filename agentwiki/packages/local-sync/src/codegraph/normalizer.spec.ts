@@ -58,4 +58,8 @@ describe('CodeGraph standard normalizer', () => {
   it('accepts only an array or an envelope whose files field is an array', () => {
     expect(() => normalizeCodeGraphFiles({ files: {}, ignored: true }, { sourceKey, sourceRoot: '/private/project', scanner, indexedAt: '2026-08-18T00:00:00.000Z', maxFiles: 10, maxGeneratedBytes: 10_000 })).toThrow(/Code snapshot is invalid/u);
   });
+
+  it('rejects extra top-level envelope fields while still ignoring file-record extensions', () => {
+    expect(() => normalizeCodeGraphFiles({ files: [], extra: true }, { sourceKey, sourceRoot: '/private/project', scanner, indexedAt: '2026-08-18T00:00:00.000Z', maxFiles: 10, maxGeneratedBytes: 10_000 })).toThrow(/Code snapshot is invalid/u);
+  });
 });

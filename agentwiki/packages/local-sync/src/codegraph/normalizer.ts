@@ -104,7 +104,12 @@ function snapshotHash(sourceKey: string, scanner: NormalizeCodeGraphFilesOptions
  * ignored rather than persisted.
  */
 export function normalizeCodeGraphFiles(output: unknown, options: NormalizeCodeGraphFilesOptions): NormalizedCodeSnapshot {
-  const envelope = Array.isArray(output) ? output : asRecord(output)?.files;
+  const objectEnvelope = Array.isArray(output) ? null : asRecord(output);
+  const envelope = Array.isArray(output)
+    ? output
+    : objectEnvelope && Object.keys(objectEnvelope).length === 1 && Object.prototype.hasOwnProperty.call(objectEnvelope, 'files')
+      ? objectEnvelope.files
+      : undefined;
   if (!Array.isArray(envelope)) throw invalidSnapshot('invalid files response', 'CodeGraph files output was not an array or { files: [] }');
   if (!Number.isInteger(options.maxFiles) || options.maxFiles <= 0 || envelope.length > options.maxFiles) {
     throw invalidSnapshot('file count exceeds the confirmed limit', `Received ${envelope.length} files with maxFiles ${options.maxFiles}`);

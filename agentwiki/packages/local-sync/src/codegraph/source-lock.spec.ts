@@ -83,4 +83,54 @@ describe('source locks', () => {
     });
     expect(await lock.readForTest(sourceKey)).toMatchObject({ token: 'replacement-owner' });
   });
+
+  it('fences a stale-recovery mismatch so a third claimant cannot enter beside the replacement owner', async () => {
+    const root = await temporaryDirectory();
+    const sourceKey = 'f'.repeat(64);
+    const events: string[] = [];
+    let releaseRestore!: () => void;
+    const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    let reachedRestore!: () => void;
+    const restoreReached = new Promise<void>((resolve) => { reachedRestore = resolve; });
+    const lock = new SourceLock({
+      root, retryMs: 2, timeoutMs: 40, staleAfterMs: 1,
+      isProcessAlive: (pid) => pid === process.pid,
+      beforeQuarantine: async (path) => {
+        // Simulate Y replacing stale S with a valid F after X observed S.
+        await rm(path, { force: true, recursive: true });
+        await lock.createForTest(sourceKey, { pid: process.pid, createdAt: new Date().toISOString(), token: 'replacement-f' });
+        events.push('F:protected');
+      },
+      beforeRestore: async () => { reachedRestore(); await restoreGate; },
+    });
+    await lock.createForTest(sourceKey, { pid: 999_999, createdAt: new Date(Date.now() - 10_000).toISOString(), token: 'stale-s' });
+    const recovering = lock.withLock(sourceKey, async () => { events.push('X:work'); });
+    await restoreReached;
+    const third = lock.withLock(sourceKey, async () => { events.push('G:work'); });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(events).toEqual(['F:protected']);
+    releaseRestore();
+    await expect(Promise.all([recovering, third])).rejects.toThrow(/Timed out/u);
+    expect(await lock.readForTest(sourceKey)).toMatchObject({ token: 'replacement-f' });
+  });
+
+  it('reclaims only aged dead candidate and quarantine residues', async () => {
+    const root = await temporaryDirectory();
+    const sourceKey = '9'.repeat(64);
+    const lock = new SourceLock({ root, staleAfterMs: 1, isProcessAlive: () => false });
+    await lock.createResidueForTest(sourceKey, 'candidate', { pid: 999_999, createdAt: new Date(Date.now() - 10_000).toISOString(), token: 'old-candidate' });
+    await lock.createResidueForTest(sourceKey, 'quarantine', { pid: 999_999, createdAt: new Date(Date.now() - 10_000).toISOString(), token: 'old-quarantine' });
+    await lock.cleanupResiduesForTest(sourceKey);
+    expect(await lock.residuesForTest(sourceKey)).toEqual([]);
+  });
+
+  it('recovers an aged dead recovery fence without deleting another owner', async () => {
+    const root = await temporaryDirectory();
+    const sourceKey = '8'.repeat(64);
+    const fence = join(root, `.codegraph-${sourceKey}.lock.recovery-fence`);
+    await writeFile(fence, JSON.stringify({ pid: 999_999, createdAt: new Date(Date.now() - 10_000).toISOString(), token: 'dead-fence' }));
+    await utimes(fence, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000));
+    const lock = new SourceLock({ root, staleAfterMs: 1, isProcessAlive: () => false });
+    await expect(lock.withLock(sourceKey, async () => 'recovered')).resolves.toBe('recovered');
+  });
 });

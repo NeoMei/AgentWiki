@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { OnboardingError } from '../onboarding/errors.js';
@@ -22,6 +23,8 @@ export interface CodeSnapshotStoreOptions {
   afterStageWrite?: (staging: string) => void | Promise<void>;
   /** Test seam for directory replacement failures. */
   renameDirectory?: (from: string, to: string) => Promise<void>;
+  /** Test seam for durability failures at named directory-sync checkpoints. */
+  fsyncDirectory?: (path: string, checkpoint: string) => Promise<void>;
 }
 
 function invalidSnapshot(message: string, diagnostic: string): OnboardingError {
@@ -96,6 +99,10 @@ export class CodeSnapshotStore {
 
   private current(sourceKey: string): string { return join(this.root(sourceKey), 'current'); }
 
+  private async syncDirectory(path: string, checkpoint: string): Promise<void> {
+    await (this.options.fsyncDirectory ?? ((directory: string) => fsyncDirectory(directory)))(path, checkpoint);
+  }
+
   private async readDirectory(directory: string): Promise<StoredCodeSnapshot> {
     const [manifestRaw, filesNdjson, modulesNdjson, symbolsNdjson, relationsNdjson] = await Promise.all([
       readFile(join(directory, 'snapshot.json'), 'utf8'),
@@ -122,7 +129,7 @@ export class CodeSnapshotStore {
       await stat(current);
     } catch (error) {
       if (!isNotFound(error)) throw error;
-      try { await replace(backup, current); await fsyncDirectory(root); } catch (backupError) { if (!isNotFound(backupError)) throw backupError; }
+      try { await replace(backup, current); await this.syncDirectory(root, 'after-backup-recovery'); } catch (backupError) { if (!isNotFound(backupError)) throw backupError; }
     }
     const staging = await mkdtemp(join(root, '.staging-'));
     try {
@@ -138,7 +145,7 @@ export class CodeSnapshotStore {
         await writeFile(path, content, { encoding: 'utf8', mode: 0o600 });
         await fsyncFile(path);
       }
-      await fsyncDirectory(staging);
+      await this.syncDirectory(staging, 'after-staging-write');
       await this.options.afterStageWrite?.(staging);
       try {
         await this.readDirectory(staging);
@@ -149,21 +156,30 @@ export class CodeSnapshotStore {
       await this.options.beforePromote?.();
 
       await rm(backup, { recursive: true, force: true });
+      let previousMoved = false;
+      let newCurrentPromoted = false;
       try {
-        await replace(current, backup);
-        await fsyncDirectory(root);
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-      }
-      try {
+        try {
+          await replace(current, backup);
+          previousMoved = true;
+          await this.syncDirectory(root, 'after-current-to-backup');
+        } catch (error) {
+          if (!isNotFound(error)) throw error;
+        }
         await replace(staging, current);
-        await fsyncDirectory(root);
+        newCurrentPromoted = true;
+        await this.syncDirectory(root, 'after-staging-to-current');
       } catch (error) {
-        // Once the old current has moved, restore it before exposing any error.
-        try { await replace(backup, current); await fsyncDirectory(root); } catch { /* the original error is more useful locally */ }
+        if (newCurrentPromoted) {
+          const failed = join(root, `.failed-${randomUUID()}`);
+          try { await replace(current, failed); await this.syncDirectory(root, 'after-new-current-isolation'); } catch { await rm(current, { recursive: true, force: true }); }
+        }
+        if (previousMoved) {
+          try { await replace(backup, current); await this.syncDirectory(root, 'after-rollback-restore'); } catch { /* preserve the original error */ }
+        }
         throw error;
       }
-      await fsyncDirectory(root);
+      await this.syncDirectory(root, 'after-promotion');
       return snapshot.manifest;
     } finally {
       await rm(staging, { recursive: true, force: true });
