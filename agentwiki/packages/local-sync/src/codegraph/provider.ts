@@ -97,6 +97,24 @@ function normalizedField(first: unknown, second: unknown): number | null {
   return firstValue ?? secondValue;
 }
 
+function normalizedStringField(first: unknown, second: unknown): string | null {
+  const firstValue = typeof first === 'string' && first.length > 0 ? first : null;
+  const secondValue = typeof second === 'string' && second.length > 0 ? second : null;
+  if (first !== undefined && firstValue === null) return null;
+  if (second !== undefined && secondValue === null) return null;
+  if (firstValue !== null && secondValue !== null && firstValue !== secondValue) return null;
+  return firstValue ?? secondValue;
+}
+
+function normalizePendingChanges(value: unknown): number | null {
+  if (value === undefined) return 0;
+  const changes = asRecord(value);
+  if (!changes) return null;
+  const counts = [changes.added, changes.modified, changes.removed];
+  if (counts.some((count) => integer(count) === null)) return null;
+  return counts.reduce<number>((total, count) => total + integer(count)!, 0);
+}
+
 function normalizeStatus(stdout: string, diagnostic: string): NormalizedStatus {
   let parsed: unknown;
   try {
@@ -110,17 +128,19 @@ function normalizeStatus(stdout: string, diagnostic: string): NormalizedStatus {
   }
   if (!result.initialized) return { initialized: false, fileCount: 0, state: 'missing', pendingRefs: 0, pendingChanges: 0 };
 
-  const index = asRecord(result.index);
+  const index = result.index === undefined ? undefined : asRecord(result.index);
+  if (result.index !== undefined && !index) {
+    throw planningError('CODEGRAPH_CAPABILITY_UNSUPPORTED', 'CodeGraph status response is unsupported', `${diagnostic}: invalid index`);
+  }
+  if (index && (typeof index.state !== 'string' || index.state.length === 0 || integer(index.pendingRefs) === null)) {
+    throw planningError('CODEGRAPH_CAPABILITY_UNSUPPORTED', 'CodeGraph status response is unsupported', `${diagnostic}: incomplete index shape`);
+  }
   const fileCount = normalizedField(result.fileCount, result.files);
   const pendingRefs = normalizedField(index?.pendingRefs, result.pendingRefs);
-  const state = index?.state ?? result.indexState;
-  const pendingChanges = asRecord(result.pendingChanges);
-  const added = pendingChanges?.added;
-  const modified = pendingChanges?.modified;
-  const removed = pendingChanges?.removed;
-  const changeCounts = [added, modified, removed];
+  const state = normalizedStringField(index?.state, result.indexState);
+  const pendingChanges = normalizePendingChanges(result.pendingChanges);
 
-  if (fileCount === null || pendingRefs === null || typeof state !== 'string' || state.length === 0 || changeCounts.some((value) => value !== undefined && integer(value) === null)) {
+  if (fileCount === null || pendingRefs === null || state === null || pendingChanges === null) {
     throw planningError('CODEGRAPH_CAPABILITY_UNSUPPORTED', 'CodeGraph status response is unsupported', `${diagnostic}: missing or invalid core status field`);
   }
   return {
@@ -128,7 +148,7 @@ function normalizeStatus(stdout: string, diagnostic: string): NormalizedStatus {
     fileCount,
     state,
     pendingRefs,
-    pendingChanges: changeCounts.reduce<number>((total, value) => total + (integer(value) ?? 0), 0),
+    pendingChanges,
   };
 }
 

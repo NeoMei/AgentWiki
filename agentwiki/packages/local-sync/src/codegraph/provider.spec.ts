@@ -148,6 +148,29 @@ describe('CodeGraph planning', () => {
     })).rejects.toMatchObject({ code });
   });
 
+  it.each([
+    ['an empty pendingChanges object', { initialized: true, files: 12, indexState: 'complete', pendingRefs: 0, pendingChanges: {} }],
+    ['a partial pendingChanges object', { initialized: true, files: 12, indexState: 'complete', pendingRefs: 0, pendingChanges: { added: 0, modified: 0 } }],
+    ['a partial nested index shape mixed with top-level fields', { initialized: true, fileCount: 12, index: { state: 'complete' }, pendingRefs: 0, pendingChanges: { added: 0, modified: 0, removed: 0 } }],
+    ['a negative pendingChanges count', { initialized: true, files: 12, indexState: 'complete', pendingRefs: 0, pendingChanges: { added: -1, modified: 0, removed: 0 } }],
+    ['a non-integer pendingChanges count', { initialized: true, files: 12, indexState: 'complete', pendingRefs: 0, pendingChanges: { added: 0.5, modified: 0, removed: 0 } }],
+    ['conflicting index state aliases', { initialized: true, files: 12, indexState: 'complete', pendingRefs: 0, index: { state: 'stale', pendingRefs: 0 } }],
+    ['conflicting file count aliases', { initialized: true, fileCount: 12, files: 13, indexState: 'complete', pendingRefs: 0 }],
+    ['conflicting pending reference aliases', { initialized: true, files: 12, pendingRefs: 0, index: { state: 'complete', pendingRefs: 1 } }],
+  ])('rejects malformed or conflicting status JSON: %s', async (_name, status) => {
+    const root = await temporaryDirectory();
+    const binary = await executable(root);
+    const source = await codeSource(root);
+    const canonicalSource = await realpath(source);
+    const { runner } = successfulRunner({
+      [`status --json ${canonicalSource}`]: { stdout: JSON.stringify(status) },
+    });
+
+    await expect(createCodeGraphProvider({ runner, environment: { AGENTWIKI_CODEGRAPH_BIN: binary } }).plan({
+      sourcePaths: [source], sourceType: 'code', analysisMode: 'standard',
+    })).rejects.toMatchObject({ code: 'CODEGRAPH_CAPABILITY_UNSUPPORTED' });
+  });
+
   it('uses only the documented read-only probes with bounded command options', async () => {
     const root = await temporaryDirectory();
     const binary = await executable(root);
