@@ -27,8 +27,15 @@ export class SourceLock {
     return result;
   }
   private async publish(path: string, owner: Owner) { await writeFile(path, JSON.stringify(owner), { encoding: 'utf8', mode: 0o600, flag: 'wx' }); }
+  private async cleanupLegacy(key: string) {
+    const prefix = `.codegraph-${key}.lock.`; let names: string[]; try { names = await readdir(this.options.root); } catch { return; }
+    await Promise.all(names.filter((name) => name.startsWith(prefix + 'candidate-') || name.startsWith(prefix + 'quarantine-')).map(async (name) => {
+      const path = join(this.options.root, name); const owner = await this.read(path); if (!owner || !owner.token || !name.includes(owner.token)) return;
+      try { if (this.isStale(owner, await stat(path))) await rm(path, { recursive: true, force: true }); } catch { /* retry on a later acquisition */ }
+    }));
+  }
   private async acquire(key: string): Promise<{ dir: string; token: string }> {
-    const dir = this.dir(key); await mkdir(dir, { recursive: true, mode: 0o700 }); const token = this.token(); const choosing = this.file(dir, 'choosing', token); const deadline = this.now() + this.timeout;
+    const dir = this.dir(key); await mkdir(this.options.root, { recursive: true, mode: 0o700 }); await this.cleanupLegacy(key); await mkdir(dir, { recursive: true, mode: 0o700 }); const token = this.token(); const choosing = this.file(dir, 'choosing', token); const deadline = this.now() + this.timeout;
     await this.publish(choosing, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString() });
     const before = await this.entries(dir); const ticketNumber = Math.max(0, ...before.filter((entry) => entry.phase === 'ticket').map((entry) => entry.owner.ticketNumber ?? 0)) + 1;
     const ticket = this.file(dir, 'ticket', token); await this.publish(ticket, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString(), ticketNumber }); await unlink(choosing).catch(() => undefined);

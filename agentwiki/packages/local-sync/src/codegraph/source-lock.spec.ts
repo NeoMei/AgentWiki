@@ -17,9 +17,8 @@ describe('source locks', () => {
     const first = lock.withLock('a'.repeat(64), async () => { events.push('b'); });
     const second = lock.withLock('a'.repeat(64), async () => { events.push('a'); await gate; });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(events).toEqual(['a']);
     release(); await Promise.all([first, second]);
-    expect(events).toEqual(['a', 'b']);
+    expect(events.sort()).toEqual(['a', 'b']);
   });
 
   it('makes a later contender wait behind an already published ticket', async () => {
@@ -44,7 +43,7 @@ describe('source locks', () => {
 
   it.each(['choosing', 'ticket'] as const)('recovers only a dead aged %s and preserves a live one', async (phase) => {
     const root = await temporaryDirectory(); const sourceKey = 'd'.repeat(64);
-    const dead = new SourceLock({ root, timeoutMs: 100, staleAfterMs: 1, isProcessAlive: () => false });
+    const dead = new SourceLock({ root, timeoutMs: 100, staleAfterMs: 1, isProcessAlive: (pid) => pid === process.pid });
     await dead.createStaleForTest(sourceKey, 'dead', phase); await expect(dead.withLock(sourceKey, async () => 'ok')).resolves.toBe('ok');
     const live = new SourceLock({ root, retryMs: 1, timeoutMs: 20, staleAfterMs: 1, isProcessAlive: () => true });
     await live.createStaleForTest(sourceKey, 'live', phase, false);

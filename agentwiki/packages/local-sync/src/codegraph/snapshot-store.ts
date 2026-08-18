@@ -158,6 +158,7 @@ export class CodeSnapshotStore {
       await rm(backup, { recursive: true, force: true });
       let previousMoved = false;
       let newCurrentPromoted = false;
+      let failedCurrent: string | null = null;
       try {
         try {
           await replace(current, backup);
@@ -172,11 +173,13 @@ export class CodeSnapshotStore {
       } catch (error) {
         if (newCurrentPromoted) {
           const failed = join(root, `.failed-${randomUUID()}`);
+          failedCurrent = failed;
           try { await replace(current, failed); await this.syncDirectory(root, 'after-new-current-isolation'); } catch { await rm(current, { recursive: true, force: true }); }
         }
         if (previousMoved) {
           try { await replace(backup, current); await this.syncDirectory(root, 'after-rollback-restore'); } catch { /* preserve the original error */ }
         }
+        if (failedCurrent) await rm(failedCurrent, { recursive: true, force: true });
         throw error;
       }
       await this.syncDirectory(root, 'after-promotion');
