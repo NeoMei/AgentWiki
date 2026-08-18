@@ -94,4 +94,11 @@ describe('source locks', () => {
     const lock = new SourceLock({ root, staleAfterMs: 100, isProcessAlive: () => false }); await lock.withLock(key, async () => undefined);
     await expect(stat(residue)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it('releases only its own ticket when another valid ticket exists', async () => {
+    const root = await temporaryDirectory(); const key = '4'.repeat(64); const dir = join(root, `.codegraph-${key}.coordination`); const other = join(dir, `ticket-${process.pid}-other.json`);
+    const lock = new SourceLock({ root, tokenFactory: () => 'mine' });
+    await lock.withLock(key, async () => { await writeFile(other, JSON.stringify({ pid: process.pid, token: 'other', createdAt: new Date().toISOString(), phase: 'ticket', ticketNumber: 2 })); });
+    await expect(stat(other)).resolves.toBeDefined();
+  });
 });
