@@ -54,6 +54,13 @@ describe('CodeGraph public contracts', () => {
     expect(() => LocalScanPlanSchema.parse({ ...localScanPlan, unexpected: true })).toThrow();
   });
 
+  it('rejects duplicate source identities in a local scan plan', () => {
+    expect(() => LocalScanPlanSchema.parse({
+      ...localScanPlan,
+      sources: [source, { ...source, displayPath: 'duplicate' }],
+    })).toThrow(/Duplicate sourceKey/u);
+  });
+
   it('re-exports scan contracts from the public protocol index', () => {
     expect(ExportedLocalScanPlanSchema).toBe(LocalScanPlanSchema);
   });

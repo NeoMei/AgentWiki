@@ -47,6 +47,20 @@ export const CodeGraphSourcePlanSchema = z.object({
 }).strict();
 export type CodeGraphSourcePlan = z.infer<typeof CodeGraphSourcePlanSchema>;
 
+const UniqueSourcePlansSchema = z.array(CodeGraphSourcePlanSchema).min(1).superRefine((sources, context) => {
+  const sourceKeys = new Set<string>();
+  sources.forEach((source, index) => {
+    if (sourceKeys.has(source.sourceKey)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Duplicate sourceKey',
+        path: [index, 'sourceKey'],
+      });
+    }
+    sourceKeys.add(source.sourceKey);
+  });
+});
+
 export const LocalScanPlanSchema = z.object({
   schemaVersion: z.literal('agentwiki-local-scan-plan@1'),
   provider: z.literal('codegraph'),
@@ -54,7 +68,7 @@ export const LocalScanPlanSchema = z.object({
   detectedVersion: z.string().min(1),
   capabilities: CodeGraphCapabilitiesSchema,
   analysisMode: AnalysisModeSchema,
-  sources: z.array(CodeGraphSourcePlanSchema).min(1),
+  sources: UniqueSourcePlansSchema,
   limits: z.object({
     maxFiles: z.number().int().positive(),
     maxGeneratedBytes: z.number().int().positive(),
@@ -63,11 +77,18 @@ export const LocalScanPlanSchema = z.object({
 }).strict();
 export type LocalScanPlan = z.infer<typeof LocalScanPlanSchema>;
 
-export const StandardCodeFileSchema = z.object({
+export interface StandardCodeFile {
+  fileId: string;
+  path: string;
+  language: string;
+  nodeCount: number;
+  sizeBytes: number;
+}
+
+export const StandardCodeFileSchema: z.ZodType<StandardCodeFile> = z.object({
   fileId: z.string().min(1),
   path: NormalizedRelativePathSchema,
   language: z.string().min(1),
   nodeCount: z.number().int().nonnegative(),
   sizeBytes: z.number().int().nonnegative(),
 }).strict();
-export type StandardCodeFile = z.infer<typeof StandardCodeFileSchema>;

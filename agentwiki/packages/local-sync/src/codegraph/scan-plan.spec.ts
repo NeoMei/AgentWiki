@@ -55,7 +55,7 @@ function clonePlan(plan: LocalScanPlan): LocalScanPlan {
 }
 
 describe('local scan plan hashing', () => {
-  it('is invariant to object-key and source-input order', () => {
+  it('hashes uniquely identified sources invariantly across object-key and input order', () => {
     const plan = makePlan();
     const reordered = {
       localScanPlanHash: plan.localScanPlanHash,

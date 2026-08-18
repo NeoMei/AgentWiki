@@ -8,7 +8,7 @@ function canonicalize(value: unknown, parentKey?: string): unknown {
       ? normalized.sort((left, right) => {
         const leftSourceKey = (left as { sourceKey: string }).sourceKey;
         const rightSourceKey = (right as { sourceKey: string }).sourceKey;
-        return leftSourceKey.localeCompare(rightSourceKey);
+        return leftSourceKey < rightSourceKey ? -1 : leftSourceKey > rightSourceKey ? 1 : 0;
       })
       : normalized;
   }
