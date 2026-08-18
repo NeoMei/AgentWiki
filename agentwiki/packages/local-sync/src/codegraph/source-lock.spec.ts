@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,8 +54,26 @@ describe('source locks', () => {
     const root = await temporaryDirectory(); const lock = new SourceLock({ root, retryMs: 1, timeoutMs: 200 }); const events: string[] = [];
     let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
     const first = lock.withLock('e'.repeat(64), async () => { events.push('same'); await gate; });
+    await lock.waitForTicketForTest('e'.repeat(64));
     const second = lock.withLock('e'.repeat(64), async () => { events.push('second'); });
     const other = lock.withLock('f'.repeat(64), async () => { events.push('other'); });
     await other; expect(events).toContain('other'); expect(events).not.toContain('second'); release(); await Promise.all([first, second]);
+  });
+
+  it('fails closed for a fresh malformed visible record but recovers an aged dead exact record', async () => {
+    const root = await temporaryDirectory(); const key = '1'.repeat(64); const dir = join(root, `.codegraph-${key}.coordination`);
+    await mkdir(dir, { recursive: true }); const bad = join(dir, 'ticket-999999-dead.json'); await writeFile(bad, '{');
+    const lock = new SourceLock({ root, timeoutMs: 30, staleAfterMs: 10_000, isProcessAlive: () => false });
+    await expect(lock.withLock(key, async () => 'no')).rejects.toThrow(/Malformed/u);
+    const old = new Date(Date.now() - 20_000); await utimes(bad, old, old);
+    const recovered = new SourceLock({ root, timeoutMs: 100, staleAfterMs: 100, isProcessAlive: () => false });
+    await expect(recovered.withLock(key, async () => 'yes')).resolves.toBe('yes');
+  });
+
+  it('rejects unsafe token factories and read errors instead of ignoring visible records', async () => {
+    const root = await temporaryDirectory(); const key = '2'.repeat(64);
+    await expect(new SourceLock({ root, tokenFactory: () => '../escape' }).withLock(key, async () => 'no')).rejects.toThrow(/Invalid/u);
+    const locked = new SourceLock({ root, read: async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } });
+    await expect(locked.withLock(key, async () => 'no')).rejects.toThrow(/Unable to read/u);
   });
 });

@@ -1,54 +1,27 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, readdir, readFile, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
+import { link, mkdir, open, readdir, readFile, stat, unlink, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
-
 type Phase = 'choosing' | 'ticket';
-interface Owner { pid: number; token: string; createdAt: string; ticketNumber?: number; }
-export interface SourceLockOptions { root: string; retryMs?: number; timeoutMs?: number; staleAfterMs?: number; now?: () => number; isProcessAlive?: (pid: number) => boolean; tokenFactory?: () => string; }
+interface Owner { pid: number; token: string; createdAt: string; phase: Phase; ticketNumber?: number; }
+type Stage = 'before-ticket-publish' | 'before-final-scan' | 'after-temp-fsync' | 'after-link';
+export interface SourceLockOptions { root: string; retryMs?: number; timeoutMs?: number; staleAfterMs?: number; now?: () => number; isProcessAlive?: (pid: number) => boolean; tokenFactory?: () => string; hook?: (stage: Stage, owner: Owner) => Promise<void> | void; read?: typeof readFile; }
+const TOKEN = /^[A-Za-z0-9_-]{1,64}$/u; const MAX_TICKET = 1_000_000_000;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const missing = (e: unknown) => typeof e === 'object' && e !== null && 'code' in e && e.code === 'ENOENT';
-
 export class SourceLock {
-  private readonly retry: number; private readonly timeout: number; private readonly stale: number; private readonly now: () => number; private readonly alive: (pid: number) => boolean; private readonly token: () => string;
-  constructor(private readonly options: SourceLockOptions) { this.retry = options.retryMs ?? 20; this.timeout = options.timeoutMs ?? 30_000; this.stale = options.staleAfterMs ?? 300_000; this.now = options.now ?? Date.now; this.alive = options.isProcessAlive ?? ((pid) => { try { process.kill(pid, 0); return pid > 0; } catch (e: unknown) { return typeof e === 'object' && e !== null && 'code' in e && e.code === 'EPERM'; } }); this.token = options.tokenFactory ?? randomUUID; }
-  private dir(key: string) { if (!/^[a-f0-9]{64}$/u.test(key)) throw new Error('Invalid source key for local scan lock'); return join(this.options.root, `.codegraph-${key}.coordination`); }
-  private file(dir: string, phase: Phase, token: string) { return join(dir, `${phase}-${token}.json`); }
-  private async read(path: string, phase: Phase, token: string): Promise<Owner | null> { let raw: string; try { raw = await readFile(path, 'utf8'); } catch (e) { if (missing(e)) return null; throw new Error('Unable to read local scan lock record', { cause: e }); } try { const owner = JSON.parse(raw) as Owner; if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0 || owner.token !== token || !/^[A-Za-z0-9-]{1,128}$/u.test(owner.token) || !Number.isFinite(Date.parse(owner.createdAt)) || (phase === 'ticket' && (!Number.isSafeInteger(owner.ticketNumber) || owner.ticketNumber! <= 0 || owner.ticketNumber! > Number.MAX_SAFE_INTEGER - 1)) || (phase === 'choosing' && owner.ticketNumber !== undefined)) throw new Error('invalid'); return owner; } catch { throw new Error('Malformed local scan lock record'); } }
-  private isStale(owner: Owner, metadata: Awaited<ReturnType<typeof stat>>) { const age = this.now() - Math.max(Number(metadata?.mtimeMs ?? 0), Date.parse(owner.createdAt)); return Number.isFinite(age) && age >= this.stale && !this.alive(owner.pid); }
-  private async entries(dir: string): Promise<Array<{ phase: Phase; owner: Owner; path: string }>> {
-    let names: string[]; try { names = await readdir(dir); } catch (e) { if (missing(e)) return []; throw e; }
-    const result: Array<{ phase: Phase; owner: Owner; path: string }> = [];
-    for (const name of names) {
-      const match = /^(choosing|ticket)-([A-Za-z0-9-]+)\.json$/u.exec(name); if (!match) continue;
-      const path = join(dir, name); const owner = await this.read(path, match[1] as Phase, match[2]); if (!owner) continue;
-      try { const metadata = await stat(path); if (this.isStale(owner, metadata)) { await unlink(path).catch(() => undefined); continue; } } catch { continue; }
-      result.push({ phase: match[1] as Phase, owner, path });
-    }
-    return result;
-  }
-  private async publish(path: string, owner: Owner) { const temporary = `${path}.private-${owner.token}`; const handle = await open(temporary, 'wx', 0o600); try { await handle.writeFile(JSON.stringify(owner), 'utf8'); await handle.sync(); } finally { await handle.close(); } try { await link(temporary, path); } finally { await unlink(temporary).catch(() => undefined); } const dirHandle = await open(this.options.root, 'r'); try { await dirHandle.sync(); } finally { await dirHandle.close(); } }
-  private async cleanupLegacy(key: string) {
-    const prefix = `.codegraph-${key}.lock.`; let names: string[]; try { names = await readdir(this.options.root); } catch { return; }
-    await Promise.all(names.filter((name) => name.startsWith(prefix + 'candidate-') || name.startsWith(prefix + 'quarantine-')).map(async (name) => {
-      const path = join(this.options.root, name); const owner = await this.read(path, 'choosing', name.split('-').at(-1) ?? ''); if (!owner || !owner.token || !name.includes(owner.token)) return;
-      try { if (this.isStale(owner, await stat(path))) await rm(path, { recursive: true, force: true }); } catch { /* retry on a later acquisition */ }
-    }));
-  }
-  private async acquire(key: string): Promise<{ dir: string; token: string }> {
-    const dir = this.dir(key); await mkdir(this.options.root, { recursive: true, mode: 0o700 }); await this.cleanupLegacy(key); await mkdir(dir, { recursive: true, mode: 0o700 }); const token = this.token(); const choosing = this.file(dir, 'choosing', token); const deadline = this.now() + this.timeout;
-    await this.publish(choosing, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString() });
-    const before = await this.entries(dir); const ticketNumber = Math.max(0, ...before.filter((entry) => entry.phase === 'ticket').map((entry) => entry.owner.ticketNumber ?? 0)) + 1;
-    const ticket = this.file(dir, 'ticket', token); await this.publish(ticket, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString(), ticketNumber }); await unlink(choosing).catch(() => undefined);
-    while (true) {
-      const all = await this.entries(dir); const choosingOther = all.some((entry) => entry.phase === 'choosing' && entry.owner.token !== token);
-      const tickets = all.filter((entry) => entry.phase === 'ticket').sort((a, b) => (a.owner.ticketNumber! - b.owner.ticketNumber!) || (a.owner.token < b.owner.token ? -1 : a.owner.token > b.owner.token ? 1 : 0));
-      if (!choosingOther && tickets[0]?.owner.token === token) return { dir, token };
-      if (this.now() >= deadline) { await unlink(ticket).catch(() => undefined); await unlink(choosing).catch(() => undefined); throw new Error('Timed out waiting for the local scan source lock'); }
-      await sleep(this.retry);
-    }
-  }
-  async withLock<T>(sourceKey: string, work: () => Promise<T>): Promise<T> { const owner = await this.acquire(sourceKey); try { return await work(); } finally { await unlink(this.file(owner.dir, 'ticket', owner.token)).catch(() => undefined); } }
-  async waitForTicketForTest(key: string): Promise<void> { const dir = this.dir(key); for (let i = 0; i < 100; i += 1) { if ((await this.entries(dir)).some((e) => e.phase === 'ticket')) return; await sleep(1); } throw new Error('ticket not published'); }
-  async createStaleForTest(key: string, token: string, phase: Phase, aged = true): Promise<void> { const dir = this.dir(key); await mkdir(dir, { recursive: true }); const owner = { pid: 999_999, token, createdAt: new Date(this.now() - (aged ? 10_000 : 0)).toISOString(), ...(phase === 'ticket' ? { ticketNumber: 1 } : {}) }; const path = this.file(dir, phase, token); await this.publish(path, owner); if (aged) { const date = new Date(this.now() - 10_000); await utimes(path, date, date); } }
-  async entriesForTest(key: string): Promise<string[]> { return (await this.entries(this.dir(key))).map((entry) => entry.path); }
+  private readonly retry: number; private readonly timeout: number; private readonly staleAfter: number; private readonly now: () => number; private readonly alive: (pid: number) => boolean; private readonly token: () => string;
+  constructor(private readonly options: SourceLockOptions) { this.retry=options.retryMs??20; this.timeout=options.timeoutMs??30_000; this.staleAfter=options.staleAfterMs??300_000; this.now=options.now??Date.now; this.alive=options.isProcessAlive??((pid)=>{try{process.kill(pid,0);return pid>0;}catch(e:unknown){return typeof e==='object'&&e!==null&&'code'in e&&e.code==='EPERM';}}); this.token=options.tokenFactory??randomUUID; }
+  private dir(key:string) { if(!/^[a-f0-9]{64}$/u.test(key)) throw new Error('Invalid source key for local scan lock'); return join(this.options.root,`.codegraph-${key}.coordination`); }
+  private file(dir:string, phase:Phase,pid:number,token:string) { return join(dir,`${phase}-${pid}-${token}.json`); }
+  private parse(name:string) { const m=/^(choosing|ticket)-([1-9][0-9]*)-([A-Za-z0-9_-]{1,64})\.json$/u.exec(name); if(!m) return null; const pid=Number(m[2]); return Number.isSafeInteger(pid)?{phase:m[1] as Phase,pid,token:m[3]}:null; }
+  private valid(data:unknown, phase:Phase,pid:number,token:string): data is Owner { if(!data||typeof data!=='object'||Array.isArray(data)) return false; const x=data as Record<string,unknown>; const want=phase==='ticket'?['createdAt','phase','pid','ticketNumber','token']:['createdAt','phase','pid','token']; const keys=Object.keys(x).sort(); return keys.length===want.length&&keys.every((k,i)=>k===want[i])&&x.pid===pid&&Number.isSafeInteger(x.pid)&&pid>0&&x.token===token&&TOKEN.test(token)&&x.phase===phase&&typeof x.createdAt==='string'&&Number.isFinite(Date.parse(x.createdAt))&&(phase==='choosing'||(Number.isSafeInteger(x.ticketNumber)&&(x.ticketNumber as number)>0&&(x.ticketNumber as number)<=MAX_TICKET)); }
+  private async stale(path:string,pid:number,created?:string) { try { const s=await stat(path); const age=this.now()-Math.max(s.mtimeMs,created?Date.parse(created):0); return Number.isFinite(age)&&age>=this.staleAfter&&!this.alive(pid); } catch(e) { if(missing(e)) return false; throw new Error('Unable to inspect local scan lock record',{cause:e}); } }
+  private async entry(dir:string,name:string):Promise<{phase:Phase;owner:Owner;path:string}|null> { const n=this.parse(name); if(!n) return null; const path=join(dir,name); let raw:string; try { raw=await (this.options.read??readFile)(path,'utf8'); } catch(e) { if(missing(e)) return null; throw new Error('Unable to read local scan lock record',{cause:e}); } let data:unknown; try { data=JSON.parse(raw); } catch { if(await this.stale(path,n.pid)){await unlink(path).catch(e=>{if(!missing(e))throw e;});return null;} throw new Error('Malformed local scan lock record'); } if(!this.valid(data,n.phase,n.pid,n.token)){if(await this.stale(path,n.pid)){await unlink(path).catch(e=>{if(!missing(e))throw e;});return null;}throw new Error('Malformed local scan lock record');} const owner=data; if(await this.stale(path,owner.pid,owner.createdAt)){await unlink(path).catch(e=>{if(!missing(e))throw e;});return null;}return {phase:n.phase,owner,path}; }
+  private async entries(dir:string) { let names:string[]; try{names=await readdir(dir);}catch(e){if(missing(e))return [];throw e;} const out:Array<{phase:Phase;owner:Owner;path:string}>=[]; for(const name of names){const value=await this.entry(dir,name);if(value)out.push(value);}return out; }
+  private async publish(dir:string,owner:Owner) { const visible=this.file(dir,owner.phase,owner.pid,owner.token); const temp=join(dir,`.private-${owner.phase}-${owner.pid}-${owner.token}-${randomUUID()}`); const h=await open(temp,'wx',0o600);try{await h.writeFile(JSON.stringify(owner),'utf8');await h.sync();}finally{await h.close();}await this.options.hook?.('after-temp-fsync',owner);try{await link(temp,visible);}catch(e){if(typeof e==='object'&&e!==null&&'code'in e&&e.code==='EEXIST')throw new Error('Local scan lock token collision');throw e;}finally{await unlink(temp).catch(()=>undefined);}const dh=await open(dir,'r');try{await dh.sync();}finally{await dh.close();}await this.options.hook?.('after-link',owner); }
+  private async acquire(key:string) { const dir=this.dir(key);await mkdir(dir,{recursive:true,mode:0o700});const token=this.token();if(!TOKEN.test(token))throw new Error('Invalid local scan lock token');const pid=process.pid;const deadline=this.now()+this.timeout; const choosing:Owner={pid,token,createdAt:new Date(this.now()).toISOString(),phase:'choosing'};await this.publish(dir,choosing);const before=await this.entries(dir);const max=Math.max(0,...before.filter(x=>x.phase==='ticket').map(x=>x.owner.ticketNumber!));if(max>=MAX_TICKET)throw new Error('Local scan lock ticket overflow');const ticket:Owner={pid,token,createdAt:new Date(this.now()).toISOString(),phase:'ticket',ticketNumber:max+1};await this.options.hook?.('before-ticket-publish',ticket);await this.publish(dir,ticket);await unlink(this.file(dir,'choosing',pid,token)).catch(()=>undefined);while(true){await this.options.hook?.('before-final-scan',ticket);const all=await this.entries(dir);const choosingOther=all.some(x=>x.phase==='choosing'&&x.owner.token!==token);const tickets=all.filter(x=>x.phase==='ticket').sort((a,b)=>a.owner.ticketNumber!-b.owner.ticketNumber!||(a.owner.token<b.owner.token?-1:a.owner.token>b.owner.token?1:0));if(!choosingOther&&tickets[0]?.owner.token===token)return{dir,pid,token};if(this.now()>=deadline){await unlink(this.file(dir,'ticket',pid,token)).catch(()=>undefined);throw new Error('Timed out waiting for the local scan source lock');}await sleep(this.retry);}}
+  async withLock<T>(key:string,work:()=>Promise<T>):Promise<T>{const owner=await this.acquire(key);try{return await work();}finally{await unlink(this.file(owner.dir,'ticket',owner.pid,owner.token)).catch(()=>undefined);}}
+  async waitForTicketForTest(key:string){const dir=this.dir(key);for(let i=0;i<100;i+=1){if((await this.entries(dir)).some(x=>x.phase==='ticket'))return;await sleep(1);}throw new Error('ticket not published');}
+  async createStaleForTest(key:string,token:string,phase:Phase,aged=true){const dir=this.dir(key);await mkdir(dir,{recursive:true});const owner:Owner={pid:999999,token,createdAt:new Date(this.now()-(aged?10000:0)).toISOString(),phase,...(phase==='ticket'?{ticketNumber:1}:{})};await this.publish(dir,owner);if(aged){const d=new Date(this.now()-10000);await utimes(this.file(dir,phase,owner.pid,token),d,d);}}
+  async entriesForTest(key:string){return(await this.entries(this.dir(key))).map(x=>x.path);}
 }
