@@ -51,6 +51,65 @@ afterEach(async () => {
 });
 
 describe('CodeGraph planning', () => {
+  it('rejects a changed confirmed plan before it can mutate an index', async () => {
+    const root = await temporaryDirectory();
+    const binary = await executable(root);
+    const source = await codeSource(root);
+    const canonicalSource = await realpath(source);
+    let versionCalls = 0;
+    const commands: string[] = [];
+    const runner: CodeGraphCommandRunner = {
+      async run(_command, args) {
+        commands.push(args.join(' '));
+        if (args[0] === '--version') return { stdout: versionCalls++ === 0 ? 'codegraph 1.5.0' : 'codegraph 1.6.0', stderr: '', exitCode: 0 };
+        if (args[0] === 'status' && args[1] === '--json') return { stdout: JSON.stringify({ initialized: false }), stderr: '', exitCode: 0 };
+        if (args[0] === 'files') return { stdout: JSON.stringify([]), stderr: '', exitCode: 0 };
+        return { stdout: 'help', stderr: '', exitCode: 0 };
+      },
+    };
+    const provider = createCodeGraphProvider({ runner, environment: { AGENTWIKI_CODEGRAPH_BIN: binary }, home: root });
+    const plan = await provider.plan({ sourcePaths: [source], sourceType: 'code', analysisMode: 'standard' });
+
+    await expect(provider.execute(plan!)).rejects.toMatchObject({ code: 'CODEGRAPH_SCAN_PLAN_CHANGED' });
+    expect(commands).not.toContain(`init ${canonicalSource}`);
+    expect(commands).not.toContain(`sync ${canonicalSource}`);
+  });
+
+  it.each([
+    { initialized: true, files: 1, indexState: 'partial', pendingRefs: 0 },
+    { initialized: true, files: 1, indexState: 'failed', pendingRefs: 0 },
+    { initialized: true, files: 1, indexState: 'interrupted', pendingRefs: 0 },
+    { initialized: true, files: 1, indexState: 'complete', pendingRefs: 1 },
+    { initialized: true, files: 1, indexState: 'complete' },
+  ])('does not persist an unusable post-mutation status', async (postMutationStatus) => {
+    const root = await temporaryDirectory();
+    const binary = await executable(root);
+    const source = await codeSource(root);
+    const canonicalSource = await realpath(source);
+    let statusCalls = 0;
+    const runner: CodeGraphCommandRunner = {
+      async run(_command, args) {
+        if (args[0] === '--version') return { stdout: 'codegraph 1.5.0', stderr: '', exitCode: 0 };
+        if (args[0] === 'status' && args[1] === '--json') {
+          statusCalls += 1;
+          const status = statusCalls <= 2
+            ? { initialized: true, files: 1, indexState: 'complete', pendingRefs: 0, pendingChanges: { added: 1, modified: 0, removed: 0 } }
+            : postMutationStatus;
+          return { stdout: JSON.stringify(status), stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'sync') return { stdout: '', stderr: '', exitCode: 0 };
+        if (args[1] === '--help') return { stdout: 'help', stderr: '', exitCode: 0 };
+        throw new Error(`Unexpected command: ${args.join(' ')}`);
+      },
+    };
+    const provider = createCodeGraphProvider({ runner, environment: { AGENTWIKI_CODEGRAPH_BIN: binary }, home: root });
+    const plan = await provider.plan({ sourcePaths: [source], sourceType: 'code', analysisMode: 'standard' });
+
+    await expect(provider.execute(plan!)).rejects.toMatchObject({ code: 'CODEGRAPH_INDEX_INCOMPLETE' });
+    expect(await provider.snapshotStore.read(plan!.sources[0].sourceKey)).toBeNull();
+    expect(canonicalSource).toBeTruthy();
+  });
+
   it('prefers AGENTWIKI_CODEGRAPH_BIN and plans without mutation', async () => {
     const root = await temporaryDirectory();
     const binary = await executable(root, 'explicit-codegraph');

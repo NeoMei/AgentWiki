@@ -1,14 +1,20 @@
 import { access, realpath, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { OnboardingError, type OnboardingFailureCode } from '../onboarding/errors.js';
-import { type CodeGraphCapabilities, type CodeGraphSourcePlan, type LocalScanPlan } from './contracts.js';
+import { LocalScanPlanSchema, type CodeGraphCapabilities, type CodeGraphSourcePlan, type LocalScanPlan } from './contracts.js';
 import { ExecFileCodeGraphCommandRunner, type CodeGraphCommandRunner } from './command-runner.js';
+import { normalizeCodeGraphFiles } from './normalizer.js';
 import { discoverCodeSources } from './source-discovery.js';
 import { hashLocalScanPlan } from './scan-plan.js';
+import { CodeSnapshotStore } from './snapshot-store.js';
+import { SourceLock } from './source-lock.js';
 
 const PLANNING_TIMEOUT_MS = 30_000;
 const PLANNING_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+const EXECUTION_TIMEOUT_MS = 10 * 60_000;
+const EXECUTION_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const PLAN_LIMITS = { maxFiles: 10_000, maxGeneratedBytes: 1_000_000 } as const;
 
 export interface PlanCodeScanInput {
@@ -17,14 +23,24 @@ export interface PlanCodeScanInput {
   analysisMode: 'standard' | 'deep';
 }
 
-/** Task 2 deliberately exposes only the read-only plan boundary; Task 3 adds execution. */
 export interface CodeGraphProvider {
   plan(input: PlanCodeScanInput): Promise<LocalScanPlan | null>;
+  execute(plan: LocalScanPlan): Promise<CodeSnapshotReference[]>;
+  snapshotStore: CodeSnapshotStore;
+}
+
+export interface CodeSnapshotReference {
+  sourceKey: string;
+  snapshotHash: string;
+  files: number;
 }
 
 export interface CodeGraphProviderOptions {
   runner?: CodeGraphCommandRunner;
   environment?: NodeJS.ProcessEnv;
+  home?: string;
+  snapshotStore?: CodeSnapshotStore;
+  now?: () => Date;
 }
 
 interface ExecutableDetails {
@@ -41,6 +57,12 @@ interface NormalizedStatus {
 }
 
 function planningError(code: OnboardingFailureCode, message: string, diagnostic: string): OnboardingError {
+  const error = new OnboardingError({ code, message, retryable: false });
+  Object.assign(error, { diagnostic });
+  return error;
+}
+
+function scanError(code: OnboardingFailureCode, message: string, diagnostic: string): OnboardingError {
   const error = new OnboardingError({ code, message, retryable: false });
   Object.assign(error, { diagnostic });
   return error;
@@ -170,49 +192,125 @@ function sourcePlan(source: Awaited<ReturnType<typeof discoverCodeSources>>[numb
 export function createCodeGraphProvider(options: CodeGraphProviderOptions = {}): CodeGraphProvider {
   const runner = options.runner ?? new ExecFileCodeGraphCommandRunner();
   const environment = options.environment ?? process.env;
+  const home = options.home ?? homedir();
+  const snapshotStore = options.snapshotStore ?? new CodeSnapshotStore({ home });
+  const sourceLock = new SourceLock({ root: join(home, '.agentwiki', 'workspaces') });
+  const now = options.now ?? (() => new Date());
   const run = (command: string, args: string[]) => runner.run(command, args, {
     timeoutMs: PLANNING_TIMEOUT_MS,
     maxBufferBytes: PLANNING_MAX_BUFFER_BYTES,
   });
+  const runExecution = (command: string, args: string[]) => runner.run(command, args, {
+    timeoutMs: EXECUTION_TIMEOUT_MS,
+    maxBufferBytes: EXECUTION_MAX_BUFFER_BYTES,
+  });
+
+  const plan = async (input: PlanCodeScanInput): Promise<LocalScanPlan | null> => {
+    const sources = await discoverCodeSources(input);
+    if (sources.length === 0) return null;
+
+    const executable = await discoverExecutable(environment);
+    const version = await run(executable.path, ['--version']);
+    if (version.exitCode !== 0 || !version.stdout.trim()) {
+      throw planningError('CODEGRAPH_NOT_FOUND', 'CodeGraph executable is unavailable', `Version probe failed for ${executable.path}: ${version.exitCode}`);
+    }
+
+    for (const args of [['status', '--help'], ['sync', '--help'], ['files', '--help']]) {
+      hasSuccessfulResult(await run(executable.path, args), args.join(' '));
+    }
+    const capabilities: CodeGraphCapabilities = {
+      required: { 'index.status': true, 'index.sync': true, 'files.list': true },
+      optional: { 'symbols.list': false, 'relations.read': false, 'semantic.explore': false, 'impact.read': false, 'routes.read': false },
+    };
+    const plannedSources: CodeGraphSourcePlan[] = [];
+    for (const source of sources) {
+      const response = await run(executable.path, ['status', '--json', source.canonicalSourcePath]);
+      hasSuccessfulResult(response, 'status --json');
+      plannedSources.push(sourcePlan(source, normalizeStatus(response.stdout, `Status for ${source.canonicalSourcePath}`)));
+    }
+    plannedSources.sort((left, right) => left.sourceKey < right.sourceKey ? -1 : left.sourceKey > right.sourceKey ? 1 : 0);
+
+    const planWithoutHash: LocalScanPlan = {
+      schemaVersion: 'agentwiki-local-scan-plan@1',
+      provider: 'codegraph',
+      executableIdentity: executable.identity,
+      detectedVersion: version.stdout.trim(),
+      capabilities,
+      analysisMode: input.analysisMode,
+      sources: plannedSources,
+      limits: PLAN_LIMITS,
+      localScanPlanHash: '0'.repeat(64),
+    };
+    return { ...planWithoutHash, localScanPlanHash: hashLocalScanPlan(planWithoutHash) };
+  };
+
+  const runSourcesWithLocks = async <T>(sources: CodeGraphSourcePlan[], work: () => Promise<T>): Promise<T> => {
+    const [source, ...rest] = sources;
+    if (!source) return work();
+    return sourceLock.withLock(source.sourceKey, async () => runSourcesWithLocks(rest, work));
+  };
 
   return {
-    async plan(input) {
-      const sources = await discoverCodeSources(input);
-      if (sources.length === 0) return null;
-
-      const executable = await discoverExecutable(environment);
-      const version = await run(executable.path, ['--version']);
-      if (version.exitCode !== 0 || !version.stdout.trim()) {
-        throw planningError('CODEGRAPH_NOT_FOUND', 'CodeGraph executable is unavailable', `Version probe failed for ${executable.path}: ${version.exitCode}`);
+    plan,
+    snapshotStore,
+    async execute(confirmedPlan) {
+      let confirmed: LocalScanPlan;
+      try { confirmed = LocalScanPlanSchema.parse(confirmedPlan); } catch (error) {
+        throw scanError('CODEGRAPH_SCAN_PLAN_CHANGED', 'Confirmed CodeGraph scan plan is invalid', error instanceof Error ? error.message : 'Invalid scan plan');
       }
-
-      for (const args of [['status', '--help'], ['sync', '--help'], ['files', '--help']]) {
-        hasSuccessfulResult(await run(executable.path, args), args.join(' '));
+      if (hashLocalScanPlan(confirmed) !== confirmed.localScanPlanHash) {
+        throw scanError('CODEGRAPH_SCAN_PLAN_CHANGED', 'Confirmed CodeGraph scan plan has changed', 'Confirmed plan hash did not match plan contents');
       }
-      const capabilities: CodeGraphCapabilities = {
-        required: { 'index.status': true, 'index.sync': true, 'files.list': true },
-        optional: { 'symbols.list': false, 'relations.read': false, 'semantic.explore': false, 'impact.read': false, 'routes.read': false },
-      };
-      const plannedSources: CodeGraphSourcePlan[] = [];
-      for (const source of sources) {
-        const response = await run(executable.path, ['status', '--json', source.canonicalSourcePath]);
-        hasSuccessfulResult(response, 'status --json');
-        plannedSources.push(sourcePlan(source, normalizeStatus(response.stdout, `Status for ${source.canonicalSourcePath}`)));
-      }
-      plannedSources.sort((left, right) => left.sourceKey < right.sourceKey ? -1 : left.sourceKey > right.sourceKey ? 1 : 0);
-
-      const planWithoutHash: LocalScanPlan = {
-        schemaVersion: 'agentwiki-local-scan-plan@1',
-        provider: 'codegraph',
-        executableIdentity: executable.identity,
-        detectedVersion: version.stdout.trim(),
-        capabilities,
-        analysisMode: input.analysisMode,
-        sources: plannedSources,
-        limits: PLAN_LIMITS,
-        localScanPlanHash: '0'.repeat(64),
-      };
-      return { ...planWithoutHash, localScanPlanHash: hashLocalScanPlan(planWithoutHash) };
+      const orderedSources = [...confirmed.sources].sort((left, right) => left.sourceKey.localeCompare(right.sourceKey));
+      return runSourcesWithLocks(orderedSources, async () => {
+        // Re-plan while source locks are held, immediately before any scanner mutation.
+        const replanned = await plan({ sourcePaths: confirmed.sources.map((source) => source.canonicalSourcePath), sourceType: 'code', analysisMode: confirmed.analysisMode });
+        if (!replanned || replanned.localScanPlanHash !== confirmed.localScanPlanHash) {
+          throw scanError('CODEGRAPH_SCAN_PLAN_CHANGED', 'Confirmed CodeGraph scan plan has changed', 'A fresh local scan plan did not match the confirmed hash');
+        }
+        const executable = await discoverExecutable(environment);
+        if (executable.identity !== replanned.executableIdentity) {
+          throw scanError('CODEGRAPH_SCAN_PLAN_CHANGED', 'Confirmed CodeGraph scan plan has changed', 'CodeGraph executable identity changed after plan revalidation');
+        }
+        const references: CodeSnapshotReference[] = [];
+        for (const source of confirmed.sources) {
+          if (source.action === 'rebuild') {
+            throw scanError('CODEGRAPH_SCAN_FAILED', 'Confirmed CodeGraph rebuild action is unsupported', 'No rebuild command is inferred or executed by the standard provider');
+          }
+          if (source.action === 'init' || source.action === 'sync') {
+            const response = await runExecution(executable.path, [source.action, source.canonicalSourcePath]);
+            if (response.exitCode !== 0) {
+              throw scanError('CODEGRAPH_SCAN_FAILED', 'CodeGraph index update failed', `${source.action} exited with ${response.exitCode}`);
+            }
+          }
+          const statusResponse = await runExecution(executable.path, ['status', '--json', source.canonicalSourcePath]);
+          if (statusResponse.exitCode !== 0) throw scanError('CODEGRAPH_SCAN_FAILED', 'CodeGraph status check failed', `status exited with ${statusResponse.exitCode}`);
+          let status: NormalizedStatus;
+          try { status = normalizeStatus(statusResponse.stdout, `Post-scan status for ${source.canonicalSourcePath}`); } catch (error) {
+            throw scanError('CODEGRAPH_INDEX_INCOMPLETE', 'CodeGraph index is incomplete', error instanceof Error ? error.message : 'Malformed post-scan status');
+          }
+          if (!status.initialized || status.state !== 'complete' || status.pendingRefs !== 0) {
+            throw scanError('CODEGRAPH_INDEX_INCOMPLETE', 'CodeGraph index is incomplete', `Post-scan index state: ${status.state}; pending refs: ${status.pendingRefs}`);
+          }
+          const filesResponse = await runExecution(executable.path, ['files', '--path', source.canonicalSourcePath, '--format', 'flat', '--json']);
+          if (filesResponse.exitCode !== 0) throw scanError('CODEGRAPH_SCAN_FAILED', 'CodeGraph files query failed', `files exited with ${filesResponse.exitCode}`);
+          let output: unknown;
+          try { output = JSON.parse(filesResponse.stdout); } catch {
+            throw scanError('CODE_SNAPSHOT_INVALID', 'Code snapshot is invalid: files response was not JSON', 'CodeGraph files output could not be parsed as JSON');
+          }
+          const normalized = normalizeCodeGraphFiles(output, {
+            sourceKey: source.sourceKey,
+            sourceRoot: source.canonicalSourcePath,
+            scanner: { provider: 'codegraph', detectedVersion: confirmed.detectedVersion, capabilities: confirmed.capabilities },
+            indexedAt: now().toISOString(),
+            maxFiles: confirmed.limits.maxFiles,
+            maxGeneratedBytes: confirmed.limits.maxGeneratedBytes,
+          });
+          const manifest = await snapshotStore.write(normalized);
+          references.push({ sourceKey: source.sourceKey, snapshotHash: manifest.snapshotHash, files: manifest.counts.files });
+        }
+        return references.sort((left, right) => left.sourceKey.localeCompare(right.sourceKey));
+      });
     },
   };
 }
