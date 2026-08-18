@@ -9,16 +9,16 @@ async function temporaryDirectory() { const directory = await mkdtemp(join(tmpdi
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe('source locks', () => {
-  it('uses token order to break equal bakery tickets', async () => {
+  it('lets only the code-unit smaller token enter when two published choosers select the same ticket', async () => {
     const root = await temporaryDirectory();
-    const lock = new SourceLock({ root, retryMs: 1, timeoutMs: 200, tokenFactory: (() => { const tokens = ['b', 'a']; return () => tokens.shift()!; })() });
+    let arrived = 0; let open!: () => void; const bothChoosing = new Promise<void>((resolve) => { open = resolve; });
+    const lock = new SourceLock({ root, retryMs: 1, timeoutMs: 200, tokenFactory: (() => { const tokens = ['b', 'a']; return () => tokens.shift()!; })(), hook: async (stage) => { if (stage !== 'before-ticket-publish') return; arrived += 1; if (arrived === 2) open(); await bothChoosing; } });
     const events: string[] = [];
     let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
     const first = lock.withLock('a'.repeat(64), async () => { events.push('b'); });
     const second = lock.withLock('a'.repeat(64), async () => { events.push('a'); await gate; });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    release(); await Promise.all([first, second]);
-    expect(events.sort()).toEqual(['a', 'b']);
+    while (events.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(events).toEqual(['a']); release(); await Promise.all([first, second]); expect(events).toEqual(['a', 'b']);
   });
 
   it('makes a later contender wait behind an already published ticket', async () => {
