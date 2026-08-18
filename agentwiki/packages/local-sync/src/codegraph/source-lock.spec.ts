@@ -26,9 +26,20 @@ describe('source locks', () => {
     let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
     const first = lock.withLock('b'.repeat(64), async () => { events.push('A'); await gate; });
     await lock.waitForTicketForTest('b'.repeat(64));
+    while (!events.includes('A')) await new Promise((resolve) => setTimeout(resolve, 1));
     const second = lock.withLock('b'.repeat(64), async () => { events.push('B'); });
     await new Promise((resolve) => setTimeout(resolve, 15)); expect(events).toEqual(['A']);
     release(); await Promise.all([first, second]); expect(events).toEqual(['A', 'B']);
+  });
+
+  it('does not enter when a newcomer is published immediately before its final scan', async () => {
+    const root = await temporaryDirectory(); const key = '9'.repeat(64); let pause!: () => void; const finalGate = new Promise<void>((resolve) => { pause = resolve; }); let held = false;
+    const lock = new SourceLock({ root, retryMs: 1, timeoutMs: 300, tokenFactory: (() => { const tokens = ['a', 'b']; return () => tokens.shift()!; })(), hook: async (stage, owner) => { if (stage === 'before-final-scan' && owner.token === 'a' && !held) { held = true; await finalGate; } } });
+    const events: string[] = []; let release!: () => void; const workGate = new Promise<void>((resolve) => { release = resolve; });
+    const first = lock.withLock(key, async () => { events.push('A'); await workGate; });
+    while (!held) await new Promise((resolve) => setTimeout(resolve, 1));
+    const second = lock.withLock(key, async () => { events.push('B'); }); await lock.waitForTicketForTest(key);
+    expect(events).toEqual([]); pause(); while (!events.includes('A')) await new Promise((resolve) => setTimeout(resolve, 1)); expect(events).toEqual(['A']); release(); await Promise.all([first, second]); expect(events).toEqual(['A', 'B']);
   });
 
   it('recovers unique dead choosing and ticket files without affecting a concurrent cleaner', async () => {
