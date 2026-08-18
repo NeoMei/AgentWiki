@@ -1,114 +1,47 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, readdir, readFile, rename, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { mkdir, readdir, readFile, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
-interface LockOwner { pid: number; createdAt: string; token?: string; }
-interface ObservedOwner { raw: string; pid: number | null; token: string | null; createdAt: number | null; mtimeMs: number; }
+type Phase = 'choosing' | 'ticket';
+interface Owner { pid: number; token: string; createdAt: string; ticketNumber?: number; }
+export interface SourceLockOptions { root: string; retryMs?: number; timeoutMs?: number; staleAfterMs?: number; now?: () => number; isProcessAlive?: (pid: number) => boolean; tokenFactory?: () => string; }
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const missing = (e: unknown) => typeof e === 'object' && e !== null && 'code' in e && e.code === 'ENOENT';
 
-export interface SourceLockOptions {
-  root: string; retryMs?: number; timeoutMs?: number; staleAfterMs?: number; now?: () => number; isProcessAlive?: (pid: number) => boolean;
-  beforeQuarantine?: (path: string) => void | Promise<void>;
-  beforeRestore?: () => void | Promise<void>;
-}
-
-const DEFAULT_RETRY_MS = 50;
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_STALE_AFTER_MS = 5 * 60_000;
-const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-const exists = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && (error.code === 'EEXIST' || error.code === 'ENOTEMPTY');
-const missing = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-
-function processIsAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return pid > 0; } catch (error: unknown) { return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM'; }
-}
-
-/** Serializes one source with a recovery fence around every stale-lock decision. */
 export class SourceLock {
-  private readonly retryMs: number; private readonly timeoutMs: number; private readonly staleAfterMs: number; private readonly now: () => number; private readonly isProcessAlive: (pid: number) => boolean;
-  constructor(private readonly options: SourceLockOptions) {
-    this.retryMs = options.retryMs ?? DEFAULT_RETRY_MS; this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS; this.now = options.now ?? Date.now; this.isProcessAlive = options.isProcessAlive ?? processIsAlive;
+  private readonly retry: number; private readonly timeout: number; private readonly stale: number; private readonly now: () => number; private readonly alive: (pid: number) => boolean; private readonly token: () => string;
+  constructor(private readonly options: SourceLockOptions) { this.retry = options.retryMs ?? 20; this.timeout = options.timeoutMs ?? 30_000; this.stale = options.staleAfterMs ?? 300_000; this.now = options.now ?? Date.now; this.alive = options.isProcessAlive ?? ((pid) => { try { process.kill(pid, 0); return pid > 0; } catch (e: unknown) { return typeof e === 'object' && e !== null && 'code' in e && e.code === 'EPERM'; } }); this.token = options.tokenFactory ?? randomUUID; }
+  private dir(key: string) { if (!/^[a-f0-9]{64}$/u.test(key)) throw new Error('Invalid source key for local scan lock'); return join(this.options.root, `.codegraph-${key}.coordination`); }
+  private file(dir: string, phase: Phase, token: string) { return join(dir, `${phase}-${token}.json`); }
+  private async read(path: string): Promise<Owner | null> { try { return JSON.parse(await readFile(path, 'utf8')) as Owner; } catch (e) { if (missing(e)) return null; return null; } }
+  private isStale(owner: Owner, metadata: Awaited<ReturnType<typeof stat>>) { const age = this.now() - Math.max(Number(metadata?.mtimeMs ?? 0), Date.parse(owner.createdAt)); return Number.isFinite(age) && age >= this.stale && !this.alive(owner.pid); }
+  private async entries(dir: string): Promise<Array<{ phase: Phase; owner: Owner; path: string }>> {
+    let names: string[]; try { names = await readdir(dir); } catch (e) { if (missing(e)) return []; throw e; }
+    const result: Array<{ phase: Phase; owner: Owner; path: string }> = [];
+    for (const name of names) {
+      const match = /^(choosing|ticket)-([A-Za-z0-9-]+)\.json$/u.exec(name); if (!match) continue;
+      const path = join(dir, name); const owner = await this.read(path); if (!owner || owner.token !== match[2]) continue;
+      try { const metadata = await stat(path); if (this.isStale(owner, metadata)) { await unlink(path).catch(() => undefined); continue; } } catch { continue; }
+      result.push({ phase: match[1] as Phase, owner, path });
+    }
+    return result;
   }
-  private path(sourceKey: string): string { if (!/^[a-f0-9]{64}$/u.test(sourceKey)) throw new Error('Invalid source key for local scan lock'); return join(this.options.root, `.codegraph-${sourceKey}.lock`); }
-  private fence(path: string): string { return `${path}.recovery-fence`; }
-  private async observe(path: string): Promise<ObservedOwner | null> {
-    try {
-      const metadata = await stat(path);
-      const raw = await readFile(metadata.isDirectory() ? join(path, 'owner.json') : path, 'utf8').catch((error: unknown) => missing(error) ? '' : Promise.reject(error));
-      try {
-        const parsed = JSON.parse(raw) as Partial<LockOwner>;
-        return { raw, pid: Number.isInteger(parsed.pid) && parsed.pid! > 0 ? parsed.pid! : null, token: typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null, createdAt: typeof parsed.createdAt === 'string' && Number.isFinite(Date.parse(parsed.createdAt)) ? Date.parse(parsed.createdAt) : null, mtimeMs: metadata.mtimeMs };
-      } catch { return { raw, pid: null, token: null, createdAt: null, mtimeMs: metadata.mtimeMs }; }
-    } catch (error) { if (missing(error)) return null; throw error; }
-  }
-  private stale(owner: ObservedOwner): boolean { const age = this.now() - Math.max(owner.mtimeMs, owner.createdAt ?? Number.NEGATIVE_INFINITY); return Number.isFinite(age) && age >= this.staleAfterMs && (owner.pid === null || !this.isProcessAlive(owner.pid)); }
-  private async publish(path: string, owner: LockOwner): Promise<boolean> {
-    if (!owner.token) throw new Error('Lock owner token is required');
-    const candidate = `${path}.candidate-${owner.token}`;
-    try { await writeFile(candidate, JSON.stringify(owner), { encoding: 'utf8', mode: 0o600, flag: 'wx' }); await link(candidate, path); await unlink(candidate); return true; }
-    catch (error) { await rm(candidate, { force: true }); if (exists(error)) return false; throw error; }
-  }
-  private async removeIfOwned(path: string, owner: ObservedOwner): Promise<boolean> {
-    const current = await this.observe(path);
-    if (!current || current.token !== owner.token || current.raw !== owner.raw) return false;
-    await rm(path, { recursive: true, force: false });
-    return true;
-  }
-  private async cleanupResidues(path: string): Promise<void> {
-    const prefix = `${basename(path)}.`;
-    let entries: string[]; try { entries = await readdir(this.options.root); } catch (error) { if (missing(error)) return; throw error; }
-    await Promise.all(entries.filter((name) => name.startsWith(prefix + 'candidate-') || name.startsWith(prefix + 'quarantine-')).map(async (name) => {
-      const residue = join(this.options.root, name); const owner = await this.observe(residue);
-      if (!owner || owner.token === null || !this.stale(owner)) return;
-      if (!name.includes(owner.token)) return;
-      await this.removeIfOwned(residue, owner).catch(() => undefined);
-    }));
-  }
-  private async acquireFence(path: string, deadline: number): Promise<LockOwner> {
-    const fence = this.fence(path);
+  private async publish(path: string, owner: Owner) { await writeFile(path, JSON.stringify(owner), { encoding: 'utf8', mode: 0o600, flag: 'wx' }); }
+  private async acquire(key: string): Promise<{ dir: string; token: string }> {
+    const dir = this.dir(key); await mkdir(dir, { recursive: true, mode: 0o700 }); const token = this.token(); const choosing = this.file(dir, 'choosing', token); const deadline = this.now() + this.timeout;
+    await this.publish(choosing, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString() });
+    const before = await this.entries(dir); const ticketNumber = Math.max(0, ...before.filter((entry) => entry.phase === 'ticket').map((entry) => entry.owner.ticketNumber ?? 0)) + 1;
+    const ticket = this.file(dir, 'ticket', token); await this.publish(ticket, { pid: process.pid, token, createdAt: new Date(this.now()).toISOString(), ticketNumber }); await unlink(choosing).catch(() => undefined);
     while (true) {
-      await this.cleanupResidues(path);
-      const owner = { pid: process.pid, createdAt: new Date(this.now()).toISOString(), token: randomUUID() };
-      if (await this.publish(fence, owner)) return owner;
-      const existing = await this.observe(fence);
-      if (existing && this.stale(existing)) await this.removeIfOwned(fence, existing).catch(() => undefined);
-      if (this.now() >= deadline) throw new Error('Timed out waiting for the local scan source lock');
-      await sleep(this.retryMs);
+      const all = await this.entries(dir); const choosingOther = all.some((entry) => entry.phase === 'choosing' && entry.owner.token !== token);
+      const tickets = all.filter((entry) => entry.phase === 'ticket').sort((a, b) => (a.owner.ticketNumber! - b.owner.ticketNumber!) || (a.owner.token < b.owner.token ? -1 : a.owner.token > b.owner.token ? 1 : 0));
+      if (!choosingOther && tickets[0]?.owner.token === token) return { dir, token };
+      if (this.now() >= deadline) { await unlink(ticket).catch(() => undefined); await unlink(choosing).catch(() => undefined); throw new Error('Timed out waiting for the local scan source lock'); }
+      await sleep(this.retry);
     }
   }
-  private async release(path: string, token: string): Promise<void> { const owner = await this.observe(path); if (owner?.token === token) await this.removeIfOwned(path, owner).catch(() => undefined); }
-  private async recoverUnderFence(path: string, observed: ObservedOwner): Promise<void> {
-    await this.options.beforeQuarantine?.(path);
-    const quarantine = `${path}.quarantine-${observed.token ?? 'legacy'}-${randomUUID()}`;
-    try { await rename(path, quarantine); } catch (error) { if (missing(error)) return; throw error; }
-    const moved = await this.observe(quarantine);
-    if (moved?.token === observed.token && moved.raw === observed.raw) { await rm(quarantine, { recursive: true, force: true }); return; }
-    await this.options.beforeRestore?.();
-    // The recovery fence remains held, so this create-if-absent restoration has
-    // no interval in which another protocol claimant can begin work.
-    if (moved?.token !== null) { try { await link(quarantine, path); await unlink(quarantine); } catch { /* retain unknown quarantine */ } }
-  }
-  private async acquire(sourceKey: string): Promise<{ path: string; token: string }> {
-    const path = this.path(sourceKey); await mkdir(this.options.root, { recursive: true, mode: 0o700 }); const deadline = this.now() + this.timeoutMs;
-    while (true) {
-      const fenceOwner = await this.acquireFence(path, deadline);
-      try {
-        const current = await this.observe(path);
-        if (!current) {
-          const owner = { pid: process.pid, createdAt: new Date(this.now()).toISOString(), token: randomUUID() };
-          if (await this.publish(path, owner)) return { path, token: owner.token };
-        } else if (this.stale(current)) {
-          await this.recoverUnderFence(path, current);
-        }
-      } finally { await this.release(this.fence(path), fenceOwner.token!); }
-      if (this.now() >= deadline) throw new Error('Timed out waiting for the local scan source lock');
-      await sleep(this.retryMs);
-    }
-  }
-  async withLock<T>(sourceKey: string, work: () => Promise<T>): Promise<T> { const owner = await this.acquire(sourceKey); try { return await work(); } finally { await this.release(owner.path, owner.token); } }
-  async createForTest(sourceKey: string, owner: LockOwner): Promise<void> { await mkdir(this.options.root, { recursive: true, mode: 0o700 }); await writeFile(this.path(sourceKey), JSON.stringify({ ...owner, token: owner.token ?? randomUUID() }), { encoding: 'utf8', mode: 0o600, flag: 'wx' }); }
-  async readForTest(sourceKey: string): Promise<LockOwner | null> { try { return JSON.parse(await readFile(this.path(sourceKey), 'utf8')) as LockOwner; } catch { return null; } }
-  async createResidueForTest(sourceKey: string, kind: 'candidate' | 'quarantine', owner: LockOwner): Promise<void> { const path = `${this.path(sourceKey)}.${kind}-${owner.token}`; await mkdir(this.options.root, { recursive: true, mode: 0o700 }); await writeFile(path, JSON.stringify(owner), { encoding: 'utf8', mode: 0o600 }); const time = new Date(owner.createdAt); if (!Number.isNaN(time.valueOf())) await utimes(path, time, time); }
-  async cleanupResiduesForTest(sourceKey: string): Promise<void> { await this.cleanupResidues(this.path(sourceKey)); }
-  async residuesForTest(sourceKey: string): Promise<string[]> { const prefix = `${basename(this.path(sourceKey))}.`; return (await readdir(this.options.root)).filter((name) => name.startsWith(prefix + 'candidate-') || name.startsWith(prefix + 'quarantine-')).sort(); }
+  async withLock<T>(sourceKey: string, work: () => Promise<T>): Promise<T> { const owner = await this.acquire(sourceKey); try { return await work(); } finally { await unlink(this.file(owner.dir, 'ticket', owner.token)).catch(() => undefined); } }
+  async waitForTicketForTest(key: string): Promise<void> { const dir = this.dir(key); for (let i = 0; i < 100; i += 1) { if ((await this.entries(dir)).some((e) => e.phase === 'ticket')) return; await sleep(1); } throw new Error('ticket not published'); }
+  async createStaleForTest(key: string, token: string, phase: Phase, aged = true): Promise<void> { const dir = this.dir(key); await mkdir(dir, { recursive: true }); const owner = { pid: 999_999, token, createdAt: new Date(this.now() - (aged ? 10_000 : 0)).toISOString(), ...(phase === 'ticket' ? { ticketNumber: 1 } : {}) }; const path = this.file(dir, phase, token); await this.publish(path, owner); if (aged) { const date = new Date(this.now() - 10_000); await utimes(path, date, date); } }
+  async entriesForTest(key: string): Promise<string[]> { return (await this.entries(this.dir(key))).map((entry) => entry.path); }
 }
