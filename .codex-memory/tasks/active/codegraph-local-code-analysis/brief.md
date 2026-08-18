@@ -8,7 +8,8 @@
 
 - 2026-08-18：设计已获用户确认。
 - 已确认标准扫描与显式深度分析双模式。
-- 尚未编写实施计划，尚未修改产品代码。
+- 已完成标准扫描切换和可选深度分析两份实施计划。
+- 尚未修改产品代码；下一步默认先执行标准扫描切换，深度分析不自动启动。
 
 ## 范围
 
@@ -34,3 +35,8 @@
 - 同一快照生成确定性输出。
 - 普通扫描不误删既有深度分析知识。
 - 生产路径不再引用或安装 `codebase-memory-mcp`。
+
+## 实施计划
+
+- 第一阶段：`agentwiki/docs/superpowers/plans/2026-08-18-codegraph-standard-scan-cutover.md`
+- 第二阶段（仅用户主动要求）：`agentwiki/docs/superpowers/plans/2026-08-18-codegraph-optional-deep-analysis.md`
