@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -75,5 +75,12 @@ describe('source locks', () => {
     await expect(new SourceLock({ root, tokenFactory: () => '../escape' }).withLock(key, async () => 'no')).rejects.toThrow(/Invalid/u);
     const locked = new SourceLock({ root, read: async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } });
     await expect(locked.withLock(key, async () => 'no')).rejects.toThrow(/Unable to read/u);
+  });
+
+  it('removes only aged dead private publish residue', async () => {
+    const root = await temporaryDirectory(); const key = '3'.repeat(64); const dir = join(root, `.codegraph-${key}.coordination`); const residue = join(dir, '.private-ticket-999999-dead-random');
+    await mkdir(dir, { recursive: true }); await writeFile(residue, 'partial'); const old = new Date(Date.now() - 20_000); await utimes(residue, old, old);
+    const lock = new SourceLock({ root, staleAfterMs: 100, isProcessAlive: () => false }); await lock.withLock(key, async () => undefined);
+    await expect(stat(residue)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
