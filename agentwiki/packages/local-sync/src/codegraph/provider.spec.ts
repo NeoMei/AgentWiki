@@ -51,6 +51,32 @@ afterEach(async () => {
 });
 
 describe('CodeGraph planning', () => {
+  it('rejects oversized raw files output before JSON normalization can discard unknown fields', async () => {
+    const root = await temporaryDirectory();
+    const binary = await executable(root);
+    const source = await codeSource(root);
+    const canonicalSource = await realpath(source);
+    let statusCalls = 0;
+    const runner: CodeGraphCommandRunner = {
+      async run(_command, args) {
+        if (args[0] === '--version') return { stdout: 'codegraph 1.5.0', stderr: '', exitCode: 0 };
+        if (args[1] === '--help') return { stdout: 'help', stderr: '', exitCode: 0 };
+        if (args[0] === 'status' && args[1] === '--json') {
+          statusCalls += 1;
+          return { stdout: JSON.stringify({ initialized: true, files: 0, indexState: 'complete', pendingRefs: 0, pendingChanges: { added: 0, modified: 0, removed: 0 } }), stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'files') return { stdout: JSON.stringify({ files: [], ignoredPayload: 'x'.repeat(1_000_001) }), stderr: '', exitCode: 0 };
+        throw new Error(`Unexpected command: ${args.join(' ')}`);
+      },
+    };
+    const provider = createCodeGraphProvider({ runner, environment: { AGENTWIKI_CODEGRAPH_BIN: binary }, home: root });
+    const plan = await provider.plan({ sourcePaths: [source], sourceType: 'code', analysisMode: 'standard' });
+
+    await expect(provider.execute(plan!)).rejects.toMatchObject({ code: 'CODE_SNAPSHOT_INVALID' });
+    expect(statusCalls).toBe(3);
+    expect(canonicalSource).toBeTruthy();
+  });
+
   it('rejects a changed confirmed plan before it can mutate an index', async () => {
     const root = await temporaryDirectory();
     const binary = await executable(root);

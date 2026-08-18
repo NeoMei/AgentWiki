@@ -294,6 +294,9 @@ export function createCodeGraphProvider(options: CodeGraphProviderOptions = {}):
           }
           const filesResponse = await runExecution(executable.path, ['files', '--path', source.canonicalSourcePath, '--format', 'flat', '--json']);
           if (filesResponse.exitCode !== 0) throw scanError('CODEGRAPH_SCAN_FAILED', 'CodeGraph files query failed', `files exited with ${filesResponse.exitCode}`);
+          if (Buffer.byteLength(filesResponse.stdout, 'utf8') > confirmed.limits.maxGeneratedBytes) {
+            throw scanError('CODE_SNAPSHOT_INVALID', 'Code snapshot is invalid: files response exceeds the confirmed limit', 'Raw CodeGraph files output exceeded maxGeneratedBytes before JSON parsing');
+          }
           let output: unknown;
           try { output = JSON.parse(filesResponse.stdout); } catch {
             throw scanError('CODE_SNAPSHOT_INVALID', 'Code snapshot is invalid: files response was not JSON', 'CodeGraph files output could not be parsed as JSON');

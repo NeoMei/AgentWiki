@@ -18,6 +18,10 @@ export interface CodeSnapshotStoreOptions {
   home: string;
   /** Test seam placed after staging validation and before the irreversible swap. */
   beforePromote?: () => void | Promise<void>;
+  /** Test seam after durable writes, before staging is re-read and validated. */
+  afterStageWrite?: (staging: string) => void | Promise<void>;
+  /** Test seam for directory replacement failures. */
+  renameDirectory?: (from: string, to: string) => Promise<void>;
 }
 
 function invalidSnapshot(message: string, diagnostic: string): OnboardingError {
@@ -69,12 +73,12 @@ function validateSnapshot(snapshot: StoredCodeSnapshot): StoredCodeSnapshot {
   if (hashCodeSnapshot(manifest) !== manifest.snapshotHash) throw invalidSnapshot('snapshot hash mismatch', 'Snapshot manifest hash did not match normalized scanner facts');
   const parsedFiles = parseNdjson(snapshot.filesNdjson).map((entry) => StandardCodeFileSchema.parse(entry));
   if (parsedFiles.length !== manifest.counts.files) throw invalidSnapshot('file count mismatch', 'Manifest file count did not match files dataset');
-  const paths = new Set<string>();
+  let previousPath: string | null = null;
   for (const file of parsedFiles) {
-    if (paths.has(file.path) || file.fileId !== expectedFileId(manifest.sourceKey, file.path)) {
-      throw invalidSnapshot('file identity mismatch', 'Files dataset contained duplicate paths or non-AgentWiki file IDs');
+    if ((previousPath !== null && previousPath >= file.path) || file.fileId !== expectedFileId(manifest.sourceKey, file.path)) {
+      throw invalidSnapshot('file dataset ordering or identity mismatch', 'Files dataset was not strictly code-unit sorted or used non-AgentWiki file IDs');
     }
-    paths.add(file.path);
+    previousPath = file.path;
   }
   if (snapshot.modulesNdjson !== '' || snapshot.symbolsNdjson !== '' || snapshot.relationsNdjson !== '') {
     throw invalidSnapshot('standard snapshot contains deep datasets', 'Standard snapshot deep datasets must be empty');
@@ -92,11 +96,25 @@ export class CodeSnapshotStore {
 
   private current(sourceKey: string): string { return join(this.root(sourceKey), 'current'); }
 
+  private async readDirectory(directory: string): Promise<StoredCodeSnapshot> {
+    const [manifestRaw, filesNdjson, modulesNdjson, symbolsNdjson, relationsNdjson] = await Promise.all([
+      readFile(join(directory, 'snapshot.json'), 'utf8'),
+      readFile(join(directory, 'files.ndjson'), 'utf8'),
+      readFile(join(directory, 'modules.ndjson'), 'utf8'),
+      readFile(join(directory, 'symbols.ndjson'), 'utf8'),
+      readFile(join(directory, 'relations.ndjson'), 'utf8'),
+    ]);
+    return validateSnapshot({
+      manifest: JSON.parse(manifestRaw), files: [], filesNdjson, modulesNdjson, symbolsNdjson, relationsNdjson,
+    });
+  }
+
   async write(normalized: NormalizedCodeSnapshot): Promise<CodeSnapshotManifest> {
     const snapshot = validateSnapshot(normalized);
     const root = this.root(snapshot.manifest.sourceKey);
     const current = this.current(snapshot.manifest.sourceKey);
     const backup = join(root, 'backup');
+    const replace = this.options.renameDirectory ?? rename;
     await mkdir(root, { recursive: true, mode: 0o700 });
     // A prior process may have stopped between current -> backup and staging -> current.
     // Recover before beginning a new replacement; backups are never read as current output.
@@ -104,7 +122,7 @@ export class CodeSnapshotStore {
       await stat(current);
     } catch (error) {
       if (!isNotFound(error)) throw error;
-      try { await rename(backup, current); } catch (backupError) { if (!isNotFound(backupError)) throw backupError; }
+      try { await replace(backup, current); await fsyncDirectory(root); } catch (backupError) { if (!isNotFound(backupError)) throw backupError; }
     }
     const staging = await mkdtemp(join(root, '.staging-'));
     try {
@@ -121,19 +139,28 @@ export class CodeSnapshotStore {
         await fsyncFile(path);
       }
       await fsyncDirectory(staging);
+      await this.options.afterStageWrite?.(staging);
+      try {
+        await this.readDirectory(staging);
+      } catch (error) {
+        if (error instanceof OnboardingError) throw error;
+        throw invalidSnapshot('staged snapshot could not be verified', error instanceof Error ? error.message : 'Unknown staging validation failure');
+      }
       await this.options.beforePromote?.();
 
       await rm(backup, { recursive: true, force: true });
       try {
-        await rename(current, backup);
+        await replace(current, backup);
+        await fsyncDirectory(root);
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
       try {
-        await rename(staging, current);
+        await replace(staging, current);
+        await fsyncDirectory(root);
       } catch (error) {
         // Once the old current has moved, restore it before exposing any error.
-        try { await rename(backup, current); } catch { /* the original error is more useful locally */ }
+        try { await replace(backup, current); await fsyncDirectory(root); } catch { /* the original error is more useful locally */ }
         throw error;
       }
       await fsyncDirectory(root);
@@ -146,21 +173,7 @@ export class CodeSnapshotStore {
   async read(sourceKey: string): Promise<StoredCodeSnapshot | null> {
     const current = this.current(sourceKey);
     try {
-      const [manifestRaw, filesNdjson, modulesNdjson, symbolsNdjson, relationsNdjson] = await Promise.all([
-        readFile(join(current, 'snapshot.json'), 'utf8'),
-        readFile(join(current, 'files.ndjson'), 'utf8'),
-        readFile(join(current, 'modules.ndjson'), 'utf8'),
-        readFile(join(current, 'symbols.ndjson'), 'utf8'),
-        readFile(join(current, 'relations.ndjson'), 'utf8'),
-      ]);
-      return validateSnapshot({
-        manifest: JSON.parse(manifestRaw),
-        files: [],
-        filesNdjson,
-        modulesNdjson,
-        symbolsNdjson,
-        relationsNdjson,
-      });
+      return await this.readDirectory(current);
     } catch (error) {
       if (isNotFound(error)) return null;
       if (error instanceof OnboardingError) throw error;

@@ -44,4 +44,18 @@ describe('CodeGraph standard normalizer', () => {
   ])('fails closed for invalid scanner files', (output) => {
     expect(() => normalizeCodeGraphFiles(output, { sourceKey, sourceRoot: '/private/project', scanner, indexedAt: '2026-08-18T00:00:00.000Z', maxFiles: 1, maxGeneratedBytes: 10_000 })).toThrow(/Code snapshot is invalid/u);
   });
+
+  it('uses code-unit path ordering regardless of locale-sensitive collation', () => {
+    const normalized = normalizeCodeGraphFiles([
+      { path: 'src/é.ts', language: 'typescript', nodeCount: 0, sizeBytes: 0 },
+      { path: 'src/a.ts', language: 'typescript', nodeCount: 0, sizeBytes: 0 },
+      { path: 'src/A.ts', language: 'typescript', nodeCount: 0, sizeBytes: 0 },
+      { path: 'src/z.ts', language: 'typescript', nodeCount: 0, sizeBytes: 0 },
+    ], { sourceKey, sourceRoot: '/private/project', scanner, indexedAt: '2026-08-18T00:00:00.000Z', maxFiles: 10, maxGeneratedBytes: 10_000 });
+    expect(normalized.files.map((file) => file.path)).toEqual(['src/A.ts', 'src/a.ts', 'src/z.ts', 'src/é.ts']);
+  });
+
+  it('accepts only an array or an envelope whose files field is an array', () => {
+    expect(() => normalizeCodeGraphFiles({ files: {}, ignored: true }, { sourceKey, sourceRoot: '/private/project', scanner, indexedAt: '2026-08-18T00:00:00.000Z', maxFiles: 10, maxGeneratedBytes: 10_000 })).toThrow(/Code snapshot is invalid/u);
+  });
 });

@@ -90,6 +90,10 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function snapshotHash(sourceKey: string, scanner: NormalizeCodeGraphFilesOptions['scanner'], datasets: CodeSnapshotManifest['datasets']): string {
   return contentHash(JSON.stringify(canonicalize({ sourceKey, scanner, datasets })));
 }
@@ -130,7 +134,7 @@ export function normalizeCodeGraphFiles(output: unknown, options: NormalizeCodeG
       nodeCount: nonnegativeInteger(firstDefined(record, ['nodeCount', 'nodes']), 'nodeCount'),
       sizeBytes: nonnegativeInteger(firstDefined(record, ['sizeBytes', 'bytes', 'size']), 'sizeBytes'),
     });
-  }).sort((left, right) => left.path.localeCompare(right.path));
+  }).sort((left, right) => compareCodeUnits(left.path, right.path));
 
   const filesNdjson = files.map((file) => JSON.stringify(file)).join('\n') + (files.length > 0 ? '\n' : '');
   const modulesNdjson = '';
