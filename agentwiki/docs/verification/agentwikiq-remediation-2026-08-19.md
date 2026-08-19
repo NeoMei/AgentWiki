@@ -8,7 +8,7 @@ Findings 1–18 from `测试报告/AgentWikiQ/问题清单.md`. Verification was
 
 | Command | Result | Evidence |
 | --- | --- | --- |
-| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 552 passed; client 175 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,173 passed, 0 failed. |
+| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 553 passed; client 175 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,174 passed, 0 failed. |
 | `pnpm typecheck` | PASS | Server, client, sync protocol, and local sync TypeScript checks exited 0. |
 | `pnpm lint` | PASS | ESLint exited 0 for server, client, and local-sync sources. |
 | `pnpm build` | PASS | Shared, sync protocol, Nest server, Vite client, and local-sync production builds exited 0. |
@@ -51,7 +51,7 @@ Observed browser evidence:
 | 14 | Navbar uses a count endpoint and refreshes on mount, focus, visibility, a review-change event, route changes, and a 5-second poll. | `Navbar.spec.tsx` “refreshes the pending badge on focus, custom event, and polling”; server `countPending` test. | Badge `1` was visible immediately after the synthetic run state was presented, without manual page refresh. |
 | 15 | Server sorts pending, then approved, then historical states; newest first within a state. | `review.service.spec.ts` “orders pending and approved work before historical states, newest first within status”. | Pending row appeared above the published history row in the review DOM. |
 | 16 | Approve-only is disabled until all candidates are decided; actions coalesce, refresh list/detail, announce count changes, and show success/error feedback. | `ReviewPage.spec.tsx` disabled/helper, refresh, duplicate-action, failure, and conflict tests; Review service CAS tests. | Pending approve-only was disabled with a visible reason; a stale action refreshed to approved and exposed `发布`. |
-| 17 | Publishing a create candidate restores an archived page with the same source identity; active or raced duplicates return stable `CHANGESET_CONFLICT`. | `review.service.spec.ts` archived restoration, active duplicate, and P2002 race tests. | Database identity behavior is transaction-level and was verified through the service harness, not mocked browser state. |
+| 17 | Publishing a create candidate restores an archived page with the same source identity; active or raced duplicates return stable `CHANGESET_CONFLICT`. | `review.service.spec.ts` archived restoration, concurrent restore CAS, active duplicate, and P2002 race tests. | Database identity behavior is transaction-level and was verified through the service harness, not mocked browser state. |
 | 18 | Review errors use a fixed viewport toast with a close action, so long-page failures do not require scrolling. | `Toast.spec.tsx`; `ReviewPage.spec.tsx` localized fixed-toast test. | Chinese and English error elements included fixed viewport classes and remained at the top-right while the expanded review content stayed in place. |
 
 ## Residual environment notes

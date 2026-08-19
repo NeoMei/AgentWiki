@@ -263,8 +263,12 @@ export class ReviewService {
                 },
               },
             });
-            await tx.page.update({
-              where: { id: existingSourcePage.id },
+            const restored = await tx.page.updateMany({
+              where: {
+                id: existingSourcePage.id,
+                spaceId: changeSet.spaceId,
+                deletedAt: existingSourcePage.deletedAt,
+              },
               data: {
                 title: payload.title,
                 content: payload.content ?? '',
@@ -282,6 +286,9 @@ export class ReviewService {
                 sourcePath: payload.sourcePath,
               },
             });
+            if (restored.count !== 1) {
+              throw new BusinessException('CHANGESET_CONFLICT', 'The archived source page was restored by another operation');
+            }
             resourceId = existingSourcePage.id;
             pageIdByKnowledgeKey.set(existingSourcePage.knowledgeKey, existingSourcePage.id);
           } else {

@@ -98,7 +98,7 @@ describe('ReviewService approval boundaries', () => {
       page: {
         findFirst: jest.fn().mockResolvedValue(archived),
         create: jest.fn(),
-        update: jest.fn().mockResolvedValue({ id: archived.id }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue({ title: 'Restored', content: 'new', deletedAt: null }),
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -116,8 +116,8 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ pageId: archived.id, title: 'Archived', content: 'old' }),
     }));
-    expect(tx.page.update).toHaveBeenCalledWith({
-      where: { id: archived.id },
+    expect(tx.page.updateMany).toHaveBeenCalledWith({
+      where: { id: archived.id, spaceId: 'space-1', deletedAt: archivedAt },
       data: expect.objectContaining({
         title: 'Restored', content: 'new', deletedAt: null,
         sourceId: 'source-1', sourceVersionId: 'version-2', sourcePath: 'docs/a.md',
@@ -128,6 +128,38 @@ describe('ReviewService approval boundaries', () => {
       where: { id: 'restore' },
       data: { status: 'published', publishedResourceId: archived.id },
     }));
+  });
+
+  it('loses a concurrent archive-restoration race instead of overwriting the winner', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-restore-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'restore-race', type: 'create_page', status: 'accepted',
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Racing restore', content: 'new' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const archivedAt = new Date('2026-08-18T08:00:00Z');
+    const archived = {
+      id: 'page-existing', knowledgeKey: 'knowledge-existing', authorId: 'user-old',
+      title: 'Archived', slug: 'archived', content: 'old', format: 'markdown', parentId: null,
+      sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
+      sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/a.md',
+      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archived),
+        update: jest.fn().mockResolvedValue({ id: archived.id }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      pageVersion: { create: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-restore-race')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
   });
 
   it('returns a stable conflict when the source identity already belongs to an active page', async () => {
