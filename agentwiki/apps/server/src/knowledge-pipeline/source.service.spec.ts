@@ -103,6 +103,23 @@ describe('SourceService safety and idempotency', () => {
     })).resolves.toEqual([]);
     expect(authorizationPrisma.spaceMember.findUnique).not.toHaveBeenCalled();
   });
+
+  it('keeps a queued human space-admin run authorized for editor-level work', async () => {
+    const authorizationPrisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({
+        id: 'admin-1', type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null,
+      }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({
+        role: 'admin', space: { deletedAt: null }, user: { deletedAt: null, type: 'human' },
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByUserId: 'admin-1', requestedByAgentId: null, spaceId: 'space-1',
+      requestedCredentialId: null, requestedCredentialType: null,
+    })).resolves.toEqual([]);
+  });
 });
 
 describe('SourceService pipeline lifecycle', () => {

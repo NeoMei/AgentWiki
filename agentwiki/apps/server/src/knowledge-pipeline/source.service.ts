@@ -889,7 +889,7 @@ export class SourceService {
         space: { select: { deletedAt: true } },
       },
     });
-    if (!membership || !['owner', 'editor'].includes(membership.role) || membership.space.deletedAt ||
+    if (!membership || !['owner', 'admin', 'editor'].includes(membership.role) || membership.space.deletedAt ||
       membership.user.deletedAt || membership.user.type !== 'human') {
       throw new Error('Run requester is no longer authorized');
     }

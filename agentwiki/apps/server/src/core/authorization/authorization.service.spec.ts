@@ -41,6 +41,31 @@ describe('AuthorizationService', () => {
     ).resolves.toMatchObject({ role: 'editor' });
   });
 
+  it('lets a human admin satisfy an editor content gate', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'admin', space: { deletedAt: null } });
+    await expect(service.assertSpaceAccess(
+      { userId: 'admin-1' }, 'space-1', ['owner', 'editor'], 'pages:write',
+    )).resolves.toMatchObject({ role: 'admin' });
+  });
+
+  it('does not let an Agent admin-shaped grant bypass an editor gate', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'admin', scopes: ['pages:write'],
+      agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
+    });
+    await expect(service.assertSpaceAccess(
+      { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] },
+      'space-1', ['owner', 'editor'], 'pages:write',
+    )).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('keeps owner-only review gates owner-only for human admins', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'admin', space: { deletedAt: null } });
+    await expect(service.assertSpaceAccess(
+      { userId: 'admin-1' }, 'space-1', ['owner'], 'review:decide',
+    )).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it('allows a super admin to access any existing space as an owner without membership', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue(null);
 

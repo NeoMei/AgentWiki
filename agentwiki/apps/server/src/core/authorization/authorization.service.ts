@@ -23,6 +23,11 @@ export class AuthorizationService {
     requiredScope?: string,
   ) {
     const principal = this.normalize(principalInput);
+    const effectiveAllowedRoles: SpaceRole[] = !principal.agentId
+      && allowedRoles.includes('editor')
+      && !allowedRoles.includes('admin')
+      ? [...allowedRoles, 'admin']
+      : allowedRoles;
     // Distinguish "space id does not exist" from "no permission". Callers (and
     // agents) often pass a display name; a 404 with a self-describing message
     // turns a dead-end permission error into a self-correcting one.
@@ -66,7 +71,7 @@ export class AuthorizationService {
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
       include: { space: { select: { deletedAt: true } } },
     });
-    if (!member || member.space.deletedAt || !allowedRoles.includes(member.role as SpaceRole)) {
+    if (!member || member.space.deletedAt || !effectiveAllowedRoles.includes(member.role as SpaceRole)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to access this space');
     }
     return member;

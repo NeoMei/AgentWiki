@@ -38,6 +38,7 @@ describe('HTTP authentication and space authorization', () => {
     verify: jest.fn((token: string) => {
       if (token === 'member-token') return { sub: 'member', email: 'member@example.test', type: 'human' };
       if (token === 'viewer-token') return { sub: 'viewer', email: 'viewer@example.test', type: 'human' };
+      if (token === 'admin-token') return { sub: 'admin', email: 'admin@example.test', type: 'human' };
       if (token === 'outsider-token') return { sub: 'outsider', email: 'outsider@example.test', type: 'human' };
       throw new Error('bad token');
     }),
@@ -90,6 +91,13 @@ describe('HTTP authentication and space authorization', () => {
   it('prevents a viewer from writing', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ role: 'viewer', space: { deletedAt: null } });
     expect((await fetch(`${baseUrl}/permission-probe/space-1`, { method: 'POST', headers: { authorization: 'Bearer viewer-token' } })).status).toBe(403);
+  });
+
+  it('allows a human space admin through an editor-level HTTP write gate', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'admin', space: { deletedAt: null } });
+    expect((await fetch(`${baseUrl}/permission-probe/space-1`, {
+      method: 'POST', headers: { authorization: 'Bearer admin-token' },
+    })).status).toBe(201);
   });
 
   it('rejects a validly signed token after its user is deleted', async () => {
