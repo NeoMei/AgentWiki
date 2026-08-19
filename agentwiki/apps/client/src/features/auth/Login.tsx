@@ -5,6 +5,7 @@ import { useAuth } from '../../context';
 import { Eye, EyeOff } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { apiErrorMessage } from '../../api/error-message';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -24,8 +25,8 @@ export const Login: React.FC = () => {
       const response = await api.post('/auth/login', { email, password });
       login(response.data.access_token, response.data.user);
       if (response.data.user?.mustChangePassword) { navigate('/change-password'); } else { navigate('/dashboard'); }
-    } catch (err: any) {
-      setError(err.response?.data?.message || t('auth.loginFailed'));
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, t, 'auth.loginFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -40,14 +41,15 @@ export const Login: React.FC = () => {
           <h2 className="text-xl text-gray-600 mt-2">{t('auth.signIn')}</h2>
         </div>
         {error && (
-          <div className="p-3 bg-red-50 text-red-600 rounded-md text-sm text-center">
+          <div role="alert" className="p-3 bg-red-50 text-red-600 rounded-md text-sm text-center">
             {error}
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">{t('common.email')}</label>
+            <label htmlFor="login-email" className="block text-sm font-medium mb-1">{t('common.email')}</label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -57,9 +59,10 @@ export const Login: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">{t('common.password')}</label>
+            <label htmlFor="login-password" className="block text-sm font-medium mb-1">{t('common.password')}</label>
             <div className="relative">
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
