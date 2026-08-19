@@ -85,7 +85,7 @@ export const Markdown: React.FC<MarkdownProps> = ({ children, pages = [], classN
   <div className={className ?? markdownClass}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks, remarkWikilink(pages)]}
-      rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: 'append', properties: { className: ['heading-anchor'], ariaHidden: false, tabIndex: -1 }, content: { type: 'text', value: ' #' } }], rehypeHighlight]}
+      rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: 'append', properties: { className: ['heading-anchor'], ariaHidden: true, tabIndex: -1 }, content: { type: 'text', value: ' #' } }], rehypeHighlight]}
       components={{
         a: ({ href, children: linkChildren, ...rest }: any) => {
           if (isInternalPageHref(href)) {

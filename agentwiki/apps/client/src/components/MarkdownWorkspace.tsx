@@ -152,7 +152,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           <CodeMirror
             value={value}
             onChange={(next) => onChange(next)}
-            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), buildHiddenMarksPlugin(pages)]}
+            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), buildHiddenMarksPlugin(pages), EditorView.lineWrapping]}
             placeholder={t('editor.placeholder')}
             aria-label={t('editor.editMode')}
             basicSetup={{

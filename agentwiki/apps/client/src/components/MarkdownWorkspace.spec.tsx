@@ -32,6 +32,11 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(container.querySelector('.cm-content')).toBeTruthy();
   });
 
+  it('enables CodeMirror line wrapping in edit mode', () => {
+    const { container } = renderWYS({ initial: '很长的中文内容'.repeat(100) });
+    expect(container.querySelector('.cm-lineWrapping')).toBeTruthy();
+  });
+
   it('edit mode renders formatting marks for non-cursor lines (live preview)', () => {
     const { container } = renderWYS();
     // heading markdown should produce a header-styled line in the editor

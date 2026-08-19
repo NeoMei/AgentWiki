@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
-import { ArrowLeft, History, RotateCcw, Clock, User } from 'lucide-react';
+import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { Markdown } from '../../components/Markdown';
+import { apiErrorMessage } from '../../api/error-message';
 
 interface PageVersion {
   id: string;
@@ -28,6 +30,7 @@ export const PageVersionHistory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -39,8 +42,8 @@ export const PageVersionHistory: React.FC = () => {
         ]);
         setPage(pageRes.data);
         setVersions(versionsRes.data || []);
-      } catch (err: any) {
-        setError(err.response?.data?.message || t('version.loadFailed'));
+      } catch (err: unknown) {
+        setError(apiErrorMessage(err, t, 'version.loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -55,8 +58,8 @@ export const PageVersionHistory: React.FC = () => {
       await api.post(`/pages/${id}/versions/${versionId}/restore`);
       alert(t('version.restored'));
       navigate(`/pages/${id}/edit`);
-    } catch (err: any) {
-      alert(t('version.restoreFailed', { message: err.response?.data?.message || t('page.unknown') }));
+    } catch (err: unknown) {
+      alert(apiErrorMessage(err, t, 'version.restoreFailedGeneric'));
     } finally {
       setRestoring(null);
     }
@@ -68,6 +71,9 @@ export const PageVersionHistory: React.FC = () => {
     }
     return t('page.unknown');
   };
+  const previewVersion = versions.find((version) => version.id === previewVersionId);
+  const previewIndex = previewVersion ? versions.findIndex((version) => version.id === previewVersion.id) : -1;
+  const previewNumber = previewIndex >= 0 ? versions.length - previewIndex : 0;
 
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
@@ -122,18 +128,39 @@ export const PageVersionHistory: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => handleRestore(version.id)}
-                disabled={restoring === version.id}
-                className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 text-sm flex-shrink-0"
-              >
-                <RotateCcw size={16} />
-                {restoring === version.id ? t('version.restoring') : t('version.restore')}
-              </button>
+              <div className="flex flex-shrink-0 gap-2">
+                <button
+                  type="button"
+                  aria-label={t('version.preview', { version: versions.length - idx })}
+                  onClick={() => setPreviewVersionId(version.id)}
+                  className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-blue-700 hover:bg-blue-50"
+                >
+                  <Eye size={16} /> {t('common.preview')}
+                </button>
+                <button
+                  onClick={() => handleRestore(version.id)}
+                  disabled={restoring === version.id}
+                  className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 text-sm flex-shrink-0"
+                >
+                  <RotateCcw size={16} />
+                  {restoring === version.id ? t('version.restoring') : t('version.restore')}
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
+      {previewVersion ? (
+        <div role="dialog" aria-modal="true" aria-label={t('version.previewTitle', { version: previewNumber })} className="fixed inset-0 z-50 overflow-auto bg-black/30 p-4">
+          <div className="mx-auto max-h-[90vh] max-w-3xl overflow-auto rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b pb-4">
+              <div><h2 className="text-xl font-semibold">{t('version.previewTitle', { version: previewNumber })}</h2><p className="mt-1 text-sm text-gray-500">{previewVersion.title}</p></div>
+              <button type="button" aria-label={t('version.closePreview')} onClick={() => setPreviewVersionId(null)} className="rounded p-1 hover:bg-gray-100"><X size={20} /></button>
+            </div>
+            <div className="mt-4"><Markdown>{previewVersion.content || ''}</Markdown></div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

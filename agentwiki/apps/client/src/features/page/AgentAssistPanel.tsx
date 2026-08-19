@@ -137,6 +137,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const socketRef = useRef<Socket | null>(null);
   const streamBufferRef = useRef<Map<string, string>>(new Map());
   const appliedRef = useRef<Set<string>>(new Set());
+  const eligibleTaskIdsRef = useRef<Set<string>>(new Set());
   const onStreamUpdateRef = useRef(onStreamUpdate);
   onStreamUpdateRef.current = onStreamUpdate;
 
@@ -158,7 +159,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       // Each task is applied exactly once (tracked by appliedRef).
       if (onApply) {
         for (const task of recentTasks) {
-          if (task.status === 'done' && task.result?.changes && !appliedRef.current.has(task.id)) {
+          if (task.status === 'done' && task.result?.changes && eligibleTaskIdsRef.current.has(task.id) && !appliedRef.current.has(task.id)) {
             appliedRef.current.add(task.id);
             onApply(task.result.changes);
           }
@@ -258,12 +259,13 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     if (!intent.trim() || submitting) return;
     setSubmitting(true);
     try {
-      await api.post('/assist/tasks', {
+      const created = await api.post('/assist/tasks', {
         spaceId,
         pageId,
         intent: intent.trim(),
         snapshot: snapshot(),
       });
+      if (created.data?.id) eligibleTaskIdsRef.current.add(created.data.id);
       setIntent('');
       await loadTasks();
     } finally {

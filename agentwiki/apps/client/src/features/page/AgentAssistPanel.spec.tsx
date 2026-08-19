@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
@@ -23,12 +23,13 @@ const successfulTask = {
   },
 };
 
-const renderPanel = () => render(
+const renderPanel = (props: { onApply?: (changes: string) => void } = {}) => render(
   <AgentAssistPanel
     pageId="page-1"
     pageTitle="Page"
     spaceId="space-1"
     snapshot={() => ({ title: 'Page', content: 'Content' })}
+    onApply={props.onApply}
   />,
 );
 
@@ -53,6 +54,31 @@ describe('AgentAssistPanel routing metadata', () => {
     // The raw provider model name must never be visible to the user.
     expect(screen.queryByText(/opencode|big-pickle|free|paid|tokens|\$\d/u))
       .not.toBeInTheDocument();
+  });
+
+  it('shows historical completed tasks without applying them', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn();
+    renderPanel({ onApply });
+    expect(await screen.findByText('Generated')).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('applies only a task submitted during this mount and only once', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn();
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new', status: 'queued' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [],
+    }));
+    renderPanel({ onApply });
+    await screen.findByText('Generated');
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith('# Improved'));
+    fireEvent.click(screen.getByLabelText('refresh'));
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
   });
 
   it('hides the provider model name and shows a friendly completion label in Chinese', async () => {
