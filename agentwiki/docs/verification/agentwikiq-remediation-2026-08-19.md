@@ -4,7 +4,7 @@
 
 This is the single final verification record for the AgentWikiQ remediation and its independent-review follow-up. Verification ran on the isolated branch `codex/agentwikiq-remediation`; no production account, production data, deployment, package publication, database migration, or marketplace submission was used.
 
-All validated Important and Minor findings are closed. The fresh final gate run passed with 1,231 tests, 39 environment-dependent skips, and 0 failures.
+All validated Important and Minor findings are closed. The fresh final gate run passed with 1,232 tests, 39 environment-dependent skips, and 0 failures.
 
 ## Final remediation coverage
 
@@ -14,7 +14,7 @@ All validated Important and Minor findings are closed. The fresh final gate run 
 - The cursor revision is calculated from the complete accessible active-Space key set inside a repeatable-read transaction. A stale cursor resets to the authoritative first page, including insert/delete combinations whose total count is unchanged.
 - Existing `skip`/`take` callers remain supported; `take` is capped at 100. Request/response DTOs and client response types cover both contracts.
 - Dashboard server snapshots and local optimistic creations are separate. An unconfirmed creation is removed when a response confirms its ID, when a causally newer authoritative first page omits it, or when its five-minute safety TTL expires.
-- A Space already observed by a GET response is not added again when an older POST response completes. Local mutations invalidate in-flight continuation pages instead of inferring consistency from UI counts or offsets. A timer removes an unconfirmed overlay at its safety TTL even if no later list request completes. A cursorless continuation retries as an authoritative reset, and a successful current response clears any earlier list error.
+- A Space already observed by a GET response is not added again when an older POST response completes. Local mutations invalidate in-flight continuation pages instead of inferring consistency from UI counts or offsets. A timer removes an unconfirmed overlay at its safety TTL even if no later list request completes. A cursorless continuation retries as an authoritative reset. List and deletion errors use separate state, so a successful current GET clears an earlier list error without hiding a newer destructive-action failure.
 - The create modal uses the shared accessible modal component: `aria-modal`, label association, initial focus, focus trap, inert background, Escape dismissal, and opener focus restoration. During POST, X, Cancel, Escape, and backdrop dismissal are all disabled, while a failed POST remains visible in the dialog.
 
 ### URL ingestion safety and diagnostics
@@ -36,7 +36,7 @@ The earlier AgentWikiQ findings remain covered by their existing authentication,
 
 | Command | Result | Exact evidence |
 | --- | --- | --- |
-| `pnpm test` | PASS | Runtime: 66 passed / 39 PostgreSQL-dependent skipped; server: 583 passed; client: 202 passed; sync protocol: 22 passed; local sync: 358 passed. Total: **1,231 passed, 39 skipped, 0 failed**. |
+| `pnpm test` | PASS | Runtime: 66 passed / 39 PostgreSQL-dependent skipped; server: 583 passed; client: 203 passed; sync protocol: 22 passed; local sync: 358 passed. Total: **1,232 passed, 39 skipped, 0 failed**. |
 | `pnpm typecheck` | PASS | Server, client, sync protocol, and local-sync TypeScript checks exited 0. |
 | `pnpm lint` | PASS | ESLint exited 0 for server, client, and local-sync sources. |
 | `pnpm build` | PASS | Shared, sync protocol, Nest server, Vite client, and local-sync production builds exited 0. |
@@ -50,7 +50,7 @@ Focused RED-to-GREEN evidence:
 | Source lookup, real HTTP/HTTPS Agents, failed Run result | 4 failures / 18 passes; signed-redirect leak later failed 1 focused test | 23/23 |
 | Review stale service and HTTP envelope | 4 failures / 38 passes; draft/pending exception coverage was then added | Service + HTTP 46/46 |
 | Real bcrypt reset/login/change flow | 1 failure / 1 pass | 2/2 |
-| Dashboard cursor/overlay/modal/accessibility | 10 failures across initial focused groups; autonomous TTL and failed-reset retry each added one later RED | 21/21 |
+| Dashboard cursor/overlay/modal/accessibility | 10 failures across initial focused groups; autonomous TTL, failed-reset retry, and cross-operation error ownership each added one later RED | 22/22 |
 | Run diagnostic UI defense | Raw credential-bearing URL rendered in 1 focused RED | 2/2 |
 | Stable client error mapping | 1 failure | 4/4 |
 | Review client 409 refresh | Existing behavior already passed the stronger rendering assertion | Review page 9/9 |

@@ -31,7 +31,8 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export const Dashboard: React.FC = () => {
         await fetchSpaces(true);
         return;
       }
-      setError(null);
+      setListError(null);
       const authoritativeReset = reset || response.resetRequired;
       const incomingIds = new Set(incoming.map((space) => space.id));
       const now = Date.now();
@@ -90,7 +91,7 @@ export const Dashboard: React.FC = () => {
       setHasMore(response.hasMore);
     } catch (err: unknown) {
       if (requestId !== activeListRequestRef.current) return;
-      setError(apiErrorMessage(err, t, 'dashboard.loadFailed'));
+      setListError(apiErrorMessage(err, t, 'dashboard.loadFailed'));
     } finally {
       if (requestId === activeListRequestRef.current) {
         if (reset) {
@@ -163,6 +164,7 @@ export const Dashboard: React.FC = () => {
 
   const handleDeleteSpace = async (spaceId: string, spaceName: string) => {
     if (!window.confirm(t('dashboard.deleteConfirm', { name: spaceName }))) return;
+    setDeleteError(null);
     setDeletingSpace(spaceId);
     try {
       await api.delete(`/spaces/${spaceId}`);
@@ -173,7 +175,7 @@ export const Dashboard: React.FC = () => {
       nextCursorRef.current = null;
       await fetchSpaces(true);
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, t, 'dashboard.deleteFailed'));
+      setDeleteError(apiErrorMessage(err, t, 'dashboard.deleteFailed'));
     } finally {
       setDeletingSpace(null);
     }
@@ -197,10 +199,13 @@ export const Dashboard: React.FC = () => {
         </button>
       </div>
 
-      {error && (
+      {(deleteError ?? listError) && (
         <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)}><X size={16} /></button>
+          <span>{deleteError ?? listError}</span>
+          <button onClick={() => {
+            if (deleteError) setDeleteError(null);
+            else setListError(null);
+          }}><X size={16} /></button>
         </div>
       )}
 

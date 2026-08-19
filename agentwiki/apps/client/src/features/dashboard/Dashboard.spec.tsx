@@ -508,6 +508,32 @@ describe('Dashboard Space pagination and creation', () => {
     expect(screen.queryByText('空间加载失败')).not.toBeInTheDocument();
   });
 
+  it('keeps a concurrent deletion failure visible when the current list request later succeeds', async () => {
+    const loadMore = deferred<any>();
+    vi.mocked(api.get)
+      .mockResolvedValueOnce(spacePage(spaces, 22, { nextCursor: 'cursor-1', hasMore: true }))
+      .mockReturnValueOnce(loadMore.promise);
+    vi.mocked(api.delete).mockRejectedValue({ response: { status: 500, data: { message: 'delete failed' } } });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    expect(await screen.findByText('空间删除失败')).toBeInTheDocument();
+
+    await act(async () => {
+      loadMore.resolve(spacePage(
+        [{ id: 'space-20', name: '空间 20', slug: 'space-20' }],
+        21,
+        { revision: 'revision-1', nextCursor: null, hasMore: false },
+      ));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('空间删除失败')).toBeInTheDocument();
+  });
+
   it('shows a localized creation failure inside the open dialog', async () => {
     vi.mocked(api.post).mockRejectedValue({ response: { status: 500, data: { message: 'internal detail' } } });
     renderDashboard();
