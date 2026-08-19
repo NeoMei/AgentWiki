@@ -28,6 +28,35 @@ describe('SpaceService.findAll pagination', () => {
   });
 });
 
+describe('SpaceService.create ownership', () => {
+  const prisma = {
+    space: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+  } as any;
+  const service = new SpaceService(prisma);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.space.findUnique.mockResolvedValue(null);
+  });
+
+  it('creates the human caller as the Space owner in the same write', async () => {
+    prisma.space.create.mockResolvedValue({ id: 'space-new', name: '新空间' });
+
+    await expect(service.create({ name: '新空间' } as any, 'admin-1')).resolves.toMatchObject({
+      id: 'space-new',
+    });
+    expect(prisma.space.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        name: '新空间',
+        members: { create: { userId: 'admin-1', role: 'owner' } },
+      }),
+    }));
+  });
+});
+
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },

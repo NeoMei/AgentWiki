@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
@@ -59,6 +59,29 @@ describe('Dashboard Space pagination and creation', () => {
     expect(api.get).toHaveBeenNthCalledWith(2, '/spaces', { params: { skip: 20, take: 20 } });
   });
 
+  it('realigns from page one when an external insertion shifts the offset boundary', async () => {
+    const olderSpaces = Array.from({ length: 5 }, (_, index) => ({
+      id: `space-${20 + index}`,
+      name: `空间 ${20 + index}`,
+      slug: `space-${20 + index}`,
+    }));
+    const externalSpace = { id: 'space-external', name: '外部新空间', slug: 'external-space' };
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { data: spaces, total: 25 } })
+      .mockResolvedValueOnce({ data: { data: [spaces[19], ...olderSpaces], total: 26 } })
+      .mockResolvedValueOnce({ data: { data: [externalSpace, ...spaces.slice(0, 19)], total: 26 } });
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+
+    expect(await screen.findByText('外部新空间')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(api.get).toHaveBeenNthCalledWith(3, '/spaces', { params: { skip: 0, take: 20 } });
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent);
+    expect(headings).toHaveLength(20);
+    expect(new Set(headings).size).toBe(20);
+  });
+
   it('preserves a creation made while an older page request is in flight', async () => {
     let resolveLoadMore!: (value: { data: { data: typeof spaces; total: number } }) => void;
     const loadMore = new Promise<{ data: { data: typeof spaces; total: number } }>((resolve) => {
@@ -117,6 +140,44 @@ describe('Dashboard Space pagination and creation', () => {
     expect(screen.queryByText('空间 0')).not.toBeInTheDocument();
     expect(screen.getAllByText('空间 20')).toHaveLength(1);
     expect(screen.queryByText('空间 21')).not.toBeInTheDocument();
+  });
+
+  it('keeps pagination locked and ignores a stale load failure during deletion realignment', async () => {
+    const space20 = { id: 'space-20', name: '空间 20', slug: 'space-20' };
+    let rejectLoadMore!: (reason: unknown) => void;
+    let resolveReset!: (value: { data: { data: typeof spaces; total: number } }) => void;
+    const loadMore = new Promise<{ data: { data: typeof spaces; total: number } }>((_resolve, reject) => {
+      rejectLoadMore = reject;
+    });
+    const reset = new Promise<{ data: { data: typeof spaces; total: number } }>((resolve) => {
+      resolveReset = resolve;
+    });
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { data: spaces, total: 22 } })
+      .mockReturnValueOnce(loadMore)
+      .mockReturnValueOnce(reset);
+    vi.mocked(api.delete).mockResolvedValue({});
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      rejectLoadMore({ response: { status: 500, data: { message: 'stale failure' } } });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText('空间加载失败')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /加载更多|正在加载/ })).toBeDisabled();
+
+    await act(async () => {
+      resolveReset({ data: { data: [...spaces.slice(1), space20], total: 21 } });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: '加载更多' })).toBeEnabled();
   });
 
   it('shows a localized creation failure inside the open dialog', async () => {

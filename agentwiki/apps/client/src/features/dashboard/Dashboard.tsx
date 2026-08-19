@@ -27,6 +27,7 @@ export const Dashboard: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -35,27 +36,49 @@ export const Dashboard: React.FC = () => {
   const [newSpace, setNewSpace] = useState({ name: '', description: '' });
   const listVersionRef = useRef(0);
   const paginationInvalidationVersionRef = useRef(0);
+  const totalRef = useRef(0);
+  const activeListRequestRef = useRef(0);
 
   const fetchSpaces = async (reset = true) => {
-    if (!reset) setLoadingMore(true);
+    const requestId = activeListRequestRef.current + 1;
+    activeListRequestRef.current = requestId;
+    if (reset) setResetting(true);
+    else setLoadingMore(true);
     const requestVersion = listVersionRef.current;
+    const requestTotal = totalRef.current;
     try {
       const skip = reset ? 0 : spaces.length;
       const res = await api.get('/spaces', { params: { skip, take: PAGE_SIZE } });
+      if (requestId !== activeListRequestRef.current) return;
       if (requestVersion < paginationInvalidationVersionRef.current) return;
 
       const incoming = res.data.data || [];
       const listMutated = requestVersion !== listVersionRef.current;
-      setSpaces((current) => reset && !listMutated ? incoming : mergeSpaces(current, incoming));
       const responseTotal = Number(res.data.total) || 0;
-      setTotal((current) => !listMutated
+      if (!reset && !listMutated && responseTotal !== requestTotal) {
+        setLoadingMore(false);
+        await fetchSpaces(true);
+        return;
+      }
+      setSpaces((current) => reset && !listMutated ? incoming : mergeSpaces(current, incoming));
+      const nextTotal = !listMutated
         ? responseTotal
-        : Math.max(current, responseTotal));
+        : Math.max(totalRef.current, responseTotal);
+      totalRef.current = nextTotal;
+      setTotal(nextTotal);
     } catch (err: unknown) {
+      if (requestId !== activeListRequestRef.current) return;
       setError(apiErrorMessage(err, t, 'dashboard.loadFailed'));
     } finally {
-      if (reset) setLoading(false);
-      else setLoadingMore(false);
+      if (requestId === activeListRequestRef.current) {
+        if (reset) {
+          setLoading(false);
+          setResetting(false);
+          setLoadingMore(false);
+        } else {
+          setLoadingMore(false);
+        }
+      }
     }
   };
 
@@ -85,7 +108,8 @@ export const Dashboard: React.FC = () => {
       });
       listVersionRef.current += 1;
       setSpaces((current) => [created, ...current.filter((space) => space.id !== created.id)]);
-      setTotal((current) => current + 1);
+      totalRef.current += 1;
+      setTotal(totalRef.current);
       setNewSpace({ name: '', description: '' });
       setShowCreate(false);
     } catch (err: unknown) {
@@ -103,7 +127,8 @@ export const Dashboard: React.FC = () => {
       listVersionRef.current += 1;
       paginationInvalidationVersionRef.current = listVersionRef.current;
       setSpaces(prev => prev.filter(s => s.id !== spaceId));
-      setTotal(prev => Math.max(0, prev - 1));
+      totalRef.current = Math.max(0, totalRef.current - 1);
+      setTotal(totalRef.current);
       await fetchSpaces(true);
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t, 'dashboard.deleteFailed'));
@@ -190,11 +215,11 @@ export const Dashboard: React.FC = () => {
             <div className="mt-6 flex justify-center">
               <button
                 type="button"
-                disabled={loadingMore}
+                disabled={loadingMore || resetting}
                 onClick={() => void fetchSpaces(false)}
                 className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
-                {loadingMore ? t('dashboard.loadingMore') : t('dashboard.loadMore')}
+                {loadingMore || resetting ? t('dashboard.loadingMore') : t('dashboard.loadMore')}
               </button>
             </div>
           ) : null}
