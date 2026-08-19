@@ -505,6 +505,7 @@ describe('Dashboard Space pagination and creation', () => {
     expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent))
       .toEqual(resetPage.map((space) => space.name));
     expect(screen.queryByRole('heading', { name: '空间 19' })).not.toBeInTheDocument();
+    expect(screen.queryByText('空间加载失败')).not.toBeInTheDocument();
   });
 
   it('shows a localized creation failure inside the open dialog', async () => {

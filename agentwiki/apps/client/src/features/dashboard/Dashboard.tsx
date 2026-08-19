@@ -70,6 +70,7 @@ export const Dashboard: React.FC = () => {
         await fetchSpaces(true);
         return;
       }
+      setError(null);
       const authoritativeReset = reset || response.resetRequired;
       const incomingIds = new Set(incoming.map((space) => space.id));
       const now = Date.now();
