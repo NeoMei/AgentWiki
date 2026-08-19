@@ -2,6 +2,32 @@ import { SpaceService } from './space.service';
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 
+describe('SpaceService.findAll pagination', () => {
+  const prisma = {
+    space: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
+  } as any;
+  const service = new SpaceService(prisma);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns the requested page in deterministic newest-first order', async () => {
+    prisma.space.findMany.mockResolvedValue([{ id: 'space-new' }]);
+    prisma.space.count.mockResolvedValue(25);
+
+    await expect(service.findAll(['space-new'], 20, 20)).resolves.toMatchObject({
+      data: [{ id: 'space-new' }], total: 25, page: 2, limit: 20,
+    });
+    expect(prisma.space.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      skip: 20,
+      take: 20,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+});
+
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },

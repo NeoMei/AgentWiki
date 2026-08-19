@@ -95,6 +95,10 @@ export class SpaceService {
         },
         skip,
         take,
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
         include: {
           members: { select: MEMBER_SELECT },
           _count: { select: { pages: { where: { deletedAt: null } } } },
