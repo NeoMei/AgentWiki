@@ -43,7 +43,7 @@ describe('readOnboardingStatus', () => {
     const store = createSessionStore('session-1', home);
     const serverPlan = {
       space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', permissionPreset: 'editor' as const,
-      approvalMode: 'always-review' as const, packageVersion: '0.3.7',
+      approvalMode: 'always-review' as const, packageVersion: '0.4.0',
     };
     const serverPlanHash = hashServerPlan(serverPlan);
     await store.save({

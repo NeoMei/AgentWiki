@@ -158,7 +158,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toEqual([
       'npx',
       '--yes',
-      '@neomei/agentwiki-local-sync@0.3.7',
+      '@neomei/agentwiki-local-sync@0.4.0',
       'gateway',
       '--connection',
       'conn-42',
@@ -187,7 +187,7 @@ describe('installGatewayEntry', () => {
     };
     expect(config.mcp.servers.agentwiki).toEqual({
       type: 'local',
-      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.3.7', 'gateway', '--connection', 'conn-v2'],
+      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.4.0', 'gateway', '--connection', 'conn-v2'],
       disabled: false,
       timeout: { execution: 1_800_000 },
     });
@@ -310,7 +310,7 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.3.7', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.4.0', 'gateway', '--connection', 'conn-1',
     ]);
   });
 
@@ -403,7 +403,7 @@ describe('removeGatewayEntry', () => {
     const home = await freshHome();
     await seedConfig('claude', home, JSON.stringify({
       mcpServers: {
-        agentwiki: { command: 'npx', args: ['@neomei/agentwiki-local-sync@0.3.7', 'gateway'] },
+        agentwiki: { command: 'npx', args: ['@neomei/agentwiki-local-sync@0.4.0', 'gateway'] },
         'agentwiki-legacy': { command: 'npx', args: ['agentwiki-local-sync@0.3.6', 'mcp'] },
       },
     }));
@@ -421,7 +421,7 @@ describe('removeGatewayEntry', () => {
     const home = await freshHome();
     await seedConfig('opencode', home, JSON.stringify({
       mcp: {
-        agentwiki: { type: 'local', command: ['npx', '@neomei/agentwiki-local-sync@0.3.7', 'gateway'] },
+        agentwiki: { type: 'local', command: ['npx', '@neomei/agentwiki-local-sync@0.4.0', 'gateway'] },
         other: { type: 'local', command: ['other-tool'] },
       },
     }));

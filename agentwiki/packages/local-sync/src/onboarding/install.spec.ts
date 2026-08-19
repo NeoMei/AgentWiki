@@ -118,7 +118,7 @@ describe('installExchangedGateway', () => {
     agentId: 'agent-1',
     credentialId: 'credential-1',
     serverUrl: 'https://wiki.test/api',
-    pluginVersion: '0.3.7',
+    pluginVersion: '0.4.0',
     scopes: ['pages:read'],
   };
 
@@ -131,14 +131,14 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps);
 
     expect(result).toMatchObject({
       connection: {
         id: 'connection-1', agentId: 'agent-1', credentialId: 'credential-1',
-        pluginVersion: '0.3.7', client: 'codex', mcpName: 'agentwiki',
+        pluginVersion: '0.4.0', client: 'codex', mcpName: 'agentwiki',
       },
       configBackupPath: '/tmp/config-backup',
       manifestHash: 'manifest-hash',
@@ -154,7 +154,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.3.7', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.4.0', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -166,7 +166,7 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps);
 
@@ -186,7 +186,7 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
 
@@ -205,7 +205,7 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -227,7 +227,7 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -241,7 +241,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.3.7', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.4.0', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -257,7 +257,7 @@ describe('installExchangedGateway', () => {
       connectionId: 'connection-1',
       expectedConfigHash: 'config-hash',
       expectedAgentId: 'agent-1',
-      expectedPluginVersion: '0.3.7',
+      expectedPluginVersion: '0.4.0',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',

@@ -32,7 +32,7 @@ describe('OnboardPage 0.3 onboarding guide', () => {
     const { container } = renderPage('zh-CN');
 
     expect(screen.getByText(COMMAND)).toBeInTheDocument();
-    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.3\.7/g)).toHaveLength(1);
+    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.4\.0/g)).toHaveLength(1);
     expect(screen.getByText(/在浏览器中登录或注册并授权/)).toBeInTheDocument();
     expect(screen.getByText(/确认 Agent、Space、权限和本地扫描计划/)).toBeInTheDocument();
     expect(screen.getByText(/预览整理后的知识并确认同步/)).toBeInTheDocument();

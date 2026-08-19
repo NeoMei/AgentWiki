@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.3.7** — One AgentWiki gateway for remote wiki operations, local sources, and deterministic knowledge workflows.
+> **v0.4.0** — CodeGraph-powered local code scanning with one AgentWiki gateway and deterministic, reviewable knowledge workflows.
 
 
 ## Hosted Service
@@ -163,7 +163,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.3.7; the unified `onboard` command is the only recommended Agent connection path. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
+Source and generated instructions target 0.4.0; the unified `onboard` command is the only recommended Agent connection path. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
 
 ### Example local workflow
 

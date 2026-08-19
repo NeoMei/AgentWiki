@@ -39,7 +39,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           agentId: 'agent-1',
           credentialId: 'credential-1',
           serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.3.7',
+          pluginVersion: '0.4.0',
           scopes: ['spaces:read', 'pages:read'],
         };
       }),
