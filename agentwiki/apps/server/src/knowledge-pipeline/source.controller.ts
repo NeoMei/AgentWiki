@@ -8,6 +8,7 @@ import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { IngestQueue } from './ingest.queue';
 import { SourceService } from './source.service';
 import { extname } from 'path';
+import { decodeUtf8Source, normalizeUploadFilename } from './source-upload';
 
 const UPLOAD_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 
@@ -27,11 +28,12 @@ export class SourceController {
   async upload(@Param('spaceId') spaceId: string, @Req() req: Request, @UploadedFile() file: any) {
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor'], 'sources:write');
     if (!file) throw new BusinessException('SOURCE_INVALID', 'A file is required');
-    if (!UPLOAD_EXTENSIONS.has(extname(file.originalname || '').toLowerCase())) {
+    const filename = normalizeUploadFilename(file.originalname || '');
+    if (!UPLOAD_EXTENSIONS.has(extname(filename).toLowerCase())) {
       throw new BusinessException('SOURCE_INVALID', 'Unsupported source file type');
     }
     return this.sources.create(spaceId, req.user as any, {
-      type: 'file', name: file.originalname, content: file.buffer.toString('utf8'),
+      type: 'file', name: filename, content: decodeUtf8Source(file.buffer),
     });
   }
 
