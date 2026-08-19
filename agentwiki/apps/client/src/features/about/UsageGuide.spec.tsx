@@ -35,6 +35,8 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('link', { name: 'Obsidian 插件' })).toHaveAttribute('href', '/guide/obsidian');
     expect(screen.getByRole('link', { name: '项目解读' })).toHaveAttribute('href', '/guide/docs');
     expect(screen.getByRole('heading', { name: '生成统一网关接入指令' })).toBeInTheDocument();
+    const gatewayStepHeading = screen.getByRole('heading', { name: '生成统一网关接入指令' });
+    expect(gatewayStepHeading.parentElement).toHaveClass('min-w-0');
     expect(screen.getByText(/API Key 只用于脚本和外部系统/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
     expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();
