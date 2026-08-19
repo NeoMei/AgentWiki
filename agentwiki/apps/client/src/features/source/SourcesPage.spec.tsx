@@ -27,9 +27,12 @@ describe('SourcesPage file upload', () => {
     fireEvent.change(screen.getByLabelText('选择文件'), { target: { files: [file] } });
     expect(screen.getByText('图片内容总结.md')).toBeInTheDocument();
     expect(screen.getByLabelText('名称')).toHaveValue('图片内容总结.md');
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '自定义来源名称' } });
     fireEvent.click(screen.getByRole('button', { name: '上传文件' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/spaces/space-1/sources/file', expect.any(FormData), expect.anything(),
     ));
+    const body = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(body.get('name')).toBe('自定义来源名称');
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Shield, Users, BookOpen, Bot, Lock, Unlock, Key, Trash2, Search, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -41,6 +41,9 @@ export const AdminPage: React.FC = () => {
   const [actionType, setActionType] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const actionBusyRef = useRef(false);
+  const actionSequenceRef = useRef(0);
 
   const loadStats = useCallback(async () => {
     const { data } = await api.get('/platform-admin/stats');
@@ -67,30 +70,60 @@ export const AdminPage: React.FC = () => {
   useEffect(() => { loadStats(); loadUsers(); }, [loadStats, loadUsers]);
 
   const performAction = async () => {
-    if (!actionTarget) return;
+    if (!actionTarget || !actionType || actionBusyRef.current) return;
+    const target = actionTarget;
+    const type = actionType;
+    const sequence = ++actionSequenceRef.current;
+    actionBusyRef.current = true;
+    setActionBusy(true);
     setError(null);
     setActionResult(null);
     try {
-      if (actionType === 'reset-password') {
-        const { data } = await api.post(`/platform-admin/users/${actionTarget.id}/reset-password`);
+      if (type === 'reset-password') {
+        const { data } = await api.post(`/platform-admin/users/${target.id}/reset-password`);
+        if (sequence !== actionSequenceRef.current) return;
         setActionResult(data.password);
         loadUsers();
         loadStats();
         return;
-      } else if (actionType === 'lock') {
-        await api.post(`/platform-admin/users/${actionTarget.id}/lock`);
-      } else if (actionType === 'unlock') {
-        await api.post(`/platform-admin/users/${actionTarget.id}/unlock`);
-      } else if (actionType === 'delete') {
-        await api.delete(`/platform-admin/users/${actionTarget.id}`);
+      } else if (type === 'lock') {
+        await api.post(`/platform-admin/users/${target.id}/lock`);
+      } else if (type === 'unlock') {
+        await api.post(`/platform-admin/users/${target.id}/unlock`);
+      } else if (type === 'delete') {
+        await api.delete(`/platform-admin/users/${target.id}`);
       }
+      if (sequence !== actionSequenceRef.current) return;
       setActionTarget(null);
       setActionType(null);
       loadUsers();
       loadStats();
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, t, 'admin.actionFailed'));
+      if (sequence === actionSequenceRef.current) setError(apiErrorMessage(err, t, 'admin.actionFailed'));
+    } finally {
+      if (sequence === actionSequenceRef.current) {
+        actionBusyRef.current = false;
+        setActionBusy(false);
+      }
     }
+  };
+
+  const openAction = (target: UserRow, type: string) => {
+    if (actionBusyRef.current) return;
+    actionSequenceRef.current += 1;
+    setActionTarget(target);
+    setActionType(type);
+    setActionResult(null);
+    setError(null);
+  };
+
+  const closeAction = () => {
+    if (actionBusyRef.current) return;
+    actionSequenceRef.current += 1;
+    setActionTarget(null);
+    setActionType(null);
+    setError(null);
+    setActionResult(null);
   };
 
   const statusLabel = (row: UserRow) => row.deletedAt ? t('admin.statusDeleted') : row.lockedAt ? t('admin.statusLocked') : t('admin.statusActive');
@@ -178,10 +211,10 @@ export const AdminPage: React.FC = () => {
                         <td className="py-2">
                           {isMe ? <span className="text-xs text-gray-400">{t('admin.currentAccount')}</span> : (
                             <div className="flex gap-1">
-                              {!row.deletedAt && <button onClick={() => { setActionTarget(row); setActionType('reset-password'); }} className="p-1.5 rounded hover:bg-blue-50 text-blue-600" title={t('admin.resetPassword')}><Key size={15} /></button>}
-                              {!row.deletedAt && !row.lockedAt && <button onClick={() => { setActionTarget(row); setActionType('lock'); }} className="p-1.5 rounded hover:bg-orange-50 text-orange-600" title={t('admin.lock')}><Lock size={15} /></button>}
-                              {!row.deletedAt && row.lockedAt && <button onClick={() => { setActionTarget(row); setActionType('unlock'); }} className="p-1.5 rounded hover:bg-green-50 text-green-600" title={t('admin.unlock')}><Unlock size={15} /></button>}
-                              {!row.deletedAt && <button onClick={() => { setActionTarget(row); setActionType('delete'); }} className="p-1.5 rounded hover:bg-red-50 text-red-600" title={t('admin.delete')}><Trash2 size={15} /></button>}
+                              {!row.deletedAt && <button onClick={() => openAction(row, 'reset-password')} className="p-1.5 rounded hover:bg-blue-50 text-blue-600" title={t('admin.resetPassword')}><Key size={15} /></button>}
+                              {!row.deletedAt && !row.lockedAt && <button onClick={() => openAction(row, 'lock')} className="p-1.5 rounded hover:bg-orange-50 text-orange-600" title={t('admin.lock')}><Lock size={15} /></button>}
+                              {!row.deletedAt && row.lockedAt && <button onClick={() => openAction(row, 'unlock')} className="p-1.5 rounded hover:bg-green-50 text-green-600" title={t('admin.unlock')}><Unlock size={15} /></button>}
+                              {!row.deletedAt && <button onClick={() => openAction(row, 'delete')} className="p-1.5 rounded hover:bg-red-50 text-red-600" title={t('admin.delete')}><Trash2 size={15} /></button>}
                             </div>
                           )}
                         </td>
@@ -203,7 +236,7 @@ export const AdminPage: React.FC = () => {
       </div>
 
       {actionTarget && actionType && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => { setActionTarget(null); setActionType(null); setError(null); setActionResult(null); }}>
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={closeAction}>
           <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-2">
               {actionType === 'reset-password' ? t('admin.confirmReset') : actionType === 'lock' ? t('admin.confirmLock') : actionType === 'unlock' ? t('admin.confirmUnlock') : t('admin.confirmDelete')}
@@ -227,8 +260,8 @@ export const AdminPage: React.FC = () => {
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4"><p className="text-sm text-red-700">{error}</p></div>
             ) : null}
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setActionTarget(null); setActionType(null); setError(null); setActionResult(null); }} className="px-4 py-2 border rounded-lg text-sm">{actionResult ? t('common.close') : t('common.cancel')}</button>
-              {!actionResult && <button onClick={performAction} className={`px-4 py-2 rounded-lg text-sm text-white ${actionType === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{t('common.confirm')}</button>}
+              <button disabled={actionBusy} onClick={closeAction} className="px-4 py-2 border rounded-lg text-sm disabled:opacity-50">{actionResult ? t('common.close') : t('common.cancel')}</button>
+              {!actionResult && <button disabled={actionBusy} onClick={performAction} className={`px-4 py-2 rounded-lg text-sm text-white disabled:opacity-50 ${actionType === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{actionBusy ? t('common.loading') : t('common.confirm')}</button>}
             </div>
           </div>
         </div>

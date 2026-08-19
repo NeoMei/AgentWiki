@@ -23,6 +23,12 @@ describe('SourceService safety and idempotency', () => {
     await expect((service as any).validateRemoteUrl('http://127.0.0.1/admin')).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it.each(['::ffff:7f00:1', '::ffff:a00:1', '0:0:0:0:0:ffff:c0a8:101'])(
+    'rejects hexadecimal IPv4-mapped private address %s', (address) => {
+    expect((service as any).isPrivateAddress(address)).toBe(true);
+    },
+  );
+
   it('rejects malformed remote URLs as a client error', async () => {
     await expect((service as any).validateRemoteUrl('not a url')).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -39,6 +45,9 @@ describe('SourceService safety and idempotency', () => {
       metadata: expect.objectContaining({ redirectCount: 1, finalUrl: 'https://www.example.com/page' }),
     });
     expect(validate).toHaveBeenCalledTimes(2);
+    for (const [, requestConfig] of jest.mocked(axios.get).mock.calls) {
+      expect(requestConfig).toEqual(expect.objectContaining({ proxy: false, maxRedirects: 0 }));
+    }
   });
 
   it('rejects a redirect when the next hop resolves to a private address', async () => {

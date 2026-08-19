@@ -25,15 +25,18 @@ export class SourceController {
 
   @Post('spaces/:spaceId/sources/file')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
-  async upload(@Param('spaceId') spaceId: string, @Req() req: Request, @UploadedFile() file: any) {
+  async upload(@Param('spaceId') spaceId: string, @Req() req: Request, @UploadedFile() file: any, @Body('name') sourceName?: string) {
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor'], 'sources:write');
     if (!file) throw new BusinessException('SOURCE_INVALID', 'A file is required');
     const filename = normalizeUploadFilename(file.originalname || '');
     if (!UPLOAD_EXTENSIONS.has(extname(filename).toLowerCase())) {
       throw new BusinessException('SOURCE_INVALID', 'Unsupported source file type');
     }
+    const displayName = typeof sourceName === 'string' && sourceName.trim()
+      ? sourceName.trim().normalize('NFC').slice(0, 200)
+      : filename;
     return this.sources.create(spaceId, req.user as any, {
-      type: 'file', name: filename, content: decodeUtf8Source(file.buffer),
+      type: 'file', name: displayName, content: decodeUtf8Source(file.buffer),
     });
   }
 

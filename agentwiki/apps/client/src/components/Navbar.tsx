@@ -16,11 +16,13 @@ export const Navbar: React.FC = () => {
   const [reviewCount, setReviewCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const reviewCountSequenceRef = useRef(0);
 
   const loadReviewCount = useCallback(async () => {
+    const sequence = ++reviewCountSequenceRef.current;
     try {
       const response = await api.get('/review/count');
-      setReviewCount(Number(response.data?.pending) || 0);
+      if (sequence === reviewCountSequenceRef.current) setReviewCount(Number(response.data?.pending) || 0);
     } catch {
       // Keep the last known count during a transient refresh failure.
     }

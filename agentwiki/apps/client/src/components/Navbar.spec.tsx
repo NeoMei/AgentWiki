@@ -59,4 +59,18 @@ describe('Navbar global destinations', () => {
     expect(apiMock.get).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
   });
+
+  it('does not let an older count response overwrite a newer refresh', async () => {
+    let resolveInitial!: (value: any) => void;
+    apiMock.get
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve; }))
+      .mockResolvedValueOnce({ data: { pending: 2 } });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/dashboard']}><Navbar /></MemoryRouter></LanguageProvider>);
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.getByText('2')).toBeInTheDocument();
+    await act(async () => resolveInitial({ data: { pending: 0 } }));
+
+    expect(screen.getByText('2')).toBeInTheDocument();
+  });
 });

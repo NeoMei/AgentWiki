@@ -148,6 +148,27 @@ describe('ReviewPage detail refresh', () => {
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(1);
   });
 
+  it('replaces an earlier success toast with the latest action failure', async () => {
+    let detailReads = 0;
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === '/review') return Promise.resolve({ data: [summary()] } as any);
+      detailReads += 1;
+      return Promise.resolve({ data: detailReads === 1 ? changeSet('pending_review', 'accepted') : changeSet('approved', 'accepted') } as any);
+    });
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({ data: {} } as any)
+      .mockRejectedValueOnce({ response: { status: 500, data: { message: 'Raw failure' } } });
+    renderReview();
+    await expand();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Review state updated');
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to update change set');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('coalesces rapid duplicate actions for the same change set', async () => {
     const actionRequest = deferred<any>();
     let detailReads = 0;

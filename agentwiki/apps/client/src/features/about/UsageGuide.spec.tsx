@@ -46,10 +46,10 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('img', { name: 'AgentWiki 已发布页面' })).toHaveAttribute('src', '/screenshots/step6-published-page.png');
     expect(screen.getByRole('img', { name: 'AgentWiki MCP 活动记录' })).toHaveAttribute('src', '/screenshots/step6-activity-log.png');
     expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '在 npm 上查看' })).toHaveAttribute(
-      'href',
-      LOCAL_SYNC_PACKAGE_URL,
-    );
+    expect(
+      screen.getAllByRole('link', { name: '在 npm 上查看' })
+        .some((link) => link.getAttribute('href') === LOCAL_SYNC_PACKAGE_URL),
+    ).toBe(true);
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
   });
 });

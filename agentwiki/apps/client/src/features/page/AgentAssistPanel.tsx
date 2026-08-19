@@ -141,6 +141,12 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const onStreamUpdateRef = useRef(onStreamUpdate);
   onStreamUpdateRef.current = onStreamUpdate;
 
+  useEffect(() => {
+    eligibleTaskIdsRef.current.clear();
+    appliedRef.current.clear();
+    streamBufferRef.current.clear();
+  }, [pageId]);
+
   const loadTasks = useCallback(async () => {
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
@@ -217,7 +223,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       streamBufferRef.current.set(data.taskId, updated);
       
       // Live-apply the markdown currently being generated to the editor.
-      if (onStreamUpdateRef.current) {
+      if (eligibleTaskIdsRef.current.has(data.taskId) && onStreamUpdateRef.current) {
         const partial = extractChangesFromStream(updated);
         if (partial) onStreamUpdateRef.current(partial);
       }

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
@@ -8,6 +8,22 @@ vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn() },
 }));
 vi.mock('../../context/LanguageContext', () => ({ useLanguage: vi.fn() }));
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'user-1', name: 'QA' } }),
+}));
+
+const socketMock = vi.hoisted(() => {
+  const handlers = new Map<string, (data: any) => void>();
+  return {
+    handlers,
+    socket: {
+      on: vi.fn((event: string, handler: (data: any) => void) => { handlers.set(event, handler); }),
+      emit: vi.fn(),
+      disconnect: vi.fn(),
+    },
+  };
+});
+vi.mock('socket.io-client', () => ({ io: () => socketMock.socket }));
 
 const successfulTask = {
   id: 'task-done',
@@ -36,6 +52,7 @@ const renderPanel = (props: { onApply?: (changes: string) => void } = {}) => ren
 describe('AgentAssistPanel routing metadata', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    socketMock.handlers.clear();
     vi.mocked(api.get).mockImplementation((url) => {
       if (url === '/assist/tasks') return Promise.resolve({ data: [successfulTask] });
       if (url === '/review') return Promise.resolve({ data: [] });
@@ -79,6 +96,26 @@ describe('AgentAssistPanel routing metadata', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('# Improved'));
     fireEvent.click(screen.getByLabelText('refresh'));
     await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not stream historical or collaborator tasks into the editor', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onStreamUpdate = vi.fn();
+    render(<AgentAssistPanel
+      pageId="page-1"
+      pageTitle="Page"
+      spaceId="space-1"
+      snapshot={() => ({ title: 'Page', content: 'Content' })}
+      onStreamUpdate={onStreamUpdate}
+    />);
+    await screen.findByText('Generated');
+
+    act(() => socketMock.handlers.get('assistStream')?.({
+      taskId: 'task-done',
+      chunk: '📝 生成: {"changes":"# Stale collaborator content"}',
+    }));
+
+    expect(onStreamUpdate).not.toHaveBeenCalled();
   });
 
   it('hides the provider model name and shows a friendly completion label in Chinese', async () => {

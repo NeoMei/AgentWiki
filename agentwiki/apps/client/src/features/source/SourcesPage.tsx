@@ -33,6 +33,7 @@ export const SourcesPage: React.FC = () => {
       if (form.type === 'file' && file) {
         const body = new FormData();
         body.append('file', file);
+        body.append('name', form.name.trim());
         await api.post('/spaces/' + id + '/sources/file', body, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
         await api.post('/spaces/' + id + '/sources', {

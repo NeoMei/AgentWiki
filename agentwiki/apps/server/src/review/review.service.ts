@@ -256,9 +256,20 @@ export class ReviewService {
                   ...payload,
                   before: {
                     restoredFromArchive: true,
+                    title: existingSourcePage.title,
+                    content: existingSourcePage.content,
+                    format: existingSourcePage.format,
+                    parentId: existingSourcePage.parentId,
                     deletedAt: existingSourcePage.deletedAt!.toISOString(),
                     sourceChangeSetId: existingSourcePage.sourceChangeSetId,
+                    createdByAgentId: existingSourcePage.createdByAgentId,
                     lastChangeSetId: existingSourcePage.lastChangeSetId,
+                    lastModifiedByUserId: existingSourcePage.lastModifiedByUserId,
+                    lastModifiedByAgentId: existingSourcePage.lastModifiedByAgentId,
+                    lastModifiedAt: existingSourcePage.lastModifiedAt.toISOString(),
+                    sourceId: existingSourcePage.sourceId,
+                    sourceVersionId: existingSourcePage.sourceVersionId,
+                    sourcePath: existingSourcePage.sourcePath,
                   },
                 },
               },
@@ -362,8 +373,8 @@ export class ReviewService {
             },
           });
           await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
-          await tx.page.update({
-            where: { id: page.id },
+          const updated = await tx.page.updateMany({
+            where: { id: page.id, spaceId: changeSet.spaceId, deletedAt: null, updatedAt: page.updatedAt },
             data: {
               ...changes,
               sourceChangeSetId: page.sourceChangeSetId || id,
@@ -377,6 +388,9 @@ export class ReviewService {
               sourcePath: payload.sourcePath ?? page.sourcePath,
             },
           });
+          if (updated.count !== 1) {
+            throw new BusinessException('CHANGESET_CONFLICT', 'The page changed while this change set was being published');
+          }
           resourceId = page.id;
           pageIds.push(page.id);
           if (payload.sourcePath || page.sourcePath) pageIdBySourcePath.set(payload.sourcePath || page.sourcePath!, page.id);
@@ -396,9 +410,16 @@ export class ReviewService {
           if (payload.expectedUpdatedAt && page.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
           throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this archive candidate was compiled');
           }
-          await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before: { deletedAt: page.deletedAt } } } });
-          await tx.page.update({
-            where: { id: page.id },
+          const archiveBefore = {
+            deletedAt: page.deletedAt,
+            lastChangeSetId: page.lastChangeSetId,
+            lastModifiedByUserId: page.lastModifiedByUserId,
+            lastModifiedByAgentId: page.lastModifiedByAgentId,
+            lastModifiedAt: page.lastModifiedAt,
+          };
+          await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before: archiveBefore } } });
+          const archived = await tx.page.updateMany({
+            where: { id: page.id, spaceId: changeSet.spaceId, deletedAt: null, updatedAt: page.updatedAt },
             data: {
               deletedAt: new Date(),
               lastChangeSetId: id,
@@ -407,6 +428,9 @@ export class ReviewService {
               lastModifiedAt: new Date(),
             },
           });
+          if (archived.count !== 1) {
+            throw new BusinessException('CHANGESET_CONFLICT', 'The page changed while this archive was being published');
+          }
           resourceId = page.id;
           pageIds.push(page.id);
         } else {
@@ -514,8 +538,8 @@ export class ReviewService {
             if (sourcePageId === targetPageId) throw new BadRequestException('A page cannot relate to itself');
             const { sourcePage: _sourcePage, targetPage: _targetPage, createdAt: _createdAt, ...before } = existing;
             await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
-            const updated = await tx.knowledgeRelation.update({
-              where: { id: existing.id },
+            const updated = await tx.knowledgeRelation.updateMany({
+              where: { id: existing.id, lastModifiedAt: existing.lastModifiedAt },
               data: {
                 sourcePageId,
                 targetPageId,
@@ -526,7 +550,8 @@ export class ReviewService {
                 lastModifiedAt: new Date(),
               },
             });
-            await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: updated.id } });
+            if (updated.count !== 1) throw new BusinessException('CHANGESET_CONFLICT', 'The relation changed while this change set was being published');
+            await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: existing.id } });
             continue;
           }
           if (item.type === 'archive_relation') {
@@ -545,7 +570,8 @@ export class ReviewService {
             }
             const { sourcePage: _sourcePage, targetPage: _targetPage, createdAt: _createdAt, ...before } = existing;
             await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
-            await tx.knowledgeRelation.delete({ where: { id: existing.id } });
+            const archived = await tx.knowledgeRelation.deleteMany({ where: { id: existing.id, lastModifiedAt: existing.lastModifiedAt } });
+            if (archived.count !== 1) throw new BusinessException('CHANGESET_CONFLICT', 'The relation changed while this archive was being published');
             if (existing.evidenceId) {
               await tx.evidence.updateMany({ where: { id: existing.evidenceId, targetRelationId: existing.id }, data: { targetRelationId: null } });
             }
@@ -564,10 +590,11 @@ export class ReviewService {
               throw new BusinessException('CHANGESET_INVALID_STATE', 'The relation changed after this candidate was compiled');
             }
             await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before: { strength: existing.strength } } } });
-            await tx.knowledgeRelation.update({
-              where: { id: existing.id },
+            const updated = await tx.knowledgeRelation.updateMany({
+              where: { id: existing.id, lastModifiedAt: existing.lastModifiedAt },
               data: { strength: payload.strength, lastModifiedAt: new Date() },
             });
+            if (updated.count !== 1) throw new BusinessException('CHANGESET_CONFLICT', 'The relation changed while its strength was being published');
             await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: existing.id } });
             continue;
           }
@@ -982,6 +1009,8 @@ export class ReviewService {
       for (const item of changeSet.items) {
         if (!item.publishedResourceId) continue;
         if (item.type === 'create_page') {
+          const payload = item.payload as any;
+          const restoredBefore = payload.before?.restoredFromArchive ? payload.before : null;
           const reverted = await tx.page.updateMany({
             where: {
               id: item.publishedResourceId,
@@ -991,7 +1020,24 @@ export class ReviewService {
               deletedAt: null,
               updatedAt: { lte: publishedAt },
             },
-            data: { deletedAt: new Date() },
+            data: restoredBefore
+              ? {
+                title: restoredBefore.title,
+                content: restoredBefore.content,
+                format: restoredBefore.format,
+                parentId: restoredBefore.parentId,
+                deletedAt: new Date(restoredBefore.deletedAt),
+                sourceChangeSetId: restoredBefore.sourceChangeSetId,
+                createdByAgentId: restoredBefore.createdByAgentId,
+                lastChangeSetId: restoredBefore.lastChangeSetId,
+                lastModifiedByUserId: restoredBefore.lastModifiedByUserId,
+                lastModifiedByAgentId: restoredBefore.lastModifiedByAgentId,
+                lastModifiedAt: new Date(restoredBefore.lastModifiedAt),
+                sourceId: restoredBefore.sourceId,
+                sourceVersionId: restoredBefore.sourceVersionId,
+                sourcePath: restoredBefore.sourcePath,
+              }
+              : { deletedAt: new Date() },
           });
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
@@ -1012,6 +1058,7 @@ export class ReviewService {
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
           const payload = item.payload as any;
+          const before = payload.before || { deletedAt: null };
           const reverted = await tx.page.updateMany({
             where: {
               id: item.publishedResourceId,
@@ -1020,7 +1067,11 @@ export class ReviewService {
               deletedAt: { not: null },
               updatedAt: { lte: publishedAt },
             },
-            data: { deletedAt: payload.before?.deletedAt || null },
+            data: {
+              ...before,
+              deletedAt: before.deletedAt ? new Date(before.deletedAt) : null,
+              ...(before.lastModifiedAt ? { lastModifiedAt: new Date(before.lastModifiedAt) } : {}),
+            },
           });
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);

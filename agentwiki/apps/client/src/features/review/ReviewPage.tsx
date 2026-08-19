@@ -101,6 +101,7 @@ export const ReviewPage: React.FC = () => {
     requestControllersRef.current.add(controller);
     try {
       setError(null);
+      setSuccess(null);
       const summaries = (await api.get('/review', {
         params: spaceId ? { spaceId } : undefined,
         signal: controller.signal,
@@ -127,6 +128,7 @@ export const ReviewPage: React.FC = () => {
     requestControllersRef.current.add(controller);
     try {
       setError(null);
+      setSuccess(null);
       const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal })).data;
       if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence) return false;
       detailedIdsRef.current.add(id);
@@ -173,6 +175,7 @@ export const ReviewPage: React.FC = () => {
     requestControllersRef.current.add(controller);
     try {
       setError(null);
+      setSuccess(null);
       await api.post(
         `/change-sets/${id}/${name}`,
         { comment: comments[id] || undefined },
@@ -205,6 +208,7 @@ export const ReviewPage: React.FC = () => {
     requestControllersRef.current.add(controller);
     try {
       setError(null);
+      setSuccess(null);
       await api.patch(`/change-sets/${setId}/items/${itemId}`, { status }, { signal: controller.signal });
       if (!mountedRef.current || controller.signal.aborted) return;
       await Promise.all([expandChangeSet(setId), load()]);
@@ -230,8 +234,11 @@ export const ReviewPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      {error ? <Toast kind="error" message={error} onClose={() => setError(null)} /> : null}
-      {success ? <Toast kind="success" message={success} onClose={() => setSuccess(null)} /> : null}
+      {error
+        ? <Toast kind="error" message={error} onClose={() => setError(null)} />
+        : success
+          ? <Toast kind="success" message={success} onClose={() => setSuccess(null)} />
+          : null}
       <div className="mb-6"><h1 className="text-2xl font-semibold">{zh ? '审核' : 'Review'}</h1><p className="text-sm text-gray-500 mt-1">{zh ? '在可追溯的候选变更成为已发布知识前进行审批。' : 'Approve traceable candidate changes before they become published knowledge.'}</p></div>
       <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label={zh ? '按状态筛选' : 'Filter by status'}>
         {[

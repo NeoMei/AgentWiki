@@ -635,6 +635,7 @@ export class SourceService {
       const response = await axios.get(target.url.toString(), {
         responseType: 'arraybuffer', timeout: 30_000, maxContentLength: MAX_REMOTE_BYTES,
         maxBodyLength: MAX_REMOTE_BYTES, maxRedirects: 0,
+        proxy: false,
         validateStatus: (status) => status >= 200 && status < 400,
         httpAgent: new HttpAgent({ lookup }),
         httpsAgent: new HttpsAgent({ lookup }),
@@ -684,6 +685,20 @@ export class SourceService {
     if (!isIP(normalized)) return true;
     const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
     if (mapped) return this.isPrivateAddress(mapped);
+    const mappedHexTail = normalized.startsWith('::ffff:')
+      ? normalized.slice('::ffff:'.length)
+      : normalized.startsWith('0:0:0:0:0:ffff:')
+        ? normalized.slice('0:0:0:0:0:ffff:'.length)
+        : null;
+    if (mappedHexTail) {
+      if (isIP(mappedHexTail) === 4) return this.isPrivateAddress(mappedHexTail);
+      const parts = mappedHexTail.split(':');
+      if (parts.length === 2 && parts.every((part) => /^[0-9a-f]{1,4}$/.test(part))) {
+        const high = Number.parseInt(parts[0], 16);
+        const low = Number.parseInt(parts[1], 16);
+        return this.isPrivateAddress(`${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`);
+      }
+    }
     if (isIP(normalized) === 6) {
       return normalized === '::' || normalized === '::1' || normalized.startsWith('fc') ||
         normalized.startsWith('fd') || /^fe[89ab]/.test(normalized) || normalized.startsWith('ff');
