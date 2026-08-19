@@ -24,6 +24,7 @@ const renderDashboard = () => render(
 
 describe('Dashboard Space pagination and creation', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockResolvedValue({ data: { data: spaces, total: 25 } });
@@ -41,6 +42,7 @@ describe('Dashboard Space pagination and creation', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     expect(await screen.findByRole('heading', { name: '新建空间' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 3 })[0]).toHaveTextContent('新建空间');
     expect(api.get).toHaveBeenCalledTimes(1);
     expect(api.post).toHaveBeenCalledWith('/spaces', { name: '新建空间', description: undefined });
   });
@@ -82,7 +84,39 @@ describe('Dashboard Space pagination and creation', () => {
     });
 
     expect(await screen.findByText('空间 20')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '新建空间' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 3 })[0]).toHaveTextContent('新建空间');
     expect(screen.getByRole('button', { name: '加载更多' })).toBeInTheDocument();
+  });
+
+  it('discards an older page response and realigns the first page after deletion', async () => {
+    const space20 = { id: 'space-20', name: '空间 20', slug: 'space-20' };
+    const space21 = { id: 'space-21', name: '空间 21', slug: 'space-21' };
+    let resolveLoadMore!: (value: { data: { data: typeof spaces; total: number } }) => void;
+    const loadMore = new Promise<{ data: { data: typeof spaces; total: number } }>((resolve) => {
+      resolveLoadMore = resolve;
+    });
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { data: spaces, total: 22 } })
+      .mockReturnValueOnce(loadMore)
+      .mockResolvedValueOnce({ data: { data: [...spaces.slice(1), space20], total: 21 } });
+    vi.mocked(api.delete).mockResolvedValue({});
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/spaces/space-0'));
+
+    resolveLoadMore({ data: { data: [space20, space21], total: 22 } });
+    await screen.findByRole('button', { name: '加载更多' });
+
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(api.get).toHaveBeenNthCalledWith(3, '/spaces', { params: { skip: 0, take: 20 } });
+    expect(screen.queryByText('空间 0')).not.toBeInTheDocument();
+    expect(screen.getAllByText('空间 20')).toHaveLength(1);
+    expect(screen.queryByText('空间 21')).not.toBeInTheDocument();
   });
 
   it('shows a localized creation failure inside the open dialog', async () => {

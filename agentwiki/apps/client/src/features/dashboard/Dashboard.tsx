@@ -33,17 +33,22 @@ export const Dashboard: React.FC = () => {
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingSpace, setDeletingSpace] = useState<string | null>(null);
   const [newSpace, setNewSpace] = useState({ name: '', description: '' });
-  const creationVersionRef = useRef(0);
+  const listVersionRef = useRef(0);
+  const paginationInvalidationVersionRef = useRef(0);
 
   const fetchSpaces = async (reset = true) => {
     if (!reset) setLoadingMore(true);
-    const creationVersion = creationVersionRef.current;
+    const requestVersion = listVersionRef.current;
     try {
       const skip = reset ? 0 : spaces.length;
       const res = await api.get('/spaces', { params: { skip, take: PAGE_SIZE } });
-      setSpaces((current) => reset ? res.data.data || [] : mergeSpaces(current, res.data.data || []));
+      if (requestVersion < paginationInvalidationVersionRef.current) return;
+
+      const incoming = res.data.data || [];
+      const listMutated = requestVersion !== listVersionRef.current;
+      setSpaces((current) => reset && !listMutated ? incoming : mergeSpaces(current, incoming));
       const responseTotal = Number(res.data.total) || 0;
-      setTotal((current) => creationVersion === creationVersionRef.current
+      setTotal((current) => !listMutated
         ? responseTotal
         : Math.max(current, responseTotal));
     } catch (err: unknown) {
@@ -78,7 +83,7 @@ export const Dashboard: React.FC = () => {
         name: newSpace.name.trim(),
         description: newSpace.description.trim() || undefined,
       });
-      creationVersionRef.current += 1;
+      listVersionRef.current += 1;
       setSpaces((current) => [created, ...current.filter((space) => space.id !== created.id)]);
       setTotal((current) => current + 1);
       setNewSpace({ name: '', description: '' });
@@ -95,7 +100,11 @@ export const Dashboard: React.FC = () => {
     setDeletingSpace(spaceId);
     try {
       await api.delete(`/spaces/${spaceId}`);
+      listVersionRef.current += 1;
+      paginationInvalidationVersionRef.current = listVersionRef.current;
       setSpaces(prev => prev.filter(s => s.id !== spaceId));
+      setTotal(prev => Math.max(0, prev - 1));
+      await fetchSpaces(true);
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t, 'dashboard.deleteFailed'));
     } finally {
