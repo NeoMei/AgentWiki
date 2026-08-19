@@ -333,6 +333,68 @@ describe('SourceService pipeline lifecycle', () => {
     });
   });
 
+  it('redacts signed redirect credentials before persisting failed URL diagnostics', async () => {
+    const { service, prisma, run } = makeHarness();
+    const originalAutoSelectFamily = getDefaultAutoSelectFamily();
+    setDefaultAutoSelectFamily(false);
+    let port = 0;
+    const server = createHttpServer((request, response) => {
+      if (request.url === '/start') {
+        response.statusCode = 302;
+        response.setHeader(
+          'location',
+          `http://remote.test:${port}/binary?X-Amz-Signature=top-secret&token=also-secret#private-fragment`,
+        );
+        response.end();
+        return;
+      }
+      response.statusCode = 200;
+      response.setHeader('content-type', 'image/png');
+      response.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    });
+    port = await listen(server);
+    run.source = { id: 'source-1', type: 'url', name: 'Signed redirect', uri: `http://remote.test:${port}/start` };
+    run.attempts = run.maxAttempts;
+    jest.spyOn(service as any, 'validateRemoteUrl').mockImplementation(async (value: string) => ({
+      url: new URL(value), address: '127.0.0.1', family: 4,
+    }));
+
+    try {
+      await service.processRun('run-1').catch(() => undefined);
+    } finally {
+      setDefaultAutoSelectFamily(originalAutoSelectFamily);
+      if (server.listening) await close(server);
+    }
+
+    const failedUpdate = prisma.ingestRun.update.mock.calls
+      .map((call: any[]) => call[0])
+      .find((call: any) => call.data.status === 'failed');
+    expect(failedUpdate.data.result).toEqual({
+      failure: { stage: 'fetching', code: 'REMOTE_CONTENT_TYPE_UNSUPPORTED' },
+      sourceMetadata: expect.objectContaining({
+        finalUrl: `http://remote.test:${port}/binary`,
+        redirectCount: 1,
+      }),
+    });
+    expect(JSON.stringify(failedUpdate.data.result)).not.toContain('top-secret');
+    expect(JSON.stringify(failedUpdate.data.result)).not.toContain('also-secret');
+    expect(JSON.stringify(failedUpdate.data.result)).not.toContain('private-fragment');
+
+    prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      id: 'run-1',
+      status: 'failed',
+      stage: 'failed',
+      ...failedUpdate.data,
+    });
+    const exposedRun = await service.getRun('run-1');
+    expect(exposedRun.result).toEqual(expect.objectContaining({
+      sourceMetadata: expect.objectContaining({ finalUrl: `http://remote.test:${port}/binary` }),
+    }));
+    expect(JSON.stringify(exposedRun)).not.toContain('top-secret');
+    expect(JSON.stringify(exposedRun)).not.toContain('also-secret');
+    expect(JSON.stringify(exposedRun)).not.toContain('private-fragment');
+  });
+
   it('persists Git file snapshots and records every pipeline stage including partial completion', async () => {
     const { service, prisma } = makeHarness();
     jest.spyOn(service as any, 'fetch').mockResolvedValue({

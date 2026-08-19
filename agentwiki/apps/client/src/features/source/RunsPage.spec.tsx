@@ -30,7 +30,11 @@ describe('RunsPage', () => {
     vi.mocked(api.get).mockResolvedValue({ data: [{
       id: 'url-run', status: 'failed', stage: 'failed', attempts: 3, maxAttempts: 3,
       createdAt: new Date().toISOString(), source: { name: '网页' }, error: 'Unsupported content type',
-      result: { sourceMetadata: { finalUrl: 'https://example.com/article', contentType: 'text/html', redirectCount: 1 } },
+      result: { sourceMetadata: {
+        finalUrl: 'https://viewer:password@example.com/article?token=top-secret#private-fragment',
+        contentType: 'text/html',
+        redirectCount: 1,
+      } },
     }] } as any);
     render(
       <LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/runs']}>
@@ -40,5 +44,8 @@ describe('RunsPage', () => {
     expect(await screen.findByText('https://example.com/article')).toBeInTheDocument();
     expect(screen.getByText(/1 次重定向/)).toBeInTheDocument();
     expect(screen.queryByText('Unsupported content type')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('top-secret');
+    expect(document.body).not.toHaveTextContent('password');
+    expect(document.body).not.toHaveTextContent('private-fragment');
   });
 });

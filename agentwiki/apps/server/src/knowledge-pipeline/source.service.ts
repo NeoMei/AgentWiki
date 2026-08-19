@@ -660,11 +660,11 @@ export class SourceService {
         throw new RemoteSourceError(
           'REMOTE_URL_REJECTED',
           error?.message || 'Remote URL is not allowed',
-          { finalUrl: currentUrl, redirectCount },
+          { finalUrl: this.remoteDiagnosticUrl(currentUrl), redirectCount },
         );
       }
       const metadata: RemoteSourceMetadata = {
-        finalUrl: target.url.toString(),
+        finalUrl: this.remoteDiagnosticUrl(target.url.toString()),
         resolvedAddress: target.address,
         redirectCount,
       };
@@ -735,11 +735,27 @@ export class SourceService {
     return typeof value === 'string' ? value : Array.isArray(value) && typeof value[0] === 'string' ? value[0] : '';
   }
 
+  private remoteDiagnosticUrl(value: string): string {
+    try {
+      const url = new URL(value);
+      url.username = '';
+      url.password = '';
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return '[invalid-url]';
+    }
+  }
+
   private failureResult(error: unknown, fallbackStage: string): Prisma.InputJsonObject {
     if (error instanceof RemoteSourceError) {
       return {
         failure: { stage: error.stage, code: error.code },
-        sourceMetadata: { ...error.sourceMetadata },
+        sourceMetadata: {
+          ...error.sourceMetadata,
+          finalUrl: this.remoteDiagnosticUrl(error.sourceMetadata.finalUrl),
+        },
       };
     }
     return {

@@ -14,18 +14,24 @@ describe('ReviewController stale action errors', () => {
 
   const prisma = {
     changeSet: {
-      findUnique: jest.fn(({ where }: any) => Promise.resolve({
-        id: where.id,
-        status: where.id === 'stale-publish' ? 'published' : 'reverted',
-        spaceId: 'space-1',
-        createdByUserId: 'owner-1',
-        createdByAgentId: null,
-        publishedAt: new Date('2026-08-19T10:00:00Z'),
-        items: [],
-        approvals: [],
-        space: {},
-        run: null,
-      })),
+      findUnique: jest.fn(({ where }: any) => {
+        const status = where.id === 'stale-publish' ? 'published'
+          : where.id === 'stale-revert' ? 'reverted'
+          : where.id === 'draft-publish' ? 'draft'
+          : 'pending_review';
+        return Promise.resolve({
+          id: where.id,
+          status,
+          spaceId: 'space-1',
+          createdByUserId: 'owner-1',
+          createdByAgentId: null,
+          publishedAt: new Date('2026-08-19T10:00:00Z'),
+          items: [],
+          approvals: [],
+          space: {},
+          run: null,
+        });
+      }),
     },
   } as any;
   const review = new ReviewService(prisma, {} as any, {} as any);
@@ -70,4 +76,17 @@ describe('ReviewController stale action errors', () => {
       code: 'CHANGESET_INVALID_STATE',
     });
   });
+
+  it.each(['draft-publish', 'pending-publish'])(
+    'returns HTTP 403 + APPROVAL_REQUIRED for an unapproved %s request',
+    async (id) => {
+      const response = await fetch(`${baseUrl}/change-sets/${id}/publish`, { method: 'POST' });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        statusCode: 403,
+        code: 'APPROVAL_REQUIRED',
+      });
+    },
+  );
 });

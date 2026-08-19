@@ -171,6 +171,37 @@ describe('Dashboard Space pagination and creation', () => {
     expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(20);
   });
 
+  it('expires an unconfirmed POST overlay even when no later list request completes', async () => {
+    const createdSpace = { id: 'space-expiring', name: '待过期空间', slug: 'expiring-space' };
+    const create = deferred<any>();
+    vi.mocked(api.post).mockReturnValue(create.promise);
+    renderDashboard();
+    await screen.findByText('空间 0');
+
+    fireEvent.click(screen.getByRole('button', { name: '新建空间' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：我的知识库'), { target: { value: createdSpace.name } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        create.resolve({ data: createdSpace });
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('heading', { name: createdSpace.name })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
+      });
+
+      expect(screen.queryByRole('heading', { name: createdSpace.name })).not.toBeInTheDocument();
+      expect(api.get).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not double-count a POST response after an earlier GET already observed that record', async () => {
     const createdSpace = { id: 'space-created', name: '逆序到达空间', slug: 'reverse-arrival' };
     const loadMore = deferred<any>();
@@ -446,6 +477,34 @@ describe('Dashboard Space pagination and creation', () => {
       await Promise.resolve();
     });
     expect(screen.getByRole('button', { name: '加载更多' })).toBeEnabled();
+  });
+
+  it('retries a failed deletion reset as an authoritative first-page replacement', async () => {
+    const externalSpace = { id: 'space-external', name: '外部替换空间', slug: 'external-space' };
+    const resetPage = [externalSpace, ...spaces.slice(1, 19)];
+    vi.mocked(api.get)
+      .mockResolvedValueOnce(spacePage(spaces, 22, { nextCursor: 'cursor-1', hasMore: true }))
+      .mockRejectedValueOnce({ response: { status: 500, data: { message: 'reset failed' } } })
+      .mockResolvedValueOnce(spacePage(
+        resetPage,
+        21,
+        { revision: 'revision-2', nextCursor: 'cursor-2', hasMore: true },
+      ));
+    vi.mocked(api.delete).mockResolvedValue({});
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDashboard();
+
+    await screen.findByText('空间 0');
+    fireEvent.click(screen.getAllByRole('button', { name: '删除' })[0]);
+    expect(await screen.findByText('空间加载失败')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }));
+    await screen.findByRole('heading', { name: externalSpace.name });
+
+    expect(api.get).toHaveBeenNthCalledWith(3, '/spaces', { params: { take: 20 } });
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent))
+      .toEqual(resetPage.map((space) => space.name));
+    expect(screen.queryByRole('heading', { name: '空间 19' })).not.toBeInTheDocument();
   });
 
   it('shows a localized creation failure inside the open dialog', async () => {

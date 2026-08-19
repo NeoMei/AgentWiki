@@ -48,4 +48,17 @@ describe('SpaceController.findAll', () => {
       cursor: 'opaque-cursor',
     });
   });
+
+  it('forwards a cursorless offset request through the backward-compatible options contract', async () => {
+    await (controller as any).findAll(
+      { user: { userId: 'user-1', type: 'human' } },
+      { skip: '20', take: '20' },
+    );
+
+    expect(spaces.findAll).toHaveBeenCalledWith(['space-1'], {
+      skip: 20,
+      take: 20,
+      cursor: undefined,
+    });
+  });
 });

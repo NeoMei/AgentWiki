@@ -9,6 +9,20 @@ import { apiErrorMessage } from '../../api/error-message';
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
 
+const safeDiagnosticUrl = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  try {
+    const url = new URL(value);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
 export const RunsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t, language } = useLanguage();
@@ -62,7 +76,7 @@ export const RunsPage: React.FC = () => {
               {run.error ? <p className="text-xs text-red-600 mt-1">{t('run.failedSummary')}</p> : null}
               {run.result?.sourceMetadata ? (
                 <div className="mt-2 space-y-0.5 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
-                  <p className="break-all"><strong>{t('run.finalUrl')}:</strong> {run.result.sourceMetadata.finalUrl}</p>
+                  <p className="break-all"><strong>{t('run.finalUrl')}:</strong> {safeDiagnosticUrl(run.result.sourceMetadata.finalUrl) || t('common.notAvailable')}</p>
                   <p><strong>{t('run.contentType')}:</strong> {run.result.sourceMetadata.contentType || t('common.notAvailable')}</p>
                   <p>{t('run.redirectCount', { count: run.result.sourceMetadata.redirectCount || 0 })}</p>
                 </div>

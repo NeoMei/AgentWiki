@@ -48,6 +48,10 @@ export const Dashboard: React.FC = () => {
   );
 
   const fetchSpaces = async (reset = true) => {
+    if (!reset && !nextCursorRef.current) {
+      await fetchSpaces(true);
+      return;
+    }
     const requestId = activeListRequestRef.current + 1;
     activeListRequestRef.current = requestId;
     if (reset) setResetting(true);
@@ -102,6 +106,19 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     void fetchSpaces(true);
   }, []);
+
+  useEffect(() => {
+    if (!optimisticSpaces.length) return;
+    const expiresAt = Math.min(...optimisticSpaces.map((entry) => entry.expiresAt));
+    const timeout = window.setTimeout(() => {
+      const now = Date.now();
+      setOptimisticSpaces((current) => {
+        const active = current.filter((entry) => entry.expiresAt > now);
+        return active.length === current.length ? current : active;
+      });
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [optimisticSpaces]);
 
   const openCreateDialog = (event: React.MouseEvent<HTMLButtonElement>) => {
     createDialogOpenerRef.current = event.currentTarget;

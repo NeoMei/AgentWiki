@@ -67,6 +67,19 @@ describe('ReviewService approval boundaries', () => {
     });
   });
 
+  it.each(['draft', 'pending_review'])('keeps APPROVAL_REQUIRED with 403 for an unapproved %s publish request', async (status) => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: `cs-${status}`, status, spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [], approvals: [], space: {}, run: null,
+    });
+
+    await expect(service.publish(`cs-${status}`)).rejects.toMatchObject({
+      businessCode: 'APPROVAL_REQUIRED',
+      statusCode: 403,
+    });
+  });
+
   it('returns CHANGESET_INVALID_STATE with 409 for a stale revert request', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-stale-revert', status: 'reverted', spaceId: 'space-1',

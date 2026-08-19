@@ -31,6 +31,31 @@ describe('SpaceService.findAll pagination', () => {
     }));
   });
 
+  it('keeps cursorless skip/take callers on the production options path', async () => {
+    const keys = Array.from({ length: 25 }, (_, index) => ({
+      id: `space-${25 - index}`,
+      createdAt: new Date(Date.UTC(2026, 7, 19, 12, 0, 0) - index * 1_000),
+    }));
+    prisma.space.findMany
+      .mockResolvedValueOnce(keys)
+      .mockResolvedValueOnce(keys.slice(20));
+
+    await expect(service.findAll(keys.map(({ id }) => id), { skip: 20, take: 20 })).resolves.toMatchObject({
+      data: keys.slice(20),
+      total: 25,
+      page: 2,
+      limit: 20,
+      hasMore: false,
+      nextCursor: null,
+      resetRequired: false,
+    });
+    expect(prisma.space.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      skip: 20,
+      take: 21,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+
   it('returns an opaque createdAt/id keyset cursor and hasMore without using an offset', async () => {
     const keys = [
       { id: 'space-3', createdAt: new Date('2026-08-19T03:00:00.000Z') },
@@ -59,6 +84,9 @@ describe('SpaceService.findAll pagination', () => {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }));
     expect(prisma.space.findMany.mock.calls[1][0]).not.toHaveProperty('skip');
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   });
 
   it('resets to the first page when a head insertion and tail deletion keep total unchanged', async () => {
