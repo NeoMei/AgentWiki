@@ -40,13 +40,16 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
-const renderReview = () => render(
+const renderReview = (language: 'en' | 'zh-CN' = 'en') => {
+  localStorage.setItem('agentwiki.language.v1', language);
+  return render(
   <LanguageProvider>
     <MemoryRouter initialEntries={['/review']}>
       <ReviewPage />
     </MemoryRouter>
   </LanguageProvider>,
-);
+  );
+};
 
 const expand = async () => {
   fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
@@ -83,10 +86,33 @@ describe('ReviewPage detail refresh', () => {
 
     expect(await screen.findByText('accepted')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
-    expect(calls.slice(-2)).toEqual([
-      'patch:/change-sets/cs-1/items/item-1:accepted',
-      'get:/change-sets/cs-1',
-    ]);
+    expect(calls).toContain('patch:/change-sets/cs-1/items/item-1:accepted');
+    expect(calls.filter((call) => call === 'get:/change-sets/cs-1')).toHaveLength(2);
+  });
+
+  it('disables approve-only until every candidate is decided', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review' ? [summary()] : changeSet(),
+    } as any));
+    renderReview();
+    await expand();
+    expect(screen.getByRole('button', { name: 'Approve only' })).toBeDisabled();
+    expect(screen.getByText('Decide every candidate before approving only.')).toBeInTheDocument();
+  });
+
+  it('shows a localized fixed toast and refreshes stale detail on a CAS conflict', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review' ? [summary()] : changeSet(),
+    } as any));
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: {
+      code: 'CHANGESET_INVALID_STATE', message: 'Change set is not pending review',
+    } } });
+    renderReview('zh-CN');
+    await expand();
+    fireEvent.click(screen.getByRole('button', { name: '通过并发布' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('审核状态已变化，已为你刷新');
+    expect(screen.queryByText('Change set is not pending review')).not.toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(2);
   });
 
   it('refetches detail after a set action so the next valid action is immediately visible', async () => {
@@ -116,7 +142,8 @@ describe('ReviewPage detail refresh', () => {
     await expand();
     fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
 
-    expect(await screen.findByText('Approval was rejected')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to update change set');
+    expect(screen.queryByText('Approval was rejected')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(1);
   });

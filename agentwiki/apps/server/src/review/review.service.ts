@@ -73,8 +73,8 @@ export class ReviewService {
     return { ...published, autoPublished: true };
   }
 
-  list(spaceIds: string[]) {
-    return this.prisma.changeSet.findMany({
+  async list(spaceIds: string[]) {
+    const changeSets = await this.prisma.changeSet.findMany({
       where: { spaceId: { in: spaceIds }, status: { in: ['pending_review', 'approved', 'published', 'reverted', 'rejected'] } },
       include: {
         space: { select: { id: true, name: true } },
@@ -82,8 +82,26 @@ export class ReviewService {
         items: true,
         approvals: { include: { reviewer: { select: { id: true, name: true, email: true } } } },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
+    const priority: Record<string, number> = {
+      pending_review: 0,
+      approved: 1,
+      published: 2,
+      rejected: 3,
+      reverted: 4,
+    };
+    return changeSets.sort((left, right) =>
+      (priority[left.status] ?? 99) - (priority[right.status] ?? 99) ||
+      right.createdAt.getTime() - left.createdAt.getTime(),
+    );
+  }
+
+  async countPending(spaceIds: string[]) {
+    const pending = await this.prisma.changeSet.count({
+      where: { spaceId: { in: spaceIds }, status: 'pending_review' },
+    });
+    return { pending };
   }
 
   async get(id: string) {

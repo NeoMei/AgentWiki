@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
+import { Toast } from '../../components/Toast';
 import { ChangeSetStatusBadge } from './ChangeSetStatusBadge';
 import { useLanguage } from '../../context/LanguageContext';
+import { announceReviewChanged } from './review-events';
 
 const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
   const { language } = useLanguage();
@@ -64,16 +67,16 @@ const EvidencePanel: React.FC<{ changeSet: any; item: any }> = ({ changeSet, ite
 };
 
 export const ReviewPage: React.FC = () => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const [items, setItems] = useState<any[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
-  const zhRef = useRef(zh);
   const listSequenceRef = useRef(0);
   const detailSequenceRef = useRef(new Map<string, number>());
   const detailedIdsRef = useRef(new Set<string>());
@@ -82,10 +85,6 @@ export const ReviewPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const spaceId = searchParams.get('spaceId');
   const changeSetId = searchParams.get('changeSet');
-
-  useEffect(() => {
-    zhRef.current = zh;
-  }, [zh]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -115,12 +114,12 @@ export const ReviewPage: React.FC = () => {
       }));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current) {
-        setError(requestError.response?.data?.message || (zhRef.current ? '审核队列加载失败' : 'Failed to load review queue'));
+        setError(apiErrorMessage(requestError, t, 'review.loadFailed'));
       }
     } finally {
       requestControllersRef.current.delete(controller);
     }
-  }, [spaceId]);
+  }, [spaceId, t]);
   const expandChangeSet = useCallback(async (id: string) => {
     const sequence = (detailSequenceRef.current.get(id) || 0) + 1;
     detailSequenceRef.current.set(id, sequence);
@@ -137,13 +136,13 @@ export const ReviewPage: React.FC = () => {
       return true;
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence) {
-        setError(requestError.response?.data?.message || (zhRef.current ? '变更集证据加载失败' : 'Failed to load change set evidence'));
+        setError(apiErrorMessage(requestError, t, 'review.detailFailed'));
       }
       return false;
     } finally {
       requestControllersRef.current.delete(controller);
     }
-  }, []);
+  }, [t]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (changeSetId) {
@@ -180,10 +179,20 @@ export const ReviewPage: React.FC = () => {
         { signal: controller.signal },
       );
       if (!mountedRef.current || controller.signal.aborted) return;
-      await expandChangeSet(id);
+      await Promise.all([expandChangeSet(id), load()]);
+      if (!mountedRef.current || controller.signal.aborted) return;
+      announceReviewChanged();
+      setSuccess(t('review.actionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        setError(requestError.response?.data?.message || (zhRef.current ? '变更集操作失败' : `Failed to ${name} change set`));
+        const message = apiErrorMessage(requestError, t, 'review.actionFailed');
+        const status = requestError.response?.status;
+        const code = requestError.response?.data?.code;
+        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+          await Promise.all([expandChangeSet(id), load()]);
+          announceReviewChanged();
+        }
+        if (mountedRef.current) setError(message);
       }
     } finally {
       requestControllersRef.current.delete(controller);
@@ -198,10 +207,20 @@ export const ReviewPage: React.FC = () => {
       setError(null);
       await api.patch(`/change-sets/${setId}/items/${itemId}`, { status }, { signal: controller.signal });
       if (!mountedRef.current || controller.signal.aborted) return;
-      await expandChangeSet(setId);
+      await Promise.all([expandChangeSet(setId), load()]);
+      if (!mountedRef.current || controller.signal.aborted) return;
+      announceReviewChanged();
+      setSuccess(t('review.decisionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        setError(requestError.response?.data?.message || (zhRef.current ? '候选变更处理失败' : 'Failed to decide candidate change'));
+        const message = apiErrorMessage(requestError, t, 'review.decisionFailed');
+        const status = requestError.response?.status;
+        const code = requestError.response?.data?.code;
+        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+          await Promise.all([expandChangeSet(setId), load()]);
+          announceReviewChanged();
+        }
+        if (mountedRef.current) setError(message);
       }
     } finally {
       requestControllersRef.current.delete(controller);
@@ -211,8 +230,9 @@ export const ReviewPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
+      {error ? <Toast kind="error" message={error} onClose={() => setError(null)} /> : null}
+      {success ? <Toast kind="success" message={success} onClose={() => setSuccess(null)} /> : null}
       <div className="mb-6"><h1 className="text-2xl font-semibold">{zh ? '审核' : 'Review'}</h1><p className="text-sm text-gray-500 mt-1">{zh ? '在可追溯的候选变更成为已发布知识前进行审批。' : 'Approve traceable candidate changes before they become published knowledge.'}</p></div>
-      {error ? <div className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</div> : null}
       <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label={zh ? '按状态筛选' : 'Filter by status'}>
         {[
           ['all', zh ? '全部' : 'All'],
@@ -262,10 +282,11 @@ export const ReviewPage: React.FC = () => {
                   ))}
                 </div>
                 {changeSet.status === 'pending_review' ? <textarea value={comments[changeSet.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [changeSet.id]: event.target.value }))} placeholder={zh ? '审核意见（可选）' : 'Review comment (optional)'} className="w-full border rounded-lg p-2 text-sm mb-3" rows={2} /> : null}
+                {changeSet.status === 'pending_review' && changeSet.items.some((item: any) => item.status === 'pending') ? <p className="mb-2 text-right text-xs text-amber-700">{t('review.decideBeforeApprove')}</p> : null}
                 <div className="flex gap-2 justify-end">
                   {changeSet.status === 'pending_review' ? <>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'reject')} className="h-8 px-3 border border-red-200 text-red-700 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><X size={14} /> {zh ? '拒绝' : 'Reject'}</button>
-                    <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'approve')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Check size={14} /> {zh ? '仅批准' : 'Approve only'}</button>
+                    <button disabled={mutatingIds.has(changeSet.id) || changeSet.items.some((item: any) => item.status === 'pending')} onClick={() => void action(changeSet.id, 'approve')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Check size={14} /> {zh ? '仅批准' : 'Approve only'}</button>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'review-publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '通过并发布' : 'Approve & publish'}</button>
                   </> : null}
                   {changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}

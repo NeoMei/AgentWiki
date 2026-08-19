@@ -1,6 +1,32 @@
 import { BadRequestException } from '@nestjs/common';
 import { ReviewService } from './review.service';
 
+describe('ReviewService queue presentation', () => {
+  const prisma = { changeSet: { count: jest.fn(), findMany: jest.fn() } } as any;
+  const service = new ReviewService(prisma, {} as any, {} as any);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('counts only pending review sets in accessible spaces', async () => {
+    prisma.changeSet.count.mockResolvedValue(2);
+    await expect(service.countPending(['space-1', 'space-2'])).resolves.toEqual({ pending: 2 });
+    expect(prisma.changeSet.count).toHaveBeenCalledWith({
+      where: { spaceId: { in: ['space-1', 'space-2'] }, status: 'pending_review' },
+    });
+  });
+
+  it('orders pending and approved work before historical states, newest first within status', async () => {
+    prisma.changeSet.findMany.mockResolvedValue([
+      { id: 'published', status: 'published', createdAt: new Date('2026-08-19T10:00:00Z') },
+      { id: 'pending-old', status: 'pending_review', createdAt: new Date('2026-08-19T09:00:00Z') },
+      { id: 'pending-new', status: 'pending_review', createdAt: new Date('2026-08-19T11:00:00Z') },
+    ]);
+    await expect(service.list(['space-1'])).resolves.toMatchObject([
+      { id: 'pending-new' }, { id: 'pending-old' }, { id: 'published' },
+    ]);
+  });
+});
+
 describe('ReviewService approval boundaries', () => {
   const prisma = {
     changeItem: { count: jest.fn(), updateMany: jest.fn() },

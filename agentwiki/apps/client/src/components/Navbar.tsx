@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bot, ChevronDown, ClipboardCheck, LogOut, Plug, Search, Shield, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -6,6 +6,7 @@ import api from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { GlobalNavigation } from './GlobalNavigation';
+import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -16,9 +17,30 @@ export const Navbar: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const loadReviewCount = useCallback(async () => {
+    try {
+      const response = await api.get('/review/count');
+      setReviewCount(Number(response.data?.pending) || 0);
+    } catch {
+      // Keep the last known count during a transient refresh failure.
+    }
+  }, []);
+
   useEffect(() => {
-    api.get('/review').then((response) => setReviewCount(response.data.filter((item: any) => item.status === 'pending_review').length)).catch(() => setReviewCount(0));
-  }, [location.pathname]);
+    void loadReviewCount();
+    const refresh = () => { void loadReviewCount(); };
+    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    const timer = window.setInterval(refresh, 5000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener(REVIEW_CHANGED_EVENT, refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(REVIEW_CHANGED_EVENT, refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [loadReviewCount, location.pathname]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false); };

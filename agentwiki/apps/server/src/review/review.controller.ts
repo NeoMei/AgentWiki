@@ -10,6 +10,12 @@ import { ReviewService } from './review.service';
 export class ReviewController {
   constructor(private review: ReviewService, private authorization: AuthorizationService) {}
 
+  @Get('review/count')
+  async countPending(@Req() req: Request) {
+    const spaceIds = await this.authorization.getAccessibleSpaceIds(req.user as any, 'review:read');
+    return this.review.countPending(spaceIds);
+  }
+
   @Get('review')
   async list(@Req() req: Request, @Query('spaceId') spaceId?: string) {
     const spaceIds = await this.authorization.getAccessibleSpaceIds(req.user as any, 'review:read');
