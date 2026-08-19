@@ -82,6 +82,42 @@ describe('Dashboard Space pagination and creation', () => {
     expect(new Set(headings).size).toBe(20);
   });
 
+  it('realigns combined local and external total drift without losing the POST response', async () => {
+    const olderSpaces = Array.from({ length: 5 }, (_, index) => ({
+      id: `space-${20 + index}`,
+      name: `空间 ${20 + index}`,
+      slug: `space-${20 + index}`,
+    }));
+    const localSpace = { id: 'space-local', name: '本地新空间', slug: 'local-space' };
+    const externalSpace = { id: 'space-external', name: '外部新空间', slug: 'external-space' };
+    let resolveLoadMore!: (value: { data: { data: typeof spaces; total: number } }) => void;
+    const loadMore = new Promise<{ data: { data: typeof spaces; total: number } }>((resolve) => {
+      resolveLoadMore = resolve;
+    });
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: { data: spaces, total: 25 } })
+      .mockReturnValueOnce(loadMore)
+      .mockResolvedValueOnce({ data: { data: [externalSpace, ...spaces.slice(0, 19)], total: 27 } });
+    vi.mocked(api.post).mockResolvedValue({ data: localSpace });
+    renderDashboard();
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: '新建空间' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：我的知识库'), { target: { value: '本地新空间' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await screen.findByRole('heading', { name: '本地新空间' });
+
+    resolveLoadMore({
+      data: { data: [spaces[18], spaces[19], ...olderSpaces], total: 27 },
+    });
+
+    expect(await screen.findByRole('heading', { name: '外部新空间' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '本地新空间' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(3);
+    expect(api.get).toHaveBeenNthCalledWith(3, '/spaces', { params: { skip: 0, take: 20 } });
+  });
+
   it('preserves a creation made while an older page request is in flight', async () => {
     let resolveLoadMore!: (value: { data: { data: typeof spaces; total: number } }) => void;
     const loadMore = new Promise<{ data: { data: typeof spaces; total: number } }>((resolve) => {

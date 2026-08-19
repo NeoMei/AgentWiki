@@ -38,6 +38,7 @@ export const Dashboard: React.FC = () => {
   const paginationInvalidationVersionRef = useRef(0);
   const totalRef = useRef(0);
   const activeListRequestRef = useRef(0);
+  const unconfirmedCreatedSpacesRef = useRef<Space[]>([]);
 
   const fetchSpaces = async (reset = true) => {
     const requestId = activeListRequestRef.current + 1;
@@ -55,13 +56,18 @@ export const Dashboard: React.FC = () => {
       const incoming = res.data.data || [];
       const listMutated = requestVersion !== listVersionRef.current;
       const responseTotal = Number(res.data.total) || 0;
-      if (!reset && !listMutated && responseTotal !== requestTotal) {
+      const totalMatchesKnownState = responseTotal === requestTotal || responseTotal === totalRef.current;
+      if (!reset && !totalMatchesKnownState) {
         setLoadingMore(false);
         await fetchSpaces(true);
         return;
       }
-      setSpaces((current) => reset && !listMutated ? incoming : mergeSpaces(current, incoming));
-      const nextTotal = !listMutated
+      const incomingIds = new Set(incoming.map((space: Space) => space.id));
+      const unconfirmedCreated = unconfirmedCreatedSpacesRef.current.filter((space) => !incomingIds.has(space.id));
+      unconfirmedCreatedSpacesRef.current = unconfirmedCreated;
+      const resetSpaces = [...unconfirmedCreated, ...incoming];
+      setSpaces((current) => reset && !listMutated ? resetSpaces : mergeSpaces(current, incoming));
+      const nextTotal = !listMutated && unconfirmedCreated.length === 0
         ? responseTotal
         : Math.max(totalRef.current, responseTotal);
       totalRef.current = nextTotal;
@@ -107,6 +113,10 @@ export const Dashboard: React.FC = () => {
         description: newSpace.description.trim() || undefined,
       });
       listVersionRef.current += 1;
+      unconfirmedCreatedSpacesRef.current = [
+        created,
+        ...unconfirmedCreatedSpacesRef.current.filter((space) => space.id !== created.id),
+      ];
       setSpaces((current) => [created, ...current.filter((space) => space.id !== created.id)]);
       totalRef.current += 1;
       setTotal(totalRef.current);
@@ -126,6 +136,7 @@ export const Dashboard: React.FC = () => {
       await api.delete(`/spaces/${spaceId}`);
       listVersionRef.current += 1;
       paginationInvalidationVersionRef.current = listVersionRef.current;
+      unconfirmedCreatedSpacesRef.current = unconfirmedCreatedSpacesRef.current.filter((space) => space.id !== spaceId);
       setSpaces(prev => prev.filter(s => s.id !== spaceId));
       totalRef.current = Math.max(0, totalRef.current - 1);
       setTotal(totalRef.current);

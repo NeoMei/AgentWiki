@@ -70,7 +70,7 @@ Final post-review automated evidence:
 
 | Command | Result | Exact evidence |
 | --- | --- | --- |
-| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 563 passed; client 186 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,195 passed, 39 skipped, 0 failed. |
+| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 563 passed; client 187 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,196 passed, 39 skipped, 0 failed. |
 | `pnpm typecheck` | PASS | Server, client, sync protocol, and local-sync TypeScript checks exited 0. |
 | `pnpm lint` | PASS | ESLint exited 0 for server, client, and local-sync sources. |
 | `pnpm build` | PASS | Shared, sync protocol, Nest server, Vite client, and local-sync production builds exited 0. |
@@ -85,6 +85,7 @@ Regression-specific automated tests:
 - `Dashboard Space pagination and creation > prepends the POST response without depending on a second list request`
 - `Dashboard Space pagination and creation > loads and de-duplicates the next page when more Spaces exist`
 - `Dashboard Space pagination and creation > realigns from page one when an external insertion shifts the offset boundary`
+- `Dashboard Space pagination and creation > realigns combined local and external total drift without losing the POST response`
 - `Dashboard Space pagination and creation > preserves a creation made while an older page request is in flight`
 - `Dashboard Space pagination and creation > discards an older page response and realigns the first page after deletion`
 - `Dashboard Space pagination and creation > keeps pagination locked and ignores a stale load failure during deletion realignment`
@@ -94,4 +95,6 @@ Browser acceptance used the Codex in-app Browser at `http://127.0.0.1:5173/dashb
 
 Page identity was `AgentWiki` at `/dashboard`; the DOM contained the `My Spaces` heading and meaningful card content. No Vite or Next.js framework overlay was present, and the final console inspection contained 0 warnings and 0 errors. Browser screenshots captured the initial first page, the newly created first card, the appended older records, and the localized failure dialog; they were emitted as ephemeral Browser evidence and were not committed. This acceptance validates the rendered client against a deterministic mock contract, not a real PostgreSQL database or production authentication stack; those server boundaries remain covered by the automated controller/service suites above.
 
-The independent final review of `0000f11..28bd1ee` reported three Important findings and no Critical or Minor findings. All three were remediated before the final gate and Browser reruns: a changed server `total` during load-more now triggers a page-one realignment instead of allowing a shifted offset to loop or omit rows; a monotonic list-request owner guards success, error, and completion paths while deletion/reset keeps pagination disabled; and the service suite now asserts the nested `owner` membership write directly. The two client regressions were observed failing before the production change, then passed together as `7/7` focused Dashboard tests; the focused controller/service run passed `13/13` tests after adding the ownership contract.
+The independent review of `0000f11..28bd1ee` initially reported three Important findings and no Critical or Minor findings. The first remediation added external-`total` realignment, monotonic request ownership across success/error/completion, deletion/reset pagination locking, and a direct owner-membership service assertion. A later task review correctly found that the first drift guard was still restricted by `!listMutated`: an in-flight load-more combined with a local POST creation and a separate external top insertion could therefore suppress realignment. The earlier statement that all concurrency findings were closed was premature.
+
+The final remediation compares a load-more response against both the request-time `total` and the current `total` that already includes local mutations. A response matching neither known state triggers page-one realignment even when `listMutated` is true. Locally POST-created Spaces remain in an unconfirmed-created set until a server response includes their IDs; a reset prepends any still-unconfirmed POST response instead of overwriting it. The explicit three-event regression was observed RED because `外部新空间` never appeared while `本地新空间` remained; after the minimal production change it passed with both items present and a third `skip=0,take=20` request. Final focused evidence is Dashboard `8/8` and controller/service `13/13`; the complete gate totals above supersede the earlier counts.
