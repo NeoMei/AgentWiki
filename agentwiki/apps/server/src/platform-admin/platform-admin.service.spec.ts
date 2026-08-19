@@ -28,6 +28,10 @@ describe('PlatformAdminService password reset security', () => {
     expect(first).not.toBe(second);
     expect(first).not.toBe('12345678');
     expect(first.length).toBeGreaterThanOrEqual(24);
+    expect(first).toMatch(/[A-Z]/);
+    expect(first).toMatch(/[a-z]/);
+    expect(first).toMatch(/\d/);
+    expect(first).toContain('!');
     expect(auth.hashPassword).toHaveBeenNthCalledWith(1, first);
     expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ mustChangePassword: true, authVersion: { increment: 1 } }),

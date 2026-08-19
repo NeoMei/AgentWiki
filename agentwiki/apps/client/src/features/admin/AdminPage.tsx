@@ -3,6 +3,7 @@ import { Shield, Users, BookOpen, Bot, Lock, Unlock, Key, Trash2, Search, AlertT
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 
 interface Stats {
   users: { total: number; active: number; locked: number; deleted: number; new7d: number; new30d: number };
@@ -73,6 +74,9 @@ export const AdminPage: React.FC = () => {
       if (actionType === 'reset-password') {
         const { data } = await api.post(`/platform-admin/users/${actionTarget.id}/reset-password`);
         setActionResult(data.password);
+        loadUsers();
+        loadStats();
+        return;
       } else if (actionType === 'lock') {
         await api.post(`/platform-admin/users/${actionTarget.id}/lock`);
       } else if (actionType === 'unlock') {
@@ -84,8 +88,8 @@ export const AdminPage: React.FC = () => {
       setActionType(null);
       loadUsers();
       loadStats();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Action failed');
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, t, 'admin.actionFailed'));
     }
   };
 
@@ -204,20 +208,26 @@ export const AdminPage: React.FC = () => {
             <h3 className="text-lg font-semibold mb-2">
               {actionType === 'reset-password' ? t('admin.confirmReset') : actionType === 'lock' ? t('admin.confirmLock') : actionType === 'unlock' ? t('admin.confirmUnlock') : t('admin.confirmDelete')}
             </h3>
-            <p className="text-sm text-gray-500 mb-4">{actionTarget.name || actionTarget.email}</p>
+            <p className="text-sm text-gray-500">{actionTarget.name || actionTarget.email}</p>
+            <p className="mb-4 break-all text-sm font-medium text-gray-700">{actionTarget.email}</p>
             {actionResult ? (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-                <p className="text-sm text-green-700 mb-1">{t('admin.passwordResetSuccess')}</p>
-                <div className="flex items-center gap-2 bg-white border rounded px-3 py-2">
-                  <code className="text-sm flex-1 select-all">{actionResult}</code>
-                  <button onClick={() => { navigator.clipboard.writeText(actionResult); }} className="text-blue-600 text-xs hover:underline">{t('common.copy')}</button>
+                <p className="text-sm text-green-700 mb-2">{t('admin.passwordResetSuccess')}</p>
+                <div className="space-y-2 rounded border bg-white px-3 py-2 text-sm">
+                  <p><span className="text-gray-500">{t('admin.loginEmail')}:</span> <code className="select-all break-all">{actionTarget.email}</code></p>
+                  <p><span className="text-gray-500">{t('admin.temporaryPassword')}:</span> <code className="select-all break-all">{actionResult}</code></p>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(`${t('common.email')}: ${actionTarget.email}\n${t('admin.temporaryPassword')}: ${actionResult}`)}
+                    className="text-blue-600 text-xs hover:underline"
+                  >{t('admin.copyLoginCredentials')}</button>
                 </div>
               </div>
             ) : error ? (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4"><p className="text-sm text-red-700">{error}</p></div>
             ) : null}
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setActionTarget(null); setActionType(null); setError(null); setActionResult(null); }} className="px-4 py-2 border rounded-lg text-sm">{t('common.cancel')}</button>
+              <button onClick={() => { setActionTarget(null); setActionType(null); setError(null); setActionResult(null); }} className="px-4 py-2 border rounded-lg text-sm">{actionResult ? t('common.close') : t('common.cancel')}</button>
               {!actionResult && <button onClick={performAction} className={`px-4 py-2 rounded-lg text-sm text-white ${actionType === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{t('common.confirm')}</button>}
             </div>
           </div>
