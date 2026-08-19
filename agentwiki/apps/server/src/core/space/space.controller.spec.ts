@@ -24,3 +24,28 @@ describe('SpaceController.create', () => {
     expect(spaces.create).not.toHaveBeenCalled();
   });
 });
+
+describe('SpaceController.findAll', () => {
+  const spaces = { findAll: jest.fn() } as any;
+  const authorization = { getAccessibleSpaceIds: jest.fn() } as any;
+  const controller = new SpaceController(spaces, authorization);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    authorization.getAccessibleSpaceIds.mockResolvedValue(['space-1']);
+    spaces.findAll.mockResolvedValue({ data: [], total: 0 });
+  });
+
+  it('passes the cursor contract through while keeping skip/take compatibility and capping take', async () => {
+    await (controller as any).findAll(
+      { user: { userId: 'user-1', type: 'human' } },
+      { skip: '4', take: '1000', cursor: 'opaque-cursor' },
+    );
+
+    expect(spaces.findAll).toHaveBeenCalledWith(['space-1'], {
+      skip: 4,
+      take: 100,
+      cursor: 'opaque-cursor',
+    });
+  });
+});

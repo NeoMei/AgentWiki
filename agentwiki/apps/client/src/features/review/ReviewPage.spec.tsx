@@ -115,6 +115,31 @@ describe('ReviewPage detail refresh', () => {
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(2);
   });
 
+  it('renders the authoritative refreshed state after a stale action returns HTTP 409', async () => {
+    let detailReads = 0;
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === '/review') return Promise.resolve({ data: [summary()] } as any);
+      detailReads += 1;
+      return Promise.resolve({
+        data: detailReads === 1
+          ? changeSet('pending_review', 'accepted')
+          : changeSet('approved', 'accepted'),
+      } as any);
+    });
+    vi.mocked(api.post).mockRejectedValue({ response: {
+      status: 409,
+      data: { message: 'The action used a stale review state' },
+    } });
+
+    renderReview();
+    await expand();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
+
+    expect(await screen.findByRole('button', { name: 'Publish' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve only' })).not.toBeInTheDocument();
+    expect(detailReads).toBe(2);
+  });
+
   it('refetches detail after a set action so the next valid action is immediately visible', async () => {
     let detailReads = 0;
     vi.mocked(api.get).mockImplementation((url) => {

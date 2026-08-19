@@ -8,10 +8,14 @@ describe('SpaceService.findAll pagination', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    $transaction: jest.fn(),
   } as any;
   const service = new SpaceService(prisma);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+  });
 
   it('returns the requested page in deterministic newest-first order', async () => {
     prisma.space.findMany.mockResolvedValue([{ id: 'space-new' }]);
@@ -24,6 +28,111 @@ describe('SpaceService.findAll pagination', () => {
       skip: 20,
       take: 20,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+
+  it('returns an opaque createdAt/id keyset cursor and hasMore without using an offset', async () => {
+    const keys = [
+      { id: 'space-3', createdAt: new Date('2026-08-19T03:00:00.000Z') },
+      { id: 'space-2', createdAt: new Date('2026-08-19T02:00:00.000Z') },
+      { id: 'space-1', createdAt: new Date('2026-08-19T01:00:00.000Z') },
+    ];
+    prisma.space.findMany
+      .mockResolvedValueOnce(keys)
+      .mockResolvedValueOnce(keys);
+
+    const result = await (service as any).findAll(['space-1', 'space-2', 'space-3'], {
+      take: 2,
+    });
+
+    expect(result).toMatchObject({
+      data: keys.slice(0, 2),
+      total: 3,
+      limit: 2,
+      hasMore: true,
+      resetRequired: false,
+      revision: expect.any(String),
+      nextCursor: expect.any(String),
+    });
+    expect(prisma.space.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      take: 3,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
+    expect(prisma.space.findMany.mock.calls[1][0]).not.toHaveProperty('skip');
+  });
+
+  it('resets to the first page when a head insertion and tail deletion keep total unchanged', async () => {
+    const originalKeys = [
+      { id: 'space-5', createdAt: new Date('2026-08-19T05:00:00.000Z') },
+      { id: 'space-4', createdAt: new Date('2026-08-19T04:00:00.000Z') },
+      { id: 'space-3', createdAt: new Date('2026-08-19T03:00:00.000Z') },
+      { id: 'space-2', createdAt: new Date('2026-08-19T02:00:00.000Z') },
+      { id: 'space-1', createdAt: new Date('2026-08-19T01:00:00.000Z') },
+    ];
+    prisma.space.findMany
+      .mockResolvedValueOnce(originalKeys)
+      .mockResolvedValueOnce(originalKeys.slice(0, 3));
+
+    const first = await (service as any).findAll(originalKeys.map(({ id }) => id), { take: 2 });
+
+    const changedKeys = [
+      { id: 'space-external', createdAt: new Date('2026-08-19T06:00:00.000Z') },
+      ...originalKeys.slice(0, 4),
+    ];
+    prisma.space.findMany
+      .mockResolvedValueOnce(changedKeys)
+      .mockResolvedValueOnce(changedKeys.slice(0, 3));
+
+    const second = await (service as any).findAll(changedKeys.map(({ id }) => id), {
+      take: 2,
+      cursor: first.nextCursor,
+    });
+
+    expect(second).toMatchObject({
+      data: changedKeys.slice(0, 2),
+      total: 5,
+      hasMore: true,
+      resetRequired: true,
+      nextCursor: expect.any(String),
+    });
+    expect(prisma.space.findMany.mock.calls[3][0]).not.toHaveProperty('skip');
+    expect(prisma.space.findMany.mock.calls[3][0].where).not.toHaveProperty('OR');
+  });
+
+  it('continues an unchanged collection with the cursor createdAt/id boundary', async () => {
+    const keys = [
+      { id: 'space-b', createdAt: new Date('2026-08-19T03:00:00.000Z') },
+      { id: 'space-a', createdAt: new Date('2026-08-19T03:00:00.000Z') },
+      { id: 'space-2', createdAt: new Date('2026-08-19T02:00:00.000Z') },
+      { id: 'space-1', createdAt: new Date('2026-08-19T01:00:00.000Z') },
+    ];
+    prisma.space.findMany
+      .mockResolvedValueOnce(keys)
+      .mockResolvedValueOnce(keys.slice(0, 3));
+    const first = await (service as any).findAll(keys.map(({ id }) => id), { take: 2 });
+
+    prisma.space.findMany
+      .mockResolvedValueOnce(keys)
+      .mockResolvedValueOnce(keys.slice(2));
+    const second = await (service as any).findAll(keys.map(({ id }) => id), {
+      take: 2,
+      cursor: first.nextCursor,
+    });
+
+    expect(second).toMatchObject({
+      data: keys.slice(2),
+      hasMore: false,
+      resetRequired: false,
+      nextCursor: null,
+    });
+    expect(prisma.space.findMany).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { createdAt: { lt: keys[1].createdAt } },
+          { createdAt: keys[1].createdAt, id: { lt: keys[1].id } },
+        ],
+      }),
+      take: 3,
     }));
   });
 });

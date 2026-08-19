@@ -200,7 +200,12 @@ export class ReviewService {
 
   async publish(id: string) {
     const changeSet = await this.get(id);
-    if (changeSet.status !== 'approved') throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
+    if (['draft', 'pending_review'].includes(changeSet.status)) {
+      throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
+    }
+    if (changeSet.status !== 'approved') {
+      throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
+    }
     const authorId = changeSet.createdByUserId || await this.resolveAgentOwner(changeSet.createdByAgentId);
     let publishedPageIds: string[];
     try {
@@ -999,7 +1004,9 @@ export class ReviewService {
 
   async revert(id: string) {
     const changeSet = await this.get(id);
-    if (changeSet.status !== 'published') throw new BadRequestException('Only published change sets can be reverted');
+    if (changeSet.status !== 'published') {
+      throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
+    }
     const publishedAt = changeSet.publishedAt;
     if (!publishedAt) throw new BusinessException('CHANGESET_CONFLICT', 'Published change set is missing its publication timestamp');
     const affectedPageIds = await this.prisma.$transaction(async (tx) => {

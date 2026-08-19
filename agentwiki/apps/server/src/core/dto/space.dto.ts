@@ -65,3 +65,31 @@ export class UpdateMemberRoleDto {
   @IsIn(['owner', 'admin', 'editor', 'viewer'])
   role: 'owner' | 'admin' | 'editor' | 'viewer';
 }
+
+/** Query contract for GET /spaces. skip/take remain accepted for older clients. */
+export class SpaceListQueryDto {
+  @IsOptional()
+  @IsString()
+  skip?: string;
+
+  @IsOptional()
+  @IsString()
+  take?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4096)
+  cursor?: string;
+}
+
+/** Response contract for both legacy offset and cursor-based Space listings. */
+export class SpaceListResponseDto<T = unknown> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+  revision: string;
+  nextCursor: string | null;
+  hasMore: boolean;
+  resetRequired: boolean;
+}

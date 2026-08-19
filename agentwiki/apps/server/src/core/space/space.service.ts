@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
 
@@ -8,6 +9,26 @@ export interface PaginatedResult<T> {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface SpaceListResult<T> extends PaginatedResult<T> {
+  revision: string;
+  nextCursor: string | null;
+  hasMore: boolean;
+  resetRequired: boolean;
+}
+
+export interface SpaceListOptions {
+  skip?: number;
+  take?: number;
+  cursor?: string;
+}
+
+interface SpaceListCursor {
+  v: 1;
+  createdAt: string;
+  id: string;
+  revision: string;
 }
 
 // Select only safe user fields (exclude password, apiKey)
@@ -86,7 +107,20 @@ export class SpaceService {
     }
   }
 
-  async findAll(accessibleSpaceIds: string[], skip = 0, take = 20): Promise<PaginatedResult<any>> {
+  async findAll(accessibleSpaceIds: string[], skip?: number, take?: number): Promise<PaginatedResult<any>>;
+  async findAll(accessibleSpaceIds: string[], options?: SpaceListOptions): Promise<SpaceListResult<any>>;
+  async findAll(
+    accessibleSpaceIds: string[],
+    skipOrOptions: number | SpaceListOptions = 0,
+    legacyTake = 20,
+  ): Promise<PaginatedResult<any> | SpaceListResult<any>> {
+    if (typeof skipOrOptions === 'number') {
+      return this.findAllByOffset(accessibleSpaceIds, skipOrOptions, legacyTake);
+    }
+    return this.findAllByCursor(accessibleSpaceIds, skipOrOptions);
+  }
+
+  private async findAllByOffset(accessibleSpaceIds: string[], skip: number, take: number): Promise<PaginatedResult<any>> {
     const [data, total] = await Promise.all([
       this.prisma.space.findMany({
         where: {
@@ -112,6 +146,110 @@ export class SpaceService {
       }),
     ]);
     return { data, total, page: Math.floor(skip / take) + 1, limit: take };
+  }
+
+  private async findAllByCursor(
+    accessibleSpaceIds: string[],
+    options: SpaceListOptions,
+  ): Promise<SpaceListResult<any>> {
+    const take = Math.min(Math.max(options.take ?? 20, 1), 100);
+    const skip = Math.max(options.skip ?? 0, 0);
+    const suppliedCursor = options.cursor ? this.decodeSpaceCursor(options.cursor) : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const keys = await tx.space.findMany({
+        where: {
+          deletedAt: null,
+          id: { in: accessibleSpaceIds },
+        },
+        select: { id: true, createdAt: true },
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+      });
+      const revision = this.spaceCollectionRevision(keys);
+      const resetRequired = suppliedCursor !== null && suppliedCursor.revision !== revision;
+      const activeCursor = resetRequired ? null : suppliedCursor;
+      const useLegacyOffset = !activeCursor && !options.cursor && skip > 0;
+      const cursorBoundary = activeCursor ? {
+        OR: [
+          { createdAt: { lt: new Date(activeCursor.createdAt) } },
+          { createdAt: new Date(activeCursor.createdAt), id: { lt: activeCursor.id } },
+        ],
+      } : {};
+      const rows = await tx.space.findMany({
+        where: {
+          deletedAt: null,
+          id: { in: accessibleSpaceIds },
+          ...cursorBoundary,
+        },
+        ...(useLegacyOffset ? { skip } : {}),
+        take: take + 1,
+        orderBy: [
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        include: {
+          members: { select: MEMBER_SELECT },
+          _count: { select: { pages: { where: { deletedAt: null } } } },
+        },
+      });
+      const hasMore = rows.length > take;
+      const data = hasMore ? rows.slice(0, take) : rows;
+      const last = data[data.length - 1];
+      const nextCursor = hasMore && last
+        ? this.encodeSpaceCursor(last.createdAt, last.id, revision)
+        : null;
+
+      return {
+        data,
+        total: keys.length,
+        page: useLegacyOffset ? Math.floor(skip / take) + 1 : 1,
+        limit: take,
+        revision,
+        nextCursor,
+        hasMore,
+        resetRequired,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  private spaceCollectionRevision(keys: Array<{ id: string; createdAt: Date }>): string {
+    const digest = createHash('sha256').update('agentwiki-space-list-v1\0');
+    for (const key of keys) {
+      const createdAt = key.createdAt instanceof Date ? key.createdAt.toISOString() : String(key.createdAt);
+      digest.update(String(key.id.length)).update(':').update(key.id);
+      digest.update(String(createdAt.length)).update(':').update(createdAt);
+    }
+    return digest.digest('base64url');
+  }
+
+  private encodeSpaceCursor(createdAt: Date | string, id: string, revision: string): string {
+    const payload: SpaceListCursor = {
+      v: 1,
+      createdAt: createdAt instanceof Date ? createdAt.toISOString() : new Date(createdAt).toISOString(),
+      id,
+      revision,
+    };
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  }
+
+  private decodeSpaceCursor(cursor: string): SpaceListCursor {
+    try {
+      const payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<SpaceListCursor>;
+      const createdAt = typeof payload.createdAt === 'string' ? new Date(payload.createdAt) : null;
+      if (
+        payload.v !== 1 || !createdAt || Number.isNaN(createdAt.getTime()) ||
+        typeof payload.id !== 'string' || !payload.id ||
+        typeof payload.revision !== 'string' || !payload.revision
+      ) {
+        throw new Error('invalid cursor payload');
+      }
+      return { v: 1, createdAt: createdAt.toISOString(), id: payload.id, revision: payload.revision };
+    } catch {
+      throw new BadRequestException('Space cursor is invalid');
+    }
   }
 
   async findOne(id: string) {

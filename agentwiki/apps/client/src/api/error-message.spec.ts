@@ -5,6 +5,7 @@ const t = (key: string) => ({
   'error.authInvalidCredentials': '邮箱或密码错误',
   'error.rateLimited': '请求过于频繁，请稍后再试',
   'error.changeSetConflict': '该来源页面已存在或内容已变化，请刷新后重试',
+  'error.resourceConflict': '该项目与已有资源冲突',
   'auth.loginFailed': '登录失败',
 }[key] || key);
 
@@ -25,5 +26,11 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage({ response: { status: 409, data: {
       code: 'CHANGESET_CONFLICT', message: 'Unique constraint failed',
     } } }, t, 'auth.loginFailed')).toBe('该来源页面已存在或内容已变化，请刷新后重试');
+  });
+
+  it('maps RESOURCE_CONFLICT without exposing the server message', () => {
+    expect(apiErrorMessage({ response: { status: 409, data: {
+      code: 'RESOURCE_CONFLICT', message: 'Onboarding resource recovery state is invalid',
+    } } }, t, 'auth.loginFailed')).toBe('该项目与已有资源冲突');
   });
 });

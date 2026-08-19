@@ -1,21 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
+import type { SpaceListResponse, SpaceSummary } from '../../api/space-types';
+import { ModalDialog } from '../../components/ModalDialog';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, Folder, X, Trash2, Network } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
-interface Space {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
+const PAGE_SIZE = 20;
+const OPTIMISTIC_SPACE_TTL_MS = 5 * 60_000;
+
+interface OptimisticSpace {
+  space: SpaceSummary;
+  mutationVersion: number;
+  expiresAt: number;
 }
 
-const PAGE_SIZE = 20;
-
-const mergeSpaces = (current: Space[], incoming: Space[]) => {
+const mergeSpaces = (current: SpaceSummary[], incoming: SpaceSummary[]) => {
   const seen = new Set(current.map((space) => space.id));
   return [...current, ...incoming.filter((space) => !seen.has(space.id))];
 };
@@ -23,8 +25,9 @@ const mergeSpaces = (current: Space[], incoming: Space[]) => {
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const [spaces, setSpaces] = useState<Space[]>([]);
-  const [total, setTotal] = useState(0);
+  const [serverSpaces, setServerSpaces] = useState<SpaceSummary[]>([]);
+  const [optimisticSpaces, setOptimisticSpaces] = useState<OptimisticSpace[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -34,43 +37,52 @@ export const Dashboard: React.FC = () => {
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingSpace, setDeletingSpace] = useState<string | null>(null);
   const [newSpace, setNewSpace] = useState({ name: '', description: '' });
-  const listVersionRef = useRef(0);
-  const paginationInvalidationVersionRef = useRef(0);
-  const totalRef = useRef(0);
+  const mutationVersionRef = useRef(0);
   const activeListRequestRef = useRef(0);
-  const unconfirmedCreatedSpacesRef = useRef<Space[]>([]);
+  const nextCursorRef = useRef<string | null>(null);
+  const serverSeenIdsRef = useRef(new Set<string>());
+  const createDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const spaces = useMemo(
+    () => mergeSpaces(optimisticSpaces.map(({ space }) => space), serverSpaces),
+    [optimisticSpaces, serverSpaces],
+  );
 
   const fetchSpaces = async (reset = true) => {
     const requestId = activeListRequestRef.current + 1;
     activeListRequestRef.current = requestId;
     if (reset) setResetting(true);
     else setLoadingMore(true);
-    const requestVersion = listVersionRef.current;
-    const requestTotal = totalRef.current;
+    const requestMutationVersion = mutationVersionRef.current;
     try {
-      const skip = reset ? 0 : spaces.length;
-      const res = await api.get('/spaces', { params: { skip, take: PAGE_SIZE } });
+      const cursor = reset ? null : nextCursorRef.current;
+      const res = await api.get('/spaces', {
+        params: cursor ? { take: PAGE_SIZE, cursor } : { take: PAGE_SIZE },
+      });
       if (requestId !== activeListRequestRef.current) return;
-      if (requestVersion < paginationInvalidationVersionRef.current) return;
-
-      const incoming = res.data.data || [];
-      const listMutated = requestVersion !== listVersionRef.current;
-      const responseTotal = Number(res.data.total) || 0;
-      if (!reset && (listMutated || responseTotal !== requestTotal)) {
+      const response = res.data as SpaceListResponse;
+      const incoming = response.data || [];
+      if (!reset && requestMutationVersion !== mutationVersionRef.current && !response.resetRequired) {
         setLoadingMore(false);
         await fetchSpaces(true);
         return;
       }
-      const incomingIds = new Set(incoming.map((space: Space) => space.id));
-      const unconfirmedCreated = unconfirmedCreatedSpacesRef.current.filter((space) => !incomingIds.has(space.id));
-      unconfirmedCreatedSpacesRef.current = unconfirmedCreated;
-      const resetSpaces = [...unconfirmedCreated, ...incoming];
-      setSpaces((current) => reset && !listMutated ? resetSpaces : mergeSpaces(current, incoming));
-      const nextTotal = !listMutated && unconfirmedCreated.length === 0
-        ? responseTotal
-        : Math.max(totalRef.current, responseTotal);
-      totalRef.current = nextTotal;
-      setTotal(nextTotal);
+      const authoritativeReset = reset || response.resetRequired;
+      const incomingIds = new Set(incoming.map((space) => space.id));
+      const now = Date.now();
+      setOptimisticSpaces((current) => current.filter((entry) => {
+        if (incomingIds.has(entry.space.id) || entry.expiresAt <= now) return false;
+        if (authoritativeReset && entry.mutationVersion <= requestMutationVersion) return false;
+        return true;
+      }));
+      if (authoritativeReset) {
+        setServerSpaces(incoming);
+        serverSeenIdsRef.current = incomingIds;
+      } else {
+        setServerSpaces((current) => mergeSpaces(current, incoming));
+        serverSeenIdsRef.current = new Set([...serverSeenIdsRef.current, ...incomingIds]);
+      }
+      nextCursorRef.current = response.nextCursor;
+      setHasMore(response.hasMore);
     } catch (err: unknown) {
       if (requestId !== activeListRequestRef.current) return;
       setError(apiErrorMessage(err, t, 'dashboard.loadFailed'));
@@ -91,12 +103,14 @@ export const Dashboard: React.FC = () => {
     void fetchSpaces(true);
   }, []);
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (event: React.MouseEvent<HTMLButtonElement>) => {
+    createDialogOpenerRef.current = event.currentTarget;
     setCreateError(null);
     setShowCreate(true);
   };
 
   const closeCreateDialog = () => {
+    if (creating) return;
     setCreateError(null);
     setShowCreate(false);
   };
@@ -111,14 +125,15 @@ export const Dashboard: React.FC = () => {
         name: newSpace.name.trim(),
         description: newSpace.description.trim() || undefined,
       });
-      listVersionRef.current += 1;
-      unconfirmedCreatedSpacesRef.current = [
-        created,
-        ...unconfirmedCreatedSpacesRef.current.filter((space) => space.id !== created.id),
-      ];
-      setSpaces((current) => [created, ...current.filter((space) => space.id !== created.id)]);
-      totalRef.current += 1;
-      setTotal(totalRef.current);
+      const mutationVersion = mutationVersionRef.current + 1;
+      mutationVersionRef.current = mutationVersion;
+      if (!serverSeenIdsRef.current.has(created.id)) {
+        setOptimisticSpaces((current) => [{
+          space: created,
+          mutationVersion,
+          expiresAt: Date.now() + OPTIMISTIC_SPACE_TTL_MS,
+        }, ...current.filter((entry) => entry.space.id !== created.id)]);
+      }
       setNewSpace({ name: '', description: '' });
       setShowCreate(false);
     } catch (err: unknown) {
@@ -133,12 +148,11 @@ export const Dashboard: React.FC = () => {
     setDeletingSpace(spaceId);
     try {
       await api.delete(`/spaces/${spaceId}`);
-      listVersionRef.current += 1;
-      paginationInvalidationVersionRef.current = listVersionRef.current;
-      unconfirmedCreatedSpacesRef.current = unconfirmedCreatedSpacesRef.current.filter((space) => space.id !== spaceId);
-      setSpaces(prev => prev.filter(s => s.id !== spaceId));
-      totalRef.current = Math.max(0, totalRef.current - 1);
-      setTotal(totalRef.current);
+      mutationVersionRef.current += 1;
+      setOptimisticSpaces((current) => current.filter((entry) => entry.space.id !== spaceId));
+      setServerSpaces((current) => current.filter((space) => space.id !== spaceId));
+      serverSeenIdsRef.current.delete(spaceId);
+      nextCursorRef.current = null;
       await fetchSpaces(true);
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t, 'dashboard.deleteFailed'));
@@ -221,7 +235,7 @@ export const Dashboard: React.FC = () => {
               </div>
             ))}
           </div>
-          {spaces.length < total ? (
+          {hasMore ? (
             <div className="mt-6 flex justify-center">
               <button
                 type="button"
@@ -236,22 +250,22 @@ export const Dashboard: React.FC = () => {
         </>
       )}
 
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeCreateDialog}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-space-title"
-            className="bg-white rounded-lg p-6 w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {showCreate ? (
+        <ModalDialog
+          labelledBy="create-space-title"
+          onRequestClose={closeCreateDialog}
+          closeDisabled={creating}
+          returnFocusTo={createDialogOpenerRef.current}
+          className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white p-6 shadow-xl"
+        >
             <div className="flex items-center justify-between mb-4">
               <h2 id="create-space-title" className="text-xl font-bold">{t('dashboard.createTitle')}</h2>
               <button
                 type="button"
                 onClick={closeCreateDialog}
+                disabled={creating}
                 aria-label={t('common.close')}
-                className="p-1 hover:bg-gray-100 rounded"
+                className="rounded-lg p-1 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <X size={20} />
               </button>
@@ -259,8 +273,10 @@ export const Dashboard: React.FC = () => {
             <form onSubmit={handleCreate} className="space-y-4">
               {createError ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{createError}</div> : null}
               <div>
-                <label className="block text-sm font-medium mb-1">{t('common.name')} *</label>
+                <label htmlFor="create-space-name" className="block text-sm font-medium mb-1">{t('common.name')} *</label>
                 <input
+                  id="create-space-name"
+                  data-modal-autofocus
                   type="text"
                   value={newSpace.name}
                   onChange={(e) => setNewSpace({ ...newSpace, name: e.target.value })}
@@ -271,8 +287,9 @@ export const Dashboard: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">{t('common.description')}</label>
+                <label htmlFor="create-space-description" className="block text-sm font-medium mb-1">{t('common.description')}</label>
                 <textarea
+                  id="create-space-description"
                   value={newSpace.description}
                   onChange={(e) => setNewSpace({ ...newSpace, description: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -284,7 +301,8 @@ export const Dashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={closeCreateDialog}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
+                  disabled={creating}
+                  className="rounded-lg px-4 py-2 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {t('common.cancel')}
                 </button>
@@ -297,9 +315,8 @@ export const Dashboard: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+        </ModalDialog>
+      ) : null}
     </div>
   );
 };

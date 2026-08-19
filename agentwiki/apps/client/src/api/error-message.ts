@@ -12,6 +12,7 @@ const CODE_KEYS: Record<string, string> = {
   APPROVAL_REQUIRED: 'error.approvalRequired',
   SOURCE_INVALID: 'error.sourceInvalid',
   SOURCE_TOO_LARGE: 'error.sourceTooLarge',
+  RESOURCE_CONFLICT: 'error.resourceConflict',
   CONFLICT: 'error.resourceConflict',
 };
 

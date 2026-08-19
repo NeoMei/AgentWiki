@@ -54,6 +54,32 @@ describe('ReviewService approval boundaries', () => {
     await expect(service.approve('cs-1', 'user-1')).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('returns CHANGESET_INVALID_STATE with 409 for a stale publish request', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-stale-publish', status: 'published', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [], approvals: [], space: {}, run: null,
+    });
+
+    await expect(service.publish('cs-stale-publish')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      statusCode: 409,
+    });
+  });
+
+  it('returns CHANGESET_INVALID_STATE with 409 for a stale revert request', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-stale-revert', status: 'reverted', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [], approvals: [], space: {}, run: null,
+    });
+
+    await expect(service.revert('cs-stale-revert')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      statusCode: 409,
+    });
+  });
+
   it('publishes only explicitly accepted items', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-1', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,

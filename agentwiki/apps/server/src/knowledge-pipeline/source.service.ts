@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { ConfigService } from '@nestjs/config';
+import type { Prisma } from '@prisma/client';
 import axios from 'axios';
 import { execFile, execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -8,7 +9,7 @@ import { promises as dns } from 'dns';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'fs';
 import { Agent as HttpAgent } from 'http';
 import { Agent as HttpsAgent } from 'https';
-import { isIP } from 'net';
+import { isIP, type LookupFunction } from 'net';
 import { tmpdir } from 'os';
 import { extname, posix, resolve } from 'path';
 import { promisify } from 'util';
@@ -51,6 +52,27 @@ interface CompiledPage {
   content: string;
   format: 'markdown' | 'json';
   contentHash: string;
+}
+
+interface RemoteSourceMetadata {
+  finalUrl: string;
+  resolvedAddress?: string;
+  contentType?: string;
+  statusCode?: number;
+  redirectCount: number;
+}
+
+class RemoteSourceError extends Error {
+  readonly stage = 'fetching';
+
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly sourceMetadata: RemoteSourceMetadata,
+  ) {
+    super(message);
+    this.name = 'RemoteSourceError';
+  }
 }
 
 @Injectable()
@@ -515,7 +537,9 @@ export class SourceService {
           data: {
             status: cancelled ? 'cancelled' : authorizationRevoked || exhausted ? 'failed' : 'queued',
             stage: cancelled ? 'cancelled' : authorizationRevoked || exhausted ? 'failed' : 'queued',
-            error: error.message, lockedAt: null, leaseOwner: null, leaseExpiresAt: null,
+            error: error.message,
+            result: this.failureResult(error, current?.stage || run.stage || 'fetching'),
+            lockedAt: null, leaseOwner: null, leaseExpiresAt: null,
             nextAttemptAt: cancelled || authorizationRevoked || exhausted ? null : new Date(Date.now() + 5_000),
           },
         });
@@ -629,43 +653,98 @@ export class SourceService {
     let currentUrl = uri;
     let redirectCount = 0;
     while (true) {
-      const target = await this.validateRemoteUrl(currentUrl);
-      const lookup = (_hostname: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void) =>
-        callback(null, target.address, target.family);
-      const response = await axios.get(target.url.toString(), {
-        responseType: 'arraybuffer', timeout: 30_000, maxContentLength: MAX_REMOTE_BYTES,
-        maxBodyLength: MAX_REMOTE_BYTES, maxRedirects: 0,
-        proxy: false,
-        validateStatus: (status) => status >= 200 && status < 400,
-        httpAgent: new HttpAgent({ lookup }),
-        httpsAgent: new HttpsAgent({ lookup }),
-      });
+      let target: Awaited<ReturnType<SourceService['validateRemoteUrl']>>;
+      try {
+        target = await this.validateRemoteUrl(currentUrl);
+      } catch (error: any) {
+        throw new RemoteSourceError(
+          'REMOTE_URL_REJECTED',
+          error?.message || 'Remote URL is not allowed',
+          { finalUrl: currentUrl, redirectCount },
+        );
+      }
+      const metadata: RemoteSourceMetadata = {
+        finalUrl: target.url.toString(),
+        resolvedAddress: target.address,
+        redirectCount,
+      };
+      const lookup: LookupFunction = (_hostname, options, callback) => {
+        if (options.all) callback(null, [{ address: target.address, family: target.family }]);
+        else callback(null, target.address, target.family);
+      };
+      let response;
+      try {
+        response = await axios.get(target.url.toString(), {
+          responseType: 'arraybuffer', timeout: 30_000, maxContentLength: MAX_REMOTE_BYTES,
+          maxBodyLength: MAX_REMOTE_BYTES, maxRedirects: 0,
+          proxy: false,
+          validateStatus: (status) => status >= 200 && status < 400,
+          httpAgent: new HttpAgent({ lookup }),
+          httpsAgent: new HttpsAgent({ lookup }),
+        });
+      } catch (error: any) {
+        const contentType = this.remoteContentType(error?.response?.headers?.['content-type']);
+        throw new RemoteSourceError(
+          'REMOTE_REQUEST_FAILED',
+          error?.message || 'Remote request failed',
+          {
+            ...metadata,
+            ...(contentType ? { contentType } : {}),
+            ...(Number.isInteger(error?.response?.status) ? { statusCode: error.response.status } : {}),
+          },
+        );
+      }
+      metadata.statusCode = response.status;
       if (response.status >= 300) {
         const location = response.headers.location;
-        if (typeof location !== 'string' || !location) throw new BadRequestException('Remote redirect is missing a location');
-        if (redirectCount >= MAX_REMOTE_REDIRECTS) throw new BadRequestException('Remote URL has too many redirects');
+        if (typeof location !== 'string' || !location) {
+          throw new RemoteSourceError('REMOTE_REDIRECT_INVALID', 'Remote redirect is missing a location', metadata);
+        }
+        if (redirectCount >= MAX_REMOTE_REDIRECTS) {
+          throw new RemoteSourceError('REMOTE_REDIRECT_LIMIT', 'Remote URL has too many redirects', metadata);
+        }
         currentUrl = new URL(location, target.url).toString();
         redirectCount += 1;
         continue;
       }
-      const contentTypeHeader = response.headers['content-type'];
-      const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
-      if (!isSupportedTextContentType(contentType)) throw new BadRequestException('Unsupported remote content type');
+      const contentType = this.remoteContentType(response.headers['content-type']);
+      metadata.contentType = contentType;
+      if (!isSupportedTextContentType(contentType)) {
+        throw new RemoteSourceError('REMOTE_CONTENT_TYPE_UNSUPPORTED', 'Unsupported remote content type', metadata);
+      }
       const buffer = Buffer.isBuffer(response.data) ? response.data : Buffer.from(response.data);
-      if (buffer.byteLength > MAX_REMOTE_BYTES) throw new BadRequestException('Remote source exceeds 10 MB');
+      if (buffer.byteLength > MAX_REMOTE_BYTES) {
+        throw new RemoteSourceError('REMOTE_BODY_TOO_LARGE', 'Remote source exceeds 10 MB', metadata);
+      }
       let decoded: string;
       try {
         decoded = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
       } catch {
-        throw new BadRequestException('Remote source must be valid UTF-8');
+        throw new RemoteSourceError('REMOTE_ENCODING_INVALID', 'Remote source must be valid UTF-8', metadata);
       }
       const content = contentType.toLowerCase().startsWith('text/html') ? extractHtmlText(decoded) : decoded.trim();
-      if (!content) throw new BadRequestException('Remote source is empty');
+      if (!content) throw new RemoteSourceError('REMOTE_SOURCE_EMPTY', 'Remote source is empty', metadata);
       return {
         content,
-        metadata: { finalUrl: target.url.toString(), contentType, redirectCount },
+        metadata,
       };
     }
+  }
+
+  private remoteContentType(value: unknown): string {
+    return typeof value === 'string' ? value : Array.isArray(value) && typeof value[0] === 'string' ? value[0] : '';
+  }
+
+  private failureResult(error: unknown, fallbackStage: string): Prisma.InputJsonObject {
+    if (error instanceof RemoteSourceError) {
+      return {
+        failure: { stage: error.stage, code: error.code },
+        sourceMetadata: { ...error.sourceMetadata },
+      };
+    }
+    return {
+      failure: { stage: fallbackStage, code: 'INGEST_RUN_FAILED' },
+    };
   }
 
   private async validateRemoteUrl(value: string) {

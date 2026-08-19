@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger, Req, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { SpaceService } from './space.service';
-import { CreateSpaceDto, UpdateSpaceDto, AddMemberDto, UpdateMemberRoleDto } from '../dto/space.dto';
+import { CreateSpaceDto, UpdateSpaceDto, AddMemberDto, UpdateMemberRoleDto, SpaceListQueryDto } from '../dto/space.dto';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { parseLimit, parseOffset } from '../utils/pagination';
@@ -27,16 +27,18 @@ export class SpaceController {
   @Get()
   async findAll(
     @Req() req: Request,
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
+    @Query() query: SpaceListQueryDto,
   ) {
     const user = req.user as any;
     const accessibleSpaceIds = await this.authorization.getAccessibleSpaceIds(user, 'spaces:read');
     this.logger.log('Listing spaces for user: ' + user.userId);
     return this.spaceService.findAll(
       accessibleSpaceIds,
-      parseOffset(skip),
-      parseLimit(take),
+      {
+        skip: parseOffset(query.skip),
+        take: parseLimit(query.take),
+        cursor: query.cursor,
+      },
     );
   }
 

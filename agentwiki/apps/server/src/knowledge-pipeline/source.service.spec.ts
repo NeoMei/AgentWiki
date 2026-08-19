@@ -1,6 +1,42 @@
 import { BadRequestException } from '@nestjs/common';
 import { SourceService } from './source.service';
 import axios from 'axios';
+import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
+import { AddressInfo, getDefaultAutoSelectFamily, setDefaultAutoSelectFamily } from 'net';
+import { getCACertificates, setDefaultCACertificates } from 'tls';
+
+const TEST_TLS_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgactuuNQmoisPoOPn
+Ycy+WbJir+lvDoj9fO9YODtVPcyhRANCAASdrAj2f8pBQU6Zq9w+JdJj4NgWZ+WE
+NWU3y2Lo9lAUrrj1s4lOHLN+ctRij2Frz9cACMxCozr1omzSGCKKtIcl
+-----END PRIVATE KEY-----`;
+
+const TEST_TLS_CERT = `-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIUFcxJfIXOj9jTUd/9qnJSfMLzub8wCgYIKoZIzj0EAwIw
+FjEUMBIGA1UEAwwLcmVtb3RlLnRlc3QwIBcNMjYwODE5MTQxMDM4WhgPMjEyNjA3
+MjYxNDEwMzhaMBYxFDASBgNVBAMMC3JlbW90ZS50ZXN0MFkwEwYHKoZIzj0CAQYI
+KoZIzj0DAQcDQgAEnawI9n/KQUFOmavcPiXSY+DYFmflhDVlN8ti6PZQFK649bOJ
+ThyzfnLUYo9ha8/XAAjMQqM69aJs0hgiirSHJaNrMGkwHQYDVR0OBBYEFO9t+n3g
+kBMvf1aCW5sdzHNDI1paMB8GA1UdIwQYMBaAFO9t+n3gkBMvf1aCW5sdzHNDI1pa
+MA8GA1UdEwEB/wQFMAMBAf8wFgYDVR0RBA8wDYILcmVtb3RlLnRlc3QwCgYIKoZI
+zj0EAwIDSAAwRQIhAKjSbaJtpBIggERTwkgc0AErtHYED4S6ROLBPMLXsgZxAiAL
+4C2nTHhuf8VP66SxPLu9ChpyUNamS/5YNnlDP4Zo6Q==
+-----END CERTIFICATE-----`;
+
+type LocalServer = ReturnType<typeof createHttpServer> | ReturnType<typeof createHttpsServer>;
+
+async function listen(server: LocalServer): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return (server.address() as AddressInfo).port;
+}
+
+async function close(server: LocalServer): Promise<void> {
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
 
 describe('SourceService safety and idempotency', () => {
   const prisma = {
@@ -10,7 +46,10 @@ describe('SourceService safety and idempotency', () => {
   const config = { get: jest.fn() } as any;
   const service = new SourceService(prisma, config, {} as any);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+  });
 
   it('returns the existing run for the same source idempotency key', async () => {
     prisma.source.findUnique.mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active' });
@@ -31,6 +70,61 @@ describe('SourceService safety and idempotency', () => {
 
   it('rejects malformed remote URLs as a client error', async () => {
     await expect((service as any).validateRemoteUrl('not a url')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns a LookupAddress array when Node 24/26 requests all pinned addresses', async () => {
+    const request = jest.spyOn(axios, 'get').mockResolvedValue({
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+      data: Buffer.from('ok'),
+    } as any);
+    jest.spyOn(service as any, 'validateRemoteUrl').mockResolvedValue({
+      url: new URL('https://remote.test/article'), address: '203.0.113.10', family: 4,
+    });
+
+    await (service as any).fetchRemoteUrl('https://remote.test/article');
+
+    const config = request.mock.calls[0][1] as any;
+    for (const agent of [config.httpAgent, config.httpsAgent]) {
+      const resolved = await new Promise<{ address: unknown; family?: number }>((resolve, reject) => {
+        agent.options.lookup('remote.test', { all: true }, (error: Error | null, address: unknown, family?: number) => {
+          if (error) reject(error);
+          else resolve({ address, family });
+        });
+      });
+      expect(resolved).toEqual({ address: [{ address: '203.0.113.10', family: 4 }], family: undefined });
+    }
+  });
+
+  it.each([
+    ['HTTP', 'http', () => createHttpServer((_request, response) => {
+      response.setHeader('content-type', 'text/html; charset=utf-8');
+      response.end('<h1>HTTP article</h1>');
+    })],
+    ['HTTPS', 'https', () => createHttpsServer({ key: TEST_TLS_KEY, cert: TEST_TLS_CERT }, (_request, response) => {
+      response.setHeader('content-type', 'text/html; charset=utf-8');
+      response.end('<h1>HTTPS article</h1>');
+    })],
+  ])('fetches through a real local %s server with Axios and the production Agent', async (_label, scheme, makeServer) => {
+    const server = makeServer();
+    const originalCAs = getCACertificates('default');
+    if (scheme === 'https') setDefaultCACertificates([...originalCAs, TEST_TLS_CERT]);
+    try {
+      const port = await listen(server);
+      const remoteUrl = `${scheme}://remote.test:${port}/article`;
+      jest.spyOn(service as any, 'validateRemoteUrl').mockImplementation(async (value: string) => ({
+        url: new URL(value), address: '127.0.0.1', family: 4,
+      }));
+
+      await expect((service as any).fetchRemoteUrl(remoteUrl)).resolves.toMatchObject({
+        content: expect.stringContaining(`${_label} article`),
+        metadata: expect.objectContaining({ finalUrl: remoteUrl }),
+      });
+      expect(jest.isMockFunction(axios.get)).toBe(false);
+    } finally {
+      if (scheme === 'https') setDefaultCACertificates(originalCAs);
+      if (server.listening) await close(server);
+    }
   });
 
   it('revalidates every redirect and returns extracted HTML', async () => {
@@ -171,6 +265,73 @@ describe('SourceService pipeline lifecycle', () => {
     const service = new SourceService(prisma, { get: jest.fn() } as any, review);
     return { service, prisma, review, run };
   };
+
+  beforeEach(() => jest.restoreAllMocks());
+
+  it('persists structured safe diagnostics when a URL Run fails during fetching', async () => {
+    const { service, prisma, run } = makeHarness();
+    const originalAutoSelectFamily = getDefaultAutoSelectFamily();
+    setDefaultAutoSelectFamily(false);
+    const server = createHttpServer((_request, response) => {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'image/png');
+      response.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    });
+    const port = await listen(server);
+    const remoteUrl = `http://remote.test:${port}/binary`;
+    run.source = { id: 'source-1', type: 'url', name: 'Remote article', uri: remoteUrl };
+    run.attempts = run.maxAttempts;
+    jest.spyOn(service as any, 'validateRemoteUrl').mockImplementation(async (value: string) => ({
+      url: new URL(value), address: '127.0.0.1', family: 4,
+    }));
+
+    try {
+      await service.processRun('run-1').catch(() => undefined);
+    } finally {
+      setDefaultAutoSelectFamily(originalAutoSelectFamily);
+      if (server.listening) await close(server);
+    }
+
+    const failedUpdate = prisma.ingestRun.update.mock.calls
+      .map((call: any[]) => call[0])
+      .find((call: any) => call.data.status === 'failed');
+    expect(failedUpdate).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        error: expect.any(String),
+        result: {
+          failure: { stage: 'fetching', code: 'REMOTE_CONTENT_TYPE_UNSUPPORTED' },
+          sourceMetadata: {
+            finalUrl: remoteUrl,
+            resolvedAddress: '127.0.0.1',
+            contentType: 'image/png',
+            statusCode: 200,
+            redirectCount: 0,
+          },
+        },
+      }),
+    }));
+    expect(JSON.stringify(failedUpdate)).not.toContain('89504e47');
+
+    prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      id: 'run-1',
+      sourceId: 'source-1',
+      status: 'failed',
+      stage: 'failed',
+      ...failedUpdate.data,
+    });
+    await expect(service.getRun('run-1')).resolves.toMatchObject({
+      status: 'failed',
+      result: {
+        failure: { stage: 'fetching', code: 'REMOTE_CONTENT_TYPE_UNSUPPORTED' },
+        sourceMetadata: expect.objectContaining({
+          finalUrl: remoteUrl,
+          resolvedAddress: '127.0.0.1',
+          contentType: 'image/png',
+          statusCode: 200,
+        }),
+      },
+    });
+  });
 
   it('persists Git file snapshots and records every pipeline stage including partial completion', async () => {
     const { service, prisma } = makeHarness();

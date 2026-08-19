@@ -192,8 +192,11 @@ export class AuthService {
     if (!user || !user.mustChangePassword) {
       throw new UnauthorizedException('Password change not required');
     }
-    if (defaultPassword && newPassword === defaultPassword) {
-      throw new BusinessException('AUTH_PASSWORD_POLICY', 'New password cannot be the default password');
+    if (
+      (defaultPassword && newPassword === defaultPassword) ||
+      (user.password && await this.validatePassword(newPassword, user.password))
+    ) {
+      throw new BusinessException('AUTH_PASSWORD_POLICY', 'New password cannot be the current temporary password');
     }
     if (newPassword.length < 8) {
       throw new BusinessException('AUTH_PASSWORD_POLICY', 'Password must be at least 8 characters');
