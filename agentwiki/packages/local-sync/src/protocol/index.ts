@@ -5,3 +5,4 @@ export * from './recipe.js';
 export * from './job.js';
 export * from './validation.js';
 export * from './sync.js';
+export * from '../codegraph/contracts.js';

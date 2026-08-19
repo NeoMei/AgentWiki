@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProtocolSink, ProtocolSource } from './protocol.js';
 import { runOnboarding } from './runtime.js';
 
+const CONFIG_HASH = 'c'.repeat(64);
+const MANIFEST_HASH = 'd'.repeat(64);
+
 const homes: string[] = [];
 
 afterEach(async () => {
@@ -27,7 +30,7 @@ describe('runOnboarding', () => {
             requestId: 'input',
             values: {
               spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', permissionPreset: 'editor',
-              approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'auto',
+              approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
             },
           });
         }
@@ -43,8 +46,8 @@ describe('runOnboarding', () => {
       },
       reloadRequired: false,
       configBackupPath: '/tmp/backup',
-      manifestHash: 'manifest-hash',
-      connectionId: 'connection-1',
+      manifestHash: MANIFEST_HASH,
+      connectionId: '00000000-0000-4000-8000-000000000001',
     }));
 
     const result = await runOnboarding(
@@ -60,9 +63,10 @@ describe('runOnboarding', () => {
           })),
           pollUntilSettled: vi.fn(async () => ({ status: 'authorized', onboardingToken: 'awo_test', expiresIn: 600 })),
         } as never,
-        preflight: vi.fn(async () => ({ configHash: 'config-hash', oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
+        preflight: vi.fn(async () => ({ configHash: CONFIG_HASH, oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
         bootstrapInstall,
         knowledge: {
+          planLocalScan: vi.fn(async () => null),
           pull: vi.fn(async () => ({ revisionId: '0' })),
           prepare: vi.fn(async () => ({ jobId: 'job-1', previewHash: 'preview-hash', summary: { filesProcessed: 2 } })),
           confirmAndSync: vi.fn(async () => ({ revisionId: 'rev-1', status: 'published', submissionId: 'sub-1' })),

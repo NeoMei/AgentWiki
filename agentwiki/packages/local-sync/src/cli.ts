@@ -25,10 +25,17 @@ import {
 import { removeGatewayEntry } from './installer/client-config.js';
 import { runGateway } from './gateway/entry.js';
 import type { AttachCliInput } from './onboarding/attach.js';
+import { createCodeGraphProvider, safeCodeGraphVersion, type CodeGraphProvider } from './codegraph/provider.js';
 
-export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--code CODE] [--protocol ndjson|human] [--connection ID]';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--code CODE] [--protocol ndjson|human] [--connection ID] [--source-path PATH]';
 const DEFAULT_SERVER_BASE_URL = 'https://agentwiki.quukk.com/api';
 const PUBLIC_COMMANDS = new Set(['onboard', 'gateway', 'doctor', 'uninstall']);
+const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
+  onboard: new Set(['server', 'protocol', 'agent', 'code', 'id']),
+  gateway: new Set(['connection']),
+  doctor: new Set(['connection', 'source-path']),
+  uninstall: new Set(['agent', 'delete-credential', 'delete-sync-state']),
+};
 
 export interface OnboardCliInput {
   home: string;
@@ -105,6 +112,25 @@ function clientOption(value: string | undefined): AgentClient | 'auto' {
   throw new Error('--agent must be auto, codex, claude, or opencode');
 }
 
+function assertCommandOptions(command: string, values: Record<string, string | boolean | undefined>): void {
+  const allowed = COMMAND_OPTIONS[command];
+  if (!allowed) throw new Error(CLI_USAGE);
+  for (const [name, value] of Object.entries(values)) {
+    if (allowed.has(name) || value === undefined || value === false) continue;
+    throw new Error(CLI_USAGE);
+  }
+}
+
+function assertCommandPositionals(command: string, positionals: string[]): 'resume' | undefined {
+  if (command === 'onboard') {
+    if (positionals.length === 0) return undefined;
+    if (positionals.length === 1 && positionals[0] === 'resume') return 'resume';
+    throw new Error(CLI_USAGE);
+  }
+  if (positionals.length !== 0) throw new Error(CLI_USAGE);
+  return undefined;
+}
+
 async function uninstall(home: string, values: Record<string, string | boolean | undefined>): Promise<unknown> {
   const config = await loadConfig(home);
   const requested = clientOption(typeof values.agent === 'string' ? values.agent : undefined);
@@ -139,6 +165,7 @@ export interface DoctorDependencies {
   client: Pick<AgentWikiClient, 'access'>;
   readApiKey: () => Promise<string>;
   run: CommandRunner;
+  codeGraph?: Pick<CodeGraphProvider, 'diagnose'>;
 }
 
 function check(name: string, passed: boolean, detail: string): DoctorCheck {
@@ -156,6 +183,11 @@ function versionAtLeast(output: string, minimum: [number, number, number]): bool
   return actual[0] > minimum[0]
     || (actual[0] === minimum[0] && actual[1] > minimum[1])
     || (actual[0] === minimum[0] && actual[1] === minimum[1] && actual[2] >= minimum[2]);
+}
+
+export function isSupportedNodeVersion(version: string): boolean {
+  const match = version.match(/^v?(\d+)(?:\.\d+){1,2}$/u);
+  return match?.[1] === '24' || match?.[1] === '26';
 }
 
 function inspectCommand(
@@ -220,15 +252,36 @@ export async function runDoctor(
   home: string,
   connection: LocalSyncConnection,
   dependencies: DoctorDependencies,
+  sourcePath?: string,
 ): Promise<DoctorReport> {
+ const codeGraph = dependencies.codeGraph ?? createCodeGraphProvider({ home });
+ const codeGraphDiagnosis = await codeGraph.diagnose(sourcePath ? { sourcePath } : undefined);
  const checks = [
-   check('node', versionAtLeast(process.version, [20, 0, 0]), `Node ${process.version}`),
+   check('node', isSupportedNodeVersion(process.version), `Node ${process.version}; supported lines are 24 and 26`),
     inspectCommand('markitdown', 'markitdown', ['--version'], dependencies.run, [0, 1, 0]),
     inspectCommand('git', 'git', ['--version'], dependencies.run),
-    inspectCommand('codebase-memory', 'codebase-memory-mcp', ['--version'], dependencies.run),
     await inspectMcpRegistration(connection, home, dependencies.run),
     await inspectFilePermissions(home),
   ];
+  if (!codeGraphDiagnosis.available || !codeGraphDiagnosis.capabilities) {
+    checks.push(check('codegraph', false, 'CodeGraph is unavailable. Install or repair CodeGraph independently; AgentWiki does not install or upgrade it.'));
+  } else {
+    const missingRequired = Object.entries(codeGraphDiagnosis.capabilities.required)
+      .filter(([, available]) => !available).map(([name]) => name);
+    checks.push(check('codegraph', missingRequired.length === 0,
+      missingRequired.length === 0
+        ? `CodeGraph available: ${safeCodeGraphVersion(codeGraphDiagnosis.detectedVersion ?? '') ?? 'version unavailable'}`
+        : `Required CodeGraph capabilities unavailable: ${missingRequired.join(', ')}. Repair CodeGraph independently; AgentWiki does not install or upgrade it.`));
+    const missingOptional = Object.entries(codeGraphDiagnosis.capabilities.optional)
+      .filter(([, available]) => !available).map(([name]) => name);
+    checks.push(check('codegraph-optional-capabilities', true,
+      missingOptional.length === 0 ? 'Optional CodeGraph capabilities available' : `Optional CodeGraph capabilities degraded: ${missingOptional.join(', ')}`));
+    if (sourcePath) {
+      checks.push(check('codegraph-index', Boolean(codeGraphDiagnosis.source), codeGraphDiagnosis.source
+        ? `CodeGraph source index is ${codeGraphDiagnosis.source.indexState} (${codeGraphDiagnosis.source.estimatedFiles ?? 'unknown'} files)`
+        : 'CodeGraph source index could not be inspected'));
+    }
+  }
 
   try {
     const access = await dependencies.client.access(connection, await dependencies.readApiKey());
@@ -277,7 +330,7 @@ export async function runCli(
     args,
     options: {
       server: { type: 'string' }, protocol: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
-      code: { type: 'string' },
+      code: { type: 'string' }, 'source-path': { type: 'string' },
       id: { type: 'string' },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
@@ -285,9 +338,9 @@ export async function runCli(
     allowPositionals: true,
   });
   const { values } = parsed;
+  assertCommandOptions(command, values);
+  const positional = assertCommandPositionals(command, parsed.positionals as string[]);
   if (command === 'onboard') {
-    const positional = (parsed.positionals as string[] | undefined)?.[0];
-    if (positional && positional !== 'resume') throw new Error(CLI_USAGE);
     if (positional === 'resume' && values.code !== undefined) throw new Error(CLI_USAGE);
     const protocol = values.protocol ?? 'ndjson';
     if (protocol !== 'ndjson' && protocol !== 'human') {
@@ -325,7 +378,7 @@ export async function runCli(
     client: dependencies.client,
     readApiKey: dependencies.readApiKey,
     run: runner,
-  });
+  }, typeof values['source-path'] === 'string' ? values['source-path'] : undefined);
   throw new Error(CLI_USAGE);
 }
 

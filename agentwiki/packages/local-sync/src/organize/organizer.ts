@@ -6,6 +6,7 @@ import type {
   SharedMemory,
   WikiPage,
 } from '../protocol/bundle.js';
+import { GeneratedOwnershipSchema } from '../protocol/bundle.js';
 import type { Recipe } from '../protocol/recipe.js';
 import { pageId, memoryId, relationId } from '../utils/id.js';
 import { contentHash } from '../utils/hash.js';
@@ -107,6 +108,12 @@ function artifactToPage(
   };
 }
 
+function generatedOwnership(metadata?: Record<string, unknown>) {
+  if (!metadata) return undefined;
+  const candidate = GeneratedOwnershipSchema.safeParse(metadata.ownership);
+  return candidate.success ? candidate.data : undefined;
+}
+
 function artifactToMemory(
   artifact: SourceArtifact,
   ctx: OrganizeContext,
@@ -123,6 +130,7 @@ function artifactToMemory(
     pageIds: (artifact.content.metadata?.pageIds as string[] | undefined) ?? [],
     artifactIds: [artifact.artifactId],
     updatedAt: timestamp,
+    ...(generatedOwnership(artifact.content.metadata) ? { ownership: generatedOwnership(artifact.content.metadata) } : {}),
   };
 
   return {

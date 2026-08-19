@@ -53,10 +53,11 @@ export const STATIC_TOOLS: readonly ToolDeclaration[] = [
     name: 'local_scan_sources',
     plane: 'local',
     description:
-      'Discover available local source adapters and inspect a source path without uploading any content.',
+      'Create a read-only CodeGraph local scan plan. Standard analysis is the default; this returns only the plan and localScanPlanHash, never a preview, init, sync, index write, or remote call. A matching confirmed plan is required before standard work may write .codegraph/. Deep analysis requires an explicit request and Stage 2 support.',
     inputSchema: {
       sourcePaths: { type: 'array', items: { type: 'string' } },
-      sourceType: { type: 'string' },
+      sourceType: { enum: ['auto', 'code', 'documents'] },
+      analysisMode: { enum: ['standard', 'deep'], default: 'standard' },
     },
   },
   {
@@ -72,11 +73,14 @@ export const STATIC_TOOLS: readonly ToolDeclaration[] = [
     name: 'knowledge_prepare',
     plane: 'hybrid',
     description:
-      'Discover adapters, collect, organize, validate and persist a local knowledge preview without uploading. Returns a jobId, summary and preview hash.',
+      'Prepare a local knowledge preview without uploading. Standard analysis is the default. Code-bearing sources may write .codegraph/ only after the exact localScanPlanHash is confirmed with confirmedLocalScan: true; document-only sources use MarkItDown without a scan hash. Deep analysis requires an explicit request plus Stage 2 support; deep analysis is not installed yet.',
     inputSchema: {
       spaceId: { type: 'string' },
       sourcePaths: { type: 'array', items: { type: 'string' } },
-      sourceType: { type: 'string' },
+      sourceType: { enum: ['auto', 'code', 'documents'] },
+      analysisMode: { enum: ['standard', 'deep'], default: 'standard' },
+      localScanPlanHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      confirmedLocalScan: { type: 'boolean' },
     },
   },
   {

@@ -11,7 +11,7 @@ describe('default recipes', () => {
 
     const code = recipes.find((recipe) => recipe.recipeId === 'code-wiki@1')!;
     const documents = recipes.find((recipe) => recipe.recipeId === 'document-library@1')!;
-    expect(planPhaseWorkItems(code, 'discover')[0]?.artifactIds).toEqual(['codebase-memory']);
+    expect(planPhaseWorkItems(code, 'discover')[0]?.artifactIds).toEqual(['agentwiki-codegraph-generated']);
     expect(planPhaseWorkItems(documents, 'discover')[0]?.artifactIds).toEqual(['markitdown']);
   });
 });

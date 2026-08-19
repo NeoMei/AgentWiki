@@ -24,6 +24,14 @@ _Avoid_: Quick analysis, shallow scan
 User-requested derived knowledge that adds module relationships and optional local Agent explanations.
 _Avoid_: Automatic analysis, default scan
 
+**Scan Plan Consent**:
+Current, explicit consent for an exact read-only CodeGraph plan and its `localScanPlanHash`. It permits only the matching local scanner action.
+_Avoid_: Persistent consent, sync consent
+
+**Preview Sync Consent**:
+Separate, current approval to upload one exact AgentWiki Preview after its additions, updates, and deletions are shown.
+_Avoid_: Scan consent, implied upload
+
 **Derived Knowledge**:
 Locally generated, provenance-carrying content that may enter an AgentWiki Preview and synchronization flow.
 _Avoid_: Raw source, scan index

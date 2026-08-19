@@ -8,26 +8,83 @@
   },
   "main": "./dist/gateway/server.js",
   "types": "./dist/gateway/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/gateway/server.d.ts",
+      "import": "./dist/gateway/server.js",
+      "default": "./dist/gateway/server.js"
+    },
+    "./package.json": "./package.json",
+    "./skill/*": "./skill/*",
+    "./dist/adapter/index.js": {
+      "types": "./dist/adapter/index.d.ts",
+      "import": "./dist/adapter/index.js",
+      "default": "./dist/adapter/index.js"
+    },
+    "./dist/adapter/manager.js": {
+      "types": "./dist/adapter/manager.d.ts",
+      "import": "./dist/adapter/manager.js",
+      "default": "./dist/adapter/manager.js"
+    },
+    "./dist/adapter/markitdown.js": {
+      "types": "./dist/adapter/markitdown.d.ts",
+      "import": "./dist/adapter/markitdown.js",
+      "default": "./dist/adapter/markitdown.js"
+    },
+    "./dist/core/*": "./dist/core/*",
+    "./dist/gateway/*": "./dist/gateway/*",
+    "./dist/installer/*": "./dist/installer/*",
+    "./dist/onboarding/*": "./dist/onboarding/*",
+    "./dist/organize/*": "./dist/organize/*",
+    "./dist/protocol/*": "./dist/protocol/*",
+    "./dist/sync/*": "./dist/sync/*",
+    "./dist/utils/*": "./dist/utils/*",
+    "./dist/workspace/*": "./dist/workspace/*",
+    "./dist/agent-clients.js": {
+      "types": "./dist/agent-clients.d.ts",
+      "import": "./dist/agent-clients.js",
+      "default": "./dist/agent-clients.js"
+    },
+    "./dist/agentwiki-client.js": {
+      "types": "./dist/agentwiki-client.d.ts",
+      "import": "./dist/agentwiki-client.js",
+      "default": "./dist/agentwiki-client.js"
+    },
+    "./dist/cli.js": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./dist/config.js": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js",
+      "default": "./dist/config.js"
+    },
+    "./dist/recipes.js": {
+      "types": "./dist/recipes.d.ts",
+      "import": "./dist/recipes.js",
+      "default": "./dist/recipes.js"
+    }
+  },
   "files": [
     "dist",
     "!dist/**/*.spec.d.ts",
     "!dist/**/*.spec.js",
-    "!dist/mcp.d.ts",
-    "!dist/mcp.js",
     "!dist/orchestrator-commands.d.ts",
     "!dist/orchestrator-commands.js",
+    "scripts/clean-dist.mjs",
     "skill",
     "README.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24 <25 || >=26 <27"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node ./scripts/clean-dist.mjs && tsc",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
     "prepack": "pnpm build && pnpm test"

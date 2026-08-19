@@ -19,7 +19,7 @@
 - Generated and snapshot state lives below `~/.agentwiki/workspaces/<source-key>/`; the selected repository receives only CodeGraph-owned `.codegraph/` data.
 - Do not edit `.gitignore`, Git configuration, or source files as part of scanning.
 - Preserve the existing server-side Preview, explicit sync confirmation, ChangeSet, review, and revision semantics.
-- A first migration may replace Codebase Memory page identities. It must preview the old deletions and new additions before sync.
+- This 2026-08-18 migration requirement is superseded by the approved 2026-08-19 final hardening rule: historical Codebase Memory data has no verifiable legacy ownership marker, so legacy-looking items must carry forward with a stable opaque migration-candidate warning and zero deletion proposal. Only a future, separately specified strict verifiable legacy-marker contract may propose deletion; new CodeGraph additions still require Preview before sync.
 - Historical plans and verification evidence may retain historical Codebase Memory references. Active runtime source, active package documentation, the shared Skill, and current runtime contracts must not.
 - Preserve unrelated working-tree changes. Stage and commit only the files named in the current task.
 
@@ -554,7 +554,7 @@ export function reconcileAnalysisLayers(
 - Standard scans own only matching CodeGraph `base` items.
 - Carry forward base-bundle pages, memories, relations, and provenance outside the current source/layer scope.
 - Carry forward every `deep` item during standard scans, even when its snapshot hash is old; surface a stale warning rather than a deletion.
-- Recognize legacy Codebase Memory output conservatively by its known generated path/title or `metadata.node` shape. Only those recognized legacy items are proposed for deletion during the first CodeGraph migration.
+- A historical Codebase Memory-looking path/title or `metadata.node` shape is not ownership proof. Historical bases have no durable, verifiable legacy producer marker, so those items are carried with an opaque migration-candidate warning and no migration deletion is proposed.
 - Never treat an arbitrary unowned AgentWiki page as Codebase Memory output.
 
 - [ ] **Step 1: Write failing ownership tests**
@@ -563,7 +563,7 @@ Create a base bundle containing a current-source base page, a current-source dee
 
 - [ ] **Step 2: Write failing migration Preview tests**
 
-Create a known legacy overview plus a new CodeGraph overview. Expect one deletion proposal, one addition, upload bytes, and migration warnings. Add a visually similar but unowned page and assert it is carried, not deleted.
+Create a known legacy-looking overview plus a new CodeGraph overview. Because historical data has no verifiable legacy ownership marker, expect no deletion proposal, one addition, a stable opaque migration-candidate warning, and carry-forward. Add visually similar, manual, deep, CodeGraph-owned, and foreign pages and assert they are all carried rather than deleted by migration.
 
 - [ ] **Step 3: Write failing stale-deep tests**
 
@@ -805,7 +805,7 @@ git commit -m "test(local-sync): verify CodeGraph standard scan cutover"
 - [ ] Preview/sync payloads contain no `.codegraph` database, raw source, absolute path, binary, credential, or local diagnostic file.
 - [ ] Standard mode performs no Agent/LLM/deep operation.
 - [ ] Standard reconciliation preserves deep and unrelated artifacts.
-- [ ] The migration Preview shows recognized Codebase Memory deletions and CodeGraph additions before sync.
+- [ ] Per 2026-08-19 final hardening, a migration Preview carries legacy-looking items with a stable opaque warning and zero deletion when no strict verifiable legacy marker exists; only a future marker contract may propose deletion, while CodeGraph additions remain previewed before sync.
 - [ ] Active Codebase Memory code, install logic, diagnostics, tests, and user instructions are gone with no fallback.
 - [ ] AgentWiki has no CodeGraph package dependency or exact-version gate.
 - [ ] Codex, Claude Code, and OpenCode pass the standard onboarding/sync flow.

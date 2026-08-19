@@ -118,6 +118,25 @@ describe('KnowledgeWorkflows.confirmAndSync', () => {
     ).rejects.toMatchObject({ code: 'PREVIEW_CHANGED' });
   });
 
+  it('rejects tampered persisted preview data or an invalid stored hash before any remote call', async () => {
+    const deps = mockDeps();
+    const records = new Map<string, { hash: string; data: unknown }>();
+    deps.previews = {
+      save: async (jobId, preview) => { records.set(jobId, preview); },
+      load: async (jobId) => records.get(jobId) ?? null,
+      remove: async (jobId) => { records.delete(jobId); },
+    };
+    const wf = new KnowledgeWorkflows(deps);
+    const preview = await wf.prepare({ spaceId: 'space-1', sourcePaths: ['.'] });
+    records.set(preview.jobId, { hash: preview.previewHash, data: { ...bundle(), pages: [] } });
+    await expect(wf.confirmAndSync({ jobId: preview.jobId, previewHash: preview.previewHash, confirmed: true })).rejects.toMatchObject({ code: 'PREVIEW_CHANGED' });
+    expect(deps.remoteCalls).toEqual([]);
+
+    records.set(preview.jobId, { hash: 'f'.repeat(64), data: bundle() });
+    await expect(wf.confirmAndSync({ jobId: preview.jobId, previewHash: preview.previewHash, confirmed: true })).rejects.toMatchObject({ code: 'PREVIEW_CHANGED' });
+    expect(deps.remoteCalls).toEqual([]);
+  });
+
   it('rejects an expired/missing preview', async () => {
     const deps = mockDeps();
     const wf = new KnowledgeWorkflows(deps);

@@ -9,12 +9,16 @@
  * replies on the injected source.
  */
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { hashServerPlan as computeServerPlanHash } from './plan-hash.js';
+import { hashOnboardingPlan } from './local-plan-hash.js';
 import { ProtocolEncoder, parseReply, isConfirmationReply, type ProtocolSource, type OnboardingEvent } from './protocol.js';
 import type { OnboardingClient, ClientType, ServerPlan, StartResult } from './client.js';
-import type { SessionStore, OnboardingCheckpoint, OnboardingState } from './session.js';
+import { OnboardingInputsSchema, type SessionStore, type OnboardingCheckpoint, type OnboardingInputs, type OnboardingState } from './session.js';
 import { assertTransition } from './session.js';
 import { OnboardingError, type OnboardingFailure } from './errors.js';
+import { PublicLocalScanPlanSchema, publicLocalScanPlan, type LocalScanPlan, type PublicLocalScanPlan } from '../codegraph/contracts.js';
+import type { PlanCodeScanInput } from '../codegraph/provider.js';
 
 /** Injected preflight: analyse client config and archive legacy state. */
 export interface PreflightFn {
@@ -56,7 +60,8 @@ export interface BootstrapInstallFn {
 /** Injected first-scan knowledge workflow. */
 export interface KnowledgeWorkflowFn {
   pull?(input: { spaceId: string }): Promise<{ revisionId: string }>;
-  prepare(input: { spaceId: string; sourcePaths: string[]; sourceType?: string }): Promise<{ jobId: string; previewHash: string; summary: Record<string, unknown> }>;
+  planLocalScan(input: PlanCodeScanInput): Promise<LocalScanPlan | null>;
+  prepare(input: { spaceId: string; sourcePaths: string[]; sourceType?: string; analysisMode?: 'standard' | 'deep'; localScanPlanHash?: string; confirmedLocalScan?: boolean }): Promise<{ jobId: string; previewHash: string; summary: Record<string, unknown> }>;
   confirmAndSync(input: { jobId: string; previewHash: string; confirmed: boolean }): Promise<{
     revisionId: string;
     status?: string;
@@ -79,18 +84,6 @@ export interface CoordinatorDeps {
   sessionId?: string;
   /** Sleep injection for test speed. */
   sleep?: (ms: number) => Promise<void>;
-}
-
-export interface OnboardingInputs {
-  spaceMode: 'create' | 'existing';
-  spaceName?: string;
-  spaceId?: string;
-  agentName: string;
-  permissionPreset: 'editor' | 'full';
-  approvalMode: 'always-review' | 'scoped-auto-publish';
-  clientType: ClientType;
-  sourcePaths: string[];
-  sourceType?: 'auto' | 'code' | 'documents';
 }
 
 const SUPPORTED_PROTOCOL_VERSION = 1;
@@ -182,6 +175,7 @@ export class OnboardingCoordinator {
       { name: 'clientType', label: 'Agent client', type: 'choice', choices: ['codex', 'claude', 'opencode'], required: true },
       { name: 'sourcePaths', label: 'Source paths', type: 'paths', required: true },
       { name: 'sourceType', label: 'Source type', type: 'choice', choices: ['auto', 'code', 'documents'], required: false, defaultValue: 'auto' },
+      { name: 'analysisMode', label: 'Analysis mode', type: 'choice', choices: ['standard', 'deep'], required: false, defaultValue: 'standard' },
     ]);
     const inputs = this.validateInputs(rawInputs);
     const next = { ...prev, inputs: { ...inputs }, clientType: inputs.clientType };
@@ -247,6 +241,9 @@ export class OnboardingCoordinator {
     const next: OnboardingCheckpoint = {
       ...prev,
       serverPlanHash: undefined,
+      localScanPlanHash: undefined,
+      onboardingPlanHash: undefined,
+      localScanPlan: undefined,
       inputs: {
         ...prev.inputs,
         configHash: result.configHash,
@@ -261,20 +258,29 @@ export class OnboardingCoordinator {
     const inputs = prev.inputs!;
     const serverPlan = this.buildServerPlan(inputs);
     const serverPlanHash = this.hashServerPlan(serverPlan);
+    const localScanPlan = await this.planLocalScan(inputs);
+    const publicPlan = localScanPlan ? redactLocalScanPlan(localScanPlan) : null;
+    const localScanPlanHash = publicPlan?.localScanPlanHash;
+    const onboardingPlanHash = hashOnboardingPlan({ serverPlanHash, ...(localScanPlanHash ? { localScanPlanHash } : {}) });
     this.emit({
       type: 'preview',
       plan: {
         serverPlan,
+        ...(publicPlan ? { localScanPlan: publicPlan } : {}),
         configHash: inputs.configHash,
         oldEntries: inputs.oldEntries ?? [],
         reloadRequired: inputs.reloadRequired ?? false,
       },
     });
 
-    const reply = await this.requestConfirmation('plan', serverPlanHash);
+    const reply = await this.requestConfirmation('plan', onboardingPlanHash);
     if (!reply.confirmed) throw this.fail('AUTH_DENIED', 'user cancelled the onboarding plan', false);
 
-    return this.transition({ ...prev, serverPlanHash, serverPlan: serverPlan as unknown as Record<string, unknown> }, 'bootstrapping');
+    return this.transition({
+      ...prev, serverPlanHash, onboardingPlanHash, ...(localScanPlanHash ? { localScanPlanHash } : {}),
+      ...(publicPlan ? { localScanPlan: publicPlan } : {}),
+      serverPlan: serverPlan as unknown as Record<string, unknown>,
+    }, prev.bootstrapResult ? 'scanning' : 'bootstrapping');
   }
 
   private async bootstrapAndInstall(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
@@ -308,12 +314,11 @@ export class OnboardingCoordinator {
 
     let next: OnboardingCheckpoint = {
       ...prev,
-      bootstrapResult: result.bootstrap,
+      bootstrapResult: summarizeBootstrap(result.bootstrap),
       inputs: {
         ...prev.inputs,
         connectionId: result.connectionId ?? connectionId,
         reloadRequired: result.reloadRequired,
-        configBackupPath: result.configBackupPath,
         manifestHash: result.manifestHash,
       },
     };
@@ -326,12 +331,37 @@ export class OnboardingCoordinator {
 
   private async firstScan(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'scan', status: 'running' });
+    const localScanPlan = await this.planLocalScan(prev.inputs!);
+    const publicPlan = localScanPlan ? redactLocalScanPlan(localScanPlan) : null;
+    if (prev.localScanPlanHash !== publicPlan?.localScanPlanHash) {
+      const serverPlanHash = prev.serverPlanHash!;
+      const localScanPlanHash = publicPlan?.localScanPlanHash;
+      const next = await this.transition({
+        ...prev,
+        onboardingPlanHash: hashOnboardingPlan({ serverPlanHash, ...(localScanPlanHash ? { localScanPlanHash } : {}) }),
+        ...(localScanPlanHash ? { localScanPlanHash } : { localScanPlanHash: undefined }),
+        ...(publicPlan ? { localScanPlan: publicPlan } : { localScanPlan: undefined }),
+      }, 'waiting_for_confirmation');
+      this.emit({
+        type: 'preview',
+        plan: {
+          serverPlan: this.buildServerPlan(next.inputs!),
+          ...(publicPlan ? { localScanPlan: publicPlan } : {}),
+          configHash: next.inputs!.configHash,
+          oldEntries: next.inputs!.oldEntries ?? [],
+          reloadRequired: next.inputs!.reloadRequired ?? false,
+        },
+      });
+      throw this.fail('CODEGRAPH_SCAN_PLAN_CHANGED', 'the local CodeGraph scan plan changed; confirm the updated preview', true);
+    }
     const spaceId = (prev.bootstrapResult as { space: { id: string } }).space.id;
     await this.deps.knowledge.pull?.({ spaceId });
     const preview = await this.deps.knowledge.prepare({
       spaceId,
       sourcePaths: prev.inputs!.sourcePaths as string[],
       sourceType: prev.inputs!.sourceType as 'auto' | 'code' | 'documents' | undefined,
+      analysisMode: prev.inputs!.analysisMode as 'standard' | 'deep' | undefined,
+      ...(prev.localScanPlanHash ? { localScanPlanHash: prev.localScanPlanHash, confirmedLocalScan: true } : {}),
     });
     this.emit({ type: 'preview', plan: { jobId: preview.jobId, summary: preview.summary } });
     return this.transition({ ...prev, jobId: preview.jobId, previewHash: preview.previewHash }, 'waiting_for_sync_confirmation');
@@ -376,7 +406,7 @@ export class OnboardingCoordinator {
   private validateInputs(raw: Record<string, unknown>): OnboardingInputs {
     const allowed = new Set([
       'spaceMode', 'spaceName', 'spaceId', 'agentName', 'permissionPreset',
-      'approvalMode', 'clientType', 'sourcePaths', 'sourceType',
+      'approvalMode', 'clientType', 'sourcePaths', 'sourceType', 'analysisMode',
     ]);
     const unknown = Object.keys(raw).filter((key) => !allowed.has(key));
     if (unknown.length > 0) {
@@ -387,6 +417,7 @@ export class OnboardingCoordinator {
     const permissionPreset = raw.permissionPreset;
     const approvalMode = raw.approvalMode;
     const sourceType = raw.sourceType ?? 'auto';
+    const analysisMode = raw.analysisMode ?? 'standard';
     const sourcePaths = raw.sourcePaths;
     if (spaceMode !== 'create' && spaceMode !== 'existing') {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'spaceMode must be create or existing', false);
@@ -415,20 +446,47 @@ export class OnboardingCoordinator {
     if (sourceType !== 'auto' && sourceType !== 'code' && sourceType !== 'documents') {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'sourceType is invalid', false);
     }
-    return {
+    if (analysisMode !== 'standard' && analysisMode !== 'deep') {
+      throw this.fail('PROTOCOL_UNSUPPORTED', 'analysisMode is invalid', false);
+    }
+    try {
+      return OnboardingInputsSchema.parse({
       spaceMode,
       ...(spaceMode === 'create' ? { spaceName: raw.spaceName as string } : { spaceId: raw.spaceId as string }),
       agentName: raw.agentName as string,
       permissionPreset,
       approvalMode,
       clientType,
-      sourcePaths: sourcePaths as string[],
+      sourcePaths: (sourcePaths as string[]).map(canonicalizeSourcePath),
       sourceType,
-    };
+      analysisMode,
+      });
+    } catch {
+      throw this.fail('PROTOCOL_UNSUPPORTED', 'onboarding input is invalid', false);
+    }
   }
 
   private hashServerPlan(plan: ServerPlan): string {
     return computeServerPlanHash(plan);
+  }
+
+  private async planLocalScan(inputs: Record<string, unknown>): Promise<LocalScanPlan | null> {
+    const sourceType = (inputs.sourceType ?? 'auto') as 'auto' | 'code' | 'documents';
+    if (inputs.analysisMode === 'deep') {
+      throw new OnboardingError({
+        code: 'CODEGRAPH_CAPABILITY_UNSUPPORTED', message: 'deep CodeGraph analysis is not available in this stage',
+        retryable: false, nextAction: 'deep analysis is not installed yet', resumeSessionId: this.sessionId,
+      });
+    }
+    if (sourceType === 'documents') return null;
+    const plan = await this.deps.knowledge.planLocalScan({
+      sourcePaths: inputs.sourcePaths as string[], sourceType,
+      analysisMode: (inputs.analysisMode ?? 'standard') as 'standard' | 'deep',
+    });
+    if (sourceType === 'code' && plan === null) {
+      throw this.fail('CODEGRAPH_CAPABILITY_UNSUPPORTED', 'CodeGraph did not produce a scan plan for the requested code source', false);
+    }
+    return plan;
   }
 
   private buildReport(checkpoint: OnboardingCheckpoint): Record<string, unknown> {
@@ -509,6 +567,25 @@ export class OnboardingCoordinator {
   }
 }
 
+function redactLocalScanPlan(plan: LocalScanPlan): PublicLocalScanPlan {
+  try {
+    return PublicLocalScanPlanSchema.parse(publicLocalScanPlan(plan));
+  } catch {
+    throw new OnboardingError({
+      code: 'SCAN_FAILED',
+      message: 'local CodeGraph scan plan is invalid',
+      retryable: true,
+    });
+  }
+}
+
+function summarizeBootstrap(bootstrap: Awaited<ReturnType<BootstrapInstallFn>>['bootstrap']): Record<string, unknown> {
+  return {
+    space: { id: bootstrap.space.id, name: bootstrap.space.name },
+    agent: { id: bootstrap.agent.id, name: bootstrap.agent.name },
+  };
+}
+
 function isResumableState(state: OnboardingState): state is Exclude<
   OnboardingState,
   'failed_recoverable' | 'failed_terminal' | 'cancelled' | 'completed'
@@ -518,4 +595,10 @@ function isResumableState(state: OnboardingState): state is Exclude<
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function canonicalizeSourcePath(value: string): string {
+
+  if ([...value].some((character) => { const codePoint = character.codePointAt(0)!; return codePoint <= 0x1f || codePoint === 0x7f; }) || value.includes('\\')) throw new Error('invalid source path');
+  return resolve(value);
 }

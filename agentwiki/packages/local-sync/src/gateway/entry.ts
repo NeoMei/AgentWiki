@@ -11,18 +11,25 @@ import { createKnowledgeWorkflowRuntime } from './workflow-runtime.js';
 import { loadConfig, loadCredentials } from '../config.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { SyncEngine } from '../sync/sync-engine.js';
-import { inspectLocalSource, type LocalKnowledgeDeps } from '../local-knowledge.js';
 import { AdapterManager } from '../adapter/manager.js';
 import { join } from 'node:path';
 import { readOnboardingStatus, readPreviewArtifactSummaries } from './status.js';
+import { createCodeGraphProvider } from '../codegraph/provider.js';
+import { CodeGraphPipeline } from '../codegraph/pipeline.js';
+import { publicLocalScanPlan } from '../codegraph/contracts.js';
 
 export interface GatewayEntryDeps {
   home: string;
   connectionId: string;
-  knowledgeDeps?: LocalKnowledgeDeps;
 }
 
-export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
+export interface GatewayEntry {
+  handlers: GatewayHandlers;
+  bridge: RemoteMcpBridge;
+}
+
+/** Builds the real handler closures once so scan and preparation share one pipeline. */
+export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<GatewayEntry> {
   const config = await loadConfig(deps.home);
   const connection = config.connections[deps.connectionId];
   if (!connection) throw new Error(`connection ${deps.connectionId} not found`);
@@ -63,20 +70,30 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
     },
   };
 
+  const provider = createCodeGraphProvider({ home: deps.home });
+  const codeGraph = new CodeGraphPipeline({ home: deps.home, provider });
   const workflows = createKnowledgeWorkflowRuntime({
     home: deps.home,
     adapters: new AdapterManager({ runtimeHome: join(deps.home, '.agentwiki', 'adapters') }),
+    scanSources: codeGraph,
     sync: remoteSync,
   });
 
   const handlers: GatewayHandlers = {
     status: async (input) => readOnboardingStatus(deps.home, input.sessionId),
     scanSources: async (input) => {
-      const inspection = await inspectLocalSource(input.sourcePaths[0] ?? '.', deps.knowledgeDeps);
-      return inspection;
+      const plan = await codeGraph.plan({
+        sourcePaths: input.sourcePaths,
+        sourceType: input.sourceType ?? 'auto',
+        analysisMode: input.analysisMode ?? 'standard',
+      });
+      return {
+        plan: plan ? publicLocalScanPlan(plan) : null,
+        localScanPlanHash: plan?.localScanPlanHash ?? null,
+      };
     },
     readArtifacts: async (input) => readPreviewArtifactSummaries(deps.home, input.jobId),
-    prepare: async (input) => workflows.prepare({ ...input, sourceType: input.sourceType as 'auto' | 'code' | 'documents' | undefined }),
+    prepare: async (input) => workflows.prepare(input),
     confirmAndSync: async (input) => workflows.confirmAndSync(input),
     pull: async (input) => workflows.pull(input),
   };
@@ -86,6 +103,11 @@ export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
     readCredential: async () => credential.apiKey,
   });
 
+  return { handlers, bridge };
+}
+
+export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
+  const { handlers, bridge } = await createGatewayEntry(deps);
   const { server } = await createGatewayServer({ handlers, bridge, version: '0.3.7' });
   await server.connect(new StdioServerTransport());
 }

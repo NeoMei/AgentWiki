@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { formatMcpOutput } from './output.js';
 import { STATIC_TOOLS, staticToolNames, toRemoteGatewayName, isLegacyToolName } from './manifest.js';
 import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
+import { PublicLocalScanResultSchema, type PublicLocalScanResult } from '../codegraph/contracts.js';
 
 /** Wrap a result as an MCP text content response. */
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
@@ -18,9 +19,9 @@ function text(result: unknown): { content: Array<{ type: 'text'; text: string }>
 
 export interface GatewayHandlers {
   status(input: { sessionId?: string }): Promise<unknown>;
-  scanSources(input: { sourcePaths: string[]; sourceType?: string }): Promise<unknown>;
+  scanSources(input: { sourcePaths: string[]; sourceType?: 'auto' | 'code' | 'documents'; analysisMode?: 'standard' | 'deep' }): Promise<PublicLocalScanResult>;
   readArtifacts(input: { jobId: string; workItemId: string }): Promise<unknown>;
-  prepare(input: { spaceId: string; sourcePaths: string[]; sourceType?: string }): Promise<unknown>;
+  prepare(input: { spaceId: string; sourcePaths: string[]; sourceType?: 'auto' | 'code' | 'documents'; analysisMode?: 'standard' | 'deep'; localScanPlanHash?: string; confirmedLocalScan?: boolean }): Promise<unknown>;
   confirmAndSync(input: { jobId: string; previewHash: string; confirmed: boolean }): Promise<unknown>;
   pull(input: { spaceId: string }): Promise<unknown>;
 }
@@ -35,6 +36,22 @@ export interface GatewayServer {
   server: McpServer;
   toolNames: string[];
 }
+
+export const gatewayToolInputSchemas = {
+  localScanSources: z.object({
+    sourcePaths: z.array(z.string().min(1)),
+    sourceType: z.enum(['auto', 'code', 'documents']).optional(),
+    analysisMode: z.enum(['standard', 'deep']).default('standard'),
+  }).strict(),
+  knowledgePrepare: z.object({
+    spaceId: z.string().min(1),
+    sourcePaths: z.array(z.string().min(1)),
+    sourceType: z.enum(['auto', 'code', 'documents']).optional(),
+    analysisMode: z.enum(['standard', 'deep']).default('standard'),
+    localScanPlanHash: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+    confirmedLocalScan: z.boolean().optional(),
+  }).strict(),
+};
 
 /**
  * Create the unified gateway. Remote tools are discovered eagerly so the
@@ -60,17 +77,14 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     'local_scan_sources',
     {
       description: toolDescription('local_scan_sources'),
-      inputSchema: {
-        sourcePaths: z.array(z.string().min(1)),
-        sourceType: z.string().optional(),
-      },
+      inputSchema: gatewayToolInputSchemas.localScanSources,
     },
-    async (input) =>
-      text(
-        formatMcpOutput(
-          await context.handlers.scanSources(input as { sourcePaths: string[]; sourceType?: string }),
-        ),
-      ),
+    async (input) => {
+      const result = PublicLocalScanResultSchema.parse(
+        await context.handlers.scanSources(input as { sourcePaths: string[]; sourceType?: 'auto' | 'code' | 'documents'; analysisMode?: 'standard' | 'deep' }),
+      );
+      return text(formatMcpOutput(result));
+    },
   );
 
   toolNames.push('local_read_artifacts');
@@ -94,16 +108,12 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     'knowledge_prepare',
     {
       description: toolDescription('knowledge_prepare'),
-      inputSchema: {
-        spaceId: z.string().min(1),
-        sourcePaths: z.array(z.string().min(1)),
-        sourceType: z.string().optional(),
-      },
+      inputSchema: gatewayToolInputSchemas.knowledgePrepare,
     },
     async (input) =>
       text(
         formatMcpOutput(
-          await context.handlers.prepare(input as { spaceId: string; sourcePaths: string[]; sourceType?: string }),
+          await context.handlers.prepare(input as { spaceId: string; sourcePaths: string[]; sourceType?: 'auto' | 'code' | 'documents'; analysisMode?: 'standard' | 'deep'; localScanPlanHash?: string; confirmedLocalScan?: boolean }),
         ),
       ),
   );

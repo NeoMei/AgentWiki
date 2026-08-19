@@ -69,7 +69,7 @@ describe('AdapterManager', () => {
   it('lists managed adapters', () => {
     const manager = new AdapterManager({ runtimeHome: tempHome });
     const ids = manager.listManaged().map((a) => a.adapterId).sort();
-    expect(ids).toEqual(['codebase-memory', 'markitdown']);
+    expect(ids).toEqual(['markitdown']);
   });
 
   it('installs Microsoft MarkItDown in an isolated Python environment', async () => {
@@ -125,21 +125,21 @@ describe('AdapterManager', () => {
 
   it('detects missing adapter as not installed', async () => {
     const manager = new AdapterManager({ runtimeHome: tempHome });
-    const status = await manager.detect('codebase-memory');
+    const status = await manager.detect('markitdown');
     expect(status).toEqual({ installed: false });
   });
 
   it('detects installed adapter from manifest', async () => {
     const manager = new AdapterManager({ runtimeHome: tempHome });
-    const dir = join(tempHome, 'codebase-memory', 'pkg@1.0.0');
+    const dir = join(tempHome, 'markitdown', 'pkg@1.0.0');
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'package.json'), '{}');
     await writeFile(
-      join(tempHome, 'codebase-memory', '.agentwiki-runtime.json'),
+      join(tempHome, 'markitdown', '.agentwiki-runtime.json'),
       JSON.stringify({ installed: true, path: dir, version: '1.0.0', checksum: 'abc' }),
     );
 
-    const status = await manager.detect('codebase-memory');
+    const status = await manager.detect('markitdown');
     expect(status).toMatchObject({ installed: true, path: dir, version: '1.0.0', checksum: 'abc' });
   });
 
@@ -245,10 +245,10 @@ describe('AdapterManager', () => {
 
   it('remove clears runtime directory', async () => {
     const manager = new AdapterManager({ runtimeHome: tempHome });
-    const dir = join(tempHome, 'codebase-memory');
+    const dir = join(tempHome, 'markitdown');
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'placeholder'), 'x');
-    await manager.remove('codebase-memory');
+    await manager.remove('markitdown');
     await expect(readFile(join(dir, 'placeholder'))).rejects.toThrow();
   });
 });

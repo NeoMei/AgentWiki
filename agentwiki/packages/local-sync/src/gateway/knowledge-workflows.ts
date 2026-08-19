@@ -10,12 +10,15 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { OnboardingError } from '../onboarding/errors.js';
-import type { KnowledgeBundle } from '../protocol/bundle.js';
+import { assertKnowledgeBundle, type KnowledgeBundle } from '../protocol/bundle.js';
 
 export interface PrepareInput {
   spaceId: string;
   sourcePaths: string[];
   sourceType?: 'auto' | 'code' | 'documents';
+  analysisMode?: 'standard' | 'deep';
+  localScanPlanHash?: string;
+  confirmedLocalScan?: boolean;
 }
 
 export interface PrepareResult {
@@ -144,7 +147,18 @@ export class KnowledgeWorkflows {
       });
     }
 
-    if (stored.hash !== input.previewHash) {
+    let bundle: KnowledgeBundle;
+    try {
+      bundle = assertKnowledgeBundle(stored.data);
+    } catch {
+      throw new OnboardingError({
+        code: 'PREVIEW_CHANGED',
+        message: 'stored preview is invalid or has changed; prepare a new preview',
+        retryable: true,
+      });
+    }
+    const computedHash = sha256(bundle);
+    if (stored.hash !== input.previewHash || stored.hash !== computedHash) {
       throw new OnboardingError({
         code: 'PREVIEW_CHANGED',
         message: 'preview hash mismatch; the preview has changed since preparation',
@@ -153,7 +167,6 @@ export class KnowledgeWorkflows {
     }
 
     // Pull before push to check revision and detect conflicts.
-    const bundle = stored.data as KnowledgeBundle;
     const pulled = await this.deps.remote.pull(bundle.spaceId);
     if (pulled.revisionId !== bundle.baseRevision) {
       throw new OnboardingError({
@@ -206,7 +219,7 @@ export function createInMemoryPreviewStore(): PreviewStore {
 function canonicalJson(value: unknown): string {
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as Record<string, unknown>;
-    return '{' + Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',') + '}';
+    return '{' + Object.keys(obj).filter((key) => obj[key] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',') + '}';
   }
   if (Array.isArray(value)) {
     return '[' + value.map(canonicalJson).join(',') + ']';

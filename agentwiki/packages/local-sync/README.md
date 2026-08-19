@@ -15,9 +15,11 @@
 - An AgentWiki-generated, one-time installation instruction and its unexpired install
   code
 
-`doctor` checks AgentWiki connectivity, the Agent state, Space grant, effective scopes,
-plugin version, and the availability of local source adapters: MarkItDown, Git, and
-`codebase-memory-mcp`. On the first document scan, local-sync creates a private Python
+`doctor` checks the supported Node line (24 or 26), AgentWiki connectivity, the Agent state,
+Space grant, effective scopes, plugin version, and local dependencies. For CodeGraph it only
+reports independent discovery, diagnostic version, required/optional capability status, and an
+optional source index status (`doctor --source-path <path>`). It never installs or upgrades
+CodeGraph. On the first document scan, local-sync creates a private Python
 environment under `~/.agentwiki/runtime/` and installs the exact Microsoft MarkItDown
 version automatically; it does not modify the system Python environment or require an
 interactive init.
@@ -31,6 +33,11 @@ The installer creates or updates exactly one MCP entry named `agentwiki`. The ga
 - `knowledge_*` — combined scan, preview, sync, pull, and conflict workflows
 
 The gateway bridges to the server internally. Users and Agents must not register a second direct `/api/mcp` connection or a credential-specific MCP name.
+
+CodeGraph is a separately installed scanner with its own version and lifecycle. AgentWiki is
+version-decoupled: it reads supported structural scan results, deterministically analyzes them,
+and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
+CodeGraph MCP to AgentWiki.
 
 ## Onboarding (0.3.7)
 
@@ -91,7 +98,29 @@ to keep and may be used by another local connection.
 
 ## Data and credentials
 
-Local source files are processed locally into a temporary knowledge envelope. `knowledge_prepare` produces a preview and does not upload it. Only `knowledge_confirm_and_sync` sends the exact confirmed envelope to the selected AgentWiki Space. Do not include secrets in a codebase-memory summary; the adapter requires a concise structural summary rather than source dumps.
+Local source files are processed locally into a temporary knowledge envelope. `knowledge_prepare` produces a preview and does not upload it. Only `knowledge_confirm_and_sync` sends the exact confirmed envelope to the selected AgentWiki Space. Do not include secrets in a code analysis summary; the workflow requires concise structural evidence rather than source dumps.
+
+## CodeGraph code knowledge flow
+
+Code analysis uses `analysisMode: standard` by default. Deep analysis is an optional Stage 2
+operation and is never selected unless the user explicitly asks for deep analysis.
+
+1. Call `local_scan_sources` with source paths and `analysisMode: standard`. It is read-only and
+   returns the CodeGraph plan plus `localScanPlanHash`; it does not create or update `.codegraph/`.
+2. Show the plan, index state, proposed `.codegraph/` action, and exact hash. Obtain an explicit,
+   current confirmation for that scan plan.
+3. Call `knowledge_prepare` using the same source paths, `analysisMode: standard`,
+   `confirmedLocalScan: true`, and the exact `localScanPlanHash`. This is the only point at which
+   the confirmed local scanner action may occur. It generates a Preview but never uploads.
+4. Show the Preview delta and `previewHash`, then ask separately for explicit sync confirmation.
+5. Only after that second confirmation, call `knowledge_confirm_and_sync` with the exact `jobId`,
+   `previewHash`, and `confirmed: true`.
+
+Scan-plan consent is not sync consent. `.codegraph/` is scanner-owned local index data; it is not
+uploaded. AgentWiki keeps its private normalized snapshots under `~/.agentwiki/workspaces/<source-key>/codegraph/current/`
+and generated analysis under `~/.agentwiki/workspaces/<source-key>/generated/codegraph/`. These
+private artifacts, raw source bodies, credentials, binaries, diagnostics, and absolute paths are
+not uploaded.
 
 Connection metadata is stored at `~/.agentwiki/local-sync.json`; API keys are stored at
 `~/.agentwiki/credentials.json`. Both are written owner-only (`0600`). Prepared preview
