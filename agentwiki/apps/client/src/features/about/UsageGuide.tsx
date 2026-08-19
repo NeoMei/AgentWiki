@@ -8,6 +8,7 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { GuideScreenshot } from './GuideScreenshot';
 import { LocalSyncGuideSection } from './LocalSyncGuideSection';
+import { GatewayGuidePreview } from './GatewayGuidePreview';
 
 export const UsageGuide: React.FC = () => {
   const { language, t } = useLanguage();
@@ -183,19 +184,14 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '生成统一网关接入指令' : 'Generate Gateway Instructions'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '在 Agent 详情页的「本地知识同步」卡片点击生成，得到 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。普通凭据区创建的 API Key 只用于脚本和外部系统，不会再生成第二条 MCP 接入指令。' : 'Open the "Local knowledge sync" card on the Agent detail page and generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. API keys created in the credentials section are for scripts and external systems only; they never create a second MCP instruction.'}
+                    {zh ? '进入「智能体 → 目标 Agent → 访问权限 → AgentWiki 统一网关」，生成 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。普通凭据区创建的 API Key 只用于脚本和外部系统。' : 'Go to Agents → target Agent → Access → AgentWiki unified gateway and generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. API keys in the credentials section are only for scripts and external systems.'}
                   </p>
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-700">
                     <strong>{zh ? '重要：' : 'Important: '}</strong>
                     {zh ? '不要单独改写指令中的端点、连接名或安装码。安装码是一次性的，授权仍由 AgentWiki 服务端控制。' : 'Do not rewrite the endpoint, connection name, or installation code inside the prompt. The code is single-use; authorization remains controlled by AgentWiki.'}
                   </div>
                   <div className="mt-4">
-                    <GuideScreenshot
-                      src="/screenshots/step4-generated-credential.png"
-                      alt={zh ? '已生成 Key 和接入指令' : 'Generated key and connection instructions'}
-                      fit="contain"
-                      heightClassName="h-28 sm:h-32"
-                    />
+                    <GatewayGuidePreview />
                   </div>
                 </div>
               </div>

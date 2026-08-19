@@ -39,7 +39,8 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/以下以 OpenCode 为例/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '确认 Agent 接入与页面发布结果' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: '已生成 Key 和接入指令' })).toHaveAttribute('src', '/screenshots/step4-generated-credential.png');
+    expect(screen.getByTestId('gateway-guide-preview')).toHaveTextContent('AgentWiki 统一网关');
+    expect(screen.queryByRole('img', { name: '已生成 Key 和接入指令' })).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'OpenCode 发布页面过程' })).toHaveAttribute('src', '/screenshots/step5-opencode-publish.png');
     expect(screen.getByRole('img', { name: 'OpenCode 接入成功结果' })).toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
     expect(screen.getByRole('img', { name: 'AgentWiki 已发布页面' })).toHaveAttribute('src', '/screenshots/step6-published-page.png');
