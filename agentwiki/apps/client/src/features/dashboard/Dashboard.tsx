@@ -56,8 +56,7 @@ export const Dashboard: React.FC = () => {
       const incoming = res.data.data || [];
       const listMutated = requestVersion !== listVersionRef.current;
       const responseTotal = Number(res.data.total) || 0;
-      const totalMatchesKnownState = responseTotal === requestTotal || responseTotal === totalRef.current;
-      if (!reset && !totalMatchesKnownState) {
+      if (!reset && (listMutated || responseTotal !== requestTotal)) {
         setLoadingMore(false);
         await fetchSpaces(true);
         return;

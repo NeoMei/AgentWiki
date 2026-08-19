@@ -70,7 +70,7 @@ Final post-review automated evidence:
 
 | Command | Result | Exact evidence |
 | --- | --- | --- |
-| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 563 passed; client 187 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,196 passed, 39 skipped, 0 failed. |
+| `pnpm test` | PASS | Runtime 66 passed / 39 PostgreSQL-dependent skipped; server 563 passed; client 188 passed; sync protocol 22 passed; local sync 358 passed. Total: 1,197 passed, 39 skipped, 0 failed. |
 | `pnpm typecheck` | PASS | Server, client, sync protocol, and local-sync TypeScript checks exited 0. |
 | `pnpm lint` | PASS | ESLint exited 0 for server, client, and local-sync sources. |
 | `pnpm build` | PASS | Shared, sync protocol, Nest server, Vite client, and local-sync production builds exited 0. |
@@ -86,6 +86,7 @@ Regression-specific automated tests:
 - `Dashboard Space pagination and creation > loads and de-duplicates the next page when more Spaces exist`
 - `Dashboard Space pagination and creation > realigns from page one when an external insertion shifts the offset boundary`
 - `Dashboard Space pagination and creation > realigns combined local and external total drift without losing the POST response`
+- `Dashboard Space pagination and creation > realigns when an external snapshot and a later local create converge on the same total`
 - `Dashboard Space pagination and creation > preserves a creation made while an older page request is in flight`
 - `Dashboard Space pagination and creation > discards an older page response and realigns the first page after deletion`
 - `Dashboard Space pagination and creation > keeps pagination locked and ignores a stale load failure during deletion realignment`
@@ -97,4 +98,6 @@ Page identity was `AgentWiki` at `/dashboard`; the DOM contained the `My Spaces`
 
 The independent review of `0000f11..28bd1ee` initially reported three Important findings and no Critical or Minor findings. The first remediation added external-`total` realignment, monotonic request ownership across success/error/completion, deletion/reset pagination locking, and a direct owner-membership service assertion. A later task review correctly found that the first drift guard was still restricted by `!listMutated`: an in-flight load-more combined with a local POST creation and a separate external top insertion could therefore suppress realignment. The earlier statement that all concurrency findings were closed was premature.
 
-The final remediation compares a load-more response against both the request-time `total` and the current `total` that already includes local mutations. A response matching neither known state triggers page-one realignment even when `listMutated` is true. Locally POST-created Spaces remain in an unconfirmed-created set until a server response includes their IDs; a reset prepends any still-unconfirmed POST response instead of overwriting it. The explicit three-event regression was observed RED because `外部新空间` never appeared while `本地新空间` remained; after the minimal production change it passed with both items present and a third `skip=0,take=20` request. Final focused evidence is Dashboard `8/8` and controller/service `13/13`; the complete gate totals above supersede the earlier counts.
+The subsequent review found that the two-total comparison was also insufficient: an external creation could enter the in-flight GET snapshot first, then a local POST could bring the client to the same numeric total before that GET returned. The response and current total would both be 26 even though the offset page was stale. The earlier claim that this comparison closed all combinations was therefore premature.
+
+The final rule no longer infers this interleaving from coincident totals. Any local list mutation during an in-flight load-more request causes that offset response to be discarded and a `skip=0,take=20` reset to run; when no local mutation occurred, a response total differing from the request-time total still triggers the same reset. Locally POST-created Spaces remain in an unconfirmed-created set until a server response includes their IDs, so reset prepends any still-unconfirmed POST response instead of overwriting it. The exact equal-total regression was observed RED as `1 failed / 8 passed`: `外部新空间` was absent while `本地新空间` remained and pagination was incorrectly exhausted. After the minimal rule change, both items were present, the third request was `skip=0,take=20`, and `Load more` remained enabled. Final focused evidence is Dashboard `9/9` and controller/service `13/13`; the complete gate totals above supersede the earlier counts.
