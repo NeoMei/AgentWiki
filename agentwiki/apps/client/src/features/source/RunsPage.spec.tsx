@@ -24,4 +24,21 @@ describe('RunsPage', () => {
     expect(screen.getAllByTitle('Cancel run')).toHaveLength(1);
     expect(screen.getAllByTitle('Retry run')).toHaveLength(1);
   });
+
+  it('shows safe URL diagnostics without exposing a raw English failure', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    vi.mocked(api.get).mockResolvedValue({ data: [{
+      id: 'url-run', status: 'failed', stage: 'failed', attempts: 3, maxAttempts: 3,
+      createdAt: new Date().toISOString(), source: { name: '网页' }, error: 'Unsupported content type',
+      result: { sourceMetadata: { finalUrl: 'https://example.com/article', contentType: 'text/html', redirectCount: 1 } },
+    }] } as any);
+    render(
+      <LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/runs']}>
+        <Routes><Route path="/spaces/:id/runs" element={<RunsPage />} /></Routes>
+      </MemoryRouter></LanguageProvider>,
+    );
+    expect(await screen.findByText('https://example.com/article')).toBeInTheDocument();
+    expect(screen.getByText(/1 次重定向/)).toBeInTheDocument();
+    expect(screen.queryByText('Unsupported content type')).not.toBeInTheDocument();
+  });
 });

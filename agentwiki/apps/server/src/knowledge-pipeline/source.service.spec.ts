@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { SourceService } from './source.service';
+import axios from 'axios';
 
 describe('SourceService safety and idempotency', () => {
   const prisma = {
@@ -24,6 +25,28 @@ describe('SourceService safety and idempotency', () => {
 
   it('rejects malformed remote URLs as a client error', async () => {
     await expect((service as any).validateRemoteUrl('not a url')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('revalidates every redirect and returns extracted HTML', async () => {
+    const validate = jest.spyOn(service as any, 'validateRemoteUrl')
+      .mockResolvedValueOnce({ url: new URL('https://example.com/start'), address: '93.184.216.34', family: 4 })
+      .mockResolvedValueOnce({ url: new URL('https://www.example.com/page'), address: '93.184.216.34', family: 4 });
+    jest.spyOn(axios, 'get')
+      .mockResolvedValueOnce({ status: 302, headers: { location: 'https://www.example.com/page' }, data: Buffer.alloc(0) } as any)
+      .mockResolvedValueOnce({ status: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, data: Buffer.from('<h1>正文</h1><p>内容</p>') } as any);
+    await expect((service as any).fetchRemoteUrl('https://example.com/start')).resolves.toMatchObject({
+      content: expect.stringContaining('# 正文'),
+      metadata: expect.objectContaining({ redirectCount: 1, finalUrl: 'https://www.example.com/page' }),
+    });
+    expect(validate).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a redirect when the next hop resolves to a private address', async () => {
+    jest.spyOn(service as any, 'validateRemoteUrl')
+      .mockResolvedValueOnce({ url: new URL('https://example.com'), address: '93.184.216.34', family: 4 })
+      .mockRejectedValueOnce(new BadRequestException('Private network URLs are not allowed'));
+    jest.spyOn(axios, 'get').mockResolvedValueOnce({ status: 302, headers: { location: 'http://127.0.0.1/admin' }, data: Buffer.alloc(0) } as any);
+    await expect((service as any).fetchRemoteUrl('https://example.com')).rejects.toThrow('Private network');
   });
 
   it('rejects a queued Agent run after its credential is revoked even if the grant remains', async () => {

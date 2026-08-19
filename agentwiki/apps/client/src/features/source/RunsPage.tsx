@@ -4,6 +4,7 @@ import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../api/client';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
+import { apiErrorMessage } from '../../api/error-message';
 
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
@@ -18,10 +19,10 @@ export const RunsPage: React.FC = () => {
     try {
       setRuns((await api.get('/spaces/' + id + '/runs')).data);
       setError('');
-    } catch (requestError: any) {
-      setError(requestError.response?.data?.message || t('run.loadFailed'));
+    } catch (requestError: unknown) {
+      setError(apiErrorMessage(requestError, t, 'run.loadFailed'));
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     void load();
@@ -34,8 +35,8 @@ export const RunsPage: React.FC = () => {
       setError('');
       await api.post(`/runs/${runId}/${action}`);
       await load();
-    } catch (requestError: any) {
-      setError(requestError.response?.data?.message || t('run.actionFailed', { action }));
+    } catch (requestError: unknown) {
+      setError(apiErrorMessage(requestError, t, 'run.actionFailed'));
     }
   };
 
@@ -50,7 +51,7 @@ export const RunsPage: React.FC = () => {
         </div>
         <button onClick={() => void load()} className="p-2 border rounded-lg" title={t('run.refresh')}><RefreshCw size={16} /></button>
       </div>
-      {error ? <div className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div> : null}
+      {error ? <div role="alert" className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div> : null}
       <div className="border rounded-[14px] bg-white divide-y">
         {runs.map((run) => (
           <div key={run.id} className="p-4 flex items-center gap-4">
@@ -58,7 +59,14 @@ export const RunsPage: React.FC = () => {
             <div className="flex-1">
               <p className="font-medium">{run.source.name}</p>
               <p className="text-xs text-gray-400 mt-1">{run.stage} · {t('run.attempt')} {run.attempts}/{run.maxAttempts} · {new Date(run.createdAt).toLocaleString(language)}</p>
-              {run.error ? <p className="text-xs text-red-600 mt-1">{run.error}</p> : null}
+              {run.error ? <p className="text-xs text-red-600 mt-1">{t('run.failedSummary')}</p> : null}
+              {run.result?.sourceMetadata ? (
+                <div className="mt-2 space-y-0.5 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+                  <p className="break-all"><strong>{t('run.finalUrl')}:</strong> {run.result.sourceMetadata.finalUrl}</p>
+                  <p><strong>{t('run.contentType')}:</strong> {run.result.sourceMetadata.contentType || t('common.notAvailable')}</p>
+                  <p>{t('run.redirectCount', { count: run.result.sourceMetadata.redirectCount || 0 })}</p>
+                </div>
+              ) : null}
             </div>
             {run.changeSet ? <Link to={'/review?changeSet=' + run.changeSet.id} className="text-sm text-blue-600">{t('nav.review')}</Link> : null}
             {RETRYABLE.has(run.status) ? <button onClick={() => void runAction(run.id, 'retry')} className="p-2 border rounded-lg" title={t('run.retry')}><RotateCcw size={15} /></button> : null}

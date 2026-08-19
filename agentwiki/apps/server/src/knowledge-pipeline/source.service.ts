@@ -16,9 +16,12 @@ import { PrismaService } from '../database/prisma.service';
 import { Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
+import { extractHtmlText, isSupportedTextContentType } from './remote-source';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
+const MAX_REMOTE_REDIRECTS = 5;
+const MAX_REMOTE_BYTES = 10 * 1024 * 1024;
 
 interface FetchedSegment {
   sourcePath: string;
@@ -486,6 +489,13 @@ export class SourceService {
             changeItems: changeItems.length,
             entities: entities.length,
             relations: relations.length,
+            ...(run.source.type === 'url' ? {
+              sourceMetadata: {
+                finalUrl: (fetched.metadata as any)?.finalUrl,
+                contentType: (fetched.metadata as any)?.contentType,
+                redirectCount: (fetched.metadata as any)?.redirectCount,
+              },
+            } : {}),
           },
         },
       });
@@ -558,20 +568,8 @@ export class SourceService {
       };
     }
     if (source.type === 'url') {
-      const target = await this.validateRemoteUrl(source.uri);
-      const lookup = (_hostname: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void) =>
-        callback(null, target.address, target.family);
-      const response = await axios.get(target.url.toString(), {
-        responseType: 'text', timeout: 30_000, maxContentLength: 10 * 1024 * 1024, maxRedirects: 0,
-        httpAgent: new HttpAgent({ lookup }),
-        httpsAgent: new HttpsAgent({ lookup }),
-      });
-      const content = String(response.data);
-      return {
-        content,
-        metadata: { url: target.url.toString(), contentType: response.headers['content-type'] },
-        segments: [{ sourcePath: '__root__', title: source.name, content, format: 'markdown' }],
-      };
+      const fetched = await this.fetchRemoteUrl(source.uri);
+      return { ...fetched, segments: [{ sourcePath: '__root__', title: source.name, content: fetched.content, format: 'markdown' }] };
     }
     let url: URL;
     try { url = new URL(source.uri); } catch { throw new BusinessException('SOURCE_INVALID', 'Git URL is invalid'); }
@@ -624,6 +622,48 @@ export class SourceService {
     } catch (error) {
       rmSync(root, { recursive: true, force: true });
       throw error;
+    }
+  }
+
+  private async fetchRemoteUrl(uri: string): Promise<FetchedSource> {
+    let currentUrl = uri;
+    let redirectCount = 0;
+    while (true) {
+      const target = await this.validateRemoteUrl(currentUrl);
+      const lookup = (_hostname: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void) =>
+        callback(null, target.address, target.family);
+      const response = await axios.get(target.url.toString(), {
+        responseType: 'arraybuffer', timeout: 30_000, maxContentLength: MAX_REMOTE_BYTES,
+        maxBodyLength: MAX_REMOTE_BYTES, maxRedirects: 0,
+        validateStatus: (status) => status >= 200 && status < 400,
+        httpAgent: new HttpAgent({ lookup }),
+        httpsAgent: new HttpsAgent({ lookup }),
+      });
+      if (response.status >= 300) {
+        const location = response.headers.location;
+        if (typeof location !== 'string' || !location) throw new BadRequestException('Remote redirect is missing a location');
+        if (redirectCount >= MAX_REMOTE_REDIRECTS) throw new BadRequestException('Remote URL has too many redirects');
+        currentUrl = new URL(location, target.url).toString();
+        redirectCount += 1;
+        continue;
+      }
+      const contentTypeHeader = response.headers['content-type'];
+      const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
+      if (!isSupportedTextContentType(contentType)) throw new BadRequestException('Unsupported remote content type');
+      const buffer = Buffer.isBuffer(response.data) ? response.data : Buffer.from(response.data);
+      if (buffer.byteLength > MAX_REMOTE_BYTES) throw new BadRequestException('Remote source exceeds 10 MB');
+      let decoded: string;
+      try {
+        decoded = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+      } catch {
+        throw new BadRequestException('Remote source must be valid UTF-8');
+      }
+      const content = contentType.toLowerCase().startsWith('text/html') ? extractHtmlText(decoded) : decoded.trim();
+      if (!content) throw new BadRequestException('Remote source is empty');
+      return {
+        content,
+        metadata: { finalUrl: target.url.toString(), contentType, redirectCount },
+      };
     }
   }
 
