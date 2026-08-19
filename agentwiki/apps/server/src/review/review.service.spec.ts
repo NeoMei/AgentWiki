@@ -76,6 +76,100 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'accepted' } }));
   });
 
+  it('restores an archived page with the same source identity instead of creating a duplicate', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-restore', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'restore', type: 'create_page', status: 'accepted',
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Restored', content: 'new' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const archivedAt = new Date('2026-08-18T08:00:00Z');
+    const archived = {
+      id: 'page-existing', spaceId: 'space-1', knowledgeKey: 'knowledge-existing', authorId: 'user-old',
+      title: 'Archived', slug: 'archived', content: 'old', format: 'markdown', parentId: null,
+      sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
+      lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
+      sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/a.md',
+      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archived),
+        create: jest.fn(),
+        update: jest.fn().mockResolvedValue({ id: archived.id }),
+        findUnique: jest.fn().mockResolvedValue({ title: 'Restored', content: 'new', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageVersion: { create: jest.fn() },
+      pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-restore');
+
+    expect(tx.page.create).not.toHaveBeenCalled();
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ pageId: archived.id, title: 'Archived', content: 'old' }),
+    }));
+    expect(tx.page.update).toHaveBeenCalledWith({
+      where: { id: archived.id },
+      data: expect.objectContaining({
+        title: 'Restored', content: 'new', deletedAt: null,
+        sourceId: 'source-1', sourceVersionId: 'version-2', sourcePath: 'docs/a.md',
+        sourceChangeSetId: 'cs-restore', lastChangeSetId: 'cs-restore',
+      }),
+    });
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'restore' },
+      data: { status: 'published', publishedResourceId: archived.id },
+    }));
+  });
+
+  it('returns a stable conflict when the source identity already belongs to an active page', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-duplicate', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'duplicate', type: 'create_page', status: 'accepted',
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Duplicate', content: 'new' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      page: { findFirst: jest.fn().mockResolvedValue({ id: 'page-active', deletedAt: null }), create: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-duplicate')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    expect(tx.page.create).not.toHaveBeenCalled();
+  });
+
+  it('translates a create race unique violation into a stable change-set conflict', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'race', type: 'create_page', status: 'accepted',
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Racing', content: 'new' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue({ code: 'P2002' }),
+      },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-race')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+  });
+
   it('preserves zero strength and confidence when publishing a relation', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-relation', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,

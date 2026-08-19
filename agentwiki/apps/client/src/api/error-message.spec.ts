@@ -4,6 +4,7 @@ import { apiErrorMessage } from './error-message';
 const t = (key: string) => ({
   'error.authInvalidCredentials': '邮箱或密码错误',
   'error.rateLimited': '请求过于频繁，请稍后再试',
+  'error.changeSetConflict': '该来源页面已存在或内容已变化，请刷新后重试',
   'auth.loginFailed': '登录失败',
 }[key] || key);
 
@@ -18,5 +19,11 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage({ response: { status: 429, data: {
       message: 'Too many requests',
     } } }, t, 'auth.loginFailed')).toBe('请求过于频繁，请稍后再试');
+  });
+
+  it('maps a publishing conflict without exposing a database error', () => {
+    expect(apiErrorMessage({ response: { status: 409, data: {
+      code: 'CHANGESET_CONFLICT', message: 'Unique constraint failed',
+    } } }, t, 'auth.loginFailed')).toBe('该来源页面已存在或内容已变化，请刷新后重试');
   });
 });

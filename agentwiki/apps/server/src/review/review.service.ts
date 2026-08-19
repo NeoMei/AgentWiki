@@ -202,7 +202,9 @@ export class ReviewService {
     const changeSet = await this.get(id);
     if (changeSet.status !== 'approved') throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
     const authorId = changeSet.createdByUserId || await this.resolveAgentOwner(changeSet.createdByAgentId);
-    const publishedPageIds = await this.prisma.$transaction(async (tx) => {
+    let publishedPageIds: string[];
+    try {
+      publishedPageIds = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: 'approved' },
         data: { status: 'publishing' },
@@ -221,37 +223,100 @@ export class ReviewService {
         let resourceId: string;
         if (item.type === 'create_page') {
           if (payload.parentId) await this.assertValidParent(tx, changeSet.spaceId, payload.parentId);
-          const knowledgeKey = payload.knowledgeKey || randomUUID();
-          const createdSyncPath = payload.sourcePath && payload.sourcePath.endsWith('.md')
-            ? payload.sourcePath
-            : `pages/p-${await this.idFileKey(knowledgeKey)}.md`;
-          const page = await tx.page.create({
-            data: {
-              spaceId: changeSet.spaceId,
-              knowledgeKey,
-              authorId,
-              title: payload.title,
-              slug: payload.slug || this.slugify(payload.title) + '-' + Date.now().toString(36) + '-' + item.id.slice(-4),
-              content: payload.content ?? '',
-              format: payload.format || 'markdown',
-              parentId: payload.parentId,
-              sourceChangeSetId: id,
-              createdByAgentId: changeSet.createdByAgentId,
-              lastChangeSetId: id,
-              lastModifiedByAgentId: changeSet.createdByAgentId,
-              lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
-              lastModifiedAt: new Date(),
-              sourceId: payload.sourceId,
-              sourceVersionId: payload.sourceVersionId,
-              sourcePath: payload.sourcePath,
-              syncPath: createdSyncPath,
-              syncPathKey: pathKey(createdSyncPath),
-            },
-          });
-          resourceId = page.id;
-          pageIds.push(page.id);
-          if (payload.sourcePath) pageIdBySourcePath.set(payload.sourcePath, page.id);
-          if (payload.knowledgeKey) pageIdByKnowledgeKey.set(payload.knowledgeKey, page.id);
+          const existingSourcePage = payload.sourceId && payload.sourcePath
+            ? await tx.page.findFirst({
+              where: {
+                spaceId: changeSet.spaceId,
+                sourceId: payload.sourceId,
+                sourcePath: payload.sourcePath,
+              },
+            })
+            : null;
+          if (existingSourcePage && !existingSourcePage.deletedAt) {
+            throw new BusinessException('CHANGESET_CONFLICT', 'An active page already uses this source path');
+          }
+          if (existingSourcePage) {
+            await tx.pageVersion.create({
+              data: {
+                pageId: existingSourcePage.id,
+                title: existingSourcePage.title,
+                content: existingSourcePage.content,
+                authorId: existingSourcePage.authorId,
+                slug: existingSourcePage.slug,
+                format: existingSourcePage.format,
+                parentId: existingSourcePage.parentId,
+                syncPath: existingSourcePage.syncPath,
+                syncPathKey: existingSourcePage.syncPathKey,
+              },
+            });
+            await tx.changeItem.update({
+              where: { id: item.id },
+              data: {
+                payload: {
+                  ...payload,
+                  before: {
+                    restoredFromArchive: true,
+                    deletedAt: existingSourcePage.deletedAt!.toISOString(),
+                    sourceChangeSetId: existingSourcePage.sourceChangeSetId,
+                    lastChangeSetId: existingSourcePage.lastChangeSetId,
+                  },
+                },
+              },
+            });
+            await tx.page.update({
+              where: { id: existingSourcePage.id },
+              data: {
+                title: payload.title,
+                content: payload.content ?? '',
+                format: payload.format || 'markdown',
+                parentId: payload.parentId,
+                deletedAt: null,
+                sourceChangeSetId: id,
+                createdByAgentId: changeSet.createdByAgentId,
+                lastChangeSetId: id,
+                lastModifiedByAgentId: changeSet.createdByAgentId,
+                lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
+                lastModifiedAt: new Date(),
+                sourceId: payload.sourceId,
+                sourceVersionId: payload.sourceVersionId,
+                sourcePath: payload.sourcePath,
+              },
+            });
+            resourceId = existingSourcePage.id;
+            pageIdByKnowledgeKey.set(existingSourcePage.knowledgeKey, existingSourcePage.id);
+          } else {
+            const knowledgeKey = payload.knowledgeKey || randomUUID();
+            const createdSyncPath = payload.sourcePath && payload.sourcePath.endsWith('.md')
+              ? payload.sourcePath
+              : `pages/p-${await this.idFileKey(knowledgeKey)}.md`;
+            const page = await tx.page.create({
+              data: {
+                spaceId: changeSet.spaceId,
+                knowledgeKey,
+                authorId,
+                title: payload.title,
+                slug: payload.slug || this.slugify(payload.title) + '-' + Date.now().toString(36) + '-' + item.id.slice(-4),
+                content: payload.content ?? '',
+                format: payload.format || 'markdown',
+                parentId: payload.parentId,
+                sourceChangeSetId: id,
+                createdByAgentId: changeSet.createdByAgentId,
+                lastChangeSetId: id,
+                lastModifiedByAgentId: changeSet.createdByAgentId,
+                lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
+                lastModifiedAt: new Date(),
+                sourceId: payload.sourceId,
+                sourceVersionId: payload.sourceVersionId,
+                sourcePath: payload.sourcePath,
+                syncPath: createdSyncPath,
+                syncPathKey: pathKey(createdSyncPath),
+              },
+            });
+            resourceId = page.id;
+          }
+          pageIds.push(resourceId);
+          if (payload.sourcePath) pageIdBySourcePath.set(payload.sourcePath, resourceId);
+          if (payload.knowledgeKey) pageIdByKnowledgeKey.set(payload.knowledgeKey, resourceId);
           if (changeSet.runId) {
             await tx.evidence.updateMany({
               where: {
@@ -259,7 +324,7 @@ export class ReviewService {
                 targetPageId: null,
                 ...(payload.sourcePath ? { location: { path: ['sourcePath'], equals: payload.sourcePath } } : {}),
               },
-              data: { targetPageId: page.id },
+              data: { targetPageId: resourceId },
             });
           }
         } else if (item.type === 'update_page') {
@@ -579,7 +644,13 @@ export class ReviewService {
         });
       }
       return Array.from(new Set(pageIds));
-    });
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2002') {
+        throw new BusinessException('CHANGESET_CONFLICT', 'A published resource now conflicts with this change set');
+      }
+      throw error;
+    }
     await Promise.allSettled(publishedPageIds.map((pageId) => this.search.indexPage(pageId)));
     this.graphMaintenance?.enqueue(changeSet.spaceId);
     return this.get(id);
