@@ -55,6 +55,12 @@ node --test scripts/onboarding-e2e.test.mjs
 
 Node 26 证据使用从 Node.js 官方发布目录下载并按官方 `SHASUMS256.txt` 校验的临时 `v26.7.0` Darwin arm64 二进制。`scripts/node-runtime-contract.test.mjs` 21/21 与 local-sync 59 files / 718 tests 均在该运行时通过；临时二进制目录随后删除。Node 24 的完整矩阵、真实 CodeGraph 和三客户端证据同样保持通过。
 
+## 合并后 `master` 验证
+
+2026-08-20 在本地将 `codex/codegraph-standard-scan` 合并到当时最新的 `master`，合并提交为 `9852d96`，无冲突。合并后的完整 `pnpm test` 为 runtime 72 pass / 40 个缺少 `DATABASE_URL` 的显式 skip、server 583、client 203、sync-protocol 22、local-sync 718，合计 1,598 pass、0 fail。`pnpm lint`、`pnpm typecheck`、`pnpm build`、真实 CodeGraph E2E 1/1、三客户端 onboarding 8/8、运行时发布契约 21/21 和 `git diff --check` 同样通过。
+
+该步骤仅完成本地合并与验证；没有 push、npm 发布或生产部署。
+
 ### Task 3 reviewer remediation
 
 扫描后的稳定状态现在要求 `initialized=true`、`state=complete`、`pendingRefs=0` 且 `pendingChanges=0`。若 `sync` 后仍有 pending change，或 scanner 在同步后再次变更，流程以稳定的 `CODEGRAPH_INDEX_INCOMPLETE` 在快照、回调和生成发布之前失败；该错误不公开本地源路径。回归还在已有真实 publish 的前提下验证此失败保留 publish。
