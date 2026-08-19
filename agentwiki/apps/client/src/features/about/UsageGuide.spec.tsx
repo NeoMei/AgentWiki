@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
@@ -27,7 +27,8 @@ describe('UsageGuide Agent connection flow', () => {
 
     expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('aria-current', 'page');
+    expect(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '使用指南' }))
+      .toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('link', { name: '快速开始' })).toHaveAttribute('href', '/guide');
     expect(screen.getByRole('link', { name: 'Agent 自助接入' })).toHaveAttribute('href', '/guide/agent-onboard');

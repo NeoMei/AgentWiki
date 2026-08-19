@@ -27,7 +27,7 @@ export const GatewayGuidePreview: React.FC = () => {
       <p className="mt-1 pl-5 text-xs text-gray-500">{t('agent.localSync.autoPublishHelp')}</p>
       <button type="button" disabled className="mt-4 h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('agent.localSync.generate')}</button>
       <p className="mt-3 text-xs text-gray-500">{t('agent.localSync.installOnly')}</p>
-      <span className="mt-2 flex items-center gap-1 text-xs text-blue-600"><ExternalLink size={13} /> {t('agent.localSync.learnMore')}</span>
+      <a href="/guide" className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"><ExternalLink size={13} /> {t('agent.localSync.learnMore')}</a>
     </div>
   );
 };

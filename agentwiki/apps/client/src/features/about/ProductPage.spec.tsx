@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
@@ -42,7 +42,7 @@ describe('ProductPage workspace intent', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '使用指南' })).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '使用指南' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '工作台' })).toBeInTheDocument();
   });
 
