@@ -99,4 +99,24 @@ describe('ProductPage workspace intent', () => {
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(screen.getByText('/dashboard')).toBeInTheDocument());
   });
+
+  it('localizes authentication errors on the actual landing-page login form', async () => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 401, data: {
+      code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid credentials',
+    } } });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/?intent=workspace#login']}>
+          <ProductPage />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'wrong@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('邮箱或密码错误');
+    expect(screen.queryByText('Invalid credentials')).not.toBeInTheDocument();
+  });
 });

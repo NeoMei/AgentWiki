@@ -11,6 +11,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
+import { apiErrorMessage } from '../../api/error-message';
 
 const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
   if (pwd.length < 8) return t('auth.passwordMin');
@@ -62,8 +63,8 @@ export const ProductPage: React.FC = () => {
       const res = await api.post(endpoint, payload);
       login(res.data.access_token, res.data.user);
       navigate(returnTarget ?? '/dashboard');
-    } catch (err: any) {
-      setAuthError(err.response?.data?.message || (authMode === 'login' ? t('auth.loginFailed') : t('auth.registrationFailed')));
+    } catch (err: unknown) {
+      setAuthError(apiErrorMessage(err, t, authMode === 'login' ? 'auth.loginFailed' : 'auth.registrationFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -203,7 +204,7 @@ export const ProductPage: React.FC = () => {
                 </div>
 
                 {authError && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 text-center">
+                  <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 text-center">
                     {authError}
                   </div>
                 )}
