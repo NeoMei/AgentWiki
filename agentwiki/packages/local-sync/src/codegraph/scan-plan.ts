@@ -25,10 +25,10 @@ function canonicalize(value: unknown, parentKey?: string): unknown {
 
 export function hashLocalScanPlan(plan: LocalScanPlan): string {
   const verified = LocalScanPlanSchema.parse(plan);
-  const { localScanPlanHash: _localScanPlanHash, ...planWithoutHash } = verified;
+  const planWithoutHash = Object.fromEntries(Object.entries(verified).filter(([key]) => key !== 'localScanPlanHash'));
   const canonicalPlan = {
     ...planWithoutHash,
-    sources: verified.sources.map(({ displayPath: _displayPath, ...source }) => source),
+    sources: verified.sources.map((source) => Object.fromEntries(Object.entries(source).filter(([key]) => key !== 'displayPath'))),
   };
   return contentHash(JSON.stringify(canonicalize(canonicalPlan)));
 }

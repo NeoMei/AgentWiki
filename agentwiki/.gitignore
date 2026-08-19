@@ -17,8 +17,7 @@ apps/*/.env
 .DS_Store
 *.log
 
-.codebase-memory/*
-!.codebase-memory/graph.db.zst
+.codegraph/
 
 # TypeScript build artifacts leaked into source trees by accidental tsc runs
 *.tsbuildinfo

@@ -5,6 +5,18 @@ const KnowledgeIdSchema = z.string().min(1).max(128).regex(
   'must use only letters, numbers, dot, underscore, and hyphen',
 );
 
+/** Strict, portable ownership marker for generated CodeGraph knowledge. */
+export const GeneratedOwnershipSchema = z.object({
+  producer: z.literal('agentwiki-codegraph-generated'),
+  sourceKey: z.string().regex(/^[a-f0-9]{64}$/u),
+  analysisLayer: z.enum(['base', 'deep']),
+  snapshotHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  logicalKey: z.string().min(1).max(500).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/u)
+    .refine((value) => !value.split('/').some((segment) => segment === '.' || segment === '..'), 'must use normalized logical segments'),
+}).strict();
+
+export type GeneratedOwnership = z.infer<typeof GeneratedOwnershipSchema>;
+
 /**
  * KnowledgeBundle is the canonical, versioned container of shareable knowledge
  * produced by the Orchestrator and uploaded to AgentWiki after user confirmation.
@@ -35,7 +47,8 @@ export const SharedMemorySchema = z.object({
   artifactIds: z.array(z.string().min(1)),
   contentHash: z.string().min(1),
   updatedAt: z.string().datetime(),
-});
+  ownership: GeneratedOwnershipSchema.optional(),
+}).strict();
 
 export type SharedMemory = z.infer<typeof SharedMemorySchema>;
 

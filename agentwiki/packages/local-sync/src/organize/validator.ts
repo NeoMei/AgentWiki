@@ -10,6 +10,8 @@ export interface ValidationContext {
   expectedBaseRevision: string;
   acknowledgedReviewArtifactIds: Set<string>;
   trustedRevisionProvenanceIds: Set<string>;
+  /** Exact item IDs carried unchanged from the confirmed base revision. */
+  retainedProvenanceIds?: Set<string>;
 }
 
 export interface ValidatorOptions {
@@ -38,7 +40,7 @@ export function validateKnowledgeBundle(
   validateBaseRevision(bundle, context, issues);
   validateSchemaVersion(bundle, recipe, issues);
   validateProvenanceCoverage(bundle, provenanceMap, issues);
-  validateArtifactReferences(bundle, artifactMap, issues);
+  validateArtifactReferences(bundle, artifactMap, context.retainedProvenanceIds ?? new Set(), issues);
   validateLocalOnlyLeak(bundle, issues);
   validateUnacknowledgedReview(bundle, context, issues);
   validateDuplicateIds(bundle, issues);
@@ -106,8 +108,9 @@ function validateProvenanceCoverage(bundle: KnowledgeBundle, provenanceMap: Map<
   }
 }
 
-function validateArtifactReferences(bundle: KnowledgeBundle, artifactMap: Map<string, SourceArtifact>, issues: ValidationIssue[]) {
+function validateArtifactReferences(bundle: KnowledgeBundle, artifactMap: Map<string, SourceArtifact>, retainedIds: Set<string>, issues: ValidationIssue[]) {
   for (const provenance of bundle.provenance) {
+    if (retainedIds.has(provenance.itemId)) continue;
     for (const artifactId of provenance.artifactIds) {
       if (!artifactMap.has(artifactId)) {
         issues.push(issue(provenance.itemId, 'provenance.artifact.missing', [artifactId], false, `Provenance references unknown artifact ${artifactId}`));
@@ -126,6 +129,7 @@ function validateLocalOnlyLeak(bundle: KnowledgeBundle, issues: ValidationIssue[
 
 function validateUnacknowledgedReview(bundle: KnowledgeBundle, context: ValidationContext, issues: ValidationIssue[]) {
   for (const provenance of bundle.provenance) {
+    if (context.retainedProvenanceIds?.has(provenance.itemId)) continue;
     if (provenance.sensitivity !== 'review-required') continue;
     const allAcknowledged = provenance.artifactIds.every((id) => context.acknowledgedReviewArtifactIds.has(id));
     if (!allAcknowledged) {

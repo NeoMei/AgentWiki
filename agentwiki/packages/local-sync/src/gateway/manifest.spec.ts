@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  STATIC_TOOLS,
   staticToolNames,
   manifestHash,
   isLegacyToolName,
@@ -8,6 +9,23 @@ import {
 } from './manifest.js';
 
 describe('gateway manifest', () => {
+  it('declares the strict CodeGraph planning confirmation inputs', () => {
+    const scan = STATIC_TOOLS.find((tool) => tool.name === 'local_scan_sources')!;
+    const prepare = STATIC_TOOLS.find((tool) => tool.name === 'knowledge_prepare')!;
+
+    expect(scan.inputSchema).toMatchObject({
+      analysisMode: { enum: ['standard', 'deep'], default: 'standard' },
+    });
+    expect(prepare.inputSchema).toMatchObject({
+      analysisMode: { enum: ['standard', 'deep'], default: 'standard' },
+      localScanPlanHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+      confirmedLocalScan: { type: 'boolean' },
+    });
+    expect(scan.description).toContain('standard');
+    expect(scan.description).toContain('.codegraph/');
+    expect(prepare.description).toContain('deep analysis is not installed yet');
+  });
+
   it('declares the approved public tool names', () => {
     const names = staticToolNames();
     expect(names).toContain('onboard_status');

@@ -5,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ManagedRuntimeDescriptor, SourceAdapter } from '../protocol/adapter.js';
-import { CodebaseMemoryAdapter } from './codebase-memory.js';
 import { MarkitdownAdapter } from './markitdown.js';
 
 const execFileAsync = promisify(execFile);
@@ -40,17 +39,6 @@ export class AdapterRuntimeError extends Error {
 const DEFAULT_RUNTIME_HOME = join(homedir(), '.agentwiki', 'runtime');
 
 const MANAGED_ADAPTERS: ManagedAdapter[] = [
-  {
-    adapterId: 'codebase-memory',
-    displayName: 'codebase-memory-mcp',
-    descriptor: {
-      kind: 'node-module',
-      packageName: 'codebase-memory-mcp',
-      packageVersion: '0.9.0',
-      installCommand: ['npm', 'install', 'codebase-memory-mcp@0.9.0'],
-    },
-    factory: (runtimePath) => new CodebaseMemoryAdapter(runtimePath),
-  },
   {
     adapterId: 'markitdown',
     displayName: 'markitdown',

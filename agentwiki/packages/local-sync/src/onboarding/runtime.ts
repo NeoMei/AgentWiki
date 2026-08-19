@@ -16,6 +16,8 @@ import { createBootstrapInstaller } from './install.js';
 import { preflight } from './preflight.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { createSessionStore } from './session.js';
+import { CodeGraphPipeline } from '../codegraph/pipeline.js';
+import { createCodeGraphProvider } from '../codegraph/provider.js';
 
 export interface OnboardingRuntimeDeps {
   sessionId(): string;
@@ -81,6 +83,7 @@ function stdinSource(): ProtocolSource {
 
 function installedKnowledge(home: string): KnowledgeWorkflowFn {
   let workflows: KnowledgeWorkflows | undefined;
+  const scanSources = new CodeGraphPipeline({ home, provider: createCodeGraphProvider({ home }) });
   const load = async (): Promise<KnowledgeWorkflows> => {
     if (workflows) return workflows;
     const config = await loadConfig(home);
@@ -117,10 +120,12 @@ function installedKnowledge(home: string): KnowledgeWorkflowFn {
       home,
       adapters: new AdapterManager({ runtimeHome: join(home, '.agentwiki', 'adapters') }),
       sync,
+      scanSources,
     });
     return workflows;
   };
   return {
+    planLocalScan: async (value) => scanSources.plan(value),
     pull: async (value) => (await load()).pull(value),
     prepare: async (value) => (await load()).prepare({
       ...value,

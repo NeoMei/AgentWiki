@@ -186,7 +186,7 @@ See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete
 - **Sent only after confirmation:** the prepared knowledge envelope, its relative paths
   and provenance, and the target Space selection. `knowledge_prepare` stays local;
   `knowledge_confirm_and_sync` is the confirmed upload step.
-- **Remote model boundary:** Local Agent may use its own model provider during preparation. A non-local provider is disclosed and requires explicit consent before local content can be processed through it. Do not include secrets in source material or in a codebase-memory summary.
+- **Remote model boundary:** Local Agent may use its own model provider during preparation. A non-local provider is disclosed and requires explicit consent before local content can be processed through it. Do not include secrets in source material or in generated code-analysis evidence.
 
 ### Supported Agents
 

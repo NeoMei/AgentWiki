@@ -116,6 +116,16 @@ describe('organizer', () => {
     expect(result.bundle.memories[0].key).toBe('pref');
   });
 
+  it('preserves strict CodeGraph ownership on generated memories', () => {
+    const result = organizeArtifacts([artifact('memory', {
+      logicalKey: 'codegraph/memory',
+      content: { title: 'Generated memory', body: 'value', metadata: { ownership: { producer: 'agentwiki-codegraph-generated', sourceKey: 'a'.repeat(64), analysisLayer: 'base', snapshotHash: 'b'.repeat(64), logicalKey: 'codegraph/memory' } } },
+    })], {
+      spaceId: 'space-1', baseRevision: '0', recipe: recipe(), now: () => new Date('2026-08-19T00:00:00.000Z'),
+    });
+    expect(result.bundle.memories[0]?.ownership).toEqual({ producer: 'agentwiki-codegraph-generated', sourceKey: 'a'.repeat(64), analysisLayer: 'base', snapshotHash: 'b'.repeat(64), logicalKey: 'codegraph/memory' });
+  });
+
   it('organizes relation artifacts when metadata contains source and target', () => {
     const result = organizeArtifacts([artifact('relation', {
       logicalKey: 'rel',

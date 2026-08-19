@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createSessionStore } from '../onboarding/session.js';
+import { hashOnboardingPlan } from '../onboarding/local-plan-hash.js';
+import { hashServerPlan } from '../onboarding/plan-hash.js';
 import { readOnboardingStatus, readPreviewArtifactSummaries } from './status.js';
 
 const homes: string[] = [];
@@ -39,10 +41,23 @@ describe('readOnboardingStatus', () => {
     const home = await mkdtemp(join(tmpdir(), 'aw-status-'));
     homes.push(home);
     const store = createSessionStore('session-1', home);
+    const serverPlan = {
+      space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', permissionPreset: 'editor' as const,
+      approvalMode: 'always-review' as const, packageVersion: '0.3.7',
+    };
+    const serverPlanHash = hashServerPlan(serverPlan);
     await store.save({
       sessionId: 'session-1', state: 'completed', protocolVersion: 1, serverUrl: 'https://wiki.test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { connectionId: 'connection-1', manifestHash: 'manifest-hash', configBackupPath: '/tmp/backup', reloadRequired: false },
+      inputs: {
+        spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', permissionPreset: 'editor', approvalMode: 'always-review',
+        clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
+        configHash: 'a'.repeat(64), oldEntries: [], reloadRequired: false,
+        connectionId: '00000000-0000-4000-8000-000000000001', manifestHash: 'b'.repeat(64),
+      },
+      serverPlan,
+      serverPlanHash,
+      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash }),
       bootstrapResult: {
         space: { id: 'space-1', name: 'Space' }, agent: { id: 'agent-1', name: 'Agent' },
         revisionId: 'rev-1', status: 'published', submissionId: 'sub-1',
@@ -52,7 +67,7 @@ describe('readOnboardingStatus', () => {
 
     const report = await readOnboardingStatus(home, 'session-1');
 
-    expect(report).toMatchObject({ sessionId: 'session-1', state: 'completed', revisionId: 'rev-1', connectionId: 'connection-1' });
+    expect(report).toMatchObject({ sessionId: 'session-1', state: 'completed', revisionId: 'rev-1', connectionId: '00000000-0000-4000-8000-000000000001' });
     expect(JSON.stringify(report)).not.toContain('awo_must_not_leak');
   });
 });

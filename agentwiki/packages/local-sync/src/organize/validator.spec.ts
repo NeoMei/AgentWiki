@@ -72,6 +72,7 @@ function context(expectedBaseRevision = '0') {
     expectedBaseRevision,
     acknowledgedReviewArtifactIds: new Set<string>(),
     trustedRevisionProvenanceIds: new Set<string>(),
+    retainedProvenanceIds: new Set<string>(),
   };
 }
 
@@ -117,6 +118,17 @@ describe('validator', () => {
     const ctx = { ...context(), acknowledgedReviewArtifactIds: new Set(['artifact-review']) };
     const issues = validateKnowledgeBundle(b, [art], recipe(), ctx);
     expect(issues).not.toContainEqual(expect.objectContaining({ rule: 'sensitivity.review-required' }));
+  });
+
+  it('allows only explicitly retained base provenance to omit a current artifact and acknowledgement', () => {
+    const b = bundle({
+      pages: [{ ...bundle().pages[0], artifactIds: ['historic-review'] }],
+      provenance: [{ itemId: 'page-core', artifactIds: ['historic-review'], sensitivity: 'review-required' }],
+    });
+    const retained = { ...context(), retainedProvenanceIds: new Set(['page-core']) };
+    expect(validateKnowledgeBundle(b, [], recipe(), retained)).not.toContainEqual(expect.objectContaining({ rule: 'provenance.artifact.missing' }));
+    expect(validateKnowledgeBundle(b, [], recipe(), retained)).not.toContainEqual(expect.objectContaining({ rule: 'sensitivity.review-required' }));
+    expect(validateKnowledgeBundle(b, [], recipe(), context())).toContainEqual(expect.objectContaining({ rule: 'provenance.artifact.missing' }));
   });
 
   it('flags duplicate page ids', () => {

@@ -4,7 +4,10 @@ import {
   CodeGraphCapabilitiesSchema,
   CodeGraphSourcePlanSchema,
   LocalScanPlanSchema,
+  PublicCodeGraphSourcePlanSchema,
+  PublicLocalScanPlanSchema,
   StandardCodeFileSchema,
+  publicLocalScanPlan,
 } from './contracts.js';
 import { LocalScanPlanSchema as ExportedLocalScanPlanSchema } from '../protocol/index.js';
 
@@ -63,6 +66,40 @@ describe('CodeGraph public contracts', () => {
 
   it('re-exports scan contracts from the public protocol index', () => {
     expect(ExportedLocalScanPlanSchema).toBe(LocalScanPlanSchema);
+  });
+
+  it('creates a strict public local scan plan with no private scanner fields', () => {
+    const publicPlan = publicLocalScanPlan(localScanPlan);
+
+    expect(PublicLocalScanPlanSchema.parse(publicPlan)).toEqual({
+      schemaVersion: localScanPlan.schemaVersion,
+      provider: localScanPlan.provider,
+      detectedVersion: localScanPlan.detectedVersion,
+      capabilities: localScanPlan.capabilities,
+      analysisMode: localScanPlan.analysisMode,
+      limits: localScanPlan.limits,
+      localScanPlanHash: localScanPlan.localScanPlanHash,
+      sources: [{
+        sourceKey: source.sourceKey,
+        displayPath: source.displayPath,
+        action: source.action,
+        indexState: source.indexState,
+        estimatedFiles: source.estimatedFiles,
+      }],
+    });
+    expect(JSON.stringify(publicPlan)).not.toContain('/private/agentwiki');
+    expect(JSON.stringify(publicPlan)).not.toContain('/usr/local/bin/codegraph');
+    expect(() => PublicLocalScanPlanSchema.parse({ ...publicPlan, executableIdentity: '/private/bin/codegraph' })).toThrow();
+  });
+
+  it.each(['/private/repository', 'C:/private/repository', '../repository', './repository', 'repository/../private', 'repository\\private', 'repository//private', 'repository\0private', 'repository\nprivate', 'repository\u001bprivate', 'repository\u009bprivate'])('rejects unsafe public display paths: %j', (displayPath) => {
+    expect(() => PublicCodeGraphSourcePlanSchema.parse({
+      sourceKey: source.sourceKey,
+      displayPath,
+      action: source.action,
+      indexState: source.indexState,
+      estimatedFiles: source.estimatedFiles,
+    })).toThrow();
   });
 
   it.each([

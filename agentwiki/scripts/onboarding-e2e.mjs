@@ -41,6 +41,8 @@ export async function runOnboardingHarness(opts) {
   const auth = { token: null };
   let child;
   let primaryError;
+  let cleanupError;
+  let completedResult;
   try {
     child = (opts.spawnImpl ?? defaultSpawn)({
       baseUrl,
@@ -60,29 +62,36 @@ export async function runOnboardingHarness(opts) {
     fixture.spaceId = result.report?.space?.id ?? null;
     fixture.agentId = result.report?.agent?.id ?? null;
     assertCompletion(result);
-    return { sessionId: result.sessionId, report: result.report, fixture, home };
+    completedResult = { sessionId: result.sessionId, report: result.report, fixture, home };
   } catch (error) {
     primaryError = error;
-    throw error;
-  } finally {
-    terminateChild(child);
-    if (auth.token) {
-      const fetchImpl = opts.fetchImpl ?? fetch;
-      await discoverFixture(baseUrl, auth.token, fixture, fetchImpl).catch(() => undefined);
-      try {
-        await cleanupFixture(fixture, async (kind, id) => {
-          const route = kind === 'agent' ? `agents/${id}` : kind === 'space' ? `spaces/${id}` : `users/${id}`;
-          const response = await fetchImpl(`${baseUrl}/${route}`, {
-            method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` },
-          });
-          if (!response.ok && response.status !== 404) throw new Error(`${kind} cleanup returned ${response.status}`);
-        });
-      } catch (cleanupError) {
-        if (!primaryError) throw cleanupError;
-      }
-    }
-    await rm(root, { recursive: true, force: true });
   }
+
+  terminateChild(child);
+  if (auth.token) {
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    await discoverFixture(baseUrl, auth.token, fixture, fetchImpl).catch(() => undefined);
+    try {
+      await cleanupFixture(fixture, async (kind, id) => {
+        const route = kind === 'agent' ? `agents/${id}` : kind === 'space' ? `spaces/${id}` : `users/${id}`;
+        const response = await fetchImpl(`${baseUrl}/${route}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` },
+        });
+        if (!response.ok && response.status !== 404) throw new Error(`${kind} cleanup returned ${response.status}`);
+      });
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
+  try {
+    await rm(root, { recursive: true, force: true });
+  } catch (error) {
+    cleanupError ??= error;
+  }
+
+  if (primaryError) throw primaryError;
+  if (cleanupError) throw cleanupError;
+  return completedResult;
 }
 
 async function discoverFixture(baseUrl, token, fixture, fetchImpl) {
@@ -156,7 +165,7 @@ async function driveProtocol(child, context) {
             spaceName: `aw-e2e-${Date.now()}-space`,
             agentName: `aw-e2e-${context.clientType}-agent`,
             permissionPreset: 'editor', approvalMode: 'always-review',
-            clientType: context.clientType, sourcePaths: context.sourcePaths, sourceType: 'documents',
+            clientType: context.clientType, sourcePaths: context.sourcePaths, sourceType: 'documents', analysisMode: 'standard',
           });
         } else if (event.type === 'authorization_required' && !authorizing) {
           authorizing = true;

@@ -316,8 +316,8 @@ Behavior:
 - Remove `codebase-memory-mcp` from all production-path strings and runtime expectations.
 - Route both current Gateway preparation and any still-supported legacy local preparation entry through the new provider/snapshot/analyzer boundary, or delete retired paths rather than maintaining a second scanner.
 - New derived knowledge uses CodeGraph-era identities and paths. It does not preserve Codebase Memory page IDs.
-- The first migration Preview explicitly shows old pages proposed for deletion, new pages and relations proposed for creation, and total upload volume.
-- Deletions and additions are synchronized only after confirmation. Existing server revision history remains available.
+- This 2026-08-18 deletion requirement is superseded by the [2026-08-19 final hardening design](2026-08-19-codegraph-final-hardening-design.md): historical bases have no strict verifiable legacy ownership marker, so legacy-looking pages carry forward with a stable opaque migration-candidate warning and zero automatic deletion. Only a future, separately designed strict marker contract may propose deletion; new pages and relations remain reviewable in Preview with total upload volume.
+- Additions are synchronized only after confirmation. Existing server revision history remains available; any future marker-backed deletion proposal must use the separately designed contract and Preview.
 
 ## Tool Contract Changes
 
@@ -371,7 +371,7 @@ Deep mode uses the same tool with `analysisMode: "deep"`. Tool descriptions and 
 ### Migration and End to End
 
 - No production-path `codebase-memory-mcp` references remain.
-- A first CodeGraph migration Preview contains the expected old deletions and new additions.
+- Per the [2026-08-19 final hardening design](2026-08-19-codegraph-final-hardening-design.md), a first CodeGraph migration Preview carries historical legacy-looking items with a stable opaque warning and zero automatic deletion when no strict verifiable legacy ownership marker exists; only a future separately designed marker contract may propose deletion, while new additions remain previewed.
 - Real CodeGraph scan → normalized snapshot → generated files → Preview → confirmation → server review/publish.
 - Codex, Claude Code, and OpenCode complete standard onboarding and sync.
 - A separately requested deep-analysis flow completes without changing standard-mode defaults.

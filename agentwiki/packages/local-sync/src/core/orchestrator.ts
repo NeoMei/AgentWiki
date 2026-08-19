@@ -243,7 +243,7 @@ function resolveAdapterIds(
 ): string[] {
   if (!adapters || adapters.size === 0) {
     const managedAdapterByKind: Partial<Record<SourceArtifact['kind'], string>> = {
-      code: 'codebase-memory',
+      code: 'agentwiki-codegraph-generated',
       document: 'markitdown',
       memory: 'agent-memory',
     };

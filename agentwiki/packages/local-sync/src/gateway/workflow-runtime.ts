@@ -4,13 +4,15 @@ import { join } from 'node:path';
 
 import type { SourceAdapter } from '../protocol/adapter.js';
 import type { SourceArtifact } from '../protocol/artifact.js';
-import type { KnowledgeBundle } from '../protocol/bundle.js';
+import { KnowledgeBundleSchema, type KnowledgeBundle } from '../protocol/bundle.js';
 import { MarkitdownAdapter } from '../adapter/markitdown.js';
 import type { Recipe } from '../protocol/recipe.js';
-import { organizeArtifacts, validateKnowledgeBundle } from '../organize/index.js';
+import { organizeArtifacts, reconcileAnalysisLayers, validateKnowledgeBundle } from '../organize/index.js';
 import { workspacePaths } from '../workspace/layout.js';
 import { readBase, readManifest } from '../workspace/state.js';
 import { OnboardingError } from '../onboarding/errors.js';
+import { CodeGraphPipeline } from '../codegraph/pipeline.js';
+import { createCodeGraphProvider } from '../codegraph/provider.js';
 import {
   KnowledgeWorkflows,
   type PreviewStore,
@@ -24,6 +26,7 @@ export interface AdapterResolver {
 export interface WorkflowRuntimeOptions {
   home: string;
   adapters: AdapterResolver;
+  scanSources?: Pick<CodeGraphPipeline, 'plan' | 'collect'>;
   sync: RemoteSync;
   now?: () => Date;
 }
@@ -49,34 +52,76 @@ const UNIFIED_RECIPE: Recipe = {
 
 export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions): KnowledgeWorkflows {
   const now = options.now ?? (() => new Date());
+  const scanSources = options.scanSources ?? new CodeGraphPipeline({
+    home: options.home,
+    provider: createCodeGraphProvider({ home: options.home }),
+  });
   return new KnowledgeWorkflows({
     previews: createFilePreviewStore(options.home),
     remote: options.sync,
     prepare: async (input) => {
       const artifacts: SourceArtifact[] = [];
       const skippedFiles: unknown[] = [];
-      const adapterIds = input.sourceType === 'code'
-        ? ['codebase-memory']
-        : input.sourceType === 'documents'
-          ? ['markitdown']
-          : ['codebase-memory', 'markitdown'];
+      const sourceType = input.sourceType ?? 'auto';
+      const analysisMode = input.analysisMode ?? 'standard';
+      if (analysisMode !== 'standard') {
+        throw new OnboardingError({
+          code: 'CODEGRAPH_CAPABILITY_UNSUPPORTED',
+          message: 'deep CodeGraph analysis is not available in this stage',
+          retryable: false,
+          nextAction: 'deep analysis is not installed yet',
+        });
+      }
 
-      for (const sourcePath of input.sourcePaths) {
-        for (const adapterId of adapterIds) {
-          const probe = adapterId === 'markitdown' ? new MarkitdownAdapter('') : await options.adapters.ensure(adapterId);
+      // An auto plan is also bounded filename-only discovery. A null result is
+      // the only document-only case; every non-null plan is code-bearing.
+      const plan = sourceType === 'documents'
+        ? null
+        : await scanSources.plan({ sourcePaths: input.sourcePaths, sourceType, analysisMode: 'standard' });
+      if (sourceType === 'code' && plan === null) {
+        throw new OnboardingError({
+          code: 'CODEGRAPH_CAPABILITY_UNSUPPORTED',
+          message: 'CodeGraph did not produce a scan plan for the requested code source',
+          retryable: false,
+        });
+      }
+      const codeBearing = plan !== null;
+      const warnings: string[] = [];
+      let codeSourceKeys: string[] = [];
+      let codeProcessedFiles = 0;
+      if (codeBearing) {
+        if (input.confirmedLocalScan !== true || typeof input.localScanPlanHash !== 'string') {
+          throw new OnboardingError({ code: 'CONFIRMATION_REQUIRED', message: 'code knowledge preparation requires explicit local scan confirmation', retryable: false });
+        }
+        const collected = await scanSources.collect({
+          spaceId: input.spaceId,
+          sourcePaths: input.sourcePaths,
+          sourceType,
+          analysisMode: 'standard',
+          localScanPlanHash: input.localScanPlanHash,
+          confirmedLocalScan: true,
+        });
+        artifacts.push(...collected.artifacts);
+        warnings.push(...collected.warnings);
+        codeSourceKeys = collected.sourceKeys;
+        codeProcessedFiles = collected.processedFiles;
+      }
+
+      if (sourceType !== 'code') {
+        for (const sourcePath of input.sourcePaths) {
+          const probe = new MarkitdownAdapter('');
           const descriptor = await probe.inspect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
           if (descriptor.estimatedArtifacts === 0) continue;
-          const adapter = adapterId === 'markitdown' && descriptor.metadata?.requiresManagedRuntime === true
-            ? await options.adapters.ensure(adapterId)
+          const adapter = descriptor.metadata?.requiresManagedRuntime === true
+            ? await options.adapters.ensure('markitdown')
             : probe;
           const batch = await adapter.collect({ sourcePath, spaceId: input.spaceId, jobId: 'preview' });
-         artifacts.push(...batch.artifacts);
-       }
-    }
+          artifacts.push(...batch.artifacts);
+        }
+      }
 
       // DEF-005: scan for credential-like patterns before organizing; flagged
       // artifacts are skipped so the complete marker never reaches preview state.
-      const warnings: string[] = [];
       const safeArtifacts = artifacts.filter((artifact) => {
         const text = artifactContentText(artifact);
         const match = SECRET_PATTERNS.find((re) => re.test(text));
@@ -90,21 +135,23 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
 
       const manifest = await readManifest(workspacePaths(options.home, input.spaceId));
       const baseRevision = manifest?.baseRevision?.revision ?? '0';
-     const organized = organizeArtifacts(safeArtifacts, {
+      const organized = organizeArtifacts(safeArtifacts, {
        spaceId: input.spaceId,
        baseRevision,
        recipe: UNIFIED_RECIPE,
        now,
      });
 
-      // DEF-003/004: compare with the last confirmed base bundle to compute
-      // added/modified/deleted counts and generate deletion proposals for
-      // locally-removed pages. Falls back gracefully if base is unavailable.
+      // Compare against the last confirmed bundle only after organization. A
+      // CodeGraph standard scan owns its current source's base layer, not the
+      // whole Space: deep, document, manual, and foreign-source knowledge must
+      // survive in the locally persisted preview.
       let bundle = organized.bundle;
+      let retainedProvenanceIds = new Set<string>();
       let diff: { added: number; modified: number; deleted: number; uploadBytes: number } | undefined;
       if (!baseRevision || baseRevision === '0') {
         diff = {
-          added: bundle.pages.length,
+          added: bundle.pages.length + bundle.memories.length + bundle.relations.length,
           modified: 0,
           deleted: 0,
           uploadBytes: Buffer.byteLength(JSON.stringify(bundle), 'utf8'),
@@ -112,30 +159,35 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
       } else {
         try {
           const baseData = await readBase(workspacePaths(options.home, input.spaceId), baseRevision);
-          if (baseData && typeof baseData === 'object' && 'pages' in baseData && Array.isArray((baseData as { pages: unknown[] }).pages)) {
-            const basePages = new Map((baseData as KnowledgeBundle).pages.map((p) => [p.pageId, p.contentHash]));
-            const localPageIds = new Set(bundle.pages.map((p) => p.pageId));
-            let added = 0;
-            let modified = 0;
-            for (const page of bundle.pages) {
-              const baseHash = basePages.get(page.pageId);
-              if (baseHash === undefined) added += 1;
-              else if (baseHash !== page.contentHash) modified += 1;
-            }
-            const deletionProposals = [];
-            for (const [pageId] of basePages) {
-              if (!localPageIds.has(pageId)) {
-                deletionProposals.push({ deletionId: `del-${pageId}`, itemType: 'page' as const, itemId: pageId, reason: 'Source file removed since last sync' });
-              }
-            }
-            if (deletionProposals.length > 0) {
-              bundle = { ...bundle, deletions: [...bundle.deletions, ...deletionProposals] };
-            }
-            const uploadBytes = Buffer.byteLength(JSON.stringify(bundle), 'utf8');
-            diff = { added, modified, deleted: deletionProposals.length, uploadBytes };
+          if (baseData === null) throw new Error('Confirmed base bundle is missing');
+          const base = KnowledgeBundleSchema.parse(baseData);
+          if (codeBearing) {
+            const reconciled = reconcileAnalysisLayers(base, bundle, {
+              sourceKeys: new Set(codeSourceKeys),
+              ownedLayers: new Set(['base']),
+            });
+            bundle = { ...reconciled.bundle, baseRevision };
+            retainedProvenanceIds = reconciled.retainedProvenanceIds;
+            warnings.push(...reconciled.warnings);
+            diff = {
+              added: reconciled.added,
+              modified: reconciled.modified,
+              deleted: reconciled.deleted,
+              uploadBytes: Buffer.byteLength(JSON.stringify(bundle), 'utf8'),
+            };
+          } else {
+            const merged = mergeDocumentBundle(base, bundle);
+            bundle = { ...merged.bundle, baseRevision };
+            retainedProvenanceIds = merged.retainedProvenanceIds;
+            diff = {
+              added: merged.added,
+              modified: merged.modified,
+              deleted: merged.deleted,
+              uploadBytes: Buffer.byteLength(JSON.stringify(bundle), 'utf8'),
+            };
           }
-        } catch {
-          // Base bundle unavailable; diff stays undefined.
+        } catch (error) {
+          throw unavailableConfirmedBase(error);
         }
       }
       const acknowledged = new Set(
@@ -145,6 +197,7 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         expectedBaseRevision: baseRevision,
         acknowledgedReviewArtifactIds: acknowledged,
         trustedRevisionProvenanceIds: new Set(),
+        retainedProvenanceIds,
       });
       const errors = issues.filter((issue) => issue.severity === 'error');
       if (errors.length > 0) {
@@ -157,14 +210,111 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
 
      return {
         bundle,
-        sourceKey: createHash('sha256').update([...input.sourcePaths].sort().join('\n')).digest('hex'),
-        processedFiles: safeArtifacts.length,
+        sourceKey: codeSourceKeys.length > 0
+          ? codeSourceKeys.sort().join(',')
+          : createHash('sha256').update([...input.sourcePaths].sort().join('\n')).digest('hex'),
+        processedFiles: codeProcessedFiles + safeArtifacts.filter((artifact) => artifact.kind === 'document').length,
         skippedFiles,
         warnings,
         ...(diff ? { diff } : {}),
       };
     },
   });
+}
+
+function unavailableConfirmedBase(cause: unknown): OnboardingError {
+  const error = new OnboardingError({
+    code: 'SCAN_FAILED',
+    message: 'confirmed base bundle is unavailable',
+    retryable: true,
+    nextAction: 'refresh the confirmed knowledge base before preparing a new preview',
+  });
+  Object.assign(error, { cause, diagnostic: 'confirmed-base-read-or-validation-failed' });
+  return error;
+}
+
+interface DocumentBundleMerge {
+  bundle: KnowledgeBundle;
+  added: number;
+  modified: number;
+  deleted: number;
+  retainedProvenanceIds: Set<string>;
+}
+
+/**
+ * Stage 1 has no strict persisted ownership for documents. Current document
+ * items may replace a matching stable ID, but absence is never deletion proof.
+ */
+function mergeDocumentBundle(base: KnowledgeBundle, current: KnowledgeBundle): DocumentBundleMerge {
+  const pages = mergeByStableId(base.pages, current.pages, (item) => item.pageId);
+  const memories = mergeByStableId(base.memories, current.memories, (item) => item.memoryId);
+  const relations = mergeByStableId(base.relations, current.relations, (item) => item.relationId);
+  const provenance = mergeByStableId(base.provenance, current.provenance, (item) => item.itemId);
+  const deletions = uniqueStableItems(current.deletions, (item) => item.deletionId);
+  const retainedProvenanceIds = new Set(base.provenance
+    .filter((item) => !current.provenance.some((candidate) => candidate.itemId === item.itemId))
+    .map((item) => item.itemId));
+
+  return {
+    bundle: {
+      ...current,
+      baseRevision: base.baseRevision,
+      pages: pages.items,
+      memories: memories.items,
+      relations: relations.items,
+      provenance: provenance.items,
+      deletions,
+    },
+    added: pages.added + memories.added + relations.added,
+    modified: pages.modified + memories.modified + relations.modified,
+    deleted: deletions.length,
+    retainedProvenanceIds,
+  };
+}
+
+function mergeByStableId<T>(base: T[], current: T[], id: (item: T) => string): { items: T[]; added: number; modified: number } {
+  const baseItems = uniqueStableItems(base, id);
+  const currentItems = uniqueStableItems(current, id);
+  const baseById = new Map(baseItems.map((item) => [id(item), item]));
+  const items = new Map(baseItems.map((item) => [id(item), item]));
+  let added = 0;
+  let modified = 0;
+  for (const item of currentItems) {
+    const stableId = id(item);
+    const previous = baseById.get(stableId);
+    if (previous === undefined) added += 1;
+    else if (canonicalJson(previous) !== canonicalJson(item)) modified += 1;
+    items.set(stableId, item);
+  }
+  return { items: [...items.values()].sort((left, right) => codeUnitCompare(id(left), id(right))), added, modified };
+}
+
+function uniqueStableItems<T>(items: T[], id: (item: T) => string): T[] {
+  const byId = new Map<string, T>();
+  for (const item of [...items].sort((left, right) => {
+    const key = codeUnitCompare(id(left), id(right));
+    return key || codeUnitCompare(canonicalJson(left), canonicalJson(right));
+  })) {
+    const stableId = id(item);
+    const existing = byId.get(stableId);
+    if (existing !== undefined && canonicalJson(existing) !== canonicalJson(item)) {
+      throw new Error(`Conflicting knowledge item ID ${stableId}`);
+    }
+    byId.set(stableId, item);
+  }
+  return [...byId.values()].sort((left, right) => codeUnitCompare(id(left), id(right)));
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>).sort(codeUnitCompare).map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+function codeUnitCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 const SECRET_PATTERNS = [
