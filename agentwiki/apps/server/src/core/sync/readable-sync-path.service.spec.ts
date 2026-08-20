@@ -74,7 +74,6 @@ describe('ReadableSyncPathService', () => {
     expect(tx.page.findMany).toHaveBeenCalledWith({
       where: {
         spaceId: 'space-1',
-        deletedAt: null,
         id: { not: 'current' },
       },
       select: { syncPathKey: true },
@@ -97,7 +96,6 @@ describe('ReadableSyncPathService', () => {
     expect(tx.page.findMany).toHaveBeenCalledWith({
       where: {
         spaceId: 'space-1',
-        deletedAt: null,
       },
       select: { syncPathKey: true },
     });
@@ -134,5 +132,71 @@ describe('ReadableSyncPathService', () => {
       Buffer.byteLength(segments[segments.length - 1]!, 'utf8'),
     ).toBeLessThanOrEqual(255);
     expect(result.pathKey).toBe(pathKey(result.path));
+  });
+
+  it('shrinks a 248-byte basename to allocate the smallest two-digit suffix', async () => {
+    const basename = 'a'.repeat(248);
+    tx.page.findMany.mockResolvedValue([
+      { syncPathKey: pathKey(`pages/${basename}.md`) },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        syncPathKey: pathKey(`pages/${basename} (${index + 2}).md`),
+      })),
+    ]);
+
+    await expect(
+      service.allocate(tx as any, {
+        spaceId: 'space-1',
+        directory: 'pages',
+        title: basename,
+      }),
+    ).resolves.toEqual({
+      path: `pages/${'a'.repeat(247)} (10).md`,
+      pathKey: pathKey(`pages/${'a'.repeat(247)} (10).md`),
+    });
+  });
+
+  it('uses the NFC directory byte length to fit the full path limit', async () => {
+    const directory = Array.from({ length: 4 }, () =>
+      'e\u0301'.repeat(120),
+    ).join('/');
+    const normalizedDirectory = directory.normalize('NFC');
+    tx.page.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.allocate(tx as any, {
+        spaceId: 'space-1',
+        directory,
+        title: 't'.repeat(248),
+      }),
+    ).resolves.toEqual({
+      path: `${normalizedDirectory}/${'t'.repeat(57)}.md`,
+      pathKey: pathKey(`${normalizedDirectory}/${'t'.repeat(57)}.md`),
+    });
+  });
+
+  it('treats a soft-deleted page path as occupied by the database unique key', async () => {
+    tx.page.findMany.mockImplementation(
+      ({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve(
+          'deletedAt' in where
+            ? []
+            : [{ syncPathKey: pathKey('pages/Guide.md') }],
+        ),
+    );
+
+    await expect(
+      service.allocate(tx as any, {
+        spaceId: 'space-1',
+        directory: 'pages',
+        title: 'Guide',
+      }),
+    ).resolves.toEqual({
+      path: 'pages/Guide (2).md',
+      pathKey: pathKey('pages/Guide (2).md'),
+    });
+    expect(tx.page.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1' },
+      select: { syncPathKey: true },
+    });
   });
 });

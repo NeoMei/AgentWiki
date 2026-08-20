@@ -50,16 +50,23 @@ export class ReadableSyncPathService {
     const occupied = await tx.page.findMany({
       where: {
         spaceId: input.spaceId,
-        deletedAt: null,
         ...(input.excludePageId ? { id: { not: input.excludePageId } } : {}),
       },
       select: { syncPathKey: true },
     });
     const keys = new Set(occupied.map((page) => page.syncPathKey));
     const basename = safeMarkdownBasename(input.title);
+    const directory = input.directory.normalize('NFC');
+    const directoryBytes = encoder.encode(`${directory}/`).byteLength;
     for (let suffix = 1; ; suffix += 1) {
-      const name = suffix === 1 ? basename : `${basename} (${suffix})`;
-      const candidate = validatePortablePath(`${input.directory}/${name}.md`);
+      const ending = suffix === 1 ? '.md' : ` (${suffix}).md`;
+      const endingBytes = encoder.encode(ending).byteLength;
+      const basenameBytes = Math.min(
+        255 - endingBytes,
+        1024 - directoryBytes - endingBytes,
+      );
+      const name = `${truncateUtf8(basename, basenameBytes)}${ending}`;
+      const candidate = validatePortablePath(`${directory}/${name}`);
       if (!keys.has(candidate.key)) {
         return { path: candidate.path, pathKey: candidate.key };
       }
