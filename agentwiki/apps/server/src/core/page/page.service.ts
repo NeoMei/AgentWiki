@@ -282,46 +282,48 @@ export class PageService {
     spaceId: string,
     items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
   ) {
-    const ids = items.map((item) => item.id);
-    const existing = await this.prisma.page.findMany({
-      where: { id: { in: ids }, spaceId, deletedAt: null },
-      select: { id: true },
-    });
-    if (existing.length !== ids.length) {
-      throw new BadRequestException('Some pages do not belong to this space');
-    }
-
-    const spacePages = await this.prisma.page.findMany({
-      where: { spaceId, deletedAt: null },
-      select: { id: true, parentId: true },
-    });
-    const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
-    for (const item of items) parentOf.set(item.id, item.parentId);
-
-    for (const parentId of parentOf.values()) {
-      if (parentId !== null && !parentOf.has(parentId)) {
-        throw new BadRequestException('Parent pages must belong to this space');
+    await this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      const ids = items.map((item) => item.id);
+      const existing = await lockedTx.page.findMany({
+        where: { id: { in: ids }, spaceId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing.length !== ids.length) {
+        throw new BadRequestException('Some pages do not belong to this space');
       }
-    }
 
-    // Cycle check uses the complete persisted hierarchy plus this batch.
-    for (const [pageId, parentId] of parentOf) {
-      let cursor: string | null = parentId;
-      const seen = new Set<string>([pageId]);
-      while (cursor) {
-        if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
-        seen.add(cursor);
-        cursor = parentOf.get(cursor) ?? null;
+      const spacePages = await lockedTx.page.findMany({
+        where: { spaceId, deletedAt: null },
+        select: { id: true, parentId: true },
+      });
+      const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
+      for (const item of items) parentOf.set(item.id, item.parentId);
+
+      for (const parentId of parentOf.values()) {
+        if (parentId !== null && !parentOf.has(parentId)) {
+          throw new BadRequestException('Parent pages must belong to this space');
+        }
       }
-    }
-    await this.prisma.$transaction(
-      items.map((item) =>
-        this.prisma.page.updateMany({
+
+      // Cycle check uses the complete persisted hierarchy plus this batch.
+      for (const [pageId, parentId] of parentOf) {
+        let cursor: string | null = parentId;
+        const seen = new Set<string>([pageId]);
+        while (cursor) {
+          if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
+          seen.add(cursor);
+          cursor = parentOf.get(cursor) ?? null;
+        }
+      }
+
+      for (const item of items) {
+        await lockedTx.page.updateMany({
           where: { id: item.id, spaceId },
           data: { parentId: item.parentId, sortOrder: item.sortOrder },
-        }),
-      ),
-    );
+        });
+      }
+    });
     return this.findHierarchy(spaceId);
   }
 

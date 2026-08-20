@@ -931,6 +931,160 @@ describe('page ordering', () => {
     }));
   });
 
+  it('locks the single Space before every reorder Page read or write', async () => {
+    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a', parentId: null }]);
+    mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.reorder('space-1', [{ id: 'a', parentId: null, sortOrder: 0 }]);
+
+    expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+    const lockOrder = mockRevisionWriter.lockSpace.mock.invocationCallOrder[0];
+    for (const pageReadOrder of mockPrisma.page.findMany.mock.invocationCallOrder) {
+      expect(lockOrder).toBeLessThan(pageReadOrder);
+    }
+    for (const pageWriteOrder of mockPrisma.page.updateMany.mock.invocationCallOrder) {
+      expect(lockOrder).toBeLessThan(pageWriteOrder);
+    }
+  });
+
+  it('serializes a same-millisecond reorder behind restore instead of relying on updatedAt CAS', async () => {
+    const sameMillisecond = new Date('2026-08-20T00:00:00.000Z');
+    const pages = new Map<string, any>([
+      ['page-1', {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        title: 'Current title',
+        content: 'Current body',
+        slug: 'current-title',
+        format: 'markdown',
+        parentId: null,
+        sortOrder: 0,
+        spaceId: 'space-1',
+        authorId: 'user-1',
+        syncPath: 'pages/Current title.md',
+        syncPathKey: 'pages/current title.md',
+        updatedAt: sameMillisecond,
+        deletedAt: null,
+      }],
+      ['parent-2', {
+        id: 'parent-2',
+        parentId: null,
+        sortOrder: 0,
+        spaceId: 'space-1',
+        deletedAt: null,
+      }],
+    ]);
+    const versions: Array<Record<string, unknown>> = [];
+    let allowRestoreWrite!: () => void;
+    const restoreWriteGate = new Promise<void>((resolve) => { allowRestoreWrite = resolve; });
+    let snapshotCaptured!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => { snapshotCaptured = resolve; });
+    let lockHeld = false;
+    const lockWaiters: Array<() => void> = [];
+    const releaseByTransaction = new WeakMap<object, () => void>();
+
+    const pageFindMany = jest.fn(async ({ where }: any) => {
+      const allPages = [...pages.values()];
+      if (where?.id?.in) return allPages.filter((page) => where.id.in.includes(page.id));
+      return allPages.filter((page) => page.spaceId === where?.spaceId && page.deletedAt === null);
+    });
+    const pageUpdateMany = jest.fn(async ({ where, data }: any) => {
+      const page = pages.get(where.id);
+      if (!page || page.spaceId !== where.spaceId || page.deletedAt !== null) return { count: 0 };
+      if (where.updatedAt && where.updatedAt.getTime() !== page.updatedAt.getTime()) return { count: 0 };
+      pages.set(page.id, { ...page, ...data, updatedAt: sameMillisecond });
+      return { count: 1 };
+    });
+    const localPrisma: any = {
+      page: {
+        findMany: pageFindMany,
+        updateMany: pageUpdateMany,
+        findUnique: jest.fn(async ({ where }: any) => {
+          const page = pages.get(where.id);
+          return page ? { ...page } : null;
+        }),
+      },
+      pageVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'version-1',
+          pageId: 'page-1',
+          title: 'Current title',
+          content: 'Restored body',
+          slug: 'restored-title',
+          format: 'markdown',
+          parentId: null,
+        }),
+      },
+      pageSearchDocument: { upsert: jest.fn().mockResolvedValue({}) },
+    };
+    localPrisma.$transaction = jest.fn(async (operation: any) => {
+      if (Array.isArray(operation)) return Promise.all(operation);
+      const callback = operation;
+      const pendingVersions: Array<Record<string, unknown>> = [];
+      const tx = {
+        ...localPrisma,
+        pageVersion: {
+          ...localPrisma.pageVersion,
+          create: jest.fn(async ({ data }: any) => {
+            snapshotCaptured();
+            await restoreWriteGate;
+            pendingVersions.push(data);
+            return data;
+          }),
+        },
+      };
+      try {
+        const result = await callback(tx);
+        versions.push(...pendingVersions);
+        return result;
+      } finally {
+        releaseByTransaction.get(tx)?.();
+      }
+    });
+    const localRevisionWriter = {
+      lockSpace: jest.fn(async (tx: object) => {
+        if (lockHeld) await new Promise<void>((resolve) => lockWaiters.push(resolve));
+        lockHeld = true;
+        releaseByTransaction.set(tx, () => {
+          lockHeld = false;
+          lockWaiters.shift()?.();
+        });
+        return tx;
+      }),
+      advance: jest.fn().mockResolvedValue({}),
+    };
+    const localSearch = {
+      indexPage: jest.fn().mockResolvedValue(undefined),
+      deletePageIndex: jest.fn().mockResolvedValue(undefined),
+    };
+    const localService = new PageService(
+      localPrisma,
+      localSearch as any,
+      localRevisionWriter as any,
+      { allocate: jest.fn() } as any,
+    );
+    jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
+
+    const restore = localService.restoreVersion('page-1', 'version-1');
+    await snapshotGate;
+    const reorder = localService.reorder('space-1', [
+      { id: 'page-1', parentId: 'parent-2', sortOrder: 0 },
+    ]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    allowRestoreWrite();
+    await Promise.all([restore, reorder]);
+
+    expect(pages.get('page-1')).toMatchObject({
+      title: 'Current title',
+      content: 'Restored body',
+      parentId: 'parent-2',
+      updatedAt: sameMillisecond,
+    });
+    expect(localRevisionWriter.lockSpace).toHaveBeenCalledTimes(2);
+    expect(versions).toHaveLength(1);
+    expect(localSearch.indexPage).toHaveBeenCalledWith('page-1');
+  });
+
   it('reorder rejects items outside the space', async () => {
     mockPrisma.page.findMany.mockResolvedValueOnce([]);
     await expect(
