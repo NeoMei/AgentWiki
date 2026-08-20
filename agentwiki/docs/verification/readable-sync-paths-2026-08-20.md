@@ -4,14 +4,14 @@
 
 The original `codex/readable-sync-paths` branch remains at `294b694`. Its Final Fix 2 evidence includes a real PostgreSQL sync/migration gate of **32/32 with no skips or failures**, including deterministic proof that Web create and the readable-path migration both stop at their first Space lock before same-title allocation. That run happened before Final Fix 3.
 
-Final Fix 3A/3B/3C and post-completion review follow-ups were implemented only in the temporary `codex/final-readiness-fixes` repository. The current product behavior/evidence baseline HEAD is `52d4549`: `06dc57c` stops a fixed migration batch as soon as its completed revision is found, `83a90b6` makes archive revert fail closed on malformed prior audit state, and `52d4549` aligns migration retry with the authoritative contract by returning the existing revision ID. The candidate has fresh non-database evidence, but it does **not** have an all-green full-server/real-database run in the current managed sandbox: runtime still has 41 explicit database skips, the updated migration DB fixture was skipped, and the last all-inclusive server attempt had 20 loopback-listener failures caused by `EPERM`. The temporary candidate has not been merged or copied back to the original branch.
+Final Fix 3A/3B/3C and post-completion review follow-ups were implemented only in the temporary `codex/final-readiness-fixes` repository. The current product behavior/evidence baseline HEAD is `6e7c377`: it includes the completed-batch guard, archive revert fail-closed behavior, original-revision retry contract, and a test-truthfulness follow-up that exercises the real second guard plus the injectable CLI aggregation path. The candidate has fresh non-database evidence, but it does **not** have an all-green full-server/real-database run in the current managed sandbox: runtime still has 41 explicit database skips, the updated migration DB fixture was skipped, and the last all-inclusive server attempt had 20 loopback-listener failures caused by `EPERM`. The temporary candidate has not been merged or copied back to the original branch.
 
 No production database, production service, deployment, package publication, or Obsidian marketplace state was changed.
 
 ## Revision and runtime
 
 - Original branch: `codex/readable-sync-paths`, HEAD `294b694`.
-- Temporary candidate branch: `codex/final-readiness-fixes`, current product behavior/evidence baseline HEAD `52d4549`.
+- Temporary candidate branch: `codex/final-readiness-fixes`, current product behavior/evidence baseline HEAD `6e7c377`.
 - Final Fix 2 verification base: `2c4be9e`; the original branch then advanced through `294b694`.
 - Task commits:
   - `caa2f44` readable allocator
@@ -35,6 +35,7 @@ No production database, production service, deployment, package publication, or 
   - `06dc57c` stop already-completed fixed migration batches before scanning Pages
   - `83a90b6` fail closed on invalid archive prior state
   - `52d4549` return the original revision ID for a completed migration retry
+  - `6e7c377` exercise the real retry guard and injectable CLI aggregation path
 - Node: `v24.18.0`
 - pnpm: `11.9.0`
 
@@ -44,7 +45,7 @@ These are the freshest per-gate results recorded after the relevant Fix 3 follow
 
 | Package/gate | Files or suites | Passed | Skipped/blocked | Failed assertions |
 |---|---:|---:|---:|---:|
-| production migration focused regressions | 3 tests | 3 | 0 | 0 |
+| production migration and CLI aggregation focused regressions | 3 tests | 3 | 0 | 0 |
 | readable allocator Jest | 18 tests | 18 | 0 | 0 |
 | runtime scripts | 115 tests | 74 | 41 DB skips | 0 |
 | server Jest at prior `83a90b6`, exact four loopback files excluded | 53 suites / 539 tests | 539 | 20 loopback tests not executed in this gate | 0 |
@@ -52,7 +53,7 @@ These are the freshest per-gate results recorded after the relevant Fix 3 follow
 | sync protocol Vitest | 5 files / 22 tests | 22 | 0 | 0 |
 | local-sync Vitest | 42 files / 358 tests | 358 | 0 | 0 |
 
-The 41 runtime skips require `DATABASE_URL` and are not passes. The updated readable migration DB file separately reported 0 passed / 2 explicit skips / 0 failed in the current sandbox; it now expects a retry to return the original revision ID but remains unexecuted. The most recent all-inclusive server attempt was during Fix 3B: 57 suites / 577 tests, with 53 suites / 557 tests passing and four HTTP suites / 20 tests failing only because `listen 127.0.0.1` returned `EPERM`. The exact non-loopback server gate passed 53 suites / 539 tests at `83a90b6`; `52d4549` changed only Node migration scripts/tests, so server Jest, package typecheck and package builds were not rerun for that contract-alignment patch.
+The 41 runtime skips require `DATABASE_URL` and are not passes. The updated readable migration DB file separately reported 0 passed / 2 explicit skips / 0 failed in the current sandbox; it expects a retry to return the original revision ID but remains unexecuted. The most recent all-inclusive server attempt was during Fix 3B: 57 suites / 577 tests, with 53 suites / 557 tests passing and four HTTP suites / 20 tests failing only because `listen 127.0.0.1` returned `EPERM`. The exact non-loopback server gate passed 53 suites / 539 tests at `83a90b6`; subsequent `52d4549` and `6e7c377` changed only Node migration scripts/tests, so server Jest, package typecheck and package builds were not rerun for those follow-ups.
 
 ### Other gates
 
@@ -76,7 +77,7 @@ The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_reada
 
 That 32/32 run predates `415560a`. Fix 3A changed the real-DB fixture from equal legacy/title hashes to different hashes, exposing the case where a legitimate title itself produces another strict opaque-looking path. In the current sandbox the updated DB file was explicitly skipped because there was no usable PostgreSQL connection. The same scenario is covered through the real production migration and allocator with only the transaction/revision-writer boundary replaced in memory: the first run chose `pages/p-f...f (2).md` and preserved title/body/H1; the completed-batch retry now returns the original revision ID with `migrated: 0`. A separate first-run no-batch/no-page case returns `{ migrated: 0, revisionId: null }`. This is direct non-DB production-logic evidence, not a substitute for rerunning the changed fixture on PostgreSQL.
 
-The `06dc57c` follow-up added a second focused migration regression. It preloads the completed fixed-batch revision, then adds an opaque-looking Page; the production migration performs `lock -> batch lookup` without Page scan, Page/PageVersion/revision write, or `advance()`. Contract alignment at `52d4549` changed its result to `{ migrated: 0, revisionId: completedRevision.id }`; only a first run with no completed batch and no opaque Pages returns `{ migrated: 0, revisionId: null }`. The CLI counts a revision only when `migrated > 0 && revisionId`, so the reused ID is not reported as newly created. The focused migration suite is 3/3. This behavior was not rerun on live PostgreSQL in the current sandbox.
+The completed-batch coverage now proves the behavior through two genuine migration calls in the first test: the first call migrates once, the second enters the real guard and returns the same revision ID with `migrated: 0`; revision and PageVersion counts remain one. The separate added-later-page case still proves `lock -> batch lookup` with no Page scan/write/`advance()`. The third test invokes the exported, injectable `migrateReadablePathsForSpaces()` aggregation path used by CLI `main()` across three Space outcomes: a first migration with a new revision, a completed retry with the existing revision, and an empty first-run no-op with null. Its summary counts two migrated Pages, three Spaces, and only one new revision. The focused suite remains 3/3, and runtime remains 74 pass / 41 explicit DB skips. This behavior was not rerun on live PostgreSQL in the current sandbox.
 
 Fix 3B and 3C likewise used deterministic transaction-boundary harnesses and raw-query argument inspection; no live PostgreSQL advisory-lock, rollback, bulk-SQL, archive-race, or restore-race proof was obtained for those changes in this sandbox.
 
@@ -95,7 +96,7 @@ The contention test has a 25-second test timeout; its test clients use 20-second
 - Body content, including a matching Markdown H1, is passed through unchanged by path allocation/rename logic.
 - Space lock ordering is covered before allocation and writes; restore re-reads the Page after acquiring the lock.
 - The migration matches only lowercase `pages/p-<64 hex>.md`, uses stable knowledge-key order and fixed batch IDs, and performs Page/PageVersion/revision writes in one transaction.
-- A completed fixed migration batch is detected by its composite-unique revision immediately after the Space lock and before Page scanning. A retry returns that original revision ID with `migrated: 0`; the CLI does not count it again. Later ordinary Pages with opaque-looking titles cannot reopen the completed batch or collide at revision advance.
+- A completed fixed migration batch is detected by its composite-unique revision immediately after the Space lock and before Page scanning. A real second migration call returns that original revision ID with `migrated: 0`; the injectable aggregation path used by CLI `main()` does not count it again and distinguishes it from both a new revision and a null empty-Space result.
 - A legacy Space without a parent revision seeds all active Pages into its first migration revision, so unchanged custom paths remain authoritative.
 - Migration allocation preloads all active and soft-deleted path keys once, avoids per-page full-Space queries, and uses a 30-minute bounded transaction timeout.
 - The legacy sync-v1 backfill now holds the same transaction-scoped Space advisory lock across each Space's Page/revision mutation window; its focused real-DB rollback and fallback cases passed.
@@ -111,7 +112,7 @@ The contention test has a 25-second test timeout; its test clients use 20-second
 
 ## Remaining release gate
 
-The original branch is still `294b694`, and the temporary `52d4549` product behavior/evidence baseline has not been backported. Before merging or deploying:
+The original branch is still `294b694`, and the temporary `6e7c377` product behavior/evidence baseline has not been backported. Before merging or deploying:
 
 1. Rerun the updated Fix 3A different-hash fixture, the completed-batch retry/original-revision contract, and the Fix 3B/3C database-sensitive cases on a disposable real PostgreSQL environment.
 2. Rerun the four HTTP suites in an environment that permits loopback listeners; do not count the 20 `EPERM` cases as passes.

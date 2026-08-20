@@ -1,6 +1,6 @@
 # Obsidian Sync v1 验收证据矩阵
 
-本文件记录 sync v1 基线、原 `codex/readable-sync-paths` 分支以及临时最终候选的可追溯验收证据，不替代契约。原分支仍停在 `294b694`；Fix 3A/3B/3C 及 post-completion follow-up 只存在于临时仓候选链，当前产品行为/验证基线 HEAD 为 `52d4549`，尚未回灌原分支。状态定义：
+本文件记录 sync v1 基线、原 `codex/readable-sync-paths` 分支以及临时最终候选的可追溯验收证据，不替代契约。原分支仍停在 `294b694`；Fix 3A/3B/3C 及 post-completion follow-up 只存在于临时仓候选链，当前产品行为/验证基线 HEAD 为 `6e7c377`，尚未回灌原分支。状态定义：
 - `run`：有真实 PostgreSQL/Redis 或浏览器/HTTP 测试直接覆盖；
 - `unit`：有 Jest/Vitest/协议包测试直接覆盖；
 - `code`：代码路径可审查，但暂未单独固化为验收测试；
@@ -63,11 +63,11 @@
 | 53 | changeCount=0 与全部 upsert 相同 noop 持久化 result | `sync-v1-http-e2e` 覆盖 changeCount=0；`sync-v1-noop-upsert-db` 覆盖全部 upsert 相同 noop | run |
 | 54 | Web/ChangeSet 新建生成可读标题路径，重名使用最小 `(n)` 后缀 | `readable-sync-path.service.spec` 覆盖 Unicode、设备名、255/1024 byte、`(10)` 和软删除占用；Page/Review service spec 覆盖接入 | unit |
 | 55 | 标题改名保留目录，content-only/净化等价标题路径稳定，正文/H1 不改写 | `page.service.spec` 覆盖 Web update/restore/根目录/锁内重读；`review.service.spec` 覆盖 ChangeSet 及原文保留 | unit |
-| 56 | 只迁移严格 `pages/p-<64 lowercase hex>.md`，固定批次完成后直接短路，批次幂等且失败全回滚 | Fix 3 前的 `294b694` 曾在真实 PostgreSQL 扩展门禁中通过 32/32；Fix 3A 将 DB fixture 改为“旧路径 hash 与标题 hash 不同”，当前 sandbox 因无可用 DB 显式跳过该更新后的 2 项 DB 测试。生产 migration/allocator 非 DB 定向套件现为 3/3：completed-batch retry 在 `lock -> batch lookup` 后返回原 revision ID、不扫描或写入；首次无 batch/无页面 no-op 仍返回 null；CLI 只在 `migrated > 0 && revisionId` 时计数 | run/unit |
+| 56 | 只迁移严格 `pages/p-<64 lowercase hex>.md`，固定批次完成后直接短路，批次幂等且失败全回滚 | Fix 3 前的 `294b694` 曾在真实 PostgreSQL 扩展门禁中通过 32/32；更新后的 2 项 DB 测试当前显式跳过。生产 migration/allocator 非 DB 定向套件为 3/3：首个测试真实执行首次迁移和第二次 guard，并断言同 revision ID；completed-batch retry 在 `lock -> batch lookup` 后返回原 ID、不扫描或写入；可注入 CLI 聚合路径覆盖首次迁移、已完成 retry、空 Space，只计 `migrated > 0 && revisionId` | run/unit |
 
 ## 结论
 - 已具备真实运行证据的验收：1/2/4/5/10/11/12/13/18/20/21/23/25/27/29/33/35/39/41/48/51 等；7/8/9/17/26/31/37/42/44/47/52/53 也有先前真实 DB/HTTP 证据。
-- 可读路径迁移不能再概括为“只有 code/DB skip”：Fix 3 前的 32/32 真实 PostgreSQL 门禁仍是有效历史证据；但它没有执行 Fix 3A 更新后的不同-hash fixture、`06dc57c` completed-batch guard 或 `52d4549` retry revision 契约对齐。当前候选的生产 migration/allocator 非 DB 定向套件为 3/3，更新后的 DB 文件仍为 0 pass / 2 explicit skips / 0 fail。
-- 临时候选 `52d4549` 的最新 runtime 为 115 项（74 pass / 41 个无 `DATABASE_URL` 的显式 DB skip / 0 fail）。上一产品基线 `83a90b6` 排除四个 loopback 文件后的 server 证据为 53 suites / 539 tests pass；`52d4549` 只改 Node migration scripts/tests，未重跑 server Jest。Fix 3B 的最后一次完整 server 尝试为 57 suites / 577 tests，其中 557 pass，另外四个 HTTP suites / 20 tests 仅因 sandbox `listen 127.0.0.1` 返回 `EPERM` 而失败，未冒充为已通过。
+- 可读路径迁移不能再概括为“只有 code/DB skip”：Fix 3 前的 32/32 真实 PostgreSQL 门禁仍是有效历史证据；但它没有执行 Fix 3A 更新后的 fixture 或 post-completion guard/契约/测试真实性 follow-up。当前 `6e7c377` 的生产 migration/allocator 非 DB 定向套件为 3/3，更新后的 DB 文件仍为 0 pass / 2 explicit skips / 0 fail。
+- 临时候选 `6e7c377` 的最新 runtime 为 115 项（74 pass / 41 个无 `DATABASE_URL` 的显式 DB skip / 0 fail）。上一 server 证据仍是 `83a90b6` 排除四个 loopback 文件后的 53 suites / 539 tests pass；后续提交只改 Node migration scripts/tests，未重跑 server Jest。Fix 3B 的最后一次完整 server 尝试为 57 suites / 577 tests，其中 557 pass，另外四个 HTTP suites / 20 tests 仅因 sandbox `listen 127.0.0.1` 返回 `EPERM` 而失败，未冒充为已通过。
 - Archive revert 现在要求明确的 `before.deletedAt: null` 且预校验 `lastModifiedAt`；缺失、非 null 或非法审计状态在事务前以稳定 `CHANGESET_INVALID_STATE` fail-closed，不会假报 revert 成功。该行为有确定性 transaction harness，不宣称真实 PostgreSQL 证明。
 - 完整提交链、各阶段定向证据与环境限制见 `docs/verification/readable-sync-paths-2026-08-20.md`。上述候选未合并、未回灌原分支、未迁移生产数据库、未部署。
