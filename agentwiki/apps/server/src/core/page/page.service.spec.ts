@@ -405,6 +405,7 @@ describe('PageService', () => {
         authorId: 'user-1',
         syncPath: 'pages/Current title.md',
         syncPathKey: 'pages/current title.md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
       };
       const version = {
         id: 'version-1',
@@ -425,8 +426,8 @@ describe('PageService', () => {
       };
       jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
-      mockPrisma.page.findUnique.mockResolvedValue(current);
-      mockPrisma.page.update.mockResolvedValue(restored);
+      mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
       mockSyncPaths.allocate.mockResolvedValue({
         path: restored.syncPath,
         pathKey: restored.syncPathKey,
@@ -447,7 +448,13 @@ describe('PageService', () => {
           syncPathKey: current.syncPathKey,
         }),
       }));
-      expect(mockPrisma.page.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: current.id,
+          spaceId: current.spaceId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
         data: expect.objectContaining({
           title: version.title,
           content: version.content,
@@ -480,6 +487,7 @@ describe('PageService', () => {
         authorId: 'user-1',
         syncPath: 'Current.md',
         syncPathKey: 'current.md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
       };
       const version = {
         id: 'version-1',
@@ -499,8 +507,8 @@ describe('PageService', () => {
       };
       jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
-      mockPrisma.page.findUnique.mockResolvedValue(current);
-      mockPrisma.page.update.mockResolvedValue(restored);
+      mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
       mockSyncPaths.allocate.mockResolvedValue({
         path: restored.syncPath,
         pathKey: restored.syncPathKey,
@@ -518,7 +526,7 @@ describe('PageService', () => {
         mockSyncPaths.allocate.mock.invocationCallOrder[0],
       );
       expect(mockSyncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
-        mockPrisma.page.update.mock.invocationCallOrder[0],
+        mockPrisma.page.updateMany.mock.invocationCallOrder[0],
       );
     });
 
@@ -535,6 +543,7 @@ describe('PageService', () => {
         authorId: 'stale-author',
         syncPath: 'stale/Stale title.md',
         syncPathKey: 'stale/stale title.md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
       };
       const current = {
         ...stale,
@@ -561,14 +570,17 @@ describe('PageService', () => {
         content: version.content,
         syncPath: 'current/Restored title.md',
         syncPathKey: 'current/restored title.md',
+        updatedAt: new Date('2026-08-20T00:01:00.000Z'),
       };
       jest.spyOn(service, 'findOne').mockResolvedValue(stale as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
-      mockPrisma.page.findUnique.mockImplementation(async () => {
-        expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
-        return current;
-      });
-      mockPrisma.page.update.mockResolvedValue(restored);
+      mockPrisma.page.findUnique
+        .mockImplementationOnce(async () => {
+          expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
+          return current;
+        })
+        .mockResolvedValueOnce(restored);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
       mockSyncPaths.allocate.mockResolvedValue({
         path: restored.syncPath,
         pathKey: restored.syncPathKey,
@@ -590,7 +602,13 @@ describe('PageService', () => {
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
         directory: 'current',
       }));
-      expect(mockPrisma.page.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          id: current.id,
+          spaceId: current.spaceId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
         data: expect.objectContaining({
           slug: current.slug,
           format: current.format,
@@ -599,6 +617,12 @@ describe('PageService', () => {
       }));
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
         mockPrisma.page.findUnique.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.updateMany.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.page.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.findUnique.mock.invocationCallOrder[1],
       );
     });
 
@@ -615,6 +639,7 @@ describe('PageService', () => {
         authorId: 'user-1',
         syncPath: 'pages/A B (2).md',
         syncPathKey: 'pages/a b (2).md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
       };
       const version = {
         id: 'version-1',
@@ -632,13 +657,13 @@ describe('PageService', () => {
       };
       jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
-      mockPrisma.page.findUnique.mockResolvedValue(current);
-      mockPrisma.page.update.mockResolvedValue(restored);
+      mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
       await service.restoreVersion('page-1', 'version-1');
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
-      expect(mockPrisma.page.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
           title: version.title,
           content: version.content,
@@ -655,6 +680,101 @@ describe('PageService', () => {
         })],
         expect.anything(),
       );
+    });
+
+    it('rejects a competing reorder after the snapshot and rolls back the pending PageVersion', async () => {
+      const snapshotUpdatedAt = new Date('2026-08-20T00:00:00.000Z');
+      const reorderedUpdatedAt = new Date('2026-08-20T00:00:01.000Z');
+      const visible = { id: 'page-1', spaceId: 'space-1' };
+      const version = {
+        id: 'version-1',
+        pageId: 'page-1',
+        title: 'Restored title',
+        content: 'Restored body',
+        slug: 'restored-title',
+        format: 'markdown',
+        parentId: null,
+      };
+      const committed = {
+        page: {
+          id: 'page-1',
+          knowledgeKey: 'knowledge-1',
+          title: 'Current title',
+          content: 'Current body',
+          slug: 'current-title',
+          format: 'markdown',
+          parentId: null as string | null,
+          spaceId: 'space-1',
+          authorId: 'user-1',
+          syncPath: 'pages/Current title.md',
+          syncPathKey: 'pages/current title.md',
+          updatedAt: snapshotUpdatedAt,
+          deletedAt: null,
+        },
+        versions: [] as Array<Record<string, unknown>>,
+        revisions: 0,
+        searchDocuments: 0,
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      mockPrisma.$transaction.mockImplementationOnce(async (callback: any) => {
+        const pendingVersions: Array<Record<string, unknown>> = [];
+        const tx = {
+          ...mockPrisma,
+          page: {
+            ...mockPrisma.page,
+            findUnique: jest.fn().mockImplementation(async () => ({ ...committed.page })),
+            update: jest.fn().mockImplementation(async ({ data }: any) => {
+              // The current implementation lets this committed reorder win the race,
+              // then overwrites it with the stale restore snapshot.
+              committed.page.parentId = 'parent-2';
+              committed.page.updatedAt = reorderedUpdatedAt;
+              committed.page = { ...committed.page, ...data };
+              return { ...committed.page };
+            }),
+            updateMany: jest.fn().mockImplementation(async ({ where }: any) => {
+              // A reorder commits after restore's locked snapshot but before its write.
+              committed.page.parentId = 'parent-2';
+              committed.page.updatedAt = reorderedUpdatedAt;
+              return {
+                count: where.updatedAt.getTime() === committed.page.updatedAt.getTime() ? 1 : 0,
+              };
+            }),
+          },
+          pageVersion: {
+            ...mockPrisma.pageVersion,
+            findFirst: jest.fn().mockResolvedValue(version),
+            create: jest.fn().mockImplementation(async ({ data }: any) => {
+              pendingVersions.push(data);
+              return data;
+            }),
+          },
+          pageSearchDocument: {
+            ...mockPrisma.pageSearchDocument,
+            upsert: jest.fn().mockImplementation(async () => {
+              committed.searchDocuments += 1;
+            }),
+          },
+        };
+        const result = await callback(tx);
+        // Only a committed transaction publishes its pending PageVersion.
+        committed.versions.push(...pendingVersions);
+        return result;
+      });
+      mockRevisionWriter.advance.mockImplementationOnce(async () => {
+        committed.revisions += 1;
+      });
+
+      await expect(service.restoreVersion('page-1', 'version-1')).rejects.toMatchObject({
+        statusCode: 409,
+        businessCode: 'RESOURCE_CONFLICT',
+      });
+
+      expect(committed.page.parentId).toBe('parent-2');
+      expect(committed.page.updatedAt).toEqual(reorderedUpdatedAt);
+      expect(committed.versions).toEqual([]);
+      expect(committed.revisions).toBe(0);
+      expect(committed.searchDocuments).toBe(0);
+      expect(mockSearch.indexPage).not.toHaveBeenCalled();
     });
   });
 

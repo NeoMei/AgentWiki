@@ -466,8 +466,13 @@ export class PageService {
           syncPathKey: page.syncPathKey,
         },
       });
-      const updated = await tx.page.update({
-        where: { id: pageId },
+      const mutation = await tx.page.updateMany({
+        where: {
+          id: page.id,
+          spaceId: page.spaceId,
+          deletedAt: null,
+          updatedAt: page.updatedAt,
+        },
         data: {
           title: version.title,
           content: version.content,
@@ -481,6 +486,12 @@ export class PageService {
           lastModifiedByAgentId: null,
           lastModifiedAt: new Date(),
         },
+      });
+      if (mutation.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being restored');
+      }
+      const updated = await tx.page.findUnique({
+        where: { id: page.id, spaceId: page.spaceId, deletedAt: null },
         select: {
           ...PAGE_PUBLIC_FIELDS,
           author: { select: AUTHOR_SELECT },
@@ -489,6 +500,9 @@ export class PageService {
           syncPathKey: true,
         },
       });
+      if (!updated) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being restored');
+      }
       await this.advanceRevision(tx, page.spaceId, [{
         operation: 'upsert',
         pageId: updated.knowledgeKey,
