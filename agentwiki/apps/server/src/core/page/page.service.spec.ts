@@ -71,6 +71,7 @@ describe('PageService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
+        { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
       ],
     }).compile();
@@ -140,26 +141,26 @@ describe('PageService', () => {
     });
   });
 
-  describe('update', () => {
-    const original = {
-      id: 'page-1',
-      title: 'Original',
-      content: 'Original content',
-      slug: 'original',
-      format: 'markdown',
-      parentId: null,
-      spaceId: 'space-1',
-      authorId: 'user-1',
-      sourceChangeSetId: null,
-      lastChangeSetId: null,
-      lastModifiedByUserId: 'user-1',
-      lastModifiedByAgentId: null,
-      knowledgeKey: 'knowledge-1',
-      syncPath: 'guides/Original.md',
-      syncPathKey: 'guides/original.md',
-      updatedAt: new Date('2026-07-27T08:00:00.000Z'),
-    };
+  const original = {
+    id: 'page-1',
+    title: 'Original',
+    content: 'Original content',
+    slug: 'original',
+    format: 'markdown',
+    parentId: null,
+    spaceId: 'space-1',
+    authorId: 'user-1',
+    sourceChangeSetId: null,
+    lastChangeSetId: null,
+    lastModifiedByUserId: 'user-1',
+    lastModifiedByAgentId: null,
+    knowledgeKey: 'knowledge-1',
+    syncPath: 'guides/Original.md',
+    syncPathKey: 'guides/original.md',
+    updatedAt: new Date('2026-07-27T08:00:00.000Z'),
+  };
 
+  describe('update', () => {
     it('rejects a stale version with a stable 409 code and no unconditional update', async () => {
       mockPrisma.page.findUnique.mockResolvedValue(original);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
@@ -951,6 +952,7 @@ describe('page ordering', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
+        { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
       ],
     }).compile();
@@ -1171,6 +1173,7 @@ describe('page ordering', () => {
       localSearch as any,
       localRevisionWriter as any,
       { allocate: jest.fn() } as any,
+      { enqueue: jest.fn() } as any,
     );
     jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
 

@@ -4,7 +4,7 @@ import { ReviewService } from './review.service';
 
 describe('ReviewService queue presentation', () => {
   const prisma = { changeSet: { count: jest.fn(), findMany: jest.fn() } } as any;
-  const service = new ReviewService(prisma, {} as any, {} as any, {} as any);
+  const service = new ReviewService(prisma, {} as any, {} as any, {} as any, { enqueue: jest.fn() } as any);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -37,10 +37,13 @@ describe('ReviewService approval boundaries', () => {
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
+  const syncPaths = { allocate: jest.fn() } as any;
+  const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
-    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    revisionWriter,
+    syncPaths,
     graphMaintenance,
   );
 
@@ -1233,11 +1236,13 @@ describe('one-shot review-publish and agent auto-publish', () => {
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
   const syncPaths = { allocate: jest.fn() } as any;
+  const graphMaintenance = { enqueue: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     { advance: jest.fn(), lockSpace: jest.fn() } as any,
     syncPaths,
+    graphMaintenance,
   );
 
   beforeEach(() => {
@@ -1352,11 +1357,13 @@ describe('ReviewService readable page paths', () => {
   const syncPaths = {
     allocate: jest.fn(),
   } as any;
+  const graphMaintenance = { enqueue: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
     syncPaths,
+    graphMaintenance,
   );
 
   let changeSet: any;
@@ -1731,11 +1738,13 @@ describe('ReviewService page revert ordering and audit', () => {
     lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
+  const graphMaintenance = { enqueue: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
     { allocate: jest.fn() } as any,
+    graphMaintenance,
   );
 
   beforeEach(() => {
@@ -1861,11 +1870,13 @@ describe('ReviewService archive audit and provenance', () => {
     lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
+  const graphMaintenance = { enqueue: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
     { allocate: jest.fn() } as any,
+    graphMaintenance,
   );
 
   const originalUpdatedAt = new Date('2026-08-20T00:00:00.000Z');

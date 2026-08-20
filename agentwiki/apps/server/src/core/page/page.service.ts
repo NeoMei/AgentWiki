@@ -547,7 +547,7 @@ export class PageService {
     try {
       await this.searchService.indexPage(pageId);
     } finally {
-      this.graphMaintenance.enqueue(page.spaceId);
+      this.graphMaintenance.enqueue(visiblePage.spaceId);
     }
     return restored;
   }

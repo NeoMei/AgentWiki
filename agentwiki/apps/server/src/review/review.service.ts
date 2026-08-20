@@ -229,6 +229,7 @@ export class ReviewService {
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
       const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
       const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
+      const lockedTx = await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
       if (relationItems.some((item) => item.type === 'create_relation')) {
         await tx.spaceGraphState.upsert({
           where: { spaceId: changeSet.spaceId },
