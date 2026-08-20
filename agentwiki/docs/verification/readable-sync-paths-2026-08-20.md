@@ -4,14 +4,14 @@
 
 The original `codex/readable-sync-paths` branch remains at `294b694`. Its Final Fix 2 evidence includes a real PostgreSQL sync/migration gate of **32/32 with no skips or failures**, including deterministic proof that Web create and the readable-path migration both stop at their first Space lock before same-title allocation. That run happened before Final Fix 3.
 
-Final Fix 3A/3B/3C was implemented only in the temporary `codex/final-readiness-fixes` repository. Its final product candidate HEAD is `7cae89d`. The candidate has fresh non-database and non-loopback evidence, but it does **not** have an all-green full-server/real-database run in the current managed sandbox: runtime still has 41 explicit database skips, the updated 3A database fixture was skipped, and the last all-inclusive server attempt had 20 loopback-listener failures caused by `EPERM`. The temporary candidate has not been merged or copied back to the original branch.
+Final Fix 3A/3B/3C and two post-completion review follow-ups were implemented only in the temporary `codex/final-readiness-fixes` repository. The current product behavior/evidence baseline HEAD is `83a90b6`: `06dc57c` stops a fixed migration batch as soon as its completed revision is found, and `83a90b6` makes archive revert fail closed on malformed prior audit state. The candidate has fresh non-database and non-loopback evidence, but it does **not** have an all-green full-server/real-database run in the current managed sandbox: runtime still has 41 explicit database skips, the updated migration DB fixture was skipped, and the last all-inclusive server attempt had 20 loopback-listener failures caused by `EPERM`. The temporary candidate has not been merged or copied back to the original branch.
 
 No production database, production service, deployment, package publication, or Obsidian marketplace state was changed.
 
 ## Revision and runtime
 
 - Original branch: `codex/readable-sync-paths`, HEAD `294b694`.
-- Temporary candidate branch: `codex/final-readiness-fixes`, final product HEAD `7cae89d`.
+- Temporary candidate branch: `codex/final-readiness-fixes`, current product behavior/evidence baseline HEAD `83a90b6`.
 - Final Fix 2 verification base: `2c4be9e`; the original branch then advanced through `294b694`.
 - Task commits:
   - `caa2f44` readable allocator
@@ -32,6 +32,8 @@ No production database, production service, deployment, package publication, or 
   - `9f1b430` audit archive and restore provenance with PageVersion/CAS
   - `bb7143f` whitelist archive-revert fields
   - `7cae89d` validate archive-revert dates
+  - `06dc57c` stop already-completed fixed migration batches before scanning Pages
+  - `83a90b6` fail closed on invalid archive prior state
 - Node: `v24.18.0`
 - pnpm: `11.9.0`
 
@@ -41,15 +43,15 @@ These are the freshest per-gate results recorded after the relevant Fix 3 follow
 
 | Package/gate | Files or suites | Passed | Skipped/blocked | Failed assertions |
 |---|---:|---:|---:|---:|
-| production migration different-hash regression | 1 test | 1 | 0 | 0 |
+| production migration focused regressions | 2 tests | 2 | 0 | 0 |
 | readable allocator Jest | 18 tests | 18 | 0 | 0 |
-| runtime scripts | 113 tests | 72 | 41 DB skips | 0 |
-| server Jest, exact four loopback files excluded | 53 suites / 533 tests | 533 | 20 loopback tests not executed in this gate | 0 |
+| runtime scripts | 114 tests | 73 | 41 DB skips | 0 |
+| server Jest, exact four loopback files excluded | 53 suites / 539 tests | 539 | 20 loopback tests not executed in this gate | 0 |
 | client Vitest | 34 files / 157 tests | 157 | 0 | 0 |
 | sync protocol Vitest | 5 files / 22 tests | 22 | 0 | 0 |
 | local-sync Vitest | 42 files / 358 tests | 358 | 0 | 0 |
 
-The 41 runtime skips require `DATABASE_URL` and are not passes. The updated readable migration DB file separately reported 0 passed / 2 explicit skips / 0 failed in the current sandbox. The most recent all-inclusive server attempt was during Fix 3B: 57 suites / 577 tests, with 53 suites / 557 tests passing and four HTTP suites / 20 tests failing only because `listen 127.0.0.1` returned `EPERM`. Fix 3C subsequently added tests and reran the exact non-loopback gate at 53 suites / 533 tests; it did not rerun or claim the 20 listener-bound tests.
+The 41 runtime skips require `DATABASE_URL` and are not passes. The updated readable migration DB file separately reported 0 passed / 2 explicit skips / 0 failed in the current sandbox. The most recent all-inclusive server attempt was during Fix 3B: 57 suites / 577 tests, with 53 suites / 557 tests passing and four HTTP suites / 20 tests failing only because `listen 127.0.0.1` returned `EPERM`. The post-completion candidate reran the exact non-loopback gate at 53 suites / 539 tests; it did not rerun or claim the 20 listener-bound tests.
 
 ### Other gates
 
@@ -59,7 +61,7 @@ The 41 runtime skips require `DATABASE_URL` and are not passes. The updated read
 - Shared, sync protocol, server, client and local-sync package builds completed through the existing local compilers. The root `pnpm build` wrapper itself stopped before compilation with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, so that wrapper invocation is not represented as green.
 - `git diff --check` and staged diff check: PASS in the Fix 3 reports.
 - Focused Fix 3B PageService: 30/30; adjacent Page/Search/SpaceRevisionWriter: 35/35.
-- Focused Fix 3C ReviewService: 48/48; adjacent Review/Page/SpaceRevisionWriter/Search: 83/83.
+- Focused final ReviewService fail-closed follow-up: 54/54; adjacent Review/Page/SpaceRevisionWriter/Search: 89/89.
 
 ## Real-DB evidence boundary
 
@@ -72,6 +74,8 @@ node --test scripts/readable-sync-path-migration-db.test.mjs scripts/sync-v1-*.t
 The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01` and passed 31/31. Final Fix 2 at the original-branch candidate then reran the expanded command against a credential-free local PostgreSQL 16 connection with a fresh schema per test: exit 0 with **32 passed, 0 skipped, 0 failed** in 27.56 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, session/global-page-id concurrency, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, forced rollback, and the readable allocator concurrency gate.
 
 That 32/32 run predates `415560a`. Fix 3A changed the real-DB fixture from equal legacy/title hashes to different hashes, exposing the case where a legitimate title itself produces another strict opaque-looking path. In the current sandbox the updated DB file was explicitly skipped because there was no usable PostgreSQL connection. The same scenario passed **1/1** through the real production migration and allocator with only the transaction/revision-writer boundary replaced in memory: the first run chose `pages/p-f...f (2).md`, preserved title/body/H1, and the second run returned `{ migrated: 0, revisionId: null }`. This is direct non-DB production-logic evidence, not a substitute for rerunning the changed fixture on PostgreSQL.
+
+The `06dc57c` follow-up added a second focused migration regression. It preloads the completed fixed-batch revision, then adds an opaque-looking Page; the production migration now performs `lock -> batch lookup` and returns `{ migrated: 0, revisionId: null }` without Page scan, Page/PageVersion/revision write, or `advance()`. The focused migration suite is 2/2. This guard was not rerun on live PostgreSQL in the current sandbox.
 
 Fix 3B and 3C likewise used deterministic transaction-boundary harnesses and raw-query argument inspection; no live PostgreSQL advisory-lock, rollback, bulk-SQL, archive-race, or restore-race proof was obtained for those changes in this sandbox.
 
@@ -90,12 +94,13 @@ The contention test has a 25-second test timeout; its test clients use 20-second
 - Body content, including a matching Markdown H1, is passed through unchanged by path allocation/rename logic.
 - Space lock ordering is covered before allocation and writes; restore re-reads the Page after acquiring the lock.
 - The migration matches only lowercase `pages/p-<64 hex>.md`, uses stable knowledge-key order and fixed batch IDs, and performs Page/PageVersion/revision writes in one transaction.
+- A completed fixed migration batch is detected by its composite-unique revision immediately after the Space lock and before Page scanning. Later ordinary Pages with opaque-looking titles cannot reopen the completed batch or collide at revision advance.
 - A legacy Space without a parent revision seeds all active Pages into its first migration revision, so unchanged custom paths remain authoritative.
 - Migration allocation preloads all active and soft-deleted path keys once, avoids per-page full-Space queries, and uses a 30-minute bounded transaction timeout.
 - The legacy sync-v1 backfill now holds the same transaction-scoped Space advisory lock across each Space's Page/revision mutation window; its focused real-DB rollback and fallback cases passed.
 - A title that itself matches `p-<64 hex>` is forced to a non-opaque `(2).md` path even when its hash differs from the legacy path hash, so the second migration run is a true no-op. This Fix 3A claim has 1/1 production-logic regression coverage; its updated real-DB fixture remains unexecuted here.
 - Restore uses row-version CAS, while reorder joins the same Space advisory-lock protocol and performs a validated batch as one parameterized PostgreSQL statement. Reviews found and closed the same-millisecond reorder race and the initial 2,000-roundtrip timeout risk; live PostgreSQL execution remains outstanding.
-- Archive publish now records pre-archive PageVersion/provenance and uses row CAS. Revert restores only five whitelisted provenance/deletion fields and validates nullable/non-null date inputs. Review follow-ups closed the crafted-payload field-spread and invalid-date cases; live PostgreSQL rollback/race proof remains outstanding.
+- Archive publish now records pre-archive PageVersion/provenance and uses row CAS. Revert restores only five whitelisted provenance/deletion fields. It requires an own `before.deletedAt` exactly equal to `null` and pre-validates every present `lastModifiedAt`; malformed state raises stable `CHANGESET_INVALID_STATE` before transaction claim/lock/write/revision/search work, so an empty update cannot be reported as success. Live PostgreSQL rollback/race proof remains outstanding.
 
 ## Known non-blocking output
 
@@ -105,9 +110,9 @@ The contention test has a 25-second test timeout; its test clients use 20-second
 
 ## Remaining release gate
 
-The original branch is still `294b694`, and the temporary `7cae89d` product candidate has not been backported. Before merging or deploying:
+The original branch is still `294b694`, and the temporary `83a90b6` product behavior/evidence baseline has not been backported. Before merging or deploying:
 
-1. Rerun the updated Fix 3A different-hash fixture plus the Fix 3B/3C database-sensitive cases on a disposable real PostgreSQL environment.
+1. Rerun the updated Fix 3A different-hash fixture, the `06dc57c` completed-batch guard, and the Fix 3B/3C database-sensitive cases on a disposable real PostgreSQL environment.
 2. Rerun the four HTTP suites in an environment that permits loopback listeners; do not count the 20 `EPERM` cases as passes.
 3. Integrate only after resolving the dirty primary AgentWiki checkout without overwriting unrelated user changes.
 4. Prepare and verify a production database backup and rollback plan.
