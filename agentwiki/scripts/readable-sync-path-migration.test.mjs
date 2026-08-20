@@ -53,7 +53,8 @@ test('migration rejects an opaque title candidate when its hash differs from the
       },
     },
     spaceKnowledgeRevision: {
-      findUnique: async () => null,
+      findUnique: async () => revisionCount === 0
+        ? null : { id: 'revision-1' },
       findFirst: async () => revisionCount === 0 ? null : { id: 'revision-1' },
     },
   };
@@ -79,7 +80,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
     const second = await migrateReadablePathsForSpace(prisma, 'space-1', batchId);
 
     assert.deepEqual(first, { migrated: 1, revisionId: 'revision-1' });
-    assert.deepEqual(second, { migrated: 0, revisionId: null });
+    assert.deepEqual(second, { migrated: 0, revisionId: 'revision-1' });
     assert.doesNotMatch(firstPath, opaquePagePath);
     assert.equal(firstPath, `pages/${title} (2).md`);
     assert.equal(page.title, title);
@@ -202,16 +203,41 @@ test('completed migration batch no-ops before scanning pages added later', async
   }
 });
 
-test('CLI counts only revisions created by pages migrated in this run', async () => {
-  const { createdMigrationRevision } = await import('./migrate-readable-sync-paths.mjs');
+test('CLI aggregation counts only revisions created by mixed migration results', async () => {
+  const { migrateReadablePathsForSpaces } = await import('./migrate-readable-sync-paths.mjs');
+  const spaces = [{ id: 'first' }, { id: 'retry' }, { id: 'empty' }];
+  const results = new Map([
+    ['first', { migrated: 2, revisionId: 'new-revision' }],
+    ['retry', { migrated: 0, revisionId: 'completed-revision' }],
+    ['empty', { migrated: 0, revisionId: null }],
+  ]);
+  const calls = [];
+  const prisma = {
+    space: {
+      findMany: async (args) => {
+        assert.deepEqual(args, {
+          where: { deletedAt: null },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+        return spaces;
+      },
+    },
+  };
 
-  assert.equal(createdMigrationRevision({
-    migrated: 0,
-    revisionId: 'completed-revision',
-  }), false);
-  assert.equal(createdMigrationRevision({ migrated: 0, revisionId: null }), false);
-  assert.equal(createdMigrationRevision({
-    migrated: 1,
-    revisionId: 'new-revision',
-  }), true);
+  const summary = await migrateReadablePathsForSpaces(prisma, async (_prisma, spaceId, batchId) => {
+    calls.push({ spaceId, batchId });
+    return results.get(spaceId);
+  });
+
+  assert.deepEqual(calls, spaces.map(({ id }) => ({
+    spaceId: id,
+    batchId: `readable-sync-path-v1:${id}`,
+  })));
+  assert.deepEqual(summary, {
+    migrated: 2,
+    revisions: 1,
+    spaces: 3,
+    output: 'Migrated 2 page paths across 3 spaces (1 revisions)',
+  });
 });

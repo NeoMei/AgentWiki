@@ -131,8 +131,33 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
   }, { maxWait: 10_000, timeout: 30 * 60_000 });
 }
 
-export function createdMigrationRevision(result) {
-  return result.migrated > 0 && Boolean(result.revisionId);
+export async function migrateReadablePathsForSpaces(
+  prisma,
+  migrateSpace = migrateReadablePathsForSpace,
+) {
+  const spaces = await prisma.space.findMany({
+    where: { deletedAt: null },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  });
+  let migrated = 0;
+  let revisions = 0;
+  for (const space of spaces) {
+    const result = await migrateSpace(
+      prisma,
+      space.id,
+      `readable-sync-path-v1:${space.id}`,
+    );
+    migrated += result.migrated;
+    if (result.migrated > 0 && result.revisionId) revisions += 1;
+  }
+  const output = `Migrated ${migrated} page paths across ${spaces.length} spaces (${revisions} revisions)`;
+  return {
+    migrated,
+    revisions,
+    spaces: spaces.length,
+    output,
+  };
 }
 
 function databaseUrl(env = process.env) {
@@ -156,23 +181,8 @@ function prismaClient() {
 async function main() {
   const prisma = prismaClient();
   try {
-    const spaces = await prisma.space.findMany({
-      where: { deletedAt: null },
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
-    let migrated = 0;
-    let revisions = 0;
-    for (const space of spaces) {
-      const result = await migrateReadablePathsForSpace(
-        prisma,
-        space.id,
-        `readable-sync-path-v1:${space.id}`,
-      );
-      migrated += result.migrated;
-      if (createdMigrationRevision(result)) revisions += 1;
-    }
-    console.log(`Migrated ${migrated} page paths across ${spaces.length} spaces (${revisions} revisions)`);
+    const summary = await migrateReadablePathsForSpaces(prisma);
+    console.log(summary.output);
   } finally {
     await prisma.$disconnect();
   }
