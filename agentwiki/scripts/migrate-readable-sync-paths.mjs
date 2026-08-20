@@ -49,15 +49,22 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
     const migratedPathByPageId = new Map();
     const occupiedPathKeys = new Set(persistedPages.map((page) => page.syncPathKey));
     for (const page of pages) {
-      // Keep the current opaque key occupied. A title that is itself exactly
-      // `p-<64 hex>` must move to `(2).md`; otherwise the next run would match
-      // the unchanged opaque-looking path and violate idempotency.
-      const allocated = await allocator.allocate(lockedTx, {
-        spaceId,
-        directory: 'pages',
-        title: page.title,
-        excludePageId: page.id,
-      }, occupiedPathKeys);
+      let allocated;
+      do {
+        allocated = await allocator.allocate(lockedTx, {
+          spaceId,
+          directory: 'pages',
+          title: page.title,
+          excludePageId: page.id,
+        }, occupiedPathKeys);
+        // Migration output must leave the selector permanently. A legitimate
+        // title can itself be `p-<64 lowercase hex>` even when the legacy path
+        // used a different hash, so reject every still-opaque candidate here
+        // without changing ordinary allocator behavior.
+        if (opaquePagePath.test(allocated.path)) {
+          occupiedPathKeys.add(allocated.pathKey);
+        }
+      } while (opaquePagePath.test(allocated.path));
       occupiedPathKeys.add(allocated.pathKey);
       await tx.pageVersion.upsert({
         where: {

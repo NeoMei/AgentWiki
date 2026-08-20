@@ -182,7 +182,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
           { knowledgeKey: 'page-a', title: '吃饭睡觉', syncPath: opaquePath('a'), content: '# 吃饭睡觉' },
           { knowledgeKey: 'page-b', title: '吃饭睡觉', syncPath: opaquePath('b'), content: '正文' },
           { knowledgeKey: 'page-c', title: 'Keep', syncPath: 'custom/Keep.md', content: 'keep' },
-          { knowledgeKey: 'page-d', title: `p-${'e'.repeat(64)}`, syncPath: opaquePath('e'), content: 'opaque title' },
+          { knowledgeKey: 'page-d', title: `p-${'f'.repeat(64)}`, syncPath: opaquePath('e'), content: 'opaque title' },
         ],
       });
       const before = await prisma.page.findMany({
@@ -212,7 +212,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
           'pages/吃饭睡觉.md',
           'pages/吃饭睡觉 (2).md',
           'custom/Keep.md',
-          `pages/p-${'e'.repeat(64)} (2).md`,
+          `pages/p-${'f'.repeat(64)} (2).md`,
         ],
       );
       assert.deepEqual(
@@ -258,7 +258,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
           'pages/吃饭睡觉.md',
           'pages/吃饭睡觉 (2).md',
           'custom/Keep.md',
-          `pages/p-${'e'.repeat(64)} (2).md`,
+          `pages/p-${'f'.repeat(64)} (2).md`,
         ],
       );
 
