@@ -7,6 +7,7 @@ import { SpaceRevisionWriterService } from '../sync/space-revision-writer.servic
 import {
   ReadableSyncPathService,
   safeMarkdownBasename,
+  syncPathDirectory,
 } from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
@@ -352,7 +353,7 @@ export class PageService {
         && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
         ? await this.syncPaths.allocate(tx, {
             spaceId: page.spaceId,
-            directory: page.syncPath.slice(0, page.syncPath.lastIndexOf('/')),
+            directory: syncPathDirectory(page.syncPath),
             title: changes.title,
             excludePageId: page.id,
           })
@@ -432,26 +433,26 @@ export class PageService {
   }
 
   async restoreVersion(pageId: string, versionId: string) {
-    await this.findOne(pageId);
-
-    const version = await this.prisma.pageVersion.findFirst({
-      where: { id: versionId, pageId },
-    });
-    if (!version) throw new NotFoundException('Version not found');
-
-    const page = await this.prisma.page.findUnique({
-      where: { id: pageId },
-    });
-    if (!page) throw new NotFoundException('Page not found');
+    const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
-      await this.revisionWriter.lockSpace(tx, page.spaceId);
-      const allocatedPath = await this.syncPaths.allocate(tx, {
-        spaceId: page.spaceId,
-        directory: page.syncPath.slice(0, page.syncPath.lastIndexOf('/')),
-        title: version.title,
-        excludePageId: page.id,
+      await this.revisionWriter.lockSpace(tx, visiblePage.spaceId);
+      const version = await tx.pageVersion.findFirst({
+        where: { id: versionId, pageId },
       });
+      if (!version) throw new NotFoundException('Version not found');
+      const page = await tx.page.findUnique({
+        where: { id: pageId, deletedAt: null },
+      });
+      if (!page) throw new NotFoundException('Page not found');
+      const restoredPath = safeMarkdownBasename(version.title) !== safeMarkdownBasename(page.title)
+        ? await this.syncPaths.allocate(tx, {
+            spaceId: page.spaceId,
+            directory: syncPathDirectory(page.syncPath),
+            title: version.title,
+            excludePageId: page.id,
+          })
+        : { path: page.syncPath, pathKey: page.syncPathKey };
       await tx.pageVersion.create({
         data: {
           pageId: page.id,
@@ -473,8 +474,8 @@ export class PageService {
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
           parentId: version.parentId,
-          syncPath: allocatedPath.path,
-          syncPathKey: allocatedPath.pathKey,
+          syncPath: restoredPath.path,
+          syncPathKey: restoredPath.pathKey,
           lastChangeSetId: null,
           lastModifiedByUserId: page.authorId,
           lastModifiedByAgentId: null,

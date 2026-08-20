@@ -122,6 +122,12 @@ describe('PageService', () => {
         [expect.objectContaining({ path: 'pages/吃饭睡觉.md', body: '# 吃饭睡觉' })],
         expect.anything(),
       );
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSyncPaths.allocate.mock.invocationCallOrder[0],
+      );
+      expect(mockSyncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.create.mock.invocationCallOrder[0],
+      );
     });
   });
 
@@ -317,6 +323,45 @@ describe('PageService', () => {
       }));
     });
 
+    it('renames a root-level page without inventing a directory and locks before writing', async () => {
+      const rootPage = {
+        ...original,
+        syncPath: 'Original.md',
+        syncPathKey: 'original.md',
+      };
+      const updated = {
+        ...rootPage,
+        title: 'Renamed',
+        syncPath: 'Renamed.md',
+        syncPathKey: 'renamed.md',
+        updatedAt: new Date('2026-07-27T08:01:00.000Z'),
+      };
+      mockPrisma.page.findUnique.mockResolvedValueOnce(rootPage).mockResolvedValueOnce(updated);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
+      mockSyncPaths.allocate.mockResolvedValue({
+        path: 'Renamed.md',
+        pathKey: 'renamed.md',
+      });
+
+      await service.update('page-1', {
+        title: 'Renamed',
+        expectedUpdatedAt: rootPage.updatedAt.toISOString(),
+      } as any, 'user-1');
+
+      expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
+        spaceId: 'space-1',
+        directory: '',
+        title: 'Renamed',
+        excludePageId: 'page-1',
+      });
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSyncPaths.allocate.mock.invocationCallOrder[0],
+      );
+      expect(mockSyncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.updateMany.mock.invocationCallOrder[0],
+      );
+    });
+
     it('writes the updated Page path to the revision', async () => {
       const updated = {
         ...original,
@@ -416,6 +461,196 @@ describe('PageService', () => {
         [expect.objectContaining({
           path: restored.syncPath,
           title: version.title,
+          body: version.content,
+        })],
+        expect.anything(),
+      );
+    });
+
+    it('renames a restored root-level page without inventing a directory and locks before writing', async () => {
+      const current = {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        title: 'Current',
+        content: 'Current body',
+        slug: 'current',
+        format: 'markdown',
+        parentId: null,
+        spaceId: 'space-1',
+        authorId: 'user-1',
+        syncPath: 'Current.md',
+        syncPathKey: 'current.md',
+      };
+      const version = {
+        id: 'version-1',
+        pageId: 'page-1',
+        title: 'Restored',
+        content: 'Restored body',
+        slug: 'restored',
+        format: 'markdown',
+        parentId: null,
+      };
+      const restored = {
+        ...current,
+        title: version.title,
+        content: version.content,
+        syncPath: 'Restored.md',
+        syncPathKey: 'restored.md',
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
+      mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
+      mockPrisma.page.findUnique.mockResolvedValue(current);
+      mockPrisma.page.update.mockResolvedValue(restored);
+      mockSyncPaths.allocate.mockResolvedValue({
+        path: restored.syncPath,
+        pathKey: restored.syncPathKey,
+      });
+
+      await service.restoreVersion('page-1', 'version-1');
+
+      expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
+        spaceId: 'space-1',
+        directory: '',
+        title: 'Restored',
+        excludePageId: 'page-1',
+      });
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSyncPaths.allocate.mock.invocationCallOrder[0],
+      );
+      expect(mockSyncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('re-reads the active Page after locking and snapshots that current state', async () => {
+      const stale = {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        title: 'Stale title',
+        content: 'Stale body',
+        slug: 'stale',
+        format: 'markdown',
+        parentId: null,
+        spaceId: 'space-1',
+        authorId: 'stale-author',
+        syncPath: 'stale/Stale title.md',
+        syncPathKey: 'stale/stale title.md',
+      };
+      const current = {
+        ...stale,
+        title: 'Current title',
+        content: 'Current body',
+        slug: 'current',
+        format: 'mdx',
+        authorId: 'current-author',
+        syncPath: 'current/Current title.md',
+        syncPathKey: 'current/current title.md',
+      };
+      const version = {
+        id: 'version-1',
+        pageId: 'page-1',
+        title: 'Restored title',
+        content: 'Restored body remains exact.',
+        slug: null,
+        format: null,
+        parentId: null,
+      };
+      const restored = {
+        ...current,
+        title: version.title,
+        content: version.content,
+        syncPath: 'current/Restored title.md',
+        syncPathKey: 'current/restored title.md',
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(stale as any);
+      mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
+      mockPrisma.page.findUnique.mockImplementation(async () => {
+        expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
+        return current;
+      });
+      mockPrisma.page.update.mockResolvedValue(restored);
+      mockSyncPaths.allocate.mockResolvedValue({
+        path: restored.syncPath,
+        pathKey: restored.syncPathKey,
+      });
+
+      await service.restoreVersion('page-1', 'version-1');
+
+      expect(mockPrisma.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          title: current.title,
+          content: current.content,
+          authorId: current.authorId,
+          slug: current.slug,
+          format: current.format,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        }),
+      }));
+      expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        directory: 'current',
+      }));
+      expect(mockPrisma.page.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          slug: current.slug,
+          format: current.format,
+          lastModifiedByUserId: current.authorId,
+        }),
+      }));
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.findUnique.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('preserves the current path when the restored title has the same sanitized basename', async () => {
+      const current = {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        title: 'A / B',
+        content: 'Current body',
+        slug: 'a-b',
+        format: 'markdown',
+        parentId: null,
+        spaceId: 'space-1',
+        authorId: 'user-1',
+        syncPath: 'pages/A B (2).md',
+        syncPathKey: 'pages/a b (2).md',
+      };
+      const version = {
+        id: 'version-1',
+        pageId: 'page-1',
+        title: 'A <> B',
+        content: 'Body / stays * byte-for-byte.',
+        slug: 'a-b-restored',
+        format: 'markdown',
+        parentId: null,
+      };
+      const restored = {
+        ...current,
+        title: version.title,
+        content: version.content,
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
+      mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
+      mockPrisma.page.findUnique.mockResolvedValue(current);
+      mockPrisma.page.update.mockResolvedValue(restored);
+
+      await service.restoreVersion('page-1', 'version-1');
+
+      expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
+      expect(mockPrisma.page.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          title: version.title,
+          content: version.content,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        }),
+      }));
+      expect(mockRevisionWriter.advance).toHaveBeenCalledWith(
+        expect.anything(),
+        'space-1',
+        [expect.objectContaining({
+          path: current.syncPath,
           body: version.content,
         })],
         expect.anything(),

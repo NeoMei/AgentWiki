@@ -101,6 +101,21 @@ describe('ReadableSyncPathService', () => {
     });
   });
 
+  it('allocates a root-level path without a leading slash', async () => {
+    tx.page.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.allocate(tx as any, {
+        spaceId: 'space-1',
+        directory: '',
+        title: 'Guide',
+      }),
+    ).resolves.toEqual({
+      path: 'Guide.md',
+      pathKey: pathKey('Guide.md'),
+    });
+  });
+
   it('treats NFC-equivalent occupied paths as the same candidate', async () => {
     tx.page.findMany.mockResolvedValue([
       { syncPathKey: pathKey('pages/Cafe\u0301.md') },

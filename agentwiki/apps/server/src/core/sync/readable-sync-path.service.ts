@@ -12,6 +12,7 @@ const maxBasenameBytes = 255 - encoder.encode(' (2).md').byteLength;
 
 export interface ReadableSyncPathInput {
   spaceId: string;
+  /** Canonical relative directory; an empty string represents the vault root. */
   directory: string;
   title: string;
   excludePageId?: string;
@@ -41,6 +42,11 @@ export function safeMarkdownBasename(title: string): string {
   return truncateUtf8(sanitized, maxBasenameBytes);
 }
 
+export function syncPathDirectory(syncPath: string): string {
+  const separator = syncPath.lastIndexOf('/');
+  return separator === -1 ? '' : syncPath.slice(0, separator);
+}
+
 @Injectable()
 export class ReadableSyncPathService {
   async allocate(
@@ -57,7 +63,8 @@ export class ReadableSyncPathService {
     const keys = new Set(occupied.map((page) => page.syncPathKey));
     const basename = safeMarkdownBasename(input.title);
     const directory = input.directory.normalize('NFC');
-    const directoryBytes = encoder.encode(`${directory}/`).byteLength;
+    const pathPrefix = directory ? `${directory}/` : '';
+    const directoryBytes = encoder.encode(pathPrefix).byteLength;
     for (let suffix = 1; ; suffix += 1) {
       const ending = suffix === 1 ? '.md' : ` (${suffix}).md`;
       const endingBytes = encoder.encode(ending).byteLength;
@@ -66,7 +73,7 @@ export class ReadableSyncPathService {
         1024 - directoryBytes - endingBytes,
       );
       const name = `${truncateUtf8(basename, basenameBytes)}${ending}`;
-      const candidate = validatePortablePath(`${directory}/${name}`);
+      const candidate = validatePortablePath(`${pathPrefix}${name}`);
       if (!keys.has(candidate.key)) {
         return { path: candidate.path, pathKey: candidate.key };
       }
