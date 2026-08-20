@@ -102,7 +102,7 @@ async function seedSpace(prisma, { name, pages }) {
 
 function failOnSecondPageUpdate(prisma) {
   return {
-    $transaction: (callback) => prisma.$transaction(async (tx) => {
+    $transaction: (callback, options) => prisma.$transaction(async (tx) => {
       let updates = 0;
       const page = new Proxy(tx.page, {
         get(target, property, receiver) {
@@ -120,7 +120,7 @@ function failOnSecondPageUpdate(prisma) {
         },
       });
       return callback(wrapped);
-    }),
+    }, options),
   };
 }
 

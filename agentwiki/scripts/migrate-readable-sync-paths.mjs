@@ -30,10 +30,11 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
 
   return prisma.$transaction(async (tx) => {
     await writer.lockSpace(tx, spaceId);
-    const allPages = await tx.page.findMany({
-      where: { spaceId, deletedAt: null },
+    const persistedPages = await tx.page.findMany({
+      where: { spaceId },
       orderBy: { knowledgeKey: 'asc' },
     });
+    const allPages = persistedPages.filter((page) => page.deletedAt === null);
     const pages = allPages.filter((page) => opaquePagePath.test(page.syncPath));
 
     if (pages.length === 0) {
@@ -46,13 +47,16 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
       select: { id: true },
     });
     const migratedPathByPageId = new Map();
+    const occupiedPathKeys = new Set(persistedPages.map((page) => page.syncPathKey));
     for (const page of pages) {
+      occupiedPathKeys.delete(page.syncPathKey);
       const allocated = await allocator.allocate(tx, {
         spaceId,
         directory: 'pages',
         title: page.title,
         excludePageId: page.id,
-      });
+      }, occupiedPathKeys);
+      occupiedPathKeys.add(allocated.pathKey);
       await tx.pageVersion.upsert({
         where: {
           pageId_migrationBatchId: {
@@ -102,7 +106,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
       migrationBatchId: batchId,
     });
     return { migrated: pages.length, revisionId: revision.revisionId };
-  });
+  }, { maxWait: 10_000, timeout: 30 * 60_000 });
 }
 
 function databaseUrl(env = process.env) {

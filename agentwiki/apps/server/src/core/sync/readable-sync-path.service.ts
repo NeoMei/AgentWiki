@@ -52,15 +52,15 @@ export class ReadableSyncPathService {
   async allocate(
     tx: Prisma.TransactionClient,
     input: ReadableSyncPathInput,
+    occupiedPathKeys?: ReadonlySet<string>,
   ): Promise<{ path: string; pathKey: string }> {
-    const occupied = await tx.page.findMany({
+    const keys = occupiedPathKeys ?? new Set((await tx.page.findMany({
       where: {
         spaceId: input.spaceId,
         ...(input.excludePageId ? { id: { not: input.excludePageId } } : {}),
       },
       select: { syncPathKey: true },
-    });
-    const keys = new Set(occupied.map((page) => page.syncPathKey));
+    })).map((page) => page.syncPathKey));
     const basename = safeMarkdownBasename(input.title);
     const directory = input.directory.normalize('NFC');
     const pathPrefix = directory ? `${directory}/` : '';

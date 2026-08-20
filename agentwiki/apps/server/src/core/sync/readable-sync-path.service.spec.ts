@@ -214,4 +214,23 @@ describe('ReadableSyncPathService', () => {
       select: { syncPathKey: true },
     });
   });
+
+  it('uses a preloaded occupied-key set without querying every page again', async () => {
+    const occupied = new Set([
+      pathKey('pages/Guide.md'),
+      pathKey('pages/guide (2).md'),
+    ]);
+
+    await expect(
+      service.allocate(tx as any, {
+        spaceId: 'space-1',
+        directory: 'pages',
+        title: 'GUIDE',
+      }, occupied),
+    ).resolves.toEqual({
+      path: 'pages/GUIDE (3).md',
+      pathKey: pathKey('pages/GUIDE (3).md'),
+    });
+    expect(tx.page.findMany).not.toHaveBeenCalled();
+  });
 });
