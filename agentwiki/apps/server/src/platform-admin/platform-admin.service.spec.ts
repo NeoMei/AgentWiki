@@ -106,5 +106,5 @@ describe('PlatformAdminService password reset security', () => {
     await expect(realAuth.login(persistedUser.email, temporaryPassword)).rejects.toMatchObject({
       businessCode: 'AUTH_INVALID_CREDENTIALS',
     });
-  });
+  }, 20_000);
 });

@@ -364,6 +364,7 @@ test('web create and readable migration wait before allocating the same title', 
         { indexPage: async () => ({ lexicalIndexed: true, semanticIndexed: false }) },
         writer,
         allocator,
+        { enqueue: async () => undefined },
       );
       const batchId = `readable-sync-path-v1:${seeded.spaceId}`;
       const { migrateReadablePathsForSpace } = await import('./migrate-readable-sync-paths.mjs');
