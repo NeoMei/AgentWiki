@@ -40,7 +40,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
       select: { id: true },
     });
     if (completedRevision) {
-      return { migrated: 0, revisionId: null };
+      return { migrated: 0, revisionId: completedRevision.id };
     }
 
     const persistedPages = await tx.page.findMany({
@@ -131,6 +131,10 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
   }, { maxWait: 10_000, timeout: 30 * 60_000 });
 }
 
+export function createdMigrationRevision(result) {
+  return result.migrated > 0 && Boolean(result.revisionId);
+}
+
 function databaseUrl(env = process.env) {
   const value = env.DATABASE_URL;
   if (!value) throw new Error('DATABASE_URL is required');
@@ -166,7 +170,7 @@ async function main() {
         `readable-sync-path-v1:${space.id}`,
       );
       migrated += result.migrated;
-      if (result.revisionId) revisions += 1;
+      if (createdMigrationRevision(result)) revisions += 1;
     }
     console.log(`Migrated ${migrated} page paths across ${spaces.length} spaces (${revisions} revisions)`);
   } finally {

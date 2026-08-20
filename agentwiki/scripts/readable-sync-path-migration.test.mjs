@@ -191,7 +191,7 @@ test('completed migration batch no-ops before scanning pages added later', async
       batchId,
     );
 
-    assert.deepEqual(result, { migrated: 0, revisionId: null });
+    assert.deepEqual(result, { migrated: 0, revisionId: 'completed-revision' });
     assert.deepEqual(events, ['lock', 'batch-lookup']);
     assert.deepEqual(pages, before.pages);
     assert.equal(versions.length, before.pageVersions);
@@ -200,4 +200,18 @@ test('completed migration batch no-ops before scanning pages added later', async
     SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;
     SpaceRevisionWriterService.prototype.advance = originalAdvance;
   }
+});
+
+test('CLI counts only revisions created by pages migrated in this run', async () => {
+  const { createdMigrationRevision } = await import('./migrate-readable-sync-paths.mjs');
+
+  assert.equal(createdMigrationRevision({
+    migrated: 0,
+    revisionId: 'completed-revision',
+  }), false);
+  assert.equal(createdMigrationRevision({ migrated: 0, revisionId: null }), false);
+  assert.equal(createdMigrationRevision({
+    migrated: 1,
+    revisionId: 'new-revision',
+  }), true);
 });

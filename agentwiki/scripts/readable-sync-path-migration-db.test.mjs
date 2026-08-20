@@ -263,7 +263,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
       );
 
       const second = await migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId);
-      assert.deepEqual(second, { migrated: 0, revisionId: null });
+      assert.deepEqual(second, { migrated: 0, revisionId: result.revisionId });
       assert.equal(await prisma.pageVersion.count({ where: { migrationBatchId: batchId } }), 3);
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: seeded.spaceId } }), 1);
 
