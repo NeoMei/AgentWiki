@@ -206,8 +206,8 @@ interface SyncPageRecord {
 
 1. 先为每个现有 Page 写迁移前 PageVersion，精确保留原始 `format`、未规范化正文、路径字段和迁移批次 ID；迁移可按 Space 重试，已完成项不得重复创建版本。
 2. 所有 Page 的新正文先拒绝开头 U+FEFF，再执行 `normalizeMarkdown`，唯一允许的内容变化是 `CRLF/CR → LF`。发现 U+FEFF 时该 Space 迁移失败并列出内部 Page ID，不能静默剥离；非 Markdown format（当前包括 `json`）不做解析、重排、缩进、代码围栏或其他转换，只把 Page.format 明确改为 `markdown`。因此成功迁移的结果确定，原始正文仍可由 PageVersion 审计恢复。
-3. 若 `sourcePath` 是符合第 3.2 节可移植规则的 `.md` 相对路径且 pathKey 未占用，使用该路径。
-4. 否则使用 `pages/p-<idFileKey(knowledgeKey)>.md`。不得直接把 knowledgeKey 放进路径，因为合法 ID 仍可能是 Windows device basename；完整 64 位 key 不截断。
+3. 若 `sourcePath` 是符合第 3.2 节可移植规则的 `.md` 相对路径且 pathKey 未占用，使用其 NFC 规范化路径。
+4. 只有旧 sync v1 backfill 允许在不能接受 `sourcePath` 时临时产生 `pages/p-<idFileKey(knowledgeKey)>.md`；该形式是过渡数据，不再是 Web/ChangeSet 新建的正常路径。可读路径迁移只匹配 `^pages/p-[0-9a-f]{64}\.md$`，其他路径一律不动。
 5. 现有 knowledgeKey 必须符合第 3.3 节公共 ID 规则；非法 ID 的迁移失败并列出内部 Page ID，不得静默重写公开 identity。
 6. 若历史异常数据仍发生 pathKey 碰撞，迁移失败并列出 Page ID，不允许静默加随机后缀。
 7. 一个 Space 的正文转换、syncPath backfill、初始规范化 revision 和约束启用必须在可恢复迁移阶段中完成；失败时该 Space 不对 sync v1 可见，现有 Web 与旧 local-sync 数据不得处于半迁移状态。
@@ -216,7 +216,16 @@ interface SyncPageRecord {
 
 `slug` 继续服务 AgentWiki Web URL，`parentId` 继续服务 Web 层级，`sourcePath` 继续表示来源 provenance；三者都不能代替 `syncPath`。Web 移动/重命名页面必须显式更新 `syncPath`，并通过统一 revision 写入器校验路径。
 
-非 sync v1 的新建入口如果没有显式合法 `syncPath`，先生成 knowledgeKey，再使用 `pages/p-<idFileKey(knowledgeKey)>.md`；知识流水线可以把合法 source path 显式传为 syncPath。任何入口都不能从 title 临时派生易碰撞路径。
+新建与标题驱动的路径规则固定如下：
+
+1. Obsidian/local-sync 提交的合法路径以及知识流水线的合法 `sourcePath` 在新建时保留；无路径或路径不可移植时才使用标题分配器。
+2. 标题先做 NFC，把控制字符及 `<>:"/\\|?*` 替换为空格，合并空白，去除首尾空白和尾部点/空格；空名或 Windows 保留设备名使用 `未命名文章`。截断必须按 Unicode code point 进行，同时满足 255 UTF-8 byte 路径段和 1,024 UTF-8 byte 完整路径上限。
+3. 首选候选是 `pages/<safe-title>.md`。若其 `pathKey` 已占用，依次选择最小可用的 `pages/<safe-title> (2).md`、` (3).md` ……；数字位数增长时必须重新计算 UTF-8 byte 预算。
+4. Web/ChangeSet 标题修改和历史版本恢复只在新旧标题的 safe basename 真正不同时重命名；重命名保留当前目录（包括 Vault 根目录）并重新执行最小后缀分配。content-only 修改和净化等价标题不改路径。
+5. 分配、Page/PageVersion 更新与 revision 推进必须在同一 Space lock 和数据库事务内；Page、PageVersion、revision row 的路径必须一致。
+6. 路径分配、标题改名和可读路径迁移不得改写 `Page.content`，也不得注入、删除或重写 Markdown H1；即使正文中存在与标题同名的 `# Heading`，也必须原样保留。
+
+可读路径迁移以 `knowledgeKey` 升序分配重名后缀，每个 Space 使用固定批次 `readable-sync-path-v1:<spaceId>`，迁移前 PageVersion 以 `(pageId, migrationBatchId)` 幂等保留旧路径。整个 Space 的 Page、PageVersion 和 migration revision 在同一事务中提交；重复运行不新增版本或 revision。
 
 `PageVersion` 必须增加当时的 `syncPath`、`syncPathKey` 和可空 `migrationBatchId`，使恢复、迁移幂等和审计能还原路径。创建新 Page 没有前置版本；update、move、rename、archive 和 restore 在变更前写 PageVersion。迁移版本以 `(pageId, migrationBatchId)` 唯一，避免批次重试重复写。Obsidian 创建页的 `authorId` 和 `lastModifiedByUserId` 都取设备凭据对应的当前 user ID。
 

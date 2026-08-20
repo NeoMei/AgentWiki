@@ -1,9 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+import { pathKey } from '@neomei/agentwiki-sync-protocol';
 import { ReviewService } from './review.service';
 
 describe('ReviewService queue presentation', () => {
   const prisma = { changeSet: { count: jest.fn(), findMany: jest.fn() } } as any;
-  const service = new ReviewService(prisma, {} as any, {} as any);
+  const service = new ReviewService(prisma, {} as any, {} as any, {} as any);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -35,10 +36,22 @@ describe('ReviewService approval boundaries', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
-  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
+  const syncPaths = { allocate: jest.fn() } as any;
+  const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    syncPaths,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Generated.md',
+      pathKey: pathKey('pages/Generated.md'),
+    });
+    revisionWriter.lockSpace.mockImplementation(async (tx: unknown) => tx);
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -131,7 +144,7 @@ describe('ReviewService approval boundaries', () => {
       sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
       lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
       sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/a.md',
-      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt,
+      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt, updatedAt: archivedAt,
     };
     const tx = {
       page: {
@@ -156,7 +169,7 @@ describe('ReviewService approval boundaries', () => {
       data: expect.objectContaining({ pageId: archived.id, title: 'Archived', content: 'old' }),
     }));
     expect(tx.page.updateMany).toHaveBeenCalledWith({
-      where: { id: archived.id, spaceId: 'space-1', deletedAt: archivedAt },
+      where: { id: archived.id, spaceId: 'space-1', deletedAt: archivedAt, updatedAt: archivedAt },
       data: expect.objectContaining({
         title: 'Restored', content: 'new', deletedAt: null,
         sourceId: 'source-1', sourceVersionId: 'version-2', sourcePath: 'docs/a.md',
@@ -178,6 +191,76 @@ describe('ReviewService approval boundaries', () => {
     }));
   });
 
+  it('allocates a readable path when restoring an archived source page with a non-portable source path', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-readable-restore', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'restore-readable', type: 'create_page', status: 'accepted',
+        payload: {
+          sourceId: 'source-1', sourcePath: '/legacy-source.md', sourceVersionId: 'version-2',
+          title: 'Readable restored', content: 'new',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const archivedAt = new Date('2026-08-18T08:00:00Z');
+    const archived = {
+      id: 'page-existing', spaceId: 'space-1', knowledgeKey: 'knowledge-existing', authorId: 'user-old',
+      title: 'Archived', slug: 'archived', content: 'old', format: 'markdown', parentId: null,
+      sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
+      lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
+      sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: '/legacy-source.md',
+      syncPath: 'guides/Archived.md', syncPathKey: pathKey('guides/Archived.md'),
+      deletedAt: archivedAt, updatedAt: archivedAt,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archived),
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({ title: 'Readable restored', content: 'new', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageVersion: { create: jest.fn() },
+      pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    syncPaths.allocate.mockResolvedValueOnce({
+      path: 'guides/Readable restored.md',
+      pathKey: pathKey('guides/Readable restored.md'),
+    });
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-readable-restore');
+
+    expect(tx.page.create).not.toHaveBeenCalled();
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1',
+      directory: 'guides',
+      title: 'Readable restored',
+      excludePageId: archived.id,
+    });
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'guides/Readable restored.md',
+        syncPathKey: pathKey('guides/Readable restored.md'),
+      }),
+    }));
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'restore-readable' },
+      data: expect.objectContaining({ payload: expect.objectContaining({
+        before: expect.objectContaining({
+          restoredFromArchive: true,
+          syncPath: 'guides/Archived.md',
+          syncPathKey: pathKey('guides/Archived.md'),
+        }),
+      }) }),
+    }));
+  });
+
   it('loses a concurrent archive-restoration race instead of overwriting the winner', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-restore-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
@@ -194,7 +277,7 @@ describe('ReviewService approval boundaries', () => {
       sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
       lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
       sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/a.md',
-      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt,
+      syncPath: 'docs/a.md', syncPathKey: 'docs/a.md', deletedAt: archivedAt, updatedAt: archivedAt,
     };
     const tx = {
       page: {
@@ -307,9 +390,11 @@ describe('ReviewService approval boundaries', () => {
     });
     const tx = {
       page: {
+        findFirst: jest.fn().mockResolvedValue(null),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      pageVersion: { create: jest.fn() },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -317,7 +402,7 @@ describe('ReviewService approval boundaries', () => {
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
     await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
-    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.page.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         id: 'page-1',
         spaceId: 'space-1',
@@ -325,6 +410,8 @@ describe('ReviewService approval boundaries', () => {
         updatedAt: { lte: publishedAt },
       }),
     }));
+    expect(tx.page.updateMany).not.toHaveBeenCalled();
+    expect(tx.pageVersion.create).not.toHaveBeenCalled();
     expect(tx.changeItem.update).not.toHaveBeenCalled();
   });
 
@@ -340,10 +427,15 @@ describe('ReviewService approval boundaries', () => {
     });
     const tx = {
       page: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'page-1', title: 'A', content: '', authorId: 'user-1', slug: 'a', format: 'markdown',
+          parentId: null, syncPath: 'pages/A.md', syncPathKey: 'pages/a.md',
+        }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue({ deletedAt: new Date(), title: 'A', content: '' }),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      pageVersion: { create: jest.fn() },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -374,7 +466,8 @@ describe('ReviewService approval boundaries', () => {
       deletedAt: archivedAt.toISOString(), sourceChangeSetId: 'cs-old', createdByAgentId: 'agent-old',
       lastChangeSetId: 'cs-old', lastModifiedByUserId: null, lastModifiedByAgentId: 'agent-old',
       lastModifiedAt: priorModifiedAt.toISOString(), sourceId: 'source-1', sourceVersionId: 'version-1',
-      sourcePath: 'docs/a.md',
+      sourcePath: 'docs/a.md', syncPath: 'pages/Archived title.md',
+      syncPathKey: pathKey('pages/Archived title.md'),
     };
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-restore', status: 'published', spaceId: 'space-1', publishedAt,
@@ -384,10 +477,16 @@ describe('ReviewService approval boundaries', () => {
     });
     const tx = {
       page: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'page-1', title: 'Restored title', content: 'Restored body', authorId: 'user-1',
+          slug: 'restored-title', format: 'markdown', parentId: null,
+          syncPath: 'pages/Restored title.md', syncPathKey: pathKey('pages/Restored title.md'),
+        }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue({ deletedAt: archivedAt, title: 'Archived title', content: 'Archived body' }),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      pageVersion: { create: jest.fn() },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -401,7 +500,11 @@ describe('ReviewService approval boundaries', () => {
       data: expect.objectContaining({
         title: 'Archived title', content: 'Archived body', parentId: 'parent-old', deletedAt: archivedAt,
         sourceChangeSetId: 'cs-old', lastChangeSetId: 'cs-old', lastModifiedAt: priorModifiedAt,
+        syncPath: 'pages/Archived title.md', syncPathKey: pathKey('pages/Archived title.md'),
       }),
+    }));
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ syncPath: 'pages/Restored title.md' }),
     }));
   });
 
@@ -418,10 +521,15 @@ describe('ReviewService approval boundaries', () => {
     });
     const tx = {
       page: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'page-1', title: 'Current', content: 'Current body', authorId: 'user-1', slug: 'current', format: 'markdown',
+          parentId: null, syncPath: 'pages/Current.md', syncPathKey: 'pages/current.md',
+        }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      pageVersion: { create: jest.fn() },
       pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
       changeItem: { update: jest.fn() },
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -826,6 +934,27 @@ describe('ReviewService approval boundaries', () => {
         }),
       },
       page: {
+        findFirst: jest.fn().mockImplementation(async ({ where }: any) => {
+          const page = state.pages[where.id as keyof typeof state.pages];
+          const matches = page
+            && page.spaceId === where.spaceId
+            && page.sourceChangeSetId === where.sourceChangeSetId
+            && page.lastChangeSetId === where.lastChangeSetId
+            && page.deletedAt === where.deletedAt
+            && page.updatedAt <= where.updatedAt.lte;
+          if (!matches) return null;
+          return {
+            ...page,
+            title: 'Current',
+            content: 'Current body',
+            authorId: 'user-1',
+            slug: 'current',
+            format: 'markdown',
+            parentId: null,
+            syncPath: 'pages/Current.md',
+            syncPathKey: 'pages/current.md',
+          };
+        }),
         updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
           const page = state.pages[where.id as keyof typeof state.pages];
           const matches = page
@@ -839,6 +968,7 @@ describe('ReviewService approval boundaries', () => {
           return { count: 1 };
         }),
       },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
       changeItem: {
         update: jest.fn().mockImplementation(async ({ where, data }: any) => {
           state.items[where.id as keyof typeof state.items].status = data.status;
@@ -856,7 +986,7 @@ describe('ReviewService approval boundaries', () => {
     });
 
     await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
-    expect(tx.page.updateMany).toHaveBeenCalledTimes(2);
+    expect(tx.page.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.changeItem.update).toHaveBeenCalledTimes(1);
     expect(state).toEqual(initialState);
   });
@@ -870,7 +1000,12 @@ describe('ReviewService approval boundaries', () => {
     (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-1' }) };
     const tx = {
       page: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old', parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null, authorId: 'owner-1', updatedAt: new Date('2026-08-19T10:00:00Z') }),
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old',
+          parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null,
+          authorId: 'owner-1', updatedAt: new Date('2026-08-19T10:00:00Z'),
+          syncPath: 'pages/Before.md', syncPathKey: pathKey('pages/Before.md'),
+        }),
         findUnique: jest.fn().mockResolvedValue({ title: 'After', content: 'New', deletedAt: null }),
         findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -900,6 +1035,7 @@ describe('ReviewService approval boundaries', () => {
           id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old',
           parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null,
           authorId: 'user-1', updatedAt,
+          syncPath: 'pages/Before.md', syncPathKey: pathKey('pages/Before.md'),
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
@@ -961,10 +1097,20 @@ describe('one-shot review-publish and agent auto-publish', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
-  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
+  const syncPaths = { allocate: jest.fn() } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    syncPaths,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Generated.md',
+      pathKey: pathKey('pages/Generated.md'),
+    });
     prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -1053,5 +1199,953 @@ describe('one-shot review-publish and agent auto-publish', () => {
       data: expect.objectContaining({ status: 'pending_review' }),
     }));
     expect(result.autoPublished).toBeFalsy();
+  });
+});
+
+describe('ReviewService readable page paths', () => {
+  const prisma = {
+    changeSet: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = {
+    indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
+  } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
+    advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+  } as any;
+  const syncPaths = {
+    allocate: jest.fn(),
+  } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    syncPaths,
+  );
+
+  let changeSet: any;
+  let tx: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    changeSet = {
+      id: 'cs-1',
+      status: 'approved',
+      spaceId: 'space-1',
+      createdByUserId: 'user-1',
+      createdByAgentId: null,
+      items: [],
+      approvals: [],
+      space: {},
+      run: null,
+    };
+    tx = {
+      changeSet: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        create: jest.fn().mockResolvedValue({
+          id: 'page-1',
+          knowledgeKey: 'knowledge-1',
+        }),
+        findFirst: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: 'Guide',
+          content: '# Guide\n\nBody',
+          deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: 'knowledge-1',
+          syncPath: 'pages/Guide.md',
+          title: 'Guide',
+          content: '# Guide\n\nBody',
+          deletedAt: null,
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      evidence: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    prisma.changeSet.findUnique.mockImplementation(async () => changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Guide.md',
+      pathKey: pathKey('pages/Guide.md'),
+    });
+  });
+
+  it('uses a legal sourcePath without allocating a title path', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: {
+        title: 'Setup',
+        content: '# Setup\n\nBody',
+        sourcePath: 'guides/Setup.md',
+      },
+    }];
+    tx.page.findUnique.mockResolvedValue({
+      title: 'Setup',
+      content: '# Setup\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'guides/Setup.md',
+      title: 'Setup',
+      content: '# Setup\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'guides/Setup.md',
+        syncPathKey: pathKey('guides/Setup.md'),
+      }),
+    }));
+  });
+
+  it('allocates a readable path when sourcePath is absent or non-portable', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: {
+        title: 'Guide',
+        content: '# Guide\n\nBody',
+        sourcePath: '/not-portable.md',
+      },
+    }];
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1',
+      directory: 'pages',
+      title: 'Guide',
+    });
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'pages/Guide.md',
+        syncPathKey: pathKey('pages/Guide.md'),
+      }),
+    }));
+  });
+
+  it('renames the existing path when an accepted update changes title', async () => {
+    const updatedAt = new Date('2026-08-20T00:00:00.000Z');
+    changeSet.items = [{
+      id: 'update-1',
+      type: 'update_page',
+      status: 'accepted',
+      payload: {
+        pageId: 'page-1',
+        changes: { title: 'New' },
+      },
+    }];
+    tx.page.findFirst.mockResolvedValue({
+      id: 'page-1',
+      knowledgeKey: 'knowledge-1',
+      spaceId: 'space-1',
+      title: 'Old',
+      slug: 'old',
+      content: '# Old\n\nBody',
+      parentId: null,
+      format: 'markdown',
+      authorId: 'user-1',
+      updatedAt,
+      sourceChangeSetId: null,
+      createdByAgentId: null,
+      lastChangeSetId: null,
+      lastModifiedByUserId: 'user-1',
+      lastModifiedByAgentId: null,
+      lastModifiedAt: updatedAt,
+      sourceId: null,
+      sourceVersionId: null,
+      sourcePath: null,
+      syncPath: 'guides/Old.md',
+      syncPathKey: pathKey('guides/Old.md'),
+    });
+    syncPaths.allocate.mockResolvedValue({
+      path: 'guides/New.md',
+      pathKey: pathKey('guides/New.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'New',
+      content: '# Old\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'guides/New.md',
+      title: 'New',
+      content: '# Old\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1',
+      directory: 'guides',
+      title: 'New',
+      excludePageId: 'page-1',
+    });
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'guides/Old.md',
+        syncPathKey: pathKey('guides/Old.md'),
+      }),
+    }));
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          before: expect.objectContaining({
+            syncPath: 'guides/Old.md',
+            syncPathKey: pathKey('guides/Old.md'),
+          }),
+        }),
+      }),
+    }));
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        title: 'New',
+        syncPath: 'guides/New.md',
+        syncPathKey: pathKey('guides/New.md'),
+      }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({
+        path: 'guides/New.md',
+        body: '# Old\n\nBody',
+      })],
+      expect.anything(),
+    );
+  });
+
+  it('preserves body bytes including a matching H1 during path allocation', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Title', content: '# Title\n\nBody' },
+    }];
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Title.md',
+      pathKey: pathKey('pages/Title.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'Title',
+      content: '# Title\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'pages/Title.md',
+      title: 'Title',
+      content: '# Title\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ content: '# Title\n\nBody' }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({ body: '# Title\n\nBody' })],
+      expect.anything(),
+    );
+  });
+
+  it('advances a normal ChangeSet when the real knowledgeSubmission delegate finds no submission', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Guide', content: '# Guide\n\nBody' },
+    }];
+    tx.knowledgeSubmission = {
+      findUnique: jest.fn().mockResolvedValue(null),
+    };
+
+    await service.publish('cs-1');
+
+    expect(tx.knowledgeSubmission.findUnique).toHaveBeenCalledWith({
+      where: { changeSetId: 'cs-1' },
+    });
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({ operation: 'upsert', pageId: 'knowledge-1' })],
+      expect.objectContaining({ sourceChangeSetId: 'cs-1' }),
+    );
+  });
+
+  it('keeps the current path for a sanitization-equivalent title update', async () => {
+    const updatedAt = new Date('2026-08-20T00:00:00.000Z');
+    changeSet.items = [{
+      id: 'update-1',
+      type: 'update_page',
+      status: 'accepted',
+      payload: {
+        pageId: 'page-1',
+        changes: { title: 'A <> B' },
+      },
+    }];
+    tx.page.findFirst.mockResolvedValue({
+      id: 'page-1',
+      knowledgeKey: 'knowledge-1',
+      spaceId: 'space-1',
+      title: 'A / B',
+      slug: 'a-b',
+      content: '# A / B\n\nBody',
+      parentId: null,
+      format: 'markdown',
+      authorId: 'user-1',
+      updatedAt,
+      sourceChangeSetId: null,
+      createdByAgentId: null,
+      lastChangeSetId: null,
+      lastModifiedByUserId: 'user-1',
+      lastModifiedByAgentId: null,
+      lastModifiedAt: updatedAt,
+      sourceId: null,
+      sourceVersionId: null,
+      sourcePath: null,
+      syncPath: 'notes/custom.md',
+      syncPathKey: pathKey('notes/custom.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'A <> B',
+      content: '# A / B\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'notes/custom.md',
+      title: 'A <> B',
+      content: '# A / B\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.not.objectContaining({
+        syncPath: expect.anything(),
+        syncPathKey: expect.anything(),
+      }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({
+        path: 'notes/custom.md',
+        body: '# A / B\n\nBody',
+      })],
+      expect.anything(),
+    );
+  });
+
+  it('locks the Space before allocating or writing a page', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Guide', content: '' },
+    }];
+
+    await service.publish('cs-1');
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      syncPaths.allocate.mock.invocationCallOrder[0],
+    );
+    expect(syncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.create.mock.invocationCallOrder[0],
+    );
+  });
+});
+
+describe('ReviewService page revert ordering and audit', () => {
+  const prisma = {
+    changeSet: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = {
+    indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
+  } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
+    advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+  } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    { allocate: jest.fn() } as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each([
+    ['create_page', {}, null],
+    ['update_page', { before: { title: 'Before', content: 'Old', syncPath: 'guides/Before.md' } }, null],
+    ['archive_page', { before: { deletedAt: null } }, new Date('2026-08-20T00:00:00.000Z')],
+  ])('locks and snapshots the current Page before reverting %s', async (type, payload, deletedAt) => {
+    const publishedAt = new Date('2026-08-20T00:01:00.000Z');
+    const current = {
+      id: 'page-1',
+      knowledgeKey: 'knowledge-1',
+      spaceId: 'space-1',
+      title: 'Current title',
+      content: 'Current body',
+      authorId: 'user-1',
+      slug: 'current-title',
+      format: 'markdown',
+      parentId: null,
+      syncPath: 'guides/Current title.md',
+      syncPathKey: 'guides/current title.md',
+      sourceChangeSetId: 'cs-1',
+      lastChangeSetId: 'cs-1',
+      updatedAt: new Date('2026-08-20T00:00:30.000Z'),
+      deletedAt,
+    };
+    const changeSet = {
+      id: 'cs-1',
+      status: 'published',
+      spaceId: 'space-1',
+      publishedAt,
+      createdByUserId: 'user-1',
+      createdByAgentId: null,
+      items: [{
+        id: 'item-1',
+        type,
+        status: 'published',
+        publishedResourceId: 'page-1',
+        payload,
+      }],
+      approvals: [],
+      space: {},
+      run: null,
+    };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(current),
+        findUnique: jest.fn().mockResolvedValue({
+          title: current.title,
+          content: current.content,
+          deletedAt: type === 'archive_page' ? null : new Date(),
+        }),
+        findMany: jest.fn().mockResolvedValue([current]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.revert('cs-1');
+
+    expect(tx.changeSet.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      revisionWriter.lockSpace.mock.invocationCallOrder[0],
+    );
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    const firstPageOperation = Math.min(
+      tx.page.findFirst.mock.invocationCallOrder[0],
+      tx.page.findUnique.mock.invocationCallOrder[0],
+      tx.page.findMany.mock.invocationCallOrder[0],
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(firstPageOperation);
+    expect(tx.page.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.pageVersion.create.mock.invocationCallOrder[0],
+    );
+    expect(tx.pageVersion.create).toHaveBeenCalledWith({
+      data: {
+        pageId: current.id,
+        title: current.title,
+        content: current.content,
+        authorId: current.authorId,
+        slug: current.slug,
+        format: current.format,
+        parentId: current.parentId,
+        syncPath: current.syncPath,
+        syncPathKey: current.syncPathKey,
+      },
+    });
+    expect(tx.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(tx.page.findFirst.mock.calls[0][0].where).toBe(
+      tx.page.updateMany.mock.calls[0][0].where,
+    );
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      expect.any(Array),
+      expect.objectContaining({ origin: 'change_set', sourceChangeSetId: 'cs-1' }),
+    );
+  });
+});
+
+describe('ReviewService archive audit and provenance', () => {
+  const prisma = {
+    changeSet: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = {
+    indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
+  } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
+    advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+  } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    { allocate: jest.fn() } as any,
+  );
+
+  const originalUpdatedAt = new Date('2026-08-20T00:00:00.000Z');
+  const originalModifiedAt = new Date('2026-08-19T23:59:00.000Z');
+  const originalPage = {
+    id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+    title: 'Archived title', slug: 'archived-title',
+    content: '# Archived title\n\nOriginal body', format: 'markdown',
+    parentId: 'parent-1', authorId: 'author-1',
+    sourceChangeSetId: 'cs-origin', createdByAgentId: 'agent-origin',
+    lastChangeSetId: 'cs-before', lastModifiedByUserId: 'user-before',
+    lastModifiedByAgentId: null, lastModifiedAt: originalModifiedAt,
+    sourceId: 'source-1', sourceVersionId: 'source-version-1',
+    sourcePath: 'source/Archived.md', syncPath: 'guides/Archived title.md',
+    syncPathKey: pathKey('guides/Archived title.md'), deletedAt: null,
+    updatedAt: originalUpdatedAt,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('writes a complete pre-archive audit record and archives with exact row CAS', async () => {
+    const changeSet = {
+      id: 'cs-archive', status: 'approved', spaceId: 'space-1',
+      createdByUserId: null, createdByAgentId: 'agent-archive',
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'accepted',
+        payload: { pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString() },
+      }], approvals: [], space: {}, run: null,
+    };
+    (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'agent-owner' }) };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(originalPage),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: new Date('2026-08-20T00:01:00.000Z'),
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: originalPage.knowledgeKey, syncPath: originalPage.syncPath,
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: new Date('2026-08-20T00:01:00.000Z'),
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-archive');
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.pageVersion.create).toHaveBeenCalledWith({
+      data: {
+        pageId: originalPage.id, title: originalPage.title,
+        content: originalPage.content, authorId: originalPage.authorId,
+        slug: originalPage.slug, format: originalPage.format,
+        parentId: originalPage.parentId, syncPath: originalPage.syncPath,
+        syncPathKey: originalPage.syncPathKey,
+      },
+    });
+    expect(tx.changeItem.update).toHaveBeenCalledWith({
+      where: { id: 'item-archive' },
+      data: { payload: {
+        pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(),
+        before: {
+          lastChangeSetId: originalPage.lastChangeSetId,
+          lastModifiedByUserId: originalPage.lastModifiedByUserId,
+          lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+          lastModifiedAt: originalModifiedAt.toISOString(),
+          deletedAt: null,
+        },
+      } },
+    });
+    expect(tx.page.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: originalPage.id, spaceId: originalPage.spaceId,
+        deletedAt: null, updatedAt: originalUpdatedAt,
+      },
+      data: expect.objectContaining({
+        deletedAt: expect.any(Date), lastChangeSetId: 'cs-archive',
+        lastModifiedByAgentId: 'agent-archive', lastModifiedByUserId: null,
+        lastModifiedAt: expect.any(Date),
+      }),
+    });
+    expect(tx.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('rolls back archive audit, item status and revision when exact row CAS loses a race', async () => {
+    const changeSet = {
+      id: 'cs-archive', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-archive', createdByAgentId: null,
+      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1' } }],
+      approvals: [], space: {}, run: null,
+    };
+    let committed = {
+      changeSetStatus: 'approved', itemStatus: 'accepted',
+      itemPayload: { pageId: 'page-1' } as Record<string, unknown>,
+      page: { ...originalPage }, versions: [] as unknown[],
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => {
+      const local = structuredClone(committed);
+      const tx = {
+        changeSet: { updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          if (local.changeSetStatus !== where.status) return { count: 0 };
+          local.changeSetStatus = data.status;
+          return { count: 1 };
+        }) },
+        changeItem: { update: jest.fn().mockImplementation(async ({ data }: any) => {
+          if (data.payload) local.itemPayload = data.payload;
+          if (data.status) local.itemStatus = data.status;
+          return {};
+        }) },
+        page: {
+          findFirst: jest.fn().mockImplementation(async () => {
+            const snapshot = structuredClone(local.page);
+            committed.page.updatedAt = new Date('2026-08-20T00:00:01.000Z');
+            return snapshot;
+          }),
+          updateMany: jest.fn().mockImplementation(async ({ where }: any) => ({
+            count: committed.page.updatedAt.getTime() === where.updatedAt.getTime() ? 1 : 0,
+          })),
+          findUnique: jest.fn(), findMany: jest.fn(),
+        },
+        pageVersion: { create: jest.fn().mockImplementation(async ({ data }: any) => {
+          local.versions.push(data);
+          return {};
+        }) },
+        pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      };
+      const result = await callback(tx);
+      committed = local;
+      return result;
+    });
+
+    await expect(service.publish('cs-archive')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      message: 'The page changed while it was being archived',
+    });
+
+    expect(committed.changeSetStatus).toBe('approved');
+    expect(committed.itemStatus).toBe('accepted');
+    expect(committed.itemPayload).toEqual({ pageId: 'page-1' });
+    expect(committed.versions).toEqual([]);
+    expect(committed.page.deletedAt).toBeNull();
+    expect(committed.page.updatedAt).toEqual(new Date('2026-08-20T00:00:01.000Z'));
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(search.indexPage).not.toHaveBeenCalled();
+  });
+
+  it('reconstructs JSON dates and restores complete pre-archive provenance', async () => {
+    const publishedAt = new Date('2026-08-20T00:02:00.000Z');
+    const archivedAt = new Date('2026-08-20T00:01:00.000Z');
+    const before = {
+      lastChangeSetId: originalPage.lastChangeSetId,
+      lastModifiedByUserId: originalPage.lastModifiedByUserId,
+      lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+      lastModifiedAt: originalModifiedAt.toISOString(),
+      deletedAt: null,
+      id: 'attacker-controlled-page-id',
+      spaceId: 'attacker-controlled-space-id',
+      updatedAt: '1999-01-01T00:00:00.000Z',
+      title: 'must not be restored',
+      content: 'must not be restored',
+      unknownKey: 'must not reach Prisma',
+    };
+    const archivedPage = {
+      ...originalPage, deletedAt: archivedAt, updatedAt: archivedAt,
+      lastChangeSetId: 'cs-archive', lastModifiedByUserId: null,
+      lastModifiedByAgentId: 'agent-archive', lastModifiedAt: archivedAt,
+    };
+    const changeSet = {
+      id: 'cs-archive', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: null, createdByAgentId: 'agent-archive',
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'published',
+        publishedResourceId: 'page-1', payload: { pageId: 'page-1', before },
+      }], approvals: [], space: {}, run: null,
+    };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archivedPage),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: originalPage.knowledgeKey,
+          syncPath: originalPage.syncPath,
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: null,
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.revert('cs-archive');
+
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: {
+        lastChangeSetId: originalPage.lastChangeSetId,
+        lastModifiedByUserId: originalPage.lastModifiedByUserId,
+        lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+        lastModifiedAt: originalModifiedAt,
+        deletedAt: null,
+      },
+    }));
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastChangeSetId).toBe('cs-before');
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByUserId).toBe('user-before');
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByAgentId).toBeNull();
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: archivedPage.syncPath, syncPathKey: archivedPage.syncPathKey,
+      }),
+    }));
+  });
+
+  it.each([
+    [
+      'supports a legacy deletedAt-only prior state',
+      { deletedAt: null },
+      { deletedAt: null },
+    ],
+    [
+      'preserves nullable provenance ID nulls',
+      {
+        lastChangeSetId: null,
+        lastModifiedByUserId: null,
+        lastModifiedByAgentId: null,
+        deletedAt: null,
+      },
+      {
+        lastChangeSetId: null,
+        lastModifiedByUserId: null,
+        lastModifiedByAgentId: null,
+        deletedAt: null,
+      },
+    ],
+    [
+      'converts a valid lastModifiedAt ISO date',
+      {
+        lastModifiedAt: '2026-08-19T23:59:00.000Z',
+        deletedAt: null,
+      },
+      {
+        lastModifiedAt: new Date('2026-08-19T23:59:00.000Z'),
+        deletedAt: null,
+      },
+    ],
+    [
+      'copies a valid lastModifiedAt Date value',
+      {
+        lastModifiedAt: new Date('2026-08-19T23:58:00.000Z'),
+        deletedAt: null,
+      },
+      {
+        lastModifiedAt: new Date('2026-08-19T23:58:00.000Z'),
+        deletedAt: null,
+      },
+    ],
+  ] as Array<[string, Record<string, unknown>, Record<string, unknown>]>)('%s', async (_label, before, expectedData) => {
+    const publishedAt = new Date('2026-08-20T00:02:00.000Z');
+    const archivedAt = new Date('2026-08-20T00:01:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-archive', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: 'user-archive', createdByAgentId: null,
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'published',
+        publishedResourceId: 'page-1', payload: { pageId: 'page-1', before },
+      }], approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue({ ...originalPage, deletedAt: archivedAt }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content, deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.revert('cs-archive');
+
+    expect(tx.page.updateMany.mock.calls[0][0].data).toEqual(expectedData);
+  });
+
+  it.each([
+    ['missing before', { pageId: 'page-1' }],
+    ['missing deletedAt', { pageId: 'page-1', before: {} }],
+    ['undefined deletedAt', { pageId: 'page-1', before: { deletedAt: undefined } }],
+    ['non-null deletedAt', { pageId: 'page-1', before: { deletedAt: '2026-08-19T00:00:00.000Z' } }],
+    ['null lastModifiedAt', { pageId: 'page-1', before: { deletedAt: null, lastModifiedAt: null } }],
+    ['undefined lastModifiedAt', { pageId: 'page-1', before: { deletedAt: null, lastModifiedAt: undefined } }],
+    ['invalid lastModifiedAt string', { pageId: 'page-1', before: { deletedAt: null, lastModifiedAt: 'not-a-date' } }],
+    ['invalid lastModifiedAt Date', { pageId: 'page-1', before: { deletedAt: null, lastModifiedAt: new Date('invalid') } }],
+  ] as Array<[string, Record<string, unknown>]>)('fails closed before starting revert work for %s', async (_label, payload) => {
+    const publishedAt = new Date('2026-08-20T00:02:00.000Z');
+    const archivedAt = new Date('2026-08-20T00:01:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-archive', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: 'user-archive', createdByAgentId: null,
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'published',
+        publishedResourceId: 'page-1', payload,
+      }], approvals: [], space: {}, run: null,
+    });
+    const initialState = {
+      changeSetStatus: 'published',
+      itemStatus: 'published',
+      page: {
+        deletedAt: archivedAt,
+        lastChangeSetId: 'cs-archive',
+      },
+      pageVersions: [] as unknown[],
+    };
+    let committed = structuredClone(initialState);
+    const changeSetClaim = jest.fn();
+    const changeItemUpdate = jest.fn();
+    const pageFindFirst = jest.fn();
+    const pageUpdate = jest.fn();
+    const pageVersionCreate = jest.fn();
+    prisma.$transaction.mockImplementation(async (callback: any) => {
+      const local = structuredClone(committed);
+      changeSetClaim.mockImplementation(async () => {
+        local.changeSetStatus = 'reverting';
+        return { count: 1 };
+      });
+      changeItemUpdate.mockImplementation(async ({ data }: any) => {
+        if (data.status) local.itemStatus = data.status;
+        return {};
+      });
+      pageFindFirst.mockResolvedValue({
+        ...originalPage,
+        deletedAt: archivedAt,
+        lastChangeSetId: 'cs-archive',
+      });
+      pageUpdate.mockImplementation(async ({ data }: any) => {
+        if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) {
+          local.page.deletedAt = data.deletedAt;
+        }
+        return { count: 1 };
+      });
+      pageVersionCreate.mockImplementation(async ({ data }: any) => {
+        local.pageVersions.push(data);
+        return {};
+      });
+      const tx = {
+        changeSet: { updateMany: changeSetClaim },
+        changeItem: { update: changeItemUpdate },
+        page: {
+          findFirst: pageFindFirst,
+          updateMany: pageUpdate,
+          findUnique: jest.fn().mockResolvedValue({
+            title: originalPage.title,
+            content: originalPage.content,
+            deletedAt: local.page.deletedAt,
+          }),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+        pageVersion: { create: pageVersionCreate },
+        pageSearchDocument: {
+          upsert: jest.fn().mockResolvedValue({}),
+          deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+      };
+      const result = await callback(tx);
+      committed = local;
+      return result;
+    });
+
+    await expect(service.revert('cs-archive')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      message: 'Archived page prior state is invalid',
+    });
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(changeSetClaim).not.toHaveBeenCalled();
+    expect(pageFindFirst).not.toHaveBeenCalled();
+    expect(pageVersionCreate).not.toHaveBeenCalled();
+    expect(pageUpdate).not.toHaveBeenCalled();
+    expect(changeItemUpdate).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(search.indexPage).not.toHaveBeenCalled();
+    expect(committed).toEqual(initialState);
   });
 });

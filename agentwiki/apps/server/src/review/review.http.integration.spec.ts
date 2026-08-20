@@ -34,7 +34,7 @@ describe('ReviewController stale action errors', () => {
       }),
     },
   } as any;
-  const review = new ReviewService(prisma, {} as any, {} as any);
+  const review = new ReviewService(prisma, {} as any, {} as any, {} as any);
   const authorization = { assertChangeSetAccess: jest.fn().mockResolvedValue(undefined) };
 
   beforeAll(async () => {

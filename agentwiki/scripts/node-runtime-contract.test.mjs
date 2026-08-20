@@ -251,7 +251,7 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.doesNotMatch(backfill, /prisma\.page\.findMany/);
   assert.doesNotMatch(backfill, /prisma\.spaceKnowledgeRevision\.findMany/);
   assert.doesNotMatch(backfill, /syncPath:\s*null/);
-  assert.match(backfill, /prisma\.\$queryRawUnsafe/);
+  assert.match(backfill, /tx\.\$queryRawUnsafe/);
   assert.match(backfill, /tx\.\$executeRawUnsafe/);
   assert.doesNotMatch(backfill, /const revisionContentHash\s*=/);
   assert.match(backfill, /const computedRevisionContentHash\s*=/);
@@ -261,6 +261,90 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.match(backfill, /space\.findMany\(\{\s*select:\s*\{\s*id:\s*true\s*\}\s*\}\)/);
   assert.match(backfill, /FROM "Page"/);
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
+});
+
+test('the sync v1 backfill holds the shared Space lock for its mutation window', async () => {
+  const events = [];
+  const unlockedClient = {
+    $queryRawUnsafe: async (sql) => {
+      events.push(sql.includes('FROM "Page"') ? 'unlocked-pages' : 'unlocked-revisions');
+      return [];
+    },
+    $transaction: async (callback) => {
+      events.push('transaction');
+      const tx = {
+        $executeRawUnsafe: async (sql) => {
+          assert.match(sql, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
+          events.push('lock');
+        },
+        $queryRawUnsafe: async (sql) => {
+          events.push(sql.includes('FROM "Page"') ? 'pages' : 'revisions');
+          return [];
+        },
+      };
+      return callback(tx);
+    },
+  };
+  const { backfillSpace } = await import('./backfill-sync-v1.mjs');
+
+  await backfillSpace(unlockedClient, 'space-lock-contract', 'batch-lock-contract');
+
+  assert.deepEqual(events, ['transaction', 'lock', 'pages', 'revisions']);
+});
+
+test('the readable allocator is lock-branded at all seven production call sites', async () => {
+  const [allocator, writer, page, review, migration] = await Promise.all([
+    read('apps/server/src/core/sync/readable-sync-path.service.ts'),
+    read('apps/server/src/core/sync/space-revision-writer.service.ts'),
+    read('apps/server/src/core/page/page.service.ts'),
+    read('apps/server/src/review/review.service.ts'),
+    read('scripts/migrate-readable-sync-paths.mjs'),
+  ]);
+
+  assert.match(allocator, /export type SpaceLockedTransaction/);
+  assert.match(allocator, /tx: SpaceLockedTransaction/);
+  assert.match(writer, /Promise<SpaceLockedTransaction>/);
+  assert.equal(page.match(/syncPaths\.allocate\(lockedTx,/g)?.length, 3);
+  assert.equal(review.match(/syncPaths\.allocate\(lockedTx!?,/g)?.length, 3);
+  assert.equal(migration.match(/allocator\.allocate\(lockedTx,/g)?.length, 1);
+});
+
+test('the readable allocator DB gate proves both real entries wait on the same advisory lock', async () => {
+  const gate = await read('scripts/readable-sync-path-migration-db.test.mjs');
+
+  assert.match(gate, /application_name/);
+  assert.match(gate, /FROM pg_stat_activity/);
+  assert.match(gate, /wait_event_type\s*=\s*'Lock'/);
+  assert.match(gate, /wait_event\s*=\s*'advisory'/);
+  assert.match(gate, /waitForCondition/);
+  assert.match(gate, /releaseBlocker/);
+  assert.match(gate, /ReadableSyncPathService\.prototype\.allocate/);
+  assert.match(gate, /originalAllocate/);
+  assert.match(gate, /assert\.equal\(\s*allocatorCalls\.length,\s*0/);
+});
+
+test('a ChangeSet can own both publication and compensation revisions', async () => {
+  const schema = await read('apps/server/prisma/schema.prisma');
+  const changeSet = schema.match(/model ChangeSet \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const revision = schema.match(/model SpaceKnowledgeRevision \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+  assert.match(changeSet, /knowledgeRevisions\s+SpaceKnowledgeRevision\[\]\s+@relation\("ChangeSetKnowledgeRevision"\)/);
+  assert.doesNotMatch(changeSet, /knowledgeRevision\s+SpaceKnowledgeRevision\?/);
+  assert.match(revision, /sourceChangeSetId\s+String\?\s*(?:\n|$)/);
+  assert.doesNotMatch(revision, /sourceChangeSetId\s+String\?\s+@unique/);
+  assert.match(revision, /@@index\(\[sourceChangeSetId\]\)/);
+});
+
+test('the ChangeSet revision migration replaces the unique index with a lookup index', async () => {
+  const migration = await read(
+    'apps/server/prisma/migrations/20260820010000_allow_multiple_changeset_revisions/migration.sql',
+  ).catch(() => '');
+
+  assert.match(migration, /DROP INDEX IF EXISTS "SpaceKnowledgeRevision_sourceChangeSetId_key"/);
+  assert.match(
+    migration,
+    /CREATE INDEX "SpaceKnowledgeRevision_sourceChangeSetId_idx"\s+ON "SpaceKnowledgeRevision"\("sourceChangeSetId"\)/,
+  );
 });
 
 test('Nginx sends Socket.IO websocket upgrades directly to the API', async () => {

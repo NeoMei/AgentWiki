@@ -1,6 +1,6 @@
 # Obsidian Sync v1 验收证据矩阵
 
-本文件只记录当前分支 `codex/obsidian-sync-v1` 可追溯的验收证据，不替代契约。状态定义：
+本文件记录 sync v1 基线、候选演进以及干净集成分支的可追溯验收证据，不替代契约。`codex/integrate-readable-sync-paths` 已将当前 `origin/master` `647c7f8` 与最终候选 `b09ac37` 做语义合并；未推送、未部署、未迁移生产数据库。状态定义：
 - `run`：有真实 PostgreSQL/Redis 或浏览器/HTTP 测试直接覆盖；
 - `unit`：有 Jest/Vitest/协议包测试直接覆盖；
 - `code`：代码路径可审查，但暂未单独固化为验收测试；
@@ -61,9 +61,13 @@
 | 51 | head 永不清、长期 cursor 可用、cleanup deadline | `sync-v1-retention-db` 覆盖 | run |
 | 52 | deployment seed 门禁/rotate | `sync-v1-deployment-seed-db` 覆盖 seed 门禁与 clone seed 拒绝 | run |
 | 53 | changeCount=0 与全部 upsert 相同 noop 持久化 result | `sync-v1-http-e2e` 覆盖 changeCount=0；`sync-v1-noop-upsert-db` 覆盖全部 upsert 相同 noop | run |
+| 54 | Web/ChangeSet 新建生成可读标题路径，重名使用最小 `(n)` 后缀 | `readable-sync-path.service.spec` 覆盖 Unicode、设备名、255/1024 byte、`(10)` 和软删除占用；Page/Review service spec 覆盖接入 | unit |
+| 55 | 标题改名保留目录，content-only/净化等价标题路径稳定，正文/H1 不改写 | `page.service.spec` 覆盖 Web update/restore/根目录/锁内重读；`review.service.spec` 覆盖 ChangeSet 及原文保留 | unit |
+| 56 | 只迁移严格 `pages/p-<64 lowercase hex>.md`，固定批次完成后直接短路，批次幂等且失败全回滚 | 集成分支真实 PostgreSQL runtime 已执行此前 41 个 DB skip；更新后的不同 hash fixture、锁竞争、幂等/回滚均通过。非 DB 定向套件继续覆盖二次 guard 复用同 revision ID、CLI 聚合及单复数输出 | run/unit |
 
 ## 结论
-- 已具备真实运行证据的验收：1/2/4/5/10/11/12/13/18/20/21/23/25/27/29/33/35/39/41/48/51 等；
-- 本轮补强真实 DB/HTTP 证据：7/8/9/17/26/31/37/42/44/47/52/53；新增 super_admin 有效 owner 访问与发布、exchange exact replay 凭据绑定、非连续 batch index 拒绝、family partial unique 约束。
-- 所有验收项已至少具备 run/unit 证据。
-- 已执行并通过：`pnpm test`（runtime 106、server 505、client 160、protocol 22、local-sync 328）、`pnpm typecheck`、`pnpm lint`、`git diff --check`、API smoke 18 项、Playwright UI route smoke（public 3、authenticated 16、mobile 6）。
+- 已具备真实运行证据的验收：1/2/4/5/10/11/12/13/18/20/21/23/25/27/29/33/35/39/41/48/51 等；7/8/9/17/26/31/37/42/44/47/52/53 也有先前真实 DB/HTTP 证据。
+- 集成分支 runtime 共 123 项：122 pass / 1 个需显式授权的外部 CodeGraph skip / 0 fail；原来的 41 个 PostgreSQL skip 已全部实跑通过。测试 schema 在 `finally` 中清理，事后前缀查询为 0。
+- 完整 server Jest 为 61 suites / 647 tests 全过；客户端 203/203、协议 22/22、本地同步 718/718。根 typecheck、配置 lint 与完整多包 build 全过。
+- Archive revert 现在要求明确的 `before.deletedAt: null` 且预校验 `lastModifiedAt`；缺失、非 null 或非法审计状态在事务前以稳定 `CHANGESET_INVALID_STATE` fail-closed，不会假报 revert 成功。该行为有确定性 transaction harness，不宣称真实 PostgreSQL 证明。
+- 完整提交链、各阶段定向证据与集成门禁见 `docs/verification/readable-sync-paths-2026-08-20.md`。当前仅完成干净本地集成；未推送、未迁移生产数据库、未部署。

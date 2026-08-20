@@ -4,7 +4,11 @@ import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
 import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
-import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
+import {
+  ReadableSyncPathService,
+  safeMarkdownBasename,
+  syncPathDirectory,
+} from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
 
@@ -52,6 +56,7 @@ export class PageService {
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
     private readonly revisionWriter: SpaceRevisionWriterService,
+    private readonly syncPaths: ReadableSyncPathService,
   ) {}
 
   private slugify(text: string): string {
@@ -79,8 +84,13 @@ export class PageService {
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
       const knowledgeKey = randomUUID();
-      const syncPath = `pages/p-${await idFileKey(knowledgeKey)}.md`;
+      const allocatedPath = await this.syncPaths.allocate(lockedTx, {
+        spaceId: data.spaceId,
+        directory: 'pages',
+        title: data.title,
+      });
       const created = await tx.page.create({
         data: {
           knowledgeKey,
@@ -91,8 +101,8 @@ export class PageService {
           spaceId: data.spaceId,
           authorId: userId,
           parentId: data.parentId,
-          syncPath,
-          syncPathKey: pathKey(syncPath),
+          syncPath: allocatedPath.path,
+          syncPathKey: allocatedPath.pathKey,
           lastModifiedByUserId: userId,
           lastModifiedAt: new Date(),
         },
@@ -105,7 +115,7 @@ export class PageService {
       await this.advanceRevision(tx, data.spaceId, [{
         operation: 'upsert',
         pageId: created.knowledgeKey,
-        path: syncPath,
+        path: allocatedPath.path,
         title: data.title,
         body: data.content ?? '',
       }], { origin: 'web_editor', createdByUserId: userId });
@@ -115,7 +125,7 @@ export class PageService {
         create: { pageId: created.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
         update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
       });
-      return { ...created, syncPath };
+      return { ...created, syncPath: allocatedPath.path };
     });
 
     await this.searchService.indexPage(page.id);
@@ -272,46 +282,61 @@ export class PageService {
     spaceId: string,
     items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
   ) {
-    const ids = items.map((item) => item.id);
-    const existing = await this.prisma.page.findMany({
-      where: { id: { in: ids }, spaceId, deletedAt: null },
-      select: { id: true },
-    });
-    if (existing.length !== ids.length) {
-      throw new BadRequestException('Some pages do not belong to this space');
-    }
+    if (items.length === 0) return this.findHierarchy(spaceId);
 
-    const spacePages = await this.prisma.page.findMany({
-      where: { spaceId, deletedAt: null },
-      select: { id: true, parentId: true },
-    });
-    const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
-    for (const item of items) parentOf.set(item.id, item.parentId);
-
-    for (const parentId of parentOf.values()) {
-      if (parentId !== null && !parentOf.has(parentId)) {
-        throw new BadRequestException('Parent pages must belong to this space');
+    await this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      const ids = items.map((item) => item.id);
+      const existing = await lockedTx.page.findMany({
+        where: { id: { in: ids }, spaceId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existing.length !== ids.length) {
+        throw new BadRequestException('Some pages do not belong to this space');
       }
-    }
 
-    // Cycle check uses the complete persisted hierarchy plus this batch.
-    for (const [pageId, parentId] of parentOf) {
-      let cursor: string | null = parentId;
-      const seen = new Set<string>([pageId]);
-      while (cursor) {
-        if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
-        seen.add(cursor);
-        cursor = parentOf.get(cursor) ?? null;
+      const spacePages = await lockedTx.page.findMany({
+        where: { spaceId, deletedAt: null },
+        select: { id: true, parentId: true },
+      });
+      const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
+      for (const item of items) parentOf.set(item.id, item.parentId);
+
+      for (const parentId of parentOf.values()) {
+        if (parentId !== null && !parentOf.has(parentId)) {
+          throw new BadRequestException('Parent pages must belong to this space');
+        }
       }
-    }
-    await this.prisma.$transaction(
-      items.map((item) =>
-        this.prisma.page.updateMany({
-          where: { id: item.id, spaceId },
-          data: { parentId: item.parentId, sortOrder: item.sortOrder },
-        }),
-      ),
-    );
+
+      // Cycle check uses the complete persisted hierarchy plus this batch.
+      for (const [pageId, parentId] of parentOf) {
+        let cursor: string | null = parentId;
+        const seen = new Set<string>([pageId]);
+        while (cursor) {
+          if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
+          seen.add(cursor);
+          cursor = parentOf.get(cursor) ?? null;
+        }
+      }
+
+      const updatedCount = await lockedTx.$executeRaw`
+        UPDATE "Page" AS page
+        SET "parentId" = item."parentId",
+            "sortOrder" = item."sortOrder",
+            "updatedAt" = statement_timestamp()
+        FROM jsonb_to_recordset(${JSON.stringify(items)}::jsonb)
+          AS item("id" text, "parentId" text, "sortOrder" integer)
+        WHERE page."id" = item."id"
+          AND page."spaceId" = ${spaceId}
+          AND page."deletedAt" IS NULL
+      `;
+      if (updatedCount !== items.length) {
+        throw new BusinessException(
+          'RESOURCE_CONFLICT',
+          'Page hierarchy changed while it was being reordered',
+        );
+      }
+    });
     return this.findHierarchy(spaceId);
   }
 
@@ -330,10 +355,24 @@ export class PageService {
           parentId: true,
           spaceId: true,
           authorId: true,
+          knowledgeKey: true,
+          syncPath: true,
+          syncPathKey: true,
         },
       });
       if (!page) throw new NotFoundException('Page not found');
+      const lockedTx = await this.revisionWriter.lockSpace(tx, page.spaceId);
       if (changes.parentId !== undefined) await this.assertValidParent(page.spaceId, changes.parentId, id, tx);
+
+      const allocatedPath = changes.title !== undefined
+        && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
+        ? await this.syncPaths.allocate(lockedTx, {
+            spaceId: page.spaceId,
+            directory: syncPathDirectory(page.syncPath),
+            title: changes.title,
+            excludePageId: page.id,
+          })
+        : null;
 
       await tx.pageVersion.create({
         data: {
@@ -344,6 +383,8 @@ export class PageService {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
         },
       });
 
@@ -351,6 +392,9 @@ export class PageService {
         where: { id, deletedAt: null, updatedAt: expectedVersion },
         data: {
           ...changes,
+          ...(allocatedPath
+            ? { syncPath: allocatedPath.path, syncPathKey: allocatedPath.pathKey }
+            : {}),
           lastChangeSetId: null,
           lastModifiedByUserId: userId ?? page.authorId,
           lastModifiedByAgentId: null,
@@ -368,15 +412,15 @@ export class PageService {
           author: { select: AUTHOR_SELECT },
           knowledgeKey: true,
           syncPath: true,
+          syncPathKey: true,
         },
       });
       if (!result) throw new NotFoundException('Page not found');
       if (changes.title !== undefined || changes.content !== undefined) {
-        const fallbackPath = `pages/p-${await idFileKey(result.knowledgeKey)}.md`;
         await this.advanceRevision(tx, page.spaceId, [{
           operation: 'upsert',
           pageId: result.knowledgeKey,
-          path: result.syncPath ?? fallbackPath,
+          path: result.syncPath,
           title: result.title,
           body: result.content,
         }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
@@ -404,56 +448,80 @@ export class PageService {
   }
 
   async restoreVersion(pageId: string, versionId: string) {
-    await this.findOne(pageId);
-
-    const version = await this.prisma.pageVersion.findFirst({
-      where: { id: versionId, pageId },
-    });
-    if (!version) throw new NotFoundException('Version not found');
-
-    const page = await this.prisma.page.findUnique({
-      where: { id: pageId },
-    });
-    if (!page) throw new NotFoundException('Page not found');
-
-    await this.prisma.pageVersion.create({
-      data: {
-        pageId: page.id,
-        title: page.title,
-        content: page.content ?? '',
-        authorId: page.authorId,
-        slug: page.slug,
-        format: page.format,
-        parentId: page.parentId,
-      },
-    });
+    const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.page.update({
-        where: { id: pageId },
+      const lockedTx = await this.revisionWriter.lockSpace(tx, visiblePage.spaceId);
+      const version = await tx.pageVersion.findFirst({
+        where: { id: versionId, pageId },
+      });
+      if (!version) throw new NotFoundException('Version not found');
+      const page = await tx.page.findUnique({
+        where: { id: pageId, deletedAt: null },
+      });
+      if (!page) throw new NotFoundException('Page not found');
+      const restoredPath = safeMarkdownBasename(version.title) !== safeMarkdownBasename(page.title)
+        ? await this.syncPaths.allocate(lockedTx, {
+            spaceId: page.spaceId,
+            directory: syncPathDirectory(page.syncPath),
+            title: version.title,
+            excludePageId: page.id,
+          })
+        : { path: page.syncPath, pathKey: page.syncPathKey };
+      await tx.pageVersion.create({
+        data: {
+          pageId: page.id,
+          title: page.title,
+          content: page.content ?? '',
+          authorId: page.authorId,
+          slug: page.slug,
+          format: page.format,
+          parentId: page.parentId,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
+        },
+      });
+      const mutation = await tx.page.updateMany({
+        where: {
+          id: page.id,
+          spaceId: page.spaceId,
+          deletedAt: null,
+          updatedAt: page.updatedAt,
+        },
         data: {
           title: version.title,
           content: version.content,
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
           parentId: version.parentId,
+          syncPath: restoredPath.path,
+          syncPathKey: restoredPath.pathKey,
           lastChangeSetId: null,
           lastModifiedByUserId: page.authorId,
           lastModifiedByAgentId: null,
           lastModifiedAt: new Date(),
         },
+      });
+      if (mutation.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being restored');
+      }
+      const updated = await tx.page.findUnique({
+        where: { id: page.id, spaceId: page.spaceId, deletedAt: null },
         select: {
           ...PAGE_PUBLIC_FIELDS,
           author: { select: AUTHOR_SELECT },
           knowledgeKey: true,
           syncPath: true,
+          syncPathKey: true,
         },
       });
-      const fallbackPath = `pages/p-${await idFileKey(updated.knowledgeKey)}.md`;
+      if (!updated) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being restored');
+      }
       await this.advanceRevision(tx, page.spaceId, [{
         operation: 'upsert',
         pageId: updated.knowledgeKey,
-        path: updated.syncPath ?? fallbackPath,
+        path: updated.syncPath,
         title: updated.title,
         body: updated.content,
       }], { origin: 'web_editor', createdByUserId: page.authorId });
@@ -473,12 +541,57 @@ export class PageService {
   async remove(id: string) {
     const existing = await this.findOne(id);
     const page = await this.prisma.$transaction(async (tx) => {
-      const archived = await tx.page.update({
-        where: { id },
+      await this.revisionWriter.lockSpace(tx, existing.spaceId);
+      const current = await tx.page.findUnique({
+        where: { id, spaceId: existing.spaceId, deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          authorId: true,
+          slug: true,
+          format: true,
+          parentId: true,
+          spaceId: true,
+          syncPath: true,
+          syncPathKey: true,
+          updatedAt: true,
+        },
+      });
+      if (!current) throw new NotFoundException('Page not found');
+      await tx.pageVersion.create({
+        data: {
+          pageId: current.id,
+          title: current.title,
+          content: current.content ?? '',
+          authorId: current.authorId,
+          slug: current.slug,
+          format: current.format,
+          parentId: current.parentId,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        },
+      });
+      const mutation = await tx.page.updateMany({
+        where: {
+          id: current.id,
+          spaceId: current.spaceId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
         data: { deletedAt: new Date() },
+      });
+      if (mutation.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being archived');
+      }
+      const archived = await tx.page.findUnique({
+        where: { id: current.id, spaceId: current.spaceId, deletedAt: { not: null } },
         select: { ...PAGE_PUBLIC_FIELDS, knowledgeKey: true, syncPath: true },
       });
-      await this.advanceRevision(tx, existing.spaceId, [{
+      if (!archived) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being archived');
+      }
+      await this.advanceRevision(tx, current.spaceId, [{
         operation: 'archive',
         pageId: archived.knowledgeKey,
         previousPath: archived.syncPath ?? undefined,

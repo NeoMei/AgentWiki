@@ -10,6 +10,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
+import type { SpaceLockedTransaction } from './readable-sync-path.service';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -45,8 +46,12 @@ export interface RevisionOrigin {
 export class SpaceRevisionWriterService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async lockSpace(tx: Prisma.TransactionClient, spaceId: string): Promise<void> {
+  async lockSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+  ): Promise<SpaceLockedTransaction> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${spaceId}))`;
+    return tx as SpaceLockedTransaction;
   }
 
   async advance(
