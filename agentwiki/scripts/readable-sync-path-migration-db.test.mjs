@@ -137,6 +137,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
           { knowledgeKey: 'page-a', title: '吃饭睡觉', syncPath: opaquePath('a'), content: '# 吃饭睡觉' },
           { knowledgeKey: 'page-b', title: '吃饭睡觉', syncPath: opaquePath('b'), content: '正文' },
           { knowledgeKey: 'page-c', title: 'Keep', syncPath: 'custom/Keep.md', content: 'keep' },
+          { knowledgeKey: 'page-d', title: `p-${'e'.repeat(64)}`, syncPath: opaquePath('e'), content: 'opaque title' },
         ],
       });
       const before = await prisma.page.findMany({
@@ -153,7 +154,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
       const { migrateReadablePathsForSpace } = await import('./migrate-readable-sync-paths.mjs');
 
       const result = await migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId);
-      assert.equal(result.migrated, 2);
+      assert.equal(result.migrated, 3);
       assert.ok(result.revisionId);
 
       const after = await prisma.page.findMany({
@@ -162,7 +163,12 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
       });
       assert.deepEqual(
         after.map((page) => page.syncPath),
-        ['pages/吃饭睡觉.md', 'pages/吃饭睡觉 (2).md', 'custom/Keep.md'],
+        [
+          'pages/吃饭睡觉.md',
+          'pages/吃饭睡觉 (2).md',
+          'custom/Keep.md',
+          `pages/p-${'e'.repeat(64)} (2).md`,
+        ],
       );
       assert.deepEqual(
         after.map((page) => ({
@@ -178,8 +184,11 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
         where: { migrationBatchId: batchId },
         orderBy: { page: { knowledgeKey: 'asc' } },
       });
-      assert.equal(versions.length, 2);
-      assert.deepEqual(versions.map((version) => version.syncPath), [opaquePath('a'), opaquePath('b')]);
+      assert.equal(versions.length, 3);
+      assert.deepEqual(
+        versions.map((version) => version.syncPath),
+        [opaquePath('a'), opaquePath('b'), opaquePath('e')],
+      );
 
       const revision = await prisma.spaceKnowledgeRevision.findUnique({
         where: { id: result.revisionId },
@@ -190,19 +199,27 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
         where: { revisionId: result.revisionId },
         orderBy: { ordinal: 'asc' },
       });
-      assert.deepEqual(deltaRows.map((row) => row.operation), ['upsert', 'upsert', 'upsert']);
+      assert.deepEqual(
+        deltaRows.map((row) => row.operation),
+        ['upsert', 'upsert', 'upsert', 'upsert'],
+      );
       const revisionRows = await prisma.syncRevisionPageRow.findMany({
         where: { revisionId: result.revisionId },
         orderBy: { pageId: 'asc' },
       });
       assert.deepEqual(
         revisionRows.map((row) => row.path),
-        ['pages/吃饭睡觉.md', 'pages/吃饭睡觉 (2).md', 'custom/Keep.md'],
+        [
+          'pages/吃饭睡觉.md',
+          'pages/吃饭睡觉 (2).md',
+          'custom/Keep.md',
+          `pages/p-${'e'.repeat(64)} (2).md`,
+        ],
       );
 
       const second = await migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId);
       assert.deepEqual(second, { migrated: 0, revisionId: null });
-      assert.equal(await prisma.pageVersion.count({ where: { migrationBatchId: batchId } }), 2);
+      assert.equal(await prisma.pageVersion.count({ where: { migrationBatchId: batchId } }), 3);
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: seeded.spaceId } }), 1);
 
       const rollback = await seedSpace(prisma, {
