@@ -1322,3 +1322,249 @@ describe('ReviewService page revert ordering and audit', () => {
     );
   });
 });
+
+describe('ReviewService archive audit and provenance', () => {
+  const prisma = {
+    changeSet: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = {
+    indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
+  } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
+    advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+  } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    { allocate: jest.fn() } as any,
+  );
+
+  const originalUpdatedAt = new Date('2026-08-20T00:00:00.000Z');
+  const originalModifiedAt = new Date('2026-08-19T23:59:00.000Z');
+  const originalPage = {
+    id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+    title: 'Archived title', slug: 'archived-title',
+    content: '# Archived title\n\nOriginal body', format: 'markdown',
+    parentId: 'parent-1', authorId: 'author-1',
+    sourceChangeSetId: 'cs-origin', createdByAgentId: 'agent-origin',
+    lastChangeSetId: 'cs-before', lastModifiedByUserId: 'user-before',
+    lastModifiedByAgentId: null, lastModifiedAt: originalModifiedAt,
+    sourceId: 'source-1', sourceVersionId: 'source-version-1',
+    sourcePath: 'source/Archived.md', syncPath: 'guides/Archived title.md',
+    syncPathKey: pathKey('guides/Archived title.md'), deletedAt: null,
+    updatedAt: originalUpdatedAt,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('writes a complete pre-archive audit record and archives with exact row CAS', async () => {
+    const changeSet = {
+      id: 'cs-archive', status: 'approved', spaceId: 'space-1',
+      createdByUserId: null, createdByAgentId: 'agent-archive',
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'accepted',
+        payload: { pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString() },
+      }], approvals: [], space: {}, run: null,
+    };
+    (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'agent-owner' }) };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(originalPage),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: new Date('2026-08-20T00:01:00.000Z'),
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: originalPage.knowledgeKey, syncPath: originalPage.syncPath,
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: new Date('2026-08-20T00:01:00.000Z'),
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-archive');
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.pageVersion.create).toHaveBeenCalledWith({
+      data: {
+        pageId: originalPage.id, title: originalPage.title,
+        content: originalPage.content, authorId: originalPage.authorId,
+        slug: originalPage.slug, format: originalPage.format,
+        parentId: originalPage.parentId, syncPath: originalPage.syncPath,
+        syncPathKey: originalPage.syncPathKey,
+      },
+    });
+    expect(tx.changeItem.update).toHaveBeenCalledWith({
+      where: { id: 'item-archive' },
+      data: { payload: {
+        pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(),
+        before: {
+          lastChangeSetId: originalPage.lastChangeSetId,
+          lastModifiedByUserId: originalPage.lastModifiedByUserId,
+          lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+          lastModifiedAt: originalModifiedAt.toISOString(),
+          deletedAt: null,
+        },
+      } },
+    });
+    expect(tx.page.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: originalPage.id, spaceId: originalPage.spaceId,
+        deletedAt: null, updatedAt: originalUpdatedAt,
+      },
+      data: expect.objectContaining({
+        deletedAt: expect.any(Date), lastChangeSetId: 'cs-archive',
+        lastModifiedByAgentId: 'agent-archive', lastModifiedByUserId: null,
+        lastModifiedAt: expect.any(Date),
+      }),
+    });
+    expect(tx.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('rolls back archive audit, item status and revision when exact row CAS loses a race', async () => {
+    const changeSet = {
+      id: 'cs-archive', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-archive', createdByAgentId: null,
+      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1' } }],
+      approvals: [], space: {}, run: null,
+    };
+    let committed = {
+      changeSetStatus: 'approved', itemStatus: 'accepted',
+      itemPayload: { pageId: 'page-1' } as Record<string, unknown>,
+      page: { ...originalPage }, versions: [] as unknown[],
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => {
+      const local = structuredClone(committed);
+      const tx = {
+        changeSet: { updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+          if (local.changeSetStatus !== where.status) return { count: 0 };
+          local.changeSetStatus = data.status;
+          return { count: 1 };
+        }) },
+        changeItem: { update: jest.fn().mockImplementation(async ({ data }: any) => {
+          if (data.payload) local.itemPayload = data.payload;
+          if (data.status) local.itemStatus = data.status;
+          return {};
+        }) },
+        page: {
+          findFirst: jest.fn().mockImplementation(async () => {
+            const snapshot = structuredClone(local.page);
+            committed.page.updatedAt = new Date('2026-08-20T00:00:01.000Z');
+            return snapshot;
+          }),
+          updateMany: jest.fn().mockImplementation(async ({ where }: any) => ({
+            count: committed.page.updatedAt.getTime() === where.updatedAt.getTime() ? 1 : 0,
+          })),
+          findUnique: jest.fn(), findMany: jest.fn(),
+        },
+        pageVersion: { create: jest.fn().mockImplementation(async ({ data }: any) => {
+          local.versions.push(data);
+          return {};
+        }) },
+        pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      };
+      const result = await callback(tx);
+      committed = local;
+      return result;
+    });
+
+    await expect(service.publish('cs-archive')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      message: 'The page changed while it was being archived',
+    });
+
+    expect(committed.changeSetStatus).toBe('approved');
+    expect(committed.itemStatus).toBe('accepted');
+    expect(committed.itemPayload).toEqual({ pageId: 'page-1' });
+    expect(committed.versions).toEqual([]);
+    expect(committed.page.deletedAt).toBeNull();
+    expect(committed.page.updatedAt).toEqual(new Date('2026-08-20T00:00:01.000Z'));
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(search.indexPage).not.toHaveBeenCalled();
+  });
+
+  it('reconstructs JSON dates and restores complete pre-archive provenance', async () => {
+    const publishedAt = new Date('2026-08-20T00:02:00.000Z');
+    const archivedAt = new Date('2026-08-20T00:01:00.000Z');
+    const before = {
+      lastChangeSetId: originalPage.lastChangeSetId,
+      lastModifiedByUserId: originalPage.lastModifiedByUserId,
+      lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+      lastModifiedAt: originalModifiedAt.toISOString(),
+      deletedAt: null,
+    };
+    const archivedPage = {
+      ...originalPage, deletedAt: archivedAt, updatedAt: archivedAt,
+      lastChangeSetId: 'cs-archive', lastModifiedByUserId: null,
+      lastModifiedByAgentId: 'agent-archive', lastModifiedAt: archivedAt,
+    };
+    const changeSet = {
+      id: 'cs-archive', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: null, createdByAgentId: 'agent-archive',
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'published',
+        publishedResourceId: 'page-1', payload: { pageId: 'page-1', before },
+      }], approvals: [], space: {}, run: null,
+    };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archivedPage),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: originalPage.knowledgeKey,
+          syncPath: originalPage.syncPath,
+          title: originalPage.title, content: originalPage.content,
+          deletedAt: null,
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    prisma.changeSet.findUnique.mockResolvedValue(changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.revert('cs-archive');
+
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { ...before, lastModifiedAt: originalModifiedAt, deletedAt: null },
+    }));
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastChangeSetId).toBe('cs-before');
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByUserId).toBe('user-before');
+    expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByAgentId).toBeNull();
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: archivedPage.syncPath, syncPathKey: archivedPage.syncPathKey,
+      }),
+    }));
+  });
+});

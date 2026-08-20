@@ -334,9 +334,37 @@ export class ReviewService {
           if (payload.expectedUpdatedAt && page.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
           throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this archive candidate was compiled');
           }
-          await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before: { deletedAt: page.deletedAt } } } });
-          await tx.page.update({
-            where: { id: page.id },
+          const before = {
+            lastChangeSetId: page.lastChangeSetId,
+            lastModifiedByUserId: page.lastModifiedByUserId,
+            lastModifiedByAgentId: page.lastModifiedByAgentId,
+            lastModifiedAt: page.lastModifiedAt.toISOString(),
+            deletedAt: page.deletedAt?.toISOString() ?? null,
+          };
+          await tx.pageVersion.create({
+            data: {
+              pageId: page.id,
+              title: page.title,
+              content: page.content,
+              authorId: page.authorId,
+              slug: page.slug,
+              format: page.format,
+              parentId: page.parentId,
+              syncPath: page.syncPath,
+              syncPathKey: page.syncPathKey,
+            },
+          });
+          await tx.changeItem.update({
+            where: { id: item.id },
+            data: { payload: { ...payload, before } },
+          });
+          const archived = await tx.page.updateMany({
+            where: {
+              id: page.id,
+              spaceId: changeSet.spaceId,
+              deletedAt: null,
+              updatedAt: page.updatedAt,
+            },
             data: {
               deletedAt: new Date(),
               lastChangeSetId: id,
@@ -345,6 +373,9 @@ export class ReviewService {
               lastModifiedAt: new Date(),
             },
           });
+          if (!archived.count) {
+            throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed while it was being archived');
+          }
           resourceId = page.id;
           pageIds.push(page.id);
         } else {
@@ -984,6 +1015,7 @@ export class ReviewService {
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
           const payload = item.payload as any;
+          if (!payload.before) throw new BadRequestException('Archived page is missing its prior state');
           const where = {
             id: item.publishedResourceId,
             spaceId: changeSet.spaceId,
@@ -992,9 +1024,18 @@ export class ReviewService {
             updatedAt: { lte: publishedAt },
           };
           await snapshotPage(where, item.type);
+          const restoredState = {
+            ...payload.before,
+            deletedAt: payload.before.deletedAt === null || payload.before.deletedAt === undefined
+              ? null
+              : new Date(payload.before.deletedAt),
+            ...(payload.before.lastModifiedAt === undefined
+              ? {}
+              : { lastModifiedAt: new Date(payload.before.lastModifiedAt) }),
+          };
           const reverted = await tx.page.updateMany({
             where,
-            data: { deletedAt: payload.before?.deletedAt || null },
+            data: restoredState,
           });
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
