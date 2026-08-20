@@ -339,7 +339,7 @@ export class ReviewService {
             lastModifiedByUserId: page.lastModifiedByUserId,
             lastModifiedByAgentId: page.lastModifiedByAgentId,
             lastModifiedAt: page.lastModifiedAt.toISOString(),
-            deletedAt: page.deletedAt?.toISOString() ?? null,
+            deletedAt: null,
           };
           await tx.pageVersion.create({
             data: {
@@ -948,6 +948,46 @@ export class ReviewService {
     if (changeSet.status !== 'published') throw new BadRequestException('Only published change sets can be reverted');
     const publishedAt = changeSet.publishedAt;
     if (!publishedAt) throw new BusinessException('CHANGESET_CONFLICT', 'Published change set is missing its publication timestamp');
+    const parseValidDate = (value: unknown) => {
+      if (!(value instanceof Date) && typeof value !== 'string') return undefined;
+      const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+      return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    };
+    const archiveRestores = new Map<string, Record<string, unknown>>();
+    for (const item of changeSet.items) {
+      if (item.type !== 'archive_page' || !item.publishedResourceId) continue;
+      const payload = item.payload as any;
+      const before = payload?.before;
+      if (
+        typeof before !== 'object'
+        || before === null
+        || Array.isArray(before)
+        || !Object.prototype.hasOwnProperty.call(before, 'deletedAt')
+        || before.deletedAt !== null
+      ) {
+        throw new BusinessException('CHANGESET_INVALID_STATE', 'Archived page prior state is invalid');
+      }
+      const restoredState: Record<string, unknown> = { deletedAt: null };
+      const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
+        && before[key] !== undefined;
+      if (hasValue('lastChangeSetId')) {
+        restoredState.lastChangeSetId = before.lastChangeSetId;
+      }
+      if (hasValue('lastModifiedByUserId')) {
+        restoredState.lastModifiedByUserId = before.lastModifiedByUserId;
+      }
+      if (hasValue('lastModifiedByAgentId')) {
+        restoredState.lastModifiedByAgentId = before.lastModifiedByAgentId;
+      }
+      if (Object.prototype.hasOwnProperty.call(before, 'lastModifiedAt')) {
+        const lastModifiedAt = parseValidDate(before.lastModifiedAt);
+        if (!lastModifiedAt) {
+          throw new BusinessException('CHANGESET_INVALID_STATE', 'Archived page prior state is invalid');
+        }
+        restoredState.lastModifiedAt = lastModifiedAt;
+      }
+      archiveRestores.set(item.id, restoredState);
+    }
     const affectedPageIds = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.changeSet.updateMany({ where: { id, status: 'published' }, data: { status: 'reverting' } });
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
@@ -1014,8 +1054,6 @@ export class ReviewService {
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
-          const payload = item.payload as any;
-          if (!payload.before) throw new BadRequestException('Archived page is missing its prior state');
           const where = {
             id: item.publishedResourceId,
             spaceId: changeSet.spaceId,
@@ -1024,38 +1062,7 @@ export class ReviewService {
             updatedAt: { lte: publishedAt },
           };
           await snapshotPage(where, item.type);
-          const before = payload.before as Record<string, unknown>;
-          const restoredState: Record<string, unknown> = {};
-          const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
-            && before[key] !== undefined;
-          const parseValidDate = (value: unknown) => {
-            if (!(value instanceof Date) && typeof value !== 'string') return undefined;
-            const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-            return Number.isNaN(parsed.getTime()) ? undefined : parsed;
-          };
-          if (hasValue('lastChangeSetId')) {
-            restoredState.lastChangeSetId = before.lastChangeSetId;
-          }
-          if (hasValue('lastModifiedByUserId')) {
-            restoredState.lastModifiedByUserId = before.lastModifiedByUserId;
-          }
-          if (hasValue('lastModifiedByAgentId')) {
-            restoredState.lastModifiedByAgentId = before.lastModifiedByAgentId;
-          }
-          if (hasValue('lastModifiedAt')) {
-            const lastModifiedAt = parseValidDate(before.lastModifiedAt);
-            if (lastModifiedAt) {
-              restoredState.lastModifiedAt = lastModifiedAt;
-            }
-          }
-          if (hasValue('deletedAt')) {
-            if (before.deletedAt === null) {
-              restoredState.deletedAt = null;
-            } else {
-              const deletedAt = parseValidDate(before.deletedAt);
-              if (deletedAt) restoredState.deletedAt = deletedAt;
-            }
-          }
+          const restoredState = archiveRestores.get(item.id)!;
           const reverted = await tx.page.updateMany({
             where,
             data: restoredState,
