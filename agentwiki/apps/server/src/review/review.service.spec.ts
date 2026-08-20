@@ -1579,4 +1579,92 @@ describe('ReviewService archive audit and provenance', () => {
       }),
     }));
   });
+
+  it.each([
+    [
+      'omits null/undefined non-null dates and preserves nullable ID nulls',
+      {
+        lastChangeSetId: null,
+        lastModifiedByUserId: null,
+        lastModifiedByAgentId: null,
+        lastModifiedAt: null,
+        deletedAt: undefined,
+      },
+      {
+        lastChangeSetId: null,
+        lastModifiedByUserId: null,
+        lastModifiedByAgentId: null,
+      },
+    ],
+    [
+      'omits invalid dates',
+      { lastModifiedAt: 'not-a-date', deletedAt: 'also-not-a-date' },
+      {},
+    ],
+    [
+      'omits invalid Date values',
+      { lastModifiedAt: new Date('invalid'), deletedAt: new Date('invalid') },
+      {},
+    ],
+    [
+      'preserves nullable deletedAt null while omitting undefined lastModifiedAt',
+      { lastModifiedAt: undefined, deletedAt: null },
+      { deletedAt: null },
+    ],
+    [
+      'converts valid ISO dates',
+      {
+        lastModifiedAt: '2026-08-19T23:59:00.000Z',
+        deletedAt: '2026-08-18T23:59:00.000Z',
+      },
+      {
+        lastModifiedAt: new Date('2026-08-19T23:59:00.000Z'),
+        deletedAt: new Date('2026-08-18T23:59:00.000Z'),
+      },
+    ],
+    [
+      'copies valid Date values',
+      {
+        lastModifiedAt: new Date('2026-08-19T23:58:00.000Z'),
+        deletedAt: new Date('2026-08-18T23:58:00.000Z'),
+      },
+      {
+        lastModifiedAt: new Date('2026-08-19T23:58:00.000Z'),
+        deletedAt: new Date('2026-08-18T23:58:00.000Z'),
+      },
+    ],
+  ] as Array<[string, Record<string, unknown>, Record<string, unknown>]>)('%s', async (_label, before, expectedData) => {
+    const publishedAt = new Date('2026-08-20T00:02:00.000Z');
+    const archivedAt = new Date('2026-08-20T00:01:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-archive', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: 'user-archive', createdByAgentId: null,
+      items: [{
+        id: 'item-archive', type: 'archive_page', status: 'published',
+        publishedResourceId: 'page-1', payload: { pageId: 'page-1', before },
+      }], approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue({ ...originalPage, deletedAt: archivedAt }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          title: originalPage.title, content: originalPage.content, deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.revert('cs-archive');
+
+    expect(tx.page.updateMany.mock.calls[0][0].data).toEqual(expectedData);
+  });
 });

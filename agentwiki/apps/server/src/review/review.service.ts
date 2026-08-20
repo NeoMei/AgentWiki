@@ -1028,6 +1028,11 @@ export class ReviewService {
           const restoredState: Record<string, unknown> = {};
           const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
             && before[key] !== undefined;
+          const parseValidDate = (value: unknown) => {
+            if (!(value instanceof Date) && typeof value !== 'string') return undefined;
+            const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+            return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+          };
           if (hasValue('lastChangeSetId')) {
             restoredState.lastChangeSetId = before.lastChangeSetId;
           }
@@ -1038,14 +1043,18 @@ export class ReviewService {
             restoredState.lastModifiedByAgentId = before.lastModifiedByAgentId;
           }
           if (hasValue('lastModifiedAt')) {
-            restoredState.lastModifiedAt = before.lastModifiedAt === null
-              ? null
-              : new Date(before.lastModifiedAt as string);
+            const lastModifiedAt = parseValidDate(before.lastModifiedAt);
+            if (lastModifiedAt) {
+              restoredState.lastModifiedAt = lastModifiedAt;
+            }
           }
           if (hasValue('deletedAt')) {
-            restoredState.deletedAt = before.deletedAt === null
-              ? null
-              : new Date(before.deletedAt as string);
+            if (before.deletedAt === null) {
+              restoredState.deletedAt = null;
+            } else {
+              const deletedAt = parseValidDate(before.deletedAt);
+              if (deletedAt) restoredState.deletedAt = deletedAt;
+            }
           }
           const reverted = await tx.page.updateMany({
             where,
