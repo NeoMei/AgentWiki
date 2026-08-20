@@ -4,7 +4,10 @@ import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
 import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
-import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
+import {
+  ReadableSyncPathService,
+  safeMarkdownBasename,
+} from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
 
@@ -52,6 +55,7 @@ export class PageService {
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
     private readonly revisionWriter: SpaceRevisionWriterService,
+    private readonly syncPaths: ReadableSyncPathService,
   ) {}
 
   private slugify(text: string): string {
@@ -79,8 +83,13 @@ export class PageService {
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
+      await this.revisionWriter.lockSpace(tx, data.spaceId);
       const knowledgeKey = randomUUID();
-      const syncPath = `pages/p-${await idFileKey(knowledgeKey)}.md`;
+      const allocatedPath = await this.syncPaths.allocate(tx, {
+        spaceId: data.spaceId,
+        directory: 'pages',
+        title: data.title,
+      });
       const created = await tx.page.create({
         data: {
           knowledgeKey,
@@ -91,8 +100,8 @@ export class PageService {
           spaceId: data.spaceId,
           authorId: userId,
           parentId: data.parentId,
-          syncPath,
-          syncPathKey: pathKey(syncPath),
+          syncPath: allocatedPath.path,
+          syncPathKey: allocatedPath.pathKey,
           lastModifiedByUserId: userId,
           lastModifiedAt: new Date(),
         },
@@ -105,7 +114,7 @@ export class PageService {
       await this.advanceRevision(tx, data.spaceId, [{
         operation: 'upsert',
         pageId: created.knowledgeKey,
-        path: syncPath,
+        path: allocatedPath.path,
         title: data.title,
         body: data.content ?? '',
       }], { origin: 'web_editor', createdByUserId: userId });
@@ -115,7 +124,7 @@ export class PageService {
         create: { pageId: created.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
         update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
       });
-      return { ...created, syncPath };
+      return { ...created, syncPath: allocatedPath.path };
     });
 
     await this.searchService.indexPage(page.id);
@@ -330,10 +339,24 @@ export class PageService {
           parentId: true,
           spaceId: true,
           authorId: true,
+          knowledgeKey: true,
+          syncPath: true,
+          syncPathKey: true,
         },
       });
       if (!page) throw new NotFoundException('Page not found');
+      await this.revisionWriter.lockSpace(tx, page.spaceId);
       if (changes.parentId !== undefined) await this.assertValidParent(page.spaceId, changes.parentId, id, tx);
+
+      const allocatedPath = changes.title !== undefined
+        && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
+        ? await this.syncPaths.allocate(tx, {
+            spaceId: page.spaceId,
+            directory: page.syncPath.slice(0, page.syncPath.lastIndexOf('/')),
+            title: changes.title,
+            excludePageId: page.id,
+          })
+        : null;
 
       await tx.pageVersion.create({
         data: {
@@ -344,6 +367,8 @@ export class PageService {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
         },
       });
 
@@ -351,6 +376,9 @@ export class PageService {
         where: { id, deletedAt: null, updatedAt: expectedVersion },
         data: {
           ...changes,
+          ...(allocatedPath
+            ? { syncPath: allocatedPath.path, syncPathKey: allocatedPath.pathKey }
+            : {}),
           lastChangeSetId: null,
           lastModifiedByUserId: userId ?? page.authorId,
           lastModifiedByAgentId: null,
@@ -368,15 +396,15 @@ export class PageService {
           author: { select: AUTHOR_SELECT },
           knowledgeKey: true,
           syncPath: true,
+          syncPathKey: true,
         },
       });
       if (!result) throw new NotFoundException('Page not found');
       if (changes.title !== undefined || changes.content !== undefined) {
-        const fallbackPath = `pages/p-${await idFileKey(result.knowledgeKey)}.md`;
         await this.advanceRevision(tx, page.spaceId, [{
           operation: 'upsert',
           pageId: result.knowledgeKey,
-          path: result.syncPath ?? fallbackPath,
+          path: result.syncPath,
           title: result.title,
           body: result.content,
         }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
@@ -416,19 +444,27 @@ export class PageService {
     });
     if (!page) throw new NotFoundException('Page not found');
 
-    await this.prisma.pageVersion.create({
-      data: {
-        pageId: page.id,
-        title: page.title,
-        content: page.content ?? '',
-        authorId: page.authorId,
-        slug: page.slug,
-        format: page.format,
-        parentId: page.parentId,
-      },
-    });
-
     const restored = await this.prisma.$transaction(async (tx) => {
+      await this.revisionWriter.lockSpace(tx, page.spaceId);
+      const allocatedPath = await this.syncPaths.allocate(tx, {
+        spaceId: page.spaceId,
+        directory: page.syncPath.slice(0, page.syncPath.lastIndexOf('/')),
+        title: version.title,
+        excludePageId: page.id,
+      });
+      await tx.pageVersion.create({
+        data: {
+          pageId: page.id,
+          title: page.title,
+          content: page.content ?? '',
+          authorId: page.authorId,
+          slug: page.slug,
+          format: page.format,
+          parentId: page.parentId,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
+        },
+      });
       const updated = await tx.page.update({
         where: { id: pageId },
         data: {
@@ -437,6 +473,8 @@ export class PageService {
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
           parentId: version.parentId,
+          syncPath: allocatedPath.path,
+          syncPathKey: allocatedPath.pathKey,
           lastChangeSetId: null,
           lastModifiedByUserId: page.authorId,
           lastModifiedByAgentId: null,
@@ -447,13 +485,13 @@ export class PageService {
           author: { select: AUTHOR_SELECT },
           knowledgeKey: true,
           syncPath: true,
+          syncPathKey: true,
         },
       });
-      const fallbackPath = `pages/p-${await idFileKey(updated.knowledgeKey)}.md`;
       await this.advanceRevision(tx, page.spaceId, [{
         operation: 'upsert',
         pageId: updated.knowledgeKey,
-        path: updated.syncPath ?? fallbackPath,
+        path: updated.syncPath,
         title: updated.title,
         body: updated.content,
       }], { origin: 'web_editor', createdByUserId: page.authorId });
