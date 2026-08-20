@@ -167,6 +167,17 @@ test('the readable allocator is lock-branded at all six production call sites', 
   assert.equal(migration.match(/allocator\.allocate\(lockedTx,/g)?.length, 1);
 });
 
+test('the readable allocator DB gate proves both real entries wait on the same advisory lock', async () => {
+  const gate = await read('scripts/readable-sync-path-migration-db.test.mjs');
+
+  assert.match(gate, /application_name/);
+  assert.match(gate, /FROM pg_stat_activity/);
+  assert.match(gate, /wait_event_type\s*=\s*'Lock'/);
+  assert.match(gate, /wait_event\s*=\s*'advisory'/);
+  assert.match(gate, /waitForCondition/);
+  assert.match(gate, /releaseBlocker/);
+});
+
 test('a ChangeSet can own both publication and compensation revisions', async () => {
   const schema = await read('apps/server/prisma/schema.prisma');
   const changeSet = schema.match(/model ChangeSet \{([\s\S]*?)\n\}/)?.[1] ?? '';

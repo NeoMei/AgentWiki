@@ -62,6 +62,30 @@ function loadPrisma(url) {
   return new PrismaClient({ datasources: { db: { url: url.href } } });
 }
 
+function withApplicationName(url, applicationName) {
+  const named = new URL(url.href);
+  named.searchParams.set('application_name', applicationName);
+  return named;
+}
+
+function deferred() {
+  let resolvePromise;
+  const promise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
+async function waitForCondition(check, description, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await check();
+    if (result) return result;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
+
 function opaquePath(character) {
   return `pages/p-${character.repeat(64)}.md`;
 }
@@ -260,9 +284,16 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
   }
 });
 
-test('web create and readable migration serialize same-title allocation through the shared Space lock', { skip }, async () => {
+test('web create and readable migration both wait on the shared Space lock before same-title allocation', { skip }, async () => {
   const schema = `readable_paths_concurrency_${randomUUID().replaceAll('-', '')}`;
   const quoted = `"${schema}"`;
+  let blockerPrisma;
+  let pagePrisma;
+  let migrationPrisma;
+  let blockerOutcome;
+  let pageOutcome;
+  let migrationOutcome;
+  let releaseBlocker = () => {};
   try {
     const url = deploySchema(schema);
     const prisma = loadPrisma(url);
@@ -285,21 +316,79 @@ test('web create and readable migration serialize same-title allocation through 
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/readable-sync-path.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/space-revision-writer.service.js')).href),
       ]);
-      const writer = new SpaceRevisionWriterService(prisma);
+      const runId = randomUUID().replaceAll('-', '');
+      const blockerApplication = `fix2_blocker_${runId}`;
+      const pageApplication = `fix2_page_${runId}`;
+      const migrationApplication = `fix2_migration_${runId}`;
+      blockerPrisma = loadPrisma(withApplicationName(url, blockerApplication));
+      pagePrisma = loadPrisma(withApplicationName(url, pageApplication));
+      migrationPrisma = loadPrisma(withApplicationName(url, migrationApplication));
+      const writer = new SpaceRevisionWriterService(pagePrisma);
       const allocator = new ReadableSyncPathService();
       const pageService = new PageService(
-        prisma,
+        pagePrisma,
         { indexPage: async () => ({ lexicalIndexed: true, semanticIndexed: false }) },
         writer,
         allocator,
       );
       const batchId = `readable-sync-path-v1:${seeded.spaceId}`;
       const { migrateReadablePathsForSpace } = await import('./migrate-readable-sync-paths.mjs');
+      const blockerRelease = deferred();
+      releaseBlocker = blockerRelease.resolve;
+      let blockerHasLock = false;
+      let blockerFailure;
 
-      const outcomes = await Promise.allSettled([
-        pageService.create({ spaceId: seeded.spaceId, title: '标题', content: 'web body' }, seeded.userId),
-        migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId),
-      ]);
+      blockerOutcome = blockerPrisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          'SELECT pg_advisory_xact_lock(hashtext($1))',
+          seeded.spaceId,
+        );
+        blockerHasLock = true;
+        await blockerRelease.promise;
+      }, { maxWait: 5_000, timeout: 15_000 });
+      blockerOutcome.catch((error) => {
+        blockerFailure = error;
+      });
+      await waitForCondition(
+        () => {
+          if (blockerFailure) throw blockerFailure;
+          return blockerHasLock ? true : null;
+        },
+        'the external advisory-lock blocker',
+      );
+
+      pageOutcome = pageService.create(
+        { spaceId: seeded.spaceId, title: '标题', content: 'web body' },
+        seeded.userId,
+      );
+      migrationOutcome = migrateReadablePathsForSpace(
+        migrationPrisma,
+        seeded.spaceId,
+        batchId,
+      );
+
+      const waitingEntries = await waitForCondition(async () => {
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT application_name, wait_event_type, wait_event
+             FROM pg_stat_activity
+            WHERE application_name IN ($1, $2)
+              AND wait_event_type = 'Lock'
+              AND wait_event = 'advisory'`,
+          pageApplication,
+          migrationApplication,
+        );
+        return new Set(rows.map((row) => row.application_name)).size === 2
+          ? rows
+          : null;
+      }, 'both real entries to wait on the shared advisory lock');
+      assert.deepEqual(
+        new Set(waitingEntries.map((row) => row.application_name)),
+        new Set([pageApplication, migrationApplication]),
+      );
+
+      releaseBlocker();
+      await blockerOutcome;
+      const outcomes = await Promise.allSettled([pageOutcome, migrationOutcome]);
 
       assert.equal(
         outcomes.filter((outcome) => outcome.status === 'fulfilled').length,
@@ -322,6 +411,17 @@ test('web create and readable migration serialize same-title allocation through 
       );
       assert.equal(new Set(pages.map((page) => page.syncPathKey)).size, 2);
     } finally {
+      releaseBlocker();
+      await Promise.allSettled([
+        blockerOutcome,
+        pageOutcome,
+        migrationOutcome,
+      ].filter(Boolean));
+      await Promise.allSettled([
+        blockerPrisma?.$disconnect(),
+        pagePrisma?.$disconnect(),
+        migrationPrisma?.$disconnect(),
+      ].filter(Boolean));
       await prisma.$disconnect();
     }
   } finally {

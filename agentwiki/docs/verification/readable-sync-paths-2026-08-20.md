@@ -2,7 +2,7 @@
 
 ## Result
 
-The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. Final Fix 2 extended the real PostgreSQL sync/migration gate to **32/32 with no skips or failures**, including an actual same-Space/same-title readable-allocation race between Web create and the readable-path migration. Every disposable schema from the new run was removed after verification.
+The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. Final Fix 2 extended the real PostgreSQL sync/migration gate to **32/32 with no skips or failures**, including deterministic contention proof for same-Space/same-title readable allocation between Web create and the readable-path migration. Every disposable schema from the new run was removed after verification.
 
 No production database, production service, deployment, package publication, or Obsidian marketplace state was changed.
 
@@ -32,12 +32,12 @@ Exit code: 0.
 
 | Package/gate | Files or suites | Passed | Skipped | Failed |
 |---|---:|---:|---:|---:|
-| runtime scripts | 2 suites / 111 tests | 70 | 41 | 0 |
+| runtime scripts | 2 suites / 112 tests | 71 | 41 | 0 |
 | server Jest | 57 suites | 576 | 0 | 0 |
 | client Vitest | 34 files | 157 | 0 | 0 |
 | sync protocol Vitest | 5 files | 22 | 0 | 0 |
 | local-sync Vitest | 42 files | 358 | 0 | 0 |
-| **Total tests** | | **1,183** | **41** | **0** |
+| **Total tests** | | **1,184** | **41** | **0** |
 
 The 41 runtime skips are external-database gates with no configured `DATABASE_URL`; they are not counted as passes. The same database-dependent sync/readable-path subset was then run separately with the disposable-schema connection described below.
 
@@ -59,9 +59,9 @@ Command:
 node --test scripts/readable-sync-path-migration-db.test.mjs scripts/sync-v1-*.test.mjs
 ```
 
-The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01` and passed 31/31. Final Fix 2 reran the expanded command against a credential-free local PostgreSQL 16 connection with a fresh schema per test: exit 0 with **32 passed, 0 skipped, 0 failed** in 20.17 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, session/global-page-id concurrency, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, forced rollback, and the new readable allocator concurrency gate.
+The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01` and passed 31/31. Final Fix 2 reran the expanded command against a credential-free local PostgreSQL 16 connection with a fresh schema per test: exit 0 with **32 passed, 0 skipped, 0 failed** in 21.03 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, session/global-page-id concurrency, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, forced rollback, and the new readable allocator concurrency gate.
 
-The new gate concurrently ran the actual `PageService.create()` entry and the actual readable-path migration for one Space and title `标题`. Both outer transactions committed; the exact paths were `pages/标题.md` and `pages/标题 (2).md`; no Prisma `P2002` escaped. This is distinct from the older `sync-v1-concurrency-db` coverage, which tests global page IDs and push-session idempotency rather than readable candidate allocation.
+The new gate first acquired the Space advisory lock in an external PostgreSQL transaction. It then started the actual `PageService.create()` entry and actual readable-path migration through separate, uniquely named Prisma connections. Bounded condition polling of `pg_stat_activity` observed both connection names simultaneously at `wait_event_type = 'Lock'` and `wait_event = 'advisory'` before the blocker was released. Both outer transactions then committed; the exact paths were `pages/标题.md` and `pages/标题 (2).md`; no Prisma `P2002` escaped. This is distinct from the older `sync-v1-concurrency-db` coverage, which tests global page IDs and push-session idempotency rather than readable candidate allocation.
 
 Every Final Fix 2 test used a generated disposable schema in the local `postgres` database and dropped it in `finally`; the final schema-prefix lookup returned zero rows. No production or pre-existing application schema was used. The earlier disposable database was likewise removed as recorded by the prior evidence.
 
