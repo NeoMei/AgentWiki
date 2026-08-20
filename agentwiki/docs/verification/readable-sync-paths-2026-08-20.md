@@ -9,7 +9,7 @@ No production database, production service, deployment, package publication, or 
 ## Revision and runtime
 
 - Branch: `codex/readable-sync-paths`
-- Verification start HEAD: `8675ce6489a38a8188d8e8aee7e1f7e29f0d0898`
+- Final verified code HEAD: `57314a9` (the verification-document-only follow-up commit is excluded from behavior)
 - Task commits:
   - `caa2f44` readable allocator
   - `cc728d8` allocator byte/uniqueness hardening
@@ -18,6 +18,9 @@ No production database, production service, deployment, package publication, or 
   - `bc2c2ca` ReviewService integration
   - `a281057` atomic opaque-path migration
   - `8675ce6` clean-runtime migration build dependencies
+  - `ad4bbfe` complete first migration revision bootstrap
+  - `3af5ab9` bounded migration work and preloaded path keys
+  - `57314a9` opaque-looking title idempotency
 - Node: `v24.18.0`
 - pnpm: `11.9.0`
 
@@ -30,11 +33,11 @@ Exit code: 0.
 | Package/gate | Files or suites | Passed | Skipped | Failed |
 |---|---:|---:|---:|---:|
 | runtime scripts | 2 suites / 106 tests | 66 | 40 | 0 |
-| server Jest | 57 suites | 569 | 0 | 0 |
+| server Jest | 57 suites | 570 | 0 | 0 |
 | client Vitest | 34 files | 157 | 0 | 0 |
 | sync protocol Vitest | 5 files | 22 | 0 | 0 |
 | local-sync Vitest | 42 files | 358 | 0 | 0 |
-| **Total tests** | | **1,172** | **40** | **0** |
+| **Total tests** | | **1,173** | **40** | **0** |
 
 The 40 runtime skips are external-database gates with no configured `DATABASE_URL`; they are not counted as passes.
 
@@ -44,7 +47,7 @@ The 40 runtime skips are external-database gates with no configured `DATABASE_UR
 - `pnpm lint`: PASS, exit 0.
 - `pnpm build`: PASS, exit 0.
 - `git diff --check`: PASS, exit 0.
-- Focused readable-path regression: `review.service.spec.ts`, `page.service.spec.ts`, `readable-sync-path.service.spec.ts`, and `app.module.spec.ts`: 4 suites / 74 tests passed.
+- Focused readable-path regression after final review fixes: `review.service.spec.ts`, `page.service.spec.ts`, and `readable-sync-path.service.spec.ts`: 3 suites / 74 tests passed. `app.module.spec.ts` is also included in the full 570-test server pass.
 - Migration runtime dependency build: sync protocol build followed by server build: PASS.
 - Migration module import/no-op fake transaction check: exported function loaded and returned `{ migrated: 0, revisionId: null }`.
 
@@ -70,6 +73,9 @@ The readable migration test is designed to deploy migrations into a random Postg
 - Body content, including a matching Markdown H1, is passed through unchanged by path allocation/rename logic.
 - Space lock ordering is covered before allocation and writes; restore re-reads the Page after acquiring the lock.
 - The migration matches only lowercase `pages/p-<64 hex>.md`, uses stable knowledge-key order and fixed batch IDs, and performs Page/PageVersion/revision writes in one transaction.
+- A legacy Space without a parent revision seeds all active Pages into its first migration revision, so unchanged custom paths remain authoritative.
+- Migration allocation preloads all active and soft-deleted path keys once, avoids per-page full-Space queries, and uses a 30-minute bounded transaction timeout.
+- A title that itself matches `p-<64 hex>` is forced to a non-opaque `(2).md` path, so the second migration run is a true no-op.
 
 ## Known non-blocking output
 
