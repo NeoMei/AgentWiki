@@ -1,6 +1,6 @@
 # Obsidian Sync v1 验收证据矩阵
 
-本文件记录 sync v1 基线及当前 `codex/readable-sync-paths` 分支的可追溯验收证据，不替代契约。状态定义：
+本文件记录 sync v1 基线、原 `codex/readable-sync-paths` 分支以及临时最终候选的可追溯验收证据，不替代契约。原分支仍停在 `294b694`；Fix 3A/3B/3C 只存在于临时仓候选链，产品候选 HEAD 为 `7cae89d`，尚未回灌原分支。状态定义：
 - `run`：有真实 PostgreSQL/Redis 或浏览器/HTTP 测试直接覆盖；
 - `unit`：有 Jest/Vitest/协议包测试直接覆盖；
 - `code`：代码路径可审查，但暂未单独固化为验收测试；
@@ -63,11 +63,10 @@
 | 53 | changeCount=0 与全部 upsert 相同 noop 持久化 result | `sync-v1-http-e2e` 覆盖 changeCount=0；`sync-v1-noop-upsert-db` 覆盖全部 upsert 相同 noop | run |
 | 54 | Web/ChangeSet 新建生成可读标题路径，重名使用最小 `(n)` 后缀 | `readable-sync-path.service.spec` 覆盖 Unicode、设备名、255/1024 byte、`(10)` 和软删除占用；Page/Review service spec 覆盖接入 | unit |
 | 55 | 标题改名保留目录，content-only/净化等价标题路径稳定，正文/H1 不改写 | `page.service.spec` 覆盖 Web update/restore/根目录/锁内重读；`review.service.spec` 覆盖 ChangeSet 及原文保留 | unit |
-| 56 | 只迁移严格 `pages/p-<64 lowercase hex>.md`，批次幂等且失败全回滚 | `migrate-readable-sync-paths.mjs` 和隔离 schema DB 验收测试已固化；当前环境无 `DATABASE_URL`，该测试本轮显式 SKIP | code |
+| 56 | 只迁移严格 `pages/p-<64 lowercase hex>.md`，批次幂等且失败全回滚 | Fix 3 前的 `294b694` 曾在真实 PostgreSQL 扩展门禁中通过 32/32；Fix 3A 将 DB fixture 改为“旧路径 hash 与标题 hash 不同”，当前 sandbox 因无可用 DB 显式跳过该更新后的 2 项 DB 测试。相同不同-hash 场景另由直接执行生产 migration/allocator 的非 DB 回归 1/1 覆盖，第二次运行为 no-op | run/unit |
 
 ## 结论
-- 已具备真实运行证据的验收：1/2/4/5/10/11/12/13/18/20/21/23/25/27/29/33/35/39/41/48/51 等；
-- 本轮补强真实 DB/HTTP 证据：7/8/9/17/26/31/37/42/44/47/52/53；新增 super_admin 有效 owner 访问与发布、exchange exact replay 凭据绑定、非连续 batch index 拒绝、family partial unique 约束。
-- 原 sync v1 基线验收项已至少具备 run/unit 证据；本轮新增的可读路径迁移项在真实 DB 门禁执行前保持 `code`。
-- 已执行并通过：`pnpm test`（runtime 106、server 505、client 160、protocol 22、local-sync 328）、`pnpm typecheck`、`pnpm lint`、`git diff --check`、API smoke 18 项、Playwright UI route smoke（public 3、authenticated 16、mobile 6）。
-- 可读路径增量证据：分配器/Page/Review 定向回归已通过；真实 DB 迁移证据在当前无 `DATABASE_URL` 环境中仅为显式 SKIP，不计作 run/pass。完整当前分支命令与精确计数见 `docs/verification/readable-sync-paths-2026-08-20.md`。
+- 已具备真实运行证据的验收：1/2/4/5/10/11/12/13/18/20/21/23/25/27/29/33/35/39/41/48/51 等；7/8/9/17/26/31/37/42/44/47/52/53 也有先前真实 DB/HTTP 证据。
+- 可读路径迁移不能再概括为“只有 code/DB skip”：Fix 3 前的 32/32 真实 PostgreSQL 门禁仍是有效历史证据；但它没有执行 Fix 3A 更新后的不同-hash fixture。当前候选对该新增场景的证据是生产 migration/allocator 非 DB 回归 1/1，更新后的 DB 文件则为 0 pass / 2 explicit skips / 0 fail。
+- 临时候选最新可执行矩阵为 runtime 113 项（72 pass / 41 个无 `DATABASE_URL` 的显式 DB skip / 0 fail）、排除四个 loopback 文件后的 server 53 suites / 533 tests pass、client 157、protocol 22、local-sync 358。Fix 3B 的最后一次完整 server 尝试为 57 suites / 577 tests，其中 557 pass，另外四个 HTTP suites / 20 tests 仅因 sandbox `listen 127.0.0.1` 返回 `EPERM` 而失败；Fix 3C 后未将这 20 项冒充为已通过。
+- 完整提交链、各阶段定向证据与环境限制见 `docs/verification/readable-sync-paths-2026-08-20.md`。上述候选未合并、未回灌原分支、未迁移生产数据库、未部署。
