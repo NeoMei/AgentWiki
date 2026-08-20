@@ -176,6 +176,9 @@ test('the readable allocator DB gate proves both real entries wait on the same a
   assert.match(gate, /wait_event\s*=\s*'advisory'/);
   assert.match(gate, /waitForCondition/);
   assert.match(gate, /releaseBlocker/);
+  assert.match(gate, /ReadableSyncPathService\.prototype\.allocate/);
+  assert.match(gate, /originalAllocate/);
+  assert.match(gate, /assert\.equal\(\s*allocatorCalls\.length,\s*0/);
 });
 
 test('a ChangeSet can own both publication and compensation revisions', async () => {

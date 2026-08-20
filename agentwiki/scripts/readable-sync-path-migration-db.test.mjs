@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -59,7 +60,10 @@ function deploySchema(schema) {
 function loadPrisma(url) {
   const require = createRequire(resolve(root, 'apps/server/package.json'));
   const { PrismaClient } = require('@prisma/client');
-  return new PrismaClient({ datasources: { db: { url: url.href } } });
+  return new PrismaClient({
+    datasources: { db: { url: url.href } },
+    transactionOptions: { maxWait: 10_000, timeout: 20_000 },
+  });
 }
 
 function withApplicationName(url, applicationName) {
@@ -84,6 +88,23 @@ async function waitForCondition(check, description, timeoutMs = 5_000) {
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
   }
   throw new Error(`Timed out waiting for ${description}`);
+}
+
+async function withTimeout(promise, description, timeoutMs = 5_000) {
+  let timeout;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Timed out waiting for ${description}`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function opaquePath(character) {
@@ -284,7 +305,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
   }
 });
 
-test('web create and readable migration both wait on the shared Space lock before same-title allocation', { skip }, async () => {
+test('web create and readable migration wait before allocating the same title', { skip, timeout: 25_000 }, async () => {
   const schema = `readable_paths_concurrency_${randomUUID().replaceAll('-', '')}`;
   const quoted = `"${schema}"`;
   let blockerPrisma;
@@ -294,6 +315,11 @@ test('web create and readable migration both wait on the shared Space lock befor
   let pageOutcome;
   let migrationOutcome;
   let releaseBlocker = () => {};
+  let blockerApplication;
+  let pageApplication;
+  let migrationApplication;
+  let allocatorPrototype;
+  let originalAllocate;
   try {
     const url = deploySchema(schema);
     const prisma = loadPrisma(url);
@@ -317,12 +343,20 @@ test('web create and readable migration both wait on the shared Space lock befor
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/space-revision-writer.service.js')).href),
       ]);
       const runId = randomUUID().replaceAll('-', '');
-      const blockerApplication = `fix2_blocker_${runId}`;
-      const pageApplication = `fix2_page_${runId}`;
-      const migrationApplication = `fix2_migration_${runId}`;
+      blockerApplication = `fix2_blocker_${runId}`;
+      pageApplication = `fix2_page_${runId}`;
+      migrationApplication = `fix2_migration_${runId}`;
       blockerPrisma = loadPrisma(withApplicationName(url, blockerApplication));
       pagePrisma = loadPrisma(withApplicationName(url, pageApplication));
       migrationPrisma = loadPrisma(withApplicationName(url, migrationApplication));
+      const allocatorContext = new AsyncLocalStorage();
+      const allocatorCalls = [];
+      allocatorPrototype = ReadableSyncPathService.prototype;
+      originalAllocate = ReadableSyncPathService.prototype.allocate;
+      ReadableSyncPathService.prototype.allocate = async function (...args) {
+        allocatorCalls.push(allocatorContext.getStore() ?? 'unknown');
+        return originalAllocate.apply(this, args);
+      };
       const writer = new SpaceRevisionWriterService(pagePrisma);
       const allocator = new ReadableSyncPathService();
       const pageService = new PageService(
@@ -345,7 +379,7 @@ test('web create and readable migration both wait on the shared Space lock befor
         );
         blockerHasLock = true;
         await blockerRelease.promise;
-      }, { maxWait: 5_000, timeout: 15_000 });
+      }, { maxWait: 10_000, timeout: 20_000 });
       blockerOutcome.catch((error) => {
         blockerFailure = error;
       });
@@ -357,14 +391,20 @@ test('web create and readable migration both wait on the shared Space lock befor
         'the external advisory-lock blocker',
       );
 
-      pageOutcome = pageService.create(
-        { spaceId: seeded.spaceId, title: '标题', content: 'web body' },
-        seeded.userId,
+      pageOutcome = allocatorContext.run(
+        'page',
+        () => pageService.create(
+          { spaceId: seeded.spaceId, title: '标题', content: 'web body' },
+          seeded.userId,
+        ),
       );
-      migrationOutcome = migrateReadablePathsForSpace(
-        migrationPrisma,
-        seeded.spaceId,
-        batchId,
+      migrationOutcome = allocatorContext.run(
+        'migration',
+        () => migrateReadablePathsForSpace(
+          migrationPrisma,
+          seeded.spaceId,
+          batchId,
+        ),
       );
 
       const waitingEntries = await waitForCondition(async () => {
@@ -385,6 +425,11 @@ test('web create and readable migration both wait on the shared Space lock befor
         new Set(waitingEntries.map((row) => row.application_name)),
         new Set([pageApplication, migrationApplication]),
       );
+      assert.equal(
+        allocatorCalls.length,
+        0,
+        'both entries must still be waiting before their first allocator call',
+      );
 
       releaseBlocker();
       await blockerOutcome;
@@ -401,6 +446,11 @@ test('web create and readable migration both wait on the shared Space lock befor
         outcomes.some((outcome) => outcome.status === 'rejected' && outcome.reason?.code === 'P2002'),
         false,
       );
+      assert.deepEqual(
+        allocatorCalls.slice().sort(),
+        ['migration', 'page'],
+        'each real entry must call the actual allocator after the blocker is released',
+      );
       const pages = await prisma.page.findMany({
         where: { spaceId: seeded.spaceId },
         select: { syncPath: true, syncPathKey: true },
@@ -411,18 +461,47 @@ test('web create and readable migration both wait on the shared Space lock befor
       );
       assert.equal(new Set(pages.map((page) => page.syncPathKey)).size, 2);
     } finally {
+      if (allocatorPrototype && originalAllocate) {
+        allocatorPrototype.allocate = originalAllocate;
+      }
       releaseBlocker();
-      await Promise.allSettled([
-        blockerOutcome,
-        pageOutcome,
-        migrationOutcome,
-      ].filter(Boolean));
-      await Promise.allSettled([
-        blockerPrisma?.$disconnect(),
-        pagePrisma?.$disconnect(),
-        migrationPrisma?.$disconnect(),
-      ].filter(Boolean));
-      await prisma.$disconnect();
+      const applications = [
+        blockerApplication,
+        pageApplication,
+        migrationApplication,
+      ].filter(Boolean);
+      if (applications.length === 3) {
+        await withTimeout(
+          prisma.$queryRawUnsafe(
+            `SELECT pg_terminate_backend(pid)
+               FROM pg_stat_activity
+              WHERE application_name IN ($1, $2, $3)
+                AND pid <> pg_backend_pid()`,
+            ...applications,
+          ),
+          'named contention-test backend termination',
+        ).catch(() => undefined);
+      }
+      await withTimeout(
+        Promise.allSettled([
+          blockerOutcome,
+          pageOutcome,
+          migrationOutcome,
+        ].filter(Boolean)),
+        'contention-test outcomes to settle',
+      ).catch(() => undefined);
+      await withTimeout(
+        Promise.allSettled([
+          blockerPrisma?.$disconnect(),
+          pagePrisma?.$disconnect(),
+          migrationPrisma?.$disconnect(),
+        ].filter(Boolean)),
+        'contention-test Prisma clients to disconnect',
+      ).catch(() => undefined);
+      await withTimeout(
+        prisma.$disconnect(),
+        'contention-test control Prisma client to disconnect',
+      ).catch(() => undefined);
     }
   } finally {
     runPsql(`DROP SCHEMA IF EXISTS ${quoted} CASCADE`);

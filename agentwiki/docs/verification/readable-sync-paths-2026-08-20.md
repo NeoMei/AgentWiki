@@ -2,7 +2,7 @@
 
 ## Result
 
-The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. Final Fix 2 extended the real PostgreSQL sync/migration gate to **32/32 with no skips or failures**, including deterministic contention proof for same-Space/same-title readable allocation between Web create and the readable-path migration. Every disposable schema from the new run was removed after verification.
+The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. Final Fix 2 extended the real PostgreSQL sync/migration gate to **32/32 with no skips or failures**, including deterministic proof that Web create and the readable-path migration both stop at their first Space lock before same-title allocation. Every disposable schema from the new run was removed after verification.
 
 No production database, production service, deployment, package publication, or Obsidian marketplace state was changed.
 
@@ -39,7 +39,7 @@ Exit code: 0.
 | local-sync Vitest | 42 files | 358 | 0 | 0 |
 | **Total tests** | | **1,184** | **41** | **0** |
 
-The 41 runtime skips are external-database gates with no configured `DATABASE_URL`; they are not counted as passes. The same database-dependent sync/readable-path subset was then run separately with the disposable-schema connection described below.
+The 41 runtime skips are external-database gates with no configured `DATABASE_URL`; they are not counted as passes. The same database-dependent sync/readable-path subset was then run separately with the disposable-schema connection described below. The previously recorded runtime result of 70 passed / 41 skipped predates the first contention-harness follow-up; the current matrix includes its additional static contract at 71/41.
 
 ### Other gates
 
@@ -59,11 +59,11 @@ Command:
 node --test scripts/readable-sync-path-migration-db.test.mjs scripts/sync-v1-*.test.mjs
 ```
 
-The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01` and passed 31/31. Final Fix 2 reran the expanded command against a credential-free local PostgreSQL 16 connection with a fresh schema per test: exit 0 with **32 passed, 0 skipped, 0 failed** in 21.03 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, session/global-page-id concurrency, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, forced rollback, and the new readable allocator concurrency gate.
+The earlier evidence used `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01` and passed 31/31. Final Fix 2 reran the expanded command against a credential-free local PostgreSQL 16 connection with a fresh schema per test: exit 0 with **32 passed, 0 skipped, 0 failed** in 27.56 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, session/global-page-id concurrency, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, forced rollback, and the new readable allocator concurrency gate.
 
-The new gate first acquired the Space advisory lock in an external PostgreSQL transaction. It then started the actual `PageService.create()` entry and actual readable-path migration through separate, uniquely named Prisma connections. Bounded condition polling of `pg_stat_activity` observed both connection names simultaneously at `wait_event_type = 'Lock'` and `wait_event = 'advisory'` before the blocker was released. Both outer transactions then committed; the exact paths were `pages/标题.md` and `pages/标题 (2).md`; no Prisma `P2002` escaped. This is distinct from the older `sync-v1-concurrency-db` coverage, which tests global page IDs and push-session idempotency rather than readable candidate allocation.
+The new gate first acquired the Space advisory lock in an external PostgreSQL transaction. It then started the actual `PageService.create()` entry and actual readable-path migration through separate, uniquely named Prisma connections. Bounded condition polling of `pg_stat_activity` observed both connection names simultaneously at `wait_event_type = 'Lock'` and `wait_event = 'advisory'` before the blocker was released. During that blocked state, a temporary wrapper around the actual production `ReadableSyncPathService.prototype.allocate` recorded zero calls. The wrapper delegates unchanged to the original method and is restored in `finally`. After blocker release, the unordered call record contained exactly one `page` and one `migration` invocation, both outer transactions committed, the exact paths were `pages/标题.md` and `pages/标题 (2).md`, and no Prisma `P2002` escaped. Therefore the observed waiters cannot be later re-entrant `revisionWriter.advance()` locks: both entries were proven blocked before their allocator call. This is distinct from the older `sync-v1-concurrency-db` coverage, which tests global page IDs and push-session idempotency rather than readable candidate allocation.
 
-Every Final Fix 2 test used a generated disposable schema in the local `postgres` database and dropped it in `finally`; the final schema-prefix lookup returned zero rows. No production or pre-existing application schema was used. The earlier disposable database was likewise removed as recorded by the prior evidence.
+The contention test has a 25-second test timeout; its test clients use 20-second interactive transaction timeouts with 10-second acquisition bounds, while condition polling has a 5-second deadline. Failure cleanup restores the allocator prototype, releases the blocker, terminates only the three random test `application_name` backends, and bounds outcome settlement and disconnects to five seconds before dropping the schema. Every Final Fix 2 test used a generated disposable schema in the local `postgres` database and dropped it in `finally`; final schema-prefix and `fix2_%` activity lookups both returned zero rows. No production or pre-existing application schema was used. The earlier disposable database was likewise removed as recorded by the prior evidence.
 
 ## Behavior verified without deployment
 
