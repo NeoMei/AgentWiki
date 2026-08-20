@@ -53,6 +53,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
       },
     },
     spaceKnowledgeRevision: {
+      findUnique: async () => null,
       findFirst: async () => revisionCount === 0 ? null : { id: 'revision-1' },
     },
   };
@@ -85,6 +86,116 @@ test('migration rejects an opaque title candidate when its hash differs from the
     assert.equal(page.content, '# Preserved\n\nBody');
     assert.equal(migrationVersions.size, 1);
     assert.equal(revisionCount, 1);
+  } finally {
+    SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;
+    SpaceRevisionWriterService.prototype.advance = originalAdvance;
+  }
+});
+
+test('completed migration batch no-ops before scanning pages added later', async () => {
+  const [{ SpaceRevisionWriterService }, { migrateReadablePathsForSpace }] = await Promise.all([
+    import(pathToFileURL(resolve(
+      root,
+      'apps/server/dist/core/sync/space-revision-writer.service.js',
+    )).href),
+    import('./migrate-readable-sync-paths.mjs'),
+  ]);
+  const originalLockSpace = SpaceRevisionWriterService.prototype.lockSpace;
+  const originalAdvance = SpaceRevisionWriterService.prototype.advance;
+  const batchId = 'readable-sync-path-v1:space-completed';
+  const page = {
+    id: 'internal-page-later',
+    knowledgeKey: 'page-later',
+    title: `p-${'f'.repeat(64)}`,
+    slug: 'page-later',
+    content: '# Added later',
+    format: 'markdown',
+    parentId: null,
+    authorId: 'user-1',
+    spaceId: 'space-completed',
+    syncPath: opaquePath('f'),
+    syncPathKey: opaquePath('f'),
+    deletedAt: null,
+  };
+  const pages = [page];
+  const versions = [];
+  const revisions = [{
+    id: 'completed-revision',
+    spaceId: 'space-completed',
+    migrationBatchId: batchId,
+  }];
+  const events = [];
+  const tx = {
+    page: {
+      findMany: async () => {
+        events.push('page-scan');
+        return pages.map((entry) => ({ ...entry }));
+      },
+      update: async ({ data }) => {
+        events.push('page-update');
+        Object.assign(page, data);
+        return { ...page };
+      },
+    },
+    pageVersion: {
+      upsert: async ({ create }) => {
+        events.push('page-version');
+        versions.push(create);
+        return create;
+      },
+    },
+    spaceKnowledgeRevision: {
+      findUnique: async (args) => {
+        events.push('batch-lookup');
+        assert.deepEqual(args, {
+          where: {
+            spaceId_migrationBatchId: {
+              spaceId: 'space-completed',
+              migrationBatchId: batchId,
+            },
+          },
+          select: { id: true },
+        });
+        return revisions[0];
+      },
+      findFirst: async () => {
+        events.push('parent-lookup');
+        return { id: 'completed-revision' };
+      },
+    },
+  };
+  const prisma = {
+    $transaction: async (callback) => callback(tx),
+  };
+
+  try {
+    SpaceRevisionWriterService.prototype.lockSpace = async (transaction) => {
+      events.push('lock');
+      return transaction;
+    };
+    SpaceRevisionWriterService.prototype.advance = async () => {
+      events.push('advance');
+      const error = new Error('duplicate migration revision');
+      error.code = 'P2002';
+      throw error;
+    };
+
+    const before = {
+      pages: structuredClone(pages),
+      pageVersions: versions.length,
+      revisions: revisions.length,
+    };
+    const result = await migrateReadablePathsForSpace(
+      prisma,
+      'space-completed',
+      batchId,
+    );
+
+    assert.deepEqual(result, { migrated: 0, revisionId: null });
+    assert.deepEqual(events, ['lock', 'batch-lookup']);
+    assert.deepEqual(pages, before.pages);
+    assert.equal(versions.length, before.pageVersions);
+    assert.equal(revisions.length, before.revisions);
   } finally {
     SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;
     SpaceRevisionWriterService.prototype.advance = originalAdvance;

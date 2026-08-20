@@ -30,6 +30,19 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
 
   return prisma.$transaction(async (tx) => {
     const lockedTx = await writer.lockSpace(tx, spaceId);
+    const completedRevision = await tx.spaceKnowledgeRevision.findUnique({
+      where: {
+        spaceId_migrationBatchId: {
+          spaceId,
+          migrationBatchId: batchId,
+        },
+      },
+      select: { id: true },
+    });
+    if (completedRevision) {
+      return { migrated: 0, revisionId: null };
+    }
+
     const persistedPages = await tx.page.findMany({
       where: { spaceId },
       orderBy: { knowledgeKey: 'asc' },
