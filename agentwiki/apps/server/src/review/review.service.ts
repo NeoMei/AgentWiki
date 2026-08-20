@@ -922,19 +922,47 @@ export class ReviewService {
     const affectedPageIds = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.changeSet.updateMany({ where: { id, status: 'published' }, data: { status: 'reverting' } });
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
+      const pageItemTypes = new Set(['create_page', 'update_page', 'archive_page']);
+      const hasPageRevert = changeSet.items.some(
+        (item) => pageItemTypes.has(item.type) && item.publishedResourceId,
+      );
+      if (hasPageRevert) {
+        await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
+      }
+      const snapshotPage = async (where: Prisma.PageWhereInput, itemType: string) => {
+        const page = await tx.page.findFirst({ where });
+        if (!page) {
+          throw new BusinessException('CHANGESET_CONFLICT', `Cannot revert ${itemType}: the published resource was changed later`);
+        }
+        await tx.pageVersion.create({
+          data: {
+            pageId: page.id,
+            title: page.title,
+            content: page.content ?? '',
+            authorId: page.authorId,
+            slug: page.slug,
+            format: page.format,
+            parentId: page.parentId,
+            syncPath: page.syncPath,
+            syncPathKey: page.syncPathKey,
+          },
+        });
+      };
       const pageIds: string[] = [];
       for (const item of changeSet.items) {
         if (!item.publishedResourceId) continue;
         if (item.type === 'create_page') {
+          const where = {
+            id: item.publishedResourceId,
+            spaceId: changeSet.spaceId,
+            sourceChangeSetId: id,
+            lastChangeSetId: id,
+            deletedAt: null,
+            updatedAt: { lte: publishedAt },
+          };
+          await snapshotPage(where, item.type);
           const reverted = await tx.page.updateMany({
-            where: {
-              id: item.publishedResourceId,
-              spaceId: changeSet.spaceId,
-              sourceChangeSetId: id,
-              lastChangeSetId: id,
-              deletedAt: null,
-              updatedAt: { lte: publishedAt },
-            },
+            where,
             data: { deletedAt: new Date() },
           });
           this.assertRevertMutation(reverted.count, item.type);
@@ -942,28 +970,32 @@ export class ReviewService {
         } else if (item.type === 'update_page') {
           const payload = item.payload as any;
           if (!payload.before) throw new BadRequestException('Update change is missing its prior page state');
+          const where = {
+            id: item.publishedResourceId,
+            spaceId: changeSet.spaceId,
+            lastChangeSetId: id,
+            deletedAt: null,
+            updatedAt: { lte: publishedAt },
+          };
+          await snapshotPage(where, item.type);
           const reverted = await tx.page.updateMany({
-            where: {
-              id: item.publishedResourceId,
-              spaceId: changeSet.spaceId,
-              lastChangeSetId: id,
-              deletedAt: null,
-              updatedAt: { lte: publishedAt },
-            },
+            where,
             data: payload.before,
           });
           this.assertRevertMutation(reverted.count, item.type);
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
           const payload = item.payload as any;
+          const where = {
+            id: item.publishedResourceId,
+            spaceId: changeSet.spaceId,
+            lastChangeSetId: id,
+            deletedAt: { not: null },
+            updatedAt: { lte: publishedAt },
+          };
+          await snapshotPage(where, item.type);
           const reverted = await tx.page.updateMany({
-            where: {
-              id: item.publishedResourceId,
-              spaceId: changeSet.spaceId,
-              lastChangeSetId: id,
-              deletedAt: { not: null },
-              updatedAt: { lte: publishedAt },
-            },
+            where,
             data: { deletedAt: payload.before?.deletedAt || null },
           });
           this.assertRevertMutation(reverted.count, item.type);

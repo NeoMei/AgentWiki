@@ -512,12 +512,42 @@ export class PageService {
   async remove(id: string) {
     const existing = await this.findOne(id);
     const page = await this.prisma.$transaction(async (tx) => {
+      await this.revisionWriter.lockSpace(tx, existing.spaceId);
+      const current = await tx.page.findUnique({
+        where: { id, spaceId: existing.spaceId, deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          authorId: true,
+          slug: true,
+          format: true,
+          parentId: true,
+          spaceId: true,
+          syncPath: true,
+          syncPathKey: true,
+        },
+      });
+      if (!current) throw new NotFoundException('Page not found');
+      await tx.pageVersion.create({
+        data: {
+          pageId: current.id,
+          title: current.title,
+          content: current.content ?? '',
+          authorId: current.authorId,
+          slug: current.slug,
+          format: current.format,
+          parentId: current.parentId,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        },
+      });
       const archived = await tx.page.update({
         where: { id },
         data: { deletedAt: new Date() },
         select: { ...PAGE_PUBLIC_FIELDS, knowledgeKey: true, syncPath: true },
       });
-      await this.advanceRevision(tx, existing.spaceId, [{
+      await this.advanceRevision(tx, current.spaceId, [{
         operation: 'archive',
         pageId: archived.knowledgeKey,
         previousPath: archived.syncPath ?? undefined,

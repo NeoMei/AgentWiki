@@ -657,6 +657,58 @@ describe('PageService', () => {
       );
     });
   });
+
+  describe('remove', () => {
+    it('locks and snapshots the current Page before archiving it', async () => {
+      const visible = {
+        id: 'page-1',
+        spaceId: 'space-1',
+      };
+      const current = {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        spaceId: 'space-1',
+        title: 'Current title',
+        content: 'Current body',
+        authorId: 'user-1',
+        slug: 'current-title',
+        format: 'markdown',
+        parentId: null,
+        syncPath: 'guides/Current title.md',
+        syncPathKey: 'guides/current title.md',
+        deletedAt: null,
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      mockPrisma.page.findUnique.mockResolvedValue(current);
+      mockPrisma.page.update.mockResolvedValue({ ...current, deletedAt: new Date() });
+
+      await service.remove('page-1');
+
+      expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.findUnique.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.page.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.pageVersion.create.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.pageVersion.create).toHaveBeenCalledWith({
+        data: {
+          pageId: current.id,
+          title: current.title,
+          content: current.content,
+          authorId: current.authorId,
+          slug: current.slug,
+          format: current.format,
+          parentId: current.parentId,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        },
+      });
+      expect(mockPrisma.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.update.mock.invocationCallOrder[0],
+      );
+    });
+  });
 });
 
 describe('page ordering', () => {
