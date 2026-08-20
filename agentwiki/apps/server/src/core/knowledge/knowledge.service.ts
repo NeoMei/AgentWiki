@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 
 export interface CreateRelationInput {
@@ -39,18 +40,46 @@ export class KnowledgeService {
       }
     }
     return this.prisma.$transaction(async (tx) => {
-      const relation = await tx.knowledgeRelation.create({
-        data: {
-          relation: data.relation,
-          sourcePageId: data.sourcePageId,
-          targetPageId: data.targetPageId,
-          strength: data.strength ?? 1.0,
-          confidence: data.confidence ?? 1.0,
-          evidenceId: data.evidenceId,
-          lastModifiedByUserId: userId,
-          lastModifiedAt: new Date(),
+      const spaceId = pages[0].spaceId;
+      await tx.spaceGraphState.upsert({ where: { spaceId }, create: { spaceId }, update: {} });
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
+      `);
+      const existing = await tx.knowledgeRelation.findUnique({
+        where: {
+          sourcePageId_targetPageId_relation: {
+            sourcePageId: data.sourcePageId,
+            targetPageId: data.targetPageId,
+            relation: data.relation,
+          },
         },
       });
+      const relation = existing?.origin.startsWith('auto_')
+        ? await tx.knowledgeRelation.update({
+          where: { id: existing.id },
+          data: {
+            origin: 'manual',
+            strength: data.strength ?? 1.0,
+            confidence: data.confidence ?? 1.0,
+            evidenceId: data.evidenceId,
+            sourceChangeSetId: null,
+            createdByAgentId: null,
+            lastModifiedByUserId: userId,
+            lastModifiedAt: new Date(),
+          },
+        })
+        : await tx.knowledgeRelation.create({
+          data: {
+            relation: data.relation,
+            sourcePageId: data.sourcePageId,
+            targetPageId: data.targetPageId,
+            strength: data.strength ?? 1.0,
+            confidence: data.confidence ?? 1.0,
+            evidenceId: data.evidenceId,
+            lastModifiedByUserId: userId,
+            lastModifiedAt: new Date(),
+          },
+        });
       if (data.evidenceId) {
         await tx.evidence.update({ where: { id: data.evidenceId }, data: { targetRelationId: relation.id } });
       }

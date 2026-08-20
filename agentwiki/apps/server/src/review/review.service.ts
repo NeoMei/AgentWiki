@@ -229,9 +229,16 @@ export class ReviewService {
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
       const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
       const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
-      const lockedTx = pageItems.length > 0
-        ? await this.revisionWriter.lockSpace(tx, changeSet.spaceId)
-        : null;
+      if (relationItems.some((item) => item.type === 'create_relation')) {
+        await tx.spaceGraphState.upsert({
+          where: { spaceId: changeSet.spaceId },
+          create: { spaceId: changeSet.spaceId },
+          update: {},
+        });
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${changeSet.spaceId} FOR UPDATE
+        `);
+      }
 
       for (const item of pageItems) {
         const payload = item.payload as any;
@@ -684,21 +691,49 @@ export class ReviewService {
             const evidence = await tx.evidence.findUnique({ where: { id: payload.evidenceId }, select: { run: { select: { spaceId: true } } } });
             if (!evidence || evidence.run.spaceId !== changeSet.spaceId) throw new BadRequestException('Relation evidence must belong to the change set space');
           }
-          const relation = await tx.knowledgeRelation.create({
-            data: {
-              sourcePageId,
-              targetPageId,
-              ...(payload.knowledgeKey ? { knowledgeKey: payload.knowledgeKey } : {}),
-              relation: payload.relation,
-              strength: payload.strength ?? 1,
-              confidence: payload.confidence ?? 1,
-              origin: 'compiled',
-              sourceChangeSetId: id,
-              createdByAgentId: changeSet.createdByAgentId,
-              evidenceId: payload.evidenceId,
-              lastModifiedAt: new Date(),
-            },
-          });
+          const relationData = {
+            sourcePageId,
+            targetPageId,
+            ...(payload.knowledgeKey ? { knowledgeKey: payload.knowledgeKey } : {}),
+            relation: payload.relation,
+            strength: payload.strength ?? 1,
+            confidence: payload.confidence ?? 1,
+            origin: payload.origin === 'auto_llm' ? 'auto_llm' : 'compiled',
+            sourceChangeSetId: id,
+            createdByAgentId: changeSet.createdByAgentId,
+            evidenceId: payload.evidenceId,
+            lastModifiedAt: new Date(),
+          };
+          let relation: { id: string };
+          if (payload.origin === 'auto_llm') {
+            const relationId = randomUUID();
+            const creation = await tx.knowledgeRelation.createMany({
+              data: { id: relationId, ...relationData },
+              skipDuplicates: true,
+            });
+            if (!creation.count) {
+              await tx.changeItem.update({ where: { id: item.id }, data: { status: 'rejected' } });
+              continue;
+            }
+            relation = { id: relationId };
+          } else {
+            const existing = await tx.knowledgeRelation.findUnique({
+              where: {
+                sourcePageId_targetPageId_relation: {
+                  sourcePageId,
+                  targetPageId,
+                  relation: payload.relation,
+                },
+              },
+              select: { id: true, origin: true },
+            });
+            relation = existing?.origin.startsWith('auto_')
+              ? await tx.knowledgeRelation.update({
+                where: { id: existing.id },
+                data: { ...relationData, origin: 'compiled' },
+              })
+              : await tx.knowledgeRelation.create({ data: relationData });
+          }
           if (payload.evidenceId) await tx.evidence.update({ where: { id: payload.evidenceId }, data: { targetRelationId: relation.id } });
           await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: relation.id } });
       }
@@ -1374,6 +1409,7 @@ export class ReviewService {
       return pageIds;
     });
     await Promise.allSettled(affectedPageIds.map((pageId) => this.search.indexPage(pageId)));
+    this.graphMaintenance?.enqueue(changeSet.spaceId);
     return this.get(id);
   }
 

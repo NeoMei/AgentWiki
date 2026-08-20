@@ -122,3 +122,21 @@
 - [x] DB backup → deploy → migrate status → smoke + UI smoke.
 - [x] Update .codex-memory, push, final verification.
 
+### Completion audit remediation (2026-08-18)
+
+- [x] Make deterministic reconciliation atomic and serialize it with a database row lock.
+- [x] Count only actually inserted relations and preserve manual ownership on unique-triple conflicts.
+- [x] Enqueue refreshes after page create/update/restore/archive and approved ChangeSet publication.
+- [x] Sweep default-enabled spaces without pre-existing graph state and keep content hashes deterministic.
+- [x] Prevent slow/stale refreshes from overwriting a newer content hash.
+- [x] Give LLM proposals a human author, preserve `auto_llm` on publish, retry invalid JSON, process all page batches, and enforce a 24-hour atomic claim.
+- [x] Validate refresh layers and similarity thresholds with HTTP 400 responses.
+- [x] Keep the settings card visible during loading/failure and provide an explicit retry action.
+- [x] Re-run full tests, typecheck, lint, build, Prisma validation, diff check, browser startup/auth boundary, and Codebase Memory indexing.
+- [x] Include title/slug/content/embedding changes via a lightweight page-version snapshot hash without loading full bodies during sweeps.
+- [x] Remove automatic edges after page archival and preserve exact wiki-link resolution precedence.
+- [x] Serialize manual takeover and LLM publication conflicts; deduplicate proposals and skip human-owned triples.
+- [x] Cover `6n+1` LLM tails and split similarity work into bounded chunks above 2,000 embedded pages.
+- [x] Invalidate sweep state after settings changes, contain timer failures, validate runtime request types, and reset client state on Space changes.
+- [x] Index then enqueue after Page, ChangeSet revert, and Obsidian finalize lifecycle mutations.
+- [x] Apply all 35 migrations to disposable PostgreSQL and run runtime DB gates with zero skips.

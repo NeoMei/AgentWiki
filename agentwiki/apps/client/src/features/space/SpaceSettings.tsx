@@ -19,13 +19,34 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [settings, setSettings] = useState<GraphSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => {
+    let active = true;
+    setSettings(null);
+    setLoading(true);
+    setLoadError(false);
+    setMessage('');
     api.get(`/spaces/${spaceId}/graph/settings`)
-      .then((response) => setSettings(response.data))
-      .catch(() => setSettings(null));
-  }, [spaceId]);
+      .then((response) => {
+        if (active) setSettings(response.data);
+      })
+      .catch(() => {
+        if (active) {
+          setSettings(null);
+          setLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [spaceId, reloadKey]);
   const patch = async (update: Partial<GraphSettings>) => {
     if (!settings || busy) return;
     setBusy(true);
@@ -54,7 +75,25 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
       setBusy(false);
     }
   };
-  if (!settings) return null;
+  if (!settings) return (
+    <section className='border rounded-[14px] bg-white p-5 mt-5'>
+      <h2 className='font-semibold'>{zh ? '知识图谱自动生成' : 'Auto knowledge graph'}</h2>
+      {loading ? (
+        <p className='mt-3 text-sm text-gray-500'>{zh ? '正在加载图谱设置…' : 'Loading graph settings…'}</p>
+      ) : loadError ? (
+        <div className='mt-3 flex items-center gap-3'>
+          <p className='text-sm text-red-600'>{zh ? '图谱设置加载失败' : 'Failed to load graph settings'}</p>
+          <button
+            type='button'
+            onClick={() => setReloadKey((value) => value + 1)}
+            className='text-sm text-blue-600 hover:underline'
+          >
+            {zh ? '重试' : 'Retry'}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
   const toggles: Array<{ key: keyof GraphSettings; label: string; hint: string }> = [
     { key: 'wikilinkEnabled', label: zh ? 'Wiki 链接提取' : 'Wiki-link extraction', hint: zh ? '从 [[页面]] 链接自动生成关系' : 'Generate relations from [[page]] links' },
     { key: 'similarEnabled', label: zh ? '相似度建议' : 'Similarity suggestions', hint: zh ? '基于向量相似度生成 similar_to 关系' : 'Create similar_to edges from embedding similarity' },

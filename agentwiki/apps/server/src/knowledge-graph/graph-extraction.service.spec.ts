@@ -44,12 +44,24 @@ describe('GraphExtractionService', () => {
       ];
       const links = [
         { sourcePageId: 'x', target: 'Missing' },
-        { sourcePageId: 'x', target: 'Same' },
-        { sourcePageId: 'a1', target: 'same' },
+        { sourcePageId: 'x', target: 'SAME' },
+        { sourcePageId: 'a1', target: 'Same' },
       ];
       const result = service.resolveWikiLinks(ambiguousPages, links);
       expect(result.resolved).toEqual([]);
       expect(result.dangling).toBe(3);
+    });
+
+    it('prefers a unique exact title over an ambiguous case-insensitive match', () => {
+      const result = service.resolveWikiLinks([
+        { id: 'a1', title: 'Same', slug: 'same-1' },
+        { id: 'a2', title: 'same', slug: 'same-2' },
+      ], [{ sourcePageId: 'source', target: 'Same' }]);
+
+      expect(result).toEqual({
+        resolved: [{ sourcePageId: 'source', targetPageId: 'a1' }],
+        dangling: 0,
+      });
     });
   });
 
@@ -73,6 +85,30 @@ describe('GraphExtractionService', () => {
         { id: 'b', embedding: null },
       ];
       expect(service.computeSimilarPairs(pages, 0.5)).toEqual([]);
+    });
+
+    it('returns the same ordered pairs regardless of database row order', () => {
+      const pages = [
+        { id: 'c', embedding: [1, 0] },
+        { id: 'a', embedding: [1, 0] },
+        { id: 'b', embedding: [1, 0] },
+      ];
+
+      expect(service.computeSimilarPairs(pages, 0.9)).toEqual(
+        service.computeSimilarPairs([...pages].reverse(), 0.9),
+      );
+    });
+
+    it('splits similarity work into bounded source chunks above 2000 pages', () => {
+      const pages = Array.from({ length: 2001 }, (_, index) => ({
+        id: `p-${String(index).padStart(4, '0')}`,
+        embedding: [1],
+      }));
+
+      const chunks = [...service.computeSimilarPairChunks(pages, 2)];
+
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(chunks.every((chunk) => chunk.length === 0)).toBe(true);
     });
   });
 });

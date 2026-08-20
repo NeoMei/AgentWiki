@@ -5,9 +5,10 @@ import { DatabaseModule } from '../../database/database.module';
 import { SearchModule } from '../search/search.module';
 import { AuthModule } from '../auth/auth.module';
 import { ReviewModule } from '../../review/review.module';
+import { KnowledgeGraphModule } from '../../knowledge-graph/knowledge-graph.module';
 
 @Module({
-  imports: [DatabaseModule, SearchModule, AuthModule, ReviewModule],
+  imports: [DatabaseModule, SearchModule, AuthModule, ReviewModule, KnowledgeGraphModule],
   controllers: [PageController],
   providers: [PageService],
   exports: [PageService],

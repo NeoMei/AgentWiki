@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { KnowledgeGraphController } from './knowledge-graph.controller';
 
 describe('KnowledgeGraphController', () => {
@@ -23,7 +24,18 @@ describe('KnowledgeGraphController', () => {
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
       request.user, 'space-1', ['owner', 'admin'],
     );
-    expect(graph.refresh).toHaveBeenCalledWith('space-1', ['wikilink']);
+    expect(graph.refresh).toHaveBeenCalledWith('space-1', ['wikilink'], 'user-1');
+  });
+
+  it('rejects unknown refresh layers', async () => {
+    await expect(controller.refresh(request, 'space-1', { layers: ['unknown' as any] }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(graph.refresh).not.toHaveBeenCalledWith('space-1', ['unknown'], 'user-1');
+  });
+
+  it('rejects a non-object refresh body', async () => {
+    await expect(controller.refresh(request, 'space-1', null as any))
+      .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('settings read allows viewers and write requires owner/admin', async () => {
@@ -38,5 +50,18 @@ describe('KnowledgeGraphController', () => {
     expect(graph.updateSettings).toHaveBeenCalledWith('space-1', {
       wikilinkEnabled: true, similarEnabled: true, similarThreshold: 0.8, llmEnabled: false,
     });
+  });
+
+  it('returns a 400 error for an invalid similarity threshold', async () => {
+    await expect(controller.updateSettings(request, 'space-1', { similarThreshold: 1.1 }))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns a 400 error for non-boolean graph toggles', async () => {
+    await expect(controller.updateSettings(request, 'space-1', { llmEnabled: 'true' as any }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(graph.updateSettings).not.toHaveBeenCalledWith(
+      'space-1', expect.objectContaining({ llmEnabled: 'true' }),
+    );
   });
 });

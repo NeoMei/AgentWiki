@@ -5,6 +5,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
+import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 
 const mockPrisma = {
   space: {
@@ -49,6 +50,10 @@ const mockSyncPaths = {
   allocate: jest.fn(),
 };
 
+const mockGraphMaintenance = {
+  enqueue: jest.fn(),
+};
+
 describe('PageService', () => {
   let service: PageService;
 
@@ -66,7 +71,7 @@ describe('PageService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
-        { provide: ReadableSyncPathService, useValue: mockSyncPaths },
+        { provide: GraphMaintenance, useValue: mockGraphMaintenance },
       ],
     }).compile();
 
@@ -84,6 +89,9 @@ describe('PageService', () => {
       mockPrisma.page.create.mockResolvedValue({ id: '1', ...dto });
       const result = await service.create(dto as any, 'user-1');
       expect(result.id).toBe('1');
+      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+      expect(mockSearch.indexPage.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
     });
 
     it('creates a web page at its allocated title path', async () => {
@@ -190,6 +198,40 @@ describe('PageService', () => {
         data: expect.objectContaining({ title: 'Original', content: 'Original content' }),
       }));
       expect(mockSearch.indexPage).toHaveBeenCalledWith('page-1');
+      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+      expect(mockSearch.indexPage.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
+    });
+
+    it('still enqueues the committed page change when indexing fails', async () => {
+      const updated = { ...original, title: 'Updated', updatedAt: new Date('2026-07-27T08:01:00.000Z') };
+      mockPrisma.page.findUnique.mockResolvedValueOnce(original).mockResolvedValueOnce(updated);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
+      mockSearch.indexPage.mockRejectedValueOnce(new Error('search offline'));
+
+      await expect(service.update('page-1', {
+        title: 'Updated',
+        expectedUpdatedAt: original.updatedAt.toISOString(),
+      } as any, 'user-1')).rejects.toThrow('search offline');
+
+      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+    });
+  });
+
+  describe('remove', () => {
+    it('enqueues a graph refresh after archiving a page', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'page-1', spaceId: 'space-1', authorId: 'user-1',
+      } as any);
+      mockPrisma.page.update.mockResolvedValue({
+        id: 'page-1', spaceId: 'space-1', authorId: 'user-1', knowledgeKey: 'key-1', syncPath: 'pages/p-1.md',
+      });
+
+      await service.remove('page-1');
+
+      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+      expect(mockSearch.deletePageIndex.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
     });
 
     it('renames a title within its current directory and stores the old path in PageVersion', async () => {
@@ -909,7 +951,7 @@ describe('page ordering', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
-        { provide: ReadableSyncPathService, useValue: mockSyncPaths },
+        { provide: GraphMaintenance, useValue: mockGraphMaintenance },
       ],
     }).compile();
     service = module.get<PageService>(PageService);

@@ -36,20 +36,30 @@ export class GraphExtractionService {
     const byExact = new Map<string, string>();
     const byLower = new Map<string, string>();
     const bySlug = new Map<string, string>();
-    const ambiguous = new Set<string>();
+    const ambiguousExact = new Set<string>();
+    const ambiguousLower = new Set<string>();
+    const ambiguousSlug = new Set<string>();
     for (const page of pages) {
-      if (byExact.has(page.title)) ambiguous.add(page.title);
+      if (byExact.has(page.title)) ambiguousExact.add(page.title);
       byExact.set(page.title, page.id);
       const lower = page.title.toLowerCase();
-      if (byLower.has(lower)) ambiguous.add(lower);
+      if (byLower.has(lower)) ambiguousLower.add(lower);
       byLower.set(lower, page.id);
-      if (bySlug.has(page.slug)) ambiguous.add(page.slug);
+      if (bySlug.has(page.slug)) ambiguousSlug.add(page.slug);
       bySlug.set(page.slug, page.id);
     }
     const resolved: ResolvedPair[] = [];
     let dangling = 0;
     for (const link of links) {
-      const targetId = this.resolveTarget(link.target, byExact, byLower, bySlug, ambiguous);
+      const targetId = this.resolveTarget(
+        link.target,
+        byExact,
+        byLower,
+        bySlug,
+        ambiguousExact,
+        ambiguousLower,
+        ambiguousSlug,
+      );
       if (!targetId || targetId === link.sourcePageId) {
         dangling += 1;
         continue;
@@ -64,16 +74,18 @@ export class GraphExtractionService {
     byExact: Map<string, string>,
     byLower: Map<string, string>,
     bySlug: Map<string, string>,
-    ambiguous: Set<string>,
+    ambiguousExact: Set<string>,
+    ambiguousLower: Set<string>,
+    ambiguousSlug: Set<string>,
   ): string | null {
     const exact = byExact.get(target);
-    if (exact && !ambiguous.has(target) && !ambiguous.has(target.toLowerCase())) return exact;
+    if (exact && !ambiguousExact.has(target)) return exact;
     const lower = target.toLowerCase();
     const lowered = byLower.get(lower);
-    if (lowered && !ambiguous.has(lower)) return lowered;
+    if (lowered && !ambiguousLower.has(lower)) return lowered;
     const slug = lower.replace(/\s+/g, '-');
     const slugged = bySlug.get(slug);
-    if (slugged && !ambiguous.has(slug)) return slugged;
+    if (slugged && !ambiguousSlug.has(slug)) return slugged;
     return null;
   }
 
@@ -95,21 +107,31 @@ export class GraphExtractionService {
     pages: Array<{ id: string; embedding: number[] | null }>,
     threshold: number,
   ): SimilarPair[] {
-    const withEmbeddings = pages.filter((page): page is { id: string; embedding: number[] } =>
-      Array.isArray(page.embedding) && page.embedding.length > 0);
-    const pairs: SimilarPair[] = [];
-    for (let i = 0; i < withEmbeddings.length; i += 1) {
-      for (let j = i + 1; j < withEmbeddings.length; j += 1) {
-        const left = withEmbeddings[i];
-        const right = withEmbeddings[j];
-        const score = this.cosineSimilarity(left.embedding, right.embedding);
-        if (score < threshold) continue;
-        const [sourcePageId, targetPageId] = left.id < right.id
-          ? [left.id, right.id]
-          : [right.id, left.id];
-        pairs.push({ sourcePageId, targetPageId, score });
+    return [...this.computeSimilarPairChunks(pages, threshold)].flat();
+  }
+
+  *computeSimilarPairChunks(
+    pages: Array<{ id: string; embedding: number[] | null }>,
+    threshold: number,
+  ): Generator<SimilarPair[]> {
+    const withEmbeddings = pages
+      .filter((page): page is { id: string; embedding: number[] } =>
+        Array.isArray(page.embedding) && page.embedding.length > 0)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const sourceChunkSize = withEmbeddings.length > 2_000 ? 128 : Math.max(withEmbeddings.length, 1);
+    for (let start = 0; start < withEmbeddings.length; start += sourceChunkSize) {
+      const pairs: SimilarPair[] = [];
+      const end = Math.min(start + sourceChunkSize, withEmbeddings.length);
+      for (let i = start; i < end; i += 1) {
+        for (let j = i + 1; j < withEmbeddings.length; j += 1) {
+          const left = withEmbeddings[i];
+          const right = withEmbeddings[j];
+          const score = this.cosineSimilarity(left.embedding, right.embedding);
+          if (score < threshold) continue;
+          pairs.push({ sourcePageId: left.id, targetPageId: right.id, score });
+        }
       }
+      yield pairs;
     }
-    return pairs;
   }
 }

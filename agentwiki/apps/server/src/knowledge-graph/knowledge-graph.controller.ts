@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
 import { AuthorizationService } from '../core/authorization/authorization.service';
@@ -15,7 +15,17 @@ export class KnowledgeGraphController {
   @Post('spaces/:id/graph/refresh')
   async refresh(@Req() req: Request, @Param('id') id: string, @Body() body: { layers?: GraphLayer[] }) {
     await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin']);
-    return this.graph.refresh(id, body?.layers);
+    if (body === null || (body !== undefined && (typeof body !== 'object' || Array.isArray(body)))) {
+      throw new BadRequestException('body must be an object');
+    }
+    const layers = body?.layers;
+    if (layers !== undefined && (
+      !Array.isArray(layers)
+      || layers.some((layer) => !['wikilink', 'similar', 'llm'].includes(layer))
+    )) {
+      throw new BadRequestException('layers must contain only wikilink, similar, or llm');
+    }
+    return this.graph.refresh(id, layers, (req.user as any).userId);
   }
 
   @Get('spaces/:id/graph/settings')
@@ -43,10 +53,22 @@ export class KnowledgeGraphController {
     },
   ) {
     await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin']);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('body must be an object');
+    }
+    const allowed = new Set(['wikilinkEnabled', 'similarEnabled', 'similarThreshold', 'llmEnabled']);
+    if (Object.keys(body).some((key) => !allowed.has(key))) {
+      throw new BadRequestException('body contains unknown graph settings');
+    }
+    for (const key of ['wikilinkEnabled', 'similarEnabled', 'llmEnabled'] as const) {
+      if (body[key] !== undefined && typeof body[key] !== 'boolean') {
+        throw new BadRequestException(`${key} must be a boolean`);
+      }
+    }
     const current = await this.graph.getOrCreateState(id);
     if (body.similarThreshold !== undefined
       && (!Number.isFinite(body.similarThreshold) || body.similarThreshold < 0.5 || body.similarThreshold > 1)) {
-      throw new Error('similarThreshold must be between 0.5 and 1');
+      throw new BadRequestException('similarThreshold must be between 0.5 and 1');
     }
     const updated = await this.graph.updateSettings(id, {
       wikilinkEnabled: body.wikilinkEnabled ?? current.wikilinkEnabled,
