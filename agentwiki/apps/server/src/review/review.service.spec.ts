@@ -821,7 +821,7 @@ describe('ReviewService readable page paths', () => {
     indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
   } as any;
   const revisionWriter = {
-    lockSpace: jest.fn().mockResolvedValue(undefined),
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
   const syncPaths = {
@@ -1202,7 +1202,7 @@ describe('ReviewService page revert ordering and audit', () => {
     indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
   } as any;
   const revisionWriter = {
-    lockSpace: jest.fn().mockResolvedValue(undefined),
+    lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
   const service = new ReviewService(

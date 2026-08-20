@@ -109,7 +109,7 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.doesNotMatch(backfill, /prisma\.page\.findMany/);
   assert.doesNotMatch(backfill, /prisma\.spaceKnowledgeRevision\.findMany/);
   assert.doesNotMatch(backfill, /syncPath:\s*null/);
-  assert.match(backfill, /prisma\.\$queryRawUnsafe/);
+  assert.match(backfill, /tx\.\$queryRawUnsafe/);
   assert.match(backfill, /tx\.\$executeRawUnsafe/);
   assert.doesNotMatch(backfill, /const revisionContentHash\s*=/);
   assert.match(backfill, /const computedRevisionContentHash\s*=/);
@@ -119,6 +119,52 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.match(backfill, /space\.findMany\(\{\s*select:\s*\{\s*id:\s*true\s*\}\s*\}\)/);
   assert.match(backfill, /FROM "Page"/);
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
+});
+
+test('the sync v1 backfill holds the shared Space lock for its mutation window', async () => {
+  const events = [];
+  const unlockedClient = {
+    $queryRawUnsafe: async (sql) => {
+      events.push(sql.includes('FROM "Page"') ? 'unlocked-pages' : 'unlocked-revisions');
+      return [];
+    },
+    $transaction: async (callback) => {
+      events.push('transaction');
+      const tx = {
+        $executeRawUnsafe: async (sql) => {
+          assert.match(sql, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
+          events.push('lock');
+        },
+        $queryRawUnsafe: async (sql) => {
+          events.push(sql.includes('FROM "Page"') ? 'pages' : 'revisions');
+          return [];
+        },
+      };
+      return callback(tx);
+    },
+  };
+  const { backfillSpace } = await import('./backfill-sync-v1.mjs');
+
+  await backfillSpace(unlockedClient, 'space-lock-contract', 'batch-lock-contract');
+
+  assert.deepEqual(events, ['transaction', 'lock', 'pages', 'revisions']);
+});
+
+test('the readable allocator is lock-branded at all six production call sites', async () => {
+  const [allocator, writer, page, review, migration] = await Promise.all([
+    read('apps/server/src/core/sync/readable-sync-path.service.ts'),
+    read('apps/server/src/core/sync/space-revision-writer.service.ts'),
+    read('apps/server/src/core/page/page.service.ts'),
+    read('apps/server/src/review/review.service.ts'),
+    read('scripts/migrate-readable-sync-paths.mjs'),
+  ]);
+
+  assert.match(allocator, /export type SpaceLockedTransaction/);
+  assert.match(allocator, /tx: SpaceLockedTransaction/);
+  assert.match(writer, /Promise<SpaceLockedTransaction>/);
+  assert.equal(page.match(/syncPaths\.allocate\(lockedTx,/g)?.length, 3);
+  assert.equal(review.match(/syncPaths\.allocate\(lockedTx!?,/g)?.length, 2);
+  assert.equal(migration.match(/allocator\.allocate\(lockedTx,/g)?.length, 1);
 });
 
 test('a ChangeSet can own both publication and compensation revisions', async () => {

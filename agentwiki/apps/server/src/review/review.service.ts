@@ -204,9 +204,9 @@ export class ReviewService {
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
       const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
       const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
-      if (pageItems.length > 0) {
-        await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
-      }
+      const lockedTx = pageItems.length > 0
+        ? await this.revisionWriter.lockSpace(tx, changeSet.spaceId)
+        : null;
 
       for (const item of pageItems) {
         const payload = item.payload as any;
@@ -215,7 +215,7 @@ export class ReviewService {
           if (payload.parentId) await this.assertValidParent(tx, changeSet.spaceId, payload.parentId);
           const knowledgeKey = payload.knowledgeKey || randomUUID();
           const sourceSyncPath = this.validateSourceSyncPath(payload.sourcePath);
-          const createdSyncPath = sourceSyncPath ?? await this.syncPaths.allocate(tx, {
+          const createdSyncPath = sourceSyncPath ?? await this.syncPaths.allocate(lockedTx!, {
             spaceId: changeSet.spaceId,
             directory: 'pages',
             title: payload.title,
@@ -267,7 +267,7 @@ export class ReviewService {
           if (changes.parentId !== undefined) await this.assertValidParent(tx, changeSet.spaceId, changes.parentId, page.id);
           const allocatedPath = changes.title !== undefined
             && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
-            ? await this.syncPaths.allocate(tx, {
+            ? await this.syncPaths.allocate(lockedTx!, {
                 spaceId: changeSet.spaceId,
                 directory: syncPathDirectory(page.syncPath),
                 title: changes.title,

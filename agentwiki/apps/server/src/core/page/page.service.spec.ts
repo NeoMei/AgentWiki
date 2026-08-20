@@ -41,7 +41,7 @@ const mockSearch = {
 
 const mockRevisionWriter = {
   advance: jest.fn().mockResolvedValue({}),
-  lockSpace: jest.fn().mockResolvedValue(undefined),
+  lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
 };
 
 const mockSyncPaths = {

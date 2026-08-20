@@ -84,9 +84,9 @@ export class PageService {
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
-      await this.revisionWriter.lockSpace(tx, data.spaceId);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
       const knowledgeKey = randomUUID();
-      const allocatedPath = await this.syncPaths.allocate(tx, {
+      const allocatedPath = await this.syncPaths.allocate(lockedTx, {
         spaceId: data.spaceId,
         directory: 'pages',
         title: data.title,
@@ -346,12 +346,12 @@ export class PageService {
         },
       });
       if (!page) throw new NotFoundException('Page not found');
-      await this.revisionWriter.lockSpace(tx, page.spaceId);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, page.spaceId);
       if (changes.parentId !== undefined) await this.assertValidParent(page.spaceId, changes.parentId, id, tx);
 
       const allocatedPath = changes.title !== undefined
         && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
-        ? await this.syncPaths.allocate(tx, {
+        ? await this.syncPaths.allocate(lockedTx, {
             spaceId: page.spaceId,
             directory: syncPathDirectory(page.syncPath),
             title: changes.title,
@@ -436,7 +436,7 @@ export class PageService {
     const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
-      await this.revisionWriter.lockSpace(tx, visiblePage.spaceId);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, visiblePage.spaceId);
       const version = await tx.pageVersion.findFirst({
         where: { id: versionId, pageId },
       });
@@ -446,7 +446,7 @@ export class PageService {
       });
       if (!page) throw new NotFoundException('Page not found');
       const restoredPath = safeMarkdownBasename(version.title) !== safeMarkdownBasename(page.title)
-        ? await this.syncPaths.allocate(tx, {
+        ? await this.syncPaths.allocate(lockedTx, {
             spaceId: page.spaceId,
             directory: syncPathDirectory(page.syncPath),
             title: version.title,

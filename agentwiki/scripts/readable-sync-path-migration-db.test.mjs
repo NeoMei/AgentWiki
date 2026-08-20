@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -252,6 +252,75 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
       );
       assert.equal(await prisma.pageVersion.count({ where: { migrationBatchId: rollbackBatch } }), 0);
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: rollback.spaceId } }), 0);
+    } finally {
+      await prisma.$disconnect();
+    }
+  } finally {
+    runPsql(`DROP SCHEMA IF EXISTS ${quoted} CASCADE`);
+  }
+});
+
+test('web create and readable migration serialize same-title allocation through the shared Space lock', { skip }, async () => {
+  const schema = `readable_paths_concurrency_${randomUUID().replaceAll('-', '')}`;
+  const quoted = `"${schema}"`;
+  try {
+    const url = deploySchema(schema);
+    const prisma = loadPrisma(url);
+    try {
+      const seeded = await seedSpace(prisma, {
+        name: 'ConcurrentReadable',
+        pages: [{
+          knowledgeKey: 'migration-page',
+          title: '标题',
+          syncPath: opaquePath('f'),
+          content: 'migration body',
+        }],
+      });
+      const [
+        { PageService },
+        { ReadableSyncPathService },
+        { SpaceRevisionWriterService },
+      ] = await Promise.all([
+        import(pathToFileURL(resolve(root, 'apps/server/dist/core/page/page.service.js')).href),
+        import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/readable-sync-path.service.js')).href),
+        import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/space-revision-writer.service.js')).href),
+      ]);
+      const writer = new SpaceRevisionWriterService(prisma);
+      const allocator = new ReadableSyncPathService();
+      const pageService = new PageService(
+        prisma,
+        { indexPage: async () => ({ lexicalIndexed: true, semanticIndexed: false }) },
+        writer,
+        allocator,
+      );
+      const batchId = `readable-sync-path-v1:${seeded.spaceId}`;
+      const { migrateReadablePathsForSpace } = await import('./migrate-readable-sync-paths.mjs');
+
+      const outcomes = await Promise.allSettled([
+        pageService.create({ spaceId: seeded.spaceId, title: '标题', content: 'web body' }, seeded.userId),
+        migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId),
+      ]);
+
+      assert.equal(
+        outcomes.filter((outcome) => outcome.status === 'fulfilled').length,
+        2,
+        outcomes.map((outcome) => outcome.status === 'rejected'
+          ? `${outcome.reason?.code ?? 'unknown'}:${outcome.reason?.message ?? outcome.reason}`
+          : 'fulfilled').join('\n'),
+      );
+      assert.equal(
+        outcomes.some((outcome) => outcome.status === 'rejected' && outcome.reason?.code === 'P2002'),
+        false,
+      );
+      const pages = await prisma.page.findMany({
+        where: { spaceId: seeded.spaceId },
+        select: { syncPath: true, syncPathKey: true },
+      });
+      assert.deepEqual(
+        new Set(pages.map((page) => page.syncPath)),
+        new Set(['pages/标题.md', 'pages/标题 (2).md']),
+      );
+      assert.equal(new Set(pages.map((page) => page.syncPathKey)).size, 2);
     } finally {
       await prisma.$disconnect();
     }

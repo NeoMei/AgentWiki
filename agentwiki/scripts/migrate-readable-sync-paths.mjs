@@ -29,7 +29,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
   const allocator = new ReadableSyncPathService();
 
   return prisma.$transaction(async (tx) => {
-    await writer.lockSpace(tx, spaceId);
+    const lockedTx = await writer.lockSpace(tx, spaceId);
     const persistedPages = await tx.page.findMany({
       where: { spaceId },
       orderBy: { knowledgeKey: 'asc' },
@@ -52,7 +52,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
       // Keep the current opaque key occupied. A title that is itself exactly
       // `p-<64 hex>` must move to `(2).md`; otherwise the next run would match
       // the unchanged opaque-looking path and violate idempotency.
-      const allocated = await allocator.allocate(tx, {
+      const allocated = await allocator.allocate(lockedTx, {
         spaceId,
         directory: 'pages',
         title: page.title,

@@ -69,55 +69,61 @@ export async function normalizePageBody(body) {
 }
 
 export async function backfillSpace(prisma, spaceId, batchId) {
-  await migratePages(prisma, spaceId, batchId);
-  // Release A deliberately leaves the new fields nullable, while the generated
-  // Prisma Client reflects the final Release B schema. Raw parameterized reads
-  // avoid Prisma's non-null model decoder until backfill has populated them.
-  const revisions = await prisma.$queryRawUnsafe(
-    `SELECT "id", "migrationBatchId", "revisionContentHash", "snapshot", "origin"
-       FROM "SpaceKnowledgeRevision"
-      WHERE "spaceId" = $1
-      ORDER BY "sequence" ASC`,
-    spaceId,
-  );
-  for (const revision of revisions) {
-    const occupiedKeys = new Set();
-    if (revision.revisionContentHash) {
-      continue; // already completed by this or an earlier resumable batch
-    }
-    const snapshot = revision.snapshot ?? null;
-    const legacyPages = await legacyPageRowsFromSnapshot(snapshot, revision.id);
-    const normalizedPages = [];
-    for (const page of legacyPages) {
-      const rawBody = page.body;
-      const body = await normalizePageBody(rawBody);
-      const hash = await contentHash(body);
-      const { path, key } = await deriveSyncPath(page.pageId, page.path, spaceId, occupiedKeys);
-      normalizedPages.push({
-        pageId: page.pageId,
-        path,
-        pathKey: key,
-        title: page.title,
-        contentHash: hash,
-        body,
-        rawBody,
-        updatedAt: page.updatedAt,
-        ordinal: page.ordinal,
-        extra: {
-          spaceId,
+  return prisma.$transaction(async (tx) => {
+    // Match every online Page/revision writer: candidate reads and Page writes
+    // for this Space remain inside one transaction-scoped advisory lock.
+    await tx.$executeRawUnsafe(
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      spaceId,
+    );
+    await migratePages(tx, spaceId, batchId);
+    // Release A deliberately leaves the new fields nullable, while the generated
+    // Prisma Client reflects the final Release B schema. Raw parameterized reads
+    // avoid Prisma's non-null model decoder until backfill has populated them.
+    const revisions = await tx.$queryRawUnsafe(
+      `SELECT "id", "migrationBatchId", "revisionContentHash", "snapshot", "origin"
+         FROM "SpaceKnowledgeRevision"
+        WHERE "spaceId" = $1
+        ORDER BY "sequence" ASC`,
+      spaceId,
+    );
+    for (const revision of revisions) {
+      const occupiedKeys = new Set();
+      if (revision.revisionContentHash) {
+        continue; // already completed by this or an earlier resumable batch
+      }
+      const snapshot = revision.snapshot ?? null;
+      const legacyPages = await legacyPageRowsFromSnapshot(snapshot, revision.id);
+      const normalizedPages = [];
+      for (const page of legacyPages) {
+        const rawBody = page.body;
+        const body = await normalizePageBody(rawBody);
+        const hash = await contentHash(body);
+        const { path, key } = await deriveSyncPath(page.pageId, page.path, spaceId, occupiedKeys);
+        normalizedPages.push({
+          pageId: page.pageId,
+          path,
+          pathKey: key,
           title: page.title,
-          order: page.order,
-          metadata: page.metadata,
-          artifactIds: page.artifactIds,
-          legacyBodyHash: page.legacyBodyHash,
-          contentHash: page.legacyBodyHash,
-          path: page.path,
+          contentHash: hash,
+          body,
+          rawBody,
           updatedAt: page.updatedAt,
-        },
-      });
-    }
+          ordinal: page.ordinal,
+          extra: {
+            spaceId,
+            title: page.title,
+            order: page.order,
+            metadata: page.metadata,
+            artifactIds: page.artifactIds,
+            legacyBodyHash: page.legacyBodyHash,
+            contentHash: page.legacyBodyHash,
+            path: page.path,
+            updatedAt: page.updatedAt,
+          },
+        });
+      }
 
-    await prisma.$transaction(async (tx) => {
       for (const page of normalizedPages) {
         await tx.syncPageContentRow.upsert({
           where: { contentHash: page.contentHash },
@@ -201,12 +207,12 @@ export async function backfillSpace(prisma, spaceId, batchId) {
           origin: revision.origin ?? 'migration',
         },
       });
-    });
-  }
+    }
+  }, { maxWait: 10_000, timeout: 30 * 60_000 });
 }
 
-export async function migratePages(prisma, spaceId, batchId) {
-  const pages = await prisma.$queryRawUnsafe(
+export async function migratePages(tx, spaceId, batchId) {
+  const pages = await tx.$queryRawUnsafe(
     `SELECT "id", "knowledgeKey", "title", "content", "format", "slug",
             "parentId", "authorId", "sourcePath", "syncPath", "syncPathKey"
        FROM "Page"
@@ -230,35 +236,33 @@ export async function migratePages(prisma, spaceId, batchId) {
     const derived = await deriveSyncPath(page.knowledgeKey, page.sourcePath, spaceId, occupiedKeys);
     prechecked.push({ page, normalizedBody, derived, rawBody });
   }
-  // All preflight checks passed for the whole space; now apply atomically per page.
+  // All preflight checks passed for the whole Space-locked transaction.
   for (const { page, normalizedBody, derived, rawBody } of prechecked) {
-    await prisma.$transaction(async (tx) => {
-      const existingVersion = await tx.pageVersion.findFirst({
-        where: { pageId: page.id, migrationBatchId: batchId },
-      });
-      if (!existingVersion) {
-        await tx.pageVersion.create({
-          data: {
-            pageId: page.id,
-            title: page.title,
-            content: rawBody,
-            authorId: page.authorId,
-            slug: page.slug,
-            format: page.format,
-            parentId: page.parentId,
-            migrationBatchId: batchId,
-          },
-        });
-      }
-      await tx.page.update({
-        where: { id: page.id },
+    const existingVersion = await tx.pageVersion.findFirst({
+      where: { pageId: page.id, migrationBatchId: batchId },
+    });
+    if (!existingVersion) {
+      await tx.pageVersion.create({
         data: {
-          content: normalizedBody,
-          format: 'markdown',
-          syncPath: derived.path,
-          syncPathKey: derived.key,
+          pageId: page.id,
+          title: page.title,
+          content: rawBody,
+          authorId: page.authorId,
+          slug: page.slug,
+          format: page.format,
+          parentId: page.parentId,
+          migrationBatchId: batchId,
         },
       });
+    }
+    await tx.page.update({
+      where: { id: page.id },
+      data: {
+        content: normalizedBody,
+        format: 'markdown',
+        syncPath: derived.path,
+        syncPathKey: derived.key,
+      },
     });
   }
 }

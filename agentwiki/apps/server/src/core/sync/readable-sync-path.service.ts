@@ -9,6 +9,15 @@ const fallbackBasename = '未命名文章';
 const forbiddenCharacter = /[\p{Cc}<>:"/\\|?*]/u;
 const reservedDeviceName = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])$/iu;
 const maxBasenameBytes = 255 - encoder.encode(' (2).md').byteLength;
+declare const spaceAdvisoryLock: unique symbol;
+
+/**
+ * A Prisma transaction after it acquired the shared transaction-scoped Space
+ * advisory lock. Only SpaceRevisionWriterService.lockSpace() may brand one.
+ */
+export type SpaceLockedTransaction = Prisma.TransactionClient & {
+  readonly [spaceAdvisoryLock]: true;
+};
 
 export interface ReadableSyncPathInput {
   spaceId: string;
@@ -49,8 +58,13 @@ export function syncPathDirectory(syncPath: string): string {
 
 @Injectable()
 export class ReadableSyncPathService {
+  /**
+   * Selects the first currently free candidate; it does not reserve or retry
+   * the path. The caller must write through the same Space-locked transaction.
+   * UNIQUE(spaceId, syncPathKey) remains the final database invariant.
+   */
   async allocate(
-    tx: Prisma.TransactionClient,
+    tx: SpaceLockedTransaction,
     input: ReadableSyncPathInput,
     occupiedPathKeys?: ReadonlySet<string>,
   ): Promise<{ path: string; pathKey: string }> {
