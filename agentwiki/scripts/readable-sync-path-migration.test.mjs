@@ -238,6 +238,27 @@ test('CLI aggregation counts only revisions created by mixed migration results',
     migrated: 2,
     revisions: 1,
     spaces: 3,
-    output: 'Migrated 2 page paths across 3 spaces (1 revisions)',
+    output: 'Migrated 2 page paths across 3 spaces (1 revision)',
+  });
+});
+
+test('CLI aggregation uses singular nouns for singular counts', async () => {
+  const { migrateReadablePathsForSpaces } = await import('./migrate-readable-sync-paths.mjs');
+  const prisma = {
+    space: {
+      findMany: async () => [{ id: 'only-space' }],
+    },
+  };
+
+  const summary = await migrateReadablePathsForSpaces(
+    prisma,
+    async () => ({ migrated: 1, revisionId: 'only-revision' }),
+  );
+
+  assert.deepEqual(summary, {
+    migrated: 1,
+    revisions: 1,
+    spaces: 1,
+    output: 'Migrated 1 page path across 1 space (1 revision)',
   });
 });

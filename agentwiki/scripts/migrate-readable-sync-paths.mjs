@@ -5,6 +5,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const opaquePagePath = /^pages\/p-[0-9a-f]{64}\.md$/u;
 
+function counted(count, singular) {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
 async function loadServices() {
   const [{ SpaceRevisionWriterService }, { ReadableSyncPathService }] = await Promise.all([
     import(pathToFileURL(resolve(
@@ -151,7 +155,7 @@ export async function migrateReadablePathsForSpaces(
     migrated += result.migrated;
     if (result.migrated > 0 && result.revisionId) revisions += 1;
   }
-  const output = `Migrated ${migrated} page paths across ${spaces.length} spaces (${revisions} revisions)`;
+  const output = `Migrated ${counted(migrated, 'page path')} across ${counted(spaces.length, 'space')} (${counted(revisions, 'revision')})`;
   return {
     migrated,
     revisions,
