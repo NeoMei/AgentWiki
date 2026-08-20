@@ -217,23 +217,6 @@ describe('PageService', () => {
 
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
     });
-  });
-
-  describe('remove', () => {
-    it('enqueues a graph refresh after archiving a page', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({
-        id: 'page-1', spaceId: 'space-1', authorId: 'user-1',
-      } as any);
-      mockPrisma.page.update.mockResolvedValue({
-        id: 'page-1', spaceId: 'space-1', authorId: 'user-1', knowledgeKey: 'key-1', syncPath: 'pages/p-1.md',
-      });
-
-      await service.remove('page-1');
-
-      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
-      expect(mockSearch.deletePageIndex.mock.invocationCallOrder[0])
-        .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
-    });
 
     it('renames a title within its current directory and stores the old path in PageVersion', async () => {
       const updated = {
@@ -432,6 +415,23 @@ describe('PageService', () => {
         [expect.objectContaining({ path: updated.syncPath })],
         expect.anything(),
       );
+    });
+  });
+
+  describe('remove', () => {
+    it('enqueues a graph refresh after archiving a page', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'page-1', spaceId: 'space-1', authorId: 'user-1',
+      } as any);
+      mockPrisma.page.update.mockResolvedValue({
+        id: 'page-1', spaceId: 'space-1', authorId: 'user-1', knowledgeKey: 'key-1', syncPath: 'pages/p-1.md',
+      });
+
+      await service.remove('page-1');
+
+      expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+      expect(mockSearch.deletePageIndex.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
     });
   });
 
