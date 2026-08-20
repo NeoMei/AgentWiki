@@ -2,7 +2,7 @@
 
 ## Result
 
-The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. The real PostgreSQL migration gate is present but **not executed** because this environment has no `DATABASE_URL`; it reported explicit skips and must still run against a disposable isolated database before release/deployment.
+The non-deployment repository gates are green on `codex/readable-sync-paths`. Unit/runtime coverage passes for the allocator and Web/ChangeSet integrations. The real PostgreSQL sync/migration gate was subsequently executed against a disposable local PostgreSQL 16 database and passed **31/31 with no skips or failures**; the temporary database was removed after verification.
 
 No production database, production service, deployment, package publication, or Obsidian marketplace state was changed.
 
@@ -59,9 +59,9 @@ Command:
 node --test scripts/readable-sync-path-migration-db.test.mjs scripts/sync-v1-*.test.mjs
 ```
 
-Result: exit 0 with **31 tests skipped, 0 passed, 0 failed**. Every skip explicitly reported `DATABASE_URL is not configured`.
+Supplementary result with `DATABASE_URL` pointing only to `agentwiki_codex_readable_sync_20260820_01`: exit 0 with **31 passed, 0 skipped, 0 failed** in 19.45 seconds. The run exercised real Prisma migrations and PostgreSQL transactions, Redis-backed HTTP flow, concurrency serialization, the 5,000-page/100 MiB bound, readable-path identity/body-hash preservation, idempotency, and forced rollback.
 
-The readable migration test is designed to deploy migrations into a random PostgreSQL schema, seed duplicate-title opaque pages and an unchanged custom path, verify Page/PageVersion/revision identity and body hashes, rerun idempotently, force a second-update failure, and assert total rollback. None of those real transaction assertions executed in this environment. Consequently, there is no isolated-database migration output to report and the release gate remains open.
+The disposable database was checked for active sessions, removed with `dropdb agentwiki_codex_readable_sync_20260820_01`, and a final `pg_database` lookup returned zero rows. No production or pre-existing application database was used.
 
 ## Behavior verified without deployment
 
@@ -85,9 +85,8 @@ The readable migration test is designed to deploy migrations into a random Postg
 
 ## Remaining release gate
 
-Before merging or deploying the migration:
+The isolated database gate is complete. Before merging or deploying the migration:
 
-1. Provide a disposable PostgreSQL `DATABASE_URL` with `psql` available.
-2. Re-run the 31 real-DB sync gates and require 31/31 pass (no skips).
-3. Capture the isolated schema migration output and confirm the schema is removed.
-4. Only then prepare a database backup/rollback plan and seek separate deployment authorization.
+1. Integrate only after resolving the dirty primary AgentWiki checkout without overwriting unrelated user changes.
+2. Prepare and verify a production database backup and rollback plan.
+3. Seek separate authorization for merge, production migration and deployment.
