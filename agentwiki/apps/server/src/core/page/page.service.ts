@@ -282,6 +282,8 @@ export class PageService {
     spaceId: string,
     items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
   ) {
+    if (items.length === 0) return this.findHierarchy(spaceId);
+
     await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
       const ids = items.map((item) => item.id);
@@ -317,11 +319,22 @@ export class PageService {
         }
       }
 
-      for (const item of items) {
-        await lockedTx.page.updateMany({
-          where: { id: item.id, spaceId },
-          data: { parentId: item.parentId, sortOrder: item.sortOrder },
-        });
+      const updatedCount = await lockedTx.$executeRaw`
+        UPDATE "Page" AS page
+        SET "parentId" = item."parentId",
+            "sortOrder" = item."sortOrder",
+            "updatedAt" = statement_timestamp()
+        FROM jsonb_to_recordset(${JSON.stringify(items)}::jsonb)
+          AS item("id" text, "parentId" text, "sortOrder" integer)
+        WHERE page."id" = item."id"
+          AND page."spaceId" = ${spaceId}
+          AND page."deletedAt" IS NULL
+      `;
+      if (updatedCount !== items.length) {
+        throw new BusinessException(
+          'RESOURCE_CONFLICT',
+          'Page hierarchy changed while it was being reordered',
+        );
       }
     });
     return this.findHierarchy(spaceId);
