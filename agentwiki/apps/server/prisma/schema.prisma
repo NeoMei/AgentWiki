@@ -529,7 +529,7 @@ model ChangeSet {
   items                   ChangeItem[]
   approvals               Approval[]
   knowledgeSubmission     KnowledgeSubmission?    @relation("ChangeSetKnowledgeSubmission")
-  knowledgeRevision       SpaceKnowledgeRevision? @relation("ChangeSetKnowledgeRevision")
+  knowledgeRevisions      SpaceKnowledgeRevision[] @relation("ChangeSetKnowledgeRevision")
   originPages             Page[]                  @relation("PageOriginChangeSet")
   changedPages            Page[]                  @relation("PageLastChangeSet")
   relations               KnowledgeRelation[]
@@ -649,7 +649,7 @@ model SpaceKnowledgeRevision {
   createdByUserId            String?
   humanDeviceCredentialId    String?
   migrationBatchId           String?
-  sourceChangeSetId          String?   @unique
+  sourceChangeSetId          String?
   createdAt                  DateTime  @default(now())
 
   space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
@@ -661,6 +661,7 @@ model SpaceKnowledgeRevision {
   @@unique([spaceId, sequence])
   @@index([spaceId, contentHash])
   @@unique([spaceId, migrationBatchId])
+  @@index([sourceChangeSetId])
   @@index([spaceId, createdAt])
 }
 

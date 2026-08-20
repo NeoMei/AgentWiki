@@ -676,13 +676,19 @@ describe('PageService', () => {
         parentId: null,
         syncPath: 'guides/Current title.md',
         syncPathKey: 'guides/current title.md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
         deletedAt: null,
       };
+      const archived = {
+        ...current,
+        updatedAt: new Date('2026-08-20T00:01:00.000Z'),
+        deletedAt: new Date('2026-08-20T00:01:00.000Z'),
+      };
       jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
-      mockPrisma.page.findUnique.mockResolvedValue(current);
-      mockPrisma.page.update.mockResolvedValue({ ...current, deletedAt: new Date() });
+      mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(archived);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.remove('page-1');
+      await expect(service.remove('page-1')).resolves.toEqual(archived);
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
@@ -705,8 +711,57 @@ describe('PageService', () => {
         },
       });
       expect(mockPrisma.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
-        mockPrisma.page.update.mock.invocationCallOrder[0],
+        mockPrisma.page.updateMany.mock.invocationCallOrder[0],
       );
+      expect(mockPrisma.page.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: current.id,
+          spaceId: current.spaceId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.page.findUnique).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        where: { id: current.id, spaceId: current.spaceId, deletedAt: { not: null } },
+      }));
+      expect(mockPrisma.page.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        mockPrisma.page.findUnique.mock.invocationCallOrder[1],
+      );
+    });
+
+    it('rejects a concurrent Page change without advancing the revision', async () => {
+      const visible = { id: 'page-1', spaceId: 'space-1' };
+      const current = {
+        id: 'page-1',
+        knowledgeKey: 'knowledge-1',
+        spaceId: 'space-1',
+        title: 'Current title',
+        content: 'Current body',
+        authorId: 'user-1',
+        slug: 'current-title',
+        format: 'markdown',
+        parentId: null,
+        syncPath: 'guides/Current title.md',
+        syncPathKey: 'guides/current title.md',
+        updatedAt: new Date('2026-08-20T00:00:00.000Z'),
+        deletedAt: null,
+      };
+      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      mockPrisma.page.findUnique.mockResolvedValueOnce(current);
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.remove('page-1')).rejects.toMatchObject({
+        statusCode: 409,
+        businessCode: 'RESOURCE_CONFLICT',
+      });
+
+      expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ updatedAt: current.updatedAt }),
+      }));
+      expect(mockRevisionWriter.advance).not.toHaveBeenCalled();
+      expect(mockPrisma.page.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockSearch.deletePageIndex).not.toHaveBeenCalled();
     });
   });
 });

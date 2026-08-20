@@ -526,6 +526,7 @@ export class PageService {
           spaceId: true,
           syncPath: true,
           syncPathKey: true,
+          updatedAt: true,
         },
       });
       if (!current) throw new NotFoundException('Page not found');
@@ -542,11 +543,25 @@ export class PageService {
           syncPathKey: current.syncPathKey,
         },
       });
-      const archived = await tx.page.update({
-        where: { id },
+      const mutation = await tx.page.updateMany({
+        where: {
+          id: current.id,
+          spaceId: current.spaceId,
+          deletedAt: null,
+          updatedAt: current.updatedAt,
+        },
         data: { deletedAt: new Date() },
+      });
+      if (mutation.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being archived');
+      }
+      const archived = await tx.page.findUnique({
+        where: { id: current.id, spaceId: current.spaceId, deletedAt: { not: null } },
         select: { ...PAGE_PUBLIC_FIELDS, knowledgeKey: true, syncPath: true },
       });
+      if (!archived) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being archived');
+      }
       await this.advanceRevision(tx, current.spaceId, [{
         operation: 'archive',
         pageId: archived.knowledgeKey,

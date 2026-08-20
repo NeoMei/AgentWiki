@@ -559,15 +559,13 @@ export class ReviewService {
       const legacySidecarOverride = needsLegacySidecar
         ? await this.buildLegacySidecar(tx, changeSet.spaceId)
         : undefined;
-      if (tx.knowledgeSubmission) {
-        const submission = await tx.knowledgeSubmission.findUnique({ where: { changeSetId: id } });
-        if (submission) {
-          const revision = await this.createKnowledgeRevision(tx, changeSet.spaceId, submission, id);
-          await tx.knowledgeSubmission.update({
-            where: { id: submission.id },
-            data: { status: 'published', appliedRevisionId: revision.id },
-          });
-        }
+      const submission = await tx.knowledgeSubmission?.findUnique({ where: { changeSetId: id } });
+      if (submission) {
+        const revision = await this.createKnowledgeRevision(tx, changeSet.spaceId, submission, id);
+        await tx.knowledgeSubmission.update({
+          where: { id: submission.id },
+          data: { status: 'published', appliedRevisionId: revision.id },
+        });
       } else if (pageIds.length > 0) {
         const pages = await tx.page.findMany({
           where: { id: { in: pageIds } },

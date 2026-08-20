@@ -1082,6 +1082,30 @@ describe('ReviewService readable page paths', () => {
     );
   });
 
+  it('advances a normal ChangeSet when the real knowledgeSubmission delegate finds no submission', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Guide', content: '# Guide\n\nBody' },
+    }];
+    tx.knowledgeSubmission = {
+      findUnique: jest.fn().mockResolvedValue(null),
+    };
+
+    await service.publish('cs-1');
+
+    expect(tx.knowledgeSubmission.findUnique).toHaveBeenCalledWith({
+      where: { changeSetId: 'cs-1' },
+    });
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({ operation: 'upsert', pageId: 'knowledge-1' })],
+      expect.objectContaining({ sourceChangeSetId: 'cs-1' }),
+    );
+  });
+
   it('keeps the current path for a sanitization-equivalent title update', async () => {
     const updatedAt = new Date('2026-08-20T00:00:00.000Z');
     changeSet.items = [{
@@ -1257,10 +1281,17 @@ describe('ReviewService page revert ordering and audit', () => {
 
     await service.revert('cs-1');
 
-    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
-    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.page.findFirst.mock.invocationCallOrder[0],
+    expect(tx.changeSet.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      revisionWriter.lockSpace.mock.invocationCallOrder[0],
     );
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    const firstPageOperation = Math.min(
+      tx.page.findFirst.mock.invocationCallOrder[0],
+      tx.page.findUnique.mock.invocationCallOrder[0],
+      tx.page.findMany.mock.invocationCallOrder[0],
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(firstPageOperation);
     expect(tx.page.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
       tx.pageVersion.create.mock.invocationCallOrder[0],
     );
@@ -1279,6 +1310,15 @@ describe('ReviewService page revert ordering and audit', () => {
     });
     expect(tx.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
       tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(tx.page.findFirst.mock.calls[0][0].where).toBe(
+      tx.page.updateMany.mock.calls[0][0].where,
+    );
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      expect.any(Array),
+      expect.objectContaining({ origin: 'change_set', sourceChangeSetId: 'cs-1' }),
     );
   });
 });

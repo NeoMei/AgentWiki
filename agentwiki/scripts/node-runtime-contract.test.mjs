@@ -121,6 +121,30 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
 });
 
+test('a ChangeSet can own both publication and compensation revisions', async () => {
+  const schema = await read('apps/server/prisma/schema.prisma');
+  const changeSet = schema.match(/model ChangeSet \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const revision = schema.match(/model SpaceKnowledgeRevision \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+  assert.match(changeSet, /knowledgeRevisions\s+SpaceKnowledgeRevision\[\]\s+@relation\("ChangeSetKnowledgeRevision"\)/);
+  assert.doesNotMatch(changeSet, /knowledgeRevision\s+SpaceKnowledgeRevision\?/);
+  assert.match(revision, /sourceChangeSetId\s+String\?\s*(?:\n|$)/);
+  assert.doesNotMatch(revision, /sourceChangeSetId\s+String\?\s+@unique/);
+  assert.match(revision, /@@index\(\[sourceChangeSetId\]\)/);
+});
+
+test('the ChangeSet revision migration replaces the unique index with a lookup index', async () => {
+  const migration = await read(
+    'apps/server/prisma/migrations/20260820010000_allow_multiple_changeset_revisions/migration.sql',
+  ).catch(() => '');
+
+  assert.match(migration, /DROP INDEX IF EXISTS "SpaceKnowledgeRevision_sourceChangeSetId_key"/);
+  assert.match(
+    migration,
+    /CREATE INDEX "SpaceKnowledgeRevision_sourceChangeSetId_idx"\s+ON "SpaceKnowledgeRevision"\("sourceChangeSetId"\)/,
+  );
+});
+
 test('Nginx sends Socket.IO websocket upgrades directly to the API', async () => {
   const nginx = await read('deploy/nginx/agentwiki.conf');
   const socketLocation = nginx.match(/location \/socket\.io\/ \{([\s\S]*?)\n    \}/)?.[1];
