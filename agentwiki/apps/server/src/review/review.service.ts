@@ -9,11 +9,17 @@ import type { SpaceKnowledgeRevision } from '@prisma/client';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
 import {
+  ReadableSyncPathService,
+  safeMarkdownBasename,
+  syncPathDirectory,
+} from '../core/sync/readable-sync-path.service';
+import {
   canonicalBytes,
   contentHash as syncContentHash,
   normalizeMarkdown,
   pathKey,
   revisionContentHash,
+  validatePortablePath,
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
 
@@ -23,6 +29,7 @@ export class ReviewService {
     private prisma: PrismaService,
     private search: SearchService,
     private revisionWriter: SpaceRevisionWriterService,
+    private syncPaths: ReadableSyncPathService,
     @Optional() private graphMaintenance?: GraphMaintenance,
   ) {}
 
@@ -197,6 +204,9 @@ export class ReviewService {
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
       const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
       const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
+      if (pageItems.length > 0) {
+        await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
+      }
 
       for (const item of pageItems) {
         const payload = item.payload as any;
@@ -204,9 +214,12 @@ export class ReviewService {
         if (item.type === 'create_page') {
           if (payload.parentId) await this.assertValidParent(tx, changeSet.spaceId, payload.parentId);
           const knowledgeKey = payload.knowledgeKey || randomUUID();
-          const createdSyncPath = payload.sourcePath && payload.sourcePath.endsWith('.md')
-            ? payload.sourcePath
-            : `pages/p-${await this.idFileKey(knowledgeKey)}.md`;
+          const sourceSyncPath = this.validateSourceSyncPath(payload.sourcePath);
+          const createdSyncPath = sourceSyncPath ?? await this.syncPaths.allocate(tx, {
+            spaceId: changeSet.spaceId,
+            directory: 'pages',
+            title: payload.title,
+          });
           const page = await tx.page.create({
             data: {
               spaceId: changeSet.spaceId,
@@ -226,8 +239,8 @@ export class ReviewService {
               sourceId: payload.sourceId,
               sourceVersionId: payload.sourceVersionId,
               sourcePath: payload.sourcePath,
-              syncPath: createdSyncPath,
-              syncPathKey: pathKey(createdSyncPath),
+              syncPath: createdSyncPath.path,
+              syncPathKey: createdSyncPath.pathKey,
             },
           });
           resourceId = page.id;
@@ -252,6 +265,15 @@ export class ReviewService {
           }
           const changes = payload.changes || {};
           if (changes.parentId !== undefined) await this.assertValidParent(tx, changeSet.spaceId, changes.parentId, page.id);
+          const allocatedPath = changes.title !== undefined
+            && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
+            ? await this.syncPaths.allocate(tx, {
+                spaceId: changeSet.spaceId,
+                directory: syncPathDirectory(page.syncPath),
+                title: changes.title,
+                excludePageId: page.id,
+              })
+            : null;
           const before = {
             title: page.title, slug: page.slug, content: page.content, parentId: page.parentId,
             format: page.format,
@@ -259,6 +281,7 @@ export class ReviewService {
             lastChangeSetId: page.lastChangeSetId, lastModifiedByUserId: page.lastModifiedByUserId,
             lastModifiedByAgentId: page.lastModifiedByAgentId, lastModifiedAt: page.lastModifiedAt,
             sourceId: page.sourceId, sourceVersionId: page.sourceVersionId, sourcePath: page.sourcePath,
+            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
           };
           await tx.pageVersion.create({
             data: {
@@ -269,6 +292,8 @@ export class ReviewService {
               slug: page.slug,
               format: page.format,
               parentId: page.parentId,
+              syncPath: page.syncPath,
+              syncPathKey: page.syncPathKey,
             },
           });
           await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
@@ -276,6 +301,9 @@ export class ReviewService {
             where: { id: page.id },
             data: {
               ...changes,
+              ...(allocatedPath
+                ? { syncPath: allocatedPath.path, syncPathKey: allocatedPath.pathKey }
+                : {}),
               sourceChangeSetId: page.sourceChangeSetId || id,
               createdByAgentId: page.createdByAgentId || changeSet.createdByAgentId,
               lastChangeSetId: id,
@@ -867,6 +895,18 @@ export class ReviewService {
   private async idFileKey(id: string): Promise<string> {
     const { idFileKey } = await import('@neomei/agentwiki-sync-protocol');
     return idFileKey(id);
+  }
+
+  private validateSourceSyncPath(
+    sourcePath: unknown,
+  ): { path: string; pathKey: string } | null {
+    if (typeof sourcePath !== 'string') return null;
+    try {
+      const validated = validatePortablePath(sourcePath);
+      return { path: validated.path, pathKey: validated.key };
+    } catch {
+      return null;
+    }
   }
 
   private pagePathFromTitle(title: string): string {

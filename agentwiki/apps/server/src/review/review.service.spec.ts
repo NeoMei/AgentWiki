@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { pathKey } from '@neomei/agentwiki-sync-protocol';
 import { ReviewService } from './review.service';
 
 describe('ReviewService approval boundaries', () => {
@@ -9,10 +10,20 @@ describe('ReviewService approval boundaries', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
-  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
+  const syncPaths = { allocate: jest.fn() } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    syncPaths,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Generated.md',
+      pathKey: pathKey('pages/Generated.md'),
+    });
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -628,7 +639,7 @@ describe('ReviewService approval boundaries', () => {
     (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-1' }) };
     const tx = {
       page: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old', parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null, authorId: 'owner-1' }),
+        findFirst: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1', title: 'Before', slug: 'before', content: 'Old', parentId: null, format: 'markdown', sourceChangeSetId: null, createdByAgentId: null, authorId: 'owner-1', syncPath: 'pages/Before.md', syncPathKey: pathKey('pages/Before.md') }),
         findUnique: jest.fn().mockResolvedValue({ title: 'After', content: 'New', deletedAt: null }),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
@@ -660,10 +671,20 @@ describe('one-shot review-publish and agent auto-publish', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
-  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
+  const syncPaths = { allocate: jest.fn() } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    syncPaths,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Generated.md',
+      pathKey: pathKey('pages/Generated.md'),
+    });
     prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -752,5 +773,362 @@ describe('one-shot review-publish and agent auto-publish', () => {
       data: expect.objectContaining({ status: 'pending_review' }),
     }));
     expect(result.autoPublished).toBeFalsy();
+  });
+});
+
+describe('ReviewService readable page paths', () => {
+  const prisma = {
+    changeSet: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
+  } as any;
+  const search = {
+    indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }),
+  } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn().mockResolvedValue(undefined),
+    advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+  } as any;
+  const syncPaths = {
+    allocate: jest.fn(),
+  } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    revisionWriter,
+    syncPaths,
+  );
+
+  let changeSet: any;
+  let tx: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    changeSet = {
+      id: 'cs-1',
+      status: 'approved',
+      spaceId: 'space-1',
+      createdByUserId: 'user-1',
+      createdByAgentId: null,
+      items: [],
+      approvals: [],
+      space: {},
+      run: null,
+    };
+    tx = {
+      changeSet: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        create: jest.fn().mockResolvedValue({
+          id: 'page-1',
+          knowledgeKey: 'knowledge-1',
+        }),
+        findFirst: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn().mockResolvedValue({
+          title: 'Guide',
+          content: '# Guide\n\nBody',
+          deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: 'knowledge-1',
+          syncPath: 'pages/Guide.md',
+          title: 'Guide',
+          content: '# Guide\n\nBody',
+          deletedAt: null,
+        }]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: {
+        upsert: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      evidence: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    prisma.changeSet.findUnique.mockImplementation(async () => changeSet);
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Guide.md',
+      pathKey: pathKey('pages/Guide.md'),
+    });
+  });
+
+  it('uses a legal sourcePath without allocating a title path', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: {
+        title: 'Setup',
+        content: '# Setup\n\nBody',
+        sourcePath: 'guides/Setup.md',
+      },
+    }];
+    tx.page.findUnique.mockResolvedValue({
+      title: 'Setup',
+      content: '# Setup\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'guides/Setup.md',
+      title: 'Setup',
+      content: '# Setup\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'guides/Setup.md',
+        syncPathKey: pathKey('guides/Setup.md'),
+      }),
+    }));
+  });
+
+  it('allocates a readable path when sourcePath is absent or non-portable', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: {
+        title: 'Guide',
+        content: '# Guide\n\nBody',
+        sourcePath: '/not-portable.md',
+      },
+    }];
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1',
+      directory: 'pages',
+      title: 'Guide',
+    });
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'pages/Guide.md',
+        syncPathKey: pathKey('pages/Guide.md'),
+      }),
+    }));
+  });
+
+  it('renames the existing path when an accepted update changes title', async () => {
+    const updatedAt = new Date('2026-08-20T00:00:00.000Z');
+    changeSet.items = [{
+      id: 'update-1',
+      type: 'update_page',
+      status: 'accepted',
+      payload: {
+        pageId: 'page-1',
+        changes: { title: 'New' },
+      },
+    }];
+    tx.page.findFirst.mockResolvedValue({
+      id: 'page-1',
+      knowledgeKey: 'knowledge-1',
+      spaceId: 'space-1',
+      title: 'Old',
+      slug: 'old',
+      content: '# Old\n\nBody',
+      parentId: null,
+      format: 'markdown',
+      authorId: 'user-1',
+      updatedAt,
+      sourceChangeSetId: null,
+      createdByAgentId: null,
+      lastChangeSetId: null,
+      lastModifiedByUserId: 'user-1',
+      lastModifiedByAgentId: null,
+      lastModifiedAt: updatedAt,
+      sourceId: null,
+      sourceVersionId: null,
+      sourcePath: null,
+      syncPath: 'guides/Old.md',
+      syncPathKey: pathKey('guides/Old.md'),
+    });
+    syncPaths.allocate.mockResolvedValue({
+      path: 'guides/New.md',
+      pathKey: pathKey('guides/New.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'New',
+      content: '# Old\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'guides/New.md',
+      title: 'New',
+      content: '# Old\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1',
+      directory: 'guides',
+      title: 'New',
+      excludePageId: 'page-1',
+    });
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        syncPath: 'guides/Old.md',
+        syncPathKey: pathKey('guides/Old.md'),
+      }),
+    }));
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        payload: expect.objectContaining({
+          before: expect.objectContaining({
+            syncPath: 'guides/Old.md',
+            syncPathKey: pathKey('guides/Old.md'),
+          }),
+        }),
+      }),
+    }));
+    expect(tx.page.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        title: 'New',
+        syncPath: 'guides/New.md',
+        syncPathKey: pathKey('guides/New.md'),
+      }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({
+        path: 'guides/New.md',
+        body: '# Old\n\nBody',
+      })],
+      expect.anything(),
+    );
+  });
+
+  it('preserves body bytes including a matching H1 during path allocation', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Title', content: '# Title\n\nBody' },
+    }];
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/Title.md',
+      pathKey: pathKey('pages/Title.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'Title',
+      content: '# Title\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'pages/Title.md',
+      title: 'Title',
+      content: '# Title\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ content: '# Title\n\nBody' }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({ body: '# Title\n\nBody' })],
+      expect.anything(),
+    );
+  });
+
+  it('keeps the current path for a sanitization-equivalent title update', async () => {
+    const updatedAt = new Date('2026-08-20T00:00:00.000Z');
+    changeSet.items = [{
+      id: 'update-1',
+      type: 'update_page',
+      status: 'accepted',
+      payload: {
+        pageId: 'page-1',
+        changes: { title: 'A <> B' },
+      },
+    }];
+    tx.page.findFirst.mockResolvedValue({
+      id: 'page-1',
+      knowledgeKey: 'knowledge-1',
+      spaceId: 'space-1',
+      title: 'A / B',
+      slug: 'a-b',
+      content: '# A / B\n\nBody',
+      parentId: null,
+      format: 'markdown',
+      authorId: 'user-1',
+      updatedAt,
+      sourceChangeSetId: null,
+      createdByAgentId: null,
+      lastChangeSetId: null,
+      lastModifiedByUserId: 'user-1',
+      lastModifiedByAgentId: null,
+      lastModifiedAt: updatedAt,
+      sourceId: null,
+      sourceVersionId: null,
+      sourcePath: null,
+      syncPath: 'notes/custom.md',
+      syncPathKey: pathKey('notes/custom.md'),
+    });
+    tx.page.findUnique.mockResolvedValue({
+      title: 'A <> B',
+      content: '# A / B\n\nBody',
+      deletedAt: null,
+    });
+    tx.page.findMany.mockResolvedValue([{
+      knowledgeKey: 'knowledge-1',
+      syncPath: 'notes/custom.md',
+      title: 'A <> B',
+      content: '# A / B\n\nBody',
+      deletedAt: null,
+    }]);
+
+    await service.publish('cs-1');
+
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.page.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.not.objectContaining({
+        syncPath: expect.anything(),
+        syncPathKey: expect.anything(),
+      }),
+    }));
+    expect(revisionWriter.advance).toHaveBeenCalledWith(
+      tx,
+      'space-1',
+      [expect.objectContaining({
+        path: 'notes/custom.md',
+        body: '# A / B\n\nBody',
+      })],
+      expect.anything(),
+    );
+  });
+
+  it('locks the Space before allocating or writing a page', async () => {
+    changeSet.items = [{
+      id: 'create-1',
+      type: 'create_page',
+      status: 'accepted',
+      payload: { title: 'Guide', content: '' },
+    }];
+
+    await service.publish('cs-1');
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      syncPaths.allocate.mock.invocationCallOrder[0],
+    );
+    expect(syncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.create.mock.invocationCallOrder[0],
+    );
   });
 });
