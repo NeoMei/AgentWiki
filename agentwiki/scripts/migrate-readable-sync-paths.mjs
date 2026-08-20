@@ -30,16 +30,22 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
 
   return prisma.$transaction(async (tx) => {
     await writer.lockSpace(tx, spaceId);
-    const pages = (await tx.page.findMany({
+    const allPages = await tx.page.findMany({
       where: { spaceId, deletedAt: null },
       orderBy: { knowledgeKey: 'asc' },
-    })).filter((page) => opaquePagePath.test(page.syncPath));
+    });
+    const pages = allPages.filter((page) => opaquePagePath.test(page.syncPath));
 
     if (pages.length === 0) {
       return { migrated: 0, revisionId: null };
     }
 
-    const changes = [];
+    const parentRevision = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true },
+    });
+    const migratedPathByPageId = new Map();
     for (const page of pages) {
       const allocated = await allocator.allocate(tx, {
         spaceId,
@@ -75,14 +81,21 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
           syncPathKey: allocated.pathKey,
         },
       });
-      changes.push({
-        operation: 'upsert',
-        pageId: page.knowledgeKey,
-        path: allocated.path,
-        title: page.title,
-        body: page.content,
-      });
+      migratedPathByPageId.set(page.id, allocated.path);
     }
+
+    // The writer normally copies every unchanged Page row from its parent.
+    // Legacy Spaces can predate the revision stream, so their first migration
+    // revision must seed the complete active Page set instead of exposing only
+    // the renamed subset.
+    const revisionPages = parentRevision ? pages : allPages;
+    const changes = revisionPages.map((page) => ({
+      operation: 'upsert',
+      pageId: page.knowledgeKey,
+      path: migratedPathByPageId.get(page.id) ?? page.syncPath,
+      title: page.title,
+      body: page.content,
+    }));
 
     const revision = await writer.advance(tx, spaceId, changes, {
       origin: 'migration',

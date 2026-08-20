@@ -190,14 +190,14 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
         where: { revisionId: result.revisionId },
         orderBy: { ordinal: 'asc' },
       });
-      assert.deepEqual(deltaRows.map((row) => row.operation), ['upsert', 'upsert']);
+      assert.deepEqual(deltaRows.map((row) => row.operation), ['upsert', 'upsert', 'upsert']);
       const revisionRows = await prisma.syncRevisionPageRow.findMany({
         where: { revisionId: result.revisionId },
         orderBy: { pageId: 'asc' },
       });
       assert.deepEqual(
         revisionRows.map((row) => row.path),
-        ['pages/吃饭睡觉.md', 'pages/吃饭睡觉 (2).md'],
+        ['pages/吃饭睡觉.md', 'pages/吃饭睡觉 (2).md', 'custom/Keep.md'],
       );
 
       const second = await migrateReadablePathsForSpace(prisma, seeded.spaceId, batchId);
