@@ -1024,15 +1024,29 @@ export class ReviewService {
             updatedAt: { lte: publishedAt },
           };
           await snapshotPage(where, item.type);
-          const restoredState = {
-            ...payload.before,
-            deletedAt: payload.before.deletedAt === null || payload.before.deletedAt === undefined
+          const before = payload.before as Record<string, unknown>;
+          const restoredState: Record<string, unknown> = {};
+          const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
+            && before[key] !== undefined;
+          if (hasValue('lastChangeSetId')) {
+            restoredState.lastChangeSetId = before.lastChangeSetId;
+          }
+          if (hasValue('lastModifiedByUserId')) {
+            restoredState.lastModifiedByUserId = before.lastModifiedByUserId;
+          }
+          if (hasValue('lastModifiedByAgentId')) {
+            restoredState.lastModifiedByAgentId = before.lastModifiedByAgentId;
+          }
+          if (hasValue('lastModifiedAt')) {
+            restoredState.lastModifiedAt = before.lastModifiedAt === null
               ? null
-              : new Date(payload.before.deletedAt),
-            ...(payload.before.lastModifiedAt === undefined
-              ? {}
-              : { lastModifiedAt: new Date(payload.before.lastModifiedAt) }),
-          };
+              : new Date(before.lastModifiedAt as string);
+          }
+          if (hasValue('deletedAt')) {
+            restoredState.deletedAt = before.deletedAt === null
+              ? null
+              : new Date(before.deletedAt as string);
+          }
           const reverted = await tx.page.updateMany({
             where,
             data: restoredState,

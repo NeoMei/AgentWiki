@@ -1513,6 +1513,12 @@ describe('ReviewService archive audit and provenance', () => {
       lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
       lastModifiedAt: originalModifiedAt.toISOString(),
       deletedAt: null,
+      id: 'attacker-controlled-page-id',
+      spaceId: 'attacker-controlled-space-id',
+      updatedAt: '1999-01-01T00:00:00.000Z',
+      title: 'must not be restored',
+      content: 'must not be restored',
+      unknownKey: 'must not reach Prisma',
     };
     const archivedPage = {
       ...originalPage, deletedAt: archivedAt, updatedAt: archivedAt,
@@ -1556,7 +1562,13 @@ describe('ReviewService archive audit and provenance', () => {
     await service.revert('cs-archive');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: { ...before, lastModifiedAt: originalModifiedAt, deletedAt: null },
+      data: {
+        lastChangeSetId: originalPage.lastChangeSetId,
+        lastModifiedByUserId: originalPage.lastModifiedByUserId,
+        lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
+        lastModifiedAt: originalModifiedAt,
+        deletedAt: null,
+      },
     }));
     expect(tx.page.updateMany.mock.calls[0][0].data.lastChangeSetId).toBe('cs-before');
     expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByUserId).toBe('user-before');
