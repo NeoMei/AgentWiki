@@ -32,7 +32,7 @@
 - Consumes: current Agent Credential response `{ apiKey: string }` and local-sync installation response `{ instructions: string }`.
 - Produces: regression assertions that reject direct MCP setup and retired `connect` instructions on every active surface.
 
-- [ ] **Step 1: Add the failing server instruction assertion**
+- [x] **Step 1: Add the failing server instruction assertion**
 
 Replace the legacy expectation with assertions equivalent to:
 
@@ -43,15 +43,15 @@ expect(result.instructions).toContain('--protocol ndjson');
 expect(result.instructions).not.toMatch(/\bconnect\b/);
 ```
 
-- [ ] **Step 2: Add failing client assertions**
+- [x] **Step 2: Add failing client assertions**
 
 Extend `AgentDetail.spec.tsx` so a mocked successful Credential creation renders the API key but no text matching `/MCP|mcp add|接入指令|Connect instructions/`. Update `LocalSyncInstallCard.spec.tsx` fixture and assertions to require `onboard --code`, exact `0.3.7`, and absence of `connect`.
 
-- [ ] **Step 3: Add a failing repository-wide runtime contract**
+- [x] **Step 3: Add a failing repository-wide runtime contract**
 
 Read `connectInstructions.ts`, `AgentDetail.tsx`, `local-sync-installation.service.ts`, `packages/local-sync/README.md`, and the local-sync skill. Assert active files contain no direct `/api/mcp` registration instruction, no `mcp add agentwiki-`, no `connect --server`, and no heading that advertises two MCP servers.
 
-- [ ] **Step 4: Run the focused tests and verify RED**
+- [x] **Step 4: Run the focused tests and verify RED**
 
 Run:
 
@@ -102,7 +102,7 @@ export interface AttachReport {
 export function runAttachment(input: AttachCliInput, overrides?: Partial<AttachmentDependencies>): Promise<AttachReport>;
 ```
 
-- [ ] **Step 1: Write failing CLI routing tests**
+- [x] **Step 1: Write failing CLI routing tests**
 
 Add an `attach` method to `CliRuntime`, then assert:
 
@@ -124,17 +124,17 @@ expect(onboard).not.toHaveBeenCalled();
 
 Also assert `onboard resume --code` is rejected and `onboard --code` requires a non-empty code.
 
-- [ ] **Step 2: Run the CLI test and verify RED**
+- [x] **Step 2: Run the CLI test and verify RED**
 
 Run: `pnpm --filter @neomei/agentwiki-local-sync test -- src/cli.spec.ts`
 
 Expected: FAIL because `--code` and `CliRuntime.attach` do not exist.
 
-- [ ] **Step 3: Implement minimal CLI dispatch**
+- [x] **Step 3: Implement minimal CLI dispatch**
 
 Add `code` to `parseArgs`, add `requestedClient` to attachment input, and route `onboard --code` to `runAttachment`. Preserve the existing full onboarding and resume branches unchanged. Update `CLI_USAGE` to document optional `--code CODE` without adding a new public command.
 
-- [ ] **Step 4: Write failing attachment orchestration tests**
+- [x] **Step 4: Write failing attachment orchestration tests**
 
 Use injected real-function dependencies to verify this exact order:
 
@@ -148,13 +148,13 @@ Use injected real-function dependencies to verify this exact order:
 
 Assert the saved connection has `mcpName: 'agentwiki'`, the exchanged `agentId` and `credentialId`, and no scan/sync dependency. Add failure cases for denied confirmation, invalid code, gateway verification failure, and rollback/revoke cleanup.
 
-- [ ] **Step 5: Run the attachment test and verify RED**
+- [x] **Step 5: Run the attachment test and verify RED**
 
 Run: `pnpm --filter @neomei/agentwiki-local-sync test -- src/onboarding/attach.spec.ts`
 
 Expected: FAIL because `runAttachment` does not exist.
 
-- [ ] **Step 6: Extract the shared installation primitive**
+- [x] **Step 6: Extract the shared installation primitive**
 
 Refactor `onboarding/install.ts` so bootstrap and attachment both call a package-private primitive with the following boundary:
 
@@ -177,11 +177,11 @@ async function installExchangedGateway(
 
 The primitive archives/initializes local state, persists the credential at `0600`, installs the Skill and gateway, verifies MCP and remote access, and rolls back/revokes on failure. The existing bootstrap path still validates its confirmed Agent/Space before calling it.
 
-- [ ] **Step 7: Implement the attachment protocol**
+- [x] **Step 7: Implement the attachment protocol**
 
 `runAttachment` must emit a bounded preview containing only client, server origin, `oldEntries`, `reloadRequired`, and the fixed MCP name. It requests one confirmation through the existing NDJSON/human protocol types, then calls the shared installation primitive. It must never emit the installation code or API key.
 
-- [ ] **Step 8: Run focused local-sync tests and verify GREEN**
+- [x] **Step 8: Run focused local-sync tests and verify GREEN**
 
 Run:
 
@@ -191,7 +191,7 @@ pnpm --filter @neomei/agentwiki-local-sync test -- src/cli.spec.ts src/onboardin
 
 Expected: all selected files pass with zero failures.
 
-- [ ] **Step 9: Commit the attachment runtime**
+- [x] **Step 9: Commit the attachment runtime**
 
 ```bash
 git add packages/local-sync/src/cli.ts packages/local-sync/src/cli.spec.ts \
@@ -232,11 +232,11 @@ export async function analyzeConfig(
 ): Promise<{ hash: string; oldEntries: string[]; hasConflict: boolean }>;
 ```
 
-- [ ] **Step 1: Write failing ownership tests**
+- [x] **Step 1: Write failing ownership tests**
 
 For Codex, Claude and OpenCode fixtures, assert that entries containing `@neomei/agentwiki-local-sync` or the current server `/api/mcp` endpoint are migration candidates, while `my-agentwiki-helper` pointing elsewhere is preserved. Assert uninstall removes only an `agentwiki` entry whose command contains the local-sync package and leaves an unknown same-name entry untouched.
 
-- [ ] **Step 2: Run installer tests and verify RED**
+- [x] **Step 2: Run installer tests and verify RED**
 
 Run:
 
@@ -246,15 +246,15 @@ pnpm --filter @neomei/agentwiki-local-sync test -- src/installer/plan.spec.ts sr
 
 Expected: FAIL because matching currently relies on broad name/domain heuristics and uninstall deletes by name alone.
 
-- [ ] **Step 3: Implement endpoint- and signature-based ownership**
+- [x] **Step 3: Implement endpoint- and signature-based ownership**
 
 Normalize `serverBaseUrl` to its origin/path prefix, match the package signature or the exact current `/mcp` endpoint, and keep only explicit historical local-sync names as name-based compatibility. Change TOML block handling to inspect the complete block, not only the header. `removeGatewayEntry` must require both name `agentwiki` and local-sync package signature.
 
-- [ ] **Step 4: Propagate server URL through preflight**
+- [x] **Step 4: Propagate server URL through preflight**
 
 Extend `PreflightFn` with optional `serverBaseUrl`, pass it from the coordinator and attachment path, and update mocks/tests. No server/client type is added; the value remains a generic HTTP base URL.
 
-- [ ] **Step 5: Run focused installer/onboarding tests and verify GREEN**
+- [x] **Step 5: Run focused installer/onboarding tests and verify GREEN**
 
 Run:
 
@@ -266,7 +266,7 @@ pnpm --filter @neomei/agentwiki-local-sync test -- \
 
 Expected: all selected files pass.
 
-- [ ] **Step 6: Commit ownership hardening**
+- [x] **Step 6: Commit ownership hardening**
 
 ```bash
 git add packages/local-sync/src/installer packages/local-sync/src/onboarding/preflight* \
@@ -293,7 +293,7 @@ git commit -m "fix(local-sync): scope MCP migration to owned AgentWiki entries"
 - Consumes: existing REST endpoints for Credential creation and local-sync installation creation.
 - Produces: one-time API-key display for ordinary Credentials and exact-version unified gateway instructions for existing Agents.
 
-- [ ] **Step 1: Implement the server instruction change**
+- [x] **Step 1: Implement the server instruction change**
 
 Generate exactly:
 
@@ -304,15 +304,15 @@ After installation, report the complete doctor output to the user.
 Installation only configures the unified agentwiki gateway; it does not scan or sync local knowledge.
 ```
 
-- [ ] **Step 2: Remove the Credential connect prompt**
+- [x] **Step 2: Remove the Credential connect prompt**
 
 Delete the `buildAgentConnectInstructions` import, state, copy button and `<pre>` from `AgentDetail`. Keep the one-time key and copy-key button, and add localized copy explaining that the key is for API/scripts/external systems while Agent access uses the unified gateway card above.
 
-- [ ] **Step 3: Update the local-sync card copy**
+- [x] **Step 3: Update the local-sync card copy**
 
 Rename its visible purpose from a second “local sync connection” to installing/updating the unified AgentWiki gateway. Preserve the short expiry, explicit scopes, copy, regenerate, error and timer behavior.
 
-- [ ] **Step 4: Run server/client focused tests and verify GREEN**
+- [x] **Step 4: Run server/client focused tests and verify GREEN**
 
 Run:
 
@@ -323,7 +323,7 @@ pnpm --filter @agentwiki/client test -- AgentDetail.spec.tsx LocalSyncInstallCar
 
 Expected: all selected tests pass and no rendered Credential panel contains MCP instructions.
 
-- [ ] **Step 5: Commit product surface changes**
+- [x] **Step 5: Commit product surface changes**
 
 ```bash
 git add apps/client/src/features/agent apps/client/src/i18n/messages.ts \
@@ -356,15 +356,15 @@ git commit -m "fix(onboarding): expose only the unified AgentWiki gateway"
 - Consumes: the implemented `0.3.7` CLI and single gateway behavior.
 - Produces: every active instruction surface advertises only the exact `0.3.7 onboard` command and one gateway.
 
-- [ ] **Step 1: Update all version-bearing files to `0.3.7`**
+- [x] **Step 1: Update all version-bearing files to `0.3.7`**
 
 Use the package manager to update lockfile metadata after changing workspace package versions. Update `LOCAL_SYNC_PACKAGE_VERSION` examples and runtime constants to the same exact version.
 
-- [ ] **Step 2: Rewrite stale documentation**
+- [x] **Step 2: Rewrite stale documentation**
 
 Remove the “Two MCP servers” section and retired `mcp`, `connect`, upgrade and per-connection registration examples from the npm README. Describe the direct server MCP only as an internal bridge target of the local gateway. Update the Skill and UI guide so existing-Agent setup uses `onboard --code`, while global setup uses Device Auth `onboard`.
 
-- [ ] **Step 3: Run runtime and UI documentation tests**
+- [x] **Step 3: Run runtime and UI documentation tests**
 
 Run:
 
@@ -375,7 +375,7 @@ pnpm --filter @agentwiki/client test -- UsageGuide.spec.tsx LocalSyncGuideSectio
 
 Expected: all tests pass; active instruction surfaces contain no direct remote MCP registration or retired `connect` command.
 
-- [ ] **Step 4: Inspect the npm tarball**
+- [x] **Step 4: Inspect the npm tarball**
 
 Run in a fresh temporary directory:
 
@@ -386,7 +386,7 @@ pnpm --filter @neomei/agentwiki-local-sync pack --pack-destination "$agentwiki_p
 
 Inspect the generated tarball file list and unpacked README/Skill/CLI help. Expected: version `0.3.7`, one gateway, no secret, no direct MCP installation path, no public `connect` command.
 
-- [ ] **Step 5: Commit release surfaces**
+- [x] **Step 5: Commit release surfaces**
 
 ```bash
 git add package.json apps/server/package.json apps/client/package.json \
@@ -411,7 +411,7 @@ git commit -m "chore(release): prepare unified gateway 0.3.7"
 - Consumes: Tasks 1-5.
 - Produces: fresh verification evidence and durable handoff state; no release/deployment side effect.
 
-- [ ] **Step 1: Run the complete local gate**
+- [x] **Step 1: Run the complete local gate**
 
 Run independently and require exit code zero:
 
@@ -423,25 +423,25 @@ pnpm build
 git diff --check
 ```
 
-- [ ] **Step 2: Run the single-gateway behavioral checks**
+- [x] **Step 2: Run the single-gateway behavioral checks**
 
 Run the onboarding E2E against an explicit local/isolated target where available. At minimum verify generated existing-Agent instructions, `onboard --code` NDJSON confirmation, one config entry named `agentwiki`, gateway handshake/tool list, Credential panel without MCP instructions, rollback, uninstall ownership, and absence of direct/legacy commands.
 
-- [ ] **Step 3: Write the verification report**
+- [x] **Step 3: Write the verification report**
 
 Record exact commands, test counts, skipped external dependencies, package/tarball version, config fixtures and known non-blocking warnings in `docs/verification/unified-agentwiki-mcp-0.3.7.md`.
 
-- [ ] **Step 4: Update project memory**
+- [x] **Step 4: Update project memory**
 
 Set the active goal and current status to this fix, link the design, plan and verification report, and preserve unrelated deployment/history information. Do not stage `.codebase-memory/graph.db.zst` or unrelated submodule changes.
 
-- [ ] **Step 5: Commit the verification handoff**
+- [x] **Step 5: Commit the verification handoff**
 
 ```bash
 git add docs/verification/unified-agentwiki-mcp-0.3.7.md .codex-memory
 git commit -m "docs: verify unified AgentWiki gateway 0.3.7"
 ```
 
-- [ ] **Step 6: Stop before external release**
+- [x] **Step 6: Stop before external release**
 
 Report the verified branch and remaining explicit release actions: npm publish `0.3.7`, push/merge, production backup/deploy, health checks and three-client production acceptance. Do not perform those external writes unless separately authorized.

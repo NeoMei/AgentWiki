@@ -376,6 +376,7 @@ model SpaceGraphState {
   llmEnabled         Boolean   @default(false)
   lastContentHash    String?
   lastRunAt          DateTime?
+  lastLlmRunAt       DateTime?
   lastLlmChangeSetId String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

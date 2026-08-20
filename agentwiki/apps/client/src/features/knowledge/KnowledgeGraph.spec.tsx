@@ -14,6 +14,17 @@ describe('KnowledgeGraph origin filters', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.clearAllMocks();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      scale: vi.fn(),
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      fillText: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
   });
 
   it('renders origin chips and hides an origin when its chip is toggled off', async () => {
@@ -30,7 +41,7 @@ describe('KnowledgeGraph origin filters', () => {
       return Promise.resolve({ data: { data: [{ id: 'p1', title: 'Alpha' }, { id: 'p2', title: 'Beta' }] } });
     });
 
-    render(
+    const { container } = render(
       <LanguageProvider>
         <MemoryRouter initialEntries={['/spaces/s1/graph']}>
           <Routes>
@@ -40,18 +51,13 @@ describe('KnowledgeGraph origin filters', () => {
       </LanguageProvider>,
     );
 
-    render(
-      <LanguageProvider>
-        <MemoryRouter initialEntries={['/spaces/s1/graph']}>
-          <KnowledgeGraph />
-        </MemoryRouter>
-      </LanguageProvider>,
-    );
-
     expect(await screen.findByText('自动·链接', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText('手动')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('自动·链接'));
+    fireEvent.click(container.querySelector('canvas')!, { clientX: 100, clientY: 100 });
+    await waitFor(() => expect(screen.getAllByText('自动·链接')).toHaveLength(2));
+
+    fireEvent.click(screen.getAllByText('自动·链接')[0]);
     await waitFor(() => {
       expect(screen.getByText('自动·链接')).toHaveClass('line-through');
     });

@@ -9,7 +9,13 @@ describe('ReviewService approval boundaries', () => {
     $transaction: jest.fn(),
   } as any;
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
-  const service = new ReviewService(prisma, search, { advance: jest.fn(), lockSpace: jest.fn() } as any);
+  const graphMaintenance = { enqueue: jest.fn() } as any;
+  const service = new ReviewService(
+    prisma,
+    search,
+    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    graphMaintenance,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -60,8 +66,13 @@ describe('ReviewService approval boundaries', () => {
       approvals: [], space: {}, run: null,
     });
     const tx = {
+      spaceGraphState: { upsert: jest.fn().mockResolvedValue({ id: 'state-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
-      knowledgeRelation: { create: jest.fn().mockResolvedValue({ id: 'relation-1' }) },
+      knowledgeRelation: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'relation-1' }),
+      },
       changeItem: { update: jest.fn() },
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     };
@@ -72,6 +83,136 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.knowledgeRelation.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ strength: 0, confidence: 0 }),
     }));
+    expect(graphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
+  });
+
+  it('preserves auto_llm origin when an approved graph proposal is published', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-auto-graph', status: 'approved', spaceId: 'space-1', createdByUserId: 'owner-1', createdByAgentId: null,
+      items: [{
+        id: 'relation', type: 'create_relation', status: 'accepted',
+        payload: {
+          sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'extends', origin: 'auto_llm',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      spaceGraphState: { upsert: jest.fn().mockResolvedValue({ id: 'state-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
+      knowledgeRelation: { createMany: jest.fn().mockResolvedValue({ count: 1 }), create: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-auto-graph');
+
+    expect(tx.knowledgeRelation.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ origin: 'auto_llm' }),
+      skipDuplicates: true,
+    }));
+  });
+
+  it('skips an auto_llm relation when a human-owned triple already exists', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-auto-conflict', status: 'approved', spaceId: 'space-1', createdByUserId: 'owner-1', createdByAgentId: null,
+      items: [{
+        id: 'relation', type: 'create_relation', status: 'accepted',
+        payload: {
+          sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'extends', origin: 'auto_llm',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      spaceGraphState: { upsert: jest.fn().mockResolvedValue({ id: 'state-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
+      knowledgeRelation: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn(),
+      },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-auto-conflict')).resolves.toMatchObject({ id: 'cs-auto-conflict' });
+
+    expect(tx.knowledgeRelation.create).not.toHaveBeenCalled();
+    expect(tx.changeItem.update).toHaveBeenCalledWith({
+      where: { id: 'relation' },
+      data: { status: 'rejected' },
+    });
+  });
+
+  it('atomically skips an auto_llm relation created by a concurrent writer', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-auto-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'owner-1', createdByAgentId: null,
+      items: [{
+        id: 'relation', type: 'create_relation', status: 'accepted',
+        payload: {
+          sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'extends', origin: 'auto_llm',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      spaceGraphState: { upsert: jest.fn().mockResolvedValue({ id: 'state-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
+      knowledgeRelation: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue({ code: 'P2002' }),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-auto-race')).resolves.toMatchObject({ id: 'cs-auto-race' });
+
+    expect(tx.knowledgeRelation.create).not.toHaveBeenCalled();
+    expect(tx.changeItem.update).toHaveBeenCalledWith({
+      where: { id: 'relation' },
+      data: { status: 'rejected' },
+    });
+  });
+
+  it('lets a compiled relation take ownership of an automatic triple', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-compiled-takeover', status: 'approved', spaceId: 'space-1', createdByUserId: 'owner-1', createdByAgentId: null,
+      items: [{
+        id: 'relation', type: 'create_relation', status: 'accepted',
+        payload: { sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'extends' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const automatic = { id: 'auto-1', origin: 'auto_llm' };
+    const tx = {
+      spaceGraphState: { upsert: jest.fn().mockResolvedValue({ id: 'state-1' }) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      page: { findMany: jest.fn().mockResolvedValue([{ id: 'page-1', spaceId: 'space-1' }, { id: 'page-2', spaceId: 'space-1' }]) },
+      knowledgeRelation: {
+        findUnique: jest.fn().mockResolvedValue(automatic),
+        update: jest.fn().mockResolvedValue({ ...automatic, origin: 'compiled' }),
+        create: jest.fn().mockRejectedValue({ code: 'P2002' }),
+      },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-compiled-takeover')).resolves.toMatchObject({ id: 'cs-compiled-takeover' });
+
+    expect(tx.knowledgeRelation.update).toHaveBeenCalledWith({
+      where: { id: 'auto-1' },
+      data: expect.objectContaining({ origin: 'compiled', sourceChangeSetId: 'cs-compiled-takeover' }),
+    });
+    expect(tx.knowledgeRelation.create).not.toHaveBeenCalled();
   });
 
   it('loses a concurrent approval race without creating a duplicate approval', async () => {
@@ -161,6 +302,7 @@ describe('ReviewService approval boundaries', () => {
       },
     }));
     expect(tx.changeItem.update).toHaveBeenCalledTimes(1);
+    expect(graphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
   });
 
   it.each([

@@ -7,6 +7,7 @@ import { SpaceRevisionWriterService } from '../sync/space-revision-writer.servic
 import { idFileKey, pathKey } from '@neomei/agentwiki-sync-protocol';
 import { randomUUID } from 'crypto';
 import { createHash } from 'crypto';
+import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -52,6 +53,7 @@ export class PageService {
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
     private readonly revisionWriter: SpaceRevisionWriterService,
+    private readonly graphMaintenance: GraphMaintenance,
   ) {}
 
   private slugify(text: string): string {
@@ -118,7 +120,11 @@ export class PageService {
       return { ...created, syncPath };
     });
 
-    await this.searchService.indexPage(page.id);
+    try {
+      await this.searchService.indexPage(page.id);
+    } finally {
+      this.graphMaintenance.enqueue(data.spaceId);
+    }
     const provenance = page.sourceChangeSetId
       ? await this.prisma.changeSet.findUnique({
           where: { id: page.sourceChangeSetId },
@@ -390,7 +396,11 @@ export class PageService {
       return result;
     });
 
-    await this.searchService.indexPage(id);
+    try {
+      await this.searchService.indexPage(id);
+    } finally {
+      this.graphMaintenance.enqueue(updated.spaceId);
+    }
     return updated;
   }
 
@@ -466,7 +476,11 @@ export class PageService {
       return updated;
     });
 
-    await this.searchService.indexPage(pageId);
+    try {
+      await this.searchService.indexPage(pageId);
+    } finally {
+      this.graphMaintenance.enqueue(page.spaceId);
+    }
     return restored;
   }
 
@@ -487,7 +501,11 @@ export class PageService {
       return archived;
     });
 
-    await this.searchService.deletePageIndex(id);
+    try {
+      await this.searchService.deletePageIndex(id);
+    } finally {
+      this.graphMaintenance.enqueue(existing.spaceId);
+    }
     return page;
   }
 

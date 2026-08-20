@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
@@ -20,17 +20,23 @@ import { SyncApiException } from './sync-error';
 import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
 import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
+import { SearchService } from '../../core/search/search.service';
+import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 
 const SESSION_TTL_MS = 900 * 1_000;
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
 @Injectable()
 export class PushSessionService {
+  private readonly logger = new Logger(PushSessionService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: ObsidianCryptoService,
     private readonly writer: SpaceRevisionWriterService,
+    private readonly search: SearchService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly graphMaintenance?: GraphMaintenance,
   ) {}
 
   async create(principal: HumanDevicePrincipal, spaceId: string, input: {
@@ -241,7 +247,7 @@ export class PushSessionService {
     await this.assertFinalizeRate(principal, spaceId);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async (tx) => {
+        const result = await this.prisma.$transaction(async (tx) => {
       await this.writer.lockSpace(tx, spaceId);
       await this.assertPublishableInTx(tx, principal, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
@@ -396,6 +402,8 @@ export class PushSessionService {
       });
       return result;
         }, { isolationLevel: 'Serializable', timeout: 120_000 });
+        await this.refreshGraphAfterFinalize(spaceId, (result as any).changeSetId ?? null);
+        return result;
       } catch (error: unknown) {
         const serializationConflict = typeof error === 'object' && error !== null && (
           (error as any).code === 'P2034'
@@ -406,6 +414,30 @@ export class PushSessionService {
         }
         throw error;
       }
+    }
+  }
+
+  private async refreshGraphAfterFinalize(spaceId: string, changeSetId: string | null) {
+    if (!changeSetId) return;
+    try {
+      const items = await this.prisma.changeItem.findMany({
+        where: {
+          changeSetId,
+          type: { in: ['create_page', 'update_page', 'archive_page'] },
+          publishedResourceId: { not: null },
+        },
+        select: { type: true, publishedResourceId: true },
+      });
+      const actions = [...new Map(items.map((item) => [item.publishedResourceId!, item])).values()];
+      for (let offset = 0; offset < actions.length; offset += 8) {
+        await Promise.allSettled(actions.slice(offset, offset + 8).map((item) => item.type === 'archive_page'
+          ? this.search.deletePageIndex(item.publishedResourceId!)
+          : this.search.indexPage(item.publishedResourceId!)));
+      }
+    } catch (error) {
+      this.logger.warn(`post-finalize graph indexing failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.graphMaintenance?.enqueue(spaceId);
     }
   }
 
