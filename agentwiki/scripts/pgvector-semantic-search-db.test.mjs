@@ -89,6 +89,22 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
     assert.ok(index, 'HNSW index must exist');
     assert.match(index.indexdef, /USING hnsw/);
     assert.match(index.indexdef, /halfvec_cosine_ops/);
+    const [indexOptions] = await prisma.$queryRaw(Prisma.sql`
+      SELECT reloptions FROM pg_class WHERE relname = 'Page_embeddingVector_hnsw'
+    `);
+    assert.ok(
+      indexOptions.reloptions.some((option) => option.includes('m=32')),
+      'HNSW index must keep the tuned m=32 graph degree',
+    );
+    assert.ok(
+      indexOptions.reloptions.some((option) => option.includes('ef_construction=256')),
+      'HNSW index must keep the tuned ef_construction=256',
+    );
+
+    const [searchSetting] = await prisma.$queryRaw(Prisma.sql`
+      SELECT current_setting('hnsw.ef_search') AS ef_search
+    `);
+    assert.equal(searchSetting.ef_search, '200', 'database default ef_search must be 200');
 
     const [dims] = await prisma.$queryRaw(Prisma.sql`
       SELECT atttypmod AS dims FROM pg_attribute
@@ -100,6 +116,74 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
     await prisma.spaceMember.deleteMany({ where: { spaceId } });
     await prisma.space.deleteMany({ where: { id: spaceId } });
     await prisma.user.deleteMany({ where: { id: userId } });
+    await prisma.$disconnect();
+  }
+});
+
+test('hnsw semantic recall stays above the tuned floor', {
+  skip: databaseUrl ? false : 'DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  const suffix = randomUUID().slice(0, 8).replace(/-/g, '');
+  const table = `recall_guard_${suffix}`;
+  const DIMS = 2048;
+  const CLUSTERS = 8;
+  const PER_CLUSTER = 40;
+
+  const randomUnitVector = () => {
+    const v = Array.from({ length: DIMS }, () => Math.random() * 2 - 1);
+    const norm = Math.sqrt(v.reduce((sum, x) => sum + x * x, 0));
+    return v.map((x) => x / norm);
+  };
+  const normalize = (v) => {
+    const norm = Math.sqrt(v.reduce((sum, x) => sum + x * x, 0));
+    return v.map((x) => x / norm);
+  };
+  const literal = (v) => '[' + v.map((x) => x.toFixed(6)).join(',') + ']';
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`CREATE TABLE ${Prisma.raw(table)} (id int primary key, vec public.halfvec(2048))`);
+    const centers = Array.from({ length: CLUSTERS }, () => randomUnitVector());
+    let rowId = 0;
+    for (const center of centers) {
+      for (let i = 0; i < PER_CLUSTER; i += 1) {
+        const noisy = normalize(center.map((x) => x + (Math.random() - 0.5) * 0.16));
+        rowId += 1;
+        await prisma.$executeRaw(
+          Prisma.sql`INSERT INTO ${Prisma.raw(table)} VALUES (${rowId}, ${literal(noisy)}::jsonb::text::public.halfvec)`,
+        );
+      }
+    }
+    await prisma.$executeRaw(
+      Prisma.sql`CREATE INDEX ${Prisma.raw(`${table}_idx`)} ON ${Prisma.raw(table)} USING hnsw (vec public.halfvec_cosine_ops) WITH (m = 32, ef_construction = 256)`,
+    );
+
+    let recallSum = 0;
+    const queries = centers.slice(0, 6);
+    for (const query of queries) {
+      const q = literal(query);
+      const hnsw = await prisma.$queryRaw(Prisma.sql`
+        SELECT id FROM ${Prisma.raw(table)} ORDER BY vec <=> ${q}::halfvec LIMIT 10
+      `);
+      const exact = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw(Prisma.sql`SET LOCAL enable_indexscan = off`);
+        await tx.$executeRaw(Prisma.sql`SET LOCAL enable_bitmapscan = off`);
+        return tx.$queryRaw(Prisma.sql`
+          SELECT id FROM ${Prisma.raw(table)} ORDER BY vec <=> ${q}::halfvec LIMIT 10
+        `);
+      });
+      const exactIds = exact.map((row) => row.id);
+      const overlap = hnsw.filter((row) => exactIds.includes(row.id)).length;
+      recallSum += overlap / Math.min(10, exactIds.length);
+    }
+    const avgRecall = recallSum / queries.length;
+    assert.ok(
+      avgRecall >= 0.95,
+      `HNSW recall@10 degraded to ${(avgRecall * 100).toFixed(1)}%; index or ef_search tuning regressed`,
+    );
+  } finally {
+    await prisma.$executeRaw(Prisma.sql`DROP TABLE IF EXISTS ${Prisma.raw(table)}`).catch(() => undefined);
     await prisma.$disconnect();
   }
 });
