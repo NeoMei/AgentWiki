@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { LlmService } from '../../integrations/llm/llm.service';
 import { Prisma } from '@prisma/client';
@@ -27,13 +27,53 @@ function vectorLiteral(embedding: number[]): string {
 }
 
 @Injectable()
-export class SearchService {
+export class SearchService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SearchService.name);
+  private indexRepairTimer?: NodeJS.Timeout;
 
   constructor(
     private prisma: PrismaService,
     private llmService: LlmService,
   ) {}
+
+  onModuleInit() {
+    // Index writes happen after the page transaction commits, so a transient
+    // failure there would leave an active page invisible to search until its
+    // next edit. This periodic pass heals those gaps without waiting for one.
+    this.indexRepairTimer = setInterval(() => {
+      void this.repairMissingIndexes().catch((error: unknown) => {
+        this.logger.warn(`search index repair pass failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }, 10 * 60_000);
+    this.indexRepairTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.indexRepairTimer) clearInterval(this.indexRepairTimer);
+    this.indexRepairTimer = undefined;
+  }
+
+  async repairMissingIndexes(limit = 50): Promise<number> {
+    const missing = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT page."id"
+      FROM "Page" AS page
+      LEFT JOIN "PageSearchDocument" AS document ON document."pageId" = page."id"
+      WHERE page."deletedAt" IS NULL AND document."pageId" IS NULL
+      ORDER BY page."updatedAt" ASC
+      LIMIT ${limit}
+    `);
+    let repaired = 0;
+    for (const row of missing) {
+      try {
+        const result = await this.indexPage(row.id);
+        if (result.lexicalIndexed) repaired += 1;
+      } catch (error) {
+        this.logger.warn(`index repair failed for ${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (repaired > 0) this.logger.log(`Repaired search index for ${repaired} page(s)`);
+    return repaired;
+  }
 
   async searchPages(
     query: string,
@@ -53,7 +93,10 @@ export class SearchService {
     }
 
     // If we have an embedding, try pgvector semantic search (HNSW cosine)
-    if (queryEmbedding && queryEmbedding.length > 0) {
+    // Prisma.join throws on an empty array, so a principal without any
+    // accessible space (and no explicit spaceId) must skip the semantic
+    // branch; the lexical fallback handles the empty scope safely.
+    if (queryEmbedding && queryEmbedding.length > 0 && (spaceId || accessibleSpaceIds.length > 0)) {
       const queryVector = vectorLiteral(queryEmbedding);
       const rows = await this.prisma.$queryRaw<Array<{ id: string; similarity: number }>>(Prisma.sql`
         SELECT "id", 1 - ("embeddingVector" <=> ${queryVector}::halfvec) AS "similarity"
@@ -115,7 +158,12 @@ export class SearchService {
     });
 
     if (!page) {
-      await this.prisma.pageSearchDocument.deleteMany({ where: { pageId } });
+      // A missing/deleted page must drop the vector too, or soft-archived
+      // pages keep stale entries inside the HNSW index.
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = NULL WHERE "id" = ${pageId}`),
+        this.prisma.pageSearchDocument.deleteMany({ where: { pageId } }),
+      ]);
       return { lexicalIndexed: false, semanticIndexed: false };
     }
 
@@ -158,10 +206,24 @@ export class SearchService {
         page.title + ' ' + (page.content ?? '').substring(0, 2000),
       );
 
+      // Write the vector only while the lexical document still carries the
+      // content hash this embedding was computed from. A concurrent editor's
+      // indexPage run owns a newer hash, so this statement is a no-op for the
+      // superseded writer instead of clobbering the newer vector.
       const embeddingVector = vectorLiteral(embeddingResult.embedding);
-      await this.prisma.$executeRaw(
-        Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${embeddingVector}::halfvec WHERE "id" = ${pageId}`,
+      const written = await this.prisma.$executeRaw(
+        Prisma.sql`
+          UPDATE "Page" AS page
+          SET "embeddingVector" = ${embeddingVector}::halfvec
+          FROM "PageSearchDocument" AS document
+          WHERE page."id" = ${pageId}
+            AND document."pageId" = ${pageId}
+            AND document."contentHash" = ${contentHash}
+        `,
       );
+      if (written === 0) {
+        this.logger.warn('Page ' + pageId + ' changed during embedding; newer index run owns the vector');
+      }
       this.logger.log('Page ' + pageId + ' indexed successfully');
       return { lexicalIndexed: true, semanticIndexed: true };
     } catch (err: any) {

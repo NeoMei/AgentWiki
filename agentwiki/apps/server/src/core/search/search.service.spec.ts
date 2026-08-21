@@ -6,6 +6,7 @@ describe('SearchService data minimization and durable index', () => {
     pageSearchDocument: { findMany: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     $queryRaw: jest.fn(),
     $executeRaw: jest.fn(),
+    $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
   } as any;
   const llm = { generateEmbedding: jest.fn() } as any;
   const service = new SearchService(prisma, llm);
@@ -75,5 +76,49 @@ describe('SearchService data minimization and durable index', () => {
     });
     expect(prisma.pageSearchDocument.upsert).not.toHaveBeenCalled();
     expect(llm.generateEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('never builds the semantic query when the principal has no accessible spaces', async () => {
+    llm.generateEmbedding.mockResolvedValue({ embedding: [1, 0] });
+    prisma.pageSearchDocument.findMany.mockResolvedValue([]);
+
+    await expect(service.searchPages('term', undefined, 10, [])).resolves.toEqual([]);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('clears the vector alongside the lexical document for a missing page', async () => {
+    prisma.page.findUnique.mockResolvedValue(null);
+    prisma.$executeRaw.mockResolvedValue(1);
+    prisma.pageSearchDocument.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.indexPage('archived-page')).resolves.toEqual({
+      lexicalIndexed: false, semanticIndexed: false,
+    });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(prisma.pageSearchDocument.deleteMany).toHaveBeenCalledWith({ where: { pageId: 'archived-page' } });
+  });
+
+  it('guards the vector write against a concurrent newer index run', async () => {
+    prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
+    prisma.pageSearchDocument.findMany.mockResolvedValue([]);
+    llm.generateEmbedding.mockResolvedValue({ embedding: [0.1] });
+    prisma.$executeRaw.mockResolvedValueOnce(0);
+
+    await expect(service.indexPage('page-1')).resolves.toEqual({
+      lexicalIndexed: true, semanticIndexed: true,
+    });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('repairs active pages whose lexical document is missing', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'orphan-1' }, { id: 'orphan-2' }]);
+    prisma.page.findUnique
+      .mockResolvedValueOnce({ id: 'orphan-1', title: 'One', content: 'a' })
+      .mockResolvedValueOnce({ id: 'orphan-2', title: 'Two', content: 'b' });
+    prisma.pageSearchDocument.findMany.mockResolvedValue([]);
+    llm.generateEmbedding.mockRejectedValue(new Error('offline'));
+
+    await expect(service.repairMissingIndexes()).resolves.toBe(2);
+    expect(prisma.pageSearchDocument.upsert).toHaveBeenCalledTimes(2);
   });
 });

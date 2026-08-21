@@ -1,12 +1,46 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
 
 const databaseUrl = process.env.DATABASE_URL;
+
+test('schema drift is limited to the unmodellable HNSW vector index', {
+  skip: databaseUrl ? false : 'DATABASE_URL is not configured',
+  timeout: 60_000,
+}, () => {
+  const root = new URL('..', import.meta.url);
+  const serverDir = new URL('apps/server/', root);
+  // Prisma cannot express an HNSW index over an Unsupported halfvec column,
+  // so exactly that one index is expected to appear as migrations-only drift.
+  // Any other difference means a future change will generate a destructive
+  // or unexpected migration and must be reviewed before landing.
+  const diff = spawnSync(
+    'npx',
+    [
+      'prisma', 'migrate', 'diff',
+      '--from-migrations', 'prisma/migrations',
+      '--to-schema-datamodel', 'prisma/schema.prisma',
+      '--shadow-database-url', databaseUrl,
+      '--exit-code',
+    ],
+    { cwd: serverDir, encoding: 'utf8', env: { ...process.env, DATABASE_URL: databaseUrl } },
+  );
+  assert.ok(diff.status === 0 || diff.status === 2, `migrate diff crashed: ${diff.stderr}`);
+  const output = diff.stdout;
+  const removed = [...output.matchAll(/\[-\] (.*)/g)].map((match) => match[1]);
+  const added = [...output.matchAll(/\[\+\] (.*)/g)].map((match) => match[1]);
+  assert.deepEqual(
+    removed,
+    ['Removed index on columns (embeddingVector)'],
+    `unexpected migrations-only drift; review before generating migrations: \n${output}`,
+  );
+  assert.deepEqual(added, [], 'schema declares objects the migrations do not create');
+});
 
 test('pgvector semantic search uses halfvec HNSW with cosine distance and hash short-circuit', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
