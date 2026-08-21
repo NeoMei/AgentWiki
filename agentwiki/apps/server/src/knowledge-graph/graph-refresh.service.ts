@@ -60,9 +60,20 @@ export class GraphRefreshService {
         tx.spaceGraphState.findUnique({ where: { spaceId } }),
         tx.page.findMany({
           where: { spaceId, deletedAt: null },
-          select: { id: true, title: true, slug: true, content: true, embedding: true, updatedAt: true },
+          select: { id: true, title: true, slug: true, content: true, updatedAt: true },
         }),
       ]);
+      const vectorRows = await tx.$queryRaw<Array<{ id: string; vector: string }>>(Prisma.sql`
+        SELECT "id", "embeddingVector"::text AS "vector"
+        FROM "Page"
+        WHERE "spaceId" = ${spaceId}
+          AND "deletedAt" IS NULL
+          AND "embeddingVector" IS NOT NULL
+      `);
+      const embeddingByPage = new Map(vectorRows.map((row) => [
+        row.id,
+        row.vector.slice(1, -1).split(',').map(Number),
+      ]));
       if (!state) throw new Error('Space graph state disappeared during refresh');
       const result: RefreshResult = {
         wikilink: { created: 0, removed: 0, dangling: 0 },
@@ -81,7 +92,7 @@ export class GraphRefreshService {
             spaceId,
             pages.map((page) => ({
               id: page.id,
-              embedding: Array.isArray(page.embedding) ? (page.embedding as number[]) : null,
+              embedding: embeddingByPage.get(page.id) ?? null,
             })),
             state.similarThreshold,
           );

@@ -1821,10 +1821,9 @@ describe('ReviewService page revert ordering and audit', () => {
     );
     expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
     const firstPageOperation = Math.min(
-      tx.page.findFirst.mock.invocationCallOrder[0],
-      tx.page.findUnique.mock.invocationCallOrder[0],
-      tx.page.findMany.mock.invocationCallOrder[0],
-      tx.page.updateMany.mock.invocationCallOrder[0],
+      ...[tx.page.findFirst, tx.page.findUnique, tx.page.findMany, tx.page.updateMany]
+        .map((mock: any) => mock.mock.invocationCallOrder[0])
+        .filter((order: number) => order !== undefined),
     );
     expect(revisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(firstPageOperation);
     expect(tx.page.findFirst.mock.invocationCallOrder[0]).toBeLessThan(

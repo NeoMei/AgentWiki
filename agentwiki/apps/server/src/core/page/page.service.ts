@@ -10,7 +10,6 @@ import {
   syncPathDirectory,
 } from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
-import { createHash } from 'crypto';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 
 export interface PaginatedResult<T> {
@@ -121,12 +120,10 @@ export class PageService {
         title: data.title,
         body: data.content ?? '',
       }], { origin: 'web_editor', createdByUserId: userId });
-      const text = `${created.title}\n${created.content ?? ''}`;
-      await tx.pageSearchDocument.upsert({
-        where: { pageId: created.id },
-        create: { pageId: created.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
-        update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
-      });
+      // Lexical and vector indexing are owned by SearchService.indexPage,
+      // called after the transaction commits. Writing the search document here
+      // would refresh its contentHash before indexPage runs and defeat the
+      // hash short-circuit.
       return { ...created, syncPath: allocatedPath.path };
     });
 
@@ -430,12 +427,6 @@ export class PageService {
           title: result.title,
           body: result.content,
         }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
-        const text = `${result.title}\n${result.content ?? ''}`;
-        await tx.pageSearchDocument.upsert({
-          where: { pageId: result.id },
-          create: { pageId: result.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
-          update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
-        });
       }
       return result;
     });
@@ -535,12 +526,6 @@ export class PageService {
         title: updated.title,
         body: updated.content,
       }], { origin: 'web_editor', createdByUserId: page.authorId });
-      const text = `${updated.title}\n${updated.content ?? ''}`;
-      await tx.pageSearchDocument.upsert({
-        where: { pageId: updated.id },
-        create: { pageId: updated.id, text, contentHash: createHash('sha256').update(text).digest('hex') },
-        update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
-      });
       return updated;
     });
 

@@ -12,6 +12,7 @@ describe('GraphRefreshService', () => {
   });
 
   const buildPrisma = (overrides: Record<string, any> = {}) => {
+    const vectorRows: Array<{ id: string; vector: string }> = [];
     const prisma = {
       space: { findUnique: jest.fn().mockResolvedValue({
         id: 'space-1', members: [{ userId: 'owner-1' }],
@@ -45,9 +46,16 @@ describe('GraphRefreshService', () => {
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       changeSet: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
-      $queryRaw: jest.fn().mockResolvedValue([]),
+      $queryRaw: jest.fn().mockImplementation(async (sql: any) => {
+        const text = Array.isArray(sql?.strings) ? sql.strings.join('') : String(sql);
+        return text.includes('embeddingVector') ? vectorRows : [];
+      }),
       $transaction: jest.fn().mockImplementation(async (fn: any) => fn(prisma)),
       ...overrides,
+    };
+    (prisma as any).__setVectors = (rows: Array<{ id: string; vector: string }>) => {
+      vectorRows.length = 0;
+      vectorRows.push(...rows);
     };
     return prisma as any;
   };
@@ -183,9 +191,13 @@ describe('GraphRefreshService', () => {
       wikilinkEnabled: true, similarEnabled: true, similarThreshold: 0.9, llmEnabled: false,
     });
     prisma.page.findMany.mockResolvedValue([
-      { id: 'p1', title: 'A', slug: 'a', content: '', embedding: [1, 0] },
-      { id: 'p2', title: 'B', slug: 'b', content: '', embedding: [0.99, 0.141] },
-      { id: 'p3', title: 'C', slug: 'c', content: '', embedding: null },
+      { id: 'p1', title: 'A', slug: 'a', content: '' },
+      { id: 'p2', title: 'B', slug: 'b', content: '' },
+      { id: 'p3', title: 'C', slug: 'c', content: '' },
+    ]);
+    (prisma as any).__setVectors([
+      { id: 'p1', vector: '[1,0]' },
+      { id: 'p2', vector: '[0.99,0.141]' },
     ]);
     const service = new GraphRefreshService(prisma, extraction, buildLlm() as any);
     const result = await service.refresh('space-1', ['similar']);
@@ -405,7 +417,7 @@ describe('GraphRefreshService', () => {
 
     const finalUpsert = prisma.spaceGraphState.upsert.mock.calls.at(-1)[0];
     expect(finalUpsert.update).not.toHaveProperty('lastContentHash');
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
   });
 
   it('does not persist a hash when a graph input changes without a content change', async () => {

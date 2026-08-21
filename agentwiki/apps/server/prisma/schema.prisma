@@ -249,7 +249,7 @@ model Page {
   knowledgeKey String @unique @default(cuid())
   content      String @default("")
   format       String @default("markdown")
-  embedding    Json?
+  embeddingVector Unsupported("halfvec(2048)")?
 
   parent    Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
   parentId  String?

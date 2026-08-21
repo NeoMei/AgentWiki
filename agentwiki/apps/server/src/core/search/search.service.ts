@@ -22,13 +22,8 @@ const SEARCH_SPACE_SELECT = {
   slug: true,
 } as const;
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (!a || !b || a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
-  const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const normA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const normB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-  if (normA === 0 || normB === 0) return 0;
-  return dot / (normA * normB);
+function vectorLiteral(embedding: number[]): string {
+  return '[' + embedding.join(',') + ']';
 }
 
 @Injectable()
@@ -57,33 +52,33 @@ export class SearchService {
       this.logger.warn('Embedding generation failed, falling back to text search');
     }
 
-    // If we have an embedding, try semantic search
+    // If we have an embedding, try pgvector semantic search (HNSW cosine)
     if (queryEmbedding && queryEmbedding.length > 0) {
-      const pages = await this.prisma.page.findMany({
-        where: {
-          deletedAt: null,
-          embedding: { not: Prisma.DbNull },
-          spaceId: spaceId ?? { in: accessibleSpaceIds },
-        },
-        include: {
-          author: { select: SEARCH_AUTHOR_SELECT },
-          space: { select: SEARCH_SPACE_SELECT },
-        },
-      });
+      const queryVector = vectorLiteral(queryEmbedding);
+      const rows = await this.prisma.$queryRaw<Array<{ id: string; similarity: number }>>(Prisma.sql`
+        SELECT "id", 1 - ("embeddingVector" <=> ${queryVector}::halfvec) AS "similarity"
+        FROM "Page"
+        WHERE "deletedAt" IS NULL
+          AND "embeddingVector" IS NOT NULL
+          AND 1 - ("embeddingVector" <=> ${queryVector}::halfvec) > 0.5
+          ${spaceId ? Prisma.sql`AND "spaceId" = ${spaceId}` : Prisma.sql`AND "spaceId" IN (${Prisma.join(accessibleSpaceIds)})`}
+        ORDER BY "embeddingVector" <=> ${queryVector}::halfvec
+        LIMIT ${limit}
+      `);
 
-      if (pages.length > 0) {
-        const semanticResults = pages
-          .map((page) => ({
-            page,
-            similarity: cosineSimilarity(
-              queryEmbedding!,
-              (page.embedding as number[]) || [],
-            ),
-          }))
-          .filter((r) => r.similarity > 0.5)
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, limit);
-        if (semanticResults.length > 0) return semanticResults;
+      if (rows.length > 0) {
+        const pages = await this.prisma.page.findMany({
+          where: { id: { in: rows.map((row) => row.id) } },
+          include: {
+            author: { select: SEARCH_AUTHOR_SELECT },
+            space: { select: SEARCH_SPACE_SELECT },
+          },
+        });
+        const byId = new Map(pages.map((page) => [page.id, page]));
+        const semanticResults = rows
+          .map((row) => ({ page: byId.get(row.id), similarity: row.similarity }))
+          .filter((row) => row.page);
+        if (semanticResults.length > 0) return semanticResults as SearchResult[];
       }
     }
 
@@ -112,7 +107,7 @@ export class SearchService {
     return documents.map((document) => ({ page: document.page, similarity: 1.0 }));
   }
 
-  async indexPage(pageId: string): Promise<{ lexicalIndexed: boolean; semanticIndexed: boolean }> {
+  async indexPage(pageId: string): Promise<{ lexicalIndexed: boolean; semanticIndexed: boolean; skipped?: boolean }> {
     this.logger.log('Indexing page: ' + pageId);
 
     const page = await this.prisma.page.findUnique({
@@ -125,16 +120,35 @@ export class SearchService {
     }
 
     const text = `${page.title}\n${page.content ?? ''}`;
+    const contentHash = createHash('sha256').update(text).digest('hex');
+
+    // Hash short-circuit: when the lexical document already matches the page
+    // text and a vector exists, skip both the lexical rewrite and the
+    // embedding API call.
+    const [existingDoc] = await this.prisma.pageSearchDocument.findMany({
+      where: { pageId },
+      select: { contentHash: true },
+      take: 1,
+    });
+    if (existingDoc?.contentHash === contentHash) {
+      const [vectorExists] = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(
+        Prisma.sql`SELECT EXISTS (SELECT 1 FROM "Page" WHERE "id" = ${pageId} AND "embeddingVector" IS NOT NULL) AS "exists"`,
+      );
+      if (vectorExists?.exists) {
+        return { lexicalIndexed: true, semanticIndexed: true, skipped: true };
+      }
+    }
+
     await this.prisma.pageSearchDocument.upsert({
       where: { pageId },
       create: {
         pageId,
         text,
-        contentHash: createHash('sha256').update(text).digest('hex'),
+        contentHash,
       },
       update: {
         text,
-        contentHash: createHash('sha256').update(text).digest('hex'),
+        contentHash,
         indexedAt: new Date(),
       },
     });
@@ -144,10 +158,10 @@ export class SearchService {
         page.title + ' ' + (page.content ?? '').substring(0, 2000),
       );
 
-      await this.prisma.page.update({
-        where: { id: pageId },
-        data: { embedding: embeddingResult.embedding },
-      });
+      const embeddingVector = vectorLiteral(embeddingResult.embedding);
+      await this.prisma.$executeRaw(
+        Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${embeddingVector}::halfvec WHERE "id" = ${pageId}`,
+      );
       this.logger.log('Page ' + pageId + ' indexed successfully');
       return { lexicalIndexed: true, semanticIndexed: true };
     } catch (err: any) {
@@ -158,7 +172,7 @@ export class SearchService {
 
   async deletePageIndex(pageId: string): Promise<void> {
     await this.prisma.$transaction([
-      this.prisma.page.updateMany({ where: { id: pageId }, data: { embedding: Prisma.DbNull } }),
+      this.prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = NULL WHERE "id" = ${pageId}`),
       this.prisma.pageSearchDocument.deleteMany({ where: { pageId } }),
     ]);
     this.logger.log('Page ' + pageId + ' index removed');

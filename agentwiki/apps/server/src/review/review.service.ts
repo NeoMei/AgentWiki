@@ -744,7 +744,6 @@ export class ReviewService {
         'create_relation', 'update_relation', 'archive_relation', 'update_relation_strength',
       ].includes(item.type));
       if (unsupported.length) throw new BadRequestException(`Unsupported change item type: ${unsupported[0].type}`);
-      await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'publishing' }, data: { status: 'published', publishedAt: new Date() } });
       const needsLegacySidecar = memoryItems.length > 0 || relationItems.length > 0;
       const legacySidecarOverride = needsLegacySidecar
@@ -1375,7 +1374,6 @@ export class ReviewService {
         }
         await tx.changeItem.update({ where: { id: item.id }, data: { status: 'reverted' } });
       }
-      await this.syncLexicalIndex(tx, pageIds);
       await tx.changeSet.updateMany({ where: { id, status: 'reverting' }, data: { status: 'reverted', revertedAt: new Date() } });
       const nonPageTypes = new Set([
         'upsert_space_memory',
@@ -1467,25 +1465,6 @@ export class ReviewService {
       select: { id: true },
     });
     return page?.id;
-  }
-
-  private async syncLexicalIndex(tx: Prisma.TransactionClient, pageIds: string[]) {
-    for (const pageId of new Set(pageIds)) {
-      const page = await tx.page.findUnique({
-        where: { id: pageId },
-        select: { title: true, content: true, deletedAt: true },
-      });
-      if (!page || page.deletedAt) {
-        await tx.pageSearchDocument.deleteMany({ where: { pageId } });
-        continue;
-      }
-      const text = `${page.title}\n${page.content ?? ''}`;
-      await tx.pageSearchDocument.upsert({
-        where: { pageId },
-        create: { pageId, text, contentHash: createHash('sha256').update(text).digest('hex') },
-        update: { text, contentHash: createHash('sha256').update(text).digest('hex'), indexedAt: new Date() },
-      });
-    }
   }
 
   private async resolveAgentOwner(agentId?: string | null) {
