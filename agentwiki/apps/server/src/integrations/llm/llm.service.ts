@@ -66,6 +66,12 @@ export class LlmService {
     return true;
   }
 
+  private resolveGateway(option?: string): string {
+    return option
+      ?? this.configService.get<string>('LLM_GATEWAY')
+      ?? DEFAULT_GATEWAY;
+  }
+
   private async callChatCompletions(
     apiBaseUrl: string,
     apiKey: string,
@@ -120,7 +126,7 @@ export class LlmService {
     options: GenerateTextOptions = {},
   ): Promise<GenerateTextResult> {
     const modelId = options.modelId ?? DEFAULT_MODEL;
-    const gateway = options.gateway ?? DEFAULT_GATEWAY;
+    const gateway = this.resolveGateway(options.gateway);
     const modelConfig = getModelConfig(modelId);
 
     if (!modelConfig) {
@@ -166,13 +172,14 @@ export class LlmService {
     const allModels = getAllModelConfigs();
     const embeddingModels = allModels.filter((m) => m.supportsEmbedding);
     const modelConfig = embeddingModels.find((m) => m.id === options.modelId)
+      ?? embeddingModels.find((m) => m.id === this.configService.get<string>('LLM_EMBEDDING_MODEL'))
       ?? embeddingModels[0];
 
     if (!modelConfig) {
       throw new Error('No embedding model available');
     }
 
-    const gateway = options.gateway ?? DEFAULT_GATEWAY;
+    const gateway = this.resolveGateway(options.gateway);
     const apiBaseUrl = resolveApiBaseUrl(modelConfig.id, gateway);
     const embeddingModelId =
       gateway === 'openrouter'
@@ -187,10 +194,13 @@ export class LlmService {
     }
 
     const url = `${apiBaseUrl.replace(/\/$/, '')}/embeddings`;
-    const body = {
+    const body: Record<string, unknown> = {
       model: embeddingModelId,
       input: text,
     };
+    if (gateway !== 'openrouter' && modelConfig.embeddingDimensions) {
+      body.dimensions = modelConfig.embeddingDimensions;
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
