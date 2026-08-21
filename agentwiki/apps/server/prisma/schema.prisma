@@ -138,6 +138,8 @@ model AssistTask {
 
   @@index([spaceId, status, createdAt])
   @@index([status, leaseExpiresAt])
+  @@index([status, nextAttemptAt, createdAt], map: "AssistTask_status_nextAttempt_created_idx")
+  @@index([pageId, createdAt(sort: Desc)])
 }
 
 model Agent {
@@ -237,6 +239,7 @@ model SpaceMember {
   createdAt DateTime @default(now())
 
   @@unique([userId, spaceId])
+  @@index([spaceId, role, createdAt])
 }
 
 model Page {
@@ -293,6 +296,7 @@ model Page {
   @@unique([spaceId, sourceId, sourcePath])
   @@unique([spaceId, syncPathKey])
   @@index([sourceId, sourceVersionId])
+  @@index([spaceId, deletedAt, sortOrder])
 }
 
 model PageSearchDocument {
