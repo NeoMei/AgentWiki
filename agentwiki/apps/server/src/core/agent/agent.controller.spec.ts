@@ -43,4 +43,16 @@ describe('AgentController platform authorization', () => {
       'owner-1', 'agent-1', 'credential-1',
     );
   });
+
+  it('requires both Space administration and Agent ownership when removing a grant', async () => {
+    const agents = { removeGrant: jest.fn().mockResolvedValue({ success: true }) } as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'admin' }) } as any;
+    const controller = new AgentController(agents, authorization, {} as any);
+    const principal = { userId: 'owner-1', type: 'human' };
+
+    await controller.removeGrant({ user: principal } as any, 'agent-1', 'space-1');
+
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(principal, 'space-1', ['owner', 'admin']);
+    expect(agents.removeGrant).toHaveBeenCalledWith('owner-1', 'agent-1', 'space-1');
+  });
 });

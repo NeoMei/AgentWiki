@@ -25,6 +25,7 @@ interface AgentMember {
   type: 'agent';
   agentId?: string;
   agent?: { id: string; name: string; status: string };
+  canManageRole: boolean;
   createdAt: string;
 }
 
@@ -200,7 +201,7 @@ export const SpaceMembers: React.FC = () => {
                   </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
-                  {canManage ? (
+                  {member.canManageRole ? (
                     <select
                       aria-label={zh ? `${name} 的 Agent 角色` : `${name} Agent role`}
                       value={member.role}
@@ -215,7 +216,7 @@ export const SpaceMembers: React.FC = () => {
                       {agentRoleName(member.role)}
                     </span>
                   )}
-                  {canManage ? (
+                  {member.canManageRole ? (
                     <button
                       onClick={() => void handleRemoveAgent(member.agentId!, name)}
                       disabled={updatingId === member.agentId}

@@ -16,11 +16,13 @@ vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigat
 interface FixtureOptions {
   role?: 'owner' | 'admin' | 'editor';
   agentRole?: 'reader' | 'editor' | 'publisher';
+  canManageAgentRole?: boolean;
 }
 
 const membersFor = (
   role: FixtureOptions['role'] = 'owner',
   agentRole: FixtureOptions['agentRole'] = 'reader',
+  canManageAgentRole = true,
 ) => [
   {
     id: 'current-member', type: 'human', userId: 'user-1', role,
@@ -33,15 +35,15 @@ const membersFor = (
     createdAt: '2026-07-30T00:00:00.000Z',
   },
   {
-    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: agentRole,
+    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: agentRole, canManageRole: canManageAgentRole,
     agent: { id: 'agent-existing', name: 'Existing', status: 'active' },
     createdAt: '2026-07-30T00:00:00.000Z',
   },
 ];
 
-const renderMembers = ({ role = 'owner', agentRole }: FixtureOptions = {}) => {
+const renderMembers = ({ role = 'owner', agentRole, canManageAgentRole = true }: FixtureOptions = {}) => {
   vi.mocked(api.get).mockImplementation((url) => {
-    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role, agentRole) });
+    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role, agentRole, canManageAgentRole) });
     if (url === '/agents') return Promise.resolve({ data: [
       { id: 'agent-existing', name: 'Existing', status: 'active', revokedAt: null },
       { id: 'agent-new', name: 'New', status: 'active', revokedAt: null },
@@ -103,6 +105,17 @@ describe('SpaceMembers Agent addition', () => {
     const agentRow = screen.getByTestId('member-agent-agent-existing');
     expect(agentRow.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(agentRow).not.toHaveTextContent(/审核者|完全授权|scopes|权限范围/i);
+  });
+
+  it('renders another users Agent grant as read-only for a Space admin', async () => {
+    renderMembers({ role: 'admin', agentRole: 'publisher', canManageAgentRole: false });
+
+    const agentRow = await screen.findByTestId('member-agent-agent-existing');
+    expect(screen.queryByRole('combobox', { name: 'Existing 的 Agent 角色' })).not.toBeInTheDocument();
+    expect(agentRow).toHaveTextContent('Publisher');
+    expect(agentRow.querySelector('button[title="移除授权"]')).not.toBeInTheDocument();
+    expect(api.put).not.toHaveBeenCalled();
+    expect(api.delete).not.toHaveBeenCalled();
   });
 
   it('keeps human membership roles on the human endpoint', async () => {

@@ -82,7 +82,7 @@ export class AgentController {
   async removeGrant(@Req() req: Request, @Param('id') id: string, @Param('spaceId') spaceId: string) {
     const principal = req.user as any;
     await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin']);
-    return this.agents.removeGrantForSpace(id, spaceId);
+    return this.agents.removeGrant(principal.userId, id, spaceId);
   }
 
   @Get(':id/activity')
