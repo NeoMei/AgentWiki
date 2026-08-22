@@ -103,6 +103,9 @@ export async function runAttachment(
       connectionId,
       expectedConfigHash: analysis.hash,
       expectedAgentId: exchange.agentId,
+      expectedSpaceId: exchange.spaceId,
+      expectedRole: exchange.role,
+      expectedScopes: exchange.scopes,
       expectedPluginVersion: GATEWAY_PACKAGE_VERSION,
       exchange,
     });

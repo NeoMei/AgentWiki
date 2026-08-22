@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import {
   BootstrapDto,
@@ -11,7 +13,6 @@ import {
 import {
   hashServerPlan,
   normalizeServerPlan,
-  type NormalizedServerPlan,
   type ServerPlan,
 } from './onboard.types';
 
@@ -31,6 +32,11 @@ const createPlan: ServerPlan = {
   role: 'editor',
   packageVersion: '0.5.0',
 };
+
+const planHashGolden = JSON.parse(readFileSync(join(
+  __dirname,
+  '../../../../packages/sync-protocol/test-vectors/onboarding-plan-hash-v1.json',
+), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
   it.each(['0.5.0'] as const)(
@@ -195,17 +201,7 @@ describe('onboarding roles and canonical plan hashing', () => {
       .toEqual(scopesForAgentAccessRole(role));
   });
 
-  it('hashes canonical UTF-8 JSON with sorted object keys and scope arrays', () => {
-    const normalized = normalizeServerPlan(createPlan);
-    const reordered: NormalizedServerPlan = {
-      scopes: [...normalized.scopes].reverse(),
-      packageVersion: createPlan.packageVersion,
-      role: 'editor',
-      agentName: 'Codex',
-      space: { name: '研发知识库', mode: 'create' },
-    };
-
-    expect(hashServerPlan(normalized)).toBe(hashServerPlan(reordered));
-    expect(hashServerPlan(normalized)).toMatch(/^[0-9a-f]{64}$/);
+  it('matches the shared raw-plan golden vector', () => {
+    expect(hashServerPlan(planHashGolden.plan)).toBe(planHashGolden.sha256);
   });
 });

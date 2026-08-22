@@ -9,6 +9,7 @@ import { runOnboardingStateMachineHarness } from './onboarding-e2e-driver.js';
 import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { readRawConfig } from '../installer/client-config.js';
 import type { AgentClient } from '../agent-clients.js';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 const homes: string[] = [];
 const PLAN_A_HASH = 'b'.repeat(64);
@@ -88,6 +89,30 @@ describe('onboarding runtime state-machine E2E', () => {
     expect(harness.calls.prepare).toEqual([expect.objectContaining({ localScanPlanHash: PLAN_A_HASH, confirmedLocalScan: true, analysisMode: 'standard' })]);
     expect(harness.calls.init).toHaveLength(1);
     expect(harness.calls.sync).toHaveLength(1);
+  });
+
+  it.each(['reader', 'publisher'] as const)('preserves the %s role package through the full coordinator and installer boundary', async (role) => {
+    const harness = await runOnboardingStateMachineHarness({
+      home: await freshHome(),
+      input: { ...codeInput, role, sourceType: 'documents' },
+      localPlans: [],
+    });
+
+    expect(harness.error).toBeUndefined();
+    expect(harness.calls.bootstrap).toHaveLength(1);
+    expect(harness.calls.bootstrap[0]).toMatchObject({
+      serverPlan: { role },
+      serverPlanHash: hashServerPlan({
+        space: { mode: 'create', name: 'E2E Space' },
+        agentName: 'E2E Agent',
+        role,
+        packageVersion: '0.5.0',
+      }),
+    });
+    expect(harness.calls.bootstrapResults).toEqual([{
+      role,
+      scopes: scopesForAgentAccessRole(role),
+    }]);
   });
 
   it('moves a real drifted code flow to recoverable plan confirmation without local mutation', async () => {

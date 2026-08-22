@@ -46,7 +46,7 @@ export interface InstallationExchangeResult {
   credentialId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: string;
+  pluginVersion: '0.5.0';
   scopes: string[];
 }
 

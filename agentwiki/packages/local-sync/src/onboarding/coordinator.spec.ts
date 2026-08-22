@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
@@ -89,11 +90,14 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
     packageVersion: '0.5.0',
     home: tmpHome,
     preflight: vi.fn(async () => ({ configHash: CONFIG_HASH, oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
-    bootstrapInstall: vi.fn(async () => ({
+    bootstrapInstall: vi.fn(async (input) => ({
       bootstrap: {
         space: { id: 'space-1', name: 'R&D' },
         agent: { id: 'agent-1', name: 'Codex' },
-        grant: { role: 'editor', scopes: ['pages:read'] },
+        grant: {
+          role: input.serverPlan.role,
+          scopes: scopesForAgentAccessRole(input.serverPlan.role),
+        },
         installation: { code: 'code-1', installationId: 'inst-1', expiresAt: '2026-01-01T00:00:00Z' },
       },
       reloadRequired: false,
@@ -137,6 +141,26 @@ describe('OnboardingCoordinator happy path', () => {
 
     // The single-use token was deleted after bootstrap.
     expect(await deps.store.loadSecret()).toBeNull();
+  });
+
+  it.each(['reader', 'publisher'] as const)('passes the canonical %s access package across the full bootstrap boundary', async (role) => {
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role,
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'documents',
+    });
+
+    await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
+      serverPlan: expect.objectContaining({ role }),
+      serverPlanHash: hashServerPlan({
+        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.5.0',
+      }),
+    }));
+    await expect(vi.mocked(fixture.deps.bootstrapInstall).mock.results[0]?.value).resolves.toMatchObject({
+      bootstrap: { grant: { role, scopes: scopesForAgentAccessRole(role) } },
+    });
   });
 
   it('emits authorization_required and heartbeat during polling', async () => {

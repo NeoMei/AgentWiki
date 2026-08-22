@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import {
+  canonicalBytes,
   scopesForAgentAccessRole,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
@@ -42,27 +43,6 @@ export function normalizeServerPlan(plan: ServerPlan): NormalizedServerPlan {
   };
 }
 
-function canonicalize(value: unknown, parentKey?: string): unknown {
-  if (Array.isArray(value)) {
-    const values = value.map((item) => canonicalize(item));
-    return parentKey === 'scopes'
-      ? values.sort((left, right) => String(left).localeCompare(String(right)))
-      : values;
-  }
-
-  if (value !== null && typeof value === 'object') {
-    return Object.keys(value)
-      .sort()
-      .reduce<Record<string, unknown>>((result, key) => {
-        result[key] = canonicalize((value as Record<string, unknown>)[key], key);
-        return result;
-      }, {});
-  }
-
-  return value;
-}
-
-export function hashServerPlan(plan: NormalizedServerPlan): string {
-  const canonicalJson = JSON.stringify(canonicalize(plan));
-  return createHash('sha256').update(canonicalJson, 'utf8').digest('hex');
+export function hashServerPlan(plan: ServerPlan): string {
+  return createHash('sha256').update(canonicalBytes(normalizeServerPlan(plan))).digest('hex');
 }

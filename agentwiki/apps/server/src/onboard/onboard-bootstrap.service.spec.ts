@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { LocalSyncInstallationService } from '../core/agent/local-sync-installation.service';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
@@ -58,7 +59,7 @@ describe('OnboardBootstrapService', () => {
       id: 'bootstrap-1',
       deviceSessionId: context.sessionId,
       idempotencyKeyHash: '',
-      serverPlanHash: hashServerPlan(normalizeServerPlan(createPlan)),
+      serverPlanHash: hashServerPlan(createPlan),
       status: 'running',
       executionId: 'execution-initial',
       generation: 1,
@@ -180,7 +181,7 @@ describe('OnboardBootstrapService', () => {
 
   it('creates a private always-review Space and active Agent without creating a Grant', async () => {
     const normalized = normalizeServerPlan(createPlan);
-    const result = await service.bootstrap(context, 'bootstrap-key-01', createPlan, hashServerPlan(normalized));
+    const result = await service.bootstrap(context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));
 
     expect(tx.space.create).toHaveBeenCalledWith({
       data: {
@@ -217,8 +218,33 @@ describe('OnboardBootstrapService', () => {
     expect(JSON.stringify(result)).not.toContain('apiKey');
   });
 
+  it.each([
+    ['reader', false, 'always-review'],
+    ['publisher', true, 'scoped-auto-publish'],
+  ] as const)('creates a new always-review Space while preserving the canonical %s package', async (role, memoryEnabled, approvalMode) => {
+    const plan: ServerPlan = { ...createPlan, role };
+
+    const result = await service.bootstrap(
+      context,
+      'bootstrap-key-01',
+      plan,
+      hashServerPlan(plan),
+    );
+
+    expect(tx.space.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      approvalPolicy: 'always-review',
+    }) });
+    expect(tx.agent.create).toHaveBeenCalledWith({ data: {
+      ownerId: 'user-1', name: 'Codex', memoryEnabled, approvalMode,
+    } });
+    expect(result.grant).toEqual({ role, scopes: scopesForAgentAccessRole(role) });
+    expect(installations.issueForBootstrap).toHaveBeenCalledWith(expect.objectContaining({
+      role,
+    }));
+  });
+
   it('derives distinct deterministic Space slugs from the complete device session identity', async () => {
-    const hash = hashServerPlan(normalizeServerPlan(createPlan));
+    const hash = hashServerPlan(createPlan);
 
     await service.bootstrap(
       { ...context, sessionId: 'device-alpha-12345678' },
@@ -258,7 +284,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(redis.setStrict).toHaveBeenCalledWith(
@@ -293,7 +319,7 @@ describe('OnboardBootstrapService', () => {
       id: 'space-existing', name: '已有空间', approvalPolicy: 'scoped-auto-publish',
     });
     const result = await service.bootstrap(
-      context, 'bootstrap-key-01', plan, hashServerPlan(normalizeServerPlan(plan)),
+      context, 'bootstrap-key-01', plan, hashServerPlan(plan),
     );
 
     expect(tx.space.findFirst).toHaveBeenCalledWith({
@@ -321,8 +347,10 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', plan, hashServerPlan(normalizeServerPlan(plan)),
-    )).resolves.toMatchObject({ grant: { role: 'publisher' } });
+      context, 'bootstrap-key-01', plan, hashServerPlan(plan),
+    )).resolves.toMatchObject({
+      grant: { role: 'publisher', scopes: scopesForAgentAccessRole('publisher') },
+    });
     expect(tx.space.create).not.toHaveBeenCalled();
     expect(tx.agent.create).toHaveBeenCalledWith({ data: {
       ownerId: 'user-1', name: 'Codex', memoryEnabled: true, approvalMode: 'scoped-auto-publish',
@@ -333,7 +361,7 @@ describe('OnboardBootstrapService', () => {
     'rejects missing or malformed idempotency key %p with a stable 400 business error',
     async (key) => {
       await expect(service.bootstrap(
-        context, key, createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+        context, key, createPlan, hashServerPlan(createPlan),
       )).rejects.toMatchObject({
         businessCode: 'ONBOARDING_IDEMPOTENCY_KEY_INVALID',
         statusCode: 400,
@@ -356,7 +384,7 @@ describe('OnboardBootstrapService', () => {
     { ...context, requestedCapabilities: [...CAPABILITIES, 'admin'] },
   ])('rejects a narrowed or changed device-session contract %#', async (changedContext) => {
     await expect(service.bootstrap(
-      changedContext, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      changedContext, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'ONBOARDING_PLAN_HASH_MISMATCH' });
     expect(prisma.onboardingBootstrap.create).not.toHaveBeenCalled();
   });
@@ -381,7 +409,7 @@ describe('OnboardBootstrapService', () => {
 
     bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
     const replay = await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(replay).toEqual(expected);
@@ -419,7 +447,7 @@ describe('OnboardBootstrapService', () => {
     redis.getStrict.mockResolvedValue(JSON.stringify(storedWithExtras));
 
     const replay = await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(JSON.stringify(replay)).not.toContain('apiKey');
@@ -435,7 +463,7 @@ describe('OnboardBootstrapService', () => {
     bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
 
     await expect(service.bootstrap(
-      context, key, plan, hashServerPlan(normalizeServerPlan(plan)),
+      context, key, plan, hashServerPlan(plan),
     )).rejects.toMatchObject({ businessCode: 'ONBOARDING_REPLAY_MISMATCH' });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -457,7 +485,7 @@ describe('OnboardBootstrapService', () => {
       redis.getStrict.mockResolvedValue(value);
     });
 
-    const hash = hashServerPlan(normalizeServerPlan(createPlan));
+    const hash = hashServerPlan(createPlan);
     const winner = service.bootstrap(context, 'bootstrap-key-01', createPlan, hash);
     while (!releaseInstallation) await new Promise((resolve) => setImmediate(resolve));
     const loser = service.bootstrap(context, 'bootstrap-key-01', createPlan, hash);
@@ -477,7 +505,7 @@ describe('OnboardBootstrapService', () => {
     prisma.$transaction.mockRejectedValue(new Error('grant write failed'));
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toThrow('grant write failed');
 
     expect(prisma.onboardingBootstrap.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -505,7 +533,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).resolves.toMatchObject({ installation: { code: 'AW-INSTALL-CODE' } });
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -526,7 +554,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
 
     expect(prisma.space.findFirst).toHaveBeenCalledWith({
@@ -547,7 +575,6 @@ describe('OnboardBootstrapService', () => {
     _label,
     agentOverride,
   ) => {
-    const normalized = normalizeServerPlan(createPlan);
     prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
     bootstrapRecord.status = 'failed';
     bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
@@ -564,7 +591,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalized),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
 
     expect(installations.issueForBootstrap).not.toHaveBeenCalled();
@@ -574,7 +601,7 @@ describe('OnboardBootstrapService', () => {
     redis.setStrict.mockRejectedValue(new Error('redis unavailable'));
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toThrow('Replay response was not saved');
 
     expect(installations.revoke).toHaveBeenCalledWith(
@@ -587,7 +614,7 @@ describe('OnboardBootstrapService', () => {
     prisma.onboardingDeviceSession.updateMany.mockRejectedValue(new Error('database unavailable'));
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toThrow('database unavailable');
 
     expect(redis.setStrict).toHaveBeenCalledTimes(1);
@@ -617,7 +644,7 @@ describe('OnboardBootstrapService', () => {
 
   it('claims a random fenced execution and fences resource, completion and token writes', async () => {
     await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     const claimData = prisma.onboardingBootstrap.create.mock.calls[0][0].data;
@@ -668,7 +695,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
 
     expect(installations.revoke).toHaveBeenCalledWith(
@@ -700,7 +727,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
 
     expect(renewalCount).toBe(4);
@@ -723,7 +750,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).resolves.toMatchObject({ installation: { code: 'AW-INSTALL-CODE' } });
 
     expect(redis.getStrict).toHaveBeenCalledTimes(1);
@@ -736,7 +763,7 @@ describe('OnboardBootstrapService', () => {
     redis.getStrict.mockRejectedValue(new Error('redis read unavailable'));
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
 
     expect(installations.revoke).not.toHaveBeenCalled();
@@ -759,7 +786,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
 
     expect(installations.revoke).not.toHaveBeenCalled();
@@ -799,7 +826,7 @@ describe('OnboardBootstrapService', () => {
     ));
 
     const result = await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(result.installation.code).toBe('AW-INSTALL-CODE');
@@ -838,7 +865,7 @@ describe('OnboardBootstrapService', () => {
     ));
 
     const result = await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(result.installation.code).toBe('AW-RECOVERED');
@@ -870,7 +897,7 @@ describe('OnboardBootstrapService', () => {
     });
 
     await service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
 
     expect(installations.revoke).toHaveBeenCalledWith('user-1', 'agent-1', 'installation-old');
@@ -891,7 +918,7 @@ describe('OnboardBootstrapService', () => {
     };
     const timeoutSpy = jest.spyOn(global, 'setTimeout');
     const pending = service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(normalizeServerPlan(createPlan)),
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
     );
     const assertion = expect(pending).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
     await jest.advanceTimersByTimeAsync(2_100);
@@ -1038,7 +1065,7 @@ describe('OnboardBootstrapService multi-Agent account isolation', () => {
         { ...context, sessionId },
         key,
         selected,
-        hashServerPlan(normalizeServerPlan(selected)),
+        hashServerPlan(selected),
       );
     };
 

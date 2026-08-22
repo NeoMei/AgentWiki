@@ -99,7 +99,7 @@ export class OnboardBootstrapService {
   ): Promise<OnboardBootstrapResponse> {
     const key = this.validateIdempotencyKey(idempotencyKey);
     const normalized = normalizeServerPlan(plan);
-    const canonicalPlanHash = hashServerPlan(normalized);
+    const canonicalPlanHash = hashServerPlan(plan);
     this.assertAuthorizedPlan(context, normalized, suppliedPlanHash, canonicalPlanHash);
     const keyHash = this.hash(key);
     const claim = await this.claim(context.sessionId, keyHash, canonicalPlanHash);

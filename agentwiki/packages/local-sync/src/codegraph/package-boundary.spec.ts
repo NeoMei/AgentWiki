@@ -4,8 +4,19 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const packageJson = fileURLToPath(new URL('../../package.json', import.meta.url));
+const readme = fileURLToPath(new URL('../../README.md', import.meta.url));
 
 describe('local-sync package boundary', () => {
+  it('pins onboarding instructions to the published package version', async () => {
+    const manifest = JSON.parse(await readFile(packageJson, 'utf8')) as { version: string };
+    const content = await readFile(readme, 'utf8');
+
+    expect(manifest.version).toBe('0.5.0');
+    expect(content).toContain(`## Onboarding (${manifest.version})`);
+    expect(content.match(new RegExp(`@neomei/agentwiki-local-sync@${manifest.version.replaceAll('.', '\\.')}`, 'g'))).toHaveLength(2);
+    expect(content).not.toContain('@neomei/agentwiki-local-sync@0.4.0');
+  });
+
   it('keeps only the historical dist allowlist and exact safe adapter entrypoints', async () => {
     const manifest = JSON.parse(await readFile(packageJson, 'utf8')) as { main: string; types: string; exports?: Record<string, unknown> };
     expect(manifest.exports).toMatchObject({

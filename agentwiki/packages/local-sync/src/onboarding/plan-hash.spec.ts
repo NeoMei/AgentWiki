@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { normalizeServerPlan, hashServerPlan } from './plan-hash.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import type { ServerPlan } from './plan-hash.js';
+
+const planHashGolden = JSON.parse(readFileSync(fileURLToPath(new URL(
+  '../../../sync-protocol/test-vectors/onboarding-plan-hash-v1.json',
+  import.meta.url,
+)), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('server plan normalization', () => {
   it.each(['reader', 'editor', 'publisher'] as const)('derives %s scopes from the shared contract', (role) => {
@@ -18,6 +26,10 @@ describe('server plan normalization', () => {
 });
 
 describe('server plan hashing', () => {
+  it('matches the shared raw-plan golden vector', () => {
+    expect(hashServerPlan(planHashGolden.plan)).toBe(planHashGolden.sha256);
+  });
+
   it('produces a stable 64-char hex digest', () => {
     const plan = {
       space: { mode: 'create' as const, name: '研发知识库' },

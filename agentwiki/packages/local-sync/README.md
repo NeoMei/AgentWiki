@@ -39,12 +39,12 @@ version-decoupled: it reads supported structural scan results, deterministically
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
 CodeGraph MCP to AgentWiki.
 
-## Onboarding (0.4.0)
+## Onboarding (0.5.0)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.4.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.5.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
@@ -65,7 +65,7 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.4.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.5.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --code <one-time-code> \
   --protocol ndjson \

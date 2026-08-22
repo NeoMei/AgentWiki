@@ -4,6 +4,10 @@
  * this driver only returns the matching structured reply that a client would
  * send over NDJSON.
  */
+import {
+  scopesForAgentAccessRole,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 import { runOnboarding } from './runtime.js';
 import { createSessionStore, type OnboardingCheckpoint } from './session.js';
 import type { OnboardingEvent, ProtocolSink, ProtocolSource } from './protocol.js';
@@ -36,6 +40,7 @@ export interface OnboardingStateMachineHarnessResult {
   calls: {
     plan: Array<Record<string, unknown>>;
     bootstrap: Array<Record<string, unknown>>;
+    bootstrapResults: Array<{ role: AgentAccessRole; scopes: string[] }>;
     init: Array<Record<string, unknown>>;
     prepare: Array<Record<string, unknown>>;
     sync: Array<Record<string, unknown>>;
@@ -50,7 +55,7 @@ export async function runOnboardingStateMachineHarness(
   const events: OnboardingEvent[] = [];
   const replies: Array<Record<string, unknown>> = [];
   const calls: OnboardingStateMachineHarnessResult['calls'] = {
-    plan: [], bootstrap: [], init: [], prepare: [], sync: [],
+    plan: [], bootstrap: [], bootstrapResults: [], init: [], prepare: [], sync: [],
   };
   let inputSent = false;
   let confirmationIndex = 0;
@@ -106,10 +111,15 @@ export async function runOnboardingStateMachineHarness(
             'https://wiki.test/api',
             options.input.clientType === 'opencode' ? 1 : undefined,
           );
+          const grant = {
+            role: options.input.role,
+            scopes: scopesForAgentAccessRole(options.input.role),
+          };
+          calls.bootstrapResults.push(grant);
           return {
             bootstrap: {
               space: { id: 'space-1', name: 'E2E Space' }, agent: { id: 'agent-1', name: 'E2E Agent' },
-              grant: { role: options.input.role, scopes: ['pages:read'] },
+              grant,
               installation: { code: 'code-1', installationId: 'installation-1', expiresAt: '2026-08-11T01:00:00.000Z' },
             },
             reloadRequired: false, manifestHash: 'f'.repeat(64), connectionId: '00000000-0000-4000-8000-000000000001',
