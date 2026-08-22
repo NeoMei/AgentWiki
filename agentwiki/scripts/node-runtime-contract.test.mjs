@@ -537,6 +537,20 @@ test('every active local-sync release surface uses the package version', async (
   }
 });
 
+test('the local-sync release pins the unified-role sync protocol release', async () => {
+  const protocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
+  const localSyncPackage = JSON.parse(await read('packages/local-sync/package.json'));
+  const rootPackage = JSON.parse(await read('package.json'));
+
+  assert.equal(protocolPackage.version, '0.2.0');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], 'workspace:*');
+  assert.equal(
+    rootPackage.scripts['test:package:local-sync-clean-install'],
+    'node scripts/verify-local-sync-clean-install.mjs',
+  );
+  assert.match(await read('packages/sync-protocol/src/index.ts'), /agent-access-role/u);
+});
+
 test('every user-facing local-sync surface uses the published npm package name', async () => {
   for (const path of [
     'packages/local-sync/README.md',
