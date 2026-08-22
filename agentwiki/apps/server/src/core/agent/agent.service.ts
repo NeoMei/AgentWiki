@@ -81,7 +81,7 @@ export class AgentService {
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
     const scopes = scopesForAgentAccessRole(dto.role);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
-    const credential = await this.prisma.agentCredential.create({
+    const createCredential = (db: Pick<PrismaService, 'agentCredential'>) => db.agentCredential.create({
       data: {
         agentId,
         name: dto.name,
@@ -96,9 +96,16 @@ export class AgentService {
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
-    if (dto.role === 'publisher') {
-      await this.enablePublisherCapabilities(agentId);
-    }
+    const credential = dto.role === 'publisher'
+      ? await this.prisma.$transaction(async (tx) => {
+          const created = await createCredential(tx);
+          await tx.agent.update({
+            where: { id: agentId },
+            data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+          });
+          return created;
+        })
+      : await createCredential(this.prisma);
     try {
       await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
     } catch (error) {
@@ -273,7 +280,7 @@ export class AgentService {
           spaceId: input.spaceId,
           role: input.role,
         },
-        select: { id: true, scopes: true },
+        select: { id: true, scopes: true, space: { select: { deletedAt: true } } },
       }),
     ]);
     const expectedScopes = scopesForAgentAccessRole(input.role);
@@ -287,6 +294,7 @@ export class AgentService {
       || !grant
       || credential.id !== input.credentialId
       || grant.id !== input.grantId
+      || grant.space.deletedAt
       || !persistedScopesMatch(credential.scopes)
       || !persistedScopesMatch(grant.scopes)
     ) {
@@ -339,15 +347,22 @@ export class AgentService {
     }
 
     const scopes = scopesForAgentAccessRole(role);
-    const grant = await this.prisma.agentGrant.upsert({
+    const grantMutation = {
       where: { agentId_spaceId: { agentId, spaceId } },
       create: { agentId, spaceId, role, scopes },
       update: { role, scopes },
       include: { space: { select: { id: true, name: true } } },
-    });
-    if (role === 'publisher') {
-      await this.enablePublisherCapabilities(agentId);
-    }
+    };
+    const grant = role === 'publisher'
+      ? await this.prisma.$transaction(async (tx) => {
+          const persisted = await tx.agentGrant.upsert(grantMutation);
+          await tx.agent.update({
+            where: { id: agentId },
+            data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+          });
+          return persisted;
+        })
+      : await this.prisma.agentGrant.upsert(grantMutation);
     await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, {
       oldRole: existingGrant?.role ?? null,
       newRole: role,

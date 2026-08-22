@@ -76,7 +76,7 @@ describe('AgentService grant scope validation', () => {
         spaceId: 'space-1',
         role: 'editor',
       },
-      select: { id: true, scopes: true },
+      select: { id: true, scopes: true, space: { select: { deletedAt: true } } },
     });
 
     prisma.agentGrant.findFirst.mockResolvedValue({ id: 'grant-recreated', scopes });
@@ -85,6 +85,25 @@ describe('AgentService grant scope validation', () => {
       agentId: 'agent-1',
       credentialId: 'credential-1',
       grantId: 'grant-original',
+      spaceId: 'space-1',
+      role: 'editor',
+    })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects a connection receipt after its Space is deleted', async () => {
+    const scopes = scopesForAgentAccessRole('editor');
+    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', scopes });
+    prisma.agentGrant.findFirst.mockResolvedValue({
+      id: 'grant-1',
+      scopes,
+      space: { deletedAt: new Date('2030-01-01T00:00:00.000Z') },
+    });
+
+    await expect(service.assertConnectionReceipt({
+      ownerId: 'owner-1',
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+      grantId: 'grant-1',
       spaceId: 'space-1',
       role: 'editor',
     })).rejects.toBeInstanceOf(ForbiddenException);
@@ -182,6 +201,31 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agent.update).not.toHaveBeenCalled();
   });
 
+  it('persists a publisher credential and its required Agent switches in one transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentCredential.create.mockResolvedValue({ id: 'orphaned-credential' });
+    const tx = {
+      agentCredential: { create: jest.fn().mockResolvedValue({ id: 'credential-1', role: 'publisher' }) },
+      agent: { update: jest.fn().mockResolvedValue({}) },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.createCredential('owner-1', 'agent-1', {
+      name: 'Publisher API', role: 'publisher',
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.agentCredential.create).toHaveBeenCalledTimes(1);
+    expect(tx.agent.update).toHaveBeenCalledWith({
+      where: { id: 'agent-1' },
+      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+    });
+    expect(prisma.agentCredential.create).not.toHaveBeenCalled();
+  });
+
   it('returns the persisted credential when its audit write fails', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
@@ -252,6 +296,30 @@ describe('AgentService grant scope validation', () => {
     prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'publisher' });
     await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'editor');
     expect(prisma.agent.update).not.toHaveBeenCalled();
+  });
+
+  it('persists a publisher Grant and its required Agent switches in one transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    prisma.agentGrant.upsert.mockResolvedValue({ id: 'partial-grant' });
+    const tx = {
+      agentGrant: { upsert: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'publisher' }) },
+      agent: { update: jest.fn().mockResolvedValue({}) },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'publisher');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.agentGrant.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.agent.update).toHaveBeenCalledWith({
+      where: { id: 'agent-1' },
+      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+    });
+    expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
   });
 
 
