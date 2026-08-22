@@ -189,6 +189,34 @@ describe('SourceService safety and idempotency', () => {
     })).resolves.toEqual(['runs:write']);
   });
 
+  it.each([
+    ['editor', 'editor'],
+    ['editor', 'publisher'],
+    ['publisher', 'editor'],
+  ] as const)(
+    'filters queued-run scopes through credential role %s and grant role %s',
+    async (credentialRole, grantRole) => {
+      const authorizationPrisma = {
+        agentGrant: { findUnique: jest.fn().mockResolvedValue({
+          role: grantRole,
+          scopes: ['runs:write', 'review:auto-publish'],
+          agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+          space: { deletedAt: null },
+        }) },
+        agentCredential: { findFirst: jest.fn().mockResolvedValue({
+          role: credentialRole,
+          scopes: ['runs:write', 'review:auto-publish'],
+        }) },
+      } as any;
+      const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+      await expect((authorizationService as any).assertRequesterStillAuthorized({
+        requestedByAgentId: 'agent-1', spaceId: 'space-1',
+        requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+      })).resolves.toEqual(['runs:write']);
+    },
+  );
+
   it('allows a queued publisher run when credential and grant remain authorized', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({

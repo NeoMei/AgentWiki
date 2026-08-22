@@ -968,9 +968,11 @@ export class SourceService {
         (grant.scopes.length > 0 && !grant.scopes.includes('runs:write'))) {
         throw new Error('Run requester is no longer authorized');
       }
+      const roleAllowedScopes = credential.scopes.filter((scope) =>
+        agentRoleAllowsScope(credential.role, scope) && agentRoleAllowsScope(grant.role, scope));
       return grant.scopes.length > 0
-        ? credential.scopes.filter((scope) => grant.scopes.includes(scope))
-        : credential.scopes;
+        ? roleAllowedScopes.filter((scope) => grant.scopes.includes(scope))
+        : roleAllowedScopes;
     }
     const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
       where: { id: run.requestedByUserId },

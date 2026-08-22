@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
+import type { Principal } from '../core/authorization/authorization.service';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
@@ -16,6 +17,7 @@ import {
 import {
   canonicalBytes,
   contentHash as syncContentHash,
+  agentRoleAllowsScope,
   normalizeMarkdown,
   pathKey,
   revisionContentHash,
@@ -34,7 +36,7 @@ export class ReviewService {
   ) {}
 
   async propose(
-    principal: { userId: string; agentId?: string; scopes?: string[] },
+    principal: Principal,
     spaceId: string,
     title: string,
     item: { type: string; payload: Record<string, unknown> },
@@ -50,17 +52,21 @@ export class ReviewService {
       principal.agentId
         ? this.prisma.agentGrant.findUnique({
           where: { agentId_spaceId: { agentId: principal.agentId, spaceId } },
-          select: { scopes: true },
+          select: { role: true, scopes: true },
         })
         : Promise.resolve(null),
     ]);
     const grantAllowsAutoPublish = !!grant &&
+      agentRoleAllowsScope(grant.role, 'review:auto-publish') &&
       (grant.scopes.length === 0 || grant.scopes.includes('review:auto-publish'));
+    const credentialAllowsAutoPublish = !!principal.agentRole &&
+      agentRoleAllowsScope(principal.agentRole, 'review:auto-publish') &&
+      (principal.scopes || []).includes('review:auto-publish');
     const autoPublish = !!principal.agentId &&
       space?.approvalPolicy === 'scoped-auto-publish' &&
       agent?.approvalMode === 'scoped-auto-publish' &&
       grantAllowsAutoPublish &&
-      (principal.scopes || []).includes('review:auto-publish');
+      credentialAllowsAutoPublish;
 
     const changeSet = await this.prisma.changeSet.create({
       data: {
