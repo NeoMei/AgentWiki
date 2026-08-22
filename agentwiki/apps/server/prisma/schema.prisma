@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AgentAccessRole {
+  reader
+  editor
+  publisher
+}
+
 // 用户表 - 支持人类用户和Agent
 model User {
   id           String  @id @default(cuid())
@@ -179,6 +185,7 @@ model AgentCredential {
   keyHash                 String    @unique
   localSyncInstallationId String?   @unique
   scopes                  String[]
+  role                    AgentAccessRole @default(reader)
   expiresAt               DateTime?
   revokedAt               DateTime?
   lastUsedAt              DateTime?
@@ -194,9 +201,9 @@ model AgentCredential {
 }
 
 model AgentGrant {
-  id     String   @id @default(cuid())
-  role   String   @default("viewer")
-  scopes String[] @default([])
+  id     String          @id @default(cuid())
+  role   AgentAccessRole @default(reader)
+  scopes String[]        @default([])
 
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String

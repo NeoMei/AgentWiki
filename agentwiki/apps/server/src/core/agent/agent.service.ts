@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
+import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 const VALID_SCOPES = new Set([
   'spaces:read', 'pages:read', 'pages:write', 'graph:read', 'graph:write',
@@ -280,13 +281,18 @@ export class AgentService {
     if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
       throw new BadRequestException('Grant contains an invalid scope');
     }
+    // The public DTO moves to the canonical three-role contract in Task 3.
+    // Until then, persist the legacy read-only input conservatively as reader.
+    const persistedRole: AgentAccessRole = role === 'viewer' ? 'reader' : role;
     const createData = normalizedScopes !== undefined
-      ? { agentId, spaceId, role, scopes: normalizedScopes }
-      : { agentId, spaceId, role };
+      ? { agentId, spaceId, role: persistedRole, scopes: normalizedScopes }
+      : { agentId, spaceId, role: persistedRole };
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
       create: createData,
-      update: normalizedScopes !== undefined ? { role, scopes: normalizedScopes } : { role },
+      update: normalizedScopes !== undefined
+        ? { role: persistedRole, scopes: normalizedScopes }
+        : { role: persistedRole },
       include: { space: { select: { id: true, name: true } } },
     });
     await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes: normalizedScopes });

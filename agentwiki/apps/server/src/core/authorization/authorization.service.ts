@@ -1,11 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../filters/business-error';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  AgentAccessRoleSchema,
+  agentRoleAllowsScope,
+  agentRoleSpaceCapability,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 
 export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
   userId: string;
   agentId?: string;
+  agentRole?: AgentAccessRole;
   scopes?: string[];
   credentialId?: string;
   platformRole?: 'user' | 'super_admin';
@@ -57,14 +64,15 @@ export class AuthorizationService {
         grant.agent.status !== 'active' ||
         grant.agent.revokedAt ||
         grant.space.deletedAt ||
-        !allowedRoles.includes(grant.role as SpaceRole)
+        !AgentAccessRoleSchema.safeParse(grant.role).success ||
+        !allowedRoles.includes(agentRoleSpaceCapability(grant.role))
       ) {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent does not have permission to access this space');
       }
       // Effective scope = credential scopes ∩ grant scopes (grant scopes are the
       // per-space capability ceiling; an empty grant scope list means no
       // additional per-space restriction beyond the credential).
-      this.assertScope(principal, requiredScope, grant.scopes || []);
+      this.assertScope(principal, requiredScope, grant.scopes || [], grant.role);
       return grant;
     }
     const member = await this.prisma.spaceMember.findUnique({
@@ -206,9 +214,11 @@ export class AuthorizationService {
             ],
           } : {}),
         },
-        select: { spaceId: true },
+        select: { spaceId: true, role: true },
       });
-      return grants.map((grant) => grant.spaceId);
+      return grants
+        .filter((grant) => !requiredScope || agentRoleAllowsScope(grant.role, requiredScope))
+        .map((grant) => grant.spaceId);
     }
     const memberships = await this.prisma.spaceMember.findMany({
       where: { userId: principal.userId, space: { deletedAt: null } },
@@ -225,7 +235,7 @@ export class AuthorizationService {
   async listAccessibleSpaces(
     principalInput: PrincipalInput,
     requiredScope = 'spaces:read',
-  ): Promise<Array<{ id: string; name: string; role: SpaceRole }>> {
+  ): Promise<Array<{ id: string; name: string; role: SpaceRole | AgentAccessRole }>> {
     const principal = this.normalize(principalInput);
     if (!principal.agentId && principal.platformRole === 'super_admin') {
       const spaces = await this.prisma.space.findMany({
@@ -253,8 +263,8 @@ export class AuthorizationService {
         orderBy: { createdAt: 'asc' },
       });
       return grants
-        .filter((grant) => !grant.space.deletedAt)
-        .map((grant) => ({ id: grant.space.id, name: grant.space.name, role: grant.role as SpaceRole }));
+        .filter((grant) => !grant.space.deletedAt && (!requiredScope || agentRoleAllowsScope(grant.role, requiredScope)))
+        .map((grant) => ({ id: grant.space.id, name: grant.space.name, role: grant.role }));
     }
     const memberships = await this.prisma.spaceMember.findMany({
       where: { userId: principal.userId, space: { deletedAt: null } },
@@ -270,10 +280,18 @@ export class AuthorizationService {
     return typeof principal === 'string' ? { userId: principal } : principal;
   }
 
-  private assertScope(principal: Principal, requiredScope?: string, grantScopes: string[] = []) {
+  private assertScope(
+    principal: Principal,
+    requiredScope?: string,
+    grantScopes: string[] = [],
+    grantRole?: AgentAccessRole,
+  ) {
     if (!requiredScope) return;
-    if (!principal.scopes?.includes(requiredScope)) {
+    if (!principal.agentRole || !agentRoleAllowsScope(principal.agentRole, requiredScope) || !principal.scopes?.includes(requiredScope)) {
       throw new BusinessException('AUTH_SCOPE_REQUIRED', `Agent credential requires scope: ${requiredScope}`);
+    }
+    if (grantRole && !agentRoleAllowsScope(grantRole, requiredScope)) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', `Agent role is not granted scope ${requiredScope} in this space`);
     }
     if (grantScopes.length > 0 && !grantScopes.includes(requiredScope)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', `Agent is not granted scope ${requiredScope} in this space`);

@@ -177,6 +177,7 @@ describe('SourceService safety and idempotency', () => {
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'editor',
         scopes: ['runs:write', 'review:auto-publish'],
       }) },
     } as any;
@@ -186,6 +187,69 @@ describe('SourceService safety and idempotency', () => {
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
     })).resolves.toEqual(['runs:write']);
+  });
+
+  it('allows a queued publisher run when credential and grant remain authorized', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write', 'review:auto-publish'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).resolves.toEqual(['runs:write']);
+  });
+
+  it('rejects a queued run when a reader credential retains a stale runs:write scope', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'reader',
+        scopes: ['runs:write'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).rejects.toThrow('Run requester is no longer authorized');
+  });
+
+  it('rejects a queued run when a non-empty grant omits runs:write', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'editor',
+        scopes: ['pages:read'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'editor',
+        scopes: ['runs:write'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).rejects.toThrow('Run requester is no longer authorized');
   });
 
   it('keeps a queued super-admin run authorized without a space membership', async () => {

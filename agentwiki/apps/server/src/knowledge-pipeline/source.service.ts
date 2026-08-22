@@ -18,6 +18,7 @@ import { Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
+import { agentRoleAllowsScope, agentRoleSpaceCapability } from '@neomei/agentwiki-sync-protocol';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
@@ -957,12 +958,14 @@ export class SourceService {
                 revokedAt: null,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
               },
-              select: { scopes: true },
+              select: { role: true, scopes: true },
             })
           : Promise.resolve(null),
       ]);
-      if (!grant || grant.role !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
-        grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential?.scopes.includes('runs:write')) {
+      if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
+        grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
+        !agentRoleAllowsScope(credential.role, 'runs:write') || !credential.scopes.includes('runs:write') ||
+        (grant.scopes.length > 0 && !grant.scopes.includes('runs:write'))) {
         throw new Error('Run requester is no longer authorized');
       }
       return grant.scopes.length > 0

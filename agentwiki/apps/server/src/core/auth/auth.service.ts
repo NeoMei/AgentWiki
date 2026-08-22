@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 export interface User {
   id: string;
@@ -79,6 +80,7 @@ export class AuthService {
     credentialId: string;
     scopes: string[];
     agentId?: string;
+    agentRole?: AgentAccessRole;
     platformRole?: 'user' | 'super_admin';
   } | null> {
     const keyHash = createHash('sha256').update(apiKey).digest('hex');
@@ -134,6 +136,7 @@ export class AuthService {
       email: agentCredential.agent.owner.email,
       type: 'agent',
       agentId: agentCredential.agentId,
+      agentRole: agentCredential.role,
       credentialId: agentCredential.id,
       scopes: agentCredential.scopes,
     };
