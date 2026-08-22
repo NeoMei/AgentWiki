@@ -65,7 +65,7 @@ describe('AddSpaceMemberDialog', () => {
     expect(screen.queryByRole('option', { name: /Paused agent/ })).not.toBeInTheDocument();
   });
 
-  it('adds an editor agent with editor default scopes', async () => {
+  it('adds an editor agent with a role-only grant request', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [
       { id: 'agent-new', name: 'New agent', status: 'active', revokedAt: null },
     ] } as never);
@@ -77,13 +77,27 @@ describe('AddSpaceMemberDialog', () => {
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       '/agents/agent-new/grants/space-1',
-      {
-        role: 'editor',
-        scopes: ['pages:read', 'pages:write', 'sources:read', 'graph:read', 'graph:write'],
-      },
+      { role: 'editor' },
     ));
     expect(onAdded).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers exactly Reader, Editor, and Publisher for Agent access', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { id: 'agent-new', name: 'New agent', status: 'active', revokedAt: null },
+    ] } as never);
+    renderDialog();
+    fireEvent.click(screen.getByRole('button', { name: '智能体' }));
+    await screen.findByRole('option', { name: 'New agent · 已启用' });
+
+    const role = screen.getByLabelText('智能体角色');
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value))
+      .toEqual(['reader', 'editor', 'publisher']);
+    fireEvent.change(role, { target: { value: 'publisher' } });
+    expect(screen.getByText(/仍受 Space 发布策略限制/)).toBeInTheDocument();
+    expect(screen.getByText(/不能执行人工审批或成员管理/)).toBeInTheDocument();
+    expect(screen.queryByText(/scope|权限范围|查看者|审核者|完全授权/i)).not.toBeInTheDocument();
   });
 
   it('exposes the selected member mode accessibly', () => {

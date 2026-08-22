@@ -35,7 +35,7 @@ export const OnboardPage: React.FC = () => {
     <div className="text-gray-900">
       <header className="mx-auto max-w-2xl text-center">
         <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-          <ShieldCheck size={14} /> AgentWiki 0.3
+          <ShieldCheck size={14} /> AgentWiki 0.5
         </span>
         <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">
           {zh ? '让本地 Agent 帮你完成接入' : 'Let your local Agent handle onboarding'}

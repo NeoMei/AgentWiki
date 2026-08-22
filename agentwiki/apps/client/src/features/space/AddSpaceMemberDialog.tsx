@@ -1,13 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, Loader2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
-import {
-  AGENT_ROLE_SCOPES,
-  filterAvailableAgents,
-  type AgentMemberRole,
-  type AgentOption,
-} from './spaceMemberAgentOptions';
+import { filterAvailableAgents, type AgentOption } from './spaceMemberAgentOptions';
 
 export interface AddSpaceMemberDialogProps {
   spaceId: string;
@@ -37,7 +33,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
   const [humanRole, setHumanRole] = useState('viewer');
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [agentId, setAgentId] = useState('');
-  const [agentRole, setAgentRole] = useState<AgentMemberRole>('viewer');
+  const [agentRole, setAgentRole] = useState<AgentAccessRole>('reader');
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [agentLoadError, setAgentLoadError] = useState<string | null>(null);
@@ -86,7 +82,6 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
       } else {
         await api.put(`/agents/${agentId}/grants/${spaceId}`, {
           role: agentRole,
-          scopes: AGENT_ROLE_SCOPES[agentRole],
         });
       }
       await onAdded();
@@ -106,7 +101,17 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
     }
   };
 
-  const agentScopes = AGENT_ROLE_SCOPES[agentRole];
+  const agentRoleDescription: Record<AgentAccessRole, string> = zh
+    ? {
+        reader: '只读访问 Space 内容。',
+        editor: '可读取并编辑 Space 内容，变更仍进入审核流程。',
+        publisher: '可自动发布，但仍受 Space 发布策略限制；Agent 不能执行人工审批或成员管理。',
+      }
+    : {
+        reader: 'Read-only access to Space content.',
+        editor: 'Read and edit Space content; changes still follow the review workflow.',
+        publisher: 'May auto-publish subject to Space publishing policy; Agents cannot approve reviews or manage members.',
+      };
 
   return (
     <div
@@ -244,25 +249,21 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                     <select
                       id="space-agent-role"
                       value={agentRole}
-                      onChange={(event) => setAgentRole(event.target.value as AgentMemberRole)}
+                      onChange={(event) => setAgentRole(event.target.value as AgentAccessRole)}
                       className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                      <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
+                      {AGENT_ACCESS_ROLES.map((role) => (
+                        <option key={role} value={role}>
+                          {role === 'reader' ? 'Reader' : role === 'editor' ? 'Editor' : 'Publisher'}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="rounded-lg bg-blue-50 p-3">
                     <p className="text-xs font-medium text-blue-900">
-                      {zh ? '默认空间权限' : 'Default Space scopes'}
+                      {agentRole === 'reader' ? 'Reader' : agentRole === 'editor' ? 'Editor' : 'Publisher'}
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {agentScopes.map((scope) => (
-                        <code key={scope} className="rounded bg-white px-2 py-1 text-xs text-blue-700">{scope}</code>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-xs text-blue-700">
-                      {zh ? '添加后仍可在成员卡片中调整全部权限。' : 'All scopes can still be adjusted from the member card after adding.'}
-                    </p>
+                    <p className="mt-1 text-xs text-blue-700">{agentRoleDescription[agentRole]}</p>
                   </div>
                 </>
               )}

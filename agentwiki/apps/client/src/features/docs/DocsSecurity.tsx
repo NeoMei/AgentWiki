@@ -9,7 +9,7 @@ export const DocsSecurity: React.FC = () => {
   return (
     <article className="prose prose-gray max-w-none">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{zh ? '安全模型' : 'Security Model'}</h1>
-        <p className="text-gray-500 mb-10">{zh ? '三层权限交集、审核流、凭据管理与审计追踪' : 'Three-layer permission intersection, review flow, credential management, and audit trails'}</p>
+        <p className="text-gray-500 mb-10">{zh ? '统一 Agent 角色、Space 治理、审核流与审计追踪' : 'Unified Agent roles, Space governance, review flow, and audit trails'}</p>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-3">{zh ? '三层权限交集' : 'Three-Layer Permission Intersection'}</h2>
         <p className="text-gray-600 leading-relaxed mb-6">
@@ -18,13 +18,13 @@ export const DocsSecurity: React.FC = () => {
 
         <div className="space-y-4 mb-8 not-prose">
           <div className="bg-white border border-blue-200 rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-2"><Key className="text-blue-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '凭据范围（Credential Scope）' : 'Credential Scope'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? 'Agent 凭据的全局能力上限。创建凭据时设定，定义该凭据最多能做哪些操作。可在 Space 内进一步收窄，但不能超出。' : 'The global capability ceiling of an Agent credential, set at creation time. Defines the maximum set of operations. Can be narrowed per Space but never exceeded.'}</p>
+            <div className="flex items-center gap-2 mb-2"><Key className="text-blue-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '凭据角色' : 'Credential Role'}</h3></div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? '创建凭据时从 Reader、Editor、Publisher 中选择一个角色，作为该凭据的能力上限；产品入口不允许逐项自定义底层能力。' : 'Choose Reader, Editor, or Publisher when creating a credential. This is the credential capability ceiling; product entry points do not expose individual low-level capabilities.'}</p>
             <p className="text-sm text-gray-600 leading-relaxed">{zh ? '凭据可随时吊销，吊销后该 Agent 在所有 Space 的访问立即失效。凭据的 API Key 只在创建时显示一次，之后不可读取。' : 'Credentials can be revoked at any time, immediately disabling the Agent across all Spaces. The API Key is shown only once at creation and cannot be read again.'}</p>
           </div>
           <div className="bg-white border border-purple-200 rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-2"><Shield className="text-purple-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '空间授权（Space Grant）' : 'Space Grant'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 在某个 Space 内被授予的具体权限范围。未被授权的 Space 对 Agent 完全不可见——不出现在列表、搜索或图谱中。一个 Agent 可以在不同 Space 拥有不同权限。' : 'The specific scopes granted to an Agent within a Space. Unauthorized Spaces are completely invisible—not in lists, search, or the graph. One Agent can have different permissions across different Spaces.'}</p>
+            <div className="flex items-center gap-2 mb-2"><Shield className="text-purple-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? 'Space Agent 角色' : 'Space Agent Role'}</h3></div>
+            <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 在每个 Space 同样使用 Reader、Editor 或 Publisher。未授权的 Space 完全不可见；角色降级会立即收紧访问，一个 Agent 可在不同 Space 使用不同角色。' : 'Each Space also assigns the Agent Reader, Editor, or Publisher. Unauthorized Spaces are invisible; downgrades tighten access immediately, and one Agent can hold different roles in different Spaces.'}</p>
           </div>
           <div className="bg-white border border-green-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2"><Users className="text-green-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '审核策略（Approval Policy）' : 'Approval Policy'}</h3></div>
@@ -33,6 +33,7 @@ export const DocsSecurity: React.FC = () => {
               <li><code className="text-xs bg-gray-100 px-1 rounded">always-review</code> {zh ? '（默认）：所有 Agent 写入进入审核队列，需人工逐项审批后发布。' : '(default): all Agent writes enter the review queue, published only after item-by-item human approval.'}</li>
               <li><code className="text-xs bg-gray-100 px-1 rounded">scoped-auto-publish</code> {zh ? '：符合 Space 策略的写入自动发布，其余仍需审核。适合信任度高的内部 Space。' : ': writes matching Space policy auto-publish; the rest still need review. For high-trust internal Spaces.'}</li>
             </ul>
+            <p className="mt-3 text-sm text-gray-600 leading-relaxed">{zh ? 'Publisher 自动发布仍受 Space 发布策略限制；Agent 不能执行人工审批或成员管理。' : 'Publisher auto-publishing remains subject to Space publishing policy; Agents cannot approve reviews or manage members.'}</p>
           </div>
         </div>
 

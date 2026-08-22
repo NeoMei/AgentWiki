@@ -25,6 +25,7 @@ describe('AgentDetail', () => {
     vi.mocked(api.put).mockReset();
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.delete).mockReset();
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     vi.mocked(api.get)
       .mockResolvedValueOnce({ data: {
         id: 'agent-1',
@@ -167,5 +168,64 @@ describe('AgentDetail', () => {
     expect(credentialRow).toHaveTextContent('上次使用: 从未');
     expect(credentialRow).toHaveTextContent('到期时间:');
     expect(credentialRow).toHaveTextContent('有效');
+  });
+
+  it('reports one-time key copy only after the clipboard write succeeds', async () => {
+    let resolveCopy: (() => void) | undefined;
+    vi.mocked(navigator.clipboard.writeText).mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
+    vi.mocked(api.post).mockResolvedValue({ data: { apiKey: 'agk_delayed_secret' } } as any);
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建凭据' }));
+    const copy = await screen.findByRole('button', { name: '复制新凭据密钥' });
+    fireEvent.click(copy);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('agk_delayed_secret');
+    expect(screen.queryByRole('button', { name: '已复制新凭据密钥' })).not.toBeInTheDocument();
+    resolveCopy?.();
+    expect(await screen.findByRole('button', { name: '已复制新凭据密钥' })).toBeInTheDocument();
+  });
+
+  it('reports clipboard failure and resets copied state for a newly created key', async () => {
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({ data: { apiKey: 'agk_first_secret' } } as any)
+      .mockResolvedValueOnce({ data: { apiKey: 'agk_second_secret' } } as any);
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建凭据' }));
+    fireEvent.click(await screen.findByRole('button', { name: '复制新凭据密钥' }));
+    expect(await screen.findByRole('button', { name: '已复制新凭据密钥' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '创建凭据' }));
+    expect(await screen.findByText('agk_second_secret')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '复制新凭据密钥' })).toBeInTheDocument();
+
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+    fireEvent.click(screen.getByRole('button', { name: '复制新凭据密钥' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('复制密钥失败');
+    expect(screen.getByRole('button', { name: '复制新凭据密钥' })).toBeInTheDocument();
+  });
+
+  it('counts only unrevoked and unexpired credentials as active', async () => {
+    vi.mocked(api.get)
+      .mockReset()
+      .mockResolvedValueOnce({ data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], memoryEnabled: false,
+        credentials: [
+          { id: 'active-no-expiry', revokedAt: null, expiresAt: null },
+          { id: 'active-future', revokedAt: null, expiresAt: '2099-01-01T00:00:00.000Z' },
+          { id: 'expired', revokedAt: null, expiresAt: '2020-01-01T00:00:00.000Z' },
+          { id: 'revoked', revokedAt: '2026-01-01T00:00:00.000Z', expiresAt: null },
+        ],
+      } } as any)
+      .mockResolvedValueOnce({ data: { data: [] } } as any)
+      .mockResolvedValueOnce({ data: { data: [] } } as any);
+    renderDetail();
+
+    const summary = (await screen.findByText('有效凭据')).parentElement;
+    expect(summary).toHaveTextContent('2');
   });
 });

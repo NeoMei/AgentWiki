@@ -11,8 +11,8 @@ export const DocsFeatures: React.FC = () => {
     {
       icon: Layers, color: 'blue',
       title: zh ? '知识空间（Space）' : 'Knowledge Spaces',
-      design: zh ? '按项目、团队或主题隔离知识。每个 Space 拥有独立的成员列表、权限策略和审核流。Space 之间数据完全隔离，Agent 必须被显式授权才能访问。' : 'Isolate knowledge by project, team, or topic. Each Space has its own member list, permission policy, and review flow. Spaces are fully data-isolated; Agents need explicit grants.',
-      usage: zh ? ['在 Dashboard 点击「创建空间」', '在 Space 设置中选择审核策略（always-review 或 scoped-auto-publish）', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 成员配置按 Space 的权限范围'] : ['Click "Create Space" in the Dashboard', 'Choose the approval policy in Space settings', 'Add human or Agent members in the Members page', 'Configure per-Space scopes for Agent members'],
+      design: zh ? '按项目、团队或主题隔离知识。每个 Space 拥有独立的成员列表、发布策略和审核流。Space 之间数据完全隔离，Agent 必须以 Reader、Editor 或 Publisher 角色显式接入。Publisher 自动发布仍受 Space 发布策略限制。' : 'Isolate knowledge by project, team, or topic. Each Space has its own member list, publishing policy, and review flow. Spaces are fully data-isolated; Agents connect explicitly as Reader, Editor, or Publisher. Publisher auto-publishing remains subject to Space policy.',
+      usage: zh ? ['在 Dashboard 点击「创建空间」', '在 Space 设置中选择审核策略（always-review 或 scoped-auto-publish）', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 选择 Reader、Editor 或 Publisher'] : ['Click "Create Space" in the Dashboard', 'Choose the approval policy in Space settings', 'Add human or Agent members in the Members page', 'Choose Reader, Editor, or Publisher for the Agent'],
     },
     {
       icon: FileText, color: 'indigo',

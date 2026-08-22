@@ -18,6 +18,7 @@ export const AgentDetail: React.FC = () => {
   const [tab, setTab] = useState<Tab>('overview');
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [grant, setGrant] = useState<{ spaceId: string; role: AgentAccessRole }>({ spaceId: '', role: 'reader' });
   const [credential, setCredential] = useState<{ name: string; role: AgentAccessRole }>({ name: 'Default credential', role: 'reader' });
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,21 @@ export const AgentDetail: React.FC = () => {
   const createCredential = async () => {
     const response = await api.post('/agents/' + id + '/credentials', credential);
     setNewKey(response.data.apiKey);
+    setCopied(false);
+    setCopyError(null);
     await load();
+  };
+
+  const copyNewKey = async () => {
+    if (!newKey) return;
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(newKey);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setCopyError(t('agent.copyCredentialKeyFailed'));
+    }
   };
 
   const roleName = (role: AgentAccessRole) => t(`agent.role.${role}.name`);
@@ -68,7 +83,9 @@ export const AgentDetail: React.FC = () => {
   const formatDate = (value: string | null | undefined) => value
     ? new Date(value).toLocaleString(language)
     : t('agent.never');
-  const credentialIsActive = (expiresAt: string | null | undefined) => !expiresAt || Date.parse(expiresAt) > Date.now();
+  const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
+    !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
+  );
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -95,7 +112,7 @@ export const AgentDetail: React.FC = () => {
       {tab === 'overview' ? (
         <div className="grid sm:grid-cols-3 gap-4">
           <Summary label={t('nav.spaces')} value={agent.grants.length} />
-          <Summary label={t('agent.activeCredentials')} value={agent.credentials.length} />
+          <Summary label={t('agent.activeCredentials')} value={agent.credentials.filter(credentialIsActive).length} />
           <Summary label={t('agent.approvalMode')} value={agent.approvalMode} />
         </div>
       ) : null}
@@ -139,7 +156,18 @@ export const AgentDetail: React.FC = () => {
             {newKey ? (
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
                 <p className="text-sm text-green-800 mb-2">{t('agent.copyKey')}</p>
-                <div className="flex gap-2"><code className="flex-1 bg-white border rounded px-2 py-1 text-xs break-all">{newKey}</code><button onClick={() => { void navigator.clipboard.writeText(newKey); setCopied(true); }} className="p-2 border bg-white rounded">{copied ? <Check size={15} /> : <Copy size={15} />}</button></div>
+                <div className="flex gap-2">
+                  <code className="flex-1 break-all rounded border bg-white px-2 py-1 text-xs">{newKey}</code>
+                  <button
+                    type="button"
+                    aria-label={copied ? t('agent.copiedCredentialKey') : t('agent.copyCredentialKey')}
+                    onClick={() => void copyNewKey()}
+                    className="rounded border bg-white p-2"
+                  >
+                    {copied ? <Check size={15} /> : <Copy size={15} />}
+                  </button>
+                </div>
+                {copyError ? <p role="alert" className="mt-2 text-xs text-red-700">{copyError}</p> : null}
                 <p className="mt-2 text-xs text-green-800">{t('agent.apiCredentialHelp')}</p>
               </div>
             ) : null}
@@ -163,7 +191,7 @@ export const AgentDetail: React.FC = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{roleName(item.role)}</span></p>
                     <p className="mt-1 text-xs text-gray-500">{item.prefix}… · {t('agent.lastUsed')}: {formatDate(item.lastUsedAt)} · {t('agent.expires')}: {formatDate(item.expiresAt)}</p>
-                    <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item.expiresAt) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
+                    <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
                   </div>
                   <button aria-label={t('agent.revokeCredential', { name: item.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
