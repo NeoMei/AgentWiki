@@ -2093,7 +2093,7 @@ git commit -m "test(collaboration): add workflow acceptance gates"
 
 ## Final Verification and Release Boundary
 
-- [ ] Confirm `git status --short` contains no accidental changes to `docmost`, `mnemon`, `openwiki`, `outline`, `swarmvault`, or `agentwiki/.codebase-memory/`.
+- [ ] Confirm `git status --short` contains no accidental changes to sibling repositories or to `agentwiki/.codebase-memory/`.
 - [ ] Confirm every collaboration migration is additive and the Prisma drift allowlist has not been broadened.
 - [ ] Run `for file in scripts/collaboration-schema-db.test.mjs scripts/collaboration-test-database.mjs scripts/collaboration-workflows-db.test.mjs scripts/collaboration-workflows-e2e.mjs; do node --check "$file" || exit 1; done` and expect no ESM/TypeScript syntax error; then execute the schema suite to prove package resolution.
 - [ ] Run database gates only with `COLLABORATION_TEST_DATABASE_URL`; verify logs name a `collaboration_test_*` schema and never `public`.
