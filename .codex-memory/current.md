@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 主目标：完成 Agent 协作模板与组件的书面 Spec 审阅，然后形成实施计划。
+- 主目标：按已确认 Spec 和 TDD 实施计划落地 Agent 协作模板与组件。
 - 前置活跃任务：先实现并验证 Agent 统一访问角色 0.5.0，再实施协作模板。
 
 # 范围 / 不做
@@ -16,9 +16,9 @@
 # 当前状态
 
 - `unified-agent-access-roles`：设计和 TDD 实施计划已完成，尚未开始生产代码实现；新协议目标版本为 0.5.0。
-- `agent-collaboration-templates`：需求、架构、领域模型、组件、内置模板、UI、MCP、错误恢复和测试设计均已由用户确认。
-- 协作模板正式设计已写入 `agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`，当前等待用户审阅书面 Spec。
-- 生产代码尚未修改，协作模板实施计划尚未创建。
+- `agent-collaboration-templates`：书面 Spec 已确认；13 个任务的 TDD 实施计划已完成，涵盖共享契约、数据库、服务端、MCP、本地网关、前端和真实验收。
+- 协作模板正式设计位于 `agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`，实施计划位于 `agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`。
+- 生产代码尚未修改；下一步需选择分任务子 Agent 执行或当前会话内联执行，并先完成统一访问角色前置计划。
 
 # 稳定约束
 
@@ -33,6 +33,7 @@
 # 关键索引
 
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
+- 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
 - 统一访问角色设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
 - 统一访问角色计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
@@ -41,7 +42,7 @@
 
 # 风险 / 下一步
 
-- 用户需要先审阅协作模板书面 Spec；若批准，再使用 `writing-plans` 形成实施计划。
+- 需要先选择实施方式；推荐按任务使用新鲜子 Agent、逐任务两阶段审查。
 - 协作模板必须在统一访问角色完成后实施，否则会重新制造角色与 scope 两套配置。
 - 真实多 Agent 执行无法由服务端远程唤醒；人工审核后需要 UI 生成恢复指令。
 - 外部文件只保存受控引用；跨机器不可解析的本地相对路径不能冒充可共享产物。

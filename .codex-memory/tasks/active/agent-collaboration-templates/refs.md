@@ -1,6 +1,7 @@
 # 参考
 
 - 设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
+- 实施计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 领域词汇：`agentwiki/CONTEXT.md`
 - 统一访问角色设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
 - 统一访问角色计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`

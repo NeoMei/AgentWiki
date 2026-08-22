@@ -14,3 +14,7 @@
 12. 协作 scopes 由统一 `reader | editor | publisher` 角色策略派生，不重新暴露 scope 复选框。
 13. 人工审核点使 Agent 安全退出；审核后 UI 生成恢复指令，MVP 不承诺远程自动唤醒。
 14. 未经单独授权不 push、不发布 npm、不部署生产。
+15. 服务端新领域目录使用 `collaboration-workflows`，与现有页面实时协作 `core/collaboration` 分离；后者只承担已提交状态的刷新通知。
+16. 服务端 MCP 使用 canonical `collaboration_*`，本地统一网关向 Agent 暴露带精确 schema 的 `wiki_collaboration_*`。
+17. 幂等领取的租约令牌使用现有 `JWT_SECRET` 做域隔离 HMAC 可重建，数据库仍只保存 token hash；同一 Agent 在同一运行最多一个活跃尝试。
+18. 系统模板以非空 `scopeKey=system` 与 slug 唯一，Space 模板以 `scopeKey=spaceId` 唯一，避免 PostgreSQL nullable 唯一键无法保护系统 seed。
