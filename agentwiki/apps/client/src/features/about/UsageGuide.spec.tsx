@@ -54,6 +54,15 @@ describe('UsageGuide Agent connection flow', () => {
         .some((link) => link.getAttribute('href') === LOCAL_SYNC_PACKAGE_URL),
     ).toBe(true);
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();
+    expect(screen.getAllByText('Reader').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Editor').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Publisher').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Publisher 自动发布仍受 Space 发布策略限制/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Agent 不能执行人工审批或成员管理/).length).toBeGreaterThan(0);
+
+    const guideText = document.body.textContent || '';
+    expect(guideText).not.toMatch(/配置权限范围|权限面板|凭据范围|可用权限范围|根据 scope 自动推导|审核者|完全授权/);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });
 

@@ -37,39 +37,10 @@ export class LocalSyncInstallationController {
     return this.installations.create(
       (req.user as { userId: string }).userId,
       agentId,
-      dto.scopes,
+      dto.spaceId,
+      dto.role,
       dto.pluginVersion,
       this.publicApiUrl(req),
-    );
-  }
-
-
-  @Post('agents/:agentId/local-sync-installations/self')
-  @UseGuards(CombinedAuthGuard)
-  createForAgent(
-    @Req() req: Request,
-    @Param('agentId') agentId: string,
-    @Body() dto: CreateLocalSyncInstallationDto,
-  ) {
-    const principal = req.user as {
-      userId: string;
-      agentId?: string;
-      credentialId?: string;
-      scopes?: string[];
-    };
-    if (principal.agentId && principal.agentId !== agentId) {
-      throw new ForbiddenException('Agents can only create install codes for themselves');
-    }
-    return this.installations.create(
-      principal.userId,
-      agentId,
-      dto.scopes,
-      dto.pluginVersion,
-      this.publicApiUrl(req),
-      principal.agentId ? {
-        credentialId: principal.credentialId!,
-        scopes: principal.scopes || [],
-      } : undefined,
     );
   }
 

@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, normalize } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { AgentAccessRoleSchema } from '@neomei/agentwiki-sync-protocol';
 import { hashServerPlan, type ServerPlan } from './plan-hash.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
 import { PublicRelativeDisplayPathSchema } from '../codegraph/contracts.js';
@@ -54,7 +55,7 @@ const TRANSITIONS: Record<OnboardingState, OnboardingState[]> = {
   bootstrapping: ['installing_gateway', 'failed_recoverable', 'failed_terminal'],
   installing_gateway: ['verifying_gateway', 'failed_recoverable', 'failed_terminal'],
   verifying_gateway: ['scanning', 'completed', 'failed_recoverable', 'failed_terminal'],
-  scanning: ['waiting_for_confirmation', 'waiting_for_sync_confirmation', 'failed_recoverable', 'failed_terminal'],
+  scanning: ['waiting_for_confirmation', 'waiting_for_sync_confirmation', 'completed', 'failed_recoverable', 'failed_terminal'],
   waiting_for_sync_confirmation: ['syncing', 'waiting_for_sync_confirmation', 'cancelled', 'failed_recoverable', 'failed_terminal'],
   syncing: ['completed', 'failed_recoverable', 'failed_terminal'],
   completed: [],
@@ -125,8 +126,7 @@ const canonicalSourcePathSchema = textSchema.superRefine((value, context) => {
 });
 const inputOptionsShape = {
   agentName: textSchema,
-  permissionPreset: z.enum(['editor', 'full']),
-  approvalMode: z.enum(['always-review', 'scoped-auto-publish']),
+  role: AgentAccessRoleSchema,
   clientType: z.enum(['codex', 'claude', 'opencode']),
   sourcePaths: z.array(canonicalSourcePathSchema).min(1),
   sourceType: z.enum(['auto', 'code', 'documents']),
@@ -176,7 +176,7 @@ const localPlanPreviewSchema = z.object({
 
 const serverPlanSchema = z.object({
   space: z.union([z.object({ mode: z.literal('create'), name: z.string().min(1) }).strict(), z.object({ mode: z.literal('existing'), id: z.string().min(1) }).strict()]),
-  agentName: z.string().min(1), permissionPreset: z.enum(['editor', 'full']), approvalMode: z.enum(['always-review', 'scoped-auto-publish']), packageVersion: z.string().min(1),
+  agentName: z.string().min(1), role: AgentAccessRoleSchema, packageVersion: z.literal('0.5.0'),
 }).strict();
 const bootstrapSummarySchema = z.object({
   space: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
@@ -216,7 +216,7 @@ const checkpointSchema = z.object({
   if (!checkpoint.inputs || !checkpoint.serverPlan || !checkpoint.serverPlanHash || !checkpoint.onboardingPlanHash) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'post-confirmation checkpoint is missing plan evidence' });
   }
-  if (checkpoint.inputs?.sourceType === 'code' && (!checkpoint.localScanPlan || !checkpoint.localScanPlanHash)) {
+  if (checkpoint.inputs?.role !== 'reader' && checkpoint.inputs?.sourceType === 'code' && (!checkpoint.localScanPlan || !checkpoint.localScanPlanHash)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'code checkpoint is missing local scan consent' });
   }
   if (checkpoint.inputs?.sourceType === 'documents' && (checkpoint.localScanPlan || checkpoint.localScanPlanHash)) {

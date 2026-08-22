@@ -70,7 +70,7 @@ export class OnboardController {
     return {
       statusCode: 410,
       error: 'Gone',
-      replacement: `Use the pinned 0.4.0 onboarding command: ${PUBLIC_COMMAND}`,
+      replacement: `Use the pinned 0.5.0 onboarding command: ${PUBLIC_COMMAND}`,
     };
   }
 
@@ -83,12 +83,12 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.4.0';
+const PACKAGE_VERSION = '0.5.0';
 const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard --server ${API_BASE} --protocol ndjson`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入
 
-> v${PACKAGE_VERSION} — 2026-08-20
+> v${PACKAGE_VERSION} — 2026-08-22
 
 把下面这一条命令交给你的本地 Agent（Codex、Claude Code、OpenCode 等）：
 
@@ -96,11 +96,11 @@ const ONBOARD_MD = `# AgentWiki Agent 接入
 ${PUBLIC_COMMAND}
 \`\`\`
 
-Agent 会自动完成网页授权、收集参数、确认计划、安装单一 \`agentwiki\` 网关 MCP、首次本地扫描和知识同步预览确认。你只需要做三个动作：
+Agent 会自动完成网页授权、收集参数、确认计划并安装单一 \`agentwiki\` 网关 MCP。Reader 在验证网关后只执行远程知识拉取并完成，不会发起写同步；Editor 和 Publisher 才会进入首次本地扫描和知识同步预览确认。
 
 1. 在浏览器中批准授权
 2. 确认接入计划
-3. 确认首次知识同步预览
+3. 如选择 Editor 或 Publisher，确认首次知识同步预览
 
 密码和登录信息不会进入 Agent 对话。
 

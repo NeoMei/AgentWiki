@@ -1,22 +1,26 @@
 import {
-  ArrayMinSize,
-  IsArray,
+  IsIn,
   IsString,
   Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  AGENT_ACCESS_ROLES,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 
 export class CreateLocalSyncInstallationDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @IsString({ each: true })
-  @MaxLength(50, { each: true })
-  scopes: string[];
+  @IsString()
+  @MinLength(1)
+  spaceId: string;
+
+  @IsIn(AGENT_ACCESS_ROLES)
+  role: AgentAccessRole;
 
   @IsString()
-  @Matches(/^\d+\.\d+\.\d+$/)
-  pluginVersion: string;
+  @Matches(/^0\.5\.0$/)
+  pluginVersion: '0.5.0';
 }
 
 export class ExchangeLocalSyncInstallationDto {

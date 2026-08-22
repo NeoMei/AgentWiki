@@ -15,12 +15,14 @@ vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigat
 
 interface FixtureOptions {
   role?: 'owner' | 'admin' | 'editor';
-  agentScopes?: string[];
+  agentRole?: 'reader' | 'editor' | 'publisher';
+  canManageAgentRole?: boolean;
 }
 
 const membersFor = (
   role: FixtureOptions['role'] = 'owner',
-  agentScopes: string[] = ['pages:read'],
+  agentRole: FixtureOptions['agentRole'] = 'reader',
+  canManageAgentRole = true,
 ) => [
   {
     id: 'current-member', type: 'human', userId: 'user-1', role,
@@ -28,15 +30,20 @@ const membersFor = (
     createdAt: '2026-07-30T00:00:00.000Z',
   },
   {
-    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: 'viewer', scopes: agentScopes,
+    id: 'teammate-member', type: 'human', userId: 'user-2', role: 'viewer',
+    user: { id: 'user-2', email: 'teammate@example.com', name: 'Teammate', type: 'human' },
+    createdAt: '2026-07-30T00:00:00.000Z',
+  },
+  {
+    id: 'grant-1', type: 'agent', agentId: 'agent-existing', role: agentRole, canManageRole: canManageAgentRole,
     agent: { id: 'agent-existing', name: 'Existing', status: 'active' },
     createdAt: '2026-07-30T00:00:00.000Z',
   },
 ];
 
-const renderMembers = ({ role = 'owner', agentScopes }: FixtureOptions = {}) => {
+const renderMembers = ({ role = 'owner', agentRole, canManageAgentRole = true }: FixtureOptions = {}) => {
   vi.mocked(api.get).mockImplementation((url) => {
-    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role, agentScopes) });
+    if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor(role, agentRole, canManageAgentRole) });
     if (url === '/agents') return Promise.resolve({ data: [
       { id: 'agent-existing', name: 'Existing', status: 'active', revokedAt: null },
       { id: 'agent-new', name: 'New', status: 'active', revokedAt: null },
@@ -83,18 +90,45 @@ describe('SpaceMembers Agent addition', () => {
     expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument();
   });
 
-  it('does not present an unsafe deselect-all action when every scope is selected', async () => {
-    renderMembers({
-      agentScopes: [
-        'pages:read', 'pages:write', 'sources:read', 'sources:write',
-        'runs:read', 'runs:write', 'review:read', 'review:auto-publish',
-        'memory:read', 'memory:write', 'graph:read', 'graph:write',
-      ],
-    });
+  it('updates an Agent grant with one canonical role and no scopes', async () => {
+    renderMembers();
 
-    fireEvent.click(await screen.findByTitle('权限设置'));
+    const role = await screen.findByRole('combobox', { name: 'Existing 的 Agent 角色' });
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value))
+      .toEqual(['reader', 'editor', 'publisher']);
+    fireEvent.change(role, { target: { value: 'publisher' } });
 
-    expect(screen.getByRole('button', { name: '已全选' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '取消全选' })).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/agents/agent-existing/grants/space-1',
+      { role: 'publisher' },
+    ));
+    const agentRow = screen.getByTestId('member-agent-agent-existing');
+    expect(agentRow.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(agentRow).not.toHaveTextContent(/审核者|完全授权|scopes|权限范围/i);
+  });
+
+  it('renders another users Agent grant as read-only for a Space admin', async () => {
+    renderMembers({ role: 'admin', agentRole: 'publisher', canManageAgentRole: false });
+
+    const agentRow = await screen.findByTestId('member-agent-agent-existing');
+    expect(screen.queryByRole('combobox', { name: 'Existing 的 Agent 角色' })).not.toBeInTheDocument();
+    expect(agentRow).toHaveTextContent('Publisher');
+    expect(agentRow.querySelector('button[title="移除授权"]')).not.toBeInTheDocument();
+    expect(api.put).not.toHaveBeenCalled();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('keeps human membership roles on the human endpoint', async () => {
+    renderMembers();
+
+    const humanRole = await screen.findByRole('combobox', { name: 'Teammate 的成员角色' });
+    expect(Array.from(humanRole.querySelectorAll('option')).map((option) => option.value))
+      .toEqual(['owner', 'admin', 'editor', 'viewer']);
+    fireEvent.change(humanRole, { target: { value: 'editor' } });
+
+    await vi.waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      '/spaces/space-1/members/user-2',
+      { role: 'editor' },
+    ));
   });
 });

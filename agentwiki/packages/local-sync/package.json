@@ -1,6 +1,6 @@
 {
   "name": "@neomei/agentwiki-local-sync",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local knowledge adapter and AgentWiki synchronization for coding agents",
   "type": "module",
   "bin": {
@@ -90,6 +90,7 @@
     "prepack": "pnpm build && pnpm test"
   },
   "dependencies": {
+    "@neomei/agentwiki-sync-protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.76"
   },

@@ -6,10 +6,12 @@
 
 ## 当前阶段
 
-- 需求、角色边界、数据流、界面、安全和验收设计已由用户确认。
-- 用户明确不要求兼容旧版本客户端或旧版本权限数据。
-- 设计文档已复核，TDD 实施计划已完成；尚未开始生产代码实现。
-- 计划以 0.5.0 作为不兼容旧协议的新版本，旧 Agent 授权不做角色推断并统一降级为 reader。
+- 本地生产代码、数据库迁移、前端、sync-protocol、local-sync、onboarding、MCP 回归和文档已完成。
+- 旧 Agent `approvalMode` 请求旁路、0.4.0 部署默认、仍发送旧字段/scopes 的 onboarding/cross-machine/smoke E2E fixture 和未使用的 `agent.viewer` 文案键已在最终扫描中修复。
+- 已修复 local-sync 0.5.0 干净安装时依赖 npm 旧 sync-protocol 0.1.0 导致 CLI 无法启动的发布阻断；sync-protocol 升为 0.2.0，两个候选包联合干净安装通过。
+- 提交态全仓构建、测试、类型、lint、Prisma、三客户端 onboarding、打包和静态扫描均通过。
+- 最终广度审查的三项 Important 已修复：Reader 只读 bootstrap/pull 收尾、Space admin + Agent owner 双门槛、auto-publish 发布事务中锁定并重验当前授权状态。
+- 修复后的完整 build/test/typecheck/lint/Prisma、三客户端 onboarding、双包打包与空目录安装门禁均通过；任务仍保持 active，等待最终 reviewer 复审。
 
 ## 范围
 
@@ -27,6 +29,7 @@
 
 ## 下一步
 
-1. 用户选择 Subagent-Driven 或当前会话内联执行。
-2. 按计划逐任务执行测试先行实现与验证。
-3. 本地全量验证后停在 push/npm/生产部署授权门禁前。
+1. 接受最终 reviewer 对三项 Important 修复的复审。
+2. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署。
+3. 部署前创建并验证数据库 custom dump 和应用回滚包，记录指纹。
+4. 发布后用新 Editor 连接完成真实 OpenCode 提案、Agent 不可审批和人工审批后内容确认。

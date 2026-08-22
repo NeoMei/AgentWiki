@@ -8,3 +8,14 @@
 - 当前连接兑换：`agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts`
 - 当前权限交集：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
 - 当前 onboarding 预设：`agentwiki/apps/server/src/onboard/onboard.types.ts`
+- 验证证据：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
+- 部署与回滚门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
+- 角色 DTO 边界回归：`agentwiki/apps/server/src/core/dto/agent.dto.spec.ts`
+- 本地已验证运行时候选提交：`b735112`（前三项修复提交依次为 `23c2a9a`、`bf888da`、`b735112`）
+- 干净包安装门禁：`agentwiki/scripts/verify-local-sync-clean-install.mjs`
+- 当前外部基线：`origin/master=c06b9b8`、npm sync-protocol latest=0.1.0、local-sync latest=0.4.0、生产 onboarding=0.4.0
+- 最终广度审查：`.superpowers/sdd/unified-agent-access-roles-final-review-result.md`
+- Reader 只读协调器：`agentwiki/packages/local-sync/src/onboarding/coordinator.ts`
+- Agent Grant 可管理事实：`agentwiki/apps/server/src/core/space/space.service.ts`
+- Auto-publish 发布临界点重验：`agentwiki/apps/server/src/review/review.service.ts`
+- 修复后 local-sync 0.5.0 包：151 项、147712 bytes、SHA-256 `451435b9e9ac28fcfa8412a691ff5e1d75063a856a1099a51ae50b987885a2cd`

@@ -512,9 +512,10 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.4.0');
+  assert.equal(version, '0.5.0');
   for (const path of [
     '.env.example',
+    'package.json',
     'README.md',
     'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
@@ -530,9 +531,24 @@ test('every active local-sync release surface uses the package version', async (
     'packages/local-sync/src/onboarding/runtime.ts',
     'packages/local-sync/src/onboarding/verifier.ts',
     'scripts/cross-machine-e2e.mjs',
+    'scripts/onboarding-e2e.mjs',
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
   }
+});
+
+test('the local-sync release pins the unified-role sync protocol release', async () => {
+  const protocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
+  const localSyncPackage = JSON.parse(await read('packages/local-sync/package.json'));
+  const rootPackage = JSON.parse(await read('package.json'));
+
+  assert.equal(protocolPackage.version, '0.2.0');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], 'workspace:*');
+  assert.equal(
+    rootPackage.scripts['test:package:local-sync-clean-install'],
+    'node scripts/verify-local-sync-clean-install.mjs',
+  );
+  assert.match(await read('packages/sync-protocol/src/index.ts'), /agent-access-role/u);
 });
 
 test('every user-facing local-sync surface uses the published npm package name', async () => {
@@ -551,9 +567,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.4.0 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.5.0 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.4\.0/, 'onboard controller must reference 0.4.0');
+  assert.match(source, /0\.5\.0/, 'onboard controller must reference 0.5.0');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
@@ -587,6 +603,11 @@ test('every active Agent connection surface exposes only the unified gateway', a
   assert.doesNotMatch(active, /agentwiki-local-sync\s+(?:mcp|scan|sync|upgrade)\b/i, 'must not advertise retired public CLI commands');
   assert.match(active, /wiki_\*|wiki_/i, 'the unified gateway must document remote wiki tools');
   assert.match(active, /knowledge_\*|knowledge_/i, 'the unified gateway must document combined knowledge tools');
+});
+
+test('active Agent UI translations omit retired role names', async () => {
+  const messages = await read('apps/client/src/i18n/messages.ts');
+  assert.doesNotMatch(messages, /['"]agent\.(?:viewer|full)['"]/u);
 });
 
 test('the onboard.json endpoint returns 410 Gone with a replacement command', async () => {

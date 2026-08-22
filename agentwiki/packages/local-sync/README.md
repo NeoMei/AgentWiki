@@ -39,25 +39,33 @@ version-decoupled: it reads supported structural scan results, deterministically
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
 CodeGraph MCP to AgentWiki.
 
-## Onboarding (0.4.0)
+## Onboarding (0.5.0)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.4.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.5.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
 
 The onboarding flow performs web Device Authorization, collects parameters via NDJSON,
-confirms a unified plan, installs a single `agentwiki` gateway MCP, runs the first local
-scan, and syncs after explicit preview confirmation. Passwords and login information
-never enter the Agent conversation.
+confirms a unified plan, and installs a single `agentwiki` gateway MCP. Reader completes
+with a read-only pull after gateway verification and never calls the write-sync path.
+Editor and Publisher run the first local scan and sync after explicit preview
+confirmation. Passwords and login information never enter the Agent conversation.
 
-The three user actions are:
+Every 0.5.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
+Agent, the user chooses the Space and role before generating the one-time code; exchange
+atomically creates the same role on the Credential and Space Grant. The server derives
+all scopes. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
+inputs are not accepted. Publisher eligibility does not change the Space policy and no
+Agent role can approve a ChangeSet or manage members.
+
+The user actions are:
 1. Approve authorization in the browser
 2. Confirm the onboarding plan
-3. Confirm the first knowledge sync preview
+3. For Editor or Publisher, confirm the first knowledge sync preview
 
 After completion, the Agent connects to one local `agentwiki` MCP gateway that
 deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
@@ -65,7 +73,7 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.4.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.5.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --code <one-time-code> \
   --protocol ndjson \
@@ -138,6 +146,10 @@ and connection ID, never the API key.
 
 These versions were tested with isolated temporary HOME directories on 2026-08-15. The
 package uses an exact version in every registered gateway command.
+
+The 0.5.0 package requires `@neomei/agentwiki-sync-protocol@0.2.0`. Release verification
+packs both candidates, installs them into an empty directory, and starts the installed
+CLI; publish the audited sync-protocol tarball first.
 
 ## Package contents
 

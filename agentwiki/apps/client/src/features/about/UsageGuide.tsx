@@ -14,21 +14,6 @@ export const UsageGuide: React.FC = () => {
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
 
-  const scopes = [
-    { value: 'pages:read', label: zh ? '读页面' : 'Read pages' },
-    { value: 'pages:write', label: zh ? '写页面' : 'Write pages' },
-    { value: 'sources:read', label: zh ? '读代码源' : 'Read sources' },
-    { value: 'sources:write', label: zh ? '写代码源' : 'Write sources' },
-    { value: 'runs:read', label: zh ? '读扫描' : 'Read runs' },
-    { value: 'runs:write', label: zh ? '写扫描' : 'Write runs' },
-    { value: 'review:read', label: zh ? '读审核' : 'Read review' },
-    { value: 'review:auto-publish', label: zh ? '直接发布' : 'Auto publish' },
-    { value: 'memory:read', label: zh ? '读记忆' : 'Read memory' },
-    { value: 'memory:write', label: zh ? '写记忆' : 'Write memory' },
-    { value: 'graph:read', label: zh ? '读图谱' : 'Read graph' },
-    { value: 'graph:write', label: zh ? '写图谱' : 'Write graph' },
-  ];
-
   return (
     <div>
       {/* Hero */}
@@ -120,7 +105,7 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '创建 Agent' : 'Create the Agent'}</h3>
                   <p className="text-gray-600">
-                    {zh ? '在顶部导航栏点击「智能体」，进入 Agent 列表页面，点击「创建智能体」按钮。填写 Agent 名称和描述，选择审批模式（默认 always-review）。' : 'Click "Agents" in the top nav, enter the Agent list page, and click "Create Agent". Fill in the name and description, choose approval mode (default: always-review).'}
+                    {zh ? '在顶部导航栏点击「智能体」，进入 Agent 列表页面，点击「创建智能体」按钮并填写名称和描述。访问授权会在连接到 Space 时统一选择。' : 'Click "Agents" in the top nav, open the Agent list, and create an Agent with a name and description. Access authorization is selected when connecting it to a Space.'}
                   </p>
                 </div>
               </div>
@@ -140,13 +125,13 @@ export const UsageGuide: React.FC = () => {
               <div className="flex items-start gap-4 mb-6">
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center text-lg font-bold">2</div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '授予空间权限' : 'Grant Space Access'}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '选择 Space 与 Agent 角色' : 'Choose a Space and Agent Role'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '进入目标 Space → Members 页面，找到刚创建的 Agent。点击右侧的盾牌图标，展开权限面板。' : 'Go to target Space → Members page, find the newly created Agent. Click the shield icon on the right to expand the permissions panel.'}
+                    {zh ? '在 Space → Members 中添加 Agent，或在 Agent 的统一网关卡片中连接 Space。两种入口都只选择 Reader、Editor 或 Publisher，一个角色同时定义连接凭据与 Space 授权。' : 'Add the Agent from Space → Members or connect a Space from the Agent unified gateway card. Both entry points choose only Reader, Editor, or Publisher; one role defines both the connection credential and Space grant.'}
                   </p>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
                     <strong>{zh ? '提示：' : 'Tip: '}</strong>
-                    {zh ? '可以选择预设角色快速配置权限：查看者（只读）、编辑者（可写）、审核者（可审批）、完全授权（所有权限）。' : 'You can use preset roles for quick setup: Viewer (read-only), Editor (can write), Reviewer (can approve), Full (all permissions).'}
+                    {zh ? 'Agent 角色和人类成员的所有者、管理员、编辑者、查看者角色彼此独立。' : 'Agent roles are separate from the Owner, Admin, Editor, and Viewer roles used for human members.'}
                   </div>
                 </div>
               </div>
@@ -156,7 +141,7 @@ export const UsageGuide: React.FC = () => {
               />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
                 <UserPlus size={12} />
-                {zh ? 'Space Members 页面 — 点击 Agent 行的盾牌图标' : 'Space Members Page — Click shield icon on Agent row'}
+                {zh ? 'Space Members 页面 — 为 Agent 选择统一访问角色' : 'Space Members Page — Choose one unified access role for the Agent'}
               </div>
             </div>
 
@@ -165,14 +150,15 @@ export const UsageGuide: React.FC = () => {
               <div className="flex items-start gap-4 mb-6">
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center text-lg font-bold">3</div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '配置权限范围' : 'Configure Scopes'}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '理解三个 Agent 角色' : 'Understand the Three Agent Roles'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '在展开的权限面板中，勾选 Agent 需要的权限范围。不勾选则继承全局凭据的全部权限。' : 'In the expanded permissions panel, check the scopes the Agent needs. Leave unchecked to inherit all credential scopes.'}
+                    {zh ? 'Reader 只读；Editor 可提交内容变更并进入审核；Publisher 具备 Editor 能力，并可在治理条件满足时自动发布。Publisher 自动发布仍受 Space 发布策略限制，Agent 不能执行人工审批或成员管理。' : 'Reader is read-only. Editor can propose content changes for review. Publisher includes Editor access and may auto-publish only when governance conditions permit. Publisher remains subject to Space publishing policy, and Agents cannot approve reviews or manage members.'}
                   </p>
-                  <GuideScreenshot
-                    src="/screenshots/step3-permission-panel.png"
-                    alt={zh ? '权限配置面板' : 'Permission Panel'}
-                  />
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {['Reader', 'Editor', 'Publisher'].map((role) => (
+                      <div key={role} className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm font-medium text-gray-800">{role}</div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -184,7 +170,7 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '生成统一网关接入指令' : 'Generate Gateway Instructions'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '进入「智能体 → 目标 Agent → 访问权限 → AgentWiki 统一网关」，生成 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。普通凭据区创建的 API Key 只用于脚本和外部系统。' : 'Go to Agents → target Agent → Access → AgentWiki unified gateway and generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. API keys in the credentials section are only for scripts and external systems.'}
+                    {zh ? '进入「智能体 → 目标 Agent → 访问权限 → AgentWiki 统一网关」，选择 Space 与 Agent 角色，再生成 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。普通凭据区创建的 API Key 只用于脚本和外部系统。' : 'Go to Agents → target Agent → Access → AgentWiki unified gateway, choose a Space and Agent role, then generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. API keys in the credentials section are only for scripts and external systems.'}
                   </p>
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-700">
                     <strong>{zh ? '重要：' : 'Important: '}</strong>
@@ -208,7 +194,7 @@ export const UsageGuide: React.FC = () => {
                   </p>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700 mb-4">
                     <strong>{zh ? '以下以 OpenCode 为例：' : 'OpenCode example: '}</strong>
-                    {zh ? 'OpenCode 在「OpenCode 接入演示」空间创建并自动发布了页面「OpenCode 已接入 AgentWiki」。' : 'OpenCode created and auto-published "OpenCode Connected to AgentWiki" in the "OpenCode Connection Demo" Space.'}
+                    {zh ? '示例中的 OpenCode 使用 Publisher；仅当 Space 发布策略同时允许时，页面才会自动发布，否则仍进入人工审核。' : 'The example uses Publisher. The page auto-publishes only when Space publishing policy also permits it; otherwise it still enters human review.'}
                   </div>
                   <GuideScreenshot
                     src="/screenshots/step5-opencode-publish.png"
@@ -273,57 +259,38 @@ export const UsageGuide: React.FC = () => {
           </h2>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
             <p className="text-gray-700 mb-6">
-              {zh ? 'Agent 的有效权限是三层交集，确保最小权限原则：' : 'Effective Agent permission is the intersection of three layers, ensuring least-privilege:'}
+              {zh ? '产品入口只选择统一角色；运行时仍由三层治理约束取交集：' : 'Product entry points select one unified role; runtime access remains the intersection of three governance layers:'}
             </p>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-white rounded-lg p-5 border-2 border-blue-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Key className="text-blue-600" size={18} />
-                  <div className="font-semibold text-gray-900">{zh ? '凭据范围' : 'Credential Scopes'}</div>
+                  <div className="font-semibold text-gray-900">{zh ? '凭据角色' : 'Credential Role'}</div>
                 </div>
                 <div className="text-sm text-gray-600">{zh ? '全局能力上限' : 'Global capability ceiling'}</div>
-                <div className="text-xs text-gray-500 mt-2">{zh ? '创建凭据时设置' : 'Set when creating credential'}</div>
+                <div className="text-xs text-gray-500 mt-2">Reader · Editor · Publisher</div>
               </div>
               <div className="bg-white rounded-lg p-5 border-2 border-purple-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="text-purple-600" size={18} />
-                  <div className="font-semibold text-gray-900">{zh ? '空间授权' : 'Space Grants'}</div>
+                  <div className="font-semibold text-gray-900">{zh ? 'Space Agent 角色' : 'Space Agent Role'}</div>
                 </div>
                 <div className="text-sm text-gray-600">{zh ? '每个空间的权限' : 'Per-space permissions'}</div>
-                <div className="text-xs text-gray-500 mt-2">{zh ? '在 Members 页面配置' : 'Configured in Members page'}</div>
+                <div className="text-xs text-gray-500 mt-2">Reader · Editor · Publisher</div>
               </div>
               <div className="bg-white rounded-lg p-5 border-2 border-green-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Users className="text-green-600" size={18} />
-                  <div className="font-semibold text-gray-900">{zh ? '角色门禁' : 'Role Gate'}</div>
+                  <div className="font-semibold text-gray-900">{zh ? 'Space 发布策略' : 'Space Publishing Policy'}</div>
                 </div>
-                <div className="text-sm text-gray-600">{zh ? '编辑者/查看者' : 'Editor/Viewer'}</div>
-                <div className="text-xs text-gray-500 mt-2">{zh ? '根据 scope 自动推导' : 'Auto-derived from scopes'}</div>
+                <div className="text-sm text-gray-600">{zh ? '审核与自动发布治理' : 'Review and auto-publish governance'}</div>
+                <div className="text-xs text-gray-500 mt-2">{zh ? 'Agent 无人工审批权' : 'Agents cannot perform human approval'}</div>
               </div>
             </div>
             <div className="mt-6 text-center text-sm text-gray-600">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200">
-                <span>{zh ? '有效权限 = 凭据 ∩ 授权  角色' : 'Effective = Credential ∩ Grant ∩ Role'}</span>
+                <span>{zh ? '有效权限 = 凭据角色 ∩ Space Agent 角色 ∩ Space 策略' : 'Effective = Credential role ∩ Space Agent role ∩ Space policy'}</span>
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Available Scopes */}
-        <section className="mb-16">
-          <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
-            <Key className="text-amber-600" size={24} />
-            {zh ? '可用权限范围' : 'Available Scopes'}
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {scopes.map(s => (
-                <div key={s.value} className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                  <code className="text-xs text-blue-600 font-mono">{s.value}</code>
-                  <span className="text-xs text-gray-500">—</span>
-                  <span className="text-xs text-gray-700">{s.label}</span>
-                </div>
-              ))}
             </div>
           </div>
         </section>

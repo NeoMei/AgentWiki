@@ -89,10 +89,10 @@ export async function runSmoke(environment = process.env) {
     fixture.agentId = agent.data.id;
     await request(apiUrl, `/agents/${agent.data.id}/grants/${space.data.id}`, {
       method: 'PUT', token,
-      body: { role: 'editor', scopes: ['pages:read', 'pages:write'] },
+      body: { role: 'editor' },
     });
     const credential = await request(apiUrl, `/agents/${agent.data.id}/credentials`, {
-      method: 'POST', token, body: { name: 'smoke-e2e', scopes: ['pages:read', 'pages:write'] },
+      method: 'POST', token, body: { name: 'smoke-e2e', role: 'editor' },
     });
     assert.ok(credential.data.apiKey);
 

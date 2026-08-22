@@ -114,12 +114,11 @@ export async function runCrossMachineE2E(environment = process.env) {
     });
     fixture.agentId = agent.id;
 
-    const scopes = ['pages:read', 'pages:write', 'memory:read', 'memory:write', 'graph:read', 'graph:write'];
     await request(apiUrl, `/agents/${agent.id}/grants/${space.id}`, {
-      method: 'PUT', token, body: { role: 'editor', scopes },
+      method: 'PUT', token, body: { role: 'publisher' },
     });
     const credential = await request(apiUrl, `/agents/${agent.id}/credentials`, {
-      method: 'POST', token, body: { name: 'cross-machine-e2e', scopes },
+      method: 'POST', token, body: { name: 'cross-machine-e2e', role: 'publisher' },
     });
     assert.ok(credential.apiKey, 'Agent credential must be created');
 
@@ -128,7 +127,7 @@ export async function runCrossMachineE2E(environment = process.env) {
       serverUrl: apiUrl,
       agentId: agent.id,
       credentialId: credential.id,
-      pluginVersion: '0.4.0',
+      pluginVersion: '0.5.0',
       client: 'codex',
       mcpName: 'agentwiki',
     };

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
@@ -86,14 +87,17 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
     encoder,
     source: overrides?.source ?? scriptedSource([]),
     serverBaseUrl: 'https://test/api',
-    packageVersion: '0.3.0',
+    packageVersion: '0.5.0',
     home: tmpHome,
     preflight: vi.fn(async () => ({ configHash: CONFIG_HASH, oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
-    bootstrapInstall: vi.fn(async () => ({
+    bootstrapInstall: vi.fn(async (input) => ({
       bootstrap: {
         space: { id: 'space-1', name: 'R&D' },
         agent: { id: 'agent-1', name: 'Codex' },
-        grant: { role: 'editor', scopes: ['pages:read'] },
+        grant: {
+          role: input.serverPlan.role,
+          scopes: scopesForAgentAccessRole(input.serverPlan.role),
+        },
         installation: { code: 'code-1', installationId: 'inst-1', expiresAt: '2026-01-01T00:00:00Z' },
       },
       reloadRequired: false,
@@ -113,8 +117,8 @@ describe('OnboardingCoordinator happy path', () => {
   it('runs the full state machine to completed', async () => {
     const fixture = mockDeps();
     fixture.deps.source = successfulSource(fixture.sink, {
-      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', permissionPreset: 'editor',
-      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
     });
     const { deps, sink } = fixture;
     const coordinator = new OnboardingCoordinator(deps);
@@ -127,17 +131,74 @@ describe('OnboardingCoordinator happy path', () => {
     const events = sink.lines.map((l) => JSON.parse(l));
     expect(events.some((e) => e.type === 'completed')).toBe(true);
     expect(events.some((e) => e.type === 'authorization_required')).toBe(true);
+    const inputRequest = events.find((event) => event.type === 'input_required');
+    expect(inputRequest.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'role', choices: ['reader', 'editor', 'publisher'] }),
+    ]));
+    expect(inputRequest.fields.map((field: { name: string }) => field.name))
+      .not.toEqual(expect.arrayContaining(['permissionPreset', 'approvalMode']));
     expect(deps.preflight).toHaveBeenCalledWith('codex', expect.any(String), 'https://test/api');
 
     // The single-use token was deleted after bootstrap.
     expect(await deps.store.loadSecret()).toBeNull();
   });
 
+  it.each(['reader', 'publisher'] as const)('passes the canonical %s access package across the full bootstrap boundary', async (role) => {
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role,
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'documents',
+    });
+
+    await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
+      serverPlan: expect.objectContaining({ role }),
+      serverPlanHash: hashServerPlan({
+        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.5.0',
+      }),
+    }));
+    await expect(vi.mocked(fixture.deps.bootstrapInstall).mock.results[0]?.value).resolves.toMatchObject({
+      bootstrap: { grant: { role, scopes: scopesForAgentAccessRole(role) } },
+    });
+  });
+
+  it('completes Reader onboarding through pull without planning or invoking a write sync', async () => {
+    const pull = vi.fn(async () => ({ revisionId: 'reader-revision' }));
+    const fixture = mockDeps({
+      knowledge: {
+        pull,
+        planLocalScan: vi.fn(async () => {
+          throw new Error('Reader onboarding must not plan a local upload');
+        }),
+        prepare: vi.fn(async () => {
+          throw new Error('Reader onboarding must not prepare a write sync');
+        }),
+        confirmAndSync: vi.fn(async () => {
+          throw new Error('Reader onboarding must not confirm a write sync');
+        }),
+      },
+    });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'ReadBot', role: 'reader',
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'code',
+    });
+
+    const result = await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(result.report).toMatchObject({ revisionId: 'reader-revision' });
+    expect(pull).toHaveBeenCalledWith({ spaceId: 'space-1' });
+    expect(fixture.deps.knowledge.planLocalScan).not.toHaveBeenCalled();
+    expect(fixture.deps.knowledge.prepare).not.toHaveBeenCalled();
+    expect(fixture.deps.knowledge.confirmAndSync).not.toHaveBeenCalled();
+    expect(fixture.sink.lines.map((line) => JSON.parse(line).type)).toContain('completed');
+  });
+
   it('emits authorization_required and heartbeat during polling', async () => {
     const fixture = mockDeps();
     fixture.deps.source = successfulSource(fixture.sink, {
-      spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor',
-      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+      spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
     });
     const { deps, sink } = fixture;
     await new OnboardingCoordinator(deps).run();
@@ -150,8 +211,8 @@ describe('OnboardingCoordinator happy path', () => {
     const incomplete = mockDeps({
       source: scriptedSource([
         JSON.stringify({ requestId: 'input', values: {
-          spaceMode: 'existing', agentName: 'A', permissionPreset: 'editor',
-          approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+          spaceMode: 'existing', agentName: 'A', role: 'editor',
+          clientType: 'codex', sourcePaths: ['.'],
         } }),
       ]),
     });
@@ -165,8 +226,8 @@ describe('OnboardingCoordinator happy path', () => {
       })),
     });
     fixture.deps.source = successfulSource(fixture.sink, {
-      spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor',
-      approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'],
+      spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
     });
     await new OnboardingCoordinator(fixture.deps).run();
     const preview = fixture.sink.lines.map((line) => JSON.parse(line))
@@ -188,13 +249,13 @@ describe('OnboardingCoordinator happy path', () => {
       createdAt: '2026-08-11T00:00:00.000Z',
       updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: {
-        spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', permissionPreset: 'editor', approvalMode: 'always-review',
+        spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role: 'editor',
         clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
         configHash: CONFIG_HASH, oldEntries: [], reloadRequired: false,
       },
-      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' },
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }),
-      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }) }),
+      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.5.0' },
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.5.0' }),
+      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.5.0' }) }),
       bootstrapResult: {
         space: { id: 'space-1', name: 'R&D' },
         agent: { id: 'agent-1', name: 'Codex' },
@@ -227,7 +288,7 @@ describe('OnboardingCoordinator failure handling', () => {
     const planLocalScan = vi.fn(async () => unsafeLocalPlan('a'.repeat(64), poisonedPath));
     const fixture = mockDeps({
       source: scriptedSource([JSON.stringify({ requestId: 'input', values: {
-        spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard',
+        spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard',
       } })]),
       knowledge: {
         planLocalScan,
@@ -295,11 +356,11 @@ describe('OnboardingCoordinator failure handling', () => {
 
   it('rejects and preserves a scanning checkpoint without composite confirmation evidence before any side effect', async () => {
     const fixture = mockDeps();
-    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', permissionPreset: 'editor' as const, approvalMode: 'always-review' as const, packageVersion: '0.3.0' };
+    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', role: 'editor' as const, packageVersion: '0.5.0' as const };
     const raw = JSON.stringify({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard' },
+      inputs: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard' },
       serverPlan, serverPlanHash: hashServerPlan(serverPlan), localScanPlanHash: 'a'.repeat(64), localScanPlan: localPlanPreview('a'.repeat(64)),
       bootstrapResult: { space: { id: 'space-1', name: 'S' }, agent: { id: 'agent-1', name: 'A' } },
     });
@@ -321,7 +382,7 @@ describe('OnboardingCoordinator failure handling', () => {
   it('rejects a confirmation whose plan hash does not match the emitted plan', async () => {
     const bootstrapInstall = vi.fn();
     const replies = [
-      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),
+      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['.'] } }),
       JSON.stringify({ requestId: 'plan', confirmed: true, planHash: 'wrong-hash' }),
     ];
     const { deps } = mockDeps({ source: scriptedSource(replies), bootstrapInstall });
@@ -330,9 +391,23 @@ describe('OnboardingCoordinator failure handling', () => {
     expect(bootstrapInstall).not.toHaveBeenCalled();
   });
 
+  it('rejects removed permissionPreset and approvalMode input fields', async () => {
+    const { deps } = mockDeps({
+      source: scriptedSource([JSON.stringify({ requestId: 'input', values: {
+        spaceMode: 'create', spaceName: 'S', agentName: 'A',
+        permissionPreset: 'editor', approvalMode: 'always-review',
+        clientType: 'codex', sourcePaths: ['.'],
+      } })]),
+    });
+
+    await expect(new OnboardingCoordinator(deps).run())
+      .rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    expect(deps.client.start).not.toHaveBeenCalled();
+  });
+
   it('emits a failed event with a stable code when authorization is denied', async () => {
     const replies = [
-      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),
+      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['.'] } }),
     ];
     const { deps, sink } = mockDeps({
       source: scriptedSource(replies),
@@ -351,7 +426,7 @@ describe('OnboardingCoordinator failure handling', () => {
 
   it('aborts when preflight detects a config conflict', async () => {
     const replies = [
-      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['.'] } }),
+      JSON.stringify({ requestId: 'input', values: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['.'] } }),
     ];
     const { deps } = mockDeps({
       source: scriptedSource(replies),
@@ -363,7 +438,7 @@ describe('OnboardingCoordinator failure handling', () => {
 
 describe('OnboardingCoordinator local scan consent', () => {
   const codeInputs: OnboardingInputs = {
-    spaceMode: 'create', spaceName: 'S', agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review',
+    spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor',
     clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard',
   };
 
@@ -379,7 +454,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     expect(preview.plan).toMatchObject({ serverPlan: expect.any(Object), localScanPlan: { localScanPlanHash: 'a'.repeat(64) } });
     expect(confirmation.planHash).not.toBe('a'.repeat(64));
     expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }),
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }),
     }));
     expect(fixture.deps.knowledge.prepare).toHaveBeenCalledWith(expect.objectContaining({ analysisMode: 'standard', localScanPlanHash: 'a'.repeat(64), confirmedLocalScan: true }));
   });
@@ -437,7 +512,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     } });
     await fixture.store.save({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }), localScanPlanHash: 'b'.repeat(64) }),
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
     await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'CODEGRAPH_SCAN_PLAN_CHANGED' });
@@ -456,7 +531,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     } });
     await fixture.store.save({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.3.0' }), localScanPlanHash: 'b'.repeat(64) }),
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.5.0' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
 

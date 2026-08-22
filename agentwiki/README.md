@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.4.0** — CodeGraph-powered local code scanning with one AgentWiki gateway and deterministic, reviewable knowledge workflows.
+> **v0.5.0** — Unified `reader | editor | publisher` Agent access packages for the AgentWiki gateway and reviewable knowledge workflows.
 
 
 ## Hosted Service
@@ -41,9 +41,9 @@ for setup details.
 
 ### Agent Integration
 - **Independent identity** — Agents have their own credentials (`agk_...`), not shared user tokens
-- **Three-layer permissions** — credential scopes (global) ∩ grant scopes (per-space) ∩ role gates
+- **Unified Agent roles** — choose Reader, Editor, or Publisher once; the server derives matching Credential and Space Grant scopes
 - **Review workflow** — Agent writes enter a ChangeSet for human approval before publishing
-- **Per-space scope presets** — quickly configure Viewer / Editor / Reviewer / Full access per Agent per Space
+- **Least-privilege intersection** — effective access is limited by Credential role/scopes, Space Grant role/scopes, Agent state, Space policy, and domain authorization
 - **Memory** — episodic and semantic memory, scoped per Agent and optionally per Space
 - **MCP protocol** — Agents interact through a Model Context Protocol server
 
@@ -63,7 +63,7 @@ for setup details.
 - **Platform admin** — super admin dashboard with user stats, search/filter/lock/delete
 
 - **Space roles** — Owner, Admin, Editor, Viewer with clear hierarchy
-- **Member management** — invite users by email, manage Agent grants with scope checkboxes
+- **Member management** — invite users by email and manage each Agent's Reader / Editor / Publisher Space role
 - **Review queue** — approve, reject or revert proposed changes with status tracking
 - **Multi-language** — full Chinese/English UI with persistent language preference
 
@@ -153,8 +153,8 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 
 ### Install
 
-1. In AgentWiki, create an Agent, grant it access to the target Space, then open the
-   Agent details page and select **Generate unified gateway instructions**.
+1. In AgentWiki, create an Agent, then open its access page and choose the target Space
+   plus one role: **Reader**, **Editor**, or **Publisher**.
 2. Paste the complete generated instruction into your local coding Agent. It installs
    the exact plugin version and creates or updates the one `agentwiki` MCP connection.
 3. Ask the Agent to inspect and scan a local folder. Review its local preview and
@@ -163,7 +163,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.4.0; the unified `onboard` command is the only recommended Agent connection path. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
+Source and generated instructions target 0.5.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates the matching Credential and Space Grant. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
 
 ### Example local workflow
 
@@ -199,7 +199,9 @@ See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete
 
 ## Connecting an Agent
 
-AgentWiki Agents use separate API credentials with scoped permissions. Here's how to connect one:
+AgentWiki Agents use separate identities and role-derived credentials. The recommended
+connection flow selects the Space and role once, then atomically creates the matching
+Credential and Space Grant when the one-time code is exchanged.
 
 ### 1. Create an Agent
 
@@ -207,29 +209,43 @@ AgentWiki Agents use separate API credentials with scoped permissions. Here's ho
 curl -X POST $BASE/agents \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"My Agent","approvalMode":"always-review"}'
+  -d '{"name":"My Agent"}'
 ```
 
-### 2. Grant Space Access
+### 2. Create a Unified Connection
 
-In the Space Members page, expand the Agent's scope panel and pick a preset (Viewer, Editor, Reviewer, Full), or fine-tune individual scopes.
+In the Agent access page, choose a Space and one Agent role:
+
+- `reader` — read Spaces, pages, graph, sources, runs, and review status
+- `editor` — Reader capabilities plus page, graph, source, and run writes; writes normally enter human review
+- `publisher` — Editor capabilities plus Memory and scoped auto-publish eligibility
+
+The Agent never receives `review:decide` or member-management permission. Publisher
+does not modify the Space policy; auto-publish occurs only when every existing governance
+gate permits it.
 
 Or via API:
 
 ```bash
-curl -X PUT $BASE/agents/AGENT_ID/grants/SPACE_ID \
+curl -X POST $BASE/agents/AGENT_ID/local-sync-installations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"role":"editor","scopes":["pages:read","pages:write","graph:read"]}'
+  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.5.0"}'
 ```
 
-### 3. Create a Credential
+Paste the returned one-time instruction into Codex, Claude Code, or OpenCode. On
+exchange, AgentWiki writes the `editor` Credential and `editor` Space Grant together.
+
+### 3. Optional Manual API Credential
+
+For scripts or non-MCP integrations, create a role-limited Credential. The server derives
+its exact scopes; custom scopes are rejected. A matching Space Grant role is still required.
 
 ```bash
 curl -X POST $BASE/agents/AGENT_ID/credentials \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"default","scopes":["pages:read","pages:write"]}'
+  -d '{"name":"default","role":"editor"}'
 ```
 
 Save the returned `apiKey` (`agk_...`) — it's shown only once.
@@ -247,10 +263,11 @@ curl -X PATCH "$BASE/pages/PAGE_ID" \
   -d '{"content":"# Updated content"}'
 ```
 
-### Available Scopes
+### Server-derived Scopes
 
 | Scope | Description |
 |-------|-------------|
+| `spaces:read` | List and inspect authorized Spaces |
 | `pages:read` | Read pages |
 | `pages:write` | Create/edit pages |
 | `sources:read` | Read code sources |
@@ -266,19 +283,27 @@ curl -X PATCH "$BASE/pages/PAGE_ID" \
 
 ## Permission Model
 
-Permissions are the intersection of three layers:
+Agent permissions are the intersection of all current authorization gates:
 
 ```
-Credential Scopes (global capability ceiling)
+Credential Role + Derived Scopes
         ∩
-Grant Scopes (per-space restriction; empty = inherit all credential scopes)
+Space Grant Role + Derived Scopes
         ∩
-Role Gate (editor/viewer — derived from scopes: any write scope = editor)
+Agent State ∩ Space Policy ∩ Domain Authorization
 ```
+
+Only `reader`, `editor`, and `publisher` are accepted for Agent access. Legacy
+`viewer`, `full`, `permissionPreset`, `approvalMode`, and client-supplied scope lists
+are rejected. Human Space roles remain a separate Owner / Admin / Editor / Viewer model.
+Reader onboarding ends with a read-only pull; only Editor and Publisher perform the
+initial write sync. Auto-publish re-reads and row-locks the live Credential, Agent owner,
+Agent Grant, and Space before publishing, so a concurrent revoke, expiry, deactivation,
+role/scope downgrade, deletion, or policy downgrade falls back to `pending_review`.
 
 **Space roles for humans:**
 - **Owner** — full control, can transfer ownership, cannot be removed
-- **Admin** — manage all members and Agent grants, cannot delete Space or grant Owner
+- **Admin** — manage human members; may mutate an Agent grant only when also owning that Agent; cannot delete Space or grant Owner
 - **Editor** — create and edit pages
 - **Viewer** — read-only access
 
@@ -328,12 +353,24 @@ pnpm typecheck
 
 AgentWiki uses direct deployment with systemd (no Docker for the application):
 
-1. Build the project: `pnpm build`
-2. Run database migrations: `cd apps/server && npx prisma migrate deploy`
-3. Configure three systemd services (templates in `deploy/systemd/`):
+1. Before replacing application files or running migrations, create and verify a
+   PostgreSQL custom-format backup and an application rollback archive.
+2. Build and test the exact release commit: `pnpm build && pnpm test`.
+3. Pack `@neomei/agentwiki-sync-protocol@0.2.0` and
+   `@neomei/agentwiki-local-sync@0.5.0`, then run
+   `pnpm test:package:local-sync-clean-install`. Publish the audited sync-protocol
+   tarball before the local-sync tarball.
+4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
+5. Configure three systemd services (templates in `deploy/systemd/`):
    - `agentwiki-api.service` — NestJS API server
    - `agentwiki-worker.service` — background job worker
    - `agentwiki-frontend.service` — static file server for the built frontend
+
+The 0.5.0 role migration deliberately resets every existing Agent Credential and Grant
+role to `reader`; it never infers a new role from legacy scopes. The 0.5.0 onboarding
+protocol is incompatible with 0.4.0 clients. Treat rollback as a coordinated restore of
+the verified database backup and matching application archive, not as a schema-only
+downgrade.
 
 See `deploy.sh` for an automated deployment script.
 

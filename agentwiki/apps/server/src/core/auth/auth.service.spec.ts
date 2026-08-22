@@ -125,6 +125,7 @@ describe('AuthService', () => {
         agentId: 'agent-1',
         revokedAt: null,
         expiresAt: null,
+        role: 'editor',
         scopes: ['pages:read'],
         agent: {
           status: 'active',
@@ -137,6 +138,7 @@ describe('AuthService', () => {
       await expect(service.validateApiKey('agk_secret')).resolves.toMatchObject({
         userId: 'owner-1',
         agentId: 'agent-1',
+        agentRole: 'editor',
         type: 'agent',
         scopes: ['pages:read'],
       });

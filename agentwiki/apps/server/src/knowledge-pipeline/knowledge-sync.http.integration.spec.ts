@@ -37,15 +37,15 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     }),
   };
   const principals: Record<string, any> = {
-    agk_missing_sources: { userId: 'owner-1', agentId: 'agent-missing-sources', credentialId: 'credential-1', scopes: ['runs:write'] },
-    agk_grant_no_runs: { userId: 'owner-1', agentId: 'agent-grant-no-runs', credentialId: 'credential-2', scopes: ['sources:write', 'runs:write'] },
-    agk_viewer: { userId: 'owner-1', agentId: 'agent-viewer', credentialId: 'credential-3', scopes: ['sources:write', 'runs:write', 'sources:read'] },
-    agk_editor: { userId: 'owner-1', agentId: 'agent-editor', credentialId: 'credential-4', scopes: ['sources:write', 'runs:write', 'sources:read'] },
+    agk_missing_sources: { userId: 'owner-1', agentId: 'agent-missing-sources', agentRole: 'editor', credentialId: 'credential-1', scopes: ['runs:write'] },
+    agk_grant_no_runs: { userId: 'owner-1', agentId: 'agent-grant-no-runs', agentRole: 'editor', credentialId: 'credential-2', scopes: ['sources:write', 'runs:write'] },
+    agk_viewer: { userId: 'owner-1', agentId: 'agent-viewer', agentRole: 'reader', credentialId: 'credential-3', scopes: ['sources:write', 'runs:write', 'sources:read'] },
+    agk_editor: { userId: 'owner-1', agentId: 'agent-editor', agentRole: 'editor', credentialId: 'credential-4', scopes: ['sources:write', 'runs:write', 'sources:read'] },
   };
   const grants: Record<string, any> = {
     'agent-missing-sources': { role: 'editor', scopes: ['sources:write', 'runs:write'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
     'agent-grant-no-runs': { role: 'editor', scopes: ['sources:write'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
-    'agent-viewer': { role: 'viewer', scopes: ['sources:write', 'runs:write', 'sources:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+    'agent-viewer': { role: 'reader', scopes: ['sources:write', 'runs:write', 'sources:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
     'agent-editor': { role: 'editor', scopes: ['sources:write', 'runs:write', 'sources:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
   };
   const prisma = {

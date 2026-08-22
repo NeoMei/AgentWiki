@@ -18,6 +18,7 @@ import { Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
+import { agentRoleAllowsScope, agentRoleSpaceCapability } from '@neomei/agentwiki-sync-protocol';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
@@ -494,8 +495,14 @@ export class SourceService {
       if (autoPublish && changeSet) {
         const publishScopes = await this.assertRequesterStillAuthorized(run);
         if (!publishScopes.includes('review:auto-publish')) throw new Error('Run requester is no longer authorized');
+        if (!run.requestedByAgentId || !run.requestedCredentialId || run.requestedCredentialType !== 'agent') {
+          throw new Error('Agent auto-publish identity is missing');
+        }
         await this.prisma.ingestRun.update({ where: { id }, data: { status: 'publishing', stage: 'publishing' } });
-        await this.review.publish(changeSet.id);
+        await this.review.publish(changeSet.id, {
+          agentId: run.requestedByAgentId,
+          credentialId: run.requestedCredentialId,
+        });
       }
 
       const partial = Number((fetched.metadata as any)?.skippedFiles || 0) > 0;
@@ -957,17 +964,21 @@ export class SourceService {
                 revokedAt: null,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
               },
-              select: { scopes: true },
+              select: { role: true, scopes: true },
             })
           : Promise.resolve(null),
       ]);
-      if (!grant || grant.role !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
-        grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential?.scopes.includes('runs:write')) {
+      if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
+        grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
+        !agentRoleAllowsScope(credential.role, 'runs:write') || !credential.scopes.includes('runs:write') ||
+        (grant.scopes.length > 0 && !grant.scopes.includes('runs:write'))) {
         throw new Error('Run requester is no longer authorized');
       }
+      const roleAllowedScopes = credential.scopes.filter((scope) =>
+        agentRoleAllowsScope(credential.role, scope) && agentRoleAllowsScope(grant.role, scope));
       return grant.scopes.length > 0
-        ? credential.scopes.filter((scope) => grant.scopes.includes(scope))
-        : credential.scopes;
+        ? roleAllowedScopes.filter((scope) => grant.scopes.includes(scope))
+        : roleAllowedScopes;
     }
     const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
       where: { id: run.requestedByUserId },

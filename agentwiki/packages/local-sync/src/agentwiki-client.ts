@@ -1,3 +1,4 @@
+import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import type { LocalSyncConnection } from './config.js';
 import type { KnowledgeBundle } from './protocol/bundle.js';
 import type { Delta } from './protocol/sync.js';
@@ -6,8 +7,10 @@ export interface ExchangeResult {
   apiKey: string;
   agentId: string;
   credentialId: string;
+  spaceId: string;
+  role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: string;
+  pluginVersion: '0.5.0';
   scopes: string[];
 }
 
@@ -16,8 +19,8 @@ export interface AccessResult {
     id: string;
     name: string;
     status: string;
-    grants: Array<{ role: string; space: { id: string; name: string } }>;
-    credentials: Array<{ id: string; scopes: string[]; active: boolean }>;
+    grants: Array<{ role: AgentAccessRole; space: { id: string; name: string } }>;
+    credentials: Array<{ id: string; role: AgentAccessRole; scopes: string[]; active: boolean }>;
   }>;
 }
 

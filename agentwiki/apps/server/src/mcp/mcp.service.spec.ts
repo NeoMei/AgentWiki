@@ -129,6 +129,22 @@ describe('McpService knowledge-sync tool', () => {
       requiredScope: 'sources:read',
     });
   });
+
+  it('describes publisher auto-publish as governed by Agent and Space policy', async () => {
+    const controller = new McpController(
+      {} as any,
+      {
+        integrationAccess: jest.fn().mockResolvedValue({}),
+        recentMcpCalls: jest.fn().mockResolvedValue([]),
+      } as any,
+    );
+
+    const result = await controller.info({ user: principal } as any);
+
+    expect(result.note).toContain('Publisher');
+    expect(result.note).toContain('Space policy');
+    expect(result.note).not.toContain('cannot bypass review');
+  });
 });
 
 describe('McpService relation proposals', () => {

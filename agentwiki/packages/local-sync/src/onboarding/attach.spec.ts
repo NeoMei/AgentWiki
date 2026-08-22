@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 import { runAttachment, type AttachmentDependencies, type AttachCliInput } from './attach.js';
 
@@ -39,8 +40,10 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           agentId: 'agent-1',
           credentialId: 'credential-1',
           serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.4.0',
-          scopes: ['spaces:read', 'pages:read'],
+          pluginVersion: '0.5.0' as const,
+          scopes: scopesForAgentAccessRole('publisher'),
+          role: 'publisher' as const,
+          spaceId: 'space-1',
         };
       }),
       install: vi.fn(async (installInput) => {
@@ -49,6 +52,11 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           home: '/tmp/agentwiki-attach-home',
           client: 'codex',
           expectedConfigHash: 'config-hash',
+          expectedAgentId: 'agent-1',
+          expectedSpaceId: 'space-1',
+          expectedRole: 'publisher',
+          expectedScopes: scopesForAgentAccessRole('publisher'),
+          expectedPluginVersion: '0.5.0',
           exchange: { agentId: 'agent-1', credentialId: 'credential-1' },
         });
         return {

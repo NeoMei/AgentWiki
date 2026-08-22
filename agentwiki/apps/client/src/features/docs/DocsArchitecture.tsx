@@ -30,7 +30,7 @@ export const DocsArchitecture: React.FC = () => {
           <div className="bg-white border border-blue-200 rounded-xl overflow-hidden">
             <div className="bg-blue-50 px-5 py-3 border-b border-blue-200"><code className="text-sm font-mono font-semibold text-blue-700">wiki_*</code></div>
             <div className="p-5">
-              <p className="text-sm text-gray-600 leading-relaxed mb-3">{zh ? '远程 AgentWiki 工具。调用服务端 REST API，操作共享知识库。包括：页面增删改查、知识图谱关系管理、语义搜索、审核流操作、记忆读写。所有调用携带 Bearer Token，受凭据范围和空间授权约束。' : 'Remote AgentWiki tools. Call the server REST API to operate on the shared knowledge base: page CRUD, knowledge-graph relations, semantic search, review-flow operations, and memory read/write. All calls carry a Bearer Token and are constrained by credential scope and space grants.'}</p>
+              <p className="text-sm text-gray-600 leading-relaxed mb-3">{zh ? '远程 AgentWiki 工具。调用服务端 REST API，操作共享知识库。包括：页面增删改查、知识图谱关系管理、语义搜索、审核流操作、记忆读写。所有调用携带 Bearer Token，受凭据角色和 Space Agent 角色共同约束。' : 'Remote AgentWiki tools. Call the server REST API to operate on the shared knowledge base: page CRUD, knowledge-graph relations, semantic search, review-flow operations, and memory read/write. All calls carry a Bearer Token and are constrained by both the credential role and Space Agent role.'}</p>
               <p className="text-xs text-gray-400">{zh ? '执行位置：服务端　|　网络：必须　|　审计：是' : 'Execution: server | Network: required | Audited: yes'}</p>
             </div>
           </div>

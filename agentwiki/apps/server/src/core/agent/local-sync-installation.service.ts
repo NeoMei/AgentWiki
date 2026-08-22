@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -7,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, randomBytes } from 'crypto';
+import {
+  AgentAccessRoleSchema,
+  scopesForAgentAccessRole,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 import { RedisService } from '../../database/redis.service';
 import { BusinessException } from '../filters/business-error';
 import { AuditService } from '../security/audit.service';
@@ -16,29 +20,33 @@ interface InstallationPayload {
   installationId: string;
   ownerId: string;
   agentId: string;
-  scopes: string[];
+  spaceId: string;
+  role: AgentAccessRole;
   pluginVersion: string;
   serverUrl: string;
   expiresAt: string;
-  issuerCredentialId?: string;
 }
 
 interface ExchangeReceipt {
   ownerId: string;
   agentId: string;
+  spaceId: string;
   credentialId: string;
+  grantId: string;
+  role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: string;
-  scopes: string[];
+  pluginVersion: '0.5.0';
   expiresAt: string;
 }
 
 export interface InstallationExchangeResult {
   apiKey: string;
   agentId: string;
+  spaceId: string;
   credentialId: string;
+  role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: string;
+  pluginVersion: '0.5.0';
   scopes: string[];
 }
 
@@ -64,14 +72,16 @@ export class LocalSyncInstallationService {
   issueForBootstrap(input: {
     ownerId: string;
     agentId: string;
-    scopes: string[];
+    spaceId: string;
+    role: AgentAccessRole;
     pluginVersion: string;
     serverUrl: string;
   }) {
     return this.create(
       input.ownerId,
       input.agentId,
-      input.scopes,
+      input.spaceId,
+      input.role,
       input.pluginVersion,
       input.serverUrl,
     );
@@ -93,30 +103,21 @@ export class LocalSyncInstallationService {
   async create(
     ownerId: string,
     agentId: string,
-    scopes: string[],
+    spaceId: string,
+    role: AgentAccessRole,
     pluginVersion: string,
     serverUrl: string,
-    issuer?: { credentialId: string; scopes: string[] },
   ): Promise<{
     installationId: string;
     code: string;
     expiresAt: string;
     instructions: string;
   }> {
-    const agent = await this.agents.getOwned(ownerId, agentId);
-    if (agent.status !== 'active') {
-      throw new BadRequestException('Agent must be active to create a local sync installation');
-    }
-    const normalizedScopes = this.agents.normalizeCredentialScopes(scopes);
-    if (issuer) {
-      const issuerScopes = this.agents.normalizeCredentialScopes(issuer.scopes);
-      if (!issuer.credentialId || normalizedScopes.some((scope) => !issuerScopes.includes(scope))) {
-        throw new ForbiddenException('Agent install scopes cannot exceed the issuing credential');
-      }
-    }
+    this.assertExactProtocolVersion(pluginVersion);
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
+    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId);
     const expiresAt = new Date(Date.now() + INSTALLATION_TTL_SECONDS * 1_000).toISOString();
 
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
@@ -127,11 +128,11 @@ export class LocalSyncInstallationService {
         installationId,
         ownerId,
         agentId,
-        scopes: normalizedScopes,
+        spaceId,
+        role,
         pluginVersion,
         serverUrl: canonicalServerUrl,
         expiresAt,
-        ...(issuer ? { issuerCredentialId: issuer.credentialId } : {}),
       };
       const stored = await this.redis.setOnce(
         this.installationKey(installationId),
@@ -217,28 +218,18 @@ export class LocalSyncInstallationService {
     if (new Date(payload.expiresAt).getTime() <= Date.now()) {
       throw new BusinessException('LOCAL_SYNC_CODE_EXPIRED');
     }
+    this.assertExactProtocolVersion(payload.pluginVersion);
     this.assertSupportedVersion(payload.pluginVersion);
-    const agent = await this.agents.getOwned(payload.ownerId, payload.agentId);
-    if (agent.status !== 'active') {
-      throw new BadRequestException('Agent must be active to exchange a local sync installation');
-    }
-    const scopes = this.agents.normalizeCredentialScopes(payload.scopes);
-    if (payload.issuerCredentialId) {
-      await this.agents.assertCredentialCanDelegate(
-        payload.ownerId,
-        payload.agentId,
-        payload.issuerCredentialId,
-        scopes,
-      );
-    }
+    const scopes = scopesForAgentAccessRole(payload.role);
     const rawKey = this.installationApiKey(installationId);
-    const credential = await this.agents.createInstallationCredential(
-      payload.ownerId,
-      payload.agentId,
+    const credential = await this.agents.exchangeConnectionIntent({
+      ownerId: payload.ownerId,
+      agentId: payload.agentId,
+      spaceId: payload.spaceId,
+      role: payload.role,
       installationId,
       rawKey,
-      scopes,
-    );
+    });
     try {
       await this.audit.record({
         action: 'local-sync.installation.exchange',
@@ -248,6 +239,8 @@ export class LocalSyncInstallationService {
         metadata: {
           credentialId: credential.id,
           installationId,
+          spaceId: payload.spaceId,
+          role: payload.role,
           pluginVersion: payload.pluginVersion,
           scopes,
         },
@@ -256,7 +249,9 @@ export class LocalSyncInstallationService {
       const result: InstallationExchangeResult = {
         apiKey: rawKey,
         agentId: payload.agentId,
+        spaceId: payload.spaceId,
         credentialId: credential.id,
+        role: payload.role,
         serverUrl: payload.serverUrl,
         pluginVersion: payload.pluginVersion,
         scopes,
@@ -269,10 +264,12 @@ export class LocalSyncInstallationService {
       const receipt: ExchangeReceipt = {
         ownerId: payload.ownerId,
         agentId: payload.agentId,
+        spaceId: payload.spaceId,
         credentialId: credential.id,
+        grantId: credential.grantId,
+        role: payload.role,
         serverUrl: payload.serverUrl,
         pluginVersion: payload.pluginVersion,
-        scopes,
         expiresAt: payload.expiresAt,
       };
       await this.redis.setStrict(
@@ -305,15 +302,17 @@ export class LocalSyncInstallationService {
     let receipt: ExchangeReceipt;
     try {
       const value = JSON.parse(serialized) as Record<string, unknown>;
+      credentialId = typeof value.credentialId === 'string' ? value.credentialId : undefined;
       if (
         typeof value.ownerId !== 'string'
         || typeof value.agentId !== 'string'
+        || typeof value.spaceId !== 'string'
         || typeof value.credentialId !== 'string'
+        || typeof value.grantId !== 'string'
+        || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.serverUrl !== 'string'
-        || typeof value.pluginVersion !== 'string'
+        || value.pluginVersion !== '0.5.0'
         || typeof value.expiresAt !== 'string'
-        || !Array.isArray(value.scopes)
-        || value.scopes.some((scope) => typeof scope !== 'string')
       ) {
         throw new Error('invalid exchange receipt');
       }
@@ -329,12 +328,14 @@ export class LocalSyncInstallationService {
       return null;
     }
     try {
-      await this.agents.assertCredentialCanDelegate(
-        receipt.ownerId,
-        receipt.agentId,
-        receipt.credentialId,
-        receipt.scopes,
-      );
+      await this.agents.assertConnectionReceipt({
+        ownerId: receipt.ownerId,
+        agentId: receipt.agentId,
+        credentialId: receipt.credentialId,
+        grantId: receipt.grantId,
+        spaceId: receipt.spaceId,
+        role: receipt.role,
+      });
     } catch (error) {
       if (!(error instanceof ForbiddenException)) throw error;
       await this.deleteReceipt(installationId, credentialId);
@@ -343,10 +344,12 @@ export class LocalSyncInstallationService {
     return {
       apiKey: this.installationApiKey(installationId),
       agentId: receipt.agentId,
+      spaceId: receipt.spaceId,
       credentialId: receipt.credentialId,
+      role: receipt.role,
       serverUrl: receipt.serverUrl,
       pluginVersion: receipt.pluginVersion,
-      scopes: receipt.scopes,
+      scopes: scopesForAgentAccessRole(receipt.role),
     };
   }
 
@@ -362,6 +365,12 @@ export class LocalSyncInstallationService {
   private assertSupportedVersion(pluginVersion: string): void {
     const supported = this.config.get<string>('LOCAL_SYNC_PACKAGE_VERSION');
     if (!supported || pluginVersion !== supported) {
+      throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
+    }
+  }
+
+  private assertExactProtocolVersion(pluginVersion: string): asserts pluginVersion is '0.5.0' {
+    if (pluginVersion !== '0.5.0') {
       throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
     }
   }
@@ -409,12 +418,11 @@ export class LocalSyncInstallationService {
         value.installationId !== expectedInstallationId
         || typeof value.ownerId !== 'string'
         || typeof value.agentId !== 'string'
-        || !Array.isArray(value.scopes)
-        || value.scopes.some((scope) => typeof scope !== 'string')
+        || typeof value.spaceId !== 'string'
+        || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.pluginVersion !== 'string'
         || typeof value.serverUrl !== 'string'
         || typeof value.expiresAt !== 'string'
-        || (value.issuerCredentialId !== undefined && typeof value.issuerCredentialId !== 'string')
         || !Number.isFinite(new Date(value.expiresAt).getTime())
       ) {
         throw new Error('Invalid installation payload');

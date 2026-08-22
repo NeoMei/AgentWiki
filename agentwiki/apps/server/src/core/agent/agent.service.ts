@@ -2,12 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
-
-const VALID_SCOPES = new Set([
-  'spaces:read', 'pages:read', 'pages:write', 'graph:read', 'graph:write',
-  'sources:read', 'sources:write', 'runs:read', 'runs:write',
-    'review:read', 'review:auto-publish', 'memory:read', 'memory:write',
-]);
+import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 @Injectable()
 export class AgentService {
@@ -21,7 +16,6 @@ export class AgentService {
         ownerId,
         name: dto.name,
         description: dto.description,
-        approvalMode: dto.approvalMode || 'always-review',
         memoryEnabled: dto.memoryEnabled || false,
       },
     });
@@ -48,7 +42,7 @@ export class AgentService {
         credentials: {
           where: { revokedAt: null },
           select: {
-            id: true, name: true, prefix: true, scopes: true,
+            id: true, name: true, prefix: true, role: true, scopes: true,
             expiresAt: true, lastUsedAt: true, createdAt: true,
           },
         },
@@ -85,22 +79,26 @@ export class AgentService {
   async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = this.normalizeCredentialScopes(dto.scopes);
+    const scopes = scopesForAgentAccessRole(dto.role);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
     const credential = await this.prisma.agentCredential.create({
       data: {
         agentId,
         name: dto.name,
+        role: dto.role,
         prefix: rawKey.slice(0, 12),
         keyHash: createHash('sha256').update(rawKey).digest('hex'),
         scopes,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       },
       select: {
-        id: true, name: true, prefix: true, scopes: true,
+        id: true, name: true, prefix: true, role: true, scopes: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
+    if (dto.role === 'publisher') {
+      await this.enablePublisherCapabilities(agentId);
+    }
     try {
       await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
     } catch (error) {
@@ -109,109 +107,190 @@ export class AgentService {
     return { ...credential, apiKey: rawKey };
   }
 
-  async createInstallationCredential(
-    ownerId: string,
-    agentId: string,
-    installationId: string,
-    rawKey: string,
-    scopes: string[],
-  ) {
+  async assertCanIssueConnection(ownerId: string, agentId: string, spaceId: string): Promise<void> {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
-    const normalizedScopes = this.normalizeCredentialScopes(scopes);
-    const select = {
-      id: true,
-      agentId: true,
-      keyHash: true,
-      scopes: true,
-      revokedAt: true,
-    } as const;
-    let credential = await this.prisma.agentCredential.findUnique({
-      where: { localSyncInstallationId: installationId },
-      select,
-    });
-    let created = false;
-    if (!credential) {
-      try {
-        credential = await this.prisma.agentCredential.create({
-          data: {
-            agentId,
-            name: 'Local sync plugin',
-            prefix: rawKey.slice(0, 12),
-            keyHash: createHash('sha256').update(rawKey).digest('hex'),
-            localSyncInstallationId: installationId,
-            scopes: normalizedScopes,
-          },
-          select,
-        });
-        created = true;
-      } catch (error) {
-        try {
-          credential = await this.prisma.agentCredential.findUnique({
-            where: { localSyncInstallationId: installationId },
-            select,
-          });
-        } catch {
-          throw error;
-        }
-        if (!credential) throw error;
-      }
-    }
-    if (
-      credential.agentId !== agentId
-      || credential.keyHash !== createHash('sha256').update(rawKey).digest('hex')
-      || credential.revokedAt
-      || normalizedScopes.some((scope) => !credential.scopes.includes(scope))
-      || credential.scopes.some((scope) => !normalizedScopes.includes(scope))
-    ) {
-      throw new ForbiddenException('Local sync installation credential is unavailable');
-    }
-    if (created) {
-      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id)
-        .catch((error) => this.logger.warn(
-          `Installation credential ${credential!.id} audit failed: ${error instanceof Error ? error.message : String(error)}`,
-        ));
-    }
-    return { ...credential, apiKey: rawKey, created };
-  }
-
-  normalizeCredentialScopes(scopes: string[]): string[] {
-    const input = Array.from(new Set(scopes));
-    if (input.length === 0) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
-    if (input.includes('*')) {
-      return Array.from(VALID_SCOPES);
-    }
-    if (input.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
-    return input;
-  }
-
-  async assertCredentialCanDelegate(
-    ownerId: string,
-    agentId: string,
-    credentialId: string,
-    requestedScopes: string[],
-  ): Promise<void> {
-    const credential = await this.prisma.agentCredential.findFirst({
+    const space = await this.prisma.space.findFirst({
       where: {
-        id: credentialId,
-        agentId,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-        agent: {
-          ownerId,
+        id: spaceId,
+        deletedAt: null,
+        members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
+      },
+      select: { id: true },
+    });
+    if (!space) {
+      throw new ForbiddenException('You cannot authorize this Agent for the Space');
+    }
+  }
+
+  async exchangeConnectionIntent(input: {
+    ownerId: string;
+    agentId: string;
+    spaceId: string;
+    role: AgentAccessRole;
+    installationId: string;
+    rawKey: string;
+  }): Promise<{
+    id: string;
+    grantId: string;
+    agentId: string;
+    role: AgentAccessRole;
+    scopes: string[];
+    apiKey: string;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const agent = await tx.agent.findFirst({
+        where: {
+          id: input.agentId,
+          ownerId: input.ownerId,
           status: 'active',
           revokedAt: null,
           owner: { deletedAt: null, lockedAt: null },
         },
-      },
-      select: { scopes: true },
+        select: { id: true },
+      });
+      const space = await tx.space.findFirst({
+        where: {
+          id: input.spaceId,
+          deletedAt: null,
+          members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
+        },
+        select: { id: true },
+      });
+      if (!agent || !space) {
+        throw new ForbiddenException('Connection authorization is no longer valid');
+      }
+
+      const scopes = scopesForAgentAccessRole(input.role);
+      const keyHash = createHash('sha256').update(input.rawKey).digest('hex');
+      const previousGrant = await tx.agentGrant.findUnique({
+        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
+        select: { role: true },
+      });
+      const credential = await tx.agentCredential.upsert({
+        where: { localSyncInstallationId: input.installationId },
+        create: {
+          agentId: input.agentId,
+          name: 'AgentWiki connection',
+          role: input.role,
+          prefix: input.rawKey.slice(0, 12),
+          keyHash,
+          localSyncInstallationId: input.installationId,
+          scopes,
+        },
+        update: {},
+        select: {
+          id: true,
+          agentId: true,
+          role: true,
+          keyHash: true,
+          scopes: true,
+          revokedAt: true,
+        },
+      });
+      const credentialScopesMatch = scopes.length === credential.scopes.length
+        && scopes.every((scope) => credential.scopes.includes(scope));
+      if (
+        credential.agentId !== input.agentId
+        || credential.role !== input.role
+        || credential.keyHash !== keyHash
+        || credential.revokedAt
+        || !credentialScopesMatch
+      ) {
+        throw new ForbiddenException('Connection credential is unavailable');
+      }
+      const grant = await tx.agentGrant.upsert({
+        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
+        create: {
+          agentId: input.agentId,
+          spaceId: input.spaceId,
+          role: input.role,
+          scopes,
+        },
+        update: { role: input.role, scopes },
+        select: { id: true },
+      });
+      if (input.role === 'publisher') {
+        await tx.agent.update({
+          where: { id: input.agentId },
+          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+        });
+      }
+      await tx.agentAuditEvent.create({
+        data: {
+          agentId: input.agentId,
+          action: 'connection.authorize',
+          outcome: 'success',
+          resourceType: 'Space',
+          resourceId: input.spaceId,
+          metadata: {
+            credentialId: credential.id,
+            oldRole: previousGrant?.role ?? null,
+            newRole: input.role,
+          },
+        },
+      });
+      return {
+        id: credential.id,
+        grantId: grant.id,
+        agentId: credential.agentId,
+        role: credential.role,
+        scopes,
+        apiKey: input.rawKey,
+      };
     });
-    if (!credential || requestedScopes.some((scope) => !credential.scopes.includes(scope))) {
-      throw new ForbiddenException('The issuing Agent credential is unavailable or no longer permits these scopes');
+  }
+
+  async assertConnectionReceipt(input: {
+    ownerId: string;
+    agentId: string;
+    credentialId: string;
+    grantId: string;
+    spaceId: string;
+    role: AgentAccessRole;
+  }): Promise<void> {
+    const [credential, grant] = await Promise.all([
+      this.prisma.agentCredential.findFirst({
+        where: {
+          id: input.credentialId,
+          agentId: input.agentId,
+          role: input.role,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          agent: {
+            ownerId: input.ownerId,
+            status: 'active',
+            revokedAt: null,
+            owner: { deletedAt: null, lockedAt: null },
+          },
+        },
+        select: { id: true, scopes: true },
+      }),
+      this.prisma.agentGrant.findFirst({
+        where: {
+          id: input.grantId,
+          agentId: input.agentId,
+          spaceId: input.spaceId,
+          role: input.role,
+        },
+        select: { id: true, scopes: true },
+      }),
+    ]);
+    const expectedScopes = scopesForAgentAccessRole(input.role);
+    const persistedScopesMatch = (scopes: string[] | undefined) => Boolean(
+      scopes
+      && scopes.length === expectedScopes.length
+      && expectedScopes.every((scope) => scopes.includes(scope)),
+    );
+    if (
+      !credential
+      || !grant
+      || credential.id !== input.credentialId
+      || grant.id !== input.grantId
+      || !persistedScopesMatch(credential.scopes)
+      || !persistedScopesMatch(grant.scopes)
+    ) {
+      throw new ForbiddenException('Connection credential is unavailable');
     }
   }
 
@@ -220,7 +299,7 @@ export class AgentService {
     return this.prisma.agentCredential.findMany({
       where: { agentId, revokedAt: null },
       select: {
-        id: true, name: true, prefix: true, scopes: true,
+        id: true, name: true, prefix: true, role: true, scopes: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -238,58 +317,42 @@ export class AgentService {
     return { success: true };
   }
 
-  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
-    await this.getOwned(ownerId, agentId);
-    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role, scopes);
+  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: AgentAccessRole) {
+    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role);
   }
 
-  // Space-level grant management: creating a new grant requires an active Agent
-  // owned by the caller. Once the Agent is already a Space member, owner/admin
-  // callers may continue to manage that existing grant regardless of ownership.
   async upsertGrantForSpace(
     actorUserId: string,
     agentId: string,
     spaceId: string,
-    role: 'viewer' | 'editor',
-    scopes?: string[],
+    role: AgentAccessRole,
   ) {
-    const agent = await this.prisma.agent.findUnique({
-      where: { id: agentId },
-      select: { id: true, ownerId: true, status: true, revokedAt: true },
-    });
-    if (!agent || agent.revokedAt || agent.status === 'revoked') {
-      throw new NotFoundException('Agent not found');
-    }
+    const agent = await this.getOwned(actorUserId, agentId);
     const existingGrant = await this.prisma.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId } },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!existingGrant) {
-      if (agent.ownerId !== actorUserId) {
-        throw new NotFoundException('Agent not found');
-      }
       if (agent.status !== 'active') {
         throw new BadRequestException('Agent must be active before it can join a space');
       }
     }
 
-    let normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
-    if (normalizedScopes?.includes('*')) {
-      normalizedScopes = Array.from(VALID_SCOPES);
-    }
-    if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Grant contains an invalid scope');
-    }
-    const createData = normalizedScopes !== undefined
-      ? { agentId, spaceId, role, scopes: normalizedScopes }
-      : { agentId, spaceId, role };
+    const scopes = scopesForAgentAccessRole(role);
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
-      create: createData,
-      update: normalizedScopes !== undefined ? { role, scopes: normalizedScopes } : { role },
+      create: { agentId, spaceId, role, scopes },
+      update: { role, scopes },
       include: { space: { select: { id: true, name: true } } },
     });
-    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes: normalizedScopes });
+    if (role === 'publisher') {
+      await this.enablePublisherCapabilities(agentId);
+    }
+    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, {
+      oldRole: existingGrant?.role ?? null,
+      newRole: role,
+      spaceId,
+    });
     return grant;
   }
 
@@ -350,7 +413,7 @@ export class AgentService {
         },
         credentials: {
           where: { revokedAt: null },
-          select: { id: true, name: true, prefix: true, scopes: true, expiresAt: true, lastUsedAt: true },
+          select: { id: true, name: true, prefix: true, role: true, scopes: true, expiresAt: true, lastUsedAt: true },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -376,6 +439,13 @@ export class AgentService {
   ) {
     await this.prisma.agentAuditEvent.create({
       data: { agentId, action, outcome, resourceType, resourceId, metadata: metadata as any },
+    });
+  }
+
+  private enablePublisherCapabilities(agentId: string) {
+    return this.prisma.agent.update({
+      where: { id: agentId },
+      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
     });
   }
 }

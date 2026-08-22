@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LOCAL_SYNC_ONBOARD_COMMAND as COMMAND } from '../../config/localSync';
+import { LOCAL_SYNC_ONBOARD_COMMAND as COMMAND, LOCAL_SYNC_VERSION } from '../../config/localSync';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { GuideLayout } from '../guide/GuideLayout';
 import { OnboardPage } from './OnboardPage';
@@ -22,7 +22,7 @@ const renderPage = (language: 'zh-CN' | 'en') => {
   );
 };
 
-describe('OnboardPage 0.3 onboarding guide', () => {
+describe('OnboardPage 0.5 onboarding guide', () => {
   beforeEach(() => {
     localStorage.clear();
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
@@ -32,7 +32,10 @@ describe('OnboardPage 0.3 onboarding guide', () => {
     const { container } = renderPage('zh-CN');
 
     expect(screen.getByText(COMMAND)).toBeInTheDocument();
-    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.4\.0/g)).toHaveLength(1);
+    expect(LOCAL_SYNC_VERSION).toBe('0.5.0');
+    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.5\.0/g)).toHaveLength(1);
+    expect(screen.getByText('AgentWiki 0.5')).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('AgentWiki 0.3');
     expect(screen.getByText(/在浏览器中登录或注册并授权/)).toBeInTheDocument();
     expect(screen.getByText(/确认 Agent、Space、权限和本地扫描计划/)).toBeInTheDocument();
     expect(screen.getByText(/预览整理后的知识并确认同步/)).toBeInTheDocument();

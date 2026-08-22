@@ -127,4 +127,19 @@ describe('SpaceSettings auto graph card', () => {
     expect(await screen.findByText('正在加载图谱设置…')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Wiki 链接提取/ })).not.toBeInTheDocument();
   });
+
+  it('explains the complete Publisher auto-publish gate in Chinese', async () => {
+    renderSettings();
+
+    expect(await screen.findByText(/Publisher 凭据、Publisher Space 授权和 Space 发布策略同时允许/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/编辑权限和匹配的写入 Scope/);
+  });
+
+  it('explains the complete Publisher auto-publish gate in English', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    renderSettings();
+
+    expect(await screen.findByText(/Publisher credential, Publisher Space grant, and Space publishing policy all permit/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/editor grant and matching write scope/i);
+  });
 });

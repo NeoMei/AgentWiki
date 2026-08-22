@@ -11,8 +11,8 @@ export const DocsFeatures: React.FC = () => {
     {
       icon: Layers, color: 'blue',
       title: zh ? '知识空间（Space）' : 'Knowledge Spaces',
-      design: zh ? '按项目、团队或主题隔离知识。每个 Space 拥有独立的成员列表、权限策略和审核流。Space 之间数据完全隔离，Agent 必须被显式授权才能访问。' : 'Isolate knowledge by project, team, or topic. Each Space has its own member list, permission policy, and review flow. Spaces are fully data-isolated; Agents need explicit grants.',
-      usage: zh ? ['在 Dashboard 点击「创建空间」', '在 Space 设置中选择审核策略（always-review 或 scoped-auto-publish）', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 成员配置按 Space 的权限范围'] : ['Click "Create Space" in the Dashboard', 'Choose the approval policy in Space settings', 'Add human or Agent members in the Members page', 'Configure per-Space scopes for Agent members'],
+      design: zh ? '按项目、团队或主题隔离知识。每个 Space 拥有独立的成员列表、发布策略和审核流。Space 之间数据完全隔离，Agent 必须以 Reader、Editor 或 Publisher 角色显式接入。Publisher 自动发布仍受 Space 发布策略限制。' : 'Isolate knowledge by project, team, or topic. Each Space has its own member list, publishing policy, and review flow. Spaces are fully data-isolated; Agents connect explicitly as Reader, Editor, or Publisher. Publisher auto-publishing remains subject to Space policy.',
+      usage: zh ? ['在 Dashboard 点击「创建空间」', '在 Space 设置中选择审核策略（always-review 或 scoped-auto-publish）', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 选择 Reader、Editor 或 Publisher'] : ['Click "Create Space" in the Dashboard', 'Choose the approval policy in Space settings', 'Add human or Agent members in the Members page', 'Choose Reader, Editor, or Publisher for the Agent'],
     },
     {
       icon: FileText, color: 'indigo',
@@ -41,8 +41,8 @@ export const DocsFeatures: React.FC = () => {
     {
       icon: CheckCircle2, color: 'emerald',
       title: zh ? '审核与变更集' : 'Review & ChangeSets',
-      design: zh ? 'Agent 的写入操作进入可审计的变更集（ChangeSet），由人工审批后才发布。支持创建、更新、删除页面和图谱关系。审批人可逐项接受或拒绝。' : 'Agent writes enter auditable ChangeSets requiring human approval before publishing. Supports page and graph create/update/delete. Approvers can accept or reject item by item.',
-      usage: zh ? ['Agent 写入后，在审核页面看到待处理的 ChangeSet', '查看每项变更的 diff', '逐项或批量接受/拒绝', '接受的变更发布并生成新版本'] : ['After an Agent writes, see the pending ChangeSet on the review page', 'View the diff for each change', 'Accept or reject individually or in bulk', 'Accepted changes publish and create new versions'],
+      design: zh ? '所有 Agent 写入都记录在可审计的变更集（ChangeSet）中。Reader 不可写；Editor 写入进入待审核；仅当 Publisher 凭据、Publisher Space 授权与 Space 发布策略同时允许时，Publisher 写入才会自动发布，否则也进入待审核。Agent 永远不能执行人工审批或成员管理。' : 'All Agent writes are recorded in auditable ChangeSets. Reader cannot write; Editor writes enter pending review. Publisher writes auto-publish only when the Publisher Credential, Publisher Space Grant, and Space publishing policy all permit it; otherwise they also enter pending review. Agents can never perform human approval or member management.',
+      usage: zh ? ['Editor 写入后，在审核页面查看待处理的 ChangeSet', 'Publisher 未满足全部自动发布条件时同样进入待审核', '由具备审批权的人类查看 diff 并接受或拒绝', '自动发布和人工决策都会保留审计记录'] : ['Review pending Editor ChangeSets after a write', 'Publisher changes also enter pending review when any auto-publish gate is missing', 'Authorized humans inspect diffs and accept or reject', 'Both auto-publishing and human decisions retain audit records'],
     },
     {
       icon: Brain, color: 'rose',

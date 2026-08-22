@@ -29,8 +29,8 @@ describe('runOnboarding', () => {
           return JSON.stringify({
             requestId: 'input',
             values: {
-              spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', permissionPreset: 'editor',
-              approvalMode: 'always-review', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
+              spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
+              clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
             },
           });
         }

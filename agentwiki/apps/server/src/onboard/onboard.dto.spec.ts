@@ -1,7 +1,9 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AgentService } from '../core/agent/agent.service';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import {
   BootstrapDto,
   DeviceDecisionDto,
@@ -11,8 +13,6 @@ import {
 import {
   hashServerPlan,
   normalizeServerPlan,
-  PERMISSION_PRESETS,
-  type NormalizedServerPlan,
   type ServerPlan,
 } from './onboard.types';
 
@@ -29,13 +29,17 @@ async function validationErrors<T extends object>(
 const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
-  permissionPreset: 'editor',
-  approvalMode: 'always-review',
-  packageVersion: '0.4.0',
+  role: 'editor',
+  packageVersion: '0.5.0',
 };
 
+const planHashGolden = JSON.parse(readFileSync(join(
+  __dirname,
+  '../../../../packages/sync-protocol/test-vectors/onboarding-plan-hash-v1.json',
+), 'utf8')) as { plan: ServerPlan; sha256: string };
+
 describe('onboarding DTO contract', () => {
-  it.each(['0.4.0'] as const)(
+  it.each(['0.5.0'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -49,7 +53,7 @@ describe('onboarding DTO contract', () => {
   );
 
   it.each([
-    { packageVersion: '0.3.3', clientType: 'codex', purpose: 'full-onboarding' },
+    { packageVersion: '0.4.0', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: 'v0.3.0', clientType: 'codex', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'cursor', purpose: 'full-onboarding' },
     { packageVersion: '0.3.0', clientType: 'codex', purpose: 'device-auth' },
@@ -99,8 +103,7 @@ describe('onboarding DTO contract', () => {
     {
       ...createPlan,
       space: { mode: 'existing' as const, id: 'space-id' },
-      permissionPreset: 'full' as const,
-      approvalMode: 'scoped-auto-publish' as const,
+      role: 'publisher' as const,
     },
   ])('accepts create and existing Space plans %#', async (serverPlan) => {
     await expect(validationErrors(BootstrapDto, {
@@ -138,9 +141,9 @@ describe('onboarding DTO contract', () => {
   });
 
   it.each([
-    { ...createPlan, permissionPreset: 'viewer' },
-    { ...createPlan, approvalMode: 'auto-publish' },
-    { ...createPlan, packageVersion: '0.3.3' },
+    { ...createPlan, role: 'viewer' },
+    { ...createPlan, role: 'full' },
+    { ...createPlan, packageVersion: '0.4.0' },
     { ...createPlan, space: { mode: 'create', id: 'space-id' } },
     { ...createPlan, space: { mode: 'existing', name: '研发知识库' } },
   ])('rejects invalid bootstrap plan %#', async (serverPlan) => {
@@ -164,6 +167,16 @@ describe('onboarding DTO contract', () => {
       ]));
   });
 
+  it.each([
+    { permissionPreset: 'editor' },
+    { approvalMode: 'always-review' },
+  ])('rejects removed legacy plan field %#', async (legacyField) => {
+    await expect(validationErrors(BootstrapDto, {
+      serverPlan: { ...createPlan, ...legacyField },
+      serverPlanHash: 'a'.repeat(64),
+    })).resolves.not.toEqual([]);
+  });
+
   it.each(['not-a-hash', 'A'.repeat(64), 'a'.repeat(63)])(
     'rejects a non-canonical server plan hash: %s',
     async (serverPlanHash) => {
@@ -175,76 +188,20 @@ describe('onboarding DTO contract', () => {
   );
 });
 
-describe('onboarding permission presets and canonical plan hashing', () => {
-  it('defines the exact sorted editor and full scope sets', () => {
-    expect(PERMISSION_PRESETS).toEqual({
-      editor: [
-        'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
-        'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
-      ],
-      full: [
-        'graph:read', 'graph:write', 'memory:read', 'memory:write', 'pages:read',
-        'pages:write', 'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
-        'sources:read', 'sources:write', 'spaces:read',
-      ],
-    });
-
-    for (const scopes of Object.values(PERMISSION_PRESETS)) {
-      expect(() => AgentService.prototype.normalizeCredentialScopes.call(
-        {} as AgentService,
-        [...scopes],
-      )).not.toThrow();
-    }
-  });
-
-  it('normalizes editor always-review to an editor grant without auto-publish', () => {
+describe('onboarding roles and canonical plan hashing', () => {
+  it('normalizes the role through the shared access contract', () => {
     expect(normalizeServerPlan(createPlan)).toEqual({
       ...createPlan,
-      scopes: [
-        'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
-        'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
-      ],
-      spaceRole: 'editor',
+      scopes: scopesForAgentAccessRole('editor'),
     });
   });
 
-  it('adds auto-publish to editor only for scoped-auto-publish mode', () => {
-    expect(normalizeServerPlan({
-      ...createPlan,
-      approvalMode: 'scoped-auto-publish',
-    }).scopes).toEqual([
-      'graph:read', 'graph:write', 'pages:read', 'pages:write',
-      'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
-      'sources:read', 'sources:write', 'spaces:read',
-    ]);
+  it.each(['reader', 'editor', 'publisher'] as const)('derives %s scopes from the shared contract', (role) => {
+    expect(normalizeServerPlan({ ...createPlan, role }).scopes)
+      .toEqual(scopesForAgentAccessRole(role));
   });
 
-  it('retains auto-publish in full even for always-review mode', () => {
-    const normalized = normalizeServerPlan({
-      ...createPlan,
-      permissionPreset: 'full',
-    });
-
-    expect(normalized.spaceRole).toBe('editor');
-    expect(normalized.scopes).toEqual(PERMISSION_PRESETS.full);
-  });
-
-  it('hashes canonical UTF-8 JSON with sorted object keys and scope arrays', () => {
-    const normalized = normalizeServerPlan(createPlan);
-    const reordered: NormalizedServerPlan = {
-      spaceRole: 'editor',
-      scopes: [...normalized.scopes].reverse(),
-      packageVersion: createPlan.packageVersion,
-      approvalMode: 'always-review',
-      permissionPreset: 'editor',
-      agentName: 'Codex',
-      space: { name: '研发知识库', mode: 'create' },
-    };
-
-    expect(hashServerPlan(normalized)).toBe(hashServerPlan(reordered));
-    expect(hashServerPlan(normalized)).toBe(
-      'efe1ea9cee62fcf4996cf5b84cea5de891d7a178ebc66a0295690ec1b1148a9c',
-    );
-    expect(hashServerPlan(normalized)).toMatch(/^[0-9a-f]{64}$/);
+  it('matches the shared raw-plan golden vector', () => {
+    expect(hashServerPlan(planHashGolden.plan)).toBe(planHashGolden.sha256);
   });
 });

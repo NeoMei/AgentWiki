@@ -79,6 +79,18 @@ test('destructive E2E harnesses share target validation and fixture cleanup', as
   }
 });
 
+test('active Agent E2E requests use roles without legacy permission inputs', async () => {
+  for (const file of [
+    'smoke-test.mjs',
+    'cross-machine-e2e.mjs',
+    'onboarding-e2e.mjs',
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /\b(?:permissionPreset|approvalMode)\s*:/u, `${file} must not send legacy permission fields`);
+    assert.doesNotMatch(source, /\bbody\s*:\s*\{[^}]*\bscopes\s*:/su, `${file} must not send custom scopes`);
+  }
+});
+
 test('cross-machine E2E exercises the real sync engine and conflict gate', async () => {
   const source = await readFile(new URL('cross-machine-e2e.mjs', import.meta.url), 'utf8');
   assert.match(source, /SyncEngine/);

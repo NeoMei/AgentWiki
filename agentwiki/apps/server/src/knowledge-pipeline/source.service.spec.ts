@@ -177,6 +177,7 @@ describe('SourceService safety and idempotency', () => {
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'editor',
         scopes: ['runs:write', 'review:auto-publish'],
       }) },
     } as any;
@@ -186,6 +187,97 @@ describe('SourceService safety and idempotency', () => {
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
     })).resolves.toEqual(['runs:write']);
+  });
+
+  it.each([
+    ['editor', 'editor'],
+    ['editor', 'publisher'],
+    ['publisher', 'editor'],
+  ] as const)(
+    'filters queued-run scopes through credential role %s and grant role %s',
+    async (credentialRole, grantRole) => {
+      const authorizationPrisma = {
+        agentGrant: { findUnique: jest.fn().mockResolvedValue({
+          role: grantRole,
+          scopes: ['runs:write', 'review:auto-publish'],
+          agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+          space: { deletedAt: null },
+        }) },
+        agentCredential: { findFirst: jest.fn().mockResolvedValue({
+          role: credentialRole,
+          scopes: ['runs:write', 'review:auto-publish'],
+        }) },
+      } as any;
+      const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+      await expect((authorizationService as any).assertRequesterStillAuthorized({
+        requestedByAgentId: 'agent-1', spaceId: 'space-1',
+        requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+      })).resolves.toEqual(['runs:write']);
+    },
+  );
+
+  it('allows a queued publisher run when credential and grant remain authorized', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write', 'review:auto-publish'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).resolves.toEqual(['runs:write']);
+  });
+
+  it('rejects a queued run when a reader credential retains a stale runs:write scope', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: ['runs:write'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'reader',
+        scopes: ['runs:write'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).rejects.toThrow('Run requester is no longer authorized');
+  });
+
+  it('rejects a queued run when a non-empty grant omits runs:write', async () => {
+    const authorizationPrisma = {
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'editor',
+        scopes: ['pages:read'],
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        space: { deletedAt: null },
+      }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        role: 'editor',
+        scopes: ['runs:write'],
+      }) },
+    } as any;
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    })).rejects.toThrow('Run requester is no longer authorized');
   });
 
   it('keeps a queued super-admin run authorized without a space membership', async () => {
@@ -410,6 +502,36 @@ describe('SourceService pipeline lifecycle', () => {
     ].map((call: any[]) => call[0].data.stage);
     expect(stages).toEqual(expect.arrayContaining(['extracting', 'compiling', 'indexing', 'partial']));
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
+  });
+
+  it('passes the current Agent and Credential identity into background auto-publish revalidation', async () => {
+    const { service, prisma, review, run } = makeHarness();
+    run.requestedByUserId = null as any;
+    run.requestedByAgentId = 'agent-1' as any;
+    (run as any).requestedCredentialId = 'credential-1';
+    (run as any).requestedCredentialType = 'agent';
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'publisher',
+      scopes: ['runs:write', 'review:auto-publish'],
+      agent: {
+        status: 'active', revokedAt: null,
+        owner: { deletedAt: null, lockedAt: null },
+      },
+      space: { deletedAt: null },
+    });
+    prisma.agentCredential = { findFirst: jest.fn().mockResolvedValue({
+      role: 'publisher', scopes: ['runs:write', 'review:auto-publish'],
+    }) };
+    jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
+
+    await service.processRun('run-1');
+
+    expect(review.publish).toHaveBeenCalledWith('change-1', {
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+    });
   });
 
   it('compiles the pinned OKF version with linked pages and explicit evidence without creating a second version', async () => {

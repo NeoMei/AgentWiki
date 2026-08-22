@@ -1,3 +1,7 @@
+import {
+  scopesForAgentAccessRole,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 import type { BootstrapResult } from './client.js';
 import { OnboardingClient } from './client.js';
 import type { BootstrapInstallFn } from './coordinator.js';
@@ -31,7 +35,7 @@ export interface BootstrapInstallerDeps {
   verifyAccess(
     connection: LocalSyncConnection,
     apiKey: string,
-    expected: { agentId: string; spaceId?: string },
+    expected: { agentId: string; spaceId: string; role: AgentAccessRole; scopes: string[] },
   ): Promise<void>;
   revokeCredential(connection: LocalSyncConnection, apiKey: string): Promise<void>;
   restore(home: string, archive: ArchiveResult | null): Promise<void>;
@@ -41,6 +45,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
   const deps = { ...productionDependencies(), ...overrides };
   return async (input) => {
     const bootstrap = await deps.bootstrap(input);
+    assertConfirmedBootstrap(bootstrap, input.serverPlan);
     let rollbackConfig: (() => Promise<void>) | undefined;
     try {
       const existing = await deps.loadExisting(input.home, input.connectionId);
@@ -66,6 +71,8 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
           expectedConfigHash: input.expectedConfigHash,
           expectedAgentId: bootstrap.agent.id,
           expectedSpaceId: bootstrap.space.id,
+          expectedRole: bootstrap.grant.role,
+          expectedScopes: bootstrap.grant.scopes,
           expectedPluginVersion: input.serverPlan.packageVersion,
           exchange,
         }, deps);
@@ -97,6 +104,8 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
       await deps.verifyAccess(connection, apiKey, {
         agentId: bootstrap.agent.id,
         spaceId: bootstrap.space.id,
+        role: bootstrap.grant.role,
+        scopes: bootstrap.grant.scopes,
       });
 
       return {
@@ -132,8 +141,10 @@ export interface ExchangedGatewayInstallInput {
   connectionId: string;
   expectedConfigHash: string;
   expectedAgentId: string;
-  expectedSpaceId?: string;
-  expectedPluginVersion: string;
+  expectedSpaceId: string;
+  expectedRole: AgentAccessRole;
+  expectedScopes: string[];
+  expectedPluginVersion: '0.5.0';
   exchange: ExchangeResult;
 }
 
@@ -146,16 +157,13 @@ export async function installExchangedGateway(
   manifestHash: string;
 }> {
   const deps = { ...productionDependencies(), ...overrides };
-  if (
-    input.exchange.agentId !== input.expectedAgentId
-    || input.exchange.pluginVersion !== input.expectedPluginVersion
-  ) {
-    throw new OnboardingError({
-      code: 'PACKAGE_INTEGRITY_FAILED',
-      message: 'installation exchange does not match the requested Agent or package version',
-      retryable: false,
-    });
-  }
+  assertExchangePackage(input.exchange, {
+    agentId: input.expectedAgentId,
+    spaceId: input.expectedSpaceId,
+    role: input.expectedRole,
+    scopes: input.expectedScopes,
+    pluginVersion: input.expectedPluginVersion,
+  });
 
   const connection: LocalSyncConnection = {
     id: input.connectionId,
@@ -203,7 +211,9 @@ export async function installExchangedGateway(
       }
       await deps.verifyAccess(existing.connection, existing.apiKey, {
         agentId: input.expectedAgentId,
-        ...(input.expectedSpaceId ? { spaceId: input.expectedSpaceId } : {}),
+        spaceId: input.expectedSpaceId,
+        role: input.expectedRole,
+        scopes: input.expectedScopes,
       });
       return {
         connection: existing.connection,
@@ -255,7 +265,9 @@ export async function installExchangedGateway(
     }
     await deps.verifyAccess(connection, input.exchange.apiKey, {
       agentId: input.expectedAgentId,
-      ...(input.expectedSpaceId ? { spaceId: input.expectedSpaceId } : {}),
+      spaceId: input.expectedSpaceId,
+      role: input.expectedRole,
+      scopes: input.expectedScopes,
     });
     return {
       connection,
@@ -343,9 +355,15 @@ function productionDependencies(): BootstrapInstallerDeps {
     verifyAccess: async (connection, apiKey, expected) => {
       const access = await agentwiki.access(connection, apiKey);
       const agent = access.access.find((candidate) => candidate.id === expected.agentId);
-      const hasSpace = expected.spaceId === undefined
-        || (agent?.grants.some((grant) => grant.space.id === expected.spaceId) ?? false);
-      const hasCredential = agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active) ?? false;
+      const hasSpace = agent?.grants.some((grant) => (
+        grant.space.id === expected.spaceId && grant.role === expected.role
+      )) ?? false;
+      const hasCredential = agent?.credentials.some((credential) => (
+        credential.id === connection.credentialId
+        && credential.active
+        && credential.role === expected.role
+        && sameScopes(credential.scopes, expected.scopes)
+      )) ?? false;
       if (agent?.status !== 'active' || !hasSpace || !hasCredential) {
         throw new OnboardingError({
           code: 'TOOLSET_MISMATCH',
@@ -359,12 +377,61 @@ function productionDependencies(): BootstrapInstallerDeps {
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: string): void {
-  if (exchange.agentId !== bootstrap.agent.id || exchange.pluginVersion !== version) {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.5.0'): void {
+  assertExchangePackage(exchange, {
+    agentId: bootstrap.agent.id,
+    spaceId: bootstrap.space.id,
+    role: bootstrap.grant.role,
+    scopes: bootstrap.grant.scopes,
+    pluginVersion: version,
+  });
+}
+
+function assertConfirmedBootstrap(bootstrap: BootstrapResult, plan: InstallInput['serverPlan']): void {
+  const canonicalScopes = scopesForAgentAccessRole(plan.role);
+  const wrongExistingSpace = plan.space.mode === 'existing' && bootstrap.space.id !== plan.space.id;
+  if (
+    wrongExistingSpace
+    || bootstrap.grant.role !== plan.role
+    || !sameScopes(bootstrap.grant.scopes, canonicalScopes)
+  ) {
     throw new OnboardingError({
       code: 'PACKAGE_INTEGRITY_FAILED',
-      message: 'installation exchange does not match the confirmed bootstrap result',
+      message: 'bootstrap access package does not match the confirmed plan',
       retryable: false,
     });
   }
+}
+
+function assertExchangePackage(
+  exchange: ExchangeResult,
+  expected: {
+    agentId: string;
+    spaceId: string;
+    role: AgentAccessRole;
+    scopes: string[];
+    pluginVersion: '0.5.0';
+  },
+): void {
+  const canonicalScopes = scopesForAgentAccessRole(expected.role);
+  if (
+    expected.pluginVersion !== '0.5.0'
+    || exchange.pluginVersion !== '0.5.0'
+    || exchange.pluginVersion !== expected.pluginVersion
+    || exchange.agentId !== expected.agentId
+    || exchange.spaceId !== expected.spaceId
+    || exchange.role !== expected.role
+    || !sameScopes(expected.scopes, canonicalScopes)
+    || !sameScopes(exchange.scopes, canonicalScopes)
+  ) {
+    throw new OnboardingError({
+      code: 'PACKAGE_INTEGRITY_FAILED',
+      message: 'installation exchange does not match the confirmed Agent, Space, role, scopes, or package version',
+      retryable: false,
+    });
+  }
+}
+
+function sameScopes(actual: readonly string[], expected: readonly string[]): boolean {
+  return actual.length === expected.length && actual.every((scope, index) => scope === expected[index]);
 }

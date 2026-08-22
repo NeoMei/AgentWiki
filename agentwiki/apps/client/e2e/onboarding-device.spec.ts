@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   user = auth.user;
 
   const started = await api.post('onboard/device/start', {
-    data: { packageVersion: '0.4.0', clientType: 'codex', purpose: 'full-onboarding' },
+    data: { packageVersion: '0.5.0', clientType: 'codex', purpose: 'full-onboarding' },
   });
   expect(started.ok()).toBeTruthy();
   const session = await started.json();
@@ -45,7 +45,7 @@ test('browser authorizes a device request and the token is issued once', async (
   await page.goto(`/onboard/device?user_code=${encodeURIComponent(userCode)}`);
   await expect(page.getByRole('heading', { name: 'Authorize Agent connection' })).toBeVisible();
   await expect(page.getByText('Codex')).toBeVisible();
-  await expect(page.getByText('0.4.0')).toBeVisible();
+  await expect(page.getByText('0.5.0')).toBeVisible();
   const signIn = page.getByRole('link', { name: 'Sign in or register to authorize' });
   await expect(signIn).toHaveAttribute('href', new RegExp(`returnTo=.*${userCode}`));
 

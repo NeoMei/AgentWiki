@@ -1,6 +1,6 @@
 {
   "name": "agentwiki",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "engines": {
     "node": ">=24 <25 || >=26 <27"
@@ -22,6 +22,7 @@
     "server:dev": "pnpm --filter server start:dev",
     "client:dev": "pnpm --filter client dev",
     "test:e2e:onboarding": "node scripts/onboarding-e2e.test.mjs",
+    "test:package:local-sync-clean-install": "node scripts/verify-local-sync-clean-install.mjs",
     "test:e2e:codegraph-standard-scan": "pnpm --filter @neomei/agentwiki-local-sync build && node --test scripts/codegraph-standard-scan-e2e.test.mjs",
     "backfill:sync-v1": "node scripts/backfill-sync-v1.mjs",
     "migrate:readable-sync-paths": "pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node scripts/migrate-readable-sync-paths.mjs",

@@ -1,4 +1,4 @@
-import { ForbiddenException, InternalServerErrorException } from '@nestjs/common';
+import { InternalServerErrorException } from '@nestjs/common';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { HumanOnlyGuard } from '../auth/human-only.guard';
@@ -30,12 +30,7 @@ describe('LocalSyncInstallationController', () => {
       HumanOnlyGuard,
     ]);
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.exchange)).toBeUndefined();
-  });
-
-  it('allows an agent to create an install code for itself using CombinedAuthGuard', () => {
-    expect(Reflect.getMetadata(GUARDS_METADATA, controller.createForAgent)).toEqual([
-      CombinedAuthGuard,
-    ]);
+    expect((controller as any).createForAgent).toBeUndefined();
   });
 
   it('allows an agent credential to revoke itself after a failed local install', async () => {
@@ -48,43 +43,6 @@ describe('LocalSyncInstallationController', () => {
     expect(installations.revokeCredentialAndReceipts).toHaveBeenCalledWith('owner-1', 'agent-1', 'credential-1');
   });
 
-  it('creates an install code with the ownerId and agentId from the authenticated principal', async () => {
-    config.get.mockImplementation((key: string) => (
-      key === 'PUBLIC_API_URL' ? 'https://wiki.test/api' : 'production'
-    ));
-    installations.create.mockResolvedValue({ installationId: 'install-self' });
-    const request = {
-      user: {
-        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', scopes: ['pages:read'],
-      },
-    } as any;
-
-    const result = await controller.createForAgent(request, 'agent-1', {
-      scopes: ['pages:read'],
-      pluginVersion: '0.2.3',
-    });
-
-    expect(result).toEqual({ installationId: 'install-self' });
-    expect(installations.create).toHaveBeenCalledWith(
-      'owner-1',
-      'agent-1',
-      ['pages:read'],
-      '0.2.3',
-      'https://wiki.test/api',
-      { credentialId: 'credential-1', scopes: ['pages:read'] },
-    );
-  });
-
-  it('forbids an agent from creating install codes for a different agent', () => {
-    const request = { user: { userId: 'owner-1', agentId: 'agent-2' } } as any;
-
-    expect(() => controller.createForAgent(request, 'agent-1', {
-      scopes: ['pages:read'],
-      pluginVersion: '0.2.3',
-    })).toThrow(ForbiddenException);
-    expect(installations.create).not.toHaveBeenCalled();
-  });
-
   it('uses the configured canonical public API URL without a trailing slash', async () => {
     config.get.mockImplementation((key: string) => (
       key === 'PUBLIC_API_URL' ? 'https://wiki.test/api/' : 'production'
@@ -93,15 +51,17 @@ describe('LocalSyncInstallationController', () => {
     const request = { user: { userId: 'owner-1' } } as any;
 
     await controller.create(request, 'agent-1', {
-      scopes: ['sources:read'],
-      pluginVersion: '0.1.0',
+      spaceId: 'space-1',
+      role: 'editor',
+      pluginVersion: '0.5.0',
     });
 
     expect(installations.create).toHaveBeenCalledWith(
       'owner-1',
       'agent-1',
-      ['sources:read'],
-      '0.1.0',
+      'space-1',
+      'editor',
+      '0.5.0',
       'https://wiki.test/api',
     );
   });
@@ -117,15 +77,17 @@ describe('LocalSyncInstallationController', () => {
     } as any;
 
     await controller.create(request, 'agent-1', {
-      scopes: ['sources:read'],
-      pluginVersion: '0.1.0',
+      spaceId: 'space-1',
+      role: 'reader',
+      pluginVersion: '0.5.0',
     });
 
     expect(installations.create).toHaveBeenCalledWith(
       'owner-1',
       'agent-1',
-      ['sources:read'],
-      '0.1.0',
+      'space-1',
+      'reader',
+      '0.5.0',
       'http://localhost:3000/api',
     );
   });
@@ -139,8 +101,7 @@ describe('LocalSyncInstallationController', () => {
       const request = { user: { userId: 'owner-1' } } as any;
 
       expect(() => controller.create(request, 'agent-1', {
-        scopes: ['sources:read'],
-        pluginVersion: '0.1.0',
+        spaceId: 'space-1', role: 'reader', pluginVersion: '0.5.0',
       })).toThrow(InternalServerErrorException);
       expect(installations.create).not.toHaveBeenCalled();
     },
@@ -153,8 +114,7 @@ describe('LocalSyncInstallationController', () => {
     const request = { user: { userId: 'owner-1' } } as any;
 
     expect(() => controller.create(request, 'agent-1', {
-      scopes: ['sources:read'],
-      pluginVersion: '0.1.0',
+      spaceId: 'space-1', role: 'reader', pluginVersion: '0.5.0',
     })).toThrow(InternalServerErrorException);
     expect(installations.create).not.toHaveBeenCalled();
   });

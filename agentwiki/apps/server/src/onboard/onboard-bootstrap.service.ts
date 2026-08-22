@@ -6,6 +6,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
+import {
+  AGENT_ACCESS_ROLES,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 import { LocalSyncInstallationService } from '../core/agent/local-sync-installation.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
@@ -27,7 +31,6 @@ const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{16,128}$/;
 const REQUIRED_CAPABILITIES = [
   'bootstrap:space',
   'bootstrap:agent',
-  'bootstrap:grant',
   'bootstrap:installation',
 ].sort();
 
@@ -39,7 +42,6 @@ type ExecutionFence = {
 type ResourceIds = {
   spaceId: string;
   agentId: string;
-  grantId: string;
   pendingInstallationId?: string;
 };
 
@@ -47,13 +49,12 @@ type BootstrapResources = {
   ids: ResourceIds;
   space: { id: string; name: string };
   agent: { id: string; name: string };
-  grant: { id: string; role: 'editor'; scopes: string[] };
 };
 
 export type OnboardBootstrapResponse = {
   space: { id: string; name: string };
   agent: { id: string; name: string };
-  grant: { role: 'editor'; scopes: string[] };
+  grant: { role: AgentAccessRole; scopes: string[] };
   installation: { code: string; installationId: string; expiresAt: string };
 };
 
@@ -98,7 +99,7 @@ export class OnboardBootstrapService {
   ): Promise<OnboardBootstrapResponse> {
     const key = this.validateIdempotencyKey(idempotencyKey);
     const normalized = normalizeServerPlan(plan);
-    const canonicalPlanHash = hashServerPlan(normalized);
+    const canonicalPlanHash = hashServerPlan(plan);
     this.assertAuthorizedPlan(context, normalized, suppliedPlanHash, canonicalPlanHash);
     const keyHash = this.hash(key);
     const claim = await this.claim(context.sessionId, keyHash, canonicalPlanHash);
@@ -161,7 +162,8 @@ export class OnboardBootstrapService {
       const installation = await this.installations.issueForBootstrap({
         ownerId: context.userId,
         agentId: resources.agent.id,
-        scopes: plan.scopes,
+        spaceId: resources.space.id,
+        role: plan.role,
         pluginVersion: plan.packageVersion,
         serverUrl: this.publicApiUrl(),
       });
@@ -171,7 +173,7 @@ export class OnboardBootstrapService {
       resources.ids = { ...resources.ids, pendingInstallationId: installation.installationId };
       await this.persistResourceIds(claim.record.id, fence, resources.ids);
       issuedInstallationPersisted = true;
-      const response = this.response(resources, plan.scopes, installation);
+      const response = this.response(resources, plan.role, plan.scopes, installation);
       const serialized = JSON.stringify(response);
       const resultHash = this.hash(serialized);
 
@@ -327,7 +329,7 @@ export class OnboardBootstrapService {
     let response: OnboardBootstrapResponse;
     try {
       response = this.parseReplay(serialized);
-      this.assertRecoveredReplay(response, resources, plan.scopes);
+      this.assertRecoveredReplay(response, resources, plan.role, plan.scopes);
     } catch {
       await this.renew(claim.record.id, claim.fence);
       await this.redis.deleteStrict(previousKey);
@@ -439,7 +441,7 @@ export class OnboardBootstrapService {
             name: plan.space.name,
             slug: `${this.slugify(plan.space.name) || 'space'}-${this.hash(deviceSessionId).slice(0, 16)}`,
             visibility: 'private',
-            approvalPolicy: plan.approvalMode,
+            approvalPolicy: 'always-review',
             members: { create: { userId, role: 'owner' } },
           },
         })
@@ -451,31 +453,16 @@ export class OnboardBootstrapService {
           },
         });
       if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
-      if (
-        plan.space.mode === 'existing'
-        && plan.approvalMode === 'scoped-auto-publish'
-        && space.approvalPolicy !== 'scoped-auto-publish'
-      ) {
-        throw new BusinessException(
-          'RESOURCE_CONFLICT',
-          'Existing Space policy does not allow scoped auto-publish',
-        );
-      }
 
       const agent = await tx.agent.create({
-        data: { ownerId: userId, name: plan.agentName, approvalMode: plan.approvalMode },
-      });
-      const grant = await tx.agentGrant.upsert({
-        where: { agentId_spaceId: { agentId: agent.id, spaceId: space.id } },
-        create: {
-          agentId: agent.id,
-          spaceId: space.id,
-          role: 'editor',
-          scopes: [...plan.scopes],
+        data: {
+          ownerId: userId,
+          name: plan.agentName,
+          memoryEnabled: plan.role === 'publisher',
+          approvalMode: plan.role === 'publisher' ? 'scoped-auto-publish' : 'always-review',
         },
-        update: { role: 'editor', scopes: [...plan.scopes] },
       });
-      const ids: ResourceIds = { spaceId: space.id, agentId: agent.id, grantId: grant.id };
+      const ids: ResourceIds = { spaceId: space.id, agentId: agent.id };
       const persisted = await tx.onboardingBootstrap.updateMany({
         where: this.runningFenceWhere(bootstrapId, fence),
         data: { resourceIds: ids as Prisma.InputJsonValue },
@@ -485,7 +472,6 @@ export class OnboardBootstrapService {
         ids,
         space: { id: space.id, name: space.name },
         agent: { id: agent.id, name: agent.name },
-        grant: { id: grant.id, role: 'editor' as const, scopes: [...plan.scopes] },
       };
     });
   }
@@ -503,34 +489,22 @@ export class OnboardBootstrapService {
       },
     });
     if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
-    if (
-      (plan.space.mode === 'create' && space.approvalPolicy !== plan.approvalMode)
-      || (plan.space.mode === 'existing'
-        && plan.approvalMode === 'scoped-auto-publish'
-        && space.approvalPolicy !== 'scoped-auto-publish')
-    ) {
+    if (plan.space.mode === 'create' && space.approvalPolicy !== 'always-review') {
       throw new BusinessException(
         'RESOURCE_CONFLICT',
-        'Existing Space policy does not allow scoped auto-publish',
+        'Onboarding-created Space policy is inconsistent',
       );
     }
 
-    const [agent, grant] = await Promise.all([
-      this.prisma.agent.findUnique({ where: { id: ids.agentId } }),
-      this.prisma.agentGrant.findUnique({ where: { id: ids.grantId } }),
-    ]);
+    const agent = await this.prisma.agent.findUnique({ where: { id: ids.agentId } });
     if (
       !agent
       || agent.ownerId !== userId
       || agent.name !== plan.agentName
-      || agent.approvalMode !== plan.approvalMode
+      || agent.memoryEnabled !== (plan.role === 'publisher')
+      || agent.approvalMode !== (plan.role === 'publisher' ? 'scoped-auto-publish' : 'always-review')
       || agent.status !== 'active'
       || agent.revokedAt
-      || !grant
-      || grant.agentId !== ids.agentId
-      || grant.spaceId !== ids.spaceId
-      || grant.role !== 'editor'
-      || !this.sameScopes(grant.scopes, plan.scopes)
     ) {
       throw new BusinessException('RESOURCE_CONFLICT', 'Onboarding bootstrap resources are unavailable');
     }
@@ -538,7 +512,6 @@ export class OnboardBootstrapService {
       ids,
       space: { id: space.id, name: space.name },
       agent: { id: agent.id, name: agent.name },
-      grant: { id: grant.id, role: 'editor', scopes: [...grant.scopes] },
     };
   }
 
@@ -672,13 +645,14 @@ export class OnboardBootstrapService {
 
   private response(
     resources: BootstrapResources,
+    role: AgentAccessRole,
     scopes: string[],
     installation: { code: string; installationId: string; expiresAt: string },
   ): OnboardBootstrapResponse {
     return {
       space: resources.space,
       agent: resources.agent,
-      grant: { role: 'editor', scopes: [...scopes] },
+      grant: { role, scopes: [...scopes] },
       installation: {
         code: installation.code,
         installationId: installation.installationId,
@@ -695,7 +669,7 @@ export class OnboardBootstrapService {
         || typeof response.space.name !== 'string'
         || typeof response?.agent?.id !== 'string'
         || typeof response.agent.name !== 'string'
-        || response?.grant?.role !== 'editor'
+        || !AGENT_ACCESS_ROLES.includes(response?.grant?.role)
         || !Array.isArray(response.grant.scopes)
         || response.grant.scopes.some((scope) => typeof scope !== 'string')
         || typeof response?.installation?.code !== 'string'
@@ -706,7 +680,7 @@ export class OnboardBootstrapService {
       return {
         space: { id: response.space.id, name: response.space.name },
         agent: { id: response.agent.id, name: response.agent.name },
-        grant: { role: 'editor', scopes: [...response.grant.scopes] },
+        grant: { role: response.grant.role, scopes: [...response.grant.scopes] },
         installation: {
           code: response.installation.code,
           installationId: response.installation.installationId,
@@ -721,12 +695,13 @@ export class OnboardBootstrapService {
   private assertRecoveredReplay(
     response: OnboardBootstrapResponse,
     resources: BootstrapResources,
+    role: AgentAccessRole,
     scopes: string[],
   ): void {
     if (
       response.space.id !== resources.ids.spaceId
       || response.agent.id !== resources.ids.agentId
-      || response.grant.role !== 'editor'
+      || response.grant.role !== role
       || response.grant.scopes.length !== scopes.length
       || response.grant.scopes.some((scope, index) => scope !== scopes[index])
       || response.installation.installationId !== resources.ids.pendingInstallationId
@@ -741,7 +716,6 @@ export class OnboardBootstrapService {
       !ids
       || typeof ids.spaceId !== 'string'
       || typeof ids.agentId !== 'string'
-      || typeof ids.grantId !== 'string'
       || (ids.pendingInstallationId !== undefined && typeof ids.pendingInstallationId !== 'string')
     ) {
       throw new BusinessException('RESOURCE_CONFLICT', 'Onboarding resource recovery state is invalid');
@@ -750,14 +724,7 @@ export class OnboardBootstrapService {
   }
 
   private withoutPendingInstallation(ids: ResourceIds): ResourceIds {
-    return { spaceId: ids.spaceId, agentId: ids.agentId, grantId: ids.grantId };
-  }
-
-  private sameScopes(left: string[], right: string[]): boolean {
-    if (left.length !== right.length) return false;
-    const sortedLeft = [...left].sort();
-    const sortedRight = [...right].sort();
-    return sortedLeft.every((scope, index) => scope === sortedRight[index]);
+    return { spaceId: ids.spaceId, agentId: ids.agentId };
   }
 
   private assertAuthorizedPlan(
@@ -770,7 +737,7 @@ export class OnboardBootstrapService {
     if (
       suppliedPlanHash !== canonicalPlanHash
       || plan.packageVersion !== context.packageVersion
-      || context.packageVersion !== '0.4.0'
+      || context.packageVersion !== '0.5.0'
       || context.purpose !== 'full-onboarding'
       || capabilities.length !== REQUIRED_CAPABILITIES.length
       || capabilities.some((capability, index) => capability !== REQUIRED_CAPABILITIES[index])

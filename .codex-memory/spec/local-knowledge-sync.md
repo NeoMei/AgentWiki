@@ -30,6 +30,7 @@
 ## 安装体验
 
 - 用户只需要 AgentWiki 生成的一个接入指令和后续自然语言操作。
+- `0.5.0` 接入时一次选择 Space 和 `reader` / `editor` / `publisher`；兑换必须原子创建同角色 Credential 与 Grant，scopes 仅由服务端派生。
 - 本地 Agent 只安装一个名为 `agentwiki` 的 stdio MCP gateway；它统一提供 `wiki_*`、`local_*`、`knowledge_*`，远程 `/api/mcp` 只作为 gateway 内部桥接目标。
 - 普通 Agent Credential 只用于 API、脚本或外部系统，不生成第二个 MCP 指令。已有 Agent 使用精确版本 `onboard --code` 接入；全局新 Agent 使用 Device Auth `onboard`。
 - Adapter 按需安装到 `~/.agentwiki/runtime/`，优先复用兼容版本，不修改全局环境，不运行交互式 init。
@@ -39,4 +40,5 @@
 
 - `@neomei/agentwiki-local-sync@0.1.1` 属于旧编译器路径，不能描述为零配置方案。
 - `0.3.7` 起公开入口只允许 `onboard`、`gateway`、`doctor`、`uninstall`；不得恢复 `connect`、`mcp`、`scan`、`sync`、`upgrade` 旧 CLI。
+- `0.5.0` 是不兼容的角色协议；不接受 `0.4.0` 此流程请求、Agent `viewer/full`、`permissionPreset`、`approvalMode` 或自定义 scopes。
 - 旧 direct/local AgentWiki MCP 只能在用户确认、配置备份和并发 hash 校验后迁移；不能仅因名称包含 `agentwiki` 就删除第三方配置。

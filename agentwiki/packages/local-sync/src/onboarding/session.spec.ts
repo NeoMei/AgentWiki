@@ -52,13 +52,13 @@ function confirmedCheckpoint(
   sourceType: 'code' | 'documents' = 'code',
 ): OnboardingCheckpoint {
   const inputs = {
-    spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', permissionPreset: 'editor', approvalMode: 'always-review',
+    spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
     clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType, analysisMode: 'standard',
     configHash: 'c'.repeat(64), oldEntries: [], reloadRequired: false,
   } as const;
   const serverPlan = {
-    space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', permissionPreset: 'editor' as const,
-    approvalMode: 'always-review' as const, packageVersion: '0.4.0',
+    space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', role: 'editor' as const,
+    packageVersion: '0.5.0' as const,
   };
   const serverPlanHash = hashServerPlan(serverPlan);
   const localScanPlanHash = 'b'.repeat(64);
@@ -210,6 +210,9 @@ describe('onboarding session persistence', () => {
   it.each([
     ['an unknown top-level field', { unexpected: true }],
     ['a credential-like input field', { inputs: { apiKey: 'secret' } }],
+    ['legacy permission fields', { inputs: {
+      permissionPreset: 'editor', approvalMode: 'always-review',
+    } }],
   ])('rejects and preserves a checkpoint with %s', async (_label, mutation) => {
     const home = await freshHome();
     const store = createSessionStore('sess-1', home);
