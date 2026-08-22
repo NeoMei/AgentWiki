@@ -206,7 +206,7 @@ describe('OnboardBootstrapService', () => {
       update: { role: 'editor', scopes: normalized.scopes },
     });
     expect(installations.issueForBootstrap).toHaveBeenCalledWith({
-      ownerId: 'user-1', agentId: 'agent-1', scopes: normalized.scopes,
+      ownerId: 'user-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
       pluginVersion: '0.4.0', serverUrl: 'https://agentwiki.example/api',
     });
     expect(result).toEqual({

@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AgentService } from '../core/agent/agent.service';
 import {
   BootstrapDto,
   DeviceDecisionDto,
@@ -188,13 +187,6 @@ describe('onboarding permission presets and canonical plan hashing', () => {
         'sources:read', 'sources:write', 'spaces:read',
       ],
     });
-
-    for (const scopes of Object.values(PERMISSION_PRESETS)) {
-      expect(() => AgentService.prototype.normalizeCredentialScopes.call(
-        {} as AgentService,
-        [...scopes],
-      )).not.toThrow();
-    }
   });
 
   it('normalizes editor always-review to an editor grant without auto-publish', () => {

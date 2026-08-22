@@ -6,22 +6,24 @@ import {
 } from './local-sync.dto';
 
 describe('local sync installation DTOs and business errors', () => {
-  it('accepts a non-empty scope list and an exact semver plugin version', async () => {
+  it('accepts a Space-bound role and the 0.5.0 protocol version', async () => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {
-      scopes: ['sources:read'],
-      pluginVersion: '0.1.0',
+      spaceId: 'space-1',
+      role: 'editor',
+      pluginVersion: '0.5.0',
     });
 
     await expect(validate(dto)).resolves.toEqual([]);
   });
 
-  it('rejects empty scopes and non-semver plugin versions', async () => {
+  it('rejects an empty Space, unknown role and any other protocol version', async () => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {
-      scopes: [],
-      pluginVersion: 'latest',
+      spaceId: '',
+      role: 'owner',
+      pluginVersion: '0.4.0',
     });
 
-    await expect(validate(dto)).resolves.toHaveLength(2);
+    await expect(validate(dto)).resolves.toHaveLength(3);
   });
 
   it('requires an installation code between 12 and 128 characters', async () => {

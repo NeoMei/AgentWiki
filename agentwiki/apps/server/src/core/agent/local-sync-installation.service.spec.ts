@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { createHash } from 'crypto';
 import { LocalSyncInstallationService } from './local-sync-installation.service';
 
@@ -14,11 +15,11 @@ describe('LocalSyncInstallationService', () => {
   };
   const agents = {
     getOwned: jest.fn(),
-    createInstallationCredential: jest.fn(),
+    assertCanIssueConnection: jest.fn(),
+    exchangeConnectionIntent: jest.fn(),
+    assertConnectionReceipt: jest.fn(),
     listCredentials: jest.fn(),
     revokeCredential: jest.fn(),
-    normalizeCredentialScopes: jest.fn(),
-    assertCredentialCanDelegate: jest.fn(),
   };
   const config = { get: jest.fn() };
   const audit = { record: jest.fn() };
@@ -29,8 +30,9 @@ describe('LocalSyncInstallationService', () => {
     installationId: createHash('sha256').update(exchangeCode).digest('hex'),
     ownerId: 'owner-1',
     agentId: 'agent-1',
-    scopes: ['sources:read'],
-    pluginVersion: '0.1.0',
+    spaceId: 'space-1',
+    role: 'editor' as const,
+    pluginVersion: '0.5.0',
     serverUrl: 'https://wiki.test/api',
     expiresAt: '2030-01-01T00:10:00.000Z',
   };
@@ -41,7 +43,7 @@ describe('LocalSyncInstallationService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
     jest.clearAllMocks();
     config.get.mockImplementation((key: string) => (
-      key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.1.0'
+      key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.5.0'
         : key === 'JWT_SECRET' ? 'test-only-local-sync-receipt-secret'
           : undefined
     ));
@@ -54,14 +56,14 @@ describe('LocalSyncInstallationService', () => {
       key === installationKey ? JSON.stringify(payload) : null
     ));
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
-    agents.normalizeCredentialScopes.mockImplementation((scopes: string[]) => [...new Set(scopes)]);
-    agents.createInstallationCredential.mockResolvedValue({
-      id: 'credential-1', agentId: 'agent-1', scopes: ['sources:read'],
-      revokedAt: null, created: true,
+    agents.assertCanIssueConnection.mockResolvedValue(undefined);
+    agents.exchangeConnectionIntent.mockResolvedValue({
+      id: 'credential-1', agentId: 'agent-1', role: 'editor',
+      scopes: scopesForAgentAccessRole('editor'), revokedAt: null,
     });
     agents.listCredentials.mockResolvedValue([]);
     agents.revokeCredential.mockResolvedValue({ success: true });
-    agents.assertCredentialCanDelegate.mockResolvedValue(undefined);
+    agents.assertConnectionReceipt.mockResolvedValue(undefined);
     audit.record.mockResolvedValue(undefined);
     service = new LocalSyncInstallationService(redis as any, agents as any, config as any, audit as any);
   });
@@ -74,8 +76,9 @@ describe('LocalSyncInstallationService', () => {
     const result = await service.create(
       'owner-1',
       'agent-1',
-      ['sources:read'],
-      '0.1.0',
+      'space-1',
+      'editor',
+      '0.5.0',
       'https://wiki.test/api/',
     );
 
@@ -92,12 +95,14 @@ describe('LocalSyncInstallationService', () => {
       installationId: result.installationId,
       ownerId: 'owner-1',
       agentId: 'agent-1',
-      scopes: ['sources:read'],
-      pluginVersion: '0.1.0',
+      spaceId: 'space-1',
+      role: 'editor',
+      pluginVersion: '0.5.0',
       serverUrl: 'https://wiki.test/api',
     }));
     expect(stored).not.toHaveProperty('code');
-    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.1.0 onboard');
+    expect(stored).not.toHaveProperty('scopes');
+    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.5.0 onboard');
     expect(result.instructions).toContain(`--code ${result.code}`);
     expect(result.instructions).toContain('--protocol ndjson');
     expect(result.instructions).not.toMatch(/\bconnect\b/);
@@ -105,55 +110,16 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('doctor');
     expect(result.instructions).toContain('does not scan or sync');
     expect(result.instructions).not.toContain('agk_');
-    expect(agents.getOwned).toHaveBeenCalledWith('owner-1', 'agent-1');
-    expect(agents.normalizeCredentialScopes).toHaveBeenCalledWith(['sources:read']);
-  });
-
-  it('issues a bootstrap code through the same validation and ten-minute storage path', async () => {
-    const result = await service.issueForBootstrap({
-      ownerId: 'owner-1',
-      agentId: 'agent-1',
-      scopes: ['sources:read', 'sources:read'],
-      pluginVersion: '0.1.0',
-      serverUrl: 'https://wiki.test/api/',
-    });
-
-    expect(result.expiresAt).toBe('2030-01-01T00:10:00.000Z');
-    expect(agents.getOwned).toHaveBeenCalledWith('owner-1', 'agent-1');
-    expect(agents.normalizeCredentialScopes).toHaveBeenCalledWith([
-      'sources:read', 'sources:read',
-    ]);
-    expect(redis.setOnce).toHaveBeenCalledWith(
-      `local-sync:install:${result.installationId}`,
-      expect.stringContaining('"scopes":["sources:read"]'),
-      900,
+    expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
+      'owner-1', 'agent-1', 'space-1',
     );
-  });
-
-  it('keeps bootstrap issuance closed for unsupported versions, unsafe URLs and inactive Agents', async () => {
-    await expect(service.issueForBootstrap({
-      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
-      pluginVersion: '0.2.0', serverUrl: 'https://wiki.test/api',
-    })).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
-
-    agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'paused' });
-    await expect(service.issueForBootstrap({
-      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
-      pluginVersion: '0.1.0', serverUrl: 'https://wiki.test/api',
-    })).rejects.toThrow('Agent must be active');
-
-    agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
-    await expect(service.issueForBootstrap({
-      ownerId: 'owner-1', agentId: 'agent-1', scopes: ['sources:read'],
-      pluginVersion: '0.1.0', serverUrl: 'https://wiki.test/api;bad',
-    })).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
   });
 
   it.each([undefined, '0.2.0'])('rejects unsupported configured version %p before issuing a code', async (supported) => {
     config.get.mockReturnValue(supported);
 
     await expect(service.create(
-      'owner-1', 'agent-1', ['sources:read'], '0.1.0', 'https://wiki.test/api',
+      'owner-1', 'agent-1', 'space-1', 'reader', '0.5.0', 'https://wiki.test/api',
     )).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
     expect(redis.setOnce).not.toHaveBeenCalled();
   });
@@ -162,42 +128,18 @@ describe('LocalSyncInstallationService', () => {
     redis.setOnce.mockResolvedValue(false);
 
     await expect(service.create(
-      'owner-1', 'agent-1', ['sources:read'], '0.1.0', 'https://wiki.test/api',
+      'owner-1', 'agent-1', 'space-1', 'reader', '0.5.0', 'https://wiki.test/api',
     )).rejects.toThrow('Could not issue a unique local sync installation code');
     expect(redis.setOnce).toHaveBeenCalledTimes(3);
   });
 
-  it('rejects invalid scopes before writing any installation state', async () => {
-    agents.normalizeCredentialScopes.mockImplementation(() => {
-      throw new BadRequestException('invalid scopes');
-    });
+  it('rejects issuance when the owner no longer administers the Space', async () => {
+    agents.assertCanIssueConnection.mockRejectedValue(new ForbiddenException('not admin'));
 
     await expect(service.create(
-      'owner-1', 'agent-1', ['review:decide'], '0.1.0', 'https://wiki.test/api',
-    )).rejects.toBeInstanceOf(BadRequestException);
+      'owner-1', 'agent-1', 'space-1', 'publisher', '0.5.0', 'https://wiki.test/api',
+    )).rejects.toBeInstanceOf(ForbiddenException);
     expect(redis.setOnce).not.toHaveBeenCalled();
-  });
-
-  it('rejects an Agent-originated installation that expands the issuing credential scopes', async () => {
-    await expect(service.create(
-      'owner-1', 'agent-1', ['pages:write'], '0.1.0', 'https://wiki.test/api',
-      { credentialId: 'credential-read', scopes: ['pages:read'] },
-    )).rejects.toThrow('Agent install scopes cannot exceed the issuing credential');
-    expect(redis.setOnce).not.toHaveBeenCalled();
-  });
-
-  it('revalidates the issuing credential when an Agent-originated code is exchanged', async () => {
-    redis.getStrict.mockImplementation(async (key: string) => (
-      key === installationKey
-        ? JSON.stringify({ ...payload, issuerCredentialId: 'credential-read' })
-        : null
-    ));
-
-    await service.exchange(exchangeCode, '127.0.0.1');
-
-    expect(agents.assertCredentialCanDelegate).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'credential-read', ['sources:read'],
-    );
   });
 
   it('revokes an owned installation using its direct hash key', async () => {
@@ -233,19 +175,27 @@ describe('LocalSyncInstallationService', () => {
       agentId: 'agent-1',
       credentialId: 'credential-1',
       serverUrl: 'https://wiki.test/api',
-      pluginVersion: '0.1.0',
-      scopes: ['sources:read'],
+      spaceId: 'space-1',
+      role: 'editor',
+      pluginVersion: '0.5.0',
+      scopes: scopesForAgentAccessRole('editor'),
     });
     expect(redis.setStrict).toHaveBeenCalledWith(
       receiptKey,
       expect.not.stringContaining('agk_secret'),
       120,
     );
-    expect(redis.deleteStrict).toHaveBeenCalledWith(installationKey);
-    expect(agents.createInstallationCredential).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', payload.installationId,
-      expect.stringMatching(/^agk_/), ['sources:read'],
+    const receipt = JSON.parse(
+      redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1],
     );
+    expect(receipt).toEqual(expect.objectContaining({
+      spaceId: 'space-1', role: 'editor', credentialId: 'credential-1',
+    }));
+    expect(redis.deleteStrict).toHaveBeenCalledWith(installationKey);
+    expect(agents.exchangeConnectionIntent).toHaveBeenCalledWith({
+      ownerId: 'owner-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
+      installationId: payload.installationId, rawKey: expect.stringMatching(/^agk_/),
+    });
   });
 
   it('replays a completed exchange without creating a second credential', async () => {
@@ -257,7 +207,14 @@ describe('LocalSyncInstallationService', () => {
 
     await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toEqual(first);
 
-    expect(agents.createInstallationCredential).toHaveBeenCalledTimes(1);
+    expect(agents.exchangeConnectionIntent).toHaveBeenCalledTimes(1);
+    expect(agents.assertConnectionReceipt).toHaveBeenCalledWith({
+      ownerId: 'owner-1',
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+      spaceId: 'space-1',
+      role: 'editor',
+    });
   });
 
   it('serializes concurrent exchange attempts and returns the same receipt', async () => {
@@ -289,7 +246,7 @@ describe('LocalSyncInstallationService', () => {
     ]);
 
     expect(second).toEqual(first);
-    expect(agents.createInstallationCredential).toHaveBeenCalledTimes(1);
+    expect(agents.exchangeConnectionIntent).toHaveBeenCalledTimes(1);
   });
 
   it('releases only the lock token acquired by this exchange attempt', async () => {
@@ -320,7 +277,7 @@ describe('LocalSyncInstallationService', () => {
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
-    expect(agents.createInstallationCredential).not.toHaveBeenCalled();
+    expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
   it('distinguishes an expired installation code', async () => {
@@ -332,7 +289,7 @@ describe('LocalSyncInstallationService', () => {
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_EXPIRED' });
-    expect(agents.createInstallationCredential).not.toHaveBeenCalled();
+    expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
   it('does not persist the exchanged API key in plaintext Redis state', async () => {
@@ -364,7 +321,7 @@ describe('LocalSyncInstallationService', () => {
     redis.getStrict.mockImplementation(async (key: string) => (
       key === receiptKey ? receipt : null
     ));
-    agents.assertCredentialCanDelegate.mockRejectedValue(new ForbiddenException('revoked'));
+    agents.assertConnectionReceipt.mockRejectedValue(new ForbiddenException('revoked'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
@@ -378,7 +335,7 @@ describe('LocalSyncInstallationService', () => {
     redis.getStrict.mockImplementation(async (key: string) => (
       key === receiptKey ? receipt : null
     ));
-    agents.assertCredentialCanDelegate.mockRejectedValue(new Error('database unavailable'));
+    agents.assertConnectionReceipt.mockRejectedValue(new Error('database unavailable'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toThrow('database unavailable');
@@ -393,28 +350,43 @@ describe('LocalSyncInstallationService', () => {
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
-    expect(agents.createInstallationCredential).not.toHaveBeenCalled();
+    expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
-  it.each(['paused', 'revoked'])('rejects a %s Agent after consuming the code', async (status) => {
-    agents.getOwned.mockResolvedValue({ id: 'agent-1', status });
+  it('does not write a success receipt when the database transaction fails', async () => {
+    agents.exchangeConnectionIntent.mockRejectedValue(new ForbiddenException('stale authority'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
-      .rejects.toBeInstanceOf(BadRequestException);
-    expect(agents.createInstallationCredential).not.toHaveBeenCalled();
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(redis.setStrict).not.toHaveBeenCalledWith(
+      receiptKey, expect.anything(), expect.anything(),
+    );
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid stored scopes before creating a credential', async () => {
-    redis.getStrict.mockImplementation(async (key: string) => (
-      key === installationKey ? JSON.stringify({ ...payload, scopes: ['review:decide'] }) : null
-    ));
-    agents.normalizeCredentialScopes.mockImplementation(() => {
-      throw new BadRequestException('invalid scopes');
+  it('cleans partial Redis success state when receipt persistence fails', async () => {
+    redis.setStrict.mockImplementation(async (key: string) => {
+      if (key === receiptKey) throw new Error('redis unavailable');
     });
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
-      .rejects.toBeInstanceOf(BadRequestException);
-    expect(agents.createInstallationCredential).not.toHaveBeenCalled();
+      .rejects.toThrow('redis unavailable');
+
+    expect(redis.deleteStrict).toHaveBeenCalledWith(receiptKey);
+    expect(redis.deleteStrict).toHaveBeenCalledWith(
+      'local-sync:credential-receipt:credential-1',
+    );
+    expect(redis.deleteStrict).not.toHaveBeenCalledWith(installationKey);
+  });
+
+  it('rejects an invalid stored role before creating a credential', async () => {
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === installationKey ? JSON.stringify({ ...payload, role: 'owner' }) : null
+    ));
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
+    expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
   it('rate-limits more than ten exchange attempts per IP per minute', async () => {
@@ -451,7 +423,7 @@ describe('LocalSyncInstallationService', () => {
   });
 
   it('does not revoke a credential when creation fails before persistence', async () => {
-    agents.createInstallationCredential.mockRejectedValue(new Error('credential constraint violation'));
+    agents.exchangeConnectionIntent.mockRejectedValue(new Error('credential constraint violation'));
 
     await expect(service.exchange(exchangeCode, '127.0.0.1'))
       .rejects.toThrow('credential constraint violation');
@@ -464,8 +436,9 @@ describe('LocalSyncInstallationService', () => {
     await expect(service.create(
       'owner-1',
       'agent-1',
-      ['sources:read'],
-      '0.1.0',
+      'space-1',
+      'reader',
+      '0.5.0',
       'https://wiki.test/api;rm -rf /',
     )).rejects.toMatchObject({
       businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED',

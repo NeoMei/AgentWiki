@@ -4,8 +4,6 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
 import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
-const VALID_SCOPES = new Set(scopesForAgentAccessRole('publisher'));
-
 @Injectable()
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
@@ -110,110 +108,183 @@ export class AgentService {
     return { ...credential, apiKey: rawKey };
   }
 
-  async createInstallationCredential(
-    ownerId: string,
-    agentId: string,
-    installationId: string,
-    rawKey: string,
-    scopes: string[],
-  ) {
+  async assertCanIssueConnection(ownerId: string, agentId: string, spaceId: string): Promise<void> {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
-    const normalizedScopes = this.normalizeCredentialScopes(scopes);
-    const select = {
-      id: true,
-      agentId: true,
-      keyHash: true,
-      role: true,
-      scopes: true,
-      revokedAt: true,
-    } as const;
-    let credential = await this.prisma.agentCredential.findUnique({
-      where: { localSyncInstallationId: installationId },
-      select,
-    });
-    let created = false;
-    if (!credential) {
-      try {
-        credential = await this.prisma.agentCredential.create({
-          data: {
-            agentId,
-            name: 'Local sync plugin',
-            prefix: rawKey.slice(0, 12),
-            keyHash: createHash('sha256').update(rawKey).digest('hex'),
-            localSyncInstallationId: installationId,
-            scopes: normalizedScopes,
-          },
-          select,
-        });
-        created = true;
-      } catch (error) {
-        try {
-          credential = await this.prisma.agentCredential.findUnique({
-            where: { localSyncInstallationId: installationId },
-            select,
-          });
-        } catch {
-          throw error;
-        }
-        if (!credential) throw error;
-      }
-    }
-    if (
-      credential.agentId !== agentId
-      || credential.keyHash !== createHash('sha256').update(rawKey).digest('hex')
-      || credential.revokedAt
-      || normalizedScopes.some((scope) => !credential.scopes.includes(scope))
-      || credential.scopes.some((scope) => !normalizedScopes.includes(scope))
-    ) {
-      throw new ForbiddenException('Local sync installation credential is unavailable');
-    }
-    if (created) {
-      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id)
-        .catch((error) => this.logger.warn(
-          `Installation credential ${credential!.id} audit failed: ${error instanceof Error ? error.message : String(error)}`,
-        ));
-    }
-    return { ...credential, apiKey: rawKey, created };
-  }
-
-  normalizeCredentialScopes(scopes: string[]): string[] {
-    const input = Array.from(new Set(scopes));
-    if (input.length === 0) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
-    if (input.includes('*')) {
-      return Array.from(VALID_SCOPES);
-    }
-    if (input.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Credential contains an invalid or empty scope list');
-    }
-    return input;
-  }
-
-  async assertCredentialCanDelegate(
-    ownerId: string,
-    agentId: string,
-    credentialId: string,
-    requestedScopes: string[],
-  ): Promise<void> {
-    const credential = await this.prisma.agentCredential.findFirst({
+    const space = await this.prisma.space.findFirst({
       where: {
-        id: credentialId,
-        agentId,
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-        agent: {
-          ownerId,
+        id: spaceId,
+        deletedAt: null,
+        members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
+      },
+      select: { id: true },
+    });
+    if (!space) {
+      throw new ForbiddenException('You cannot authorize this Agent for the Space');
+    }
+  }
+
+  async exchangeConnectionIntent(input: {
+    ownerId: string;
+    agentId: string;
+    spaceId: string;
+    role: AgentAccessRole;
+    installationId: string;
+    rawKey: string;
+  }): Promise<{
+    id: string;
+    agentId: string;
+    role: AgentAccessRole;
+    scopes: string[];
+    apiKey: string;
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const agent = await tx.agent.findFirst({
+        where: {
+          id: input.agentId,
+          ownerId: input.ownerId,
           status: 'active',
           revokedAt: null,
           owner: { deletedAt: null, lockedAt: null },
         },
-      },
-      select: { role: true, scopes: true },
+        select: { id: true },
+      });
+      const space = await tx.space.findFirst({
+        where: {
+          id: input.spaceId,
+          deletedAt: null,
+          members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
+        },
+        select: { id: true },
+      });
+      if (!agent || !space) {
+        throw new ForbiddenException('Connection authorization is no longer valid');
+      }
+
+      const scopes = scopesForAgentAccessRole(input.role);
+      const keyHash = createHash('sha256').update(input.rawKey).digest('hex');
+      const previousGrant = await tx.agentGrant.findUnique({
+        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
+        select: { role: true },
+      });
+      const credential = await tx.agentCredential.upsert({
+        where: { localSyncInstallationId: input.installationId },
+        create: {
+          agentId: input.agentId,
+          name: 'AgentWiki connection',
+          role: input.role,
+          prefix: input.rawKey.slice(0, 12),
+          keyHash,
+          localSyncInstallationId: input.installationId,
+          scopes,
+        },
+        update: {},
+        select: {
+          id: true,
+          agentId: true,
+          role: true,
+          keyHash: true,
+          scopes: true,
+          revokedAt: true,
+        },
+      });
+      const credentialScopesMatch = scopes.length === credential.scopes.length
+        && scopes.every((scope) => credential.scopes.includes(scope));
+      if (
+        credential.agentId !== input.agentId
+        || credential.role !== input.role
+        || credential.keyHash !== keyHash
+        || credential.revokedAt
+        || !credentialScopesMatch
+      ) {
+        throw new ForbiddenException('Connection credential is unavailable');
+      }
+      await tx.agentGrant.upsert({
+        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
+        create: {
+          agentId: input.agentId,
+          spaceId: input.spaceId,
+          role: input.role,
+          scopes,
+        },
+        update: { role: input.role, scopes },
+      });
+      if (input.role === 'publisher') {
+        await tx.agent.update({
+          where: { id: input.agentId },
+          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+        });
+      }
+      await tx.agentAuditEvent.create({
+        data: {
+          agentId: input.agentId,
+          action: 'connection.authorize',
+          outcome: 'success',
+          resourceType: 'Space',
+          resourceId: input.spaceId,
+          metadata: {
+            credentialId: credential.id,
+            oldRole: previousGrant?.role ?? null,
+            newRole: input.role,
+          },
+        },
+      });
+      return {
+        id: credential.id,
+        agentId: credential.agentId,
+        role: credential.role,
+        scopes,
+        apiKey: input.rawKey,
+      };
     });
-    if (!credential || requestedScopes.some((scope) => !credential.scopes.includes(scope))) {
-      throw new ForbiddenException('The issuing Agent credential is unavailable or no longer permits these scopes');
+  }
+
+  async assertConnectionReceipt(input: {
+    ownerId: string;
+    agentId: string;
+    credentialId: string;
+    spaceId: string;
+    role: AgentAccessRole;
+  }): Promise<void> {
+    const [credential, grant] = await Promise.all([
+      this.prisma.agentCredential.findFirst({
+        where: {
+          id: input.credentialId,
+          agentId: input.agentId,
+          role: input.role,
+          revokedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          agent: {
+            ownerId: input.ownerId,
+            status: 'active',
+            revokedAt: null,
+            owner: { deletedAt: null, lockedAt: null },
+          },
+        },
+        select: { id: true, scopes: true },
+      }),
+      this.prisma.agentGrant.findFirst({
+        where: {
+          agentId: input.agentId,
+          spaceId: input.spaceId,
+          role: input.role,
+        },
+        select: { id: true, scopes: true },
+      }),
+    ]);
+    const expectedScopes = scopesForAgentAccessRole(input.role);
+    const persistedScopesMatch = (scopes: string[] | undefined) => Boolean(
+      scopes
+      && scopes.length === expectedScopes.length
+      && expectedScopes.every((scope) => scopes.includes(scope)),
+    );
+    if (
+      !credential
+      || !grant
+      || !persistedScopesMatch(credential.scopes)
+      || !persistedScopesMatch(grant.scopes)
+    ) {
+      throw new ForbiddenException('Connection credential is unavailable');
     }
   }
 

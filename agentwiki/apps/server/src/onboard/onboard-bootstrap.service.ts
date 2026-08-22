@@ -161,7 +161,8 @@ export class OnboardBootstrapService {
       const installation = await this.installations.issueForBootstrap({
         ownerId: context.userId,
         agentId: resources.agent.id,
-        scopes: plan.scopes,
+        spaceId: resources.space.id,
+        role: plan.permissionPreset === 'full' ? 'publisher' : 'editor',
         pluginVersion: plan.packageVersion,
         serverUrl: this.publicApiUrl(),
       });
