@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { GATEWAY_MCP_NAME, GATEWAY_PACKAGE_VERSION, gatewayCommand, looksLikeAgentWikiEntry } from './plan.js';
 
 describe('gateway command', () => {
-  it('uses the exact pinned 0.4.0 package and gateway subcommand', () => {
+  it('uses the exact pinned 0.5.0 package and gateway subcommand', () => {
     const cmd = gatewayCommand('conn-123');
     expect(cmd).toEqual([
       'npx',
       '--yes',
-      '@neomei/agentwiki-local-sync@0.4.0',
+      '@neomei/agentwiki-local-sync@0.5.0',
       'gateway',
       '--connection',
       'conn-123',
@@ -25,7 +25,7 @@ describe('gateway command', () => {
 
   it('uses the fixed gateway MCP name', () => {
     expect(GATEWAY_MCP_NAME).toBe('agentwiki');
-    expect(GATEWAY_PACKAGE_VERSION).toBe('0.4.0');
+    expect(GATEWAY_PACKAGE_VERSION).toBe('0.5.0');
   });
 });
 

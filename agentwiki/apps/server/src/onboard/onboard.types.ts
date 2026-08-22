@@ -1,19 +1,11 @@
 import { createHash } from 'crypto';
-
-export const PERMISSION_PRESETS = {
-  editor: [
-    'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
-    'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
-  ],
-  full: [
-    'graph:read', 'graph:write', 'memory:read', 'memory:write', 'pages:read',
-    'pages:write', 'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
-    'sources:read', 'sources:write', 'spaces:read',
-  ],
-} as const;
+import {
+  scopesForAgentAccessRole,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 
 export type StartDeviceInput = {
-  packageVersion: '0.4.0';
+  packageVersion: '0.5.0';
   clientType: 'codex' | 'claude' | 'opencode';
   purpose: 'full-onboarding';
 };
@@ -30,9 +22,8 @@ export type DeviceDecisionInput = {
 export type ServerPlan = {
   space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
   agentName: string;
-  permissionPreset: keyof typeof PERMISSION_PRESETS;
-  approvalMode: 'always-review' | 'scoped-auto-publish';
-  packageVersion: '0.4.0';
+  role: AgentAccessRole;
+  packageVersion: '0.5.0';
 };
 
 export type BootstrapInput = {
@@ -42,19 +33,12 @@ export type BootstrapInput = {
 
 export type NormalizedServerPlan = ServerPlan & {
   scopes: string[];
-  spaceRole: 'editor';
 };
 
 export function normalizeServerPlan(plan: ServerPlan): NormalizedServerPlan {
-  const scopes = [...PERMISSION_PRESETS[plan.permissionPreset]];
-  if (plan.permissionPreset === 'editor' && plan.approvalMode === 'scoped-auto-publish') {
-    scopes.push('review:auto-publish');
-  }
-
   return {
     ...plan,
-    scopes: Array.from(new Set(scopes)).sort(),
-    spaceRole: 'editor',
+    scopes: scopesForAgentAccessRole(plan.role),
   };
 }
 

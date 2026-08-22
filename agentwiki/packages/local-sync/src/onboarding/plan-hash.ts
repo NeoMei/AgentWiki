@@ -6,43 +6,26 @@
  * bootstrap endpoint to reject the confirmed plan hash.
  */
 import { createHash } from 'node:crypto';
-
-export const PERMISSION_PRESETS = {
-  editor: [
-    'graph:read', 'graph:write', 'pages:read', 'pages:write', 'review:read',
-    'runs:read', 'runs:write', 'sources:read', 'sources:write', 'spaces:read',
-  ],
-  full: [
-    'graph:read', 'graph:write', 'memory:read', 'memory:write', 'pages:read',
-    'pages:write', 'review:auto-publish', 'review:read', 'runs:read', 'runs:write',
-    'sources:read', 'sources:write', 'spaces:read',
-  ],
-} as const;
-
-export type PermissionPreset = keyof typeof PERMISSION_PRESETS;
+import {
+  scopesForAgentAccessRole,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 
 export interface ServerPlan {
   space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
   agentName: string;
-  permissionPreset: PermissionPreset;
-  approvalMode: 'always-review' | 'scoped-auto-publish';
-  packageVersion: string;
+  role: AgentAccessRole;
+  packageVersion: '0.5.0';
 }
 
 export interface NormalizedServerPlan extends ServerPlan {
   scopes: string[];
-  spaceRole: 'editor';
 }
 
 export function normalizeServerPlan(plan: ServerPlan): NormalizedServerPlan {
-  const scopes = [...PERMISSION_PRESETS[plan.permissionPreset]];
-  if (plan.permissionPreset === 'editor' && plan.approvalMode === 'scoped-auto-publish') {
-    scopes.push('review:auto-publish');
-  }
   return {
     ...plan,
-    scopes: Array.from(new Set(scopes)).sort(),
-    spaceRole: 'editor',
+    scopes: scopesForAgentAccessRole(plan.role),
   };
 }
 

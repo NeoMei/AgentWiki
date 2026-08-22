@@ -16,8 +16,7 @@ type E2EInput = {
   spaceName?: string;
   spaceId?: string;
   agentName: string;
-  permissionPreset: 'editor' | 'full';
-  approvalMode: 'always-review' | 'scoped-auto-publish';
+  role: 'reader' | 'editor' | 'publisher';
   clientType: 'codex' | 'claude' | 'opencode';
   sourcePaths: string[];
   sourceType: 'auto' | 'code' | 'documents';
@@ -110,7 +109,7 @@ export async function runOnboardingStateMachineHarness(
           return {
             bootstrap: {
               space: { id: 'space-1', name: 'E2E Space' }, agent: { id: 'agent-1', name: 'E2E Agent' },
-              grant: { role: 'editor', scopes: ['pages:read'] },
+              grant: { role: options.input.role, scopes: ['pages:read'] },
               installation: { code: 'code-1', installationId: 'installation-1', expiresAt: '2026-08-11T01:00:00.000Z' },
             },
             reloadRequired: false, manifestHash: 'f'.repeat(64), connectionId: '00000000-0000-4000-8000-000000000001',

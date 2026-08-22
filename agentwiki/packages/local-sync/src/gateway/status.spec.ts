@@ -42,15 +42,15 @@ describe('readOnboardingStatus', () => {
     homes.push(home);
     const store = createSessionStore('session-1', home);
     const serverPlan = {
-      space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', permissionPreset: 'editor' as const,
-      approvalMode: 'always-review' as const, packageVersion: '0.4.0',
+      space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', role: 'editor' as const,
+      packageVersion: '0.5.0' as const,
     };
     const serverPlanHash = hashServerPlan(serverPlan);
     await store.save({
       sessionId: 'session-1', state: 'completed', protocolVersion: 1, serverUrl: 'https://wiki.test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: {
-        spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', permissionPreset: 'editor', approvalMode: 'always-review',
+        spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
         clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
         configHash: 'a'.repeat(64), oldEntries: [], reloadRequired: false,
         connectionId: '00000000-0000-4000-8000-000000000001', manifestHash: 'b'.repeat(64),

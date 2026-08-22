@@ -6,6 +6,7 @@
  * is normalised through the redactor so no raw token or secret surfaces.
  */
 import { redactSecrets } from '../utils/redact.js';
+import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { OnboardingError, isRetryableHttpStatus } from './errors.js';
 import type { OnboardingFailureCode } from './errors.js';
 
@@ -19,7 +20,7 @@ export type ClientType = 'codex' | 'claude' | 'opencode';
 
 export interface StartParams {
   serverBaseUrl: string;
-  packageVersion: string;
+  packageVersion: '0.5.0';
   clientType: ClientType;
   fetchImpl?: typeof fetch;
   deadlineMs?: number;
@@ -54,9 +55,8 @@ export interface ServerPlanExistingSpace {
 export interface ServerPlan {
   space: ServerPlanSpace | ServerPlanExistingSpace;
   agentName: string;
-  permissionPreset: 'editor' | 'full';
-  approvalMode: 'always-review' | 'scoped-auto-publish';
-  packageVersion: string;
+  role: AgentAccessRole;
+  packageVersion: '0.5.0';
 }
 
 export interface BootstrapParams {
@@ -72,7 +72,7 @@ export interface BootstrapParams {
 export interface BootstrapResult {
   space: { id: string; name: string };
   agent: { id: string; name: string };
-  grant: { role: string; scopes: string[] };
+  grant: { role: AgentAccessRole; scopes: string[] };
   installation: { code: string; installationId: string; expiresAt: string };
 }
 

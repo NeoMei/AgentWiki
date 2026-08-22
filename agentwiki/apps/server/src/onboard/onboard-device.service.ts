@@ -18,7 +18,6 @@ const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const REQUESTED_CAPABILITIES = [
   'bootstrap:space',
   'bootstrap:agent',
-  'bootstrap:grant',
   'bootstrap:installation',
 ];
 

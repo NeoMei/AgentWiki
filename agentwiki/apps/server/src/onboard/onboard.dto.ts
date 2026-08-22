@@ -16,8 +16,8 @@ import type {
 } from './onboard.types';
 
 export class StartDeviceDto implements StartDeviceInput {
-  @IsIn(['0.4.0'])
-  packageVersion: '0.4.0';
+  @IsIn(['0.5.0'])
+  packageVersion: '0.5.0';
 
   @IsIn(['codex', 'claude', 'opencode'])
   clientType: 'codex' | 'claude' | 'opencode';
@@ -74,14 +74,11 @@ export class ServerPlanDto implements ServerPlan {
   @IsString()
   agentName: string;
 
-  @IsIn(['editor', 'full'])
-  permissionPreset: 'editor' | 'full';
+  @IsIn(['reader', 'editor', 'publisher'])
+  role: 'reader' | 'editor' | 'publisher';
 
-  @IsIn(['always-review', 'scoped-auto-publish'])
-  approvalMode: 'always-review' | 'scoped-auto-publish';
-
-  @IsIn(['0.4.0'])
-  packageVersion: '0.4.0';
+  @IsIn(['0.5.0'])
+  packageVersion: '0.5.0';
 }
 
 export class BootstrapDto implements BootstrapInput {

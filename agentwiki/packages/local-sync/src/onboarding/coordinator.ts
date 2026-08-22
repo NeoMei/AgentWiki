@@ -76,7 +76,7 @@ export interface CoordinatorDeps {
   encoder: ProtocolEncoder;
   source: ProtocolSource;
   serverBaseUrl: string;
-  packageVersion: string;
+  packageVersion: '0.5.0';
   home: string;
   preflight: PreflightFn;
   bootstrapInstall: BootstrapInstallFn;
@@ -170,8 +170,7 @@ export class OnboardingCoordinator {
       { name: 'spaceName', label: 'Space name', type: 'string', required: false },
       { name: 'spaceId', label: 'Existing Space ID', type: 'string', required: false },
       { name: 'agentName', label: 'Agent name', type: 'string', required: true },
-      { name: 'permissionPreset', label: 'Permission', type: 'choice', choices: ['editor', 'full'], required: true },
-      { name: 'approvalMode', label: 'Approval mode', type: 'choice', choices: ['always-review', 'scoped-auto-publish'], required: true },
+      { name: 'role', label: 'Access role', type: 'choice', choices: ['reader', 'editor', 'publisher'], required: true },
       { name: 'clientType', label: 'Agent client', type: 'choice', choices: ['codex', 'claude', 'opencode'], required: true },
       { name: 'sourcePaths', label: 'Source paths', type: 'paths', required: true },
       { name: 'sourceType', label: 'Source type', type: 'choice', choices: ['auto', 'code', 'documents'], required: false, defaultValue: 'auto' },
@@ -397,16 +396,15 @@ export class OnboardingCoordinator {
         ? { mode: 'existing', id: inputs.spaceId as string }
         : { mode: 'create', name: inputs.spaceName as string },
       agentName: inputs.agentName as string,
-      permissionPreset: inputs.permissionPreset as 'editor' | 'full',
-      approvalMode: inputs.approvalMode as 'always-review' | 'scoped-auto-publish',
-      packageVersion: this.deps.packageVersion,
+      role: inputs.role as 'reader' | 'editor' | 'publisher',
+      packageVersion: '0.5.0',
     };
   }
 
   private validateInputs(raw: Record<string, unknown>): OnboardingInputs {
     const allowed = new Set([
-      'spaceMode', 'spaceName', 'spaceId', 'agentName', 'permissionPreset',
-      'approvalMode', 'clientType', 'sourcePaths', 'sourceType', 'analysisMode',
+      'spaceMode', 'spaceName', 'spaceId', 'agentName', 'role',
+      'clientType', 'sourcePaths', 'sourceType', 'analysisMode',
     ]);
     const unknown = Object.keys(raw).filter((key) => !allowed.has(key));
     if (unknown.length > 0) {
@@ -414,8 +412,7 @@ export class OnboardingCoordinator {
     }
     const spaceMode = raw.spaceMode;
     const clientType = raw.clientType;
-    const permissionPreset = raw.permissionPreset;
-    const approvalMode = raw.approvalMode;
+    const role = raw.role;
     const sourceType = raw.sourceType ?? 'auto';
     const analysisMode = raw.analysisMode ?? 'standard';
     const sourcePaths = raw.sourcePaths;
@@ -431,11 +428,8 @@ export class OnboardingCoordinator {
     if (!isNonEmptyString(raw.agentName)) {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'agentName is required', false);
     }
-    if (permissionPreset !== 'editor' && permissionPreset !== 'full') {
-      throw this.fail('PROTOCOL_UNSUPPORTED', 'permissionPreset must be editor or full', false);
-    }
-    if (approvalMode !== 'always-review' && approvalMode !== 'scoped-auto-publish') {
-      throw this.fail('PROTOCOL_UNSUPPORTED', 'approvalMode is invalid', false);
+    if (role !== 'reader' && role !== 'editor' && role !== 'publisher') {
+      throw this.fail('PROTOCOL_UNSUPPORTED', 'role must be reader, editor, or publisher', false);
     }
     if (clientType !== 'codex' && clientType !== 'claude' && clientType !== 'opencode') {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'clientType is invalid', false);
@@ -454,8 +448,7 @@ export class OnboardingCoordinator {
       spaceMode,
       ...(spaceMode === 'create' ? { spaceName: raw.spaceName as string } : { spaceId: raw.spaceId as string }),
       agentName: raw.agentName as string,
-      permissionPreset,
-      approvalMode,
+      role,
       clientType,
       sourcePaths: (sourcePaths as string[]).map(canonicalizeSourcePath),
       sourceType,

@@ -35,8 +35,8 @@ async function freshHome(): Promise<string> {
 }
 
 const codeInput = {
-  spaceMode: 'create' as const, spaceName: 'E2E Space', agentName: 'E2E Agent', permissionPreset: 'editor' as const,
-  approvalMode: 'always-review' as const, clientType: 'codex' as const, sourcePaths: ['/private/repository'],
+  spaceMode: 'create' as const, spaceName: 'E2E Space', agentName: 'E2E Agent', role: 'editor' as const,
+  clientType: 'codex' as const, sourcePaths: ['/private/repository'],
   sourceType: 'code' as const, analysisMode: 'standard' as const,
 };
 
@@ -80,7 +80,7 @@ describe('onboarding runtime state-machine E2E', () => {
     const planConfirmation = harness.events.find((event) => event.type === 'confirmation_required' && event.requestId === 'plan');
     expect(planConfirmation?.type).toBe('confirmation_required');
     if (!planConfirmation || planConfirmation.type !== 'confirmation_required') throw new Error('missing real plan confirmation');
-    expect(planConfirmation).toMatchObject({ planHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'E2E Space' }, agentName: 'E2E Agent', permissionPreset: 'editor', approvalMode: 'always-review', packageVersion: '0.4.0' }), localScanPlanHash: PLAN_A_HASH }) });
+    expect(planConfirmation).toMatchObject({ planHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'E2E Space' }, agentName: 'E2E Agent', role: 'editor', packageVersion: '0.5.0' }), localScanPlanHash: PLAN_A_HASH }) });
     expect(harness.replies).toContainEqual({ requestId: 'plan', confirmed: true, planHash: planConfirmation.planHash });
     expect(harness.calls.bootstrap).toHaveLength(1);
     expect(harness.calls.bootstrap[0]).toMatchObject({ serverPlanHash: expect.stringMatching(/^[a-f0-9]{64}$/u) });
