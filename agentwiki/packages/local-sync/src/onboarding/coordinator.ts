@@ -112,6 +112,12 @@ export class OnboardingCoordinator {
     }
 
     try {
+      // A process can stop after the post-install checkpoint is durable but
+      // before the single-use token is removed. Clean that narrow crash window
+      // on resume; earlier states still need the token to replay installation.
+      if (hasDurableBootstrapCheckpoint(checkpoint)) {
+        await this.deps.store.deleteSecret();
+      }
       while (true) {
         switch (checkpoint.state) {
           case 'collecting_input':
@@ -308,9 +314,6 @@ export class OnboardingCoordinator {
       expectedConfigHash: prev.inputs!.configHash as string,
     });
 
-    // Token is single-use; delete it after a successful bootstrap.
-    await this.deps.store.deleteSecret();
-
     let next: OnboardingCheckpoint = {
       ...prev,
       bootstrapResult: summarizeBootstrap(result.bootstrap),
@@ -325,19 +328,26 @@ export class OnboardingCoordinator {
     // state machine still walks through each checkpoint for resume fidelity.
     if (next.state === 'bootstrapping') next = await this.transition(next, 'installing_gateway');
     if (next.state === 'installing_gateway') next = await this.transition(next, 'verifying_gateway');
-    return this.transition(next, 'scanning');
+    next = await this.transition(next, 'scanning');
+    // Delete only after the durable checkpoint proves installation completed.
+    await this.deps.store.deleteSecret();
+    return next;
   }
 
   private async firstScan(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'scan', status: 'running' });
     const spaceId = (prev.bootstrapResult as { space: { id: string } }).space.id;
     if (prev.inputs?.role === 'reader') {
-      const pulled = await this.deps.knowledge.pull?.({ spaceId });
+      if (!this.deps.knowledge.pull) {
+        throw this.fail('SYNC_FAILED', 'Reader onboarding requires pull support', false);
+      }
+      const pulled = await this.deps.knowledge.pull({ spaceId });
       return this.transition({
         ...prev,
         bootstrapResult: {
           ...prev.bootstrapResult,
-          ...(pulled ? { revisionId: pulled.revisionId, status: 'pulled' } : {}),
+          revisionId: pulled.revisionId,
+          status: 'pulled',
         },
       }, 'completed');
     }
@@ -595,6 +605,16 @@ function isResumableState(state: OnboardingState): state is Exclude<
   'failed_recoverable' | 'failed_terminal' | 'cancelled' | 'completed'
 > {
   return !['failed_recoverable', 'failed_terminal', 'cancelled', 'completed'].includes(state);
+}
+
+function hasDurableBootstrapCheckpoint(checkpoint: OnboardingCheckpoint): boolean {
+  if (!checkpoint.bootstrapResult) return false;
+  if (['scanning', 'waiting_for_sync_confirmation', 'syncing', 'completed'].includes(checkpoint.state)) {
+    return true;
+  }
+  return checkpoint.state === 'failed_recoverable'
+    && checkpoint.resumeState !== undefined
+    && ['scanning', 'waiting_for_sync_confirmation', 'syncing'].includes(checkpoint.resumeState);
 }
 
 function isNonEmptyString(value: unknown): value is string {

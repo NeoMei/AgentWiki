@@ -390,8 +390,11 @@ function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, ve
 function assertConfirmedBootstrap(bootstrap: BootstrapResult, plan: InstallInput['serverPlan']): void {
   const canonicalScopes = scopesForAgentAccessRole(plan.role);
   const wrongExistingSpace = plan.space.mode === 'existing' && bootstrap.space.id !== plan.space.id;
+  const wrongCreatedSpace = plan.space.mode === 'create' && bootstrap.space.name !== plan.space.name;
   if (
     wrongExistingSpace
+    || wrongCreatedSpace
+    || bootstrap.agent.name !== plan.agentName
     || bootstrap.grant.role !== plan.role
     || !sameScopes(bootstrap.grant.scopes, canonicalScopes)
   ) {

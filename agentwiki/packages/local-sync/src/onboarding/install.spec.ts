@@ -152,6 +152,26 @@ describe('createBootstrapInstaller', () => {
     expect(fixture.deps.loadExisting).not.toHaveBeenCalled();
     expect(fixture.deps.exchange).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['created Space name', { space: { id: 'space-1', name: 'Different Space' } }],
+    ['Agent name', { agent: { id: 'agent-1', name: 'Different Agent' } }],
+  ] as const)('rejects a bootstrap whose %s differs from the confirmed plan', async (_label, mismatch) => {
+    const fixture = dependencies();
+    vi.mocked(fixture.deps.bootstrap).mockResolvedValue({
+      space: { id: 'space-1', name: 'Space' },
+      agent: { id: 'agent-1', name: 'Agent' },
+      grant: { role: 'editor', scopes: EDITOR_SCOPES },
+      installation: { code: 'install-code', installationId: 'installation-1', expiresAt: '2026-08-11T01:00:00.000Z' },
+      ...mismatch,
+    });
+
+    await expect(createBootstrapInstaller(fixture.deps)(input()))
+      .rejects.toMatchObject({ code: 'PACKAGE_INTEGRITY_FAILED' });
+
+    expect(fixture.deps.loadExisting).not.toHaveBeenCalled();
+    expect(fixture.deps.exchange).not.toHaveBeenCalled();
+  });
 });
 
 describe('installExchangedGateway', () => {

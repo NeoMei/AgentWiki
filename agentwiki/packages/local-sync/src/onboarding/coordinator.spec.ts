@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { randomUUID } from 'node:crypto';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
@@ -79,7 +80,7 @@ function unsafeLocalPlan(hash: string, displayPath: string): LocalScanPlan {
 function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSource }): { deps: CoordinatorDeps; sink: ProtocolSink & { lines: string[] }; store: SessionStore } {
   const sink = capturingSink();
   const encoder = new ProtocolEncoder('sess-test', sink);
-  const tmpHome = `/tmp/aw-coord-test-${Date.now()}`;
+  const tmpHome = `/tmp/aw-coord-test-${randomUUID()}`;
   const store = createSessionStore('sess-test', tmpHome);
   const deps: CoordinatorDeps = {
     client: mockClient(),
@@ -103,6 +104,7 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
       reloadRequired: false,
     })),
     knowledge: {
+      pull: vi.fn(async () => ({ revisionId: 'pull-revision' })),
       planLocalScan: vi.fn(async () => localPlan()),
       prepare: vi.fn(async () => ({ jobId: 'job-1', previewHash: 'hash-1', summary: { files: 3 } })),
       confirmAndSync: vi.fn(async () => ({ revisionId: 'rev-1' })),
@@ -194,6 +196,55 @@ describe('OnboardingCoordinator happy path', () => {
     expect(fixture.sink.lines.map((line) => JSON.parse(line).type)).toContain('completed');
   });
 
+  it('fails closed when Reader onboarding has no pull capability', async () => {
+    const fixture = mockDeps({
+      knowledge: {
+        planLocalScan: vi.fn(async () => {
+          throw new Error('Reader onboarding must not plan a local upload');
+        }),
+        prepare: vi.fn(async () => {
+          throw new Error('Reader onboarding must not prepare a write sync');
+        }),
+        confirmAndSync: vi.fn(async () => {
+          throw new Error('Reader onboarding must not confirm a write sync');
+        }),
+      },
+    });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'ReadBot', role: 'reader',
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'documents',
+    });
+
+    await expect(new OnboardingCoordinator(fixture.deps).run())
+      .rejects.toMatchObject({ code: 'SYNC_FAILED', retryable: false });
+
+    expect(fixture.sink.lines.map((line) => JSON.parse(line).type)).not.toContain('completed');
+  });
+
+  it('keeps the onboarding token until the post-install checkpoint is durable', async () => {
+    const fixture = mockDeps();
+    const persistedWithToken: string[] = [];
+    const backingStore = fixture.store;
+    fixture.deps.store = {
+      ...backingStore,
+      save: async (checkpoint) => {
+        if (['installing_gateway', 'verifying_gateway', 'scanning'].includes(checkpoint.state)) {
+          if (await backingStore.loadSecret()) persistedWithToken.push(checkpoint.state);
+        }
+        await backingStore.save(checkpoint);
+      },
+    };
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'documents',
+    });
+
+    await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(persistedWithToken).toEqual(['installing_gateway', 'verifying_gateway', 'scanning']);
+    expect(await backingStore.loadSecret()).toBeNull();
+  });
+
   it('emits authorization_required and heartbeat during polling', async () => {
     const fixture = mockDeps();
     fixture.deps.source = successfulSource(fixture.sink, {
@@ -261,6 +312,7 @@ describe('OnboardingCoordinator happy path', () => {
         agent: { id: 'agent-1', name: 'Codex' },
       },
     });
+    await fixture.store.saveSecret('awo_left_after_crash');
     fixture.deps.source = {
       read: async () => {
         const confirmation = [...fixture.sink.lines].reverse().map((line) => JSON.parse(line))
@@ -275,6 +327,7 @@ describe('OnboardingCoordinator happy path', () => {
     expect(fixture.deps.client.start).not.toHaveBeenCalled();
     expect(fixture.deps.preflight).not.toHaveBeenCalled();
     expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
+    expect(await fixture.store.loadSecret()).toBeNull();
   });
 });
 
