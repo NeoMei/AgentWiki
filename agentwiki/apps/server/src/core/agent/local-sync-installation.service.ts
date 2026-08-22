@@ -32,9 +32,10 @@ interface ExchangeReceipt {
   agentId: string;
   spaceId: string;
   credentialId: string;
+  grantId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: string;
+  pluginVersion: '0.5.0';
   expiresAt: string;
 }
 
@@ -112,6 +113,7 @@ export class LocalSyncInstallationService {
     expiresAt: string;
     instructions: string;
   }> {
+    this.assertExactProtocolVersion(pluginVersion);
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
@@ -216,6 +218,7 @@ export class LocalSyncInstallationService {
     if (new Date(payload.expiresAt).getTime() <= Date.now()) {
       throw new BusinessException('LOCAL_SYNC_CODE_EXPIRED');
     }
+    this.assertExactProtocolVersion(payload.pluginVersion);
     this.assertSupportedVersion(payload.pluginVersion);
     const scopes = scopesForAgentAccessRole(payload.role);
     const rawKey = this.installationApiKey(installationId);
@@ -263,6 +266,7 @@ export class LocalSyncInstallationService {
         agentId: payload.agentId,
         spaceId: payload.spaceId,
         credentialId: credential.id,
+        grantId: credential.grantId,
         role: payload.role,
         serverUrl: payload.serverUrl,
         pluginVersion: payload.pluginVersion,
@@ -298,14 +302,16 @@ export class LocalSyncInstallationService {
     let receipt: ExchangeReceipt;
     try {
       const value = JSON.parse(serialized) as Record<string, unknown>;
+      credentialId = typeof value.credentialId === 'string' ? value.credentialId : undefined;
       if (
         typeof value.ownerId !== 'string'
         || typeof value.agentId !== 'string'
         || typeof value.spaceId !== 'string'
         || typeof value.credentialId !== 'string'
+        || typeof value.grantId !== 'string'
         || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.serverUrl !== 'string'
-        || typeof value.pluginVersion !== 'string'
+        || value.pluginVersion !== '0.5.0'
         || typeof value.expiresAt !== 'string'
       ) {
         throw new Error('invalid exchange receipt');
@@ -326,6 +332,7 @@ export class LocalSyncInstallationService {
         ownerId: receipt.ownerId,
         agentId: receipt.agentId,
         credentialId: receipt.credentialId,
+        grantId: receipt.grantId,
         spaceId: receipt.spaceId,
         role: receipt.role,
       });
@@ -358,6 +365,12 @@ export class LocalSyncInstallationService {
   private assertSupportedVersion(pluginVersion: string): void {
     const supported = this.config.get<string>('LOCAL_SYNC_PACKAGE_VERSION');
     if (!supported || pluginVersion !== supported) {
+      throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
+    }
+  }
+
+  private assertExactProtocolVersion(pluginVersion: string): asserts pluginVersion is '0.5.0' {
+    if (pluginVersion !== '0.5.0') {
       throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
     }
   }

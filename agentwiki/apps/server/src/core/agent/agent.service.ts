@@ -133,6 +133,7 @@ export class AgentService {
     rawKey: string;
   }): Promise<{
     id: string;
+    grantId: string;
     agentId: string;
     role: AgentAccessRole;
     scopes: string[];
@@ -199,7 +200,7 @@ export class AgentService {
       ) {
         throw new ForbiddenException('Connection credential is unavailable');
       }
-      await tx.agentGrant.upsert({
+      const grant = await tx.agentGrant.upsert({
         where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
         create: {
           agentId: input.agentId,
@@ -208,6 +209,7 @@ export class AgentService {
           scopes,
         },
         update: { role: input.role, scopes },
+        select: { id: true },
       });
       if (input.role === 'publisher') {
         await tx.agent.update({
@@ -231,6 +233,7 @@ export class AgentService {
       });
       return {
         id: credential.id,
+        grantId: grant.id,
         agentId: credential.agentId,
         role: credential.role,
         scopes,
@@ -243,6 +246,7 @@ export class AgentService {
     ownerId: string;
     agentId: string;
     credentialId: string;
+    grantId: string;
     spaceId: string;
     role: AgentAccessRole;
   }): Promise<void> {
@@ -265,6 +269,7 @@ export class AgentService {
       }),
       this.prisma.agentGrant.findFirst({
         where: {
+          id: input.grantId,
           agentId: input.agentId,
           spaceId: input.spaceId,
           role: input.role,
@@ -281,6 +286,8 @@ export class AgentService {
     if (
       !credential
       || !grant
+      || credential.id !== input.credentialId
+      || grant.id !== input.grantId
       || !persistedScopesMatch(credential.scopes)
       || !persistedScopesMatch(grant.scopes)
     ) {

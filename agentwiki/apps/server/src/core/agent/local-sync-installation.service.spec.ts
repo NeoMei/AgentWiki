@@ -58,7 +58,7 @@ describe('LocalSyncInstallationService', () => {
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
     agents.assertCanIssueConnection.mockResolvedValue(undefined);
     agents.exchangeConnectionIntent.mockResolvedValue({
-      id: 'credential-1', agentId: 'agent-1', role: 'editor',
+      id: 'credential-1', grantId: 'grant-1', agentId: 'agent-1', role: 'editor',
       scopes: scopesForAgentAccessRole('editor'), revokedAt: null,
     });
     agents.listCredentials.mockResolvedValue([]);
@@ -189,7 +189,7 @@ describe('LocalSyncInstallationService', () => {
       redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1],
     );
     expect(receipt).toEqual(expect.objectContaining({
-      spaceId: 'space-1', role: 'editor', credentialId: 'credential-1',
+      spaceId: 'space-1', role: 'editor', credentialId: 'credential-1', grantId: 'grant-1',
     }));
     expect(redis.deleteStrict).toHaveBeenCalledWith(installationKey);
     expect(agents.exchangeConnectionIntent).toHaveBeenCalledWith({
@@ -212,9 +212,45 @@ describe('LocalSyncInstallationService', () => {
       ownerId: 'owner-1',
       agentId: 'agent-1',
       credentialId: 'credential-1',
+      grantId: 'grant-1',
       spaceId: 'space-1',
       role: 'editor',
     });
+  });
+
+  it('rejects and deletes a pre-0.5.0 replay receipt before live validation', async () => {
+    await service.exchange(exchangeCode, '127.0.0.1');
+    const serialized = redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1];
+    const legacyReceipt = JSON.stringify({ ...JSON.parse(serialized), pluginVersion: '0.4.0' });
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === receiptKey ? legacyReceipt : null
+    ));
+    agents.assertConnectionReceipt.mockClear();
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
+
+    expect(agents.assertConnectionReceipt).not.toHaveBeenCalled();
+    expect(redis.deleteStrict).toHaveBeenCalledWith(receiptKey);
+    expect(redis.deleteStrict).toHaveBeenCalledWith('local-sync:credential-receipt:credential-1');
+  });
+
+  it('rejects a replay receipt that is not bound to its original Grant id', async () => {
+    await service.exchange(exchangeCode, '127.0.0.1');
+    const serialized = redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1];
+    const unboundReceipt = JSON.parse(serialized);
+    delete unboundReceipt.grantId;
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === receiptKey ? JSON.stringify(unboundReceipt) : null
+    ));
+    agents.assertConnectionReceipt.mockClear();
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1'))
+      .rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_CODE_INVALID' });
+
+    expect(agents.assertConnectionReceipt).not.toHaveBeenCalled();
+    expect(redis.deleteStrict).toHaveBeenCalledWith(receiptKey);
+    expect(redis.deleteStrict).toHaveBeenCalledWith('local-sync:credential-receipt:credential-1');
   });
 
   it('serializes concurrent exchange attempts and returns the same receipt', async () => {

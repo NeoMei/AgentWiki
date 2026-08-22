@@ -32,7 +32,7 @@ describe('AgentService grant scope validation', () => {
     prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1', role: 'editor' });
     prisma.agentAuditEvent.create.mockResolvedValue({});
 
-    await service.exchangeConnectionIntent({
+    const result = await service.exchangeConnectionIntent({
       ownerId: 'owner-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
       installationId: 'installation-1', rawKey: 'agk_deterministic',
     });
@@ -52,6 +52,42 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'connection.authorize' }),
     }));
+    expect(result).toEqual(expect.objectContaining({ grantId: 'grant-1' }));
+  });
+
+  it('binds receipt validation to the original Grant identity', async () => {
+    const scopes = scopesForAgentAccessRole('editor');
+    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', scopes });
+    prisma.agentGrant.findFirst.mockResolvedValue(null);
+
+    await expect(service.assertConnectionReceipt({
+      ownerId: 'owner-1',
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+      grantId: 'grant-original',
+      spaceId: 'space-1',
+      role: 'editor',
+    })).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prisma.agentGrant.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'grant-original',
+        agentId: 'agent-1',
+        spaceId: 'space-1',
+        role: 'editor',
+      },
+      select: { id: true, scopes: true },
+    });
+
+    prisma.agentGrant.findFirst.mockResolvedValue({ id: 'grant-recreated', scopes });
+    await expect(service.assertConnectionReceipt({
+      ownerId: 'owner-1',
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+      grantId: 'grant-original',
+      spaceId: 'space-1',
+      role: 'editor',
+    })).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('fails the connection transaction when ownership or Space administration changed', async () => {
