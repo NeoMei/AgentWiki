@@ -504,6 +504,36 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
   });
 
+  it('passes the current Agent and Credential identity into background auto-publish revalidation', async () => {
+    const { service, prisma, review, run } = makeHarness();
+    run.requestedByUserId = null as any;
+    run.requestedByAgentId = 'agent-1' as any;
+    (run as any).requestedCredentialId = 'credential-1';
+    (run as any).requestedCredentialType = 'agent';
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'publisher',
+      scopes: ['runs:write', 'review:auto-publish'],
+      agent: {
+        status: 'active', revokedAt: null,
+        owner: { deletedAt: null, lockedAt: null },
+      },
+      space: { deletedAt: null },
+    });
+    prisma.agentCredential = { findFirst: jest.fn().mockResolvedValue({
+      role: 'publisher', scopes: ['runs:write', 'review:auto-publish'],
+    }) };
+    jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
+
+    await service.processRun('run-1');
+
+    expect(review.publish).toHaveBeenCalledWith('change-1', {
+      agentId: 'agent-1',
+      credentialId: 'credential-1',
+    });
+  });
+
   it('compiles the pinned OKF version with linked pages and explicit evidence without creating a second version', async () => {
     const { service, prisma, run } = makeHarness();
     const envelope = {

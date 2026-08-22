@@ -25,6 +25,11 @@ import {
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
 
+interface AgentAutoPublishContext {
+  agentId: string;
+  credentialId: string;
+}
+
 @Injectable()
 export class ReviewService {
   constructor(
@@ -41,32 +46,21 @@ export class ReviewService {
     title: string,
     item: { type: string; payload: Record<string, unknown> },
   ) {
-    // Agent proposals can skip manual review only when the space, the agent,
-    // the credential and the per-space grant all opt in. An empty grant scope
-    // list deliberately means that the credential is not narrowed further.
-    const [space, agent, grant] = await Promise.all([
-      this.prisma.space.findUnique({ where: { id: spaceId }, select: { approvalPolicy: true } }),
-      principal.agentId
-        ? this.prisma.agent.findUnique({ where: { id: principal.agentId }, select: { approvalMode: true } })
-        : Promise.resolve(null),
-      principal.agentId
-        ? this.prisma.agentGrant.findUnique({
-          where: { agentId_spaceId: { agentId: principal.agentId, spaceId } },
-          select: { role: true, scopes: true },
-        })
-        : Promise.resolve(null),
-    ]);
-    const grantAllowsAutoPublish = !!grant &&
-      agentRoleAllowsScope(grant.role, 'review:auto-publish') &&
-      (grant.scopes.length === 0 || grant.scopes.includes('review:auto-publish'));
-    const credentialAllowsAutoPublish = !!principal.agentRole &&
-      agentRoleAllowsScope(principal.agentRole, 'review:auto-publish') &&
-      (principal.scopes || []).includes('review:auto-publish');
-    const autoPublish = !!principal.agentId &&
-      space?.approvalPolicy === 'scoped-auto-publish' &&
-      agent?.approvalMode === 'scoped-auto-publish' &&
-      grantAllowsAutoPublish &&
-      credentialAllowsAutoPublish;
+    // The request principal is only an authentication snapshot. Auto-publish
+    // eligibility is derived from current database state, then checked again
+    // under row locks at the publication critical point.
+    const autoPublishContext = principal.agentId && principal.credentialId
+      ? { agentId: principal.agentId, credentialId: principal.credentialId }
+      : null;
+    const requiredScopes = this.requiredScopesForItems([item]);
+    const autoPublish = !!autoPublishContext && !!requiredScopes &&
+      await this.hasLiveAgentAutoPublishAccess(
+        this.prisma,
+        autoPublishContext,
+        spaceId,
+        requiredScopes,
+        false,
+      );
 
     const changeSet = await this.prisma.changeSet.create({
       data: {
@@ -82,8 +76,8 @@ export class ReviewService {
     });
 
     if (!autoPublish) return { ...changeSet, autoPublished: false };
-    const published = await this.publish(changeSet.id);
-    return { ...published, autoPublished: true };
+    const published = await this.publish(changeSet.id, autoPublishContext);
+    return { ...published, autoPublished: published.status === 'published' };
   }
 
   async list(spaceIds: string[]) {
@@ -211,7 +205,7 @@ export class ReviewService {
     return this.publish(id);
   }
 
-  async publish(id: string) {
+  async publish(id: string, autoPublishContext?: AgentAutoPublishContext | null) {
     const changeSet = await this.get(id);
     if (['draft', 'pending_review'].includes(changeSet.status)) {
       throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
@@ -220,9 +214,35 @@ export class ReviewService {
       throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
     }
     const authorId = changeSet.createdByUserId || await this.resolveAgentOwner(changeSet.createdByAgentId);
-    let publishedPageIds: string[];
+    let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
-      publishedPageIds = await this.prisma.$transaction(async (tx) => {
+      publication = await this.prisma.$transaction(async (tx) => {
+      if (autoPublishContext) {
+        const requiredScopes = this.requiredScopesForItems(changeSet.items);
+        const remainsAuthorized = changeSet.createdByAgentId === autoPublishContext.agentId &&
+          !!requiredScopes &&
+          await this.hasLiveAgentAutoPublishAccess(
+            tx,
+            autoPublishContext,
+            changeSet.spaceId,
+            requiredScopes,
+            true,
+          );
+        if (!remainsAuthorized) {
+          const demoted = await tx.changeSet.updateMany({
+            where: { id, status: 'approved' },
+            data: { status: 'pending_review', reviewedAt: null },
+          });
+          if (!demoted.count) {
+            throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is no longer eligible for auto-publish');
+          }
+          await tx.changeItem.updateMany({
+            where: { changeSetId: id, status: 'accepted' },
+            data: { status: 'pending' },
+          });
+          return { pageIds: [], authorizationLost: true };
+        }
+      }
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: 'approved' },
         data: { status: 'publishing' },
@@ -782,7 +802,7 @@ export class ReviewService {
           legacySidecarOverride,
         });
       }
-      return Array.from(new Set(pageIds));
+      return { pageIds: Array.from(new Set(pageIds)), authorizationLost: false };
       });
     } catch (error) {
       if ((error as { code?: string })?.code === 'P2002') {
@@ -790,9 +810,93 @@ export class ReviewService {
       }
       throw error;
     }
-    await Promise.allSettled(publishedPageIds.map((pageId) => this.search.indexPage(pageId)));
+    if (publication.authorizationLost) return this.get(id);
+    await Promise.allSettled(publication.pageIds.map((pageId) => this.search.indexPage(pageId)));
     this.graphMaintenance?.enqueue(changeSet.spaceId);
     return this.get(id);
+  }
+
+  private requiredScopesForItems(items: Array<{ type: string }>): string[] | null {
+    const scopes = new Set<string>();
+    for (const item of items) {
+      if (['create_page', 'update_page', 'archive_page'].includes(item.type)) scopes.add('pages:write');
+      else if (['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type)) scopes.add('graph:write');
+      else if (['upsert_space_memory', 'archive_space_memory'].includes(item.type)) scopes.add('memory:write');
+      else return null;
+    }
+    return scopes.size > 0 ? [...scopes] : null;
+  }
+
+  private async hasLiveAgentAutoPublishAccess(
+    db: PrismaService | Prisma.TransactionClient,
+    context: AgentAutoPublishContext,
+    spaceId: string,
+    requiredScopes: string[],
+    lockRows: boolean,
+  ): Promise<boolean> {
+    if (lockRows) {
+      const locked = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT c."id"
+        FROM "AgentCredential" AS c
+        JOIN "Agent" AS a ON a."id" = c."agentId"
+        JOIN "User" AS u ON u."id" = a."ownerId"
+        JOIN "AgentGrant" AS g
+          ON g."agentId" = a."id" AND g."spaceId" = ${spaceId}
+        JOIN "Space" AS s ON s."id" = g."spaceId"
+        WHERE c."id" = ${context.credentialId}
+          AND c."agentId" = ${context.agentId}
+        FOR UPDATE OF c, a, u, g, s
+      `);
+      if (locked.length !== 1) return false;
+    }
+
+    const now = new Date();
+    const [credential, agent, grant, space] = await Promise.all([
+      db.agentCredential.findFirst({
+        where: { id: context.credentialId, agentId: context.agentId },
+        select: { role: true, scopes: true, revokedAt: true, expiresAt: true },
+      }),
+      db.agent.findUnique({
+        where: { id: context.agentId },
+        select: {
+          status: true,
+          revokedAt: true,
+          approvalMode: true,
+          memoryEnabled: true,
+          owner: { select: { deletedAt: true, lockedAt: true } },
+        },
+      }),
+      db.agentGrant.findUnique({
+        where: { agentId_spaceId: { agentId: context.agentId, spaceId } },
+        select: { role: true, scopes: true },
+      }),
+      db.space.findUnique({
+        where: { id: spaceId },
+        select: { approvalPolicy: true, deletedAt: true },
+      }),
+    ]);
+
+    const gatedScopes = ['review:auto-publish', ...requiredScopes];
+    return !!credential &&
+      !credential.revokedAt &&
+      (!credential.expiresAt || credential.expiresAt > now) &&
+      !!agent &&
+      agent.status === 'active' &&
+      !agent.revokedAt &&
+      agent.approvalMode === 'scoped-auto-publish' &&
+      !agent.owner.deletedAt &&
+      !agent.owner.lockedAt &&
+      (!requiredScopes.includes('memory:write') || agent.memoryEnabled) &&
+      !!grant &&
+      !!space &&
+      !space.deletedAt &&
+      space.approvalPolicy === 'scoped-auto-publish' &&
+      gatedScopes.every((scope) =>
+        agentRoleAllowsScope(credential.role, scope) &&
+        credential.scopes.includes(scope) &&
+        agentRoleAllowsScope(grant.role, scope) &&
+        (grant.scopes.length === 0 || grant.scopes.includes(scope)),
+      );
   }
 
   private async createKnowledgeRevision(

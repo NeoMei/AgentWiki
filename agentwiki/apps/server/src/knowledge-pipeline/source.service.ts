@@ -495,8 +495,14 @@ export class SourceService {
       if (autoPublish && changeSet) {
         const publishScopes = await this.assertRequesterStillAuthorized(run);
         if (!publishScopes.includes('review:auto-publish')) throw new Error('Run requester is no longer authorized');
+        if (!run.requestedByAgentId || !run.requestedCredentialId || run.requestedCredentialType !== 'agent') {
+          throw new Error('Agent auto-publish identity is missing');
+        }
         await this.prisma.ingestRun.update({ where: { id }, data: { status: 'publishing', stage: 'publishing' } });
-        await this.review.publish(changeSet.id);
+        await this.review.publish(changeSet.id, {
+          agentId: run.requestedByAgentId,
+          credentialId: run.requestedCredentialId,
+        });
       }
 
       const partial = Number((fetched.metadata as any)?.skippedFiles || 0) > 0;

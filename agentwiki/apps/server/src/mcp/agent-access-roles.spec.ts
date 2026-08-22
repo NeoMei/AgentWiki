@@ -17,15 +17,19 @@ describe('MCP Agent access roles', () => {
   };
   let spaceApprovalPolicy = 'scoped-auto-publish';
   let agentApprovalMode = 'scoped-auto-publish';
+  let credentialRole: AgentAccessRole = 'reader';
+  let credentialScopes: string[] = scopesForAgentAccessRole('reader');
   const prisma = {
     space: { findUnique: jest.fn() },
     agent: { findUnique: jest.fn() },
+    agentCredential: { findFirst: jest.fn() },
     spaceMember: { findUnique: jest.fn(), findMany: jest.fn() },
     agentGrant: { findUnique: jest.fn(), findMany: jest.fn() },
     page: { findUnique: jest.fn() },
     knowledgeRelation: { findUnique: jest.fn() },
     changeSet: { create: jest.fn() },
     agentAuditEvent: { create: jest.fn() },
+    $queryRaw: jest.fn(),
   } as any;
   const pages = { findAll: jest.fn() } as any;
   const review = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any);
@@ -42,11 +46,19 @@ describe('MCP Agent access roles', () => {
     jest.clearAllMocks();
     spaceApprovalPolicy = 'scoped-auto-publish';
     agentApprovalMode = 'scoped-auto-publish';
+    credentialRole = 'reader';
+    credentialScopes = scopesForAgentAccessRole('reader');
     prisma.space.findUnique.mockImplementation(async ({ select }: any) =>
       select?.approvalPolicy
-        ? { approvalPolicy: spaceApprovalPolicy }
+        ? { approvalPolicy: spaceApprovalPolicy, deletedAt: null }
         : { id: 'space-1', deletedAt: null });
-    prisma.agent.findUnique.mockImplementation(async () => ({ approvalMode: agentApprovalMode }));
+    prisma.agent.findUnique.mockImplementation(async () => ({
+      status: 'active', revokedAt: null, approvalMode: agentApprovalMode, memoryEnabled: true,
+      owner: { deletedAt: null, lockedAt: null },
+    }));
+    prisma.agentCredential.findFirst.mockImplementation(async () => ({
+      role: credentialRole, scopes: credentialScopes, revokedAt: null, expiresAt: null,
+    }));
     prisma.agentGrant.findUnique.mockImplementation(async () => grant);
     prisma.agentGrant.findMany.mockImplementation(async () => [{
       role: grant.role,
@@ -66,6 +78,8 @@ describe('MCP Agent access roles', () => {
     description?: string;
     handler: (args: any) => Promise<any>;
   }> {
+    credentialRole = principal.agentRole ?? 'reader';
+    credentialScopes = principal.scopes ?? [];
     const service = new (McpService as any)(
       { get: jest.fn() },
       authorization,
@@ -123,7 +137,10 @@ describe('MCP Agent access roles', () => {
         expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
           data: expect.objectContaining({ status: 'approved' }),
         }));
-        expect(publish).toHaveBeenCalledWith('change-1');
+        expect(publish).toHaveBeenCalledWith('change-1', {
+          agentId: 'agent-1',
+          credentialId: 'credential-publisher',
+        });
       }
       expect(propose).toHaveBeenCalledWith(
         principal,
