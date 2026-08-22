@@ -1372,6 +1372,43 @@ describe('one-shot review-publish and agent auto-publish', () => {
     }));
     expect(result.autoPublished).toBeFalsy();
   });
+
+  it.each([
+    ['credential scope', {
+      spacePolicy: 'scoped-auto-publish', agentMode: 'scoped-auto-publish',
+      credentialScopes: ['pages:write'], grantScopes: [],
+    }],
+    ['Agent approval mode', {
+      spacePolicy: 'scoped-auto-publish', agentMode: 'always-review',
+      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: [],
+    }],
+    ['Space policy', {
+      spacePolicy: 'always-review', agentMode: 'scoped-auto-publish',
+      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: [],
+    }],
+    ['Grant scope', {
+      spacePolicy: 'scoped-auto-publish', agentMode: 'scoped-auto-publish',
+      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: ['pages:write'],
+    }],
+  ])('keeps publisher proposals pending when the %s gate is missing', async (_gate, values) => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: values.spacePolicy });
+    prisma.agent.findUnique.mockResolvedValue({ approvalMode: values.agentMode });
+    prisma.agentGrant.findUnique.mockResolvedValue({ role: 'publisher', scopes: values.grantScopes });
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-gated', status: 'pending_review', items: [] });
+
+    const result = await service.propose(
+      {
+        userId: 'owner-1', agentId: 'agent-1', agentRole: 'publisher',
+        scopes: values.credentialScopes,
+      },
+      'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
+    );
+
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review' }),
+    }));
+    expect(result.autoPublished).toBe(false);
+  });
 });
 
 describe('ReviewService readable page paths', () => {

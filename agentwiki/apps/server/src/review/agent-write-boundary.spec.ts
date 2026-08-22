@@ -1,5 +1,9 @@
 import { PageController } from '../core/page/page.controller';
 import { KnowledgeController } from '../core/knowledge/knowledge.controller';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { SpaceController } from '../core/space/space.controller';
+import { ReviewController } from './review.controller';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 describe('Agent write review boundary', () => {
   it('turns Agent REST page creation into a ChangeSet proposal', async () => {
@@ -50,5 +54,79 @@ describe('Agent write review boundary', () => {
     await controller.createRelation({ sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'depends_on', strength: 1 } as any, { user: { userId: 'owner-1', agentId: 'agent-1', scopes: ['graph:write'] } } as any);
     expect(review.propose).toHaveBeenCalledWith(expect.anything(), 'space-1', expect.any(String), expect.objectContaining({ type: 'create_relation' }));
     expect(knowledge.createRelation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['approve', (controller: ReviewController, request: any) => controller.approve('change-1', request, {})],
+    ['reject', (controller: ReviewController, request: any) => controller.reject('change-1', request, {})],
+    ['publish', (controller: ReviewController, request: any) => controller.publish('change-1', request)],
+    ['review-publish', (controller: ReviewController, request: any) => controller.reviewPublish('change-1', request, {})],
+  ] as const)('denies publisher Agents the human-only %s boundary', async (_action, invoke) => {
+    const prisma = {
+      changeSet: { findUnique: jest.fn().mockResolvedValue({ id: 'change-1', spaceId: 'space-1' }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: scopesForAgentAccessRole('publisher'),
+        agent: { status: 'active', revokedAt: null },
+        space: { deletedAt: null },
+      }) },
+    } as any;
+    const review = {
+      approve: jest.fn(), reject: jest.fn(), publish: jest.fn(), reviewPublish: jest.fn(),
+    } as any;
+    const controller = new ReviewController(review, new AuthorizationService(prisma));
+    const request = {
+      user: {
+        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+      },
+    } as any;
+
+    await expect(invoke(controller, request))
+      .rejects.toThrow('Agents cannot approve or publish change sets');
+    expect(review.approve).not.toHaveBeenCalled();
+    expect(review.reject).not.toHaveBeenCalled();
+    expect(review.publish).not.toHaveBeenCalled();
+    expect(review.reviewPublish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['add', (controller: SpaceController, request: any) => controller.addMember(
+      'space-1', { email: 'member@example.com', role: 'viewer' }, request,
+    )],
+    ['update', (controller: SpaceController, request: any) => controller.updateMemberRole(
+      'space-1', 'user-2', { role: 'editor' }, request,
+    )],
+    ['remove', (controller: SpaceController, request: any) => controller.removeMember(
+      'space-1', 'user-2', request,
+    )],
+  ] as const)('denies publisher Agents the %s member mutation boundary', async (_action, invoke) => {
+    const prisma = {
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        role: 'publisher',
+        scopes: scopesForAgentAccessRole('publisher'),
+        agent: { status: 'active', revokedAt: null },
+        space: { deletedAt: null },
+      }) },
+    } as any;
+    const spaces = {
+      addMember: jest.fn(), updateMemberRoleAs: jest.fn(), removeMemberAs: jest.fn(),
+    } as any;
+    const controller = new SpaceController(spaces, new AuthorizationService(prisma));
+    const request = {
+      user: {
+        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+      },
+    } as any;
+
+    await expect(invoke(controller, request)).rejects.toMatchObject({
+      businessCode: 'SPACE_ACCESS_DENIED',
+    });
+    expect(spaces.addMember).not.toHaveBeenCalled();
+    expect(spaces.updateMemberRoleAs).not.toHaveBeenCalled();
+    expect(spaces.removeMemberAs).not.toHaveBeenCalled();
   });
 });
