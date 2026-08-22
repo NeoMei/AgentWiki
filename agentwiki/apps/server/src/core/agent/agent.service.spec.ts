@@ -7,10 +7,11 @@ describe('AgentService grant scope validation', () => {
     $transaction: jest.fn(),
     agent: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     space: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn() },
     agentCredential: {
       create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(),
     },
-    agentGrant: { findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn() },
+    agentGrant: { findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     agentAuditEvent: { create: jest.fn() },
   } as any;
   const service = new AgentService(prisma);
@@ -18,6 +19,8 @@ describe('AgentService grant scope validation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'active' });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
   });
 
   it('atomically creates the credential and matching Space grant', async () => {
@@ -208,7 +211,10 @@ describe('AgentService grant scope validation', () => {
     prisma.agentCredential.create.mockResolvedValue({ id: 'orphaned-credential' });
     const tx = {
       agentCredential: { create: jest.fn().mockResolvedValue({ id: 'credential-1', role: 'publisher' }) },
-      agent: { update: jest.fn().mockResolvedValue({}) },
+      agent: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'agent-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
     } as any;
     prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
     prisma.agentAuditEvent.create.mockResolvedValue({});
@@ -223,6 +229,25 @@ describe('AgentService grant scope validation', () => {
       where: { id: 'agent-1' },
       data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
     });
+    expect(prisma.agentCredential.create).not.toHaveBeenCalled();
+  });
+
+  it('revalidates Agent ownership before creating every manual credential role', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    const tx = {
+      agent: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+      agentCredential: { create: jest.fn() },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+
+    await expect(service.createCredential('owner-1', 'agent-1', {
+      name: 'Reader key',
+      role: 'reader',
+    })).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(tx.agentCredential.create).not.toHaveBeenCalled();
     expect(prisma.agentCredential.create).not.toHaveBeenCalled();
   });
 
@@ -305,8 +330,16 @@ describe('AgentService grant scope validation', () => {
     prisma.agentGrant.findUnique.mockResolvedValue(null);
     prisma.agentGrant.upsert.mockResolvedValue({ id: 'partial-grant' });
     const tx = {
-      agentGrant: { upsert: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'publisher' }) },
-      agent: { update: jest.fn().mockResolvedValue({}) },
+      agentGrant: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'publisher' }),
+      },
+      agent: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      space: { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+      agentAuditEvent: { create: jest.fn().mockResolvedValue({}) },
     } as any;
     prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
     prisma.agentAuditEvent.create.mockResolvedValue({});
@@ -320,6 +353,67 @@ describe('AgentService grant scope validation', () => {
       data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
     });
     expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+  });
+
+  it('revalidates Agent ownership and Space administration in the Grant write transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    const tx = {
+      agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }), update: jest.fn() },
+      space: { findFirst: jest.fn().mockResolvedValue(null) },
+      agentGrant: { findUnique: jest.fn(), upsert: jest.fn() },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+
+    await expect(service.upsertGrantForSpace(
+      'owner-1', 'agent-1', 'space-1', 'editor',
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
+    expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
+  });
+
+  it('revalidates Agent ownership and Space administration in the Grant removal transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    const tx = {
+      agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1' }) },
+      space: { findFirst: jest.fn().mockResolvedValue(null) },
+      agentGrant: { deleteMany: jest.fn() },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+
+    await expect(service.removeGrant(
+      'owner-1', 'agent-1', 'space-1',
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(tx.agentGrant.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.agentGrant.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a platform administrator override in the Grant transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'admin-1', status: 'active', revokedAt: null,
+    });
+    const tx = {
+      agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }), update: jest.fn() },
+      space: { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+      user: { findFirst: jest.fn().mockResolvedValue(null) },
+      agentGrant: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(),
+      },
+      agentAuditEvent: { create: jest.fn() },
+    } as any;
+    prisma.$transaction.mockImplementationOnce(async (operation: any) => operation(tx));
+
+    await expect(service.upsertGrantForSpace(
+      'admin-1', 'agent-1', 'space-1', 'editor', true,
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
   });
 
 
@@ -345,6 +439,7 @@ describe('AgentService grant scope validation', () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', status: 'paused', revokedAt: null,
     });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'paused' });
     prisma.agentGrant.findUnique.mockResolvedValue(null);
 
     await expect(service.upsertGrantForSpace(

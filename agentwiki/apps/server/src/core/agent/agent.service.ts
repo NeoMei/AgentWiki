@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
@@ -96,16 +97,28 @@ export class AgentService {
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
-    const credential = dto.role === 'publisher'
-      ? await this.prisma.$transaction(async (tx) => {
-          const created = await createCredential(tx);
-          await tx.agent.update({
-            where: { id: agentId },
-            data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
-          });
-          return created;
-        })
-      : await createCredential(this.prisma);
+    const credential = await this.prisma.$transaction(async (tx) => {
+      const liveAgent = await tx.agent.findFirst({
+        where: {
+          id: agentId,
+          ownerId,
+          revokedAt: null,
+          owner: { deletedAt: null, lockedAt: null },
+        },
+        select: { id: true },
+      });
+      if (!liveAgent) {
+        throw new ForbiddenException('Credential authorization is no longer valid');
+      }
+      const created = await createCredential(tx);
+      if (dto.role === 'publisher') {
+        await tx.agent.update({
+          where: { id: agentId },
+          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+        });
+      }
+      return created;
+    });
     try {
       await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
     } catch (error) {
@@ -334,52 +347,70 @@ export class AgentService {
     agentId: string,
     spaceId: string,
     role: AgentAccessRole,
+    isSuperAdmin = false,
   ) {
-    const agent = await this.getOwned(actorUserId, agentId);
-    const existingGrant = await this.prisma.agentGrant.findUnique({
-      where: { agentId_spaceId: { agentId, spaceId } },
-      select: { id: true, role: true },
-    });
-    if (!existingGrant) {
-      if (agent.status !== 'active') {
+    await this.getOwned(actorUserId, agentId);
+    const scopes = scopesForAgentAccessRole(role);
+    return this.prisma.$transaction(async (tx) => {
+      const agent = await this.assertGrantMutationAuthority(
+        tx, actorUserId, agentId, spaceId, isSuperAdmin,
+      );
+      const existingGrant = await tx.agentGrant.findUnique({
+        where: { agentId_spaceId: { agentId, spaceId } },
+        select: { id: true, role: true },
+      });
+      if (!existingGrant && agent.status !== 'active') {
         throw new BadRequestException('Agent must be active before it can join a space');
       }
-    }
-
-    const scopes = scopesForAgentAccessRole(role);
-    const grantMutation = {
-      where: { agentId_spaceId: { agentId, spaceId } },
-      create: { agentId, spaceId, role, scopes },
-      update: { role, scopes },
-      include: { space: { select: { id: true, name: true } } },
-    };
-    const grant = role === 'publisher'
-      ? await this.prisma.$transaction(async (tx) => {
-          const persisted = await tx.agentGrant.upsert(grantMutation);
-          await tx.agent.update({
-            where: { id: agentId },
-            data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
-          });
-          return persisted;
-        })
-      : await this.prisma.agentGrant.upsert(grantMutation);
-    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, {
-      oldRole: existingGrant?.role ?? null,
-      newRole: role,
-      spaceId,
-    });
-    return grant;
+      const grant = await tx.agentGrant.upsert({
+        where: { agentId_spaceId: { agentId, spaceId } },
+        create: { agentId, spaceId, role, scopes },
+        update: { role, scopes },
+        include: { space: { select: { id: true, name: true } } },
+      });
+      if (role === 'publisher') {
+        await tx.agent.update({
+          where: { id: agentId },
+          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+        });
+      }
+      await tx.agentAuditEvent.create({
+        data: {
+          agentId,
+          action: 'grant.upsert',
+          outcome: 'success',
+          resourceType: 'Space',
+          resourceId: spaceId,
+          metadata: { oldRole: existingGrant?.role ?? null, newRole: role, spaceId },
+        },
+      });
+      return grant;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async removeGrant(ownerId: string, agentId: string, spaceId: string) {
+  async removeGrant(
+    ownerId: string,
+    agentId: string,
+    spaceId: string,
+    isSuperAdmin = false,
+  ) {
     await this.getOwned(ownerId, agentId);
-    return this.removeGrantForSpace(agentId, spaceId);
-  }
-
-  async removeGrantForSpace(agentId: string, spaceId: string) {
-    await this.prisma.agentGrant.deleteMany({ where: { agentId, spaceId } });
-    await this.audit(agentId, 'grant.remove', 'success', 'Space', spaceId);
-    return { success: true };
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertGrantMutationAuthority(
+        tx, ownerId, agentId, spaceId, isSuperAdmin,
+      );
+      await tx.agentGrant.deleteMany({ where: { agentId, spaceId } });
+      await tx.agentAuditEvent.create({
+        data: {
+          agentId,
+          action: 'grant.remove',
+          outcome: 'success',
+          resourceType: 'Space',
+          resourceId: spaceId,
+        },
+      });
+      return { success: true as const };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   async activity(ownerId: string, agentId: string, skip = 0, take = 50) {
@@ -457,10 +488,49 @@ export class AgentService {
     });
   }
 
-  private enablePublisherCapabilities(agentId: string) {
-    return this.prisma.agent.update({
-      where: { id: agentId },
-      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
-    });
+  private async assertGrantMutationAuthority(
+    tx: Prisma.TransactionClient,
+    actorUserId: string,
+    agentId: string,
+    spaceId: string,
+    isSuperAdmin: boolean,
+  ): Promise<{ id: string; status: string }> {
+    const [agent, space, platformAdmin] = await Promise.all([
+      tx.agent.findFirst({
+        where: {
+          id: agentId,
+          ownerId: actorUserId,
+          revokedAt: null,
+          owner: { deletedAt: null, lockedAt: null },
+        },
+        select: { id: true, status: true },
+      }),
+      tx.space.findFirst({
+        where: {
+          id: spaceId,
+          deletedAt: null,
+          ...(isSuperAdmin ? {} : {
+            members: { some: { userId: actorUserId, role: { in: ['owner', 'admin'] } } },
+          }),
+        },
+        select: { id: true },
+      }),
+      isSuperAdmin
+        ? tx.user.findFirst({
+            where: {
+              id: actorUserId,
+              platformRole: 'super_admin',
+              deletedAt: null,
+              lockedAt: null,
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    if (!agent || !space || (isSuperAdmin && !platformAdmin)) {
+      throw new ForbiddenException('Grant mutation authorization is no longer valid');
+    }
+    return agent;
   }
+
 }

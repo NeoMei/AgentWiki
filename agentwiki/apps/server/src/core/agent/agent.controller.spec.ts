@@ -24,7 +24,7 @@ describe('AgentController platform authorization', () => {
       ['owner', 'admin'],
     );
     expect(agents.upsertGrantForSpace).toHaveBeenCalledWith(
-      'admin-1', 'agent-1', 'space-1', 'editor',
+      'admin-1', 'agent-1', 'space-1', 'editor', true,
     );
   });
 
@@ -53,6 +53,6 @@ describe('AgentController platform authorization', () => {
     await controller.removeGrant({ user: principal } as any, 'agent-1', 'space-1');
 
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(principal, 'space-1', ['owner', 'admin']);
-    expect(agents.removeGrant).toHaveBeenCalledWith('owner-1', 'agent-1', 'space-1');
+    expect(agents.removeGrant).toHaveBeenCalledWith('owner-1', 'agent-1', 'space-1', false);
   });
 });
