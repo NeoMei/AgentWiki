@@ -71,6 +71,9 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
+      '@neomei/agentwiki-sync-protocol':
+        specifier: workspace:*
+        version: link:../../packages/sync-protocol
       '@tailwindcss/vite':
         specifier: ^4.3.2
         version: 4.3.2(vite@6.4.3(@types/node@26.1.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0))
@@ -280,6 +283,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)
+      '@neomei/agentwiki-sync-protocol':
+        specifier: workspace:*
+        version: link:../sync-protocol
       zod:
         specifier: ^3.25.76
         version: 3.25.76
