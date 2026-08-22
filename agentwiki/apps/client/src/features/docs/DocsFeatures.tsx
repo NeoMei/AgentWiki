@@ -41,8 +41,8 @@ export const DocsFeatures: React.FC = () => {
     {
       icon: CheckCircle2, color: 'emerald',
       title: zh ? '审核与变更集' : 'Review & ChangeSets',
-      design: zh ? 'Agent 的写入操作进入可审计的变更集（ChangeSet），由人工审批后才发布。支持创建、更新、删除页面和图谱关系。审批人可逐项接受或拒绝。' : 'Agent writes enter auditable ChangeSets requiring human approval before publishing. Supports page and graph create/update/delete. Approvers can accept or reject item by item.',
-      usage: zh ? ['Agent 写入后，在审核页面看到待处理的 ChangeSet', '查看每项变更的 diff', '逐项或批量接受/拒绝', '接受的变更发布并生成新版本'] : ['After an Agent writes, see the pending ChangeSet on the review page', 'View the diff for each change', 'Accept or reject individually or in bulk', 'Accepted changes publish and create new versions'],
+      design: zh ? '所有 Agent 写入都记录在可审计的变更集（ChangeSet）中。Reader 不可写；Editor 写入进入待审核；仅当 Publisher 凭据、Publisher Space 授权与 Space 发布策略同时允许时，Publisher 写入才会自动发布，否则也进入待审核。Agent 永远不能执行人工审批或成员管理。' : 'All Agent writes are recorded in auditable ChangeSets. Reader cannot write; Editor writes enter pending review. Publisher writes auto-publish only when the Publisher Credential, Publisher Space Grant, and Space publishing policy all permit it; otherwise they also enter pending review. Agents can never perform human approval or member management.',
+      usage: zh ? ['Editor 写入后，在审核页面查看待处理的 ChangeSet', 'Publisher 未满足全部自动发布条件时同样进入待审核', '由具备审批权的人类查看 diff 并接受或拒绝', '自动发布和人工决策都会保留审计记录'] : ['Review pending Editor ChangeSets after a write', 'Publisher changes also enter pending review when any auto-publish gate is missing', 'Authorized humans inspect diffs and accept or reject', 'Both auto-publishing and human decisions retain audit records'],
     },
     {
       icon: Brain, color: 'rose',

@@ -22,8 +22,8 @@ export const DocsOverview: React.FC = () => {
         </p>
         <p className="text-gray-600 leading-relaxed mb-8">
           {zh
-            ? '\u4e0e\u4f20\u7edf\u7684\u300c\u7ed9 Agent \u4e00\u4e2a API Key\u300d\u4e0d\u540c\uff0cAgentWiki \u63d0\u4f9b\u4e86\u5b8c\u6574\u7684\u6743\u9650\u9694\u79bb\u3001\u4eba\u5de5\u5ba1\u6838\u548c\u5ba1\u8ba1\u8ffd\u8e2a\u673a\u5236\u3002Agent \u7684\u6bcf\u4e00\u6b21\u5199\u5165\u90fd\u7ecf\u8fc7\u53ef\u5ba1\u8ba1\u7684\u53d8\u66f4\u96c6\uff08ChangeSet\uff09\uff0c\u7531\u4eba\u7c7b\u786e\u8ba4\u540e\u624d\u53d1\u5e03\u5230\u77e5\u8bc6\u5e93\u3002'
-            : 'Unlike simply giving an Agent an API key, AgentWiki provides full permission isolation, human review, and audit trails. Every Agent write goes through an auditable ChangeSet that a human confirms before it is published.'}
+            ? '与传统的「给 Agent 一个 API Key」不同，AgentWiki 提供完整的权限隔离、审核与审计追踪。所有 Agent 写入都会记录在可审计的变更集（ChangeSet）中。Reader 不可写；Editor 写入进入待审核，由具备审批权的人类决定；仅当 Publisher 凭据、Publisher Space 授权与 Space 发布策略同时允许时，Publisher 写入才可自动发布，否则同样进入待审核。Agent 永远不能执行人工审批或成员管理。'
+            : 'Unlike simply giving an Agent an API key, AgentWiki provides permission isolation, review, and audit trails. All Agent writes are recorded in auditable ChangeSets. Reader cannot write; Editor writes enter pending review and are decided by authorized humans. Publisher writes can auto-publish only when the Publisher Credential, Publisher Space Grant, and Space publishing policy all permit it; otherwise they enter pending review. Agents can never perform human approval or member management.'}
         </p>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{zh ? '\u89e3\u51b3\u4ec0\u4e48\u95ee\u9898' : 'The Problem It Solves'}</h2>
