@@ -2,9 +2,9 @@
 
 ## Result
 
-Local release verification passed on 2026-08-23 (Asia/Shanghai) for application
-candidate commit `b735112`. The evidence-only
-documentation commit follows this candidate and does not change runtime source. No push,
+Local release verification passed on 2026-08-23 (Asia/Shanghai) for the unified-role
+implementation plus repeated-audit fixes through `c53c09d`. The evidence-only
+documentation commit follows those runtime changes. No push,
 npm publish, production deployment, migration application, service restart, live
 connection change, or real OpenCode acceptance was performed.
 
@@ -28,10 +28,10 @@ Result: exit 0. All workspace packages built, then the root test chain passed:
 | Suite | Result |
 | --- | --- |
 | Runtime contracts | 84 passed, 0 failed, 47 skipped |
-| Server Jest | 64 suites, 761 tests passed |
-| Client Vitest | 45 files, 224 tests passed |
+| Server Jest | 64 suites, 768 tests passed |
+| Client Vitest | 45 files, 226 tests passed |
 | Sync protocol Vitest | 6 files, 25 tests passed |
-| Local Sync Vitest | 59 files, 732 tests passed |
+| Local Sync Vitest | 59 files, 736 tests passed |
 
 The 47 runtime skips were all explicit environment gates: 46 require a configured local
 PostgreSQL `DATABASE_URL`, and one requires the independently installed CodeGraph real
@@ -91,12 +91,12 @@ pnpm test:package:local-sync-clean-install
 ```
 
 The pack lifecycles rebuilt both packages and passed sync-protocol 6 files / 25 tests and
-Local Sync 59 files / 732 tests. Audited artifacts:
+Local Sync 59 files / 736 tests. Audited artifacts:
 
 - sync-protocol: `neomei-agentwiki-sync-protocol-0.2.0.tgz`, 48 entries, 27343
   bytes, SHA-256 `796f9e682b6ee75b9452fff8a49f83f04f57bc747a15fe659ee3674ada101ef8`
-- local-sync: `neomei-agentwiki-local-sync-0.5.0.tgz`, 151 entries, 147712 bytes,
-  SHA-256 `451435b9e9ac28fcfa8412a691ff5e1d75063a856a1099a51ae50b987885a2cd`
+- local-sync: `neomei-agentwiki-local-sync-0.5.0.tgz`, 151 entries, 148007 bytes,
+  SHA-256 `8e6543080a80d4233bf8ac5d5cb6287bca4909183654585f32e474498f0d6926`
 
 The local-sync tarball metadata pins `@neomei/agentwiki-sync-protocol` to `0.2.0`. The
 clean-install gate installed both generated tarballs into a new temporary directory and
@@ -136,6 +136,28 @@ fixtures:
 `git diff --check` passed. The changed-file secret scan found only documented placeholder
 URLs and synthetic test fixtures; no environment file, API key, connection code, private
 key, or live credential was added.
+
+## Repeated defect audit
+
+Four independent review passes after the original implementation fixed the following
+additional issues before convergence:
+
+- Publisher manual Credential/Grant writes now persist their required Agent switches in
+  the same transaction; exchange receipt replay also rejects a deleted Space.
+- Reader onboarding fails closed when pull support is unavailable. The onboarding token
+  remains available until the post-install checkpoint is durable, and a resumed durable
+  checkpoint removes a token left by a crash.
+- Bootstrap installation verifies the confirmed created-Space and Agent names as well as
+  IDs, role, scopes, and package version.
+- The UI discards generated instructions when Space/role changes and repairs a stale Space
+  selection before issuing a request.
+- Manual Credential creation and Grant upsert/removal revalidate live Agent ownership,
+  owner state, Space administration, and platform-admin override inside their database
+  transactions; Grant mutation and its audit record commit together.
+
+The final no-find pass re-read the active DTO, controller, authorization, exchange,
+onboarding, installation, and UI paths and found no further defect worth changing. Fresh
+full verification was then repeated rather than relying on an earlier green run.
 
 ## External release gate (read-only snapshot)
 

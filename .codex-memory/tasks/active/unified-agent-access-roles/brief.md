@@ -11,7 +11,8 @@
 - 已修复 local-sync 0.5.0 干净安装时依赖 npm 旧 sync-protocol 0.1.0 导致 CLI 无法启动的发布阻断；sync-protocol 升为 0.2.0，两个候选包联合干净安装通过。
 - 提交态全仓构建、测试、类型、lint、Prisma、三客户端 onboarding、打包和静态扫描均通过。
 - 最终广度审查的三项 Important 已修复：Reader 只读 bootstrap/pull 收尾、Space admin + Agent owner 双门槛、auto-publish 发布事务中锁定并重验当前授权状态。
-- 修复后的完整 build/test/typecheck/lint/Prisma、三客户端 onboarding、双包打包与空目录安装门禁均通过；任务仍保持 active，等待最终 reviewer 复审。
+- 原最终 reviewer 复审后又完成多轮独立缺陷检查，新增修复包括：Publisher 手工写入原子性、删除 Space 后禁止兑换回放、Reader 缺少 pull 时失败关闭、token 在 post-install checkpoint 落盘后再清理、bootstrap 名称绑定、前端选择变化时废弃旧接入码，以及手工 Grant/Credential 在事务内重验撤权状态。
+- 最新完整 build/test/typecheck/lint/Prisma、三客户端 onboarding、双包打包与空目录安装门禁均通过；收敛轮未再发现值得修复的问题。任务保持 active 仅因为外部发布和真实 OpenCode 验收尚未获授权。
 
 ## 范围
 
@@ -29,7 +30,6 @@
 
 ## 下一步
 
-1. 接受最终 reviewer 对三项 Important 修复的复审。
-2. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署。
-3. 部署前创建并验证数据库 custom dump 和应用回滚包，记录指纹。
-4. 发布后用新 Editor 连接完成真实 OpenCode 提案、Agent 不可审批和人工审批后内容确认。
+1. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署。
+2. 部署前创建并验证数据库 custom dump 和应用回滚包，记录指纹。
+3. 发布后用新 Editor 连接完成真实 OpenCode 提案、Agent 不可审批和人工审批后内容确认。

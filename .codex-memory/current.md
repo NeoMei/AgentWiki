@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- Agent `reader`、`editor`、`publisher` 统一访问角色已完成本地实现与最终验证，正在合并回 `master`。
+- Agent `reader`、`editor`、`publisher` 统一访问角色已完成本地实现、多轮缺陷审查与本地 `master` 合并；外部发布门禁仍未执行。
 - 下一阶段按已修订 Spec 和 TDD 计划实施 Agent 协作模板与组件；统一访问角色作为其已完成前置基础，二者在外部发布时合并为 local-sync/onboarding 0.6.0，不单独发布中间版。
 
 # 范围 / 不做
@@ -14,7 +14,8 @@
 
 # 当前状态
 
-- `unified-agent-access-roles`：实现和最终广度复审完成，结论 FINAL CLEAN（0 Critical / 0 Important / 0 Minor）；最终测试为 runtime 84 通过 / 47 环境跳过、server 761、client 224、sync-protocol 25、local-sync 732。
+- `unified-agent-access-roles`：在原 FINAL CLEAN 后又完成多轮独立缺陷审查，修复授权写入原子性、删除 Space 的兑换回放、Reader 空 pull、token/checkpoint 顺序、bootstrap 名称绑定、前端旧接入码状态和手工 Grant/Credential 撤权竞态；收敛轮未再发现值得修复的问题。
+- 最新全量候选测试为 runtime 84 通过 / 47 环境跳过、server 768、client 226、sync-protocol 25、local-sync 736；三客户端 onboarding、双包干净安装、类型、lint、Prisma 与格式门禁均通过。
 - Reader onboarding 已改为只读 pull 路径；Agent Grant 变更同时要求 Agent owner 与 Space owner/admin；auto-publish 在发布事务临界点锁定并重验 Credential、Agent/owner、Grant、Space 与领域门槛。
 - sync-protocol 0.2.0 与 local-sync 0.5.0 候选包已通过联合打包、空目录安装和 CLI 启动验证；尚未推送、发布或部署。
 - `agent-collaboration-templates`：正式设计和 13 个任务的 TDD 实施计划已完成完整性修订，尚未开始生产代码实现。
@@ -43,7 +44,7 @@
 
 # 风险 / 下一步
 
-- 本地合并后仍需单独授权并先完成 PostgreSQL custom-format 与应用回滚备份，才能 push、依次发布 sync-protocol/local-sync、部署破坏性迁移及执行真实 OpenCode 验收。
+- 仍需单独授权并先完成 PostgreSQL custom-format 与应用回滚备份，才能 push、依次发布 sync-protocol/local-sync、部署破坏性迁移及执行真实 OpenCode 验收。
 - 0.5.0 无 schema-only 回滚；回退必须成对恢复数据库与应用备份。
 - 协作模板实施不得重新引入角色与 scopes 两套配置，也不得把 Agent 角色槽位混同为访问权限。
 - 所有协作数据库集成测试必须使用 `COLLABORATION_TEST_DATABASE_URL` 和随机 `collaboration_test_*` schema。
