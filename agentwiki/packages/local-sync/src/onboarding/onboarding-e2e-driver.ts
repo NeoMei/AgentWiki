@@ -139,6 +139,9 @@ export async function runOnboardingStateMachineHarness(
             return { jobId: 'job-1', previewHash: 'preview-hash', summary: { filesProcessed: 1 } };
           },
           confirmAndSync: async (input) => {
+            if (options.input.role === 'reader') {
+              throw new Error('Reader write sync rejected: AUTH_SCOPE_REQUIRED');
+            }
             calls.sync.push(input);
             return { revisionId: 'revision-1', status: 'published', submissionId: 'submission-1' };
           },

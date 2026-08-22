@@ -330,6 +330,17 @@ export class OnboardingCoordinator {
 
   private async firstScan(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'scan', status: 'running' });
+    const spaceId = (prev.bootstrapResult as { space: { id: string } }).space.id;
+    if (prev.inputs?.role === 'reader') {
+      const pulled = await this.deps.knowledge.pull?.({ spaceId });
+      return this.transition({
+        ...prev,
+        bootstrapResult: {
+          ...prev.bootstrapResult,
+          ...(pulled ? { revisionId: pulled.revisionId, status: 'pulled' } : {}),
+        },
+      }, 'completed');
+    }
     const localScanPlan = await this.planLocalScan(prev.inputs!);
     const publicPlan = localScanPlan ? redactLocalScanPlan(localScanPlan) : null;
     if (prev.localScanPlanHash !== publicPlan?.localScanPlanHash) {
@@ -353,7 +364,6 @@ export class OnboardingCoordinator {
       });
       throw this.fail('CODEGRAPH_SCAN_PLAN_CHANGED', 'the local CodeGraph scan plan changed; confirm the updated preview', true);
     }
-    const spaceId = (prev.bootstrapResult as { space: { id: string } }).space.id;
     await this.deps.knowledge.pull?.({ spaceId });
     const preview = await this.deps.knowledge.prepare({
       spaceId,
@@ -464,6 +474,7 @@ export class OnboardingCoordinator {
   }
 
   private async planLocalScan(inputs: Record<string, unknown>): Promise<LocalScanPlan | null> {
+    if (inputs.role === 'reader') return null;
     const sourceType = (inputs.sourceType ?? 'auto') as 'auto' | 'code' | 'documents';
     if (inputs.analysisMode === 'deep') {
       throw new OnboardingError({

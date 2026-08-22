@@ -55,7 +55,7 @@ const TRANSITIONS: Record<OnboardingState, OnboardingState[]> = {
   bootstrapping: ['installing_gateway', 'failed_recoverable', 'failed_terminal'],
   installing_gateway: ['verifying_gateway', 'failed_recoverable', 'failed_terminal'],
   verifying_gateway: ['scanning', 'completed', 'failed_recoverable', 'failed_terminal'],
-  scanning: ['waiting_for_confirmation', 'waiting_for_sync_confirmation', 'failed_recoverable', 'failed_terminal'],
+  scanning: ['waiting_for_confirmation', 'waiting_for_sync_confirmation', 'completed', 'failed_recoverable', 'failed_terminal'],
   waiting_for_sync_confirmation: ['syncing', 'waiting_for_sync_confirmation', 'cancelled', 'failed_recoverable', 'failed_terminal'],
   syncing: ['completed', 'failed_recoverable', 'failed_terminal'],
   completed: [],
@@ -216,7 +216,7 @@ const checkpointSchema = z.object({
   if (!checkpoint.inputs || !checkpoint.serverPlan || !checkpoint.serverPlanHash || !checkpoint.onboardingPlanHash) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'post-confirmation checkpoint is missing plan evidence' });
   }
-  if (checkpoint.inputs?.sourceType === 'code' && (!checkpoint.localScanPlan || !checkpoint.localScanPlanHash)) {
+  if (checkpoint.inputs?.role !== 'reader' && checkpoint.inputs?.sourceType === 'code' && (!checkpoint.localScanPlan || !checkpoint.localScanPlanHash)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'code checkpoint is missing local scan consent' });
   }
   if (checkpoint.inputs?.sourceType === 'documents' && (checkpoint.localScanPlan || checkpoint.localScanPlanHash)) {

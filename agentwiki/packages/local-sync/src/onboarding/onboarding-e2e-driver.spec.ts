@@ -113,6 +113,15 @@ describe('onboarding runtime state-machine E2E', () => {
       role,
       scopes: scopesForAgentAccessRole(role),
     }]);
+    if (role === 'reader') {
+      expect(harness.calls.plan).toHaveLength(0);
+      expect(harness.calls.prepare).toHaveLength(0);
+      expect(harness.calls.sync).toHaveLength(0);
+      expect(harness.events.map((event) => event.type)).toContain('completed');
+    } else {
+      expect(harness.calls.prepare).toHaveLength(1);
+      expect(harness.calls.sync).toHaveLength(1);
+    }
   });
 
   it('moves a real drifted code flow to recoverable plan confirmation without local mutation', async () => {

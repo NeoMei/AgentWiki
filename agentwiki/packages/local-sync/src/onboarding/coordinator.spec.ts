@@ -163,6 +163,37 @@ describe('OnboardingCoordinator happy path', () => {
     });
   });
 
+  it('completes Reader onboarding through pull without planning or invoking a write sync', async () => {
+    const pull = vi.fn(async () => ({ revisionId: 'reader-revision' }));
+    const fixture = mockDeps({
+      knowledge: {
+        pull,
+        planLocalScan: vi.fn(async () => {
+          throw new Error('Reader onboarding must not plan a local upload');
+        }),
+        prepare: vi.fn(async () => {
+          throw new Error('Reader onboarding must not prepare a write sync');
+        }),
+        confirmAndSync: vi.fn(async () => {
+          throw new Error('Reader onboarding must not confirm a write sync');
+        }),
+      },
+    });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'R&D', agentName: 'ReadBot', role: 'reader',
+      clientType: 'codex', sourcePaths: ['.'], sourceType: 'code',
+    });
+
+    const result = await new OnboardingCoordinator(fixture.deps).run();
+
+    expect(result.report).toMatchObject({ revisionId: 'reader-revision' });
+    expect(pull).toHaveBeenCalledWith({ spaceId: 'space-1' });
+    expect(fixture.deps.knowledge.planLocalScan).not.toHaveBeenCalled();
+    expect(fixture.deps.knowledge.prepare).not.toHaveBeenCalled();
+    expect(fixture.deps.knowledge.confirmAndSync).not.toHaveBeenCalled();
+    expect(fixture.sink.lines.map((line) => JSON.parse(line).type)).toContain('completed');
+  });
+
   it('emits authorization_required and heartbeat during polling', async () => {
     const fixture = mockDeps();
     fixture.deps.source = successfulSource(fixture.sink, {
