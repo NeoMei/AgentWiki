@@ -10,5 +10,7 @@
 - 现有 Job/WorkItem：`agentwiki/packages/local-sync/src/protocol/job.ts`
 - 现有状态机：`agentwiki/packages/local-sync/src/core/orchestrator.ts`
 - 现有租约队列参考：`agentwiki/apps/server/src/assist/assist.queue.ts`
+- 隔离 PostgreSQL 测试参考：`agentwiki/scripts/relation-concurrency-db.test.mjs`
+- Prisma drift 窄例外参考：`agentwiki/scripts/pgvector-semantic-search-db.test.mjs`
 - Space 导航：`agentwiki/apps/client/src/components/SpaceNav.tsx`
 - 标书阶段与人工门参考：`/Users/neomei/.agents/skills/superwriter/SKILL.md`

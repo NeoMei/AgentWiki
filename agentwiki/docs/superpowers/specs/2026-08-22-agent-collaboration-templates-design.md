@@ -1,7 +1,7 @@
 # Agent 协作模板与组件设计
 
 日期：2026-08-22
-状态：已确认
+状态：已确认（2026-08-22 完整性修订）
 选定方案：AgentWiki 协作控制面 + 外部 Agent MCP 执行面
 
 ## 背景
@@ -45,7 +45,7 @@ AgentWiki 已经具备 Space、Agent 独立身份、Credential、Space Grant、M
 
 ## 与 Agent 统一访问角色的关系
 
-本设计依赖已确认、尚未实现的 `reader | editor | publisher` Agent 统一访问角色设计。两者的顺序为：先完成统一访问角色 0.5.0，再实现协作模板。
+本设计依赖已确认、尚未实现的 `reader | editor | publisher` Agent 统一访问角色设计。实现顺序仍是先完成统一访问角色，再实现协作模板；但二者采用一次合并发布：统一访问角色先在本地以 local-sync/onboarding 协议 `0.5.0` 完成门禁，不单独发布或部署；协作能力完成后，把 local-sync、server/client 应用包、统一网关、服务端 onboarding 兼容声明和用户指令统一提升到 `0.6.0`。`@neomei/agentwiki-sync-protocol` 同步包含新契约，但保持其独立包版本策略，不把它的包版本强行等同于 local-sync 协议版本。如果 `0.5.0` 在协作开发前已被另行授权发布，协作版本仍使用 `0.6.0`，不得把新增 MCP 契约伪装成 patch 版本。
 
 普通界面继续只显示和提交访问角色，不能重新暴露逐项 scope 配置。协作能力只扩展统一角色策略的底层派生 scopes：
 
@@ -120,7 +120,9 @@ API 进程处理人类操作和 MCP 的同步事务；现有 Worker 进程负责
 - Role Binding 是运行中 Role Slot 到具体 Agent 的映射。
 - 一个 Agent 可以绑定多个 Role Slot。
 - 启动预检要求每个必需 Role Slot 都绑定当前 Space 中 active 且访问角色至少为 `editor` 的 Agent。
-- 人工改派只改变指定 Run Task 的当前负责人，不篡改模板快照；事件记录原负责人、新负责人和理由。
+- 人工改派只改变指定 Run Task 的当前负责人，不篡改模板快照和不可变 Role Binding 快照；事件记录原负责人、新负责人和理由。
+- Agent 可以加入运行，当且仅当它仍满足 active、Space Grant、Credential 与 `collaboration:execute` 交集，并且“存在于 Role Binding”或“当前负责至少一个非终态 Run Task”。因此合法改派后的新 Agent 可以加入，旧 Agent 在不再绑定任何槽位且不再负责非终态任务时不能继续执行。
+- 改派事务必须重新校验新 Agent 权限、废止旧负责人的活跃尝试、更新任务负责人并生成一条合并恢复指令；只改 `assigneeAgentId` 而不处理租约和加入资格不算完成。
 
 ### Collaboration Run
 
@@ -144,6 +146,8 @@ draft → ready → running
 - `failed`：运行已 paused 且没有被接受的恢复方案，由 Owner/Admin 带理由“结束为失败”；自动重试耗尽本身只会暂停，不会静默结束运行。
 - `cancelled`：Owner/Admin 在成功前主动终止。`completed`、`failed`、`cancelled` 都是终态。
 
+运行状态由服务端在每次事务提交前按固定优先级重算，客户端不得自行推导：显式终态保持不变；人工暂停/授权失效/重试耗尽为 `paused`；只要存在 `ready | claimed | running | retry_wait` 的 Agent 任务即为 `running`；不存在这些任务且存在可处理的 pending Review 才为 `waiting_review`；全部必需任务和终点满足后才为 `completed`。因此“同时有待审核节点和另一条可执行并行分支”必须保持 `running`，不能过早进入 `waiting_review`。
+
 ### Run Task
 
 唯一可被 Agent 领取的执行单位，一个任务同时只有一个主责 Agent 和一个有效尝试。
@@ -155,23 +159,23 @@ blocked → ready → claimed → running → submitted → completed
                                   └→ skipped
 ```
 
-`blocked` 表示依赖未满足；`ready` 可领取；`claimed` 已签发租约；`running` 至少一个 Todo 已开始；`submitted` 等待校验或人工审核；`completed` 的结果已接受；`retry_wait` 等待退避；`failed` 使运行暂停；`skipped` 由授权人类带理由跳过。
+`blocked` 表示依赖未满足；`ready` 可领取；`claimed` 已签发租约；`running` 至少一个 Todo 已开始；`submitted` 等待校验或人工审核；`completed` 的结果已接受；`retry_wait` 等待退避；`failed` 使运行暂停；`skipped` 由授权人类带理由跳过。每个 Run Task 维护从 1 开始的 `generation`；Todo、Attempt、Artifact 和 Review 都记录对应 generation，权威读取只使用任务当前 generation，旧代记录永不覆盖或删除。
 
 ### Task Todo
 
-Run Task 内部有序、不可独立领取的检查项。它继承任务负责人和租约，可标记必做或可选；后一项不能越过未完成的必做前项。每项保存状态、简短结果和可选证据引用。
+Run Task 内部有序、不可独立领取的检查项。它继承任务负责人、generation 和租约，可标记必做或可选；后一项不能越过未完成的必做前项。每项保存状态、简短结果和可选证据引用。Agent 任务必须至少有一个 Todo 且至少一个必做 Todo。将 Todo 标为 `failed` 会原子结束当前 Attempt；若基础设施重试预算尚有剩余则任务进入 `retry_wait`，否则运行进入 `paused`，不能留下“Todo 已失败但 Attempt 仍可提交”的矛盾状态。
 
 ### Task Dependency
 
-节点之间的前置关系，而不是运行任务。支持 `all`（所有上游完成）和 `any`（任一上游完成）。模板保存时拒绝循环依赖、不存在节点、无入口、无终点和不可达必需节点。多个无相互依赖且同时 ready 的任务自然并行。
+节点之间的前置关系，而不是运行任务。支持 `all`（所有上游完成）和 `any`（任一上游完成）。`any` 采用“提前释放”而不是“赢家通吃”：任一上游满足即可释放下游，但其余未跳过上游仍必须完成，运行才可完成。下游只能读取当前已接受且显式声明为可选的上游产物；若输入契约把某个上游产物声明为必需，校验器必须拒绝可能在该产物尚未产生时提前释放的 `any` 配置。模板保存时拒绝循环依赖、不存在节点、无入口、无终点和不可达必需节点。多个无相互依赖且同时 ready 的任务自然并行。
 
 ### Task Artifact
 
 Run Task 提交的版本化结果，类型为 Markdown、受 Schema 限制的 JSON、外部代码/文件引用或证据摘要。每次提交创建新版本，不覆盖旧版本。
 
-若任务不要求人工接受，服务端 Schema 和证据校验通过后版本即被接受；若任务连接 Human Review Gate，产物保持 pending，只有审核通过后成为下游可读取的 accepted 版本。
+若任务不要求人工接受，服务端 Schema 和证据校验通过后版本即被接受；若任务连接 Human Review Gate，产物保持 pending，只有审核通过后成为下游可读取的 accepted 版本。Artifact 状态包含 `pending | accepted | rejected | superseded`；任何依赖读取必须同时匹配任务当前 generation 和 `accepted`，避免驳回后继续消费旧产物。
 
-外部引用包含类型、显示名称、可选版本/commit、内容 hash 和受控 URI。共享工作目录文件只允许工作区相对路径；默认拒绝上传绝对本地路径、凭据、原始环境变量和不可审计的临时链接。外部引用不会自动发布为 Wiki 正文。
+外部引用包含类型、显示名称、可选版本/commit、内容 hash 和受控 URI。`workspace_path` 输入只接受 POSIX 相对路径，并拒绝绝对路径、独立 `..` 路径段、反斜杠、Windows drive/UNC、NUL；保存时去除空段和 `.` 段得到规范形式。`url` 只能是可解析的 HTTPS，拒绝 credentials 和 `token`、`key`、`signature`、`sig`、`x-amz-*`、`x-goog-*` 等凭据型查询参数，保存前移除 fragment；URL 与 workspace path 必须带内容 hash。`git_commit` 必须带仓库显示引用和完整 40 或 64 位十六进制提交值。服务端只验证和保存引用，绝不抓取 URL、打开路径或验证仓库内容。外部引用不会自动发布为 Wiki 正文。
 
 ### Human Review Gate
 
@@ -182,6 +186,8 @@ Run Task 提交的版本化结果，类型为 Markdown、受 Schema 限制的 JS
 - `terminate`：终止运行、废止活跃租约并保留历史。
 
 Agent 审校任务仍只是 Run Task，只能提交建议，不能替代 Human Review Gate。
+
+Review 状态包含 `pending | approved | rejected | terminated | superseded`。`reject_for_revision` 先把当前决策行记为 `rejected`，再在同一串行化事务中执行代际失效：校验返回任务是审核来源任务的合法祖先或来源任务本身；计算从返回任务到该 Review 及其所有下游的受影响子图；废止其中活跃 Attempt；把受影响任务的当前 generation 加一；把旧代 pending/accepted Artifact 和除当前决策行外的 pending Review 标为 `superseded`；为新代创建初始 Todo；将返回任务按其外部依赖重算为 `ready | blocked`，其后代先置为 `blocked`；最后重算运行状态并记录包含受影响节点集合的事件。旧 Todo、Attempt、Artifact、Review 和事件保留用于审计，但不得参与新代依赖判断或完成判定。
 
 ## 五个核心组件
 
@@ -204,6 +210,16 @@ Agent 审校任务仍只是 Run Task，只能提交建议，不能替代 Human R
 ### 5. 结果交接与汇总
 
 简单交接只把已接受 Task Artifact 的引用注入下游显式输入。需要重写、合并或生成最终稿时，创建一个消费多个上游产物的 Agent 汇总任务；不引入独立的“复制上下文”任务。
+
+## 模板与产物契约
+
+- `inputs`、`roleSlots`、`nodes`、每个任务的 Todo 和输出 key 在各自作用域内唯一；所有 Role Slot、节点、终点和依赖引用必须存在。
+- Agent 任务显式声明 `upstreamArtifacts: [{ key, required }]`。引用的 Artifact key 必须由可达上游任务产生；Human Review 的 `artifactTaskId` 必须指向有边到该 Review 的 Agent 任务，`revisionTaskId` 必须是其合法祖先或自身。
+- terminal 节点必须存在、唯一且无出边；所有必需节点可从入口到达。循环、孤儿、悬空引用、非法 `any + required artifact` 和非法审核返回目标均在保存与启动时拒绝。
+- `roleSlots` 在共享 DTO 中始终是对象数组，不允许服务端、MCP 和前端各自退化为字符串数组。
+- Artifact 使用按 `kind` 判别的严格联合：Markdown 为 `{ kind, markdown, evidence }`，JSON 为 `{ kind, json, evidence }`，外部引用为 `{ kind, externalReference, evidence }`，证据摘要为 `{ kind, summary, evidence }`；未知字段拒绝。
+- JSON 输出采用受限 JSON Schema 2020-12 子集：仅支持 `type`、`properties`、`required`、`additionalProperties`、`items`、`enum`、`const`、长度/数值/数组上下限；拒绝 `$ref`、`$dynamicRef`、远程加载、未列出的关键字和超深 Schema。服务端使用直接依赖且锁定版本的 Ajv，开启 strict/allErrors、禁止远程解析，并按 Schema hash 做有上限缓存。
+- 启动输入必须按模板变量类型再次校验，不能只检查必填和 URL/number 的前端表单状态；所有 MCP 服务端输出也必须通过共享输出 Schema 后才返回。
 
 ## 五类内置模板
 
@@ -246,30 +262,32 @@ Agent 审校任务仍只是 Run Task，只能提交建议，不能替代 Human R
 MVP 采用“模板定义 JSON + 运行规范化记录”：
 
 - `CollaborationTemplate` 保存系统/Space 所属、稳定 slug、版本和当前受 Schema 校验的定义 JSON。
-- 系统模板通过稳定 seed 版本更新，前端不能编辑。
+- 系统模板通过稳定 seed 版本更新，前端不能编辑。seed 定义先经 Schema parse 生成不可变深拷贝；事务只在数据库 `seedVersion < incomingSeedVersion` 时更新，同版本幂等、旧版本永不降级，多副本并发也不能覆盖较新 seed；Space 副本永不跟随更新。
 - Space 模板每次有效保存递增版本。
 - `CollaborationRun` 保存 `templateId`、版本号和完整 `templateSnapshot`，不依赖模板后续状态。
 - 启动事务把快照展开为 Role Binding、Run Task、Task Todo 和 Dependency 运行记录。
 - Artifact、Attempt、Review 和 Event 使用独立记录，便于事务、索引、审计和并发控制。
 
-MVP 数据对象固定为 `CollaborationTemplate`、`CollaborationRun`、`CollaborationRoleBinding`、`CollaborationRunTask`、`CollaborationTaskTodo`、`CollaborationTaskDependency`、`CollaborationTaskAttempt`、`CollaborationTaskArtifact`、`CollaborationReview` 和 `CollaborationRunEvent`。状态字段必须使用共享枚举/Schema，不能在客户端和服务端分别维护自由字符串。
+MVP 数据对象固定为 `CollaborationTemplate`、`CollaborationRun`、`CollaborationRoleBinding`、`CollaborationRunTask`、`CollaborationTaskTodo`、`CollaborationTaskDependency`、`CollaborationTaskAttempt`、`CollaborationTaskArtifact`、`CollaborationReview` 和 `CollaborationRunEvent`。状态字段必须使用共享枚举/Schema，不能在客户端和服务端分别维护自由字符串。Run draft 具有递增 `version` 用于乐观更新；Task/Todo/Attempt/Artifact/Review 具有 generation 关联；冗余的 runId/taskId/attemptId 必须由复合外键保证属于同一层级，不能只依赖服务代码约定。
+
+数据库还必须使用 CHECK/唯一约束固定关键不变量：系统模板当且仅当 `scopeKey='system' AND spaceId IS NULL`，Space 模板当且仅当 `scopeKey=spaceId AND spaceId IS NOT NULL`；租约到期时间不晚于最大执行截止；Event 至多一个人类或 Agent actor；同一运行、actor、operation、幂等键唯一。Prisma 不能表达的部分索引或 CHECK 用显式 SQL migration，并以窄 allowlist 的 drift 测试保护，不能扩大现有 pgvector 例外。
 
 ## MCP 执行协议
 
 ### 加入指令
 
-启动成功后，UI 为每个参与 Agent 生成一段可复制指令，包含运行标识、Agent 在本运行中的 Role Slots 和行为说明，不包含新的长期密钥。Agent 使用现有统一 MCP 连接和当前 AgentCredential 调用 `collaboration_join_run`；服务端以认证 Agent 身份验证 Role Binding，不能仅凭 runId 加入。
+启动成功后，UI 为每个参与 Agent 生成一段可复制指令，包含运行标识、Agent 在本运行中的 Role Slots 和行为说明，不包含新的长期密钥。Agent 使用现有统一 MCP 连接和当前 AgentCredential 调用 `collaboration_join_run`；服务端以认证 Agent 身份验证不可变 Role Binding 或当前非终态任务负责人资格，不能仅凭 runId 加入。
 
 ### MCP 工具
 
-- `collaboration_join_run`：验证 Agent active、Space Grant、访问角色、Credential scopes、Role Binding 和运行状态，返回参与摘要与循环协议。
+- `collaboration_join_run`：验证 Agent active、Space Grant、访问角色、Credential scopes、Role Binding 或当前任务负责人资格及运行状态，返回参与摘要与循环协议。
 - `collaboration_next_action`：使用 runId、幂等键和有上限的可选长轮询；事务性创建 Task Attempt、签发一个任务租约，或返回 `waiting_dependency | waiting_human | paused | completed`。
 - `collaboration_heartbeat`：只有当前 Agent、当前尝试和未过期租约可续租，且不能超过任务最大执行时限；服务端只存租约令牌 hash。
 - `collaboration_update_todo`：按序、幂等更新一个 Todo 的 `doing | done | failed`、简短结果和证据。
 - `collaboration_submit_result`：校验权限、租约、Todo、大小、Schema、路径、证据和状态后，原子创建产物版本并推进任务。
 - `collaboration_get_run`：Agent 只获得运行摘要、自己的 Role Slots/任务和显式可读产物；人类按 Space 权限获得完整看板数据。
 
-所有写 MCP 工具必须使用幂等键。重复调用返回已有结果，不能重复创建 Todo 完成记录、产物、审核或依赖推进。
+所有写 MCP 工具必须使用幂等键。幂等作用域为 `(runId, actorKind, actorId, operation, idempotencyKey)`，并保存规范化请求的 `requestHash`；同作用域同 hash 返回原安全响应，不同 operation、target 或 hash 返回 `COLLABORATION_IDEMPOTENCY_MISMATCH`，不能重复创建 Todo 完成记录、产物、审核或依赖推进。租约明文永不持久化或写日志；只有对已授权的完全相同 claim 重放，才按域隔离 HMAC 确定性重建。
 
 ### 循环与人工审核暂停
 
@@ -282,7 +300,14 @@ join_run
   → next_action
 ```
 
-Agent 可在 `waiting_dependency` 下按建议间隔短轮询，但不能占用任务租约。遇到 `waiting_human`、`paused` 或终态时必须报告并安全退出。人工审核通过或人工处理完成后，UI 为受影响 Agent 生成“恢复本次协作”的指令；MVP 不承诺在审核等待数小时后远程自动唤醒已经退出的本地 Agent。
+Agent 可在 `waiting_dependency` 下按建议间隔短轮询，但不能占用任务租约。`waiting_human` 必须返回 `resumeRequired: true` 和可读原因，不返回暗示继续轮询的 `retryAfterSeconds`。遇到 `waiting_human`、`paused` 或终态时必须报告并安全退出。人工审核通过或人工处理完成后，UI 为受影响 Agent 生成“恢复本次协作”的指令；MVP 不承诺在审核等待数小时后远程自动唤醒已经退出的本地 Agent。
+
+### 人类 REST API 边界
+
+- 模板：list、create、copy、get、validate（非写入）、update（带 expectedVersion）、archive；系统模板只有 list/get/copy。
+- 运行向导持久化 draft：create draft、update inputs/bindings（带 expectedVersion）、validate draft（`draft → ready`）、start（`ready → running`）；start 仍在事务中重新预检并保持幂等。
+- 运行：list/get，以及 pause、resume、retry、reassign、skip、fail、cancel、review decision。所有写操作都使用人类 actor 作用域的幂等键和 request hash。
+- API Controller、前端 client 和实施测试必须使用同一组确切路由；不能让设计声称支持 create/archive/draft，而实现计划只列 list/copy/start。
 
 ## 人类权限
 
@@ -332,10 +357,10 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 
 - 领取竞争：数据库事务与条件更新保证只有一个有效 Task Attempt。
 - 重复请求：幂等键返回已有结果。
-- 临时失败：按模板预算指数退避后重新 ready。
+- 临时失败：按模板预算指数退避后重新 ready。`retryBudget` 表示“首次尝试之后允许的重试次数”，因此最大 Attempt 数为 `1 + retryBudget`；Attempt #1 在 budget=1 时进入一次 `retry_wait`，Attempt #2 再失败才耗尽。
 - 租约超时：旧尝试失效，任务释放；迟到心跳、Todo 或结果提交被拒绝。
 - 输出校验失败：返回结构化问题，在内容修复预算内定向修复，不消耗基础设施重试。
-- API/Worker 重启：权威状态在 PostgreSQL，过期租约由恢复扫描处理。
+- API/Worker 重启：权威状态在 PostgreSQL，过期租约由恢复扫描处理。每次 claim/heartbeat/Todo/submission 都重新验证当前负责人权限；Worker 处理过期尝试和 due task 时也重新校验当前负责人，发现撤权/降级则以 `agent_authorization_changed` 暂停，绝不自动改派。
 
 ### 人工处理
 
@@ -349,7 +374,7 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 
 - 所有模板与运行都在 Space 边界内授权；系统模板不包含客户数据。
 - Agent 只能读取显式输入和获授权 Task Artifact，不获得整次运行的无边界上下文。
-- MCP 不返回其他 Agent 的 Credential、私有 Memory、租约令牌或未声明输入。
+- MCP 不返回其他 Agent 的 Credential、私有 Memory、其他尝试的租约令牌或未声明输入。
 - 租约令牌、幂等原材料、连接码、Credential 和本地绝对路径不得进入日志或审计 metadata。
 - Markdown/JSON 设定大小和深度上限；外部 URL 只作为引用存储，不由服务端任意抓取。
 - 模板变量不能执行脚本、表达式、命令、Webhook 或动态代码。
@@ -373,6 +398,10 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 - Attempt、Artifact、Review、依赖释放和 Event 在事务中一致；
 - Agent 撤权、角色降级、Space 删除和运行中重新授权；
 - 驳回生成新修订且旧产物不被覆盖；
+- 驳回使返回任务到审核下游的旧代 Todo/Attempt/Artifact/Review 全部失效，旧 accepted Artifact 不能继续释放依赖或完成运行；
+- 合法改派的新 Agent 能加入并执行，旧租约立即失效；
+- pending Review 与另一可执行分支并存时运行保持 running，仅剩人工动作时才 waiting_review；
+- `any` 只提前释放下游，其余上游仍参与完成判定，缺失的可选产物不被伪造；
 - 终止后旧租约和迟到结果不能复活运行。
 
 ### MCP 契约
@@ -404,7 +433,7 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 
 ### 发布门槛
 
-实现完成后运行 server、client、sync-protocol、local-sync、MCP、类型检查、lint、build 和 Prisma 迁移门禁。部署生产需另行授权，并执行只读预检、PostgreSQL/应用回滚备份、迁移检查、服务观察、公网健康和业务 smoke。开发测试通过不自动触发 push、npm 发布或生产部署。
+实现完成后运行 server、client、sync-protocol、local-sync、MCP、类型检查、lint、build 和 Prisma 迁移门禁。数据库集成测试必须使用专用测试连接，在随机且带固定测试前缀的 PostgreSQL schema 中执行 migration；finally 只删除精确生成的 schema，禁止对未验证的 `DATABASE_URL` 直接迁移或清理。部署生产需另行授权，并执行只读预检、PostgreSQL/应用回滚备份、迁移检查、服务观察、公网健康和业务 smoke。开发测试通过不自动触发 push、npm 发布或生产部署。
 
 ## MVP 不做
 
@@ -420,12 +449,12 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 
 ## 实施顺序
 
-1. 先完成并验证统一访问角色 0.5.0 实施计划。
+1. 先完成并验证统一访问角色 0.5.0 本地门禁，但不单独发布或部署。
 2. 在共享协议中扩展协作 scopes、模板 Schema、状态枚举和 MCP DTO。
 3. 实现服务端模板、运行、任务、租约、产物、审核和事件核心。
 4. 实现 Agent MCP 执行循环和授权边界。
 5. 实现 Space 协作入口、模板配置、启动向导和运行看板。
-6. 加入五个内置模板并完成自动化、真实多 Agent 和发布前验证。
+6. 加入五个内置模板并完成自动化、真实多 Agent 和发布前验证，把统一发布版本提升到 0.6.0。
 
 ## 完成标准
 

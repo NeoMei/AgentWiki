@@ -18,3 +18,11 @@
 16. 服务端 MCP 使用 canonical `collaboration_*`，本地统一网关向 Agent 暴露带精确 schema 的 `wiki_collaboration_*`。
 17. 幂等领取的租约令牌使用现有 `JWT_SECRET` 做域隔离 HMAC 可重建，数据库仍只保存 token hash；同一 Agent 在同一运行最多一个活跃尝试。
 18. 系统模板以非空 `scopeKey=system` 与 slug 唯一，Space 模板以 `scopeKey=spaceId` 唯一，避免 PostgreSQL nullable 唯一键无法保护系统 seed。
+19. 人工驳回采用任务 generation 和因果子图失效；旧代记录保留但标记 superseded，不能释放依赖或完成运行。
+20. 人工改派保持 Role Binding 快照不变，但当前任务负责人同样构成 join 资格；改派必须校验新 Agent、废止旧租约并生成恢复指令。
+21. 运行状态先处理终态/paused，再看可执行 Agent 工作，只有人类审核是唯一动作时才 waiting_review。
+22. `any` 是提前释放而非赢家通吃，其余未跳过上游仍参与运行完成判定；必需 Artifact 不允许依赖不安全的 any 提前释放。
+23. 写操作幂等作用域固定为 run、actor、operation 和 key，并校验 request hash/target；租约明文只可在授权精确重放时确定性重建。
+24. JSON Artifact 使用严格判别联合；JSON Schema 只支持受限 2020-12 子集，由直接依赖 Ajv 8.18.0 严格校验且禁止远程引用。
+25. PostgreSQL 集成测试只允许专用 `COLLABORATION_TEST_DATABASE_URL` 和随机 `collaboration_test_*` schema，不直接迁移或清理任意 DATABASE_URL/public。
+26. 统一角色 0.5.0 只做本地中间门禁；协作完成后 local-sync、server/client、网关和 onboarding 合并发布 0.6.0，sync-protocol 保持独立包 semver。
