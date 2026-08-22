@@ -591,6 +591,11 @@ test('every active Agent connection surface exposes only the unified gateway', a
   assert.match(active, /knowledge_\*|knowledge_/i, 'the unified gateway must document combined knowledge tools');
 });
 
+test('active Agent UI translations omit retired role names', async () => {
+  const messages = await read('apps/client/src/i18n/messages.ts');
+  assert.doesNotMatch(messages, /['"]agent\.(?:viewer|full)['"]/u);
+});
+
 test('the onboard.json endpoint returns 410 Gone with a replacement command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
   assert.match(source, /410/, 'onboard.json must return 410');
