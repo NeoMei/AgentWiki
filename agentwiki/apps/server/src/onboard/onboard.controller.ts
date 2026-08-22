@@ -96,11 +96,11 @@ const ONBOARD_MD = `# AgentWiki Agent 接入
 ${PUBLIC_COMMAND}
 \`\`\`
 
-Agent 会自动完成网页授权、收集参数、确认计划、安装单一 \`agentwiki\` 网关 MCP、首次本地扫描和知识同步预览确认。你只需要做三个动作：
+Agent 会自动完成网页授权、收集参数、确认计划并安装单一 \`agentwiki\` 网关 MCP。Reader 在验证网关后只执行远程知识拉取并完成，不会发起写同步；Editor 和 Publisher 才会进入首次本地扫描和知识同步预览确认。
 
 1. 在浏览器中批准授权
 2. 确认接入计划
-3. 确认首次知识同步预览
+3. 如选择 Editor 或 Publisher，确认首次知识同步预览
 
 密码和登录信息不会进入 Agent 对话。
 

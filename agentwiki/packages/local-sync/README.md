@@ -50,9 +50,10 @@ npx --yes @neomei/agentwiki-local-sync@0.5.0 onboard \
 ```
 
 The onboarding flow performs web Device Authorization, collects parameters via NDJSON,
-confirms a unified plan, installs a single `agentwiki` gateway MCP, runs the first local
-scan, and syncs after explicit preview confirmation. Passwords and login information
-never enter the Agent conversation.
+confirms a unified plan, and installs a single `agentwiki` gateway MCP. Reader completes
+with a read-only pull after gateway verification and never calls the write-sync path.
+Editor and Publisher run the first local scan and sync after explicit preview
+confirmation. Passwords and login information never enter the Agent conversation.
 
 Every 0.5.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
 Agent, the user chooses the Space and role before generating the one-time code; exchange
@@ -61,10 +62,10 @@ all scopes. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and cus
 inputs are not accepted. Publisher eligibility does not change the Space policy and no
 Agent role can approve a ChangeSet or manage members.
 
-The three user actions are:
+The user actions are:
 1. Approve authorization in the browser
 2. Confirm the onboarding plan
-3. Confirm the first knowledge sync preview
+3. For Editor or Publisher, confirm the first knowledge sync preview
 
 After completion, the Agent connects to one local `agentwiki` MCP gateway that
 deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.

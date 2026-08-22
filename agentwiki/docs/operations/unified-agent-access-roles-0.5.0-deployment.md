@@ -49,9 +49,13 @@ After explicit authorization and successful backup verification:
 5. Install with the lockfile, regenerate Prisma Client, and build.
 6. Apply Prisma migrations, then restart only the AgentWiki API, Worker, and frontend.
 7. Verify `/api/health`, service restart counters, the advertised 0.5.0 onboarding
-   version, and the three-role UI.
+   version, and the three-role UI. Verify Reader onboarding completes through pull
+   without a write request, and that another user's Agent grant has no role mutation UI.
 8. Create a new Editor connection and run the real OpenCode acceptance. Its proposal must
    enter `pending_review`, and Agent approval must fail.
+9. Before accepting Publisher auto-publish, race at least one Credential revoke and one
+   Space policy downgrade against publication; both must remain `pending_review` and
+   must not create or update content.
 
 ## Rollback boundary
 

@@ -296,10 +296,14 @@ Agent State ∩ Space Policy ∩ Domain Authorization
 Only `reader`, `editor`, and `publisher` are accepted for Agent access. Legacy
 `viewer`, `full`, `permissionPreset`, `approvalMode`, and client-supplied scope lists
 are rejected. Human Space roles remain a separate Owner / Admin / Editor / Viewer model.
+Reader onboarding ends with a read-only pull; only Editor and Publisher perform the
+initial write sync. Auto-publish re-reads and row-locks the live Credential, Agent owner,
+Agent Grant, and Space before publishing, so a concurrent revoke, expiry, deactivation,
+role/scope downgrade, deletion, or policy downgrade falls back to `pending_review`.
 
 **Space roles for humans:**
 - **Owner** — full control, can transfer ownership, cannot be removed
-- **Admin** — manage all members and Agent grants, cannot delete Space or grant Owner
+- **Admin** — manage human members; may mutate an Agent grant only when also owning that Agent; cannot delete Space or grant Owner
 - **Editor** — create and edit pages
 - **Viewer** — read-only access
 
