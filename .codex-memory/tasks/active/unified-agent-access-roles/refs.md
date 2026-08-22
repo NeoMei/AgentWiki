@@ -11,5 +11,6 @@
 - 验证证据：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 部署与回滚门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
 - 角色 DTO 边界回归：`agentwiki/apps/server/src/core/dto/agent.dto.spec.ts`
-- 本地候选应用提交：`ba3e23ce9dd18b33206d46bf853ffaf87d1c810f`
-- 当前外部基线：`origin/master=c06b9b8`、npm latest=0.4.0、生产 onboarding=0.4.0
+- 本地候选应用提交：`0ea45ebd75b5d864b0e907b4a6fbb3b9f91b87c9`
+- 干净包安装门禁：`agentwiki/scripts/verify-local-sync-clean-install.mjs`
+- 当前外部基线：`origin/master=c06b9b8`、npm sync-protocol latest=0.1.0、local-sync latest=0.4.0、生产 onboarding=0.4.0

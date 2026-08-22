@@ -3,14 +3,15 @@
 ## Result
 
 Local release verification passed on 2026-08-23 (Asia/Shanghai) for application
-candidate commit `ba3e23ce9dd18b33206d46bf853ffaf87d1c810f`. The evidence-only
+candidate commit `0ea45ebd75b5d864b0e907b4a6fbb3b9f91b87c9`. The evidence-only
 documentation commit follows this candidate and does not change runtime source. No push,
 npm publish, production deployment, migration application, service restart, live
 connection change, or real OpenCode acceptance was performed.
 
 - Node: `v24.18.0`
 - pnpm: `11.9.0`
-- Package/protocol version: `0.5.0`
+- Application/local-sync/onboarding version: `0.5.0`
+- Shared sync-protocol package version: `0.2.0`
 - Agent roles: exactly `reader | editor | publisher`
 - Local candidate branch: `codex/unified-agent-access-roles`
 
@@ -26,7 +27,7 @@ Result: exit 0. All workspace packages built, then the root test chain passed:
 
 | Suite | Result |
 | --- | --- |
-| Runtime contracts | 83 passed, 0 failed, 47 skipped |
+| Runtime contracts | 84 passed, 0 failed, 47 skipped |
 | Server Jest | 64 suites, 737 tests passed |
 | Client Vitest | 45 files, 223 tests passed |
 | Sync protocol Vitest | 6 files, 25 tests passed |
@@ -79,24 +80,29 @@ fixtures submit `role`, never `permissionPreset`, `approvalMode`, or custom scop
 
 ## Package audit
 
-Command:
+Commands:
 
 ```bash
+pnpm --filter @neomei/agentwiki-sync-protocol pack \
+  --pack-destination /tmp/agentwiki-role-pack
 pnpm --filter @neomei/agentwiki-local-sync pack \
   --pack-destination /tmp/agentwiki-role-pack
+pnpm test:package:local-sync-clean-install
 ```
 
-The pack lifecycle rebuilt the package and passed all 59 Local Sync test files / 731
-tests. Audited artifact:
+The pack lifecycles rebuilt both packages and passed sync-protocol 6 files / 25 tests and
+Local Sync 59 files / 731 tests. Audited artifacts:
 
-- path: `/tmp/agentwiki-role-pack/neomei-agentwiki-local-sync-0.5.0.tgz`
-- size: `147424` bytes
-- entries: `151`
-- SHA-256: `80942db782ef87f2254b1969cbe983c52e666ec4b41c806a83181d9dc9312377`
+- sync-protocol: `neomei-agentwiki-sync-protocol-0.2.0.tgz`, 48 entries, 27343
+  bytes, SHA-256 `796f9e682b6ee75b9452fff8a49f83f04f57bc747a15fe659ee3674ada101ef8`
+- local-sync: `neomei-agentwiki-local-sync-0.5.0.tgz`, 151 entries, 147425 bytes,
+  SHA-256 `5ea892724d01a18d7965e76508579f447cd127092ed8c0a5b26b298bd30ac09e`
 
-The tarball metadata reports `@neomei/agentwiki-local-sync@0.5.0`. A scan of packed
-`dist/` found no `permissionPreset`, `approvalMode`, or `0.4.0`; the compiled coordinator
-contains the exact role choices and `packageVersion: '0.5.0'`.
+The local-sync tarball metadata pins `@neomei/agentwiki-sync-protocol` to `0.2.0`. The
+clean-install gate installed both generated tarballs into a new temporary directory and
+the installed CLI printed its usage with exit 0. A scan of packed `dist/` found no
+`permissionPreset`, `approvalMode`, or `0.4.0`; the compiled coordinator contains the
+exact role choices and `packageVersion: '0.5.0'`.
 
 ## Legacy-boundary and secret scans
 
@@ -121,6 +127,7 @@ key, or live credential was added.
 Read-only checks on 2026-08-23 showed:
 
 - `origin/master`: `c06b9b83b8039a24722cb0a6ce4e1686809c6bf7`
+- npm `latest` for `@neomei/agentwiki-sync-protocol`: `0.1.0`
 - npm `latest` for `@neomei/agentwiki-local-sync`: `0.4.0`
 - production `/api/health`: database, Redis, and audit persistence all `ok`
 - production `/api/onboard`: advertises `0.4.0`
@@ -129,7 +136,9 @@ Read-only checks on 2026-08-23 showed:
 
 Therefore local candidate, GitHub, npm, and production are intentionally not aligned yet.
 Before any authorized release, create and verify both a PostgreSQL custom-format backup
-and an application rollback archive. The 0.5.0 protocol is breaking and rollback requires
-restoring the matching database and application pair; a schema-only downgrade is not
-supported. After release, the separate real OpenCode Editor acceptance must still prove
-that a page proposal enters `pending_review` and Agent approval fails.
+and an application rollback archive. Publish the audited sync-protocol 0.2.0 artifact
+before local-sync 0.5.0 and repeat the registry clean-install check. The 0.5.0 protocol is
+breaking and rollback requires restoring the matching database and application pair; a
+schema-only downgrade is not supported. After release, the separate real OpenCode Editor
+acceptance must still prove that a page proposal enters `pending_review` and Agent approval
+fails.

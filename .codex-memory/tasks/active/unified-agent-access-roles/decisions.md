@@ -14,3 +14,5 @@
 - root 版本、env 样例、Compose、README、E2E 和发布契约统一到 0.5.0，防止服务端已升级但部署面仍广播 0.4.0。
 - 发布和生产迁移必须先验证 PostgreSQL custom-format 与应用回滚备份；0.5.0 无 schema-only 回滚。
 - 本地验证结束后不自动 push、npm publish、deploy 或改动真实 OpenCode 连接。
+- 新角色导出属于公开 `@neomei/agentwiki-sync-protocol@0.2.0`；发布时必须先发布该包，再发布精确依赖它的 local-sync 0.5.0。
+- npm 发布前必须把两个候选 tgz 安装到空目录并启动已安装 CLI；两包上传后还要对 registry 版本重做同一检查。

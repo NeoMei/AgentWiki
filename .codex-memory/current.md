@@ -3,7 +3,7 @@
 # 当前目标
 
 - 完成 Agent `reader`、`editor`、`publisher` 统一访问角色的发布门禁。
-- 等待用户单独授权 push、npm 0.5.0 发布、生产部署与真实 OpenCode 验收。
+- 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布、生产部署与真实 OpenCode 验收。
 
 # 范围 / 不做
 
@@ -15,11 +15,11 @@
 
 # 当前状态
 
-- 本地分支 `codex/unified-agent-access-roles` 已完成生产代码、界面、协议、文档和迁移实现；最终应用候选提交为 `ba3e23ce9dd18b33206d46bf853ffaf87d1c810f`。
-- 提交态 `pnpm build && pnpm test` 全绿：runtime 83 通过 / 47 显式环境跳过，server 737、client 223、sync-protocol 25、local-sync 731 通过。
+- 本地分支 `codex/unified-agent-access-roles` 已完成生产代码、界面、协议、文档和迁移实现；最终应用候选提交为 `0ea45ebd75b5d864b0e907b4a6fbb3b9f91b87c9`。
+- 提交态 `pnpm build && pnpm test` 全绿：runtime 84 通过 / 47 显式环境跳过，server 737、client 223、sync-protocol 25、local-sync 731 通过。
 - typecheck、lint、Prisma generate/validate、三客户端 onboarding 8+8、迁移静态检查、diff 和秘密扫描均通过。
-- 0.5.0 tarball 共 151 项、147424 bytes，SHA-256 为 `80942db782ef87f2254b1969cbe983c52e666ec4b41c806a83181d9dc9312377`。
-- 读取检查显示 `origin/master=c06b9b8`、npm latest=0.4.0、生产 onboarding=0.4.0；本地、GitHub、npm 和生产尚未对齐。
+- sync-protocol 0.2.0 / local-sync 0.5.0 两个候选包已在空目录联合安装并成功启动 CLI；local-sync 包为 151 项、147425 bytes，SHA-256 为 `5ea892724d01a18d7965e76508579f447cd127092ed8c0a5b26b298bd30ac09e`。
+- 读取检查显示 `origin/master=c06b9b8`、npm sync-protocol latest=0.1.0、local-sync latest=0.4.0、生产 onboarding=0.4.0；本地、GitHub、npm 和生产尚未对齐。
 
 # 稳定约束
 
@@ -45,5 +45,5 @@
 # 风险 / 下一步
 
 - 生产 commit 无法通过当前 SSH 只读访问确认，但公网 health 正常且 onboarding 明确为 0.4.0。
-- 等待单独授权后，先创建并验证 PostgreSQL custom-format 和应用回滚备份，再 push、发布 npm、部署和执行真实 OpenCode Editor 验收。
+- 等待单独授权后，先创建并验证 PostgreSQL custom-format 和应用回滚备份，再 push；先发布 sync-protocol 0.2.0，后发布 local-sync 0.5.0 并重做 registry 空目录安装，最后部署和执行真实 OpenCode Editor 验收。
 - 0.5.0 不兼容旧协议，无 schema-only 回滚；回退必须成对恢复数据库与应用备份。

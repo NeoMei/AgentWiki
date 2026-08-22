@@ -146,6 +146,10 @@ and connection ID, never the API key.
 These versions were tested with isolated temporary HOME directories on 2026-08-15. The
 package uses an exact version in every registered gateway command.
 
+The 0.5.0 package requires `@neomei/agentwiki-sync-protocol@0.2.0`. Release verification
+packs both candidates, installs them into an empty directory, and starts the installed
+CLI; publish the audited sync-protocol tarball first.
+
 ## Package contents
 
 The npm tarball is limited to compiled `dist/`, the shared `skill/`, this README,

@@ -239,7 +239,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | 授权发布后 `npm view @neomei/agentwiki-local-sync version` 必须为 `0.5.0`；发布前不将本地验证版冒充为公网版 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 必须在空目录联合安装 sync-protocol 0.2.0 与 local-sync 0.5.0 并启动 CLI；授权后先发布 sync-protocol，再发布 local-sync，两个 npm version 必须与候选版本一致 |
 
 ---
 

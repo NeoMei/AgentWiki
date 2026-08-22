@@ -1,15 +1,18 @@
 # Unified Agent access roles 0.5.0 deployment gate
 
 This is a breaking application, database, and local-sync protocol release. Do not push,
-publish `@neomei/agentwiki-local-sync@0.5.0`, apply the migration, restart services, or
-change a live Agent connection until the release owner explicitly authorizes those actions.
+publish `@neomei/agentwiki-sync-protocol@0.2.0` or
+`@neomei/agentwiki-local-sync@0.5.0`, apply the migration, restart services, or change a
+live Agent connection until the release owner explicitly authorizes those actions.
 
 ## Required preflight
 
 1. Record the exact release commit, `origin/master`, npm `latest`, and the production
    application version with read-only checks.
-2. Verify the local release matrix and pack the exact 0.5.0 npm tarball. Record its
-   filename, contents, size, and SHA-256 digest.
+2. Verify the local release matrix and pack the exact sync-protocol 0.2.0 and local-sync
+   0.5.0 npm tarballs. Record both filenames, contents, sizes, and SHA-256 digests. Run
+   `pnpm test:package:local-sync-clean-install` to install both candidates in an empty
+   directory and start the installed CLI.
 3. Fingerprint the current production application and migration state before copying
    files.
 4. Create a PostgreSQL custom-format dump and an application rollback archive outside
@@ -36,13 +39,18 @@ not compatible.
 
 After explicit authorization and successful backup verification:
 
-1. Push the verified commit and publish only the audited tarball.
-2. Mirror the AgentWiki source while preserving production environment files.
-3. Install with the lockfile, regenerate Prisma Client, and build.
-4. Apply Prisma migrations, then restart only the AgentWiki API, Worker, and frontend.
-5. Verify `/api/health`, service restart counters, the advertised 0.5.0 onboarding
+1. Push the verified commit.
+2. Publish the audited `@neomei/agentwiki-sync-protocol@0.2.0` tarball and verify the npm
+   version and exported Agent role contract.
+3. Publish the audited `@neomei/agentwiki-local-sync@0.5.0` tarball only after the
+   sync-protocol dependency is available, then repeat the clean-install CLI check using
+   the registry packages.
+4. Mirror the AgentWiki source while preserving production environment files.
+5. Install with the lockfile, regenerate Prisma Client, and build.
+6. Apply Prisma migrations, then restart only the AgentWiki API, Worker, and frontend.
+7. Verify `/api/health`, service restart counters, the advertised 0.5.0 onboarding
    version, and the three-role UI.
-6. Create a new Editor connection and run the real OpenCode acceptance. Its proposal must
+8. Create a new Editor connection and run the real OpenCode acceptance. Its proposal must
    enter `pending_review`, and Agent approval must fail.
 
 ## Rollback boundary
