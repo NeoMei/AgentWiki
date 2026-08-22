@@ -159,4 +159,48 @@ describe('LocalSyncInstallCard', () => {
     expect(screen.getByRole('combobox', { name: 'Agent role' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate unified gateway instructions' })).toBeInTheDocument();
   });
+
+  it('discards generated instructions when the selected role changes', async () => {
+    renderCard();
+    await generate();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent 角色' }), {
+      target: { value: 'editor' },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/onboard --server/)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: '生成统一网关接入指令' })).toBeInTheDocument();
+  });
+
+  it('moves to an available Space when the selected Space disappears', async () => {
+    const view = renderCard({
+      spaces: [
+        { id: 'space-1', name: '旧空间' },
+        { id: 'space-2', name: '备用空间' },
+      ],
+      grants: [],
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: '空间' }), {
+      target: { value: 'space-1' },
+    });
+
+    view.rerender(
+      <LanguageProvider>
+        <LocalSyncInstallCard
+          agentId="agent-1"
+          spaces={[{ id: 'space-2', name: '备用空间' }]}
+          grants={[]}
+        />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '空间' })).toHaveValue('space-2'));
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/agents/agent-1/local-sync-installations',
+      { pluginVersion: '0.5.0', spaceId: 'space-2', role: 'reader' },
+    ));
+  });
 });

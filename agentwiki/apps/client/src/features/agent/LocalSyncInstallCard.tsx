@@ -33,8 +33,15 @@ export const LocalSyncInstallCard: React.FC<{
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    if (!spaceId && spaces[0]) setSpaceId(spaces[0].id);
+    if (!spaces.some((space) => space.id === spaceId)) {
+      setSpaceId(spaces[0]?.id ?? '');
+    }
   }, [spaceId, spaces]);
+
+  useEffect(() => {
+    setResult(null);
+    setCopied(false);
+  }, [spaceId, role]);
 
   useEffect(() => {
     if (!result) return;
