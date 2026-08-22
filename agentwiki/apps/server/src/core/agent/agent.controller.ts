@@ -75,7 +75,7 @@ export class AgentController {
     const principal = req.user as any;
     const ownerId = principal.userId;
     await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin']);
-    return this.agents.upsertGrantForSpace(ownerId, id, spaceId, dto.role, dto.scopes);
+    return this.agents.upsertGrantForSpace(ownerId, id, spaceId, dto.role);
   }
 
   @Delete(':id/grants/:spaceId')

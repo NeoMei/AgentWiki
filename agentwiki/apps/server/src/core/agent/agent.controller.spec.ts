@@ -15,13 +15,16 @@ describe('AgentController platform authorization', () => {
       { user: principal } as any,
       'agent-1',
       'space-1',
-      { role: 'editor', scopes: ['pages:read'] },
+      { role: 'editor' },
     );
 
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
       principal,
       'space-1',
       ['owner', 'admin'],
+    );
+    expect(agents.upsertGrantForSpace).toHaveBeenCalledWith(
+      'admin-1', 'agent-1', 'space-1', 'editor',
     );
   });
 

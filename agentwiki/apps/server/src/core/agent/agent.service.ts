@@ -2,13 +2,9 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
-import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
-const VALID_SCOPES = new Set([
-  'spaces:read', 'pages:read', 'pages:write', 'graph:read', 'graph:write',
-  'sources:read', 'sources:write', 'runs:read', 'runs:write',
-    'review:read', 'review:auto-publish', 'memory:read', 'memory:write',
-]);
+const VALID_SCOPES = new Set(scopesForAgentAccessRole('publisher'));
 
 @Injectable()
 export class AgentService {
@@ -49,7 +45,7 @@ export class AgentService {
         credentials: {
           where: { revokedAt: null },
           select: {
-            id: true, name: true, prefix: true, scopes: true,
+            id: true, name: true, prefix: true, role: true, scopes: true,
             expiresAt: true, lastUsedAt: true, createdAt: true,
           },
         },
@@ -86,22 +82,26 @@ export class AgentService {
   async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = this.normalizeCredentialScopes(dto.scopes);
+    const scopes = scopesForAgentAccessRole(dto.role);
     const rawKey = 'agk_' + randomBytes(32).toString('base64url');
     const credential = await this.prisma.agentCredential.create({
       data: {
         agentId,
         name: dto.name,
+        role: dto.role,
         prefix: rawKey.slice(0, 12),
         keyHash: createHash('sha256').update(rawKey).digest('hex'),
         scopes,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       },
       select: {
-        id: true, name: true, prefix: true, scopes: true,
+        id: true, name: true, prefix: true, role: true, scopes: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
     });
+    if (dto.role === 'publisher') {
+      await this.enablePublisherCapabilities(agentId);
+    }
     try {
       await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
     } catch (error) {
@@ -124,6 +124,7 @@ export class AgentService {
       id: true,
       agentId: true,
       keyHash: true,
+      role: true,
       scopes: true,
       revokedAt: true,
     } as const;
@@ -209,7 +210,7 @@ export class AgentService {
           owner: { deletedAt: null, lockedAt: null },
         },
       },
-      select: { scopes: true },
+      select: { role: true, scopes: true },
     });
     if (!credential || requestedScopes.some((scope) => !credential.scopes.includes(scope))) {
       throw new ForbiddenException('The issuing Agent credential is unavailable or no longer permits these scopes');
@@ -221,7 +222,7 @@ export class AgentService {
     return this.prisma.agentCredential.findMany({
       where: { agentId, revokedAt: null },
       select: {
-        id: true, name: true, prefix: true, scopes: true,
+        id: true, name: true, prefix: true, role: true, scopes: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -239,63 +240,42 @@ export class AgentService {
     return { success: true };
   }
 
-  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: 'viewer' | 'editor', scopes?: string[]) {
-    await this.getOwned(ownerId, agentId);
-    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role, scopes);
+  async upsertGrant(ownerId: string, agentId: string, spaceId: string, role: AgentAccessRole) {
+    return this.upsertGrantForSpace(ownerId, agentId, spaceId, role);
   }
 
-  // Space-level grant management: creating a new grant requires an active Agent
-  // owned by the caller. Once the Agent is already a Space member, owner/admin
-  // callers may continue to manage that existing grant regardless of ownership.
   async upsertGrantForSpace(
     actorUserId: string,
     agentId: string,
     spaceId: string,
-    role: 'viewer' | 'editor',
-    scopes?: string[],
+    role: AgentAccessRole,
   ) {
-    const agent = await this.prisma.agent.findUnique({
-      where: { id: agentId },
-      select: { id: true, ownerId: true, status: true, revokedAt: true },
-    });
-    if (!agent || agent.revokedAt || agent.status === 'revoked') {
-      throw new NotFoundException('Agent not found');
-    }
+    const agent = await this.getOwned(actorUserId, agentId);
     const existingGrant = await this.prisma.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId } },
-      select: { id: true },
+      select: { id: true, role: true },
     });
     if (!existingGrant) {
-      if (agent.ownerId !== actorUserId) {
-        throw new NotFoundException('Agent not found');
-      }
       if (agent.status !== 'active') {
         throw new BadRequestException('Agent must be active before it can join a space');
       }
     }
 
-    let normalizedScopes = scopes === undefined ? undefined : Array.from(new Set(scopes));
-    if (normalizedScopes?.includes('*')) {
-      normalizedScopes = Array.from(VALID_SCOPES);
-    }
-    if (normalizedScopes?.some((scope) => !VALID_SCOPES.has(scope))) {
-      throw new BadRequestException('Grant contains an invalid scope');
-    }
-    // The public DTO moves to the canonical three-role contract in Task 3.
-    // Until then, persist the legacy read-only input conservatively as reader.
-    const persistedRole: AgentAccessRole = role === 'viewer' ? 'reader' : role;
-    const createData = normalizedScopes !== undefined
-      ? { agentId, spaceId, role: persistedRole, scopes: normalizedScopes }
-      : { agentId, spaceId, role: persistedRole };
+    const scopes = scopesForAgentAccessRole(role);
     const grant = await this.prisma.agentGrant.upsert({
       where: { agentId_spaceId: { agentId, spaceId } },
-      create: createData,
-      update: normalizedScopes !== undefined
-        ? { role: persistedRole, scopes: normalizedScopes }
-        : { role: persistedRole },
+      create: { agentId, spaceId, role, scopes },
+      update: { role, scopes },
       include: { space: { select: { id: true, name: true } } },
     });
-    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, { role, scopes: normalizedScopes });
+    if (role === 'publisher') {
+      await this.enablePublisherCapabilities(agentId);
+    }
+    await this.audit(agentId, 'grant.upsert', 'success', 'Space', spaceId, {
+      oldRole: existingGrant?.role ?? null,
+      newRole: role,
+      spaceId,
+    });
     return grant;
   }
 
@@ -356,7 +336,7 @@ export class AgentService {
         },
         credentials: {
           where: { revokedAt: null },
-          select: { id: true, name: true, prefix: true, scopes: true, expiresAt: true, lastUsedAt: true },
+          select: { id: true, name: true, prefix: true, role: true, scopes: true, expiresAt: true, lastUsedAt: true },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -382,6 +362,13 @@ export class AgentService {
   ) {
     await this.prisma.agentAuditEvent.create({
       data: { agentId, action, outcome, resourceType, resourceId, metadata: metadata as any },
+    });
+  }
+
+  private enablePublisherCapabilities(agentId: string) {
+    return this.prisma.agent.update({
+      where: { id: agentId },
+      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
     });
   }
 }
