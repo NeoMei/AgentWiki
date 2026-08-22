@@ -8,3 +8,5 @@
 - Publisher 不修改 Space Policy，自动发布仍需完整治理条件同时满足。
 - 普通界面和新接口不再接受逐项自定义 scopes。
 - 不考虑旧版本客户端和旧版本权限数据兼容。
+- 新 Local Sync/onboarding 协议版本为 0.5.0，服务端不接受本流程的 0.4.0 请求。
+- Prisma 迁移不按旧 scopes 猜测角色；现有 Agent Grant/Credential 统一降级为 reader，用户通过新连接重新授权。

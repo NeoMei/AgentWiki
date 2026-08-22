@@ -18,7 +18,8 @@
 - 已复现并定位根因：`LocalSyncInstallCard` 的固定连接 scopes 包含 `pages:read` 但缺少 `pages:write`，同时 Grant、连接码和手工 Credential 是三套分离设置。
 - 用户已选定连接授权包方案，并确认 `reader`、`editor`、`publisher` 三个角色。
 - 权限矩阵、原子兑换、多 Space/多 Credential 交集、界面、安全、失败处理和真实 OpenCode 验收设计均已确认。
-- 设计文档位于 `agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`；生产代码尚未修改。
+- 设计文档位于 `agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`，实施计划位于 `agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`；生产代码尚未修改。
+- 新协议计划版本为 0.5.0，只接受三档新角色；数据库迁移不推断旧 scopes，现有 Agent Grant/Credential 统一安全降级为 reader，重新连接后再获得新角色。
 - 上一阶段 CodeGraph/local-sync 0.4.0 已发布、GitHub 与生产部署已完成；本任务尚未改变该已发布状态。
 
 # 稳定约束
@@ -33,6 +34,7 @@
 
 - 活跃任务：`.codex-memory/tasks/active/unified-agent-access-roles/brief.md`
 - 设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
+- 计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
 - Agent 页面：`agentwiki/apps/client/src/features/agent/AgentDetail.tsx`
 - 当前连接卡片：`agentwiki/apps/client/src/features/agent/LocalSyncInstallCard.tsx`
 - Agent 服务：`agentwiki/apps/server/src/core/agent/agent.service.ts`
@@ -41,6 +43,5 @@
 
 # 风险 / 下一步
 
-- 先由用户复核已提交设计文档。
-- 设计确认无修改后，使用 writing-plans 编写逐步 TDD 实施计划。
+- 设计已复核，逐步 TDD 实施计划已编写；等待用户选择执行方式。
 - 实现需要同步修改服务端、数据库、前端、sync-protocol、local-sync、onboarding 与 MCP 验收，避免只修界面再次产生权限漂移。

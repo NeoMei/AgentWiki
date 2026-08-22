@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [unified-agent-access-roles](active/unified-agent-access-roles/brief.md)：合并 Agent 的 Space Grant、连接码与 Credential 授权，统一为 reader/editor/publisher；设计已确认，等待用户复核设计文档后编写实施计划。
+- [unified-agent-access-roles](active/unified-agent-access-roles/brief.md)：合并 Agent 的 Space Grant、连接码与 Credential 授权，统一为 reader/editor/publisher；设计与 TDD 实施计划已完成，等待选择执行方式。
 
 ## 最近完成
 
