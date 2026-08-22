@@ -10,9 +10,13 @@ vi.mock('../../api/client', () => ({
 
 const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.5.0 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
 
-const renderCard = () => render(
+const renderCard = ({
+  agentId = 'agent-1',
+  spaces = [{ id: 'space-1', name: '团队知识库' }],
+  grants = [{ spaceId: 'space-1', role: 'reader' as const, space: { id: 'space-1', name: '团队知识库' } }],
+} = {}) => render(
   <LanguageProvider>
-    <LocalSyncInstallCard agentId="agent-1" />
+    <LocalSyncInstallCard agentId={agentId} spaces={spaces} grants={grants} />
   </LanguageProvider>,
 );
 
@@ -39,30 +43,40 @@ describe('LocalSyncInstallCard', () => {
     vi.restoreAllMocks();
   });
 
+  it('generates an editor connection intent for the selected Space', async () => {
+    renderCard();
+
+    fireEvent.change(screen.getByLabelText('空间'), { target: { value: 'space-1' } });
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
+    expect(screen.getByText(/Reader.*Editor/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/agents/agent-1/local-sync-installations',
+      { pluginVersion: '0.5.0', spaceId: 'space-1', role: 'editor' },
+    ));
+  });
+
+  it('shows the publisher governance warning', () => {
+    renderCard({
+      spaces: [{ id: 'space-1', name: 'S' }],
+      grants: [],
+    });
+
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'publisher' } });
+
+    expect(screen.getByText(/仍受 Space 发布策略限制/)).toBeInTheDocument();
+    expect(screen.getByText(/不能执行人工审批或成员管理/)).toBeInTheDocument();
+  });
+
   it('generates a short-lived instruction without rendering a permanent key', async () => {
     renderCard();
 
     await generate();
 
-    expect(api.post).toHaveBeenCalledWith('/agents/agent-1/local-sync-installations', {
-      pluginVersion: '0.5.0',
-      scopes: ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'],
-    });
     expect(screen.queryByText(/agk_/)).not.toBeInTheDocument();
     expect(screen.getByText(/onboard --server/)).toBeInTheDocument();
     expect(screen.queryByText(/\bconnect\b/)).not.toBeInTheDocument();
-  });
-
-  it('adds auto-publish only when the user opts in', async () => {
-    renderCard();
-
-    fireEvent.click(screen.getByRole('checkbox', { name: '允许符合空间策略时直接发布' }));
-    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
-
-    await waitFor(() => expect(api.post).toHaveBeenCalled());
-    expect(vi.mocked(api.post).mock.calls[0][1]).toMatchObject({
-      scopes: expect.arrayContaining(['review:auto-publish']),
-    });
   });
 
   it('copies the complete instruction and shows expiration', async () => {
@@ -141,7 +155,8 @@ describe('LocalSyncInstallCard', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     renderCard();
 
-    expect(screen.getByRole('checkbox', { name: 'Allow direct publishing when space policy permits' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Space' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Agent role' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate unified gateway instructions' })).toBeInTheDocument();
   });
 });

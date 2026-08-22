@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, ExternalLink, PlugZap } from 'lucide-react';
+import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
 import {
   LOCAL_SYNC_PACKAGE_NAME,
@@ -8,15 +9,8 @@ import {
 } from '../../config/localSync';
 import { useLanguage } from '../../context/LanguageContext';
 
-const BASE_SCOPES = [
-  'spaces:read',
-  'pages:read',
-  'sources:read',
-  'sources:write',
-  'runs:read',
-  'runs:write',
-  'review:read',
-];
+type SpaceOption = { id: string; name: string };
+type GrantSummary = { spaceId: string; role: AgentAccessRole; space: SpaceOption };
 
 interface InstallationResult {
   installationId: string;
@@ -24,14 +18,23 @@ interface InstallationResult {
   instructions: string;
 }
 
-export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId }) => {
+export const LocalSyncInstallCard: React.FC<{
+  agentId: string;
+  spaces: SpaceOption[];
+  grants: GrantSummary[];
+}> = ({ agentId, spaces, grants }) => {
   const { t } = useLanguage();
-  const [autoPublish, setAutoPublish] = useState(false);
+  const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
+  const [role, setRole] = useState<AgentAccessRole>('reader');
   const [result, setResult] = useState<InstallationResult | null>(null);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!spaceId && spaces[0]) setSpaceId(spaces[0].id);
+  }, [spaceId, spaces]);
 
   useEffect(() => {
     if (!result) return;
@@ -46,10 +49,10 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
     setGenerating(true);
     setError(null);
     try {
-      const scopes = autoPublish ? [...BASE_SCOPES, 'review:auto-publish'] : BASE_SCOPES;
       const response = await api.post(`/agents/${agentId}/local-sync-installations`, {
         pluginVersion: LOCAL_SYNC_VERSION,
-        scopes,
+        spaceId,
+        role,
       });
       setResult(response.data);
       setCopied(false);
@@ -67,6 +70,8 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
     : 0;
   const expired = result ? remainingSeconds === 0 : false;
   const remaining = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+  const currentGrant = grants.find((grant) => grant.spaceId === spaceId);
+  const roleName = (value: AgentAccessRole) => t(`agent.role.${value}.name`);
 
   return (
     <section className="border rounded-[14px] bg-white p-5">
@@ -95,15 +100,46 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
       </div>
       <p className="mt-2 text-xs text-gray-400">{t('agent.localSync.supportedClients')}</p>
 
-      <label className="mt-4 flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={autoPublish}
-          onChange={(event) => setAutoPublish(event.target.checked)}
-        />
-        <span>{t('agent.localSync.autoPublish')}</span>
-      </label>
-      <p className="mt-1 pl-5 text-xs text-gray-500">{t('agent.localSync.autoPublishHelp')}</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="text-sm text-gray-700" htmlFor="local-sync-space">
+          <span className="mb-1 block font-medium">{t('agent.localSync.spaceLabel')}</span>
+          <select
+            id="local-sync-space"
+            value={spaceId}
+            onChange={(event) => setSpaceId(event.target.value)}
+            className="h-8 w-full rounded-lg border px-2 text-sm"
+          >
+            {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+          </select>
+        </label>
+        <label className="text-sm text-gray-700" htmlFor="local-sync-role">
+          <span className="mb-1 block font-medium">{t('agent.roleLabel')}</span>
+          <select
+            id="local-sync-role"
+            value={role}
+            onChange={(event) => setRole(event.target.value as AgentAccessRole)}
+            className="h-8 w-full rounded-lg border px-2 text-sm"
+          >
+            {AGENT_ACCESS_ROLES.map((item) => (
+              <option key={item} value={item}>{roleName(item)}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="mt-2 text-xs text-gray-500">{t(`agent.role.${role}.description`)}</p>
+      {currentGrant && currentGrant.role !== role ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t('agent.localSync.roleChangeWarning', {
+            from: roleName(currentGrant.role),
+            to: roleName(role),
+          })}
+        </p>
+      ) : null}
+      {role === 'publisher' ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t('agent.localSync.publisherGovernance')}
+        </p>
+      ) : null}
 
       {error ? <p role="alert" className="mt-3 text-sm text-red-600">{error}</p> : null}
 
@@ -145,7 +181,7 @@ export const LocalSyncInstallCard: React.FC<{ agentId: string }> = ({ agentId })
       ) : (
         <button
           type="button"
-          disabled={generating}
+          disabled={generating || !spaceId}
           onClick={() => void generate()}
           className="mt-4 h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
         >

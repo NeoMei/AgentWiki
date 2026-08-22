@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Check, Copy, KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
+import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useLanguage } from '../../context/LanguageContext';
 
-const SCOPES = ['spaces:read', 'pages:read', 'pages:write', 'graph:read', 'graph:write', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read', 'review:auto-publish', 'memory:read', 'memory:write'];
 type Tab = 'overview' | 'access' | 'activity' | 'memory' | 'settings';
 
 export const AgentDetail: React.FC = () => {
@@ -18,8 +18,8 @@ export const AgentDetail: React.FC = () => {
   const [tab, setTab] = useState<Tab>('overview');
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [grant, setGrant] = useState({ spaceId: '', role: 'viewer' });
-  const [credential, setCredential] = useState({ name: 'Default credential', scopes: ['spaces:read', 'pages:read'] });
+  const [grant, setGrant] = useState<{ spaceId: string; role: AgentAccessRole }>({ spaceId: '', role: 'reader' });
+  const [credential, setCredential] = useState<{ name: string; role: AgentAccessRole }>({ name: 'Default credential', role: 'reader' });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,7 +50,7 @@ export const AgentDetail: React.FC = () => {
   const addGrant = async () => {
     if (!grant.spaceId) return;
     await api.put('/agents/' + id + '/grants/' + grant.spaceId, { role: grant.role });
-    setGrant({ spaceId: '', role: 'viewer' });
+    setGrant({ spaceId: '', role: 'reader' });
     await load();
   };
 
@@ -60,12 +60,15 @@ export const AgentDetail: React.FC = () => {
     await load();
   };
 
-  const toggleScope = (scope: string) => {
-    setCredential((current) => ({
-      ...current,
-      scopes: current.scopes.includes(scope) ? current.scopes.filter((item) => item !== scope) : [...current.scopes, scope],
-    }));
+  const roleName = (role: AgentAccessRole) => t(`agent.role.${role}.name`);
+  const updateGrantRole = async (spaceId: string, role: AgentAccessRole) => {
+    await api.put('/agents/' + id + '/grants/' + spaceId, { role });
+    await load();
   };
+  const formatDate = (value: string | null | undefined) => value
+    ? new Date(value).toLocaleString(language)
+    : t('agent.never');
+  const credentialIsActive = (expiresAt: string | null | undefined) => !expiresAt || Date.parse(expiresAt) > Date.now();
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -102,26 +105,34 @@ export const AgentDetail: React.FC = () => {
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><Shield size={18} /> {t('agent.spaceAccess')}</h2>
             <div className="flex gap-2 mb-4">
-              <select value={grant.spaceId} onChange={(event) => setGrant({ ...grant, spaceId: event.target.value })} className="h-8 flex-1 border rounded-lg px-2 text-sm">
+              <select aria-label={t('agent.grantSpaceLabel')} value={grant.spaceId} onChange={(event) => setGrant({ ...grant, spaceId: event.target.value })} className="h-8 flex-1 border rounded-lg px-2 text-sm">
                 <option value="">{t('agent.selectSpace')}</option>
                 {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
               </select>
-              <select value={grant.role} onChange={(event) => setGrant({ ...grant, role: event.target.value })} className="h-8 border rounded-lg px-2 text-sm">
-                <option value="viewer">{t('agent.viewer')}</option><option value="editor">{t('agent.editor')}</option>
+              <select aria-label={t('agent.roleLabel')} value={grant.role} onChange={(event) => setGrant({ ...grant, role: event.target.value as AgentAccessRole })} className="h-8 border rounded-lg px-2 text-sm">
+                {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{roleName(role)}</option>)}
               </select>
-              <button onClick={() => void addGrant()} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm">{t('agent.grant')}</button>
+              <button onClick={() => void addGrant()} disabled={!grant.spaceId} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{t('agent.grant')}</button>
             </div>
             <div className="divide-y">
               {agent.grants.map((item: any) => (
-                <div key={item.id} className="py-3 flex items-center justify-between text-sm">
-                  <span>{item.space.name} <span className="text-gray-400 ml-2">{item.role}</span></span>
-                  <button onClick={async () => { try { await api.delete('/agents/' + id + '/grants/' + item.spaceId); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
+                <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{item.space.name}</span>
+                  <select
+                    aria-label={t('agent.grantRoleFor', { space: item.space.name })}
+                    value={item.role}
+                    onChange={(event) => void updateGrantRole(item.spaceId, event.target.value as AgentAccessRole)}
+                    className="h-8 rounded-lg border px-2 text-sm"
+                  >
+                    {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{roleName(role)}</option>)}
+                  </select>
+                  <button aria-label={t('agent.removeGrantFor', { space: item.space.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/grants/' + item.spaceId); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
           </section>
 
-          <LocalSyncInstallCard agentId={agent.id} />
+          <LocalSyncInstallCard agentId={agent.id} spaces={spaces} grants={agent.grants} />
 
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><KeyRound size={18} /> {t('agent.credentials')}</h2>
@@ -132,20 +143,29 @@ export const AgentDetail: React.FC = () => {
                 <p className="mt-2 text-xs text-green-800">{t('agent.apiCredentialHelp')}</p>
               </div>
             ) : null}
-            <input value={credential.name} onChange={(event) => setCredential({ ...credential, name: event.target.value })} className="h-8 w-full border rounded-lg px-3 text-sm mb-3" />
-            <div className="flex flex-wrap gap-2 mb-4">
-              {SCOPES.map((scope) => (
-                <label key={scope} className="text-xs border rounded-lg px-2 py-1 flex items-center gap-1">
-                  <input type="checkbox" checked={credential.scopes.includes(scope)} onChange={() => toggleScope(scope)} /> {scope}
-                </label>
-              ))}
+            <p className="mb-3 text-xs text-gray-500">{t('agent.roleOnlyCredentialHelp')}</p>
+            <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <label className="text-sm text-gray-700">
+                <span className="mb-1 block font-medium">{t('agent.credentialName')}</span>
+                <input value={credential.name} onChange={(event) => setCredential({ ...credential, name: event.target.value })} className="h-8 w-full rounded-lg border px-3 text-sm" />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="mb-1 block font-medium">{t('agent.roleLabel')}</span>
+                <select value={credential.role} onChange={(event) => setCredential({ ...credential, role: event.target.value as AgentAccessRole })} className="h-8 w-full rounded-lg border px-2 text-sm">
+                  {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{roleName(role)}</option>)}
+                </select>
+              </label>
             </div>
-            <button onClick={() => void createCredential()} disabled={!credential.name || credential.scopes.length === 0} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{t('agent.createCredential')}</button>
+            <button onClick={() => void createCredential()} disabled={!credential.name} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{t('agent.createCredential')}</button>
             <div className="divide-y mt-4">
               {agent.credentials.map((item: any) => (
-                <div key={item.id} className="py-3 flex items-center justify-between">
-                  <div><p className="text-sm font-medium">{item.name}</p><p className="text-xs text-gray-400">{item.prefix}… · {item.scopes.join(', ')}</p></div>
-                  <button onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
+                <div key={item.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{roleName(item.role)}</span></p>
+                    <p className="mt-1 text-xs text-gray-500">{item.prefix}… · {t('agent.lastUsed')}: {formatDate(item.lastUsedAt)} · {t('agent.expires')}: {formatDate(item.expiresAt)}</p>
+                    <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item.expiresAt) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
+                  </div>
+                  <button aria-label={t('agent.revokeCredential', { name: item.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
@@ -155,7 +175,7 @@ export const AgentDetail: React.FC = () => {
 
       {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => <div key={item.id} className="p-4 text-sm"><span className="font-medium">{item.action}</span><span className="text-gray-400 ml-3">{new Date(item.createdAt).toLocaleString(language)}</span></div>)}</div> : null}
       {tab === 'memory' ? <AgentMemoryPanel agentId={agent.id} grants={agent.grants} enabled={agent.memoryEnabled} onEnabled={async () => { await api.patch('/agents/' + id, { memoryEnabled: true }); await load(); }} /> : null}
-      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><select value={agent.approvalMode} onChange={async (event) => { await api.patch('/agents/' + id, { approvalMode: event.target.value }); await load(); }} className="h-8 border rounded-lg px-2 text-sm mt-2"><option value="always-review">{t('settings.alwaysReview')}</option><option value="scoped-auto-publish">{t('settings.autoPublish')}</option></select></div> : null}
+      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{agent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );
 };
