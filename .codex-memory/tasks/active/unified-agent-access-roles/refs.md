@@ -8,3 +8,8 @@
 - 当前连接兑换：`agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts`
 - 当前权限交集：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
 - 当前 onboarding 预设：`agentwiki/apps/server/src/onboard/onboard.types.ts`
+- 验证证据：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
+- 部署与回滚门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
+- 角色 DTO 边界回归：`agentwiki/apps/server/src/core/dto/agent.dto.spec.ts`
+- 本地候选应用提交：`92750fa3d29a40a184556c07a50d4edf9dfb3e3e`
+- 当前外部基线：`origin/master=c06b9b8`、npm latest=0.4.0、生产 onboarding=0.4.0

@@ -10,3 +10,7 @@
 - 不考虑旧版本客户端和旧版本权限数据兼容。
 - 新 Local Sync/onboarding 协议版本为 0.5.0，服务端不接受本流程的 0.4.0 请求。
 - Prisma 迁移不按旧 scopes 猜测角色；现有 Agent Grant/Credential 统一降级为 reader，用户通过新连接重新授权。
+- `POST/PATCH /agents` 不再接受 `approvalMode`；该值仅作为 Publisher 由服务端启用的内部治理状态和只读诊断。
+- root 版本、env 样例、Compose、README、E2E 和发布契约统一到 0.5.0，防止服务端已升级但部署面仍广播 0.4.0。
+- 发布和生产迁移必须先验证 PostgreSQL custom-format 与应用回滚备份；0.5.0 无 schema-only 回滚。
+- 本地验证结束后不自动 push、npm publish、deploy 或改动真实 OpenCode 连接。
