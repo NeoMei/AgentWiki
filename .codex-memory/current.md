@@ -2,46 +2,46 @@
 
 # 当前目标
 
-- 将 Agent 的 Space Grant、连接码授权和 Credential 授权合并为一次角色选择。
-- 新模型统一使用 `reader`、`editor`、`publisher`，修复 editor Agent 因连接凭证缺少 `pages:write` 而无法提议页面修改的问题。
+- 主目标：完成 Agent 协作模板与组件的书面 Spec 审阅，然后形成实施计划。
+- 前置活跃任务：先实现并验证 Agent 统一访问角色 0.5.0，再实施协作模板。
 
 # 范围 / 不做
 
-- 范围包括统一角色策略、Grant/Credential 角色、连接授权包、原子兑换、Agent 访问页、本地同步协议、MCP 回归与真实 OpenCode 验收。
-- 不兼容旧 `viewer` / `full` / 自定义 scopes 客户端或旧版本权限数据。
-- Agent 不获得人工审批、成员管理或 `review:decide`。
-- Publisher 不自动修改 Space Policy。
-- 未经单独授权不 push、发布 npm 或部署生产。
+- 协作模板首期包括编码、标书、论文、视频脚本和小说五类内置模板。
+- 组件包括 Agent 任务、顺序 Todo、依赖/并行、人工审核和结果交接/汇总。
+- 外部 Agent 通过统一 MCP 主动领取和回传；AgentWiki 只做协作控制面，不托管模型。
+- 不做远程自动唤醒、自由拖拽、条件/循环/Webhook/子流程、动态竞领、自动改派或通用文件仓库。
+- 未经单独授权不 push、不发布 npm、不部署生产。
 
 # 当前状态
 
-- 已复现并定位根因：`LocalSyncInstallCard` 的固定连接 scopes 包含 `pages:read` 但缺少 `pages:write`，同时 Grant、连接码和手工 Credential 是三套分离设置。
-- 用户已选定连接授权包方案，并确认 `reader`、`editor`、`publisher` 三个角色。
-- 权限矩阵、原子兑换、多 Space/多 Credential 交集、界面、安全、失败处理和真实 OpenCode 验收设计均已确认。
-- 设计文档位于 `agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`，实施计划位于 `agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`；生产代码尚未修改。
-- 新协议计划版本为 0.5.0，只接受三档新角色；数据库迁移不推断旧 scopes，现有 Agent Grant/Credential 统一安全降级为 reader，重新连接后再获得新角色。
-- 上一阶段 CodeGraph/local-sync 0.4.0 已发布、GitHub 与生产部署已完成；本任务尚未改变该已发布状态。
+- `unified-agent-access-roles`：设计和 TDD 实施计划已完成，尚未开始生产代码实现；新协议目标版本为 0.5.0。
+- `agent-collaboration-templates`：需求、架构、领域模型、组件、内置模板、UI、MCP、错误恢复和测试设计均已由用户确认。
+- 协作模板正式设计已写入 `agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`，当前等待用户审阅书面 Spec。
+- 生产代码尚未修改，协作模板实施计划尚未创建。
 
 # 稳定约束
 
-- Agent 有效权限始终为 Credential、Space Grant、Agent 状态、Space Policy 和领域约束的交集。
-- `review:decide` 仅属于人类审批领域，不签发给 Agent。
-- 同一 Agent 可在不同 Space、不同 Credential 上拥有不同能力上限。
-- 服务端是角色到 scopes 的唯一权威；普通客户端不得自定义或扩展 scopes。
-- Credential 与 Grant 必须原子生效；连接码未兑换、过期或失败不得留下半套授权。
+- Agent 有效权限为 Credential 角色/scopes、Space Grant 角色/scopes、Agent 状态、Space Policy 和领域授权的交集。
+- 普通产品入口只使用 `reader | editor | publisher`，底层 scopes 由唯一共享策略派生；任何 Agent 都没有 `review:decide`。
+- “Agent 访问角色”与协作模板中的“角色槽位”是两个不同概念。
+- 协作运行保存不可变模板快照；Todo 属于任务内部，依赖属于节点之间，并行由多个 ready 节点自然产生。
+- 人工审核只能由人类完成；Agent 审校任务只能提交建议。
+- 现有 Local Knowledge Orchestrator 保持专用，不与通用协作模板合并。
+- Wiki 发布继续通过 ChangeSet、Space Policy 和现有审核治理。
 
 # 关键索引
 
-- 活跃任务：`.codex-memory/tasks/active/unified-agent-access-roles/brief.md`
-- 设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
-- 计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
-- Agent 页面：`agentwiki/apps/client/src/features/agent/AgentDetail.tsx`
-- 当前连接卡片：`agentwiki/apps/client/src/features/agent/LocalSyncInstallCard.tsx`
-- Agent 服务：`agentwiki/apps/server/src/core/agent/agent.service.ts`
-- 连接兑换：`agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts`
-- 权限交集：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
+- 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
+- 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
+- 统一访问角色设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
+- 统一访问角色计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
+- 统一访问角色任务：`.codex-memory/tasks/active/unified-agent-access-roles/`
+- 领域词汇：`agentwiki/CONTEXT.md`
 
 # 风险 / 下一步
 
-- 设计已复核，逐步 TDD 实施计划已编写；等待用户选择执行方式。
-- 实现需要同步修改服务端、数据库、前端、sync-protocol、local-sync、onboarding 与 MCP 验收，避免只修界面再次产生权限漂移。
+- 用户需要先审阅协作模板书面 Spec；若批准，再使用 `writing-plans` 形成实施计划。
+- 协作模板必须在统一访问角色完成后实施，否则会重新制造角色与 scope 两套配置。
+- 真实多 Agent 执行无法由服务端远程唤醒；人工审核后需要 UI 生成恢复指令。
+- 外部文件只保存受控引用；跨机器不可解析的本地相对路径不能冒充可共享产物。

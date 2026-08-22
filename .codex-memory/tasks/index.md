@@ -5,6 +5,7 @@
 ## 活跃任务
 
 - [unified-agent-access-roles](active/unified-agent-access-roles/brief.md)：合并 Agent 的 Space Grant、连接码与 Credential 授权，统一为 reader/editor/publisher；设计与 TDD 实施计划已完成，等待选择执行方式。
+- [agent-collaboration-templates](active/agent-collaboration-templates/brief.md)：五类协作模板、五个组件、外部 Agent MCP 执行、运行看板与恢复策略设计已确认，等待书面 Spec 审阅；依赖统一访问角色先落地。
 
 ## 最近完成
 
