@@ -4,7 +4,6 @@ import { IsBoolean, IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLeng
 export class CreateAgentDto {
   @IsString() @MinLength(1) @MaxLength(100) name: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
-  @IsOptional() @IsIn(['always-review', 'scoped-auto-publish']) approvalMode?: string;
   @IsOptional() @IsBoolean() memoryEnabled?: boolean;
 }
 
@@ -12,7 +11,6 @@ export class UpdateAgentDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(100) name?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsIn(['active', 'paused']) status?: string;
-  @IsOptional() @IsIn(['always-review', 'scoped-auto-publish']) approvalMode?: string;
   @IsOptional() @IsBoolean() memoryEnabled?: boolean;
 }
 

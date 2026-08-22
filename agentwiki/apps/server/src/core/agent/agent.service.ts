@@ -16,7 +16,6 @@ export class AgentService {
         ownerId,
         name: dto.name,
         description: dto.description,
-        approvalMode: dto.approvalMode || 'always-review',
         memoryEnabled: dto.memoryEnabled || false,
       },
     });

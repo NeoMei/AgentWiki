@@ -56,13 +56,9 @@ test.describe('local sync enrollment card', () => {
     fixture.spaceId = space.id;
     const agent = await requestJson<{ id: string }>(request, '/agents', {
       token: fixture.token,
-      data: { name: `Local sync E2E ${suffix}`, approvalMode: 'always-review' },
+      data: { name: `Local sync E2E ${suffix}` },
     });
     fixture.agentId = agent.id;
-    await requestJson(request, `/agents/${fixture.agentId}/grants/${fixture.spaceId}`, {
-      method: 'PUT', token: fixture.token,
-      data: { role: 'editor', scopes: ['spaces:read', 'pages:read', 'sources:read', 'sources:write', 'runs:read', 'runs:write', 'review:read'] },
-    });
   });
 
   test.afterEach(async ({ request }) => {
@@ -81,10 +77,11 @@ test.describe('local sync enrollment card', () => {
 
     await page.goto(`/agents/${fixture.agentId}`);
     await page.getByRole('button', { name: /access|访问/i }).click();
+    await page.locator('#local-sync-role').selectOption('editor');
     await page.getByRole('button', { name: /generate unified gateway instructions|生成统一网关接入指令/i }).click();
 
     const instructions = page.locator('pre');
-    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.4.0');
+    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.5.0');
     await expect(instructions).toContainText('onboard --server');
     await expect(instructions).toContainText('--code AW-');
     await expect(instructions).not.toContainText('connect --server');
@@ -92,7 +89,7 @@ test.describe('local sync enrollment card', () => {
     await expect(instructions).not.toContainText('agk_');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.4.0');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.5.0');
     await expect(page.getByText(/expires in|后过期/i)).toBeVisible();
   });
 });

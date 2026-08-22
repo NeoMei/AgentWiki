@@ -54,6 +54,13 @@ confirms a unified plan, installs a single `agentwiki` gateway MCP, runs the fir
 scan, and syncs after explicit preview confirmation. Passwords and login information
 never enter the Agent conversation.
 
+Every 0.5.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
+Agent, the user chooses the Space and role before generating the one-time code; exchange
+atomically creates the same role on the Credential and Space Grant. The server derives
+all scopes. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
+inputs are not accepted. Publisher eligibility does not change the Space policy and no
+Agent role can approve a ChangeSet or manage members.
+
 The three user actions are:
 1. Approve authorization in the browser
 2. Confirm the onboarding plan

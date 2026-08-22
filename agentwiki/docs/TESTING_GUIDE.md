@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.2.9
+# AgentWiki 功能测试指南 v0.5.0
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -19,7 +19,7 @@
 **角色体系：**
 - 平台角色（全局）：`super_admin`（超管）、`user`（普通用户）
 - Space 角色：Owner → Admin → Editor → Viewer（权限递减）
-- Agent 是独立实体，通过 Credential（agk_...）+ Space Grant 接入
+- Agent 是独立实体，通过 Credential（agk_...）+ Space Grant 接入；Agent 角色仅为 Reader → Editor → Publisher
 
 ---
 
@@ -50,7 +50,7 @@
 | 2.5 | 删除 Space | `DELETE /spaces/:id` | 仅 Owner 可删除 |
 | 2.6 | 成员列表 | `GET /spaces/:id/members` | 列出人类用户+Agent 成员，含角色和权限范围 |
 | 2.7 | 添加成员 | `POST /spaces/:id/members` | 按邮箱添加人类用户；支持 Viewer/Editor 预设 |
-| 2.8 | 添加 Agent 成员 | `PUT /agents/:id/grants/:spaceId` | 选择自己拥有的 active Agent；支持角色+Scope 预设；无权 Agent→404 |
+| 2.8 | 添加 Agent 成员 | `PUT /agents/:id/grants/:spaceId` | 选择自己拥有的 active Agent；仅接受 `reader/editor/publisher` 角色，scopes 由服务端派生；无权 Agent→404 |
 | 2.9 | 编辑成员角色 | `PATCH /spaces/:id/members/:userId` | Admin 可升降成员角色 |
 | 2.10 | 移除成员 | `DELETE /spaces/:id/members/:userId` | Admin 可移除成员（Owner 除外） |
 | 2.11 | Owner 转移 | `PATCH /spaces/:id/members/:userId` | 仅 Owner 可转移；操作者降为 Admin；原子操作 |
@@ -88,18 +88,18 @@
 |------|--------|-----|----------|
 | 4.1 | 创建 Agent | `POST /agents` | name→200；用户只能创建自己的 Agent |
 | 4.2 | 列出 Agent | `GET /agents` | 用户能看到自己的 Agent |
-| 4.3 | 查看 Agent | `GET /agents/:id` | 含状态、审批模式、Grants、最近活动 |
-| 4.4 | 编辑 Agent | `PATCH /agents/:id` | 可修改 name/description/approvalMode |
+| 4.3 | 查看 Agent | `GET /agents/:id` | 含状态、角色化 Grants/Credentials、最近活动和只读治理诊断 |
+| 4.4 | 编辑 Agent | `PATCH /agents/:id` | 可修改 name/description/status；旧 `approvalMode` 输入必须拒绝 |
 | 4.5 | 删除 Agent | `DELETE /agents/:id` | 撤销 Agent；凭据同步失效 |
-| 4.6 | 创建凭据 | `POST /agents/:id/credentials` | name+scopes→200 返回 `apiKey`(agk_...)；key 仅显示一次 |
-| 4.7 | 列出凭据 | `GET /agents/:id/credentials` | 显示前缀、scope、创建时间，不显示完整 key |
+| 4.6 | 创建凭据 | `POST /agents/:id/credentials` | name+`reader/editor/publisher`→200 返回 `apiKey`(agk_...)；自定义 scopes 和旧角色必须拒绝；key 仅显示一次 |
+| 4.7 | 列出凭据 | `GET /agents/:id/credentials` | 显示前缀、角色、只读派生 scopes、创建时间，不显示完整 key |
 | 4.8 | 撤销凭据 | `DELETE /agents/:id/credentials/:cid` | 凭据立即失效→401 |
-| 4.9 | Space 授权 | `PUT /agents/:id/grants/:spaceId` | role+scopes；空 scopes 继承凭据全部权限 |
+| 4.9 | Space 授权 | `PUT /agents/:id/grants/:spaceId` | 仅接受 `reader/editor/publisher`；Credential 与 Grant 有效能力取交集 |
 | 4.10 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
 | 4.11 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.12 | 本地同步安装 | `POST /agents/:agentId/local-sync-installations` | 生成一次性安装码（10分钟过期） |
+| 4.12 | 本地同步安装 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.5.0`，生成一次性安装码（10分钟过期） |
 | 4.13 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
-| 4.14 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码换取凭据（一次性使用） |
+| 4.14 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
 
 **前端路由：** `/agents`（Agent 列表）、`/agents/:id`（详情含凭证管理、接入指令生成）
 
@@ -231,7 +231,7 @@
 
 | 序号 | 功能点 | 测试要点 |
 |------|--------|----------|
-| 12.1 | 安装码生成 | Agent 详情页→输入 Agent 名称→生成一次性接入指令 |
+| 12.1 | 安装码生成 | Agent 访问页→选择 Space + Reader/Editor/Publisher→生成一次性接入指令 |
 | 12.2 | 本地安装 | 将指令粘贴到 Codex/Claude Code/OpenCode→自动安装 MCP 连接和 Skill |
 | 12.3 | Doctor 检查 | `agentwiki-local-sync doctor` 验证连接、Adapter、权限 |
 | 12.4 | 扫描预览 | 扫描本地目录→本地预览→不自动上传 |
@@ -239,7 +239,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | 发布后 `npm view @neomei/agentwiki-local-sync version` 必须为 `0.2.9`；发布前不将暂存版冒充为公网版 |
+| 12.9 | npm 包 | 授权发布后 `npm view @neomei/agentwiki-local-sync version` 必须为 `0.5.0`；发布前不将本地验证版冒充为公网版 |
 
 ---
 
@@ -293,10 +293,14 @@
 | 启动摄取 | ✅ | ✅ | ✅ | ❌ | ✅(审查后) |
 | 审批变更 | ✅ | ✅ | ✅(仅自己Space) | ❌ | ❌ |
 
-**Agent 自动发布条件（三者同时满足）：**
+**Agent 自动发布条件（全部同时满足）：**
 1. Space `approvalPolicy` = `scoped-auto-publish`
 2. Agent `approvalMode` = `scoped-auto-publish`
-3. Agent Grant 含 `review:auto-publish` scope
+3. 当前 Credential 角色为 Publisher 且含 `review:auto-publish`
+4. 当前 Space Grant 角色为 Publisher 且含 `review:auto-publish`
+5. Agent 状态、Space Policy 和领域授权均允许
+
+`approvalMode` 是服务端由 Publisher 角色启用的只读治理状态，不是客户端可提交的 Agent 设置。Agent 永远不获得 `review:decide`。
 
 ---
 

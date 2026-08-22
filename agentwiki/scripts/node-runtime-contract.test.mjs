@@ -512,9 +512,10 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.4.0');
+  assert.equal(version, '0.5.0');
   for (const path of [
     '.env.example',
+    'package.json',
     'README.md',
     'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
@@ -530,6 +531,7 @@ test('every active local-sync release surface uses the package version', async (
     'packages/local-sync/src/onboarding/runtime.ts',
     'packages/local-sync/src/onboarding/verifier.ts',
     'scripts/cross-machine-e2e.mjs',
+    'scripts/onboarding-e2e.mjs',
   ]) {
     assert.match(await read(path), new RegExp(version.replaceAll('.', '\\.')), `${path} must use ${version}`);
   }
@@ -551,9 +553,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.4.0 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.5.0 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.4\.0/, 'onboard controller must reference 0.4.0');
+  assert.match(source, /0\.5\.0/, 'onboard controller must reference 0.5.0');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');

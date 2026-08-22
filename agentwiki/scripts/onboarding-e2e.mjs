@@ -122,7 +122,7 @@ function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
   };
   const detached = process.platform !== 'win32';
   if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, detached });
-  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.4.0', ...args], {
+  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.5.0', ...args], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType }, detached,
   });
 }
@@ -164,7 +164,7 @@ async function driveProtocol(child, context) {
             spaceMode: 'create',
             spaceName: `aw-e2e-${Date.now()}-space`,
             agentName: `aw-e2e-${context.clientType}-agent`,
-            permissionPreset: 'editor', approvalMode: 'always-review',
+            role: 'editor',
             clientType: context.clientType, sourcePaths: context.sourcePaths, sourceType: 'documents', analysisMode: 'standard',
           });
         } else if (event.type === 'authorization_required' && !authorizing) {
