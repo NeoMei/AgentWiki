@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { pathKey } from '@neomei/agentwiki-sync-protocol';
+import { pathKey, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { ReviewService } from './review.service';
 
 describe('ReviewService queue presentation', () => {
@@ -1292,7 +1292,9 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('propose auto-publishes when space, agent and credential all allow it', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
     prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
-    prisma.agentGrant.findUnique.mockResolvedValue({ role: 'publisher', scopes: [] });
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      role: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+    });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-auto', status: 'approved' });
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-auto', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
@@ -1301,7 +1303,10 @@ describe('one-shot review-publish and agent auto-publish', () => {
     });
     prisma.page.create.mockResolvedValue({ id: 'page-1' });
     const result = await service.propose(
-      { userId: 'owner-1', agentId: 'agent-1', agentRole: 'publisher', scopes: ['review:auto-publish'] },
+      {
+        userId: 'owner-1', agentId: 'agent-1', agentRole: 'publisher',
+        scopes: scopesForAgentAccessRole('publisher'),
+      },
       'space-1', 'Auto', { type: 'create_page', payload: { title: 'A', content: 'x' } },
     );
     expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({

@@ -57,11 +57,16 @@ describe('Agent write review boundary', () => {
   });
 
   it.each([
-    ['approve', (controller: ReviewController, request: any) => controller.approve('change-1', request, {})],
-    ['reject', (controller: ReviewController, request: any) => controller.reject('change-1', request, {})],
-    ['publish', (controller: ReviewController, request: any) => controller.publish('change-1', request)],
-    ['review-publish', (controller: ReviewController, request: any) => controller.reviewPublish('change-1', request, {})],
-  ] as const)('denies publisher Agents the human-only %s boundary', async (_action, invoke) => {
+    ['decide-item', 'explicit', (controller: ReviewController, request: any) => controller.decideItem(
+      'change-1', 'item-1', request, { status: 'accepted' },
+    )],
+    ['submit', 'role-ceiling', (controller: ReviewController, request: any) => controller.submit('change-1', request)],
+    ['approve', 'explicit', (controller: ReviewController, request: any) => controller.approve('change-1', request, {})],
+    ['reject', 'explicit', (controller: ReviewController, request: any) => controller.reject('change-1', request, {})],
+    ['publish', 'explicit', (controller: ReviewController, request: any) => controller.publish('change-1', request)],
+    ['review-publish', 'explicit', (controller: ReviewController, request: any) => controller.reviewPublish('change-1', request, {})],
+    ['revert', 'explicit', (controller: ReviewController, request: any) => controller.revert('change-1', request)],
+  ] as const)('denies publisher Agents the human-only %s boundary', async (_action, denial, invoke) => {
     const prisma = {
       changeSet: { findUnique: jest.fn().mockResolvedValue({ id: 'change-1', spaceId: 'space-1' }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
@@ -73,22 +78,33 @@ describe('Agent write review boundary', () => {
       }) },
     } as any;
     const review = {
-      approve: jest.fn(), reject: jest.fn(), publish: jest.fn(), reviewPublish: jest.fn(),
+      decideItem: jest.fn(), submitForReview: jest.fn(), approve: jest.fn(), reject: jest.fn(),
+      publish: jest.fn(), reviewPublish: jest.fn(), revert: jest.fn(),
     } as any;
     const controller = new ReviewController(review, new AuthorizationService(prisma));
     const request = {
       user: {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
-        agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+        agentRole: 'publisher',
+        scopes: [...scopesForAgentAccessRole('publisher'), 'review:decide'],
       },
     } as any;
 
-    await expect(invoke(controller, request))
-      .rejects.toThrow('Agents cannot approve or publish change sets');
+    if (denial === 'explicit') {
+      await expect(invoke(controller, request))
+        .rejects.toThrow('Agents cannot approve or publish change sets');
+    } else {
+      await expect(invoke(controller, request)).rejects.toMatchObject({
+        businessCode: 'AUTH_SCOPE_REQUIRED',
+      });
+    }
+    expect(review.decideItem).not.toHaveBeenCalled();
+    expect(review.submitForReview).not.toHaveBeenCalled();
     expect(review.approve).not.toHaveBeenCalled();
     expect(review.reject).not.toHaveBeenCalled();
     expect(review.publish).not.toHaveBeenCalled();
     expect(review.reviewPublish).not.toHaveBeenCalled();
+    expect(review.revert).not.toHaveBeenCalled();
   });
 
   it.each([
