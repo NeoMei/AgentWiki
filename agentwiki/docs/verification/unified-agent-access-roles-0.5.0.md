@@ -3,7 +3,7 @@
 ## Result
 
 Local release verification passed on 2026-08-23 (Asia/Shanghai) for application
-candidate commit `92750fa3d29a40a184556c07a50d4edf9dfb3e3e`. The evidence-only
+candidate commit `ba3e23ce9dd18b33206d46bf853ffaf87d1c810f`. The evidence-only
 documentation commit follows this candidate and does not change runtime source. No push,
 npm publish, production deployment, migration application, service restart, live
 connection change, or real OpenCode acceptance was performed.
@@ -26,7 +26,7 @@ Result: exit 0. All workspace packages built, then the root test chain passed:
 
 | Suite | Result |
 | --- | --- |
-| Runtime contracts | 81 passed, 0 failed, 47 skipped |
+| Runtime contracts | 83 passed, 0 failed, 47 skipped |
 | Server Jest | 64 suites, 737 tests passed |
 | Client Vitest | 45 files, 223 tests passed |
 | Sync protocol Vitest | 6 files, 25 tests passed |
@@ -101,7 +101,8 @@ contains the exact role choices and `packageVersion: '0.5.0'`.
 ## Legacy-boundary and secret scans
 
 Targeted scans passed for the active Agent DTOs, connection/onboarding DTOs, coordinator,
-three-client harness, and Playwright connection fixtures:
+three-client harness, smoke/cross-machine E2E harnesses, and Playwright connection
+fixtures:
 
 - no legacy `permissionPreset`, client-supplied `approvalMode`, or 0.4.0 request path;
 - no request DTO or active fixture accepts/sends custom `scopes`;

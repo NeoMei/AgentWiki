@@ -7,7 +7,7 @@
 ## 当前阶段
 
 - 本地生产代码、数据库迁移、前端、sync-protocol、local-sync、onboarding、MCP 回归和文档已完成。
-- 旧 Agent `approvalMode` 请求旁路、0.4.0 部署默认与仍发送旧字段/scopes 的 E2E fixture 已在最终扫描中修复。
+- 旧 Agent `approvalMode` 请求旁路、0.4.0 部署默认、仍发送旧字段/scopes 的 onboarding/cross-machine/smoke E2E fixture 和未使用的 `agent.viewer` 文案键已在最终扫描中修复。
 - 提交态全仓构建、测试、类型、lint、Prisma、三客户端 onboarding、打包和静态扫描均通过。
 - 任务仍保持 active，等待用户单独授权发布、生产部署和真实 OpenCode 验收。
 

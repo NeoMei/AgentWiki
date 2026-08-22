@@ -15,8 +15,8 @@
 
 # 当前状态
 
-- 本地分支 `codex/unified-agent-access-roles` 已完成生产代码、界面、协议、文档和迁移实现；应用候选提交为 `92750fa3d29a40a184556c07a50d4edf9dfb3e3e`。
-- 提交态 `pnpm build && pnpm test` 全绿：runtime 81 通过 / 47 显式环境跳过，server 737、client 223、sync-protocol 25、local-sync 731 通过。
+- 本地分支 `codex/unified-agent-access-roles` 已完成生产代码、界面、协议、文档和迁移实现；最终应用候选提交为 `ba3e23ce9dd18b33206d46bf853ffaf87d1c810f`。
+- 提交态 `pnpm build && pnpm test` 全绿：runtime 83 通过 / 47 显式环境跳过，server 737、client 223、sync-protocol 25、local-sync 731 通过。
 - typecheck、lint、Prisma generate/validate、三客户端 onboarding 8+8、迁移静态检查、diff 和秘密扫描均通过。
 - 0.5.0 tarball 共 151 项、147424 bytes，SHA-256 为 `80942db782ef87f2254b1969cbe983c52e666ec4b41c806a83181d9dc9312377`。
 - 读取检查显示 `origin/master=c06b9b8`、npm latest=0.4.0、生产 onboarding=0.4.0；本地、GitHub、npm 和生产尚未对齐。
