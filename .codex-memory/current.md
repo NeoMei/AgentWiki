@@ -19,7 +19,7 @@
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
-- GitHub `master` 已包含 `0.5.1` 代码；npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
+- GitHub `master` 已包含 `0.5.1` 代码与发行证据；带注释标签 `v0.5.1` 指向证据提交 `ad198e3`。npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
 - npm 已发布 `@neomei/agentwiki-sync-protocol@0.2.0` 与 `@neomei/agentwiki-local-sync@0.5.1`；候选 tarball SHA-256 为 `8e7bd2723718c17a4335e1a96b4692de230d1e4052eb42ca2756b5d02f3e2ea2`。
 - 生产已应用 40 条迁移，最新为 `20260823090000_bind_agent_credentials_to_grants`；API、Worker、Frontend 三项 user service 均 active、`NRestarts=0`，最终切换后 error 日志为 0。
 - 公网 `/api/health` 的 database、redis、auditPersistence 均为 `ok`；生产统一授权烟测 `31/31` 通过，覆盖角色降权即时撤写、Editor 提案进入审核、Agent 不可审批、人工发布和清理。
