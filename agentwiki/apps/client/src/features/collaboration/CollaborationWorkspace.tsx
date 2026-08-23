@@ -118,6 +118,9 @@ export const CollaborationWorkspace: React.FC = () => {
     setLoadingMoreRuns(false);
     setCanManage(false);
     setCanStart(false);
+    setCopySource(null);
+    setCopyName('');
+    setSubmitting(false);
     setToast(null);
     setState('loading');
     if (tab === 'templates') void loadTemplates();
@@ -139,27 +142,40 @@ export const CollaborationWorkspace: React.FC = () => {
   };
 
   const copyTemplate = async () => {
-    if (!copySource || !copyName.trim() || !id) return;
+    if (!copySource || !copyName.trim() || !id || tab !== 'templates') return;
+    const source = copySource;
+    const name = copyName.trim();
+    const scope = { spaceId: id, tab: 'templates' as const, epoch: workspaceRequestEpoch.current };
+    if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
     setSubmitting(true);
     try {
-      const copy = await collaborationApi.copyTemplate(id, copySource.id, copyName.trim());
+      const copy = await collaborationApi.copyTemplate(scope.spaceId, source.id, name);
+      if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
       setTemplates((current) => [...current, copy]);
       setCopySource(null);
+      setCopyName('');
       setToast({ kind: 'success', message: t('collaboration.copySuccess') });
     } catch (error) {
+      if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.copyFailed') });
     } finally {
-      setSubmitting(false);
+      if (isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) setSubmitting(false);
     }
   };
 
   const archiveTemplate = async (template: TemplateSummary) => {
-    if (!id || !window.confirm(t('collaboration.archiveConfirm', { name: template.name }))) return;
+    if (!id || tab !== 'templates') return;
+    const source = template;
+    const scope = { spaceId: id, tab: 'templates' as const, epoch: workspaceRequestEpoch.current };
+    if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)
+      || !window.confirm(t('collaboration.archiveConfirm', { name: source.name }))) return;
     try {
-      await collaborationApi.archiveTemplate(id, template.id, template.version);
-      setTemplates((current) => current.filter((item) => item.id !== template.id));
+      await collaborationApi.archiveTemplate(scope.spaceId, source.id, source.version);
+      if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
+      setTemplates((current) => current.filter((item) => item.id !== source.id));
       setToast({ kind: 'success', message: t('collaboration.archiveSuccess') });
     } catch (error) {
+      if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.archiveFailed') });
     }
   };

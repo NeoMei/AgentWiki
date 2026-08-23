@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { collaborationApi } from './api';
+import { validDefinition } from './collaboration-test-fixtures';
 import { CollaborationWorkspace } from './CollaborationWorkspace';
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
@@ -67,6 +68,10 @@ describe('CollaborationWorkspace', () => {
       { type: 'human', userId: 'owner-1', role: 'owner' },
     ]);
     vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('shows system and Space templates and copies a system template', async () => {
@@ -283,6 +288,218 @@ describe('CollaborationWorkspace', () => {
 
     view.unmount();
     await act(async () => templates.reject(obsoleteError));
+
+    expect(inspected).toBe(false);
+  });
+
+  it('clears a copy dialog when its Space or tab scope changes', async () => {
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? [systemCodingTemplate, spaceTemplate]
+      : [systemCodingTemplate, spaceBTemplate]);
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space A copy' } });
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Copy system template' })).not.toBeInTheDocument();
+    expect(collaborationApi.copyTemplate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    expect(screen.getByRole('heading', { name: 'Copy system template' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+
+    await waitFor(() => expect(collaborationApi.listRuns).toHaveBeenCalledWith('space-2', 'active'));
+    expect(screen.queryByRole('heading', { name: 'Copy system template' })).not.toBeInTheDocument();
+    expect(collaborationApi.copyTemplate).not.toHaveBeenCalled();
+  });
+
+  it('keeps a new Space copy submission isolated from an older successful copy and finally', async () => {
+    const spaceACopy = deferred<Awaited<ReturnType<typeof collaborationApi.copyTemplate>>>();
+    const spaceBCopy = deferred<Awaited<ReturnType<typeof collaborationApi.copyTemplate>>>();
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? [systemCodingTemplate, spaceTemplate]
+      : [systemCodingTemplate, spaceBTemplate]);
+    vi.mocked(collaborationApi.copyTemplate).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? spaceACopy.promise
+      : spaceBCopy.promise);
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space A pending copy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledWith(
+      'space-1', 'system-coding', 'Space A pending copy',
+    ));
+
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space B pending copy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledWith(
+      'space-2', 'system-coding', 'Space B pending copy',
+    ));
+    expect(screen.getByRole('button', { name: 'Copying…' })).toBeDisabled();
+
+    await act(async () => spaceACopy.resolve({
+      ...spaceTemplate, id: 'space-a-stale-copy', name: 'Space A pending copy',
+    }));
+
+    expect(screen.getByRole('heading', { name: 'Copy system template' })).toBeVisible();
+    expect(screen.getByLabelText('Template name')).toHaveValue('Space B pending copy');
+    expect(screen.getByRole('button', { name: 'Copying…' })).toBeDisabled();
+    expect(screen.queryByText('Space A pending copy')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    await act(async () => spaceBCopy.resolve({
+      ...spaceBTemplate, id: 'space-b-copy', name: 'Space B pending copy',
+    }));
+    expect(await screen.findByText('Space B pending copy')).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('Template copied');
+  });
+
+  it('does not inspect or publish an obsolete copy failure in a new Space', async () => {
+    const spaceACopy = deferred<Awaited<ReturnType<typeof collaborationApi.copyTemplate>>>();
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? [systemCodingTemplate, spaceTemplate]
+      : [systemCodingTemplate, spaceBTemplate]);
+    vi.mocked(collaborationApi.copyTemplate).mockReturnValue(spaceACopy.promise);
+    let inspected = false;
+    const obsoleteError = Object.defineProperty({}, 'response', {
+      get: () => {
+        inspected = true;
+        return undefined;
+      },
+    });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space B untouched' } });
+
+    await act(async () => spaceACopy.reject(obsoleteError));
+
+    expect(inspected).toBe(false);
+    expect(screen.getByRole('heading', { name: 'Copy system template' })).toBeVisible();
+    expect(screen.getByLabelText('Template name')).toHaveValue('Space B untouched');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not inspect a pending copy failure after unmount', async () => {
+    const copy = deferred<Awaited<ReturnType<typeof collaborationApi.copyTemplate>>>();
+    vi.mocked(collaborationApi.copyTemplate).mockReturnValue(copy.promise);
+    let inspected = false;
+    const obsoleteError = Object.defineProperty({}, 'response', {
+      get: () => {
+        inspected = true;
+        return undefined;
+      },
+    });
+    const view = renderWorkspace();
+    await screen.findByText('Coding collaboration');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    await act(async () => copy.reject(obsoleteError));
+
+    expect(inspected).toBe(false);
+  });
+
+  it('ignores a pending copy success after leaving Templates for Runs', async () => {
+    const copy = deferred<Awaited<ReturnType<typeof collaborationApi.copyTemplate>>>();
+    vi.mocked(collaborationApi.copyTemplate).mockReturnValue(copy.promise);
+    vi.mocked(collaborationApi.listRuns).mockResolvedValue({
+      items: [{ id: 'active-current', name: 'Current active', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }],
+      nextCursor: null,
+    });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    expect(await screen.findByText('Current active')).toBeVisible();
+    await act(async () => copy.resolve({ ...spaceTemplate, id: 'obsolete-copy' }));
+
+    expect(screen.getByText('Current active')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Copy system template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('ignores obsolete archive success and failure after changing Space', async () => {
+    const firstArchive = deferred<Awaited<ReturnType<typeof collaborationApi.archiveTemplate>>>();
+    const secondArchive = deferred<Awaited<ReturnType<typeof collaborationApi.archiveTemplate>>>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? [systemCodingTemplate, spaceTemplate]
+      : [systemCodingTemplate, spaceBTemplate]);
+    vi.mocked(collaborationApi.archiveTemplate)
+      .mockReturnValueOnce(firstArchive.promise)
+      .mockReturnValueOnce(secondArchive.promise);
+    renderWorkspace();
+    await screen.findByText('Backend release');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(collaborationApi.archiveTemplate).toHaveBeenCalledWith(
+      'space-1', 'space-template', 2,
+    ));
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    await act(async () => firstArchive.resolve({ ...spaceTemplate, definition: validDefinition }));
+
+    expect(screen.getByText('Space B template')).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(collaborationApi.archiveTemplate).toHaveBeenCalledWith(
+      'space-2', 'space-b-template', 1,
+    ));
+    let inspected = false;
+    const obsoleteError = Object.defineProperty({}, 'response', {
+      get: () => {
+        inspected = true;
+        return undefined;
+      },
+    });
+    await act(async () => navigateWorkspace('/spaces/space-1/collaboration'));
+    expect(await screen.findByText('Backend release')).toBeVisible();
+    await act(async () => secondArchive.reject(obsoleteError));
+
+    expect(inspected).toBe(false);
+    expect(screen.getByText('Backend release')).toBeVisible();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not inspect a pending archive failure after unmount', async () => {
+    const archive = deferred<Awaited<ReturnType<typeof collaborationApi.archiveTemplate>>>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(collaborationApi.archiveTemplate).mockReturnValue(archive.promise);
+    let inspected = false;
+    const obsoleteError = Object.defineProperty({}, 'response', {
+      get: () => {
+        inspected = true;
+        return undefined;
+      },
+    });
+    const view = renderWorkspace();
+    await screen.findByText('Backend release');
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(collaborationApi.archiveTemplate).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    await act(async () => archive.reject(obsoleteError));
 
     expect(inspected).toBe(false);
   });
