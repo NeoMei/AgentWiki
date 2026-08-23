@@ -39,7 +39,7 @@ if command -v sshpass >/dev/null 2>&1 && [ -n "${SSHPASS:-}" ]; then
 fi
 
 echo "Packaging AgentWiki direct-runtime release..."
-tar \
+COPYFILE_DISABLE=1 tar \
   --exclude='.env' \
   --exclude='apps/server/.env' \
   --exclude='node_modules' \

@@ -225,6 +225,11 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
     /apps packages scripts deploy deploy\.sh/,
     'direct deployment must package the sync migration utilities',
   );
+  assert.match(
+    deploy,
+    /COPYFILE_DISABLE=1\s+tar/,
+    'macOS deployment archives must not emit AppleDouble metadata files on Linux',
+  );
   assert.ok(
     /release_dir\/scripts\/.*HOME.*PROJECT_DIR.*scripts\//s.test(deploy)
       || /mv -- "\\\$release_dir" "\\\$live_dir"/.test(deploy),
