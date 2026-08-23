@@ -205,6 +205,8 @@ type CollaborationReadinessDependency = {
 
 type CollaborationReadinessNode = {
   id: string;
+  kind?: unknown;
+  artifactTaskId?: unknown;
   skippable?: unknown;
 };
 
@@ -216,6 +218,10 @@ export function collaborationGuaranteedPredecessors(
   const ids = [...new Set(nodeList.map((node) => node.id))].sort();
   const idSet = new Set(ids);
   const skippableIds = new Set(nodeList.filter((node) => node.skippable === true).map((node) => node.id));
+  const reviewSourceById = new Map(nodeList.flatMap((node) =>
+    node.kind === "human_review" && typeof node.artifactTaskId === "string"
+      ? [[node.id, node.artifactTaskId] as const]
+      : []));
   const incoming = new Map(ids.map((id) => [id, [] as CollaborationReadinessDependency[]]));
   const outgoing = new Map(ids.map((id) => [id, new Set<string>()]));
   const seenEdges = new Set<string>();
@@ -247,6 +253,11 @@ export function collaborationGuaranteedPredecessors(
 
   const guaranteed = new Map<string, ReadonlySet<string>>(ids.map((id) => [id, new Set<string>()]));
   for (const id of order) {
+    const reviewSource = reviewSourceById.get(id);
+    if (reviewSource !== undefined && idSet.has(reviewSource)) {
+      guaranteed.set(id, new Set([reviewSource, ...(guaranteed.get(reviewSource) ?? [])]));
+      continue;
+    }
     const parents = incoming.get(id)!;
     if (parents.length === 0) continue;
     const releasePaths = parents.map(({ from }) => skippableIds.has(from)

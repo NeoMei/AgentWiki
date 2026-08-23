@@ -66,7 +66,12 @@ export function validateCollaborationTemplate(input: unknown): TemplateValidatio
   const outputProducer = new Map(outputPairs);
   const guaranteedPredecessors = collaborationGuaranteedPredecessors(
     nodes.flatMap((node) => typeof node.id === 'string'
-      ? [{ id: node.id, skippable: node.skippable }]
+      ? [{
+          id: node.id,
+          kind: node.kind,
+          artifactTaskId: node.artifactTaskId,
+          skippable: node.skippable,
+        }]
       : []),
     dependencies.flatMap((edge) => typeof edge.from === 'string' && typeof edge.to === 'string'
       ? [{ from: edge.from, to: edge.to, mode: edge.mode }]

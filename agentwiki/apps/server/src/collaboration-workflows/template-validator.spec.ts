@@ -213,6 +213,53 @@ describe('collaboration template validator', () => {
     );
   });
 
+  it('derives Human Review guarantees only from its Artifact source', () => {
+    const review = (artifactTaskId: string) => ({
+      kind: 'human_review' as const,
+      id: 'review',
+      name: 'Review',
+      artifactTaskId,
+      minimumRole: 'editor' as const,
+      reviewerUserIds: [],
+      approvalCriteria: ['Complete'],
+      revisionTaskId: artifactTaskId,
+      allowTerminate: true,
+    });
+    const unsafeExtraAll = validDefinition({
+      nodes: [
+        task('required-producer', 'required'),
+        task('artifact-source', 'source'),
+        review('artifact-source'),
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [
+        { from: 'required-producer', to: 'review', mode: 'all' },
+        { from: 'artifact-source', to: 'review', mode: 'all' },
+        { from: 'review', to: 'consumer', mode: 'all' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(unsafeExtraAll)).toContainEqual(
+      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
+    );
+
+    const safeSourceWithExtraAny = validDefinition({
+      nodes: [
+        { ...task('artifact-source', 'source'), skippable: true },
+        task('extra'),
+        review('artifact-source'),
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'source', required: true }] },
+      ],
+      dependencies: [
+        { from: 'artifact-source', to: 'review', mode: 'any' },
+        { from: 'extra', to: 'review', mode: 'any' },
+        { from: 'review', to: 'consumer', mode: 'all' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(safeSourceWithExtraAny)).toEqual([]);
+  });
+
   it('hashes canonical object-key order and accepts a sound graph', () => {
     const definition = CollaborationTemplateDefinitionSchema.parse(validDefinition());
     expect(validateCollaborationTemplate(definition)).toEqual([]);

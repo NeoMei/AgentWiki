@@ -309,6 +309,64 @@ describe("collaboration contract", () => {
     expect(() => CollaborationTemplateDefinitionSchema.parse(skippableRelay)).toThrow(/guaranteed|required artifact/i);
   });
 
+  it("derives Human Review guarantees only from its Artifact source", () => {
+    const review = (artifactTaskId: string) => ({
+      kind: "human_review",
+      id: "review",
+      name: "Review",
+      artifactTaskId,
+      minimumRole: "editor",
+      reviewerUserIds: [],
+      approvalCriteria: ["Complete"],
+      revisionTaskId: artifactTaskId,
+      allowTerminate: true,
+    });
+
+    const unsafeExtraAll = validDefinition();
+    unsafeExtraAll.nodes = [
+      agentTask({ id: "required-producer", name: "Required producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "artifact-source", name: "Artifact source", output: { key: "source", kind: "markdown" }, humanAcceptance: false }),
+      review("artifact-source"),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    unsafeExtraAll.dependencies = [
+      { from: "required-producer", to: "review", mode: "all" },
+      { from: "artifact-source", to: "review", mode: "all" },
+      { from: "review", to: "consumer", mode: "all" },
+    ];
+    unsafeExtraAll.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(unsafeExtraAll)).toThrow(/guaranteed|required artifact/i);
+
+    const safeSourceWithExtraAny = validDefinition();
+    safeSourceWithExtraAny.nodes = [
+      agentTask({ id: "artifact-source", name: "Artifact source", output: { key: "source", kind: "markdown" }, humanAcceptance: false, skippable: true }),
+      agentTask({ id: "extra", name: "Extra", output: { key: "extra", kind: "markdown" }, humanAcceptance: false }),
+      review("artifact-source"),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "source", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    safeSourceWithExtraAny.dependencies = [
+      { from: "artifact-source", to: "review", mode: "any" },
+      { from: "extra", to: "review", mode: "any" },
+      { from: "review", to: "consumer", mode: "all" },
+    ];
+    safeSourceWithExtraAny.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(safeSourceWithExtraAny)).not.toThrow();
+  });
+
   it("keeps input values and artifact variants strict", () => {
     expect(CollaborationInputValuesSchema.parse({ topic: "AgentWiki", count: 3, approved: true })).toEqual({
       topic: "AgentWiki", count: 3, approved: true,
