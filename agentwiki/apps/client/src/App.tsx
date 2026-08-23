@@ -34,6 +34,8 @@ const PageVersionHistory = lazy(() => import('./features/page/PageVersionHistory
 const PagePreview = lazy(() => import('./features/page/PagePreview').then((module) => ({ default: module.PagePreview })));
 const KnowledgeGraph = lazy(() => import('./features/knowledge/KnowledgeGraph').then((module) => ({ default: module.KnowledgeGraph })));
 const CollaborationWorkspace = lazy(() => import('./features/collaboration/CollaborationWorkspace').then((module) => ({ default: module.CollaborationWorkspace })));
+const TemplateEditor = lazy(() => import('./features/collaboration/TemplateEditor').then((module) => ({ default: module.TemplateEditor })));
+const RunStartWizard = lazy(() => import('./features/collaboration/RunStartWizard').then((module) => ({ default: module.RunStartWizard })));
 
 const RouteLoading: React.FC = () => {
   const { t } = useLanguage();
@@ -66,6 +68,9 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/sources" element={<Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense>} />
         <Route path="/spaces/:id/runs" element={<Suspense fallback={<RouteLoading />}><RunsPage /></Suspense>} />
         <Route path="/spaces/:id/collaboration" element={<Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense>} />
+        <Route path="/spaces/:id/collaboration/templates/new" element={<Suspense fallback={<RouteLoading />}><TemplateEditor /></Suspense>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<Suspense fallback={<RouteLoading />}><TemplateEditor /></Suspense>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>

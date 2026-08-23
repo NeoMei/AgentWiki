@@ -7,7 +7,7 @@ import { AuthorizationService, type Principal } from '../core/authorization/auth
 import { BusinessException } from '../core/filters/business-error';
 import { BUILT_IN_COLLABORATION_TEMPLATES, type BuiltInCollaborationTemplate } from './template-definitions';
 import { validateCollaborationTemplate } from './template-validator';
-import type { CreateTemplateDto } from './template.dto';
+import type { CreateTemplateDto, UpdateTemplateDto } from './template.dto';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const MANAGE_ROLES = ['owner', 'admin'] as const;
@@ -122,20 +122,24 @@ export class TemplateService implements OnModuleInit {
   async updateSpaceTemplate(
     spaceId: string,
     templateId: string,
-    expectedVersion: number,
-    definitionInput: unknown,
+    body: UpdateTemplateDto,
     principal: Principal,
   ) {
     await this.assertCanManage(principal, spaceId);
-    const definition = this.parseDefinition(definitionInput);
+    const definition = this.parseDefinition(body.definition);
     const current = await this.prisma.collaborationTemplate.findUnique({ where: { id: templateId } });
     if (!current || (!current.system && current.spaceId !== spaceId)) {
       throw new BusinessException('COLLABORATION_TEMPLATE_NOT_FOUND');
     }
     if (current.system) throw new BusinessException('COLLABORATION_SYSTEM_TEMPLATE_IMMUTABLE');
     const result = await this.prisma.collaborationTemplate.updateMany({
-      where: { id: templateId, spaceId, system: false, version: expectedVersion, archivedAt: null },
-      data: { definition: toJson(definition), version: { increment: 1 } },
+      where: { id: templateId, spaceId, system: false, version: body.expectedVersion, archivedAt: null },
+      data: {
+        definition: toJson(definition),
+        ...(body.name === undefined ? {} : { name: body.name.trim() }),
+        ...(body.description === undefined ? {} : { description: body.description.trim() }),
+        version: { increment: 1 },
+      },
     });
     if (result.count !== 1) throw new BusinessException('COLLABORATION_TEMPLATE_VERSION_CONFLICT');
     return this.prisma.collaborationTemplate.findUniqueOrThrow({ where: { id: templateId } });

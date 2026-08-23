@@ -5,7 +5,9 @@ export type HumanSpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface SpaceMemberSummary {
   type: 'human' | 'agent';
   userId?: string;
+  agentId?: string;
   role: string;
+  agent?: { id: string; name: string; status: string; revokedAt?: string | null };
 }
 
 export interface TemplateSummary {
@@ -64,5 +66,38 @@ export interface RunSummary {
   finishedAt?: string | null;
 }
 
-export type RunListKind = 'active' | 'history';
+export interface RoleBinding {
+  roleSlotId: string;
+  roleSlotName?: string;
+  agentId: string;
+}
 
+export interface CollaborationRun extends RunSummary {
+  version: number;
+  inputs: Record<string, string | number | boolean>;
+  roleBindings: RoleBinding[];
+  templateSnapshot?: CollaborationTemplateDefinition;
+  joinInstructions?: AgentInstruction[];
+}
+
+export interface CreateRunDraftInput {
+  templateId: string;
+  name: string;
+  inputs: Record<string, string | number | boolean>;
+  roleBindings: RoleBinding[];
+}
+
+export interface UpdateRunDraftInput {
+  expectedVersion: number;
+  name?: string;
+  inputs?: Record<string, string | number | boolean>;
+  roleBindings?: RoleBinding[];
+}
+
+export interface AgentInstruction {
+  agentId: string;
+  roleSlots: string[];
+  text: string;
+}
+
+export type RunListKind = 'active' | 'history';

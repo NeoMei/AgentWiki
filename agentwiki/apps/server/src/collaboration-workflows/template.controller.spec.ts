@@ -31,7 +31,9 @@ describe('TemplateController', () => {
     expect(templates.validateDefinition).toHaveBeenCalledWith('space-1', {}, request.user);
     expect(templates.get).toHaveBeenCalledWith('space-1', 'template-1', request.user);
     expect(templates.copySystemTemplate).toHaveBeenCalledWith('space-1', 'system-1', 'Copy', request.user);
-    expect(templates.updateSpaceTemplate).toHaveBeenCalledWith('space-1', 'template-1', 2, {}, request.user);
+    expect(templates.updateSpaceTemplate).toHaveBeenCalledWith(
+      'space-1', 'template-1', expect.objectContaining({ expectedVersion: 2, definition: {} }), request.user,
+    );
     expect(templates.archiveSpaceTemplate).toHaveBeenCalledWith('space-1', 'template-1', 2, request.user);
   });
 });

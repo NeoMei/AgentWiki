@@ -39,6 +39,17 @@ export class UpdateTemplateDto {
   @Max(2_147_483_647)
   expectedVersion!: number;
 
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(240)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(8_000)
+  description?: string;
+
   @IsObject()
   definition!: Record<string, unknown>;
 }

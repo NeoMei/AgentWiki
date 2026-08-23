@@ -131,13 +131,30 @@ describe('TemplateService', () => {
   it('increments version only when expectedVersion matches', async () => {
     collaborationTemplate.findUnique.mockResolvedValue(templateRecord());
     collaborationTemplate.updateMany.mockResolvedValue({ count: 0 });
-    await expect(service.updateSpaceTemplate('space-1', 'template-1', 3, validDefinition(), principal))
+    await expect(service.updateSpaceTemplate('space-1', 'template-1', {
+      expectedVersion: 3, name: 'Revised template', description: 'Revised', definition: validDefinition(),
+    }, principal))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_VERSION_CONFLICT' });
+  });
+
+  it('updates editable metadata and definition in one optimistic write', async () => {
+    collaborationTemplate.findUnique.mockResolvedValue(templateRecord());
+    await service.updateSpaceTemplate('space-1', 'template-1', {
+      expectedVersion: 1, name: 'Revised template', description: 'Revised description', definition: validDefinition(),
+    }, principal);
+    expect(collaborationTemplate.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'template-1', version: 1 }),
+      data: expect.objectContaining({
+        name: 'Revised template', description: 'Revised description', version: { increment: 1 },
+      }),
+    }));
   });
 
   it('rejects editing a system template', async () => {
     collaborationTemplate.findUnique.mockResolvedValue(templateRecord({ id: 'system-1', spaceId: null, system: true }));
-    await expect(service.updateSpaceTemplate('space-1', 'system-1', 1, validDefinition(), principal))
+    await expect(service.updateSpaceTemplate('space-1', 'system-1', {
+      expectedVersion: 1, name: 'System', description: '', definition: validDefinition(),
+    }, principal))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_SYSTEM_TEMPLATE_IMMUTABLE' });
   });
 

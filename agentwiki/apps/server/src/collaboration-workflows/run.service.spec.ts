@@ -93,6 +93,14 @@ describe('RunService', () => {
     expect(tx.collaborationRoleBinding.createMany).toHaveBeenCalled();
   });
 
+  it('persists step-one input as an incomplete draft before Agent mapping', async () => {
+    const result = await service.createDraft('space-1', {
+      templateId: 'template-1', name: 'Release 1', inputs: { objective: 'Ship feature' }, roleBindings: [],
+    }, humanPrincipal);
+    expect(result).toMatchObject({ status: 'draft', version: 1 });
+    expect(tx.collaborationRoleBinding.createMany).not.toHaveBeenCalled();
+  });
+
   it('validates fresh grants then freezes and expands the ready run on start', async () => {
     tx.collaborationRun.findFirst.mockResolvedValueOnce(ready);
     const result = await service.startRun('space-1', 'run-1', {

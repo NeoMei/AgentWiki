@@ -45,7 +45,7 @@ export class RunService {
     const result = await this.prisma.$transaction(async (tx) => {
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
-      const bindings = this.normalizeBindings(definition, body.roleBindings);
+      const bindings = this.normalizeBindings(definition, body.roleBindings, true);
       const run = await tx.collaborationRun.create({
         data: {
           spaceId,
@@ -60,9 +60,11 @@ export class RunService {
           startedById: principal.userId,
         },
       });
-      await tx.collaborationRoleBinding.createMany({
-        data: bindings.map((binding) => ({ runId: run.id, ...binding })),
-      });
+      if (bindings.length > 0) {
+        await tx.collaborationRoleBinding.createMany({
+          data: bindings.map((binding) => ({ runId: run.id, ...binding })),
+        });
+      }
       return run;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(result.id);
@@ -353,7 +355,11 @@ export class RunService {
     return template;
   }
 
-  private normalizeBindings(definition: CollaborationTemplateDefinition, input: RoleBindingInput[]) {
+  private normalizeBindings(
+    definition: CollaborationTemplateDefinition,
+    input: RoleBindingInput[],
+    allowMissingRequired = false,
+  ) {
     const slots = new Map(definition.roleSlots.map((slot) => [slot.id, slot]));
     const seen = new Set<string>();
     const bindings = input.map((binding) => {
@@ -364,7 +370,7 @@ export class RunService {
       seen.add(binding.roleSlotId);
       return { roleSlotId: slot.id, roleSlotName: slot.name, agentId: binding.agentId };
     });
-    if (definition.roleSlots.some((slot) => slot.required && !seen.has(slot.id))) {
+    if (!allowMissingRequired && definition.roleSlots.some((slot) => slot.required && !seen.has(slot.id))) {
       throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'Required role bindings are missing');
     }
     return bindings;

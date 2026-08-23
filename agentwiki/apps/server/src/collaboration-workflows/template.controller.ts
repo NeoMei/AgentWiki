@@ -69,8 +69,7 @@ export class TemplateController {
     return this.templates.updateSpaceTemplate(
       spaceId,
       templateId,
-      body.expectedVersion,
-      body.definition,
+      body,
       req.user as Principal,
     );
   }

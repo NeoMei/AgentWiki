@@ -1,12 +1,15 @@
 import api from '../../api/client';
 import type {
   CreateTemplateInput,
+  CollaborationRun,
+  CreateRunDraftInput,
   RunListKind,
   RunSummary,
   SpaceMemberSummary,
   TemplateDetail,
   TemplateSummary,
   UpdateTemplateInput,
+  UpdateRunDraftInput,
   ValidationResult,
 } from './types';
 
@@ -33,5 +36,18 @@ export const collaborationApi = {
   },
   listMembers: async (spaceId: string): Promise<SpaceMemberSummary[]> =>
     (await api.get<SpaceMemberSummary[]>(`/spaces/${spaceId}/members`)).data,
+  createRunDraft: async (spaceId: string, input: CreateRunDraftInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/drafts`, input)).data,
+  updateRunDraft: async (spaceId: string, runId: string, input: UpdateRunDraftInput): Promise<CollaborationRun> =>
+    (await api.put<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/draft`, input)).data,
+  validateRunDraft: async (spaceId: string, runId: string, expectedVersion: number): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/validate`, { expectedVersion })).data,
+  startRun: async (
+    spaceId: string,
+    runId: string,
+    input: { expectedVersion: number; idempotencyKey: string },
+  ): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/start`, input)).data,
+  getRun: async (spaceId: string, runId: string): Promise<CollaborationRun> =>
+    (await api.get<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}`)).data,
 };
-

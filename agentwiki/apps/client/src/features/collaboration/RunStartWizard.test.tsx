@@ -1,0 +1,111 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LanguageProvider } from '../../context/LanguageContext';
+import { collaborationApi } from './api';
+import { RunStartWizard, buildAgentJoinInstructions } from './RunStartWizard';
+import { validDefinition } from './collaboration-test-fixtures';
+import type { TemplateDetail } from './types';
+
+vi.mock('./api', () => ({ collaborationApi: {
+  getTemplate: vi.fn(), listMembers: vi.fn(), createRunDraft: vi.fn(), updateRunDraft: vi.fn(),
+  validateRunDraft: vi.fn(), startRun: vi.fn(), getRun: vi.fn(),
+} }));
+
+const template: TemplateDetail = {
+  id: 'template-1', spaceId: 'space-1', slug: 'custom', name: 'Custom workflow', description: '',
+  system: false, version: 1, definition: validDefinition,
+};
+const activeEditor = { type: 'agent' as const, agentId: 'agent-editor', role: 'editor', agent: { id: 'agent-editor', name: 'Editor Bot', status: 'active', revokedAt: null } };
+const activeReader = { type: 'agent' as const, agentId: 'agent-reader', role: 'reader', agent: { id: 'agent-reader', name: 'Reader Bot', status: 'active', revokedAt: null } };
+const revokedAgent = { type: 'agent' as const, agentId: 'agent-revoked', role: 'publisher', agent: { id: 'agent-revoked', name: 'Revoked Bot', status: 'inactive', revokedAt: '2026-08-24T00:00:00Z' } };
+
+function renderWizard() {
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  return render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-1/start']}>
+    <Routes><Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<RunStartWizard />} /></Routes>
+  </MemoryRouter></LanguageProvider>);
+}
+
+describe('RunStartWizard', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue(template);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([activeEditor, activeReader, revokedAgent]);
+    vi.mocked(collaborationApi.createRunDraft).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'draft', version: 1, inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    vi.mocked(collaborationApi.updateRunDraft).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'draft', version: 2, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-editor' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    vi.mocked(collaborationApi.validateRunDraft).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'ready', version: 3, inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    vi.mocked(collaborationApi.startRun).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'running', version: 4, inputs: { brief: 'Ship it' }, updatedAt: '2026-08-24T00:00:00Z',
+      roleBindings: [
+        { roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', roleSlotName: 'Reviewer', agentId: 'agent-editor' },
+      ],
+    });
+  });
+
+  it('enforces the exact three start steps and fresh executable-Agent preflight', async () => {
+    renderWizard();
+    expect(await screen.findByRole('heading', { name: '1. Work input' })).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Release 1' } });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'Ship it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(collaborationApi.createRunDraft).toHaveBeenCalledWith('space-1', expect.objectContaining({
+      templateId: 'template-1', name: 'Release 1', inputs: { brief: 'Ship it' }, roleBindings: [],
+    })));
+
+    expect(await screen.findByRole('heading', { name: '2. Map Agents' })).toBeVisible();
+    const writer = screen.getByLabelText('Writer');
+    expect(within(writer).getByRole('option', { name: 'Editor Bot' })).toBeVisible();
+    expect(within(writer).queryByRole('option', { name: 'Reader Bot' })).not.toBeInTheDocument();
+    expect(within(writer).queryByRole('option', { name: 'Revoked Bot' })).not.toBeInTheDocument();
+    fireEvent.change(writer, { target: { value: 'agent-editor' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ expectedVersion: 1 })));
+    expect(await screen.findByRole('heading', { name: '3. Review and start' })).toBeVisible();
+    expect(collaborationApi.validateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', 2);
+  });
+
+  it('starts idempotently, merges roles into one secret-free instruction, and warns about self-review', async () => {
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Release 1' } });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'Ship it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByRole('heading', { name: '3. Review and start' });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    expect(await screen.findByText('This Agent fills roles that review each other.')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Copy join instruction' })).toHaveLength(1);
+    expect(screen.getByText(/collaboration_join_run/u)).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+    expect(collaborationApi.startRun).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ expectedVersion: 3, idempotencyKey: expect.any(String) }));
+  });
+
+  it('builds one instruction per Agent for multiple Role Slots', () => {
+    const instructions = buildAgentJoinInstructions({
+      id: 'run-1', roleBindings: [
+        { roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-1' },
+        { roleSlotId: 'reviewer', roleSlotName: 'Reviewer', agentId: 'agent-1' },
+      ],
+    });
+    expect(instructions).toHaveLength(1);
+    expect(instructions[0].roleSlots).toEqual(['Writer', 'Reviewer']);
+    expect(instructions[0].text).toContain('collaboration_join_run');
+    expect(instructions[0].text).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+  });
+});
