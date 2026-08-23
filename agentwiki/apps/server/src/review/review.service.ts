@@ -24,8 +24,13 @@ import {
   validatePortablePath,
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
+import {
+  lockLiveAgentAuthorization,
+  type LockedAgentAuthorization,
+} from '../core/authorization/live-agent-authorization';
 
 interface AgentAutoPublishContext {
+  ownerId?: string;
   agentId: string;
   credentialId: string;
 }
@@ -46,34 +51,51 @@ export class ReviewService {
     title: string,
     item: { type: string; payload: Record<string, unknown> },
   ) {
-    // The request principal is only an authentication snapshot. Auto-publish
-    // eligibility is derived from current database state, then checked again
-    // under row locks at the publication critical point.
     const autoPublishContext = principal.agentId && principal.credentialId
-      ? { agentId: principal.agentId, credentialId: principal.credentialId }
+      ? { ownerId: principal.userId, agentId: principal.agentId, credentialId: principal.credentialId }
       : null;
     const requiredScopes = this.requiredScopesForItems([item]);
-    const autoPublish = !!autoPublishContext && !!requiredScopes &&
-      await this.hasLiveAgentAutoPublishAccess(
-        this.prisma,
-        autoPublishContext,
-        spaceId,
-        requiredScopes,
-        false,
-      );
+    const createChangeSet = (
+      db: PrismaService | Prisma.TransactionClient,
+      autoPublish: boolean,
+    ) => db.changeSet.create({
+        data: {
+          spaceId,
+          title,
+          status: autoPublish ? 'approved' : 'pending_review',
+          ...(autoPublish ? { reviewedAt: new Date() } : {}),
+          createdByUserId: principal.agentId ? undefined : principal.userId,
+          createdByAgentId: principal.agentId,
+          items: { create: { type: item.type, status: autoPublish ? 'accepted' : 'pending', payload: item.payload as Prisma.InputJsonValue } },
+        },
+        include: { items: true },
+      });
 
-    const changeSet = await this.prisma.changeSet.create({
-      data: {
-        spaceId,
-        title,
-        status: autoPublish ? 'approved' : 'pending_review',
-        ...(autoPublish ? { reviewedAt: new Date() } : {}),
-        createdByUserId: principal.agentId ? undefined : principal.userId,
-        createdByAgentId: principal.agentId,
-        items: { create: { type: item.type, status: autoPublish ? 'accepted' : 'pending', payload: item.payload as Prisma.InputJsonValue } },
-      },
-      include: { items: true },
-    });
+    let autoPublish = false;
+    let changeSet;
+    if (principal.agentId) {
+      if (!autoPublishContext || !requiredScopes) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is unavailable');
+      }
+      ({ changeSet, autoPublish } = await this.prisma.$transaction(async (tx) => {
+        // The request principal is only an authentication snapshot. Lock and
+        // revalidate the bound Credential, Grant, Agent owner, and Space in the
+        // same transaction that creates the ChangeSet so revocation cannot race
+        // the write. Auto-publish is then derived from those locked rows.
+        const liveAuthorization = await this.assertLiveAgentProposalAccess(
+          tx, autoPublishContext, spaceId, requiredScopes,
+        );
+        const canAutoPublish = this.hasAgentAutoPublishAccess(
+          liveAuthorization, requiredScopes,
+        );
+        return {
+          changeSet: await createChangeSet(tx, canAutoPublish),
+          autoPublish: canAutoPublish,
+        };
+      }));
+    } else {
+      changeSet = await createChangeSet(this.prisma, false);
+    }
 
     if (!autoPublish) return { ...changeSet, autoPublished: false };
     const published = await this.publish(changeSet.id, autoPublishContext);
@@ -214,19 +236,21 @@ export class ReviewService {
       throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
     }
     const authorId = changeSet.createdByUserId || await this.resolveAgentOwner(changeSet.createdByAgentId);
+    const liveAutoPublishContext = autoPublishContext
+      ? { ...autoPublishContext, ownerId: autoPublishContext.ownerId ?? authorId }
+      : null;
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
-      if (autoPublishContext) {
+      if (liveAutoPublishContext) {
         const requiredScopes = this.requiredScopesForItems(changeSet.items);
-        const remainsAuthorized = changeSet.createdByAgentId === autoPublishContext.agentId &&
+        const remainsAuthorized = changeSet.createdByAgentId === liveAutoPublishContext.agentId &&
           !!requiredScopes &&
           await this.hasLiveAgentAutoPublishAccess(
             tx,
-            autoPublishContext,
+            liveAutoPublishContext,
             changeSet.spaceId,
             requiredScopes,
-            true,
           );
         if (!remainsAuthorized) {
           const demoted = await tx.changeSet.updateMany({
@@ -827,74 +851,72 @@ export class ReviewService {
     return scopes.size > 0 ? [...scopes] : null;
   }
 
+  private async assertLiveAgentProposalAccess(
+    db: PrismaService | Prisma.TransactionClient,
+    context: AgentAutoPublishContext,
+    spaceId: string,
+    requiredScopes: string[],
+  ): Promise<LockedAgentAuthorization> {
+    if (!context.ownerId) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
+    }
+    const state = await lockLiveAgentAuthorization(db, {
+      ownerId: context.ownerId,
+      agentId: context.agentId,
+      credentialId: context.credentialId,
+    }, spaceId);
+    const now = new Date();
+    const authorized = !!state &&
+      !state.credential.revokedAt &&
+      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
+      state.agent.status === 'active' &&
+      !state.agent.revokedAt &&
+      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
+      !state.user.deletedAt &&
+      !state.user.lockedAt &&
+      state.credential.authorizationId === state.grant.id &&
+      !state.space.deletedAt &&
+      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
+    if (!authorized) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
+    }
+    return state;
+  }
+
   private async hasLiveAgentAutoPublishAccess(
     db: PrismaService | Prisma.TransactionClient,
     context: AgentAutoPublishContext,
     spaceId: string,
     requiredScopes: string[],
-    lockRows: boolean,
   ): Promise<boolean> {
-    if (lockRows) {
-      const locked = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT c."id"
-        FROM "AgentCredential" AS c
-        JOIN "Agent" AS a ON a."id" = c."agentId"
-        JOIN "User" AS u ON u."id" = a."ownerId"
-        JOIN "AgentGrant" AS g
-          ON g."id" = c."authorizationId"
-          AND g."agentId" = a."id"
-          AND g."spaceId" = ${spaceId}
-        JOIN "Space" AS s ON s."id" = g."spaceId"
-        WHERE c."id" = ${context.credentialId}
-          AND c."agentId" = ${context.agentId}
-        FOR UPDATE OF c, a, u, g, s
-      `);
-      if (locked.length !== 1) return false;
-    }
+    if (!context.ownerId) return false;
+    const state = await lockLiveAgentAuthorization(db, {
+      ownerId: context.ownerId,
+      agentId: context.agentId,
+      credentialId: context.credentialId,
+    }, spaceId);
+    if (!state) return false;
+    return this.hasAgentAutoPublishAccess(state, requiredScopes);
+  }
 
+  private hasAgentAutoPublishAccess(
+    state: LockedAgentAuthorization,
+    requiredScopes: string[],
+  ): boolean {
     const now = new Date();
-    const [credential, agent, grant, space] = await Promise.all([
-      db.agentCredential.findFirst({
-        where: { id: context.credentialId, agentId: context.agentId },
-        select: { authorizationId: true, revokedAt: true, expiresAt: true },
-      }),
-      db.agent.findUnique({
-        where: { id: context.agentId },
-        select: {
-          status: true,
-          revokedAt: true,
-          approvalMode: true,
-          memoryEnabled: true,
-          owner: { select: { deletedAt: true, lockedAt: true } },
-        },
-      }),
-      db.agentGrant.findUnique({
-        where: { agentId_spaceId: { agentId: context.agentId, spaceId } },
-        select: { id: true, role: true },
-      }),
-      db.space.findUnique({
-        where: { id: spaceId },
-        select: { approvalPolicy: true, deletedAt: true },
-      }),
-    ]);
-
     const gatedScopes = ['review:auto-publish', ...requiredScopes];
-    return !!credential &&
-      !credential.revokedAt &&
-      (!credential.expiresAt || credential.expiresAt > now) &&
-      !!agent &&
-      agent.status === 'active' &&
-      !agent.revokedAt &&
-      agent.approvalMode === 'scoped-auto-publish' &&
-      !agent.owner.deletedAt &&
-      !agent.owner.lockedAt &&
-      (!requiredScopes.includes('memory:write') || agent.memoryEnabled) &&
-      !!grant &&
-      credential.authorizationId === grant.id &&
-      !!space &&
-      !space.deletedAt &&
-      space.approvalPolicy === 'scoped-auto-publish' &&
-      gatedScopes.every((scope) => agentRoleAllowsScope(grant.role, scope));
+    return !state.credential.revokedAt &&
+      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
+      state.agent.status === 'active' &&
+      !state.agent.revokedAt &&
+      state.agent.approvalMode === 'scoped-auto-publish' &&
+      !state.user.deletedAt &&
+      !state.user.lockedAt &&
+      (!requiredScopes.includes('memory:write') || state.agent.memoryEnabled) &&
+      state.credential.authorizationId === state.grant.id &&
+      !state.space.deletedAt &&
+      state.space.approvalPolicy === 'scoped-auto-publish' &&
+      gatedScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
   }
 
   private async createKnowledgeRevision(

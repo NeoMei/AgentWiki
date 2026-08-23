@@ -29,6 +29,7 @@ describe('MCP Agent access roles', () => {
     changeSet: { create: jest.fn() },
     agentAuditEvent: { create: jest.fn() },
     $queryRaw: jest.fn(),
+    $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma)),
   } as any;
   const pages = { findAll: jest.fn() } as any;
   const review = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any);
@@ -68,6 +69,7 @@ describe('MCP Agent access roles', () => {
       items: [{ type: data.items.create.type, status: data.items.create.status }],
     }));
     prisma.agentAuditEvent.create.mockResolvedValue({});
+    prisma.$queryRaw.mockResolvedValue([{ id: 'credential-1' }]);
     pages.findAll.mockResolvedValue([{ id: 'page-1', title: '吃饭睡觉打豆豆' }]);
     audit.record.mockResolvedValue(undefined);
   });
@@ -137,6 +139,7 @@ describe('MCP Agent access roles', () => {
           data: expect.objectContaining({ status: 'approved' }),
         }));
         expect(publish).toHaveBeenCalledWith('change-1', {
+          ownerId: 'owner-1',
           agentId: 'agent-1',
           credentialId: 'credential-publisher',
         });
@@ -161,10 +164,25 @@ describe('MCP Agent access roles', () => {
     expect(approve).not.toHaveBeenCalled();
   });
 
+  it('rejects the MCP proposal when the live Credential authorization binding is missing', async () => {
+    grant.role = 'publisher';
+    credentialAuthorizationId = 'grant-other';
+    const principal: Principal = {
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+    };
+    const tools = createTools(principal);
+
+    await expect(tools.propose_page.handler({
+      spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打',
+    })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ['Credential authorization binding', () => {
-      credentialAuthorizationId = 'grant-other';
-    }],
     ['Grant role', () => {
       grant.role = 'editor';
     }],

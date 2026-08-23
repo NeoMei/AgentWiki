@@ -1291,6 +1291,37 @@ describe('one-shot review-publish and agent auto-publish', () => {
     expect(prisma.approval.create).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['revoked Credential', {
+      credential: { authorizationId: 'grant-1', revokedAt: new Date(), expiresAt: null },
+      grant: { id: 'grant-1', role: 'editor' },
+    }],
+    ['downgraded Grant', {
+      credential: { authorizationId: 'grant-1', revokedAt: null, expiresAt: null },
+      grant: { id: 'grant-1', role: 'reader' },
+    }],
+  ])('rejects an Agent proposal when its %s changed before the ChangeSet write', async (_case, state) => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
+    prisma.agent.findUnique.mockResolvedValue({
+      status: 'active', revokedAt: null, approvalMode: 'always-review', memoryEnabled: true,
+      owner: { deletedAt: null, lockedAt: null },
+    });
+    prisma.agentCredential.findFirst.mockResolvedValue(state.credential);
+    prisma.agentGrant.findUnique.mockResolvedValue(state.grant);
+    prisma.$queryRaw.mockResolvedValue([{ id: 'credential-1' }]);
+
+    await expect(service.propose(
+      {
+        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        authorizationId: 'grant-1', agentRole: 'editor',
+        scopes: scopesForAgentAccessRole('editor'),
+      },
+      'space-1', 'Stale proposal', { type: 'create_page', payload: { title: 'A', content: 'x' } },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
+  });
+
   it('propose auto-publishes when space, agent and credential all allow it', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
     prisma.agent.findUnique.mockImplementation(async ({ select }: any) => select?.ownerId
@@ -1326,6 +1357,10 @@ describe('one-shot review-publish and agent auto-publish', () => {
     expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'approved' }),
     }));
+    expect(prisma.agent.findUnique).toHaveBeenCalledWith({
+      where: { id: 'agent-1' },
+      select: { ownerId: true },
+    });
     expect(result.autoPublished).toBe(true);
   });
 
@@ -1387,8 +1422,10 @@ describe('one-shot review-publish and agent auto-publish', () => {
       state.itemStatus = data.status;
       return { count: 1 };
     });
+    let transactionCalls = 0;
     prisma.$transaction.mockImplementation(async (callback: any) => {
-      if (state.mutateBeforeTransaction) {
+      transactionCalls += 1;
+      if (transactionCalls === 2 && state.mutateBeforeTransaction) {
         state.mutateBeforeTransaction = false;
         mutate(state);
       }
@@ -1415,12 +1452,10 @@ describe('one-shot review-publish and agent auto-publish', () => {
       data: { status: 'pending' },
     });
     expect(prisma.page.create).not.toHaveBeenCalled();
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(6);
   });
 
-  it.each(['reader', 'editor'] as const)(
-    'propose stays pending_review when the sole Grant role is %s despite stale Publisher principal metadata',
-    async (grantRole) => {
+  it('rejects a proposal when the sole Grant is Reader despite stale Publisher principal metadata', async () => {
       prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
       prisma.agent.findUnique.mockResolvedValue({
         status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
@@ -1429,10 +1464,9 @@ describe('one-shot review-publish and agent auto-publish', () => {
       prisma.agentCredential.findFirst.mockResolvedValue({
         authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
       });
-      prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: grantRole });
-      prisma.changeSet.create.mockResolvedValue({ id: 'cs-role-ceiling', status: 'pending_review', items: [] });
+      prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'reader' });
 
-      const result = await service.propose(
+      await expect(service.propose(
         {
           userId: 'owner-1',
           agentId: 'agent-1',
@@ -1441,14 +1475,37 @@ describe('one-shot review-publish and agent auto-publish', () => {
           scopes: scopesForAgentAccessRole('publisher'),
         },
         'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
-      );
+      )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
 
-      expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ status: 'pending_review' }),
-      }));
-      expect(result.autoPublished).toBe(false);
-    },
-  );
+      expect(prisma.changeSet.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps an Editor proposal pending despite stale Publisher principal metadata', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
+    prisma.agent.findUnique.mockResolvedValue({
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      owner: { deletedAt: null, lockedAt: null },
+    });
+    prisma.agentCredential.findFirst.mockResolvedValue({
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'editor' });
+    prisma.$queryRaw.mockResolvedValue([{ id: 'credential-1' }]);
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-role-ceiling', status: 'pending_review', items: [] });
+
+    const result = await service.propose(
+      {
+        userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+      },
+      'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
+    );
+
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review' }),
+    }));
+    expect(result.autoPublished).toBe(false);
+  });
 
   it('propose stays pending_review when auto-publish conditions are not met', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });

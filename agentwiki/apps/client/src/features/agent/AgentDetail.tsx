@@ -5,42 +5,72 @@ import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 type Tab = 'overview' | 'access' | 'activity' | 'memory' | 'settings';
 
 export const AgentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { t, language } = useLanguage();
   const [agent, setAgent] = useState<any>(null);
   const [spaces, setSpaces] = useState<any[]>([]);
   const [activity, setActivity] = useState<any[]>([]);
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const loadAllSpaces = useCallback(async () => {
+    let cursor: string | null = null;
+    let collected: any[] = [];
+    do {
+      const suffix: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      const response: { data: {
+        data?: any[];
+        hasMore?: boolean;
+        nextCursor?: string | null;
+        resetRequired?: boolean;
+      } } = await api.get(`/spaces?take=100${suffix}`);
+      const page = response.data;
+      collected = page.resetRequired && cursor ? (page.data || []) : [...collected, ...(page.data || [])];
+      cursor = page.hasMore && page.nextCursor ? page.nextCursor : null;
+    } while (cursor);
+    return collected;
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
       const [agentResponse, spacesResponse, activityResponse] = await Promise.all([
         api.get('/agents/' + id),
-        api.get('/spaces?take=100'),
+        loadAllSpaces(),
         api.get('/agents/' + id + '/activity'),
       ]);
       setAgent(agentResponse.data);
-      setSpaces(spacesResponse.data.data || []);
+      setSpaces(spacesResponse);
       setActivity(activityResponse.data.data || []);
+      setError(null);
     } catch (err: any) {
       setError(err.response?.data?.message || t('agent.loadOneFailed'));
     }
-  }, [id]);
+  }, [id, loadAllSpaces, t]);
 
   useEffect(() => { void load(); }, [load]);
 
   if (!agent) return <div className="py-12 text-center text-gray-500">{error || t('common.loading')}</div>;
 
   const updateStatus = async () => {
-    await api.patch('/agents/' + id, { status: agent.status === 'active' ? 'paused' : 'active' });
-    await load();
+    setUpdatingStatus(true);
+    setError(null);
+    try {
+      await api.patch('/agents/' + id, { status: agent.status === 'active' ? 'paused' : 'active' });
+      await load();
+    } catch (err: any) {
+      setError(err.response?.data?.message || t('agent.actionFailed'));
+    } finally {
+      setUpdatingStatus(false);
+    }
   };
 
   const roleName = (role: AgentAccessRole) => t(`agent.role.${role}.name`);
@@ -50,6 +80,11 @@ export const AgentDetail: React.FC = () => {
   const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
     !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
   );
+  const manageableSpaces = user?.platformRole === 'super_admin'
+    ? spaces
+    : spaces.filter((space) => space.members?.some((member: any) => (
+        member.userId === user?.id && ['owner', 'admin'].includes(member.role)
+      )));
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -62,10 +97,12 @@ export const AgentDetail: React.FC = () => {
           </div>
           <p className="text-sm text-gray-500 mt-1">{agent.description || t('common.noDescription')}</p>
         </div>
-        <button onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2">
+        <button disabled={updatingStatus} onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
           {agent.status === 'active' ? <Pause size={14} /> : <Play size={14} />} {agent.status === 'active' ? t('agent.pause') : t('agent.resume')}
         </button>
       </div>
+
+      {error ? <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
       <div className="border-b flex gap-6 mb-6">
         {(['overview', 'access', 'activity', 'memory', 'settings'] as Tab[]).map((item) => (
@@ -85,7 +122,7 @@ export const AgentDetail: React.FC = () => {
         <div className="space-y-6">
           <LocalSyncInstallCard
             agentId={agent.id}
-            spaces={spaces}
+            spaces={manageableSpaces}
             grants={agent.grants}
             title={t('agent.accessAuthorization')}
           />
@@ -97,7 +134,7 @@ export const AgentDetail: React.FC = () => {
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <span className="min-w-0 flex-1 truncate">{item.space.name}</span>
                   <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{roleName(item.role)}</span>
-                  <button aria-label={t('agent.removeGrantFor', { space: item.space.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/grants/' + item.spaceId); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
+                  <button aria-label={t('agent.removeGrantFor', { space: item.space.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/grants/' + item.spaceId); await load(); } catch (e: any) { setError(e.response?.data?.message || t('agent.actionFailed')); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
               {!agent.grants.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noAuthorizedSpaces')}</p> : null}
@@ -114,7 +151,7 @@ export const AgentDetail: React.FC = () => {
                     <p className="mt-1 text-xs text-gray-500">{item.prefix}… · {t('agent.lastUsed')}: {formatDate(item.lastUsedAt)} · {t('agent.expires')}: {formatDate(item.expiresAt)}</p>
                     <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
                   </div>
-                  <button aria-label={t('agent.revokeCredential', { name: item.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || 'Failed'); } }} className="text-red-600"><Trash2 size={15} /></button>
+                  <button aria-label={t('agent.revokeCredential', { name: item.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || t('agent.actionFailed')); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
               {!agent.credentials.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noConnectionRecords')}</p> : null}

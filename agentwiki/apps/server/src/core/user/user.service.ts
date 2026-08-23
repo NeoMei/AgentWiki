@@ -88,6 +88,18 @@ export class UserService {
   async remove(id: string) {
     await this.findOne(id);
     return this.prisma.$transaction(async (tx) => {
+      // Serialize account deletion with every Agent authorization write owned
+      // by this user. Lock rows in the shared owner -> Agent order before
+      // revoking any Credential, otherwise deletion can deadlock live writes.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "User" WHERE "id" = ${id} FOR UPDATE
+      `);
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "Agent"
+        WHERE "ownerId" = ${id}
+        ORDER BY "id"
+        FOR UPDATE
+      `);
       const user = await tx.user.findUnique({ where: { id, deletedAt: null, type: 'human' } });
       if (!user) throw new NotFoundException('User not found');
       const ownedSpaces = await tx.spaceMember.count({

@@ -150,7 +150,7 @@ export class McpService {
       inputSchema: { agentId: z.string(), spaceId: z.string().describe(SPACE_ID), query: z.string(), limit: z.number().int().min(1).max(20).optional() },
     }, async ({ agentId, spaceId, query, limit }: any) => {
       await this.authorization.assertAgentMemoryAccess(principal, agentId, spaceId, 'memory:read');
-      return this.text(await this.memories.recall(agentId, spaceId, query, limit));
+      return this.text(await this.memories.recall(agentId, spaceId, query, limit, principal));
     });
     registerTool('list_reviews', {
       description: 'List change sets visible to the authenticated principal.',

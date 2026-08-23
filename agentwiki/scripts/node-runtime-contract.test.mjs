@@ -225,10 +225,10 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
     /apps packages scripts deploy deploy\.sh/,
     'direct deployment must package the sync migration utilities',
   );
-  assert.match(
-    deploy,
-    /release_dir\/scripts\/.*HOME.*PROJECT_DIR.*scripts\//s,
-    'direct deployment must install the sync migration utilities',
+  assert.ok(
+    /release_dir\/scripts\/.*HOME.*PROJECT_DIR.*scripts\//s.test(deploy)
+      || /mv -- "\\\$release_dir" "\\\$live_dir"/.test(deploy),
+    'direct deployment must install the sync migration utilities, directly or with the staged release',
   );
   assert.notEqual((await stat(resolve(root, 'deploy.sh'))).mode & 0o111, 0, 'deploy.sh must be executable');
 });

@@ -10,9 +10,12 @@
 - MCP 诊断边界：`agentwiki/apps/server/src/mcp/mcp.controller.ts`
 - 当前连接兑换：`agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts`
 - 当前单一授权检查：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
+- 实时鉴权锁顺序：`agentwiki/apps/server/src/core/authorization/live-agent-authorization.ts`
+- 真实 PostgreSQL 并发回归：`agentwiki/apps/server/src/core/authorization/live-agent-authorization.db.spec.ts`
 - 当前 onboarding 预设：`agentwiki/apps/server/src/onboard/onboard.types.ts`
 - 验证证据：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 部署与回滚门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
+- 真实部署入口：`agentwiki/deploy.sh`
 - 角色 DTO 边界回归：`agentwiki/apps/server/src/core/dto/agent.dto.spec.ts`
 - 本地已验证运行时候选提交：统一角色主实现合并于 `2a71d1b`；重复审查修复提交为 `c7414af`、`87b88ec`、`ffaa295`、`c53c09d`。
 - 干净包安装门禁：`agentwiki/scripts/verify-local-sync-clean-install.mjs`

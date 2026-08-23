@@ -5,11 +5,13 @@ import { AgentService } from './agent.service';
 describe('AgentService grant scope validation', () => {
   const prisma = {
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
     agent: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     space: { findFirst: jest.fn() },
     user: { findFirst: jest.fn() },
     agentCredential: {
       create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(),
+      updateMany: jest.fn(),
     },
     agentGrant: { findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     agentAuditEvent: { create: jest.fn(), findMany: jest.fn() },
@@ -19,6 +21,7 @@ describe('AgentService grant scope validation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
+    prisma.$queryRaw.mockResolvedValue([{ id: 'locked' }]);
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'active' });
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
   });
@@ -45,6 +48,41 @@ describe('AgentService grant scope validation', () => {
     });
     expect(agent.credentials[0]).not.toHaveProperty('role');
     expect(agent.credentials[0]).not.toHaveProperty('scopes');
+  });
+
+  it('locks the owner before the Agent and credentials when revoking an Agent', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [],
+    });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1' });
+    prisma.agentCredential.updateMany.mockResolvedValue({ count: 1 });
+    prisma.agent.update.mockResolvedValue({ id: 'agent-1' });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.revoke('owner-1', 'agent-1');
+
+    const lockedTables = prisma.$queryRaw.mock.calls.map(([query]: any[]) =>
+      query.strings.join(' '),
+    );
+    expect(lockedTables[0]).toContain('FROM "User"');
+    expect(lockedTables[1]).toContain('FROM "Agent"');
+    expect(prisma.agentCredential.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.agent.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'agent-1' },
+      data: expect.objectContaining({ status: 'revoked' }),
+    }));
+  });
+
+  it('does not revoke credentials when Agent ownership changes before the transaction', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [],
+    });
+    prisma.agent.findFirst.mockResolvedValue(null);
+
+    await expect(service.revoke('owner-1', 'agent-1')).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.agentCredential.updateMany).not.toHaveBeenCalled();
+    expect(prisma.agent.update).not.toHaveBeenCalled();
   });
 
   it('limits Agent integration diagnostics to the current bound authorization', async () => {
@@ -259,6 +297,7 @@ describe('AgentService grant scope validation', () => {
     prisma.agentGrant.findUnique.mockResolvedValue(null);
     prisma.agentGrant.upsert.mockResolvedValue({ id: 'partial-grant' });
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
       agentGrant: {
         findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'publisher' }),
@@ -289,6 +328,7 @@ describe('AgentService grant scope validation', () => {
       id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
     });
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
       agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }), update: jest.fn() },
       space: { findFirst: jest.fn().mockResolvedValue(null) },
       agentGrant: { findUnique: jest.fn(), upsert: jest.fn() },
@@ -308,6 +348,7 @@ describe('AgentService grant scope validation', () => {
       id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
     });
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
       agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1' }) },
       space: { findFirst: jest.fn().mockResolvedValue(null) },
       agentGrant: { deleteMany: jest.fn() },
@@ -327,6 +368,7 @@ describe('AgentService grant scope validation', () => {
       id: 'agent-1', ownerId: 'admin-1', status: 'active', revokedAt: null,
     });
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
       agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }), update: jest.fn() },
       space: { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) },
       user: { findFirst: jest.fn().mockResolvedValue(null) },

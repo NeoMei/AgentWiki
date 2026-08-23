@@ -23,7 +23,7 @@ overrides:
   qs: '6.15.3'
   socket.io-parser: '>=4.2.7 <5'
   tmp@<0.2.7: '0.2.7'
-  webpack@>=5.49.0 <5.104.1: '5.104.1'
+  webpack@>=5.49.0 <5.104.1: '>=5.104.1'
 allowBuilds:
   '@nestjs/core': false
   '@prisma/client': true
@@ -49,7 +49,6 @@ minimumReleaseAgeExclude:
   - opencode-windows-x64@1.18.12
   - tmp@0.2.7
   - glob@10.5.0
-  - webpack@5.104.1
   - ajv@8.18.0
   - file-type@21.3.2
   - picomatch@4.0.4

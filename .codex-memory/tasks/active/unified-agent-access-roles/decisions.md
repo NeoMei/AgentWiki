@@ -23,3 +23,6 @@
 - 已有 Grant/Credential 作为授权和连接记录只读展示，保留移除/撤销动作；Space Members 的成员角色管理属于另一条管理流程，继续使用 Grant API。
 - Agent Credential 访问 `/integrations/mcp` 时，授权与 Credential 诊断按 `authorizationId` 过滤，最近 MCP 调用按当前 `credentialId` 过滤；不能查看同 Agent 其他 Space/连接的诊断记录。
 - 已有 Grant 的角色是统一连接卡的默认值；等价 props 重渲染不能覆盖用户尚未提交的新角色选择。
+- 所有 Agent 持久化写入的最终鉴权点使用固定 `User -> Agent -> Space -> AgentGrant -> AgentCredential` 行锁顺序；Grant 变更、Agent 撤销和用户删除必须兼容该顺序。
+- 破坏性授权迁移必须先预构建，再停止并排空旧 API/Worker；一旦迁移尝试开始，任何失败都保留 staging，且应用切换失败时恢复 live 路径但不自动启动旧版。
+- NestJS 安全基线为 11.2.1（不低于修复 `GHSA-36xv-jgw5-4q75` 的 11.1.18），Express 为 5.2.1；升级后必须通过 HTTP、上传、WebSocket、异常过滤和全量回归。

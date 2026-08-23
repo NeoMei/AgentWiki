@@ -14,7 +14,7 @@ export class MemoryController {
   @Post('agents/:agentId/memories')
   async create(@Param('agentId') agentId: string, @Req() req: Request, @Body() dto: CreateMemoryDto) {
     await this.authorization.assertAgentMemoryAccess(req.user as any, agentId, dto.spaceId, 'memory:write');
-    const result = await this.memories.create(agentId, dto);
+    const result = await this.memories.create(agentId, dto, req.user as any);
     await this.record(req, agentId, 'memory.create', dto.spaceId, result.id);
     return result;
   }
@@ -28,7 +28,7 @@ export class MemoryController {
   @Post('agents/:agentId/memories/recall')
   async recall(@Param('agentId') agentId: string, @Req() req: Request, @Body() dto: RecallMemoryDto) {
     await this.authorization.assertAgentMemoryAccess(req.user as any, agentId, dto.spaceId, 'memory:read');
-    const result = await this.memories.recall(agentId, dto.spaceId, dto.query, dto.limit);
+    const result = await this.memories.recall(agentId, dto.spaceId, dto.query, dto.limit, req.user as any);
     await this.record(req, agentId, 'memory.recall', dto.spaceId);
     return result;
   }
@@ -36,7 +36,7 @@ export class MemoryController {
   @Post('agents/:agentId/memories/consolidate')
   async consolidate(@Param('agentId') agentId: string, @Req() req: Request, @Body() dto: ConsolidateMemoryDto) {
     await this.authorization.assertAgentMemoryAccess(req.user as any, agentId, dto.spaceId, 'memory:write');
-    const result = await this.memories.consolidate(agentId, dto);
+    const result = await this.memories.consolidate(agentId, dto, req.user as any);
     await this.record(req, agentId, 'memory.consolidate', dto.spaceId, result.id);
     return result;
   }
@@ -44,7 +44,7 @@ export class MemoryController {
   @Post('agents/:agentId/memories/:id/archive')
   async archive(@Param('agentId') agentId: string, @Param('id') id: string, @Req() req: Request, @Body('spaceId') spaceId: string) {
     await this.authorization.assertAgentMemoryAccess(req.user as any, agentId, spaceId, 'memory:write');
-    const result = await this.memories.archive(agentId, spaceId, id);
+    const result = await this.memories.archive(agentId, spaceId, id, req.user as any);
     await this.record(req, agentId, 'memory.archive', spaceId, id);
     return result;
   }
@@ -52,7 +52,7 @@ export class MemoryController {
   @Delete('agents/:agentId/memories/:id')
   async remove(@Param('agentId') agentId: string, @Param('id') id: string, @Req() req: Request, @Query('spaceId') spaceId: string) {
     await this.authorization.assertAgentMemoryAccess(req.user as any, agentId, spaceId, 'memory:write');
-    const result = await this.memories.remove(agentId, spaceId, id);
+    const result = await this.memories.remove(agentId, spaceId, id, req.user as any);
     await this.record(req, agentId, 'memory.delete', spaceId, id);
     return result;
   }

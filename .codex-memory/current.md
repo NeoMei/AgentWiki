@@ -15,10 +15,13 @@
 # 当前状态
 
 - `unified-agent-access-roles`：Agent 访问页只保留一个可编辑 `Space + role` 连接入口；`AgentCredential` 不再存 role/scopes，必须以同 Agent 复合外键绑定一条 `AgentGrant`；`AgentGrant` 只存 role，scopes 实时派生。手工 `POST /agents/:id/credentials` 已删除。
-- 最新全量候选测试为 runtime 87 通过 / 47 环境跳过、server 751、client 223、sync-protocol 25、local-sync 736；双包干净安装、类型、lint、Prisma、构建与格式门禁均通过。真实本地浏览器已验证桌面和 390px 移动端都只有一个角色选择器，已有 Editor 授权默认选中 Editor，且无横向溢出。
+- 最新全量候选测试为 runtime 89 通过 / 47 环境跳过、server 760 通过 / 3 环境跳过、client 231、sync-protocol 25、local-sync 736；双包干净安装、类型、lint、构建、peer 依赖与依赖安全审计均通过。真实本地浏览器已验证桌面和 390px 移动端都只有一个角色选择器，已有 Editor 授权默认选中 Editor，且无横向溢出。
 - Reader onboarding 已改为只读 pull 路径；Agent Grant 变更同时要求 Agent owner 与 Space owner/admin；auto-publish 在发布事务临界点锁定并重验 Credential 绑定、Agent/owner、Grant、Space 与领域门槛。
 - 全新 PostgreSQL 数据库已跑完 40 条迁移。真实 Streamable HTTP MCP 验收证明同一 Credential 在 Grant 降为 Reader 后立即失去写权限，升回 Editor 后 `propose_page` 生成 `pending_review`，Agent 审批 403，人工发布成功；临时数据库已删除。
 - MCP 诊断接口的授权、凭据和最近调用均已限制到当前 authorizationId/credentialId，不能通过一个 Space 的连接读取同 Agent 其他 Space 的诊断记录。
+- 2026-08-23 再经三轮独立复审和主代理逐路径检查：Review、Knowledge Submission/Sync 与 Memory 的 Agent 写入现在均在同一事务内按 User→Agent→Space→Grant→Credential 固定顺序加锁并重验；Grant 变更、Agent 撤销和用户删除与之对齐。专用 PostgreSQL 16 临时库已实跑 40 条迁移和三种并发场景，3/3 通过且临时库已删除。
+- 真实 `deploy.sh` 已改为预构建 staging、停止/排空旧进程后迁移、保全迁移尝试后的 staging、切换失败恢复 live 路径、防并发部署；静态顺序门禁与 `bash -n` 通过。
+- 依赖审计发现并修复 NestJS SSE 注入中危公告：Nest 系列已统一到 11.2.1，Express 到 5.2.1；`pnpm audit --prod` 为 0 漏洞，`pnpm peers check` 为 0 问题，升级后全量测试通过。
 - sync-protocol 0.2.0 与 local-sync 0.5.0 候选包已通过联合打包、空目录安装和 CLI 启动验证；尚未推送、发布或部署。
 - `agent-collaboration-templates`：正式设计和 13 个任务的 TDD 实施计划已完成完整性修订，尚未开始生产代码实现。
 - 外部 GitHub、npm 和生产仍保持旧基线，尚未与本地对齐。

@@ -4,6 +4,7 @@ import { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { AuditService } from '../core/security/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import { AuthorizationService } from '../core/authorization/authorization.service';
 import { NormalizedOkfEnvelope, OkfEnvelopeError, parseOkfEnvelope } from './okf-envelope';
 
 const SOURCE_KEY_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
@@ -30,6 +31,7 @@ export class KnowledgeSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   async getState(spaceId: string, sourceKey: string): Promise<KnowledgeSyncState> {
@@ -88,7 +90,12 @@ export class KnowledgeSyncService {
 
     let result: KnowledgeSyncResult;
     try {
-      result = await this.prisma.$transaction((tx) => this.persistSync(tx, spaceId, principal, envelope, idempotencyKey));
+      result = await this.prisma.$transaction(async (tx) => {
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, spaceId, ['sources:write', 'runs:write'],
+        );
+        return this.persistSync(tx, spaceId, principal, envelope, idempotencyKey);
+      });
     } catch (error: unknown) {
       if (!this.isPrismaUniqueViolation(error)) throw error;
       const winner = await this.findConcurrentWinner(spaceId, envelope, idempotencyKey);

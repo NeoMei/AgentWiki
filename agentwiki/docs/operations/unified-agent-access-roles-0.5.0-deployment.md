@@ -47,15 +47,22 @@ After explicit authorization and successful backup verification:
 3. Publish the audited `@neomei/agentwiki-local-sync@0.5.0` tarball only after the
    sync-protocol dependency is available, then repeat the clean-install CLI check using
    the registry packages.
-4. Mirror the AgentWiki source while preserving production environment files.
-5. Install with the lockfile, regenerate Prisma Client, and build.
-6. Apply Prisma migrations, then restart only the AgentWiki API, Worker, and frontend.
-7. Verify `/api/health`, service restart counters, the advertised 0.5.0 onboarding
+4. Prepare the new AgentWiki release outside the live deployment path while preserving
+   production environment files. Install with the lockfile, regenerate Prisma Client,
+   build, and verify the exact artifact before entering the maintenance window.
+5. Put the site into maintenance mode. Stop and drain the existing AgentWiki API and Worker processes,
+   verify both old processes are no longer serving requests or holding jobs, and keep them
+   stopped for the schema cutover. The old build is incompatible with the migrated schema.
+6. Apply Prisma migrations while the old API and Worker remain stopped. If migration fails,
+   do not start either application version; restore the verified database/application pair.
+7. Atomically activate the prepared release, then start only the newly built AgentWiki API and Worker.
+   Restart or switch the frontend only to the matching new build, then remove maintenance mode.
+8. Verify `/api/health`, service restart counters, the advertised 0.5.0 onboarding
    version, and the three-role UI. Verify Reader onboarding completes through pull
    without a write request, and that another user's Agent grant has no role mutation UI.
-8. Create a new Editor connection and run the real OpenCode acceptance. Its proposal must
+9. Create a new Editor connection and run the real OpenCode acceptance. Its proposal must
    enter `pending_review`, and Agent approval must fail.
-9. Before accepting Publisher auto-publish, race at least one Credential revoke and one
+10. Before accepting Publisher auto-publish, race at least one Credential revoke and one
    Space policy downgrade against publication; both must remain `pending_review` and
    must not create or update content.
 

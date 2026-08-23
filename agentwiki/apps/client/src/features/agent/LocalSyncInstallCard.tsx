@@ -72,8 +72,8 @@ export const LocalSyncInstallCard: React.FC<{
       setResult(response.data);
       setCopied(false);
       setNow(Date.now());
-    } catch {
-      setError(t('agent.localSync.failed'));
+    } catch (err: any) {
+      setError(err.response?.data?.message || t('agent.localSync.failed'));
     } finally {
       setGenerating(false);
     }
@@ -121,8 +121,9 @@ export const LocalSyncInstallCard: React.FC<{
           <select
             id="local-sync-space"
             value={spaceId}
+            disabled={spaces.length === 0}
             onChange={(event) => setSpaceId(event.target.value)}
-            className="h-8 w-full rounded-lg border px-2 text-sm"
+            className="h-8 w-full rounded-lg border px-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
           >
             {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
           </select>
@@ -132,8 +133,9 @@ export const LocalSyncInstallCard: React.FC<{
           <select
             id="local-sync-role"
             value={role}
+            disabled={!spaceId}
             onChange={(event) => setRole(event.target.value as AgentAccessRole)}
-            className="h-8 w-full rounded-lg border px-2 text-sm"
+            className="h-8 w-full rounded-lg border px-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
           >
             {AGENT_ACCESS_ROLES.map((item) => (
               <option key={item} value={item}>{roleName(item)}</option>
@@ -141,6 +143,11 @@ export const LocalSyncInstallCard: React.FC<{
           </select>
         </label>
       </div>
+      {spaces.length === 0 ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t('agent.localSync.noManagedSpaces')}
+        </p>
+      ) : null}
       <p className="mt-2 text-xs text-gray-500">{t(`agent.role.${role}.description`)}</p>
       {currentGrant && currentGrant.role !== role ? (
         <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">

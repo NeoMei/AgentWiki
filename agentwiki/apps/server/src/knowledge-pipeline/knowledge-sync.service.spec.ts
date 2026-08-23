@@ -51,13 +51,19 @@ describe('KnowledgeSyncService', () => {
       $transaction: jest.fn(async (operation: any) => operation(prisma)),
     };
     const audit = { record: jest.fn().mockResolvedValue(undefined) };
-    return { prisma, audit, service: new KnowledgeSyncService(prisma, audit as any) };
+    const authorization = { assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined) };
+    return {
+      prisma,
+      audit,
+      authorization,
+      service: new KnowledgeSyncService(prisma, audit as any, authorization as any),
+    };
   };
 
   beforeEach(() => jest.clearAllMocks());
 
   it('creates one OKF source, version, and pinned queued run', async () => {
-    const { service, prisma, audit } = makeHarness();
+    const { service, prisma, audit, authorization } = makeHarness();
 
     await expect(service.createSync('space-1', agentPrincipal, okfBuffer, 'request-1', true))
       .resolves.toMatchObject({ status: 'queued', sourceId: 'source-1', sourceVersionId: 'version-1', runId: 'run-1' });
@@ -74,6 +80,23 @@ describe('KnowledgeSyncService', () => {
       action: 'knowledge_sync.create', actorAgentId: 'agent-1',
       metadata: expect.objectContaining({ credentialId: 'credential-1', sourceKey: 'workspace-docs', userConfirmed: true, status: 'queued' }),
     }));
+    expect(authorization.assertLiveAgentWriteAccess).toHaveBeenCalledWith(
+      prisma, agentPrincipal, 'space-1', ['sources:write', 'runs:write'],
+    );
+  });
+
+  it('writes nothing when the Agent authorization changed before persistence', async () => {
+    const { service, prisma, authorization } = makeHarness();
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.createSync('space-1', agentPrincipal, okfBuffer, 'request-revoked', true))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.source.upsert).not.toHaveBeenCalled();
+    expect(prisma.sourceVersion.create).not.toHaveBeenCalled();
+    expect(prisma.ingestRun.create).not.toHaveBeenCalled();
   });
 
   it('returns the original result for a repeated idempotency key', async () => {

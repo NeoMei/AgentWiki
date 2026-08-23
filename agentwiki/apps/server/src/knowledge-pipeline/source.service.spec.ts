@@ -500,8 +500,7 @@ describe('SourceService pipeline lifecycle', () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
     prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'publisher',
-      scopes: ['runs:write', 'review:auto-publish'],
+      id: 'grant-1', role: 'publisher',
       agent: {
         status: 'active', revokedAt: null,
         owner: { deletedAt: null, lockedAt: null },
@@ -509,7 +508,7 @@ describe('SourceService pipeline lifecycle', () => {
       space: { deletedAt: null },
     });
     prisma.agentCredential = { findFirst: jest.fn().mockResolvedValue({
-      role: 'publisher', scopes: ['runs:write', 'review:auto-publish'],
+      authorizationId: 'grant-1',
     }) };
     jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
 
@@ -519,6 +518,10 @@ describe('SourceService pipeline lifecycle', () => {
       agentId: 'agent-1',
       credentialId: 'credential-1',
     });
+    expect(prisma.agentCredential.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'credential-1', agentId: 'agent-1' }),
+      select: { authorizationId: true },
+    }));
   });
 
   it('compiles the pinned OKF version with linked pages and explicit evidence without creating a second version', async () => {

@@ -80,16 +80,34 @@ export class AgentService {
 
   async revoke(ownerId: string, id: string) {
     await this.getOwned(ownerId, id);
-    await this.prisma.$transaction([
-      this.prisma.agentCredential.updateMany({
+    await this.prisma.$transaction(async (tx) => {
+      // Keep revocation in the same owner -> Agent -> Credential lock order as
+      // live authorization checks. Reversing Agent/Credential can deadlock a
+      // write that is concurrently proving its Credential is still valid.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "User" WHERE "id" = ${ownerId} FOR UPDATE
+      `);
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "Agent"
+        WHERE "id" = ${id} AND "ownerId" = ${ownerId}
+        FOR UPDATE
+      `);
+      const agent = await tx.agent.findFirst({
+        where: { id, ownerId, revokedAt: null },
+        select: { id: true },
+      });
+      if (!agent) throw new NotFoundException('Agent not found');
+
+      const revokedAt = new Date();
+      await tx.agentCredential.updateMany({
         where: { agentId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-      this.prisma.agent.update({
+        data: { revokedAt },
+      });
+      await tx.agent.update({
         where: { id },
-        data: { status: 'revoked', revokedAt: new Date() },
-      }),
-    ]);
+        data: { status: 'revoked', revokedAt },
+      });
+    });
     await this.audit(id, 'agent.revoke', 'success');
     return { success: true };
   }
@@ -126,6 +144,9 @@ export class AgentService {
     apiKey: string;
   }> {
     return this.prisma.$transaction(async (tx) => {
+      await this.lockAgentAuthorizationMutationRows(
+        tx, input.ownerId, input.agentId, input.spaceId, true,
+      );
       const agent = await tx.agent.findFirst({
         where: {
           id: input.agentId,
@@ -494,6 +515,9 @@ export class AgentService {
     spaceId: string,
     isSuperAdmin: boolean,
   ): Promise<{ id: string; status: string }> {
+    await this.lockAgentAuthorizationMutationRows(
+      tx, actorUserId, agentId, spaceId, !isSuperAdmin,
+    );
     const [agent, space, platformAdmin] = await Promise.all([
       tx.agent.findFirst({
         where: {
@@ -530,6 +554,40 @@ export class AgentService {
       throw new ForbiddenException('Grant mutation authorization is no longer valid');
     }
     return agent;
+  }
+
+  private async lockAgentAuthorizationMutationRows(
+    tx: Prisma.TransactionClient,
+    actorUserId: string,
+    agentId: string,
+    spaceId: string,
+    lockMembership: boolean,
+  ): Promise<void> {
+    // Keep the same explicit lock order used by Agent write critical points:
+    // owner -> Agent -> Space -> membership -> Grant -> Credential.
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "User" WHERE "id" = ${actorUserId} FOR UPDATE
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "Agent"
+      WHERE "id" = ${agentId} AND "ownerId" = ${actorUserId}
+      FOR UPDATE
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "Space" WHERE "id" = ${spaceId} FOR UPDATE
+    `);
+    if (lockMembership) {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceMember"
+        WHERE "userId" = ${actorUserId} AND "spaceId" = ${spaceId}
+        FOR UPDATE
+      `);
+    }
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "AgentGrant"
+      WHERE "agentId" = ${agentId} AND "spaceId" = ${spaceId}
+      FOR UPDATE
+    `);
   }
 
 }

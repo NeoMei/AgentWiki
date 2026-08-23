@@ -7,6 +7,8 @@ import {
   agentRoleSpaceCapability,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import { Prisma } from '@prisma/client';
+import { lockLiveAgentAuthorization } from './live-agent-authorization';
 
 export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
@@ -191,6 +193,38 @@ export class AuthorizationService {
       await this.assertSpaceAccess(principal, spaceId);
     }
     return agent;
+  }
+
+  async assertLiveAgentWriteAccess(
+    db: Prisma.TransactionClient,
+    principal: Principal,
+    spaceId: string,
+    requiredScopes: string[],
+  ): Promise<void> {
+    if (!principal.agentId) return;
+    if (!principal.credentialId) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is unavailable');
+    }
+    const state = await lockLiveAgentAuthorization(db, {
+      ownerId: principal.userId,
+      agentId: principal.agentId,
+      credentialId: principal.credentialId,
+    }, spaceId);
+    const now = new Date();
+    const authorized = !!state &&
+      !state.user.deletedAt &&
+      !state.user.lockedAt &&
+      state.agent.status === 'active' &&
+      !state.agent.revokedAt &&
+      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
+      !state.space.deletedAt &&
+      !state.credential.revokedAt &&
+      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
+      state.credential.authorizationId === state.grant.id &&
+      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
+    if (!authorized) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is no longer valid');
+    }
   }
 
   async getAccessibleSpaceIds(principalInput: PrincipalInput, requiredScope = 'spaces:read'): Promise<string[]> {

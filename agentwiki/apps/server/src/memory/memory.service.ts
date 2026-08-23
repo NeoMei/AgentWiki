@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ConsolidateMemoryDto, CreateMemoryDto } from '../core/dto/memory.dto';
 import { createHash } from 'crypto';
 import { LlmService } from '../integrations/llm/llm.service';
+import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 
 const ASCII_WHITESPACE_PATTERN = String.raw`[ \x09-\x0D]+`;
 
@@ -22,9 +23,14 @@ export function canonicalMemoryHash(content: string) {
 
 @Injectable()
 export class MemoryService {
-  constructor(private prisma: PrismaService, private config: ConfigService, private llm: LlmService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+    private llm: LlmService,
+    private authorization: AuthorizationService,
+  ) {}
 
-  async create(agentId: string, dto: CreateMemoryDto) {
+  async create(agentId: string, dto: CreateMemoryDto, principal: Principal) {
     if (dto.sourceEvidenceId) {
       const evidence = await this.prisma.evidence.findUnique({
         where: { id: dto.sourceEvidenceId },
@@ -46,15 +52,20 @@ export class MemoryService {
     if (count >= quota) throw new BusinessException('MEMORY_QUOTA_EXCEEDED', 'Memory quota exceeded');
     const embedded = await this.embedding(dto.content);
     try {
-      return await this.prisma.agentMemory.create({
-        data: {
-          agentId, spaceId: dto.spaceId, type: dto.type, content: dto.content,
-          importance: dto.importance ?? 0.5, tags: dto.tags || [],
-          entities: dto.entities as any, sourceEvidenceId: dto.sourceEvidenceId,
-          expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-          visibility: dto.visibility || 'private', contentHash,
-          embedding: embedded.embedding, embeddingModel: embedded.model,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, dto.spaceId, ['memory:write'],
+        );
+        return tx.agentMemory.create({
+          data: {
+            agentId, spaceId: dto.spaceId, type: dto.type, content: dto.content,
+            importance: dto.importance ?? 0.5, tags: dto.tags || [],
+            entities: dto.entities as any, sourceEvidenceId: dto.sourceEvidenceId,
+            expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+            visibility: dto.visibility || 'private', contentHash,
+            embedding: embedded.embedding, embeddingModel: embedded.model,
+          },
+        });
       });
     } catch (error) {
       if ((error instanceof Prisma.PrismaClientKnownRequestError || (error as any)?.code === 'P2002') && (error as any).code === 'P2002') {
@@ -78,7 +89,7 @@ export class MemoryService {
     });
   }
 
-  async recall(agentId: string, spaceId: string, query: string, limit = 10) {
+  async recall(agentId: string, spaceId: string, query: string, limit: number | undefined, principal: Principal) {
     const memories = await this.list(agentId, spaceId);
     const queryTokens = this.tokens(query);
     const queryEmbedding = await this.embedding(query);
@@ -102,15 +113,20 @@ export class MemoryService {
       })
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-    await this.prisma.agentMemory.updateMany({
-      where: { id: { in: ranked.map((entry) => entry.memory.id) } },
-      data: { lastAccessedAt: new Date() },
+      .slice(0, limit ?? 10);
+    await this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, spaceId, ['memory:read'],
+      );
+      await tx.agentMemory.updateMany({
+        where: { id: { in: ranked.map((entry) => entry.memory.id) } },
+        data: { lastAccessedAt: new Date() },
+      });
     });
     return ranked;
   }
 
-  async consolidate(agentId: string, dto: ConsolidateMemoryDto) {
+  async consolidate(agentId: string, dto: ConsolidateMemoryDto, principal: Principal) {
     const memories = await this.prisma.agentMemory.findMany({
       where: { id: { in: dto.memoryIds }, agentId, spaceId: dto.spaceId, status: 'active', deletedAt: null },
     });
@@ -122,15 +138,23 @@ export class MemoryService {
     });
     if (existing) {
       if (dto.memoryIds.includes(existing.id)) return { ...existing, deduplicated: true };
-      await this.prisma.agentMemory.updateMany({
-        where: { id: { in: memories.map((memory) => memory.id) } },
-        data: { status: 'archived', archivedAt: new Date() },
+      await this.prisma.$transaction(async (tx) => {
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, dto.spaceId, ['memory:write'],
+        );
+        await tx.agentMemory.updateMany({
+          where: { id: { in: memories.map((memory) => memory.id) } },
+          data: { status: 'archived', archivedAt: new Date() },
+        });
       });
       return { ...existing, deduplicated: true };
     }
     const embedded = await this.embedding(content);
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, dto.spaceId, ['memory:write'],
+        );
         const consolidated = await tx.agentMemory.create({
           data: {
             agentId, spaceId: dto.spaceId, type: 'semantic', content,
@@ -155,9 +179,14 @@ export class MemoryService {
           where: { agentId, spaceId: dto.spaceId, type: 'semantic', contentHash, deletedAt: null },
         });
         if (winner) {
-          await this.prisma.agentMemory.updateMany({
-            where: { id: { in: memories.map((memory) => memory.id) } },
-            data: { status: 'archived', archivedAt: new Date() },
+          await this.prisma.$transaction(async (tx) => {
+            await this.authorization.assertLiveAgentWriteAccess(
+              tx, principal, dto.spaceId, ['memory:write'],
+            );
+            await tx.agentMemory.updateMany({
+              where: { id: { in: memories.map((memory) => memory.id) } },
+              data: { status: 'archived', archivedAt: new Date() },
+            });
           });
           return { ...winner, deduplicated: true };
         }
@@ -166,23 +195,33 @@ export class MemoryService {
     }
   }
 
-  async archive(agentId: string, spaceId: string, id: string) {
-    const result = await this.prisma.agentMemory.updateMany({
-      where: { id, agentId, spaceId, deletedAt: null },
-      data: { status: 'archived', archivedAt: new Date() },
+  async archive(agentId: string, spaceId: string, id: string, principal: Principal) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, spaceId, ['memory:write'],
+      );
+      return tx.agentMemory.updateMany({
+        where: { id, agentId, spaceId, deletedAt: null },
+        data: { status: 'archived', archivedAt: new Date() },
+      });
     });
     if (!result.count) throw new NotFoundException('Memory not found');
     return { success: true };
   }
 
-  async remove(agentId: string, spaceId: string, id: string) {
-    const result = await this.prisma.agentMemory.updateMany({
-      where: { id, agentId, spaceId, deletedAt: null },
-      data: {
-        status: 'deleted', deletedAt: new Date(), content: '[deleted]', tags: [], entities: {},
-        sourceEvidenceId: null, sourceMemoryIds: [], embedding: [], embeddingModel: null,
-        contentHash: `deleted:${id}`,
-      },
+  async remove(agentId: string, spaceId: string, id: string, principal: Principal) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, spaceId, ['memory:write'],
+      );
+      return tx.agentMemory.updateMany({
+        where: { id, agentId, spaceId, deletedAt: null },
+        data: {
+          status: 'deleted', deletedAt: new Date(), content: '[deleted]', tags: [], entities: {},
+          sourceEvidenceId: null, sourceMemoryIds: [], embedding: [], embeddingModel: null,
+          contentHash: `deleted:${id}`,
+        },
+      });
     });
     if (!result.count) throw new NotFoundException('Memory not found');
     return { success: true };

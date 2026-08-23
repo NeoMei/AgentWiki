@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import api from '../../api/client';
+import { AuthProvider } from '../../context/AuthContext';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { AgentDetail } from './AgentDetail';
 
@@ -11,15 +12,18 @@ vi.mock('../../api/client', () => ({
 
 const renderDetail = () => render(
   <LanguageProvider>
-    <MemoryRouter initialEntries={['/agents/agent-1']}>
-      <Routes><Route path="/agents/:id" element={<AgentDetail />} /></Routes>
-    </MemoryRouter>
+    <AuthProvider>
+      <MemoryRouter initialEntries={['/agents/agent-1']}>
+        <Routes><Route path="/agents/:id" element={<AgentDetail />} /></Routes>
+      </MemoryRouter>
+    </AuthProvider>
   </LanguageProvider>,
 );
 
 describe('AgentDetail', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    localStorage.setItem('user', JSON.stringify({ id: 'owner-1', email: 'owner@example.test' }));
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.put).mockReset();
@@ -37,7 +41,10 @@ describe('AgentDetail', () => {
         credentials: [],
         memoryEnabled: false,
       } } as any)
-      .mockResolvedValueOnce({ data: { data: [{ id: 'space-1', name: '团队知识库' }] } } as any)
+      .mockResolvedValueOnce({ data: { data: [{
+        id: 'space-1', name: '团队知识库',
+        members: [{ userId: 'owner-1', role: 'owner' }],
+      }] } } as any)
       .mockResolvedValueOnce({ data: { data: [] } } as any);
   });
 
@@ -51,6 +58,146 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('button', { name: '创建凭据' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '空间访问权限' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '凭据' })).not.toBeInTheDocument();
+  });
+
+  it('offers connection authorization only for Spaces the Agent owner can administer', async () => {
+    vi.mocked(api.get)
+      .mockReset()
+      .mockResolvedValueOnce({ data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      } } as any)
+      .mockResolvedValueOnce({ data: { data: [
+        { id: 'owned', name: '我管理的空间', members: [{ userId: 'owner-1', role: 'owner' }] },
+        { id: 'admin', name: '我协管的空间', members: [{ userId: 'owner-1', role: 'admin' }] },
+        { id: 'edited', name: '我编辑的空间', members: [{ userId: 'owner-1', role: 'editor' }] },
+        { id: 'viewed', name: '我只读的空间', members: [{ userId: 'owner-1', role: 'viewer' }] },
+      ] } } as any)
+      .mockResolvedValueOnce({ data: { data: [] } } as any);
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+
+    const spaceSelect = screen.getByRole('combobox', { name: '空间' });
+    expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['我管理的空间', '我协管的空间']);
+  });
+
+  it('offers every returned Space to a platform super administrator', async () => {
+    localStorage.setItem('user', JSON.stringify({
+      id: 'admin-1', email: 'admin@example.test', platformRole: 'super_admin',
+    }));
+    vi.mocked(api.get)
+      .mockReset()
+      .mockResolvedValueOnce({ data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      } } as any)
+      .mockResolvedValueOnce({ data: { data: [
+        { id: 'unjoined', name: '超管未加入的空间', members: [] },
+        { id: 'viewed', name: '超管只读成员空间', members: [{ userId: 'admin-1', role: 'viewer' }] },
+      ] } } as any)
+      .mockResolvedValueOnce({ data: { data: [] } } as any);
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+
+    const spaceSelect = screen.getByRole('combobox', { name: '空间' });
+    expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['超管未加入的空间', '超管只读成员空间']);
+  });
+
+  it('loads every Space page before building the authorization choices', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      } } as any;
+      if (url === '/agents/agent-1/activity') return { data: { data: [] } } as any;
+      if (url === '/spaces?take=100') return { data: {
+        data: [{ id: 'space-new', name: '较新管理空间', members: [{ userId: 'owner-1', role: 'owner' }] }],
+        hasMore: true,
+        nextCursor: 'next page',
+      } } as any;
+      if (url === '/spaces?take=100&cursor=next%20page') return { data: {
+        data: [{ id: 'space-old', name: '较旧管理空间', members: [{ userId: 'owner-1', role: 'admin' }] }],
+        hasMore: false,
+        nextCursor: null,
+      } } as any;
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+
+    const spaceSelect = screen.getByRole('combobox', { name: '空间' });
+    expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['较新管理空间', '较旧管理空间']);
+  });
+
+  it('discards stale pages and continues from a server-requested pagination reset', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      } } as any;
+      if (url === '/agents/agent-1/activity') return { data: { data: [] } } as any;
+      if (url === '/spaces?take=100') return { data: {
+        data: [{ id: 'stale', name: '已过期页', members: [{ userId: 'owner-1', role: 'owner' }] }],
+        hasMore: true, nextCursor: 'expired',
+      } } as any;
+      if (url === '/spaces?take=100&cursor=expired') return { data: {
+        data: [{ id: 'fresh-1', name: '重置后首页', members: [{ userId: 'owner-1', role: 'owner' }] }],
+        resetRequired: true, hasMore: true, nextCursor: 'fresh',
+      } } as any;
+      if (url === '/spaces?take=100&cursor=fresh') return { data: {
+        data: [{ id: 'fresh-2', name: '重置后次页', members: [{ userId: 'owner-1', role: 'admin' }] }],
+        hasMore: false, nextCursor: null,
+      } } as any;
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+
+    const options = within(screen.getByRole('combobox', { name: '空间' }))
+      .getAllByRole('option').map((option) => option.textContent);
+    expect(options).toEqual(['重置后首页', '重置后次页']);
+    expect(options).not.toContain('已过期页');
+  });
+
+  it('renders an actionable error when revoking a connection fails', async () => {
+    vi.mocked(api.get)
+      .mockReset()
+      .mockResolvedValueOnce({ data: {
+        id: 'agent-1', name: '同步助手', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], memoryEnabled: false,
+        credentials: [{
+          id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview',
+          authorization: { id: 'grant-1', role: 'editor', scopes: [], space: { id: 'space-1', name: '团队知识库' } },
+          lastUsedAt: null, expiresAt: null,
+        }],
+      } } as any)
+      .mockResolvedValueOnce({ data: { data: [{
+        id: 'space-1', name: '团队知识库', members: [{ userId: 'owner-1', role: 'owner' }],
+      }] } } as any)
+      .mockResolvedValueOnce({ data: { data: [] } } as any);
+    vi.mocked(api.delete).mockRejectedValue({ response: { data: { message: '凭据已被其他操作撤销' } } });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+    fireEvent.click(screen.getByRole('button', { name: '撤销Deploy key' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('凭据已被其他操作撤销');
+  });
+
+  it('renders an actionable error when pausing the Agent fails', async () => {
+    vi.mocked(api.patch).mockRejectedValue({ response: { data: { message: '暂停操作被服务器拒绝' } } });
+    renderDetail();
+
+    fireEvent.click(await screen.findByRole('button', { name: '暂停' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂停操作被服务器拒绝');
   });
 
   it('shows an existing Space authorization as a revocable record without another role selector', async () => {

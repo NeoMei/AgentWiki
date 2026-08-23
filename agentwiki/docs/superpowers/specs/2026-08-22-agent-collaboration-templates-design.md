@@ -280,7 +280,7 @@ MVP 数据对象固定为 `CollaborationTemplate`、`CollaborationRun`、`Collab
 
 ### MCP 工具
 
-- `collaboration_join_run`：验证 Agent active、Space Grant、访问角色、Credential scopes、Role Binding 或当前任务负责人资格及运行状态，返回参与摘要与循环协议。
+- `collaboration_join_run`：验证 Agent active、Credential 身份/生命周期、Credential 绑定的当前 Space Grant、由 Grant 角色实时派生的 scopes、Role Binding 或当前任务负责人资格及运行状态，返回参与摘要与循环协议；不得从 Credential 读取或持久化独立权限 scopes。
 - `collaboration_next_action`：使用 runId、幂等键和有上限的可选长轮询；事务性创建 Task Attempt、签发一个任务租约，或返回 `waiting_dependency | waiting_human | paused | completed`。
 - `collaboration_heartbeat`：只有当前 Agent、当前尝试和未过期租约可续租，且不能超过任务最大执行时限；服务端只存租约令牌 hash。
 - `collaboration_update_todo`：按序、幂等更新一个 Todo 的 `doing | done | failed`、简短结果和证据。

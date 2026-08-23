@@ -58,7 +58,12 @@ describe('KnowledgeSubmissionService', () => {
     ...overrides.tx,
   } as any);
 
-  const auth = { assertSpaceAccess: jest.fn() } as any;
+  const auth = {
+    assertSpaceAccess: jest.fn(),
+    assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined),
+  } as any;
+
+  beforeEach(() => jest.clearAllMocks());
 
   it('requires explicit confirmation', async () => {
     const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth);
@@ -93,12 +98,34 @@ describe('KnowledgeSubmissionService', () => {
     const result = await service.submit('space-1', { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' }, Buffer.from('{}'), 'idem-1', true);
     expect(result.status).toBe('pending_review');
     expect(result.changeSetId).toBe('cs-1');
+    expect(auth.assertLiveAgentWriteAccess).toHaveBeenCalledWith(
+      tx, expect.objectContaining({ agentId: 'agent-1', credentialId: 'cred-1' }),
+      'space-1', ['pages:write'],
+    );
     expect(tx.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         spaceId: 'space-1',
         title: expect.stringContaining('credential:cred-1'),
       }),
     }));
+  });
+
+  it('writes nothing when the Agent authorization changed before the transaction', async () => {
+    const tx = makeTx({ latestRevision: { id: '0', sequence: 0 } });
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
+    auth.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.submit(
+      'space-1',
+      { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' },
+      Buffer.from('{}'), 'idem-revoked', true,
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(tx.changeSet.create).not.toHaveBeenCalled();
+    expect(tx.knowledgeSubmission.create).not.toHaveBeenCalled();
   });
 
   it('returns noop for an empty bundle', async () => {

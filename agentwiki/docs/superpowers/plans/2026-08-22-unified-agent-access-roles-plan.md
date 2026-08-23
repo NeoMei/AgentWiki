@@ -2,11 +2,11 @@
 
 > **2026-08-23 correction:** This historical plan is superseded by `2026-08-23-agent-authorization-single-source-plan.md`. Any step involving Credential role/scopes, Grant scopes, or their permission intersection is not a current implementation instruction. A Credential is identity-only and binds one AgentGrant; `AgentGrant.role` is the sole persisted permission fact.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Superseded historical record. Do not execute the tasks below; use `2026-08-23-agent-authorization-single-source-plan.md`.
 
 **Goal:** Replace split Agent Grant, connection-code, and Credential permissions with one `reader | editor | publisher` role selected once per connection, while retaining least-privilege intersections and human-only review decisions.
 
-**Architecture:** `@neomei/agentwiki-sync-protocol` owns the only role-to-scope policy. PostgreSQL stores the role on both `AgentGrant` and `AgentCredential`; authorization intersects role capability, stored scopes, Grant, Agent state, Space policy, and domain rules. A short-lived connection intent stores `agentId + spaceId + role`, and exchange atomically creates the Credential and upserts the Grant.
+**Corrected architecture:** `@neomei/agentwiki-sync-protocol` owns the only role-to-scope policy. PostgreSQL stores the role only on `AgentGrant`; `AgentCredential` stores identity/lifecycle and a database-enforced binding to that Grant. A short-lived connection intent stores `agentId + spaceId + role`, and exchange atomically upserts the Grant before creating its bound Credential.
 
 **Tech Stack:** TypeScript, pnpm 11.9.0, Node 24 or 26, NestJS 10, Prisma 5/PostgreSQL, Redis, React 18/Vite, Jest, Vitest, MCP SDK.
 
@@ -17,18 +17,18 @@
 - `editor` adds `pages:write`, `graph:write`, `sources:write`, and `runs:write`.
 - `publisher` adds `memory:read`, `memory:write`, and `review:auto-publish`.
 - No Agent role contains `review:decide`; Agents cannot approve changes or manage members.
-- Effective access remains the intersection of Credential role/scopes, Space Grant role/scopes, Agent state, Space policy, and domain authorization.
+- Effective access comes from the Credential's exact current Grant role, Agent/Credential lifecycle, Space policy, and domain authorization; Credential and Grant scope arrays are not persisted.
 - Publisher never modifies an existing Space policy; auto-publish still requires `scoped-auto-publish` at every existing gate.
 - New product APIs accept a role, never arbitrary scopes.
-- Do not support legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, or custom-scope clients. Existing Agent credentials and grants are conservatively downgraded to `reader` by the schema migration without inferring roles from old scopes.
+- Do not support legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, or custom-scope clients. The breaking schema migration deletes existing Agent Credentials; compatibility is intentionally out of scope.
 - The breaking local-sync/onboarding protocol version is `0.5.0`; the server accepts only `0.5.0` for this flow.
 - Do not push, publish npm, or deploy production without separate explicit user authorization.
 
 ## File Structure
 
 - `packages/sync-protocol/src/agent-access-role.ts`: canonical role names, exact scopes, capability ordering, Zod schema, and human-Space capability mapping.
-- `apps/server/prisma/schema.prisma` and migration: persisted role enum on Credential and Grant.
-- `apps/server/src/core/authorization/authorization.service.ts`: role-aware Space authorization and scope intersection.
+- `apps/server/prisma/schema.prisma` and migration: persisted role enum only on Grant plus the composite Credential-to-Grant binding.
+- `apps/server/src/core/authorization/authorization.service.ts`: exact bound-Grant authorization with scopes derived at request time.
 - `apps/server/src/core/agent/agent.service.ts`: role-derived Space grants and atomic connection exchange; no manual Credential-creation API.
 - `apps/server/src/core/agent/local-sync-installation.service.ts`: short-lived `spaceId + role` intent and replay-safe exchange orchestration.
 - `apps/server/src/onboard/*`: 0.5.0 full onboarding expressed in the same role protocol.

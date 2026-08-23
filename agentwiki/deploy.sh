@@ -66,32 +66,39 @@ case " \$supported_node_majors " in
     exit 1
     ;;
 esac
-mkdir -p "\$HOME/${PROJECT_DIR}"
-release_dir="\$(mktemp -d "\$HOME/agentwiki-release.XXXXXX")"
-trap 'rm -rf "\$release_dir"' EXIT
-tar -xzf "\$HOME/${ARCHIVE}" -C "\$release_dir"
-rm -f "\$HOME/${ARCHIVE}"
-rsync -a --delete --exclude='.env' --exclude='node_modules' --exclude='dist' \
-  "\$release_dir/apps/" "\$HOME/${PROJECT_DIR}/apps/"
-rsync -a --delete --exclude='node_modules' --exclude='dist' \
-  "\$release_dir/packages/" "\$HOME/${PROJECT_DIR}/packages/"
-rsync -a --delete "\$release_dir/scripts/" "\$HOME/${PROJECT_DIR}/scripts/"
-rsync -a --delete "\$release_dir/deploy/" "\$HOME/${PROJECT_DIR}/deploy/"
-install -m 0644 "\$release_dir/package.json" "\$HOME/${PROJECT_DIR}/package.json"
-install -m 0644 "\$release_dir/pnpm-lock.yaml" "\$HOME/${PROJECT_DIR}/pnpm-lock.yaml"
-install -m 0644 "\$release_dir/pnpm-workspace.yaml" "\$HOME/${PROJECT_DIR}/pnpm-workspace.yaml"
-install -m 0644 "\$release_dir/tsconfig.json" "\$HOME/${PROJECT_DIR}/tsconfig.json"
-install -m 0755 "\$release_dir/deploy.sh" "\$HOME/${PROJECT_DIR}/deploy.sh"
-if [ "\$(id -u)" = 0 ]; then
-  chown -R -- "\$(id -u):\$(id -g)" "\$HOME/${PROJECT_DIR}"
+live_dir="\$HOME/${PROJECT_DIR}"
+exec 9>"\$HOME/.agentwiki-deploy.lock"
+if ! flock -n 9; then
+  echo "Another AgentWiki deployment is already running." >&2
+  exit 1
 fi
-cd "\$HOME/${PROJECT_DIR}"
-
-if [ ! -f .env ]; then
+if [ ! -f "\$live_dir/.env" ]; then
   echo "Existing production .env is required; deployment will not generate secrets." >&2
   exit 1
 fi
-touch apps/server/.env
+release_dir="\$(mktemp -d "\$HOME/agentwiki-release.XXXXXX")"
+migration_started=0
+cleanup_release() {
+  if [ -n "\${release_dir:-}" ] && [ -d "\$release_dir" ]; then
+    if [ "\${migration_started:-0}" = 1 ]; then
+      echo "Staged release retained after migration attempt at \$release_dir" >&2
+    else
+      rm -rf -- "\$release_dir"
+    fi
+  fi
+}
+trap cleanup_release EXIT
+tar -xzf "\$HOME/${ARCHIVE}" -C "\$release_dir"
+rm -f "\$HOME/${ARCHIVE}"
+install -m 0600 "\$live_dir/.env" "\$release_dir/.env"
+mkdir -p "\$release_dir/apps/server"
+if [ -f "\$live_dir/apps/server/.env" ]; then
+  install -m 0600 "\$live_dir/apps/server/.env" "\$release_dir/apps/server/.env"
+else
+  touch "\$release_dir/apps/server/.env"
+  chmod 600 "\$release_dir/apps/server/.env"
+fi
+cd "\$release_dir"
 
 set_env_value() {
   local file="\$1" key="\$2" value="\$3"
@@ -153,25 +160,73 @@ esac
 
 chmod 600 .env apps/server/.env
 
+# Build and verify the staged release before stopping production.
 pnpm install --frozen-lockfile
 pnpm --filter @agentwiki/server exec prisma generate --schema=prisma/schema.prisma
 pnpm --filter @agentwiki/shared build
 pnpm --filter @neomei/agentwiki-sync-protocol build
 pnpm --filter @agentwiki/server build
 pnpm --filter @agentwiki/client build
-pnpm --filter @agentwiki/server exec prisma migrate deploy
 
 mkdir -p "\$HOME/.config/systemd/user"
 install -m 0644 deploy/systemd/*.service "\$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
+systemctl --user stop agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
 
-for pid in \$(pgrep -u "\$USER" node || true); do
-  cwd="\$(readlink "/proc/\$pid/cwd" 2>/dev/null || true)"
-  case "\$cwd" in
-    "\$HOME/${PROJECT_DIR}"/*) kill "\$pid" 2>/dev/null || true ;;
-  esac
+agentwiki_node_processes() {
+  local pid cwd
+  for pid in \$(pgrep -u "\$USER" node || true); do
+    cwd="\$(readlink "/proc/\$pid/cwd" 2>/dev/null || true)"
+    case "\$cwd" in
+      "\$live_dir"|"\$live_dir"/*) printf '%s\n' "\$pid" ;;
+    esac
+  done
+}
+
+legacy_pids="\$(agentwiki_node_processes)"
+if [ -n "\$legacy_pids" ]; then
+  while IFS= read -r pid; do
+    kill "\$pid" 2>/dev/null || true
+  done <<< "\$legacy_pids"
+fi
+
+# A TERM is asynchronous. Do not let a legacy process keep executing code that
+# references columns removed by the breaking authorization migration.
+for attempt in \$(seq 1 20); do
+  legacy_pids="\$(agentwiki_node_processes)"
+  [ -z "\$legacy_pids" ] && break
+  sleep 0.25
 done
+if [ -n "\${legacy_pids:-}" ]; then
+  echo "Old AgentWiki node processes did not stop; refusing schema migration." >&2
+  exit 1
+fi
+
+if systemctl --user is-active --quiet agentwiki-api.service || \
+   systemctl --user is-active --quiet agentwiki-worker.service; then
+  echo "Old AgentWiki API or Worker did not stop; refusing schema migration." >&2
+  exit 1
+fi
+
+migration_started=1
+pnpm --filter @agentwiki/server exec prisma migrate deploy
+
+previous_dir="\$HOME/agentwiki-previous-\$(date +%Y%m%d%H%M%S)"
+if ! mv -- "\$live_dir" "\$previous_dir"; then
+  echo "Failed to preserve the current release; staged release remains at \$release_dir." >&2
+  exit 1
+fi
+if ! mv -- "\$release_dir" "\$live_dir"; then
+  echo "Failed to activate staged release; attempting to restore the live path while services remain stopped." >&2
+  if ! mv -- "\$previous_dir" "\$live_dir"; then
+    echo "Live path restoration also failed; releases remain at \$previous_dir and \$release_dir." >&2
+  fi
+  exit 1
+fi
+release_dir=""
+chown -R -- "\$(id -u):\$(id -g)" "\$HOME/${PROJECT_DIR}/"
+cd "\$live_dir"
 
 systemctl --user restart agentwiki-api.service
 systemctl --user restart agentwiki-worker.service
@@ -186,6 +241,7 @@ done
 test "\${api:-}" = 200
 test "\${ui:-}" = 200
 systemctl --user --no-pager --full status agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
+echo "Previous application tree retained at \$previous_dir; do not reactivate it without restoring its matching database backup."
 REMOTE
 
 echo "Direct deployment complete: http://${REMOTE_HOST}:5173"

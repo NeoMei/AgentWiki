@@ -16,6 +16,8 @@
 - 2026-08-23 UI 复核发现原实现仍把 Agent Grant、统一连接和手工 Credential 做成三套可编辑入口。现已删除 Agent 详情页的独立 Grant/Credential 编辑器和手工 Credential API；唯一授权入口一次选择 `Space + role`，连接兑换原子生成匹配的 Grant 与 Credential。已有记录仅查看/撤销。
 - 修正后真实浏览器桌面和 390px 移动端均只有一个角色选择器、没有 `授权`/`创建凭据` 按钮、没有横向溢出；已有 Editor 授权默认选中 Editor。最终全量测试为 runtime 87 / server 751 / client 223 / sync-protocol 25 / local-sync 736，其他构建门禁和双包干净安装通过。
 - 2026-08-23 用户复核指出核心仍是双权限源。现已删除 Credential role/scopes 与 Grant scopes，增加同 Agent 复合外键绑定；鉴权、自动发布、Worker、MCP 发现和 Local Sync 诊断均只使用绑定 Grant。真实全新数据库 + MCP 验收完成；追加复核还修复了连接角色默认误降级、跨 Space MCP 最近调用泄漏和高负载锁测试假失败。
+- 2026-08-23 最终漏洞审查又修复了 Agent 提案/Knowledge/Memory 撤权竞态、Grant 交换与 Agent/用户撤销的锁顺序死锁、超管授权 Space 前端过滤、>100 Space 分页/reset，以及破坏性迁移的真实部署顺序和失败保全。PostgreSQL 16 真实并发测试 3/3 通过；最终独立复审为 `FINAL CLEAN / 0 findings`。
+- 依赖审计追加发现 NestJS `GHSA-36xv-jgw5-4q75`，已升级 Nest 系列 11.2.1 / Express 5.2.1 并修复 webpack peer override；升级后 lint/type/build/全量测试通过，audit 与 peer 问题均为 0。
 
 ## 范围
 
@@ -33,6 +35,6 @@
 
 ## 下一步
 
-1. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署。
+1. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署；本轮修复尚在本地特性分支。
 2. 部署前创建并验证数据库 custom dump 和应用回滚包，记录指纹。
 3. 发布后用新 Editor 连接完成真实 OpenCode 提案、Agent 不可审批和人工审批后内容确认。

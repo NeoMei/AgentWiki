@@ -125,6 +125,24 @@ describe('LocalSyncInstallCard', () => {
     expect(screen.getByText(/不能执行人工审批或成员管理/)).toBeInTheDocument();
   });
 
+  it('explains why no Space can be selected for authorization', () => {
+    renderCard({ spaces: [], grants: [] });
+
+    expect(screen.getByText('你需要先成为某个空间的所有者或管理员，才能为 Agent 生成该空间的接入授权。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成统一网关接入指令' })).toBeDisabled();
+  });
+
+  it('shows a safe server explanation when connection authorization fails', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce({
+      response: { data: { message: '你已不再是该空间的管理员' } },
+    });
+    renderCard();
+
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('你已不再是该空间的管理员');
+  });
+
   it('generates a short-lived instruction without rendering a permanent key', async () => {
     renderCard();
 

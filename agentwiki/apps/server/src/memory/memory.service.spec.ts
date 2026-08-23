@@ -10,14 +10,19 @@ describe('MemoryService', () => {
     page: { findMany: jest.fn() },
     knowledgeRelation: { findMany: jest.fn() },
     evidence: { findUnique: jest.fn() },
+    $transaction: jest.fn(),
   } as any;
   const llm = { generateEmbedding: jest.fn().mockRejectedValue(new Error('not configured')) } as any;
-  const service = new MemoryService(prisma, { get: jest.fn() } as any, llm);
+  const authorization = { assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined) } as any;
+  const humanPrincipal = { userId: 'user-1' };
+  const service = new MemoryService(prisma, { get: jest.fn() } as any, llm, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.page.findMany.mockResolvedValue([]);
     prisma.knowledgeRelation.findMany.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
+    authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
     llm.generateEmbedding.mockRejectedValue(new Error('not configured'));
   });
 
@@ -27,14 +32,14 @@ describe('MemoryService', () => {
       { id: 'b', content: 'Frontend color palette', tags: ['css'], entities: {}, importance: 0.9 },
     ]);
     prisma.agentMemory.updateMany.mockResolvedValue({ count: 1 });
-    const result = await service.recall('agent-1', 'space-1', 'PostgreSQL database backup');
+    const result = await service.recall('agent-1', 'space-1', 'PostgreSQL database backup', undefined, humanPrincipal);
     expect(result[0].memory.id).toBe('a');
     expect(result[0].reasons).toEqual(expect.objectContaining({ lexical: expect.any(Number), vector: expect.any(Number), graph: expect.any(Number) }));
   });
 
   it('privacy-deletes content and structured entities', async () => {
     prisma.agentMemory.updateMany.mockResolvedValue({ count: 1 });
-    await service.remove('agent-1', 'space-1', 'memory-1');
+    await service.remove('agent-1', 'space-1', 'memory-1', humanPrincipal);
     expect(prisma.agentMemory.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ agentId: 'agent-1', spaceId: 'space-1', id: 'memory-1' }),
       data: expect.objectContaining({ content: '[deleted]', tags: [], entities: {}, sourceEvidenceId: null, embedding: [] }),
@@ -45,20 +50,33 @@ describe('MemoryService', () => {
     prisma.agentMemory.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'winner', content: 'same' });
     prisma.agentMemory.count.mockResolvedValue(0);
     prisma.agentMemory.create.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }));
-    const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: 'same' } as any);
+    const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: 'same' } as any, humanPrincipal);
     expect(result).toMatchObject({ id: 'winner', deduplicated: true });
   });
 
   it('deduplicates normalized content before consuming quota', async () => {
     prisma.agentMemory.findFirst.mockResolvedValue({ id: 'existing', content: 'same' });
-    const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: ' Same  ' } as any);
+    const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: ' Same  ' } as any, humanPrincipal);
     expect(result).toMatchObject({ id: 'existing', deduplicated: true });
     expect(prisma.agentMemory.count).not.toHaveBeenCalled();
   });
 
   it('rejects evidence from a different space', async () => {
     prisma.evidence.findUnique.mockResolvedValue({ run: { spaceId: 'space-2' } });
-    await expect(service.create('agent-1', { spaceId: 'space-1', type: 'episodic', content: 'Observed failure', sourceEvidenceId: 'evidence-1' } as any)).rejects.toThrow('Source evidence must belong');
+    await expect(service.create('agent-1', { spaceId: 'space-1', type: 'episodic', content: 'Observed failure', sourceEvidenceId: 'evidence-1' } as any, humanPrincipal)).rejects.toThrow('Source evidence must belong');
+  });
+
+  it('writes nothing when an Agent Credential is revoked before a memory delete', async () => {
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.remove(
+      'agent-1', 'space-1', 'memory-1',
+      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.agentMemory.updateMany).not.toHaveBeenCalled();
   });
 
   it('retrieves private memory only for the target Agent plus shared memory in the same space', async () => {
@@ -76,7 +94,7 @@ describe('MemoryService', () => {
       { id: 'far', content: 'unrelated words', tags: [], entities: {}, importance: 0, embedding: [0, 1] },
     ]);
     prisma.agentMemory.updateMany.mockResolvedValue({ count: 2 });
-    const result = await service.recall('agent-1', 'space-1', 'query');
+    const result = await service.recall('agent-1', 'space-1', 'query', undefined, humanPrincipal);
     expect(result[0].memory.id).toBe('near');
     expect(result[0].reasons.vector).toBeGreaterThan(0.9);
   });
@@ -100,7 +118,7 @@ describe('MemoryService', () => {
     let hitsAt3 = 0;
     let reciprocalRank = 0;
     for (const qualityCase of cases) {
-      const result = await service.recall('agent-1', 'space-1', qualityCase.query, 3);
+      const result = await service.recall('agent-1', 'space-1', qualityCase.query, 3, humanPrincipal);
       const rank = result.findIndex((entry) => entry.memory.id === qualityCase.relevant) + 1;
       if (rank > 0 && rank <= 3) hitsAt3 += 1;
       if (rank > 0) reciprocalRank += 1 / rank;
