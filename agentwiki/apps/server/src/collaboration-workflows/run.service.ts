@@ -418,12 +418,12 @@ export class RunService {
       if (!task) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration task not found');
       await this.validateFreshAgents(tx, run.spaceId, [body.agentId]);
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
-      const executable = ['ready', 'claimed', 'running', 'retry_wait', 'failed'].includes(task.status);
+      const active = ['claimed', 'running'].includes(task.status);
       await tx.collaborationRunTask.update({
         where: { id: taskId },
         data: {
           assigneeAgentId: body.agentId,
-          ...(executable ? { status: 'ready', nextAttemptAt: null } : {}),
+          ...(active ? { status: 'ready', nextAttemptAt: null } : {}),
         },
       });
     }, taskId, expectedSpaceId);

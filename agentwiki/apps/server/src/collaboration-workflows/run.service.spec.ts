@@ -197,6 +197,31 @@ describe('RunService', () => {
     expect(tx.collaborationRoleBinding.updateMany).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['ready', null],
+    ['retry_wait', new Date('2026-08-24T08:00:00.000Z')],
+    ['failed', new Date('2026-08-24T09:00:00.000Z')],
+  ] as const)('reassigns a %s task without changing its recovery state or schedule', async (status, nextAttemptAt) => {
+    const running = { ...ready, status: 'running', startedById: 'starter-1' };
+    prisma.collaborationRun.findUnique.mockResolvedValue(running);
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...running, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings,
+    });
+    tx.collaborationRunTask.findFirst.mockResolvedValue({
+      id: 'task-1', runId: 'run-1', assigneeAgentId: 'agent-old', status, nextAttemptAt,
+    });
+    tx.agentGrant.findMany.mockResolvedValue([grant('agent-new')]);
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+
+    await service.reassignTask('run-1', 'task-1', {
+      agentId: 'agent-new', reason: 'handoff', idempotencyKey: `reassign-${status}`,
+    }, starterPrincipal);
+
+    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' }, data: { assigneeAgentId: 'agent-new' },
+    });
+  });
+
   it('rejects a run that does not belong to the route Space', async () => {
     prisma.collaborationRun.findUnique.mockResolvedValue({ ...ready, status: 'running', startedById: 'starter-1' });
     await expect(service.pauseRun(
