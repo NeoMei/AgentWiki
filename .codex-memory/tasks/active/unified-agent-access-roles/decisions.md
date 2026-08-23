@@ -1,15 +1,15 @@
 # 决策
 
-- 采用连接授权包方案：一次选择 `Space + role`，兑换时原子创建/更新 Grant 与 Credential。
+- 采用连接授权包方案：一次选择 `Space + role`，兑换时原子创建/更新 Grant，再把 Credential 绑定到该 Grant。
 - Agent 角色统一命名为 `reader`、`editor`、`publisher`。
-- Grant 和 Credential 都记录角色及服务端派生 scopes，运行时继续取两者交集。
+- `AgentGrant.role` 是唯一持久化权限事实；Grant 不存 scopes，Credential 不存 role/scopes，只存同 Agent 的 `authorizationId` 绑定。
 - `reader` 只读；`editor` 可写但默认走人工审核；`publisher` 增加 Memory 和 scoped auto-publish 能力。
 - `review:decide` 永远不属于 Agent 角色。
 - Publisher 不修改 Space Policy，自动发布仍需完整治理条件同时满足。
 - 普通界面和新接口不再接受逐项自定义 scopes。
 - 不考虑旧版本客户端和旧版本权限数据兼容。
 - 新 Local Sync/onboarding 协议版本为 0.5.0，服务端不接受本流程的 0.4.0 请求。
-- Prisma 迁移不按旧 scopes 猜测角色；现有 Agent Grant/Credential 统一降级为 reader，用户通过新连接重新授权。
+- Prisma 迁移不按旧 scopes 猜测角色；按已确认的“不考虑旧数据”边界删除现有 Agent Credential，现有 Grant 保留其三档 role，用户通过新连接重新接入。
 - `POST/PATCH /agents` 不再接受 `approvalMode`；该值仅作为 Publisher 由服务端启用的内部治理状态和只读诊断。
 - root 版本、env 样例、Compose、README、E2E 和发布契约统一到 0.5.0，防止服务端已升级但部署面仍广播 0.4.0。
 - 发布和生产迁移必须先验证 PostgreSQL custom-format 与应用回滚备份；0.5.0 无 schema-only 回滚。
@@ -18,6 +18,8 @@
 - npm 发布前必须把两个候选 tgz 安装到空目录并启动已安装 CLI；两包上传后还要对 registry 版本重做同一检查。
 - Reader full onboarding 在网关验证后只允许远程 pull 并完成，不规划或调用写同步。
 - Agent Grant 变更与移除需要操作者同时是 Space owner/admin 且是 Agent owner；成员响应返回 `canManageRole`。
-- Auto-publish 不使用 principal 快照作最终判据；发布事务锁定 Credential、Agent/owner、Grant、Space 行并重验角色、scopes、状态、开关、Policy 和领域 scope，任一失效回 `pending_review`。
+- Auto-publish 不使用 principal 快照作最终判据；发布事务锁定 Credential、Agent/owner、绑定 Grant、Space 行并重验当前 Grant 角色派生 scopes、状态、开关、Policy 和领域 scope，任一失效回 `pending_review`。
 - Agent 详情页只能有一个可编辑 `Space + role` 连接授权入口；Credential 是连接兑换的内部产物，不再允许通过 `POST /agents/:id/credentials` 手工签发，也不在该页独立编辑 Grant 角色。
 - 已有 Grant/Credential 作为授权和连接记录只读展示，保留移除/撤销动作；Space Members 的成员角色管理属于另一条管理流程，继续使用 Grant API。
+- Agent Credential 访问 `/integrations/mcp` 时，授权与 Credential 诊断按 `authorizationId` 过滤，最近 MCP 调用按当前 `credentialId` 过滤；不能查看同 Agent 其他 Space/连接的诊断记录。
+- 已有 Grant 的角色是统一连接卡的默认值；等价 props 重渲染不能覆盖用户尚未提交的新角色选择。

@@ -12,6 +12,8 @@ export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
   userId: string;
   agentId?: string;
+  authorizationId?: string;
+  authorizationSpaceId?: string;
   agentRole?: AgentAccessRole;
   scopes?: string[];
   credentialId?: string;
@@ -61,6 +63,9 @@ export class AuthorizationService {
       });
       if (
         !grant ||
+        !principal.authorizationId ||
+        grant.id !== principal.authorizationId ||
+        (principal.authorizationSpaceId !== undefined && principal.authorizationSpaceId !== spaceId) ||
         grant.agent.status !== 'active' ||
         grant.agent.revokedAt ||
         grant.space.deletedAt ||
@@ -69,10 +74,7 @@ export class AuthorizationService {
       ) {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent does not have permission to access this space');
       }
-      // Effective scope = credential scopes ∩ grant scopes (grant scopes are the
-      // per-space capability ceiling; an empty grant scope list means no
-      // additional per-space restriction beyond the credential).
-      this.assertScope(principal, requiredScope, grant.scopes || [], grant.role);
+      this.assertScope(requiredScope, grant.role);
       return grant;
     }
     const member = await this.prisma.spaceMember.findUnique({
@@ -201,18 +203,13 @@ export class AuthorizationService {
       return spaces.map((space) => space.id);
     }
     if (principal.agentId) {
-      this.assertScope(principal, requiredScope);
+      if (!principal.authorizationId) return [];
       const grants = await this.prisma.agentGrant.findMany({
         where: {
+          id: principal.authorizationId,
           agentId: principal.agentId,
           agent: { status: 'active', revokedAt: null },
           space: { deletedAt: null },
-          ...(requiredScope ? {
-            OR: [
-              { scopes: { has: requiredScope } },
-              { scopes: { isEmpty: true } },
-            ],
-          } : {}),
         },
         select: { spaceId: true, role: true },
       });
@@ -246,18 +243,13 @@ export class AuthorizationService {
       return spaces.map((space) => ({ id: space.id, name: space.name, role: 'owner' }));
     }
     if (principal.agentId) {
-      this.assertScope(principal, requiredScope);
+      if (!principal.authorizationId) return [];
       const grants = await this.prisma.agentGrant.findMany({
         where: {
+          id: principal.authorizationId,
           agentId: principal.agentId,
           agent: { status: 'active', revokedAt: null },
           space: { deletedAt: null },
-          ...(requiredScope ? {
-            OR: [
-              { scopes: { has: requiredScope } },
-              { scopes: { isEmpty: true } },
-            ],
-          } : {}),
         },
         select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
         orderBy: { createdAt: 'asc' },
@@ -280,21 +272,10 @@ export class AuthorizationService {
     return typeof principal === 'string' ? { userId: principal } : principal;
   }
 
-  private assertScope(
-    principal: Principal,
-    requiredScope?: string,
-    grantScopes: string[] = [],
-    grantRole?: AgentAccessRole,
-  ) {
+  private assertScope(requiredScope?: string, grantRole?: AgentAccessRole) {
     if (!requiredScope) return;
-    if (!principal.agentRole || !agentRoleAllowsScope(principal.agentRole, requiredScope) || !principal.scopes?.includes(requiredScope)) {
-      throw new BusinessException('AUTH_SCOPE_REQUIRED', `Agent credential requires scope: ${requiredScope}`);
-    }
     if (grantRole && !agentRoleAllowsScope(grantRole, requiredScope)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', `Agent role is not granted scope ${requiredScope} in this space`);
-    }
-    if (grantScopes.length > 0 && !grantScopes.includes(requiredScope)) {
-      throw new BusinessException('SPACE_ACCESS_DENIED', `Agent is not granted scope ${requiredScope} in this space`);
     }
   }
 }

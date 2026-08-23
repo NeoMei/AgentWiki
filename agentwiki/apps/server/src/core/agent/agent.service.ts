@@ -41,15 +41,34 @@ export class AgentService {
         credentials: {
           where: { revokedAt: null },
           select: {
-            id: true, name: true, prefix: true, role: true, scopes: true,
+            id: true, name: true, prefix: true, authorizationId: true,
             expiresAt: true, lastUsedAt: true, createdAt: true,
+            authorization: {
+              select: { role: true, space: { select: { id: true, name: true } } },
+            },
           },
         },
       },
     });
     if (!agent || agent.revokedAt) throw new NotFoundException('Agent not found');
     if (agent.ownerId !== ownerId) throw new ForbiddenException('You do not own this agent');
-    return agent;
+    return {
+      ...agent,
+      credentials: (agent.credentials ?? []).map((credential) => ({
+        id: credential.id,
+        name: credential.name,
+        prefix: credential.prefix,
+        authorization: {
+          id: credential.authorizationId,
+          role: credential.authorization.role,
+          scopes: scopesForAgentAccessRole(credential.authorization.role),
+          space: credential.authorization.space,
+        },
+        expiresAt: credential.expiresAt,
+        lastUsedAt: credential.lastUsedAt,
+        createdAt: credential.createdAt,
+      })),
+    };
   }
 
   async update(ownerId: string, id: string, dto: UpdateAgentDto) {
@@ -129,55 +148,48 @@ export class AgentService {
         throw new ForbiddenException('Connection authorization is no longer valid');
       }
 
-      const scopes = scopesForAgentAccessRole(input.role);
       const keyHash = createHash('sha256').update(input.rawKey).digest('hex');
       const previousGrant = await tx.agentGrant.findUnique({
         where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
         select: { role: true },
       });
-      const credential = await tx.agentCredential.upsert({
-        where: { localSyncInstallationId: input.installationId },
-        create: {
-          agentId: input.agentId,
-          name: 'AgentWiki connection',
-          role: input.role,
-          prefix: input.rawKey.slice(0, 12),
-          keyHash,
-          localSyncInstallationId: input.installationId,
-          scopes,
-        },
-        update: {},
-        select: {
-          id: true,
-          agentId: true,
-          role: true,
-          keyHash: true,
-          scopes: true,
-          revokedAt: true,
-        },
-      });
-      const credentialScopesMatch = scopes.length === credential.scopes.length
-        && scopes.every((scope) => credential.scopes.includes(scope));
-      if (
-        credential.agentId !== input.agentId
-        || credential.role !== input.role
-        || credential.keyHash !== keyHash
-        || credential.revokedAt
-        || !credentialScopesMatch
-      ) {
-        throw new ForbiddenException('Connection credential is unavailable');
-      }
       const grant = await tx.agentGrant.upsert({
         where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
         create: {
           agentId: input.agentId,
           spaceId: input.spaceId,
           role: input.role,
-          scopes,
         },
-        update: { role: input.role, scopes },
-        select: { id: true },
+        update: { role: input.role },
+        select: { id: true, role: true },
       });
+      const credential = await tx.agentCredential.upsert({
+        where: { localSyncInstallationId: input.installationId },
+        create: {
+          agentId: input.agentId,
+          authorizationId: grant.id,
+          name: 'AgentWiki connection',
+          prefix: input.rawKey.slice(0, 12),
+          keyHash,
+          localSyncInstallationId: input.installationId,
+        },
+        update: {},
+        select: {
+          id: true,
+          agentId: true,
+          authorizationId: true,
+          keyHash: true,
+          revokedAt: true,
+        },
+      });
+      if (
+        credential.agentId !== input.agentId
+        || credential.authorizationId !== grant.id
+        || credential.keyHash !== keyHash
+        || credential.revokedAt
+      ) {
+        throw new ForbiddenException('Connection credential is unavailable');
+      }
       if (input.role === 'publisher') {
         await tx.agent.update({
           where: { id: input.agentId },
@@ -202,8 +214,8 @@ export class AgentService {
         id: credential.id,
         grantId: grant.id,
         agentId: credential.agentId,
-        role: credential.role,
-        scopes,
+        role: grant.role,
+        scopes: scopesForAgentAccessRole(grant.role),
         apiKey: input.rawKey,
       };
     });
@@ -222,7 +234,7 @@ export class AgentService {
         where: {
           id: input.credentialId,
           agentId: input.agentId,
-          role: input.role,
+          authorizationId: input.grantId,
           revokedAt: null,
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           agent: {
@@ -232,7 +244,7 @@ export class AgentService {
             owner: { deletedAt: null, lockedAt: null },
           },
         },
-        select: { id: true, scopes: true },
+        select: { id: true, authorizationId: true },
       }),
       this.prisma.agentGrant.findFirst({
         where: {
@@ -241,23 +253,17 @@ export class AgentService {
           spaceId: input.spaceId,
           role: input.role,
         },
-        select: { id: true, scopes: true, space: { select: { deletedAt: true } } },
+        select: { id: true, role: true, space: { select: { deletedAt: true } } },
       }),
     ]);
-    const expectedScopes = scopesForAgentAccessRole(input.role);
-    const persistedScopesMatch = (scopes: string[] | undefined) => Boolean(
-      scopes
-      && scopes.length === expectedScopes.length
-      && expectedScopes.every((scope) => scopes.includes(scope)),
-    );
     if (
       !credential
       || !grant
       || credential.id !== input.credentialId
+      || credential.authorizationId !== input.grantId
       || grant.id !== input.grantId
+      || grant.role !== input.role
       || grant.space.deletedAt
-      || !persistedScopesMatch(credential.scopes)
-      || !persistedScopesMatch(grant.scopes)
     ) {
       throw new ForbiddenException('Connection credential is unavailable');
     }
@@ -265,14 +271,31 @@ export class AgentService {
 
   async listCredentials(ownerId: string, agentId: string) {
     await this.getOwned(ownerId, agentId);
-    return this.prisma.agentCredential.findMany({
+    const credentials = await this.prisma.agentCredential.findMany({
       where: { agentId, revokedAt: null },
       select: {
-        id: true, name: true, prefix: true, role: true, scopes: true,
+        id: true, name: true, prefix: true, authorizationId: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
+        authorization: {
+          select: { role: true, space: { select: { id: true, name: true } } },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
+    return credentials.map((credential) => ({
+      id: credential.id,
+      name: credential.name,
+      prefix: credential.prefix,
+      authorization: {
+        id: credential.authorizationId,
+        role: credential.authorization.role,
+        scopes: scopesForAgentAccessRole(credential.authorization.role),
+        space: credential.authorization.space,
+      },
+      expiresAt: credential.expiresAt,
+      lastUsedAt: credential.lastUsedAt,
+      createdAt: credential.createdAt,
+    }));
   }
 
   async revokeCredential(ownerId: string, agentId: string, credentialId: string) {
@@ -298,7 +321,6 @@ export class AgentService {
     isSuperAdmin = false,
   ) {
     await this.getOwned(actorUserId, agentId);
-    const scopes = scopesForAgentAccessRole(role);
     return this.prisma.$transaction(async (tx) => {
       const agent = await this.assertGrantMutationAuthority(
         tx, actorUserId, agentId, spaceId, isSuperAdmin,
@@ -312,8 +334,8 @@ export class AgentService {
       }
       const grant = await tx.agentGrant.upsert({
         where: { agentId_spaceId: { agentId, spaceId } },
-        create: { agentId, spaceId, role, scopes },
-        update: { role, scopes },
+        create: { agentId, spaceId, role },
+        update: { role },
         include: { space: { select: { id: true, name: true } } },
       });
       if (role === 'publisher') {
@@ -372,12 +394,18 @@ export class AgentService {
     return { data, total, page: Math.floor(skip / take) + 1, limit: take };
   }
 
-  recentMcpCalls(ownerId: string, agentId?: string) {
+  recentMcpCalls(ownerId: string, agentId?: string, credentialId?: string) {
+    if (agentId && !credentialId) {
+      throw new ForbiddenException('Connection credential is unavailable');
+    }
     return this.prisma.agentAuditEvent.findMany({
       where: {
         action: { contains: 'mcp', mode: 'insensitive' },
         agent: { ownerId },
         ...(agentId ? { agentId } : {}),
+        ...(credentialId ? {
+          metadata: { path: ['credentialId'], equals: credentialId },
+        } : {}),
       },
       select: {
         id: true, action: true, outcome: true, resourceType: true,
@@ -389,8 +417,11 @@ export class AgentService {
     });
   }
 
-  async integrationAccess(ownerId: string, agentId?: string) {
-    if (agentId) await this.getOwned(ownerId, agentId);
+  async integrationAccess(ownerId: string, agentId?: string, authorizationId?: string) {
+    if (agentId) {
+      if (!authorizationId) throw new ForbiddenException('Connection authorization is unavailable');
+      await this.getOwned(ownerId, agentId);
+    }
     const agents = await this.prisma.agent.findMany({
       where: {
         ownerId,
@@ -402,12 +433,22 @@ export class AgentService {
         name: true,
         status: true,
         grants: {
+          ...(authorizationId ? { where: { id: authorizationId } } : {}),
           select: { role: true, space: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
         },
         credentials: {
-          where: { revokedAt: null },
-          select: { id: true, name: true, prefix: true, role: true, scopes: true, expiresAt: true, lastUsedAt: true },
+          where: {
+            revokedAt: null,
+            ...(authorizationId ? { authorizationId } : {}),
+          },
+          select: {
+            id: true, name: true, prefix: true, authorizationId: true,
+            expiresAt: true, lastUsedAt: true,
+            authorization: {
+              select: { role: true, space: { select: { id: true, name: true } } },
+            },
+          },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -417,7 +458,17 @@ export class AgentService {
     return agents.map((agent) => ({
       ...agent,
       credentials: agent.credentials.map((credential) => ({
-        ...credential,
+        id: credential.id,
+        name: credential.name,
+        prefix: credential.prefix,
+        authorization: {
+          id: credential.authorizationId,
+          role: credential.authorization.role,
+          scopes: scopesForAgentAccessRole(credential.authorization.role),
+          space: credential.authorization.space,
+        },
+        expiresAt: credential.expiresAt,
+        lastUsedAt: credential.lastUsedAt,
         active: !credential.expiresAt || credential.expiresAt.getTime() > now,
       })),
     }));

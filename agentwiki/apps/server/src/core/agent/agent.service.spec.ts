@@ -5,14 +5,14 @@ import { AgentService } from './agent.service';
 describe('AgentService grant scope validation', () => {
   const prisma = {
     $transaction: jest.fn(),
-    agent: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+    agent: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     space: { findFirst: jest.fn() },
     user: { findFirst: jest.fn() },
     agentCredential: {
       create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(),
     },
     agentGrant: { findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
-    agentAuditEvent: { create: jest.fn() },
+    agentAuditEvent: { create: jest.fn(), findMany: jest.fn() },
   } as any;
   const service = new AgentService(prisma);
 
@@ -23,13 +23,69 @@ describe('AgentService grant scope validation', () => {
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
   });
 
-  it('atomically creates the credential and matching Space grant', async () => {
+  it('reports a credential as an identity bound to one authorization record', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [],
+      credentials: [{
+        id: 'credential-1', name: 'Connection', prefix: 'agk_preview',
+        authorizationId: 'grant-1', expiresAt: null, lastUsedAt: null,
+        createdAt: new Date('2026-08-23T00:00:00.000Z'),
+        authorization: { role: 'editor', space: { id: 'space-1', name: 'Space' } },
+      }],
+    });
+
+    const agent = await service.getOwned('owner-1', 'agent-1');
+
+    expect(agent.credentials[0]).toMatchObject({
+      id: 'credential-1',
+      authorization: {
+        id: 'grant-1', role: 'editor', space: { id: 'space-1', name: 'Space' },
+        scopes: scopesForAgentAccessRole('editor'),
+      },
+    });
+    expect(agent.credentials[0]).not.toHaveProperty('role');
+    expect(agent.credentials[0]).not.toHaveProperty('scopes');
+  });
+
+  it('limits Agent integration diagnostics to the current bound authorization', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [],
+    });
+    prisma.agent.findMany.mockResolvedValue([]);
+
+    await service.integrationAccess('owner-1', 'agent-1', 'grant-1');
+
+    expect(prisma.agent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'agent-1' }),
+      select: expect.objectContaining({
+        grants: expect.objectContaining({ where: { id: 'grant-1' } }),
+        credentials: expect.objectContaining({
+          where: { revokedAt: null, authorizationId: 'grant-1' },
+        }),
+      }),
+    }));
+  });
+
+  it('limits Agent MCP audit diagnostics to the current credential', async () => {
+    prisma.agentAuditEvent.findMany.mockResolvedValue([]);
+
+    await service.recentMcpCalls('owner-1', 'agent-1', 'credential-1');
+
+    expect(prisma.agentAuditEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        agentId: 'agent-1',
+        metadata: { path: ['credentialId'], equals: 'credential-1' },
+      }),
+    }));
+  });
+
+  it('creates the Grant authorization before an identity-only bound Credential', async () => {
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1' });
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
     prisma.agentCredential.upsert.mockResolvedValue({
-      id: 'credential-1', agentId: 'agent-1', role: 'editor',
+      id: 'credential-1', agentId: 'agent-1', authorizationId: 'grant-1',
       keyHash: '58f5ceceff4ed07826c298f6b62e3fdb2cebfec07f946843c538fd45819e87ac',
-      scopes: scopesForAgentAccessRole('editor'), revokedAt: null,
+      revokedAt: null,
     });
     prisma.agentGrant.findUnique.mockResolvedValue({ role: 'reader' });
     prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1', role: 'editor' });
@@ -41,26 +97,24 @@ describe('AgentService grant scope validation', () => {
     });
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.agentCredential.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        role: 'editor', scopes: scopesForAgentAccessRole('editor'),
-      }),
-    }));
     expect(prisma.agentGrant.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      create: expect.objectContaining({
-        role: 'editor', scopes: scopesForAgentAccessRole('editor'),
-      }),
-      update: { role: 'editor', scopes: scopesForAgentAccessRole('editor') },
+      create: expect.objectContaining({ role: 'editor' }),
+      update: { role: 'editor' },
     }));
+    const credentialWrite = prisma.agentCredential.upsert.mock.calls[0][0];
+    expect(credentialWrite.create).toEqual(expect.objectContaining({ authorizationId: 'grant-1' }));
+    expect(credentialWrite.create).not.toHaveProperty('role');
+    expect(credentialWrite.create).not.toHaveProperty('scopes');
     expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: 'connection.authorize' }),
     }));
-    expect(result).toEqual(expect.objectContaining({ grantId: 'grant-1' }));
+    expect(result).toEqual(expect.objectContaining({
+      grantId: 'grant-1', role: 'editor', scopes: scopesForAgentAccessRole('editor'),
+    }));
   });
 
   it('binds receipt validation to the original Grant identity', async () => {
-    const scopes = scopesForAgentAccessRole('editor');
-    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', scopes });
+    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', authorizationId: 'grant-original' });
     prisma.agentGrant.findFirst.mockResolvedValue(null);
 
     await expect(service.assertConnectionReceipt({
@@ -79,10 +133,10 @@ describe('AgentService grant scope validation', () => {
         spaceId: 'space-1',
         role: 'editor',
       },
-      select: { id: true, scopes: true, space: { select: { deletedAt: true } } },
+      select: { id: true, role: true, space: { select: { deletedAt: true } } },
     });
 
-    prisma.agentGrant.findFirst.mockResolvedValue({ id: 'grant-recreated', scopes });
+    prisma.agentGrant.findFirst.mockResolvedValue({ id: 'grant-recreated', role: 'editor', space: { deletedAt: null } });
     await expect(service.assertConnectionReceipt({
       ownerId: 'owner-1',
       agentId: 'agent-1',
@@ -94,11 +148,10 @@ describe('AgentService grant scope validation', () => {
   });
 
   it('rejects a connection receipt after its Space is deleted', async () => {
-    const scopes = scopesForAgentAccessRole('editor');
-    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', scopes });
+    prisma.agentCredential.findFirst.mockResolvedValue({ id: 'credential-1', authorizationId: 'grant-1' });
     prisma.agentGrant.findFirst.mockResolvedValue({
       id: 'grant-1',
-      scopes,
+      role: 'editor',
       space: { deletedAt: new Date('2030-01-01T00:00:00.000Z') },
     });
 
@@ -131,10 +184,10 @@ describe('AgentService grant scope validation', () => {
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
     prisma.agentGrant.findUnique.mockResolvedValue(null);
     prisma.agentCredential.upsert.mockImplementation(async ({ create }: any) => ({
-      id: 'credential-1', agentId: create.agentId, role: create.role,
-      keyHash: create.keyHash, scopes: create.scopes, revokedAt: null,
+      id: 'credential-1', agentId: create.agentId, authorizationId: create.authorizationId,
+      keyHash: create.keyHash, revokedAt: null,
     }));
-    prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1' });
+    prisma.agentGrant.upsert.mockImplementation(async ({ create }: any) => ({ id: 'grant-1', role: create.role }));
     prisma.agentAuditEvent.create.mockResolvedValue({});
     prisma.agent.update.mockResolvedValue({});
 
@@ -168,9 +221,8 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agentGrant.upsert).toHaveBeenCalledWith(expect.objectContaining({
       create: expect.objectContaining({
         role: 'publisher',
-        scopes: scopesForAgentAccessRole('publisher'),
       }),
-      update: { role: 'publisher', scopes: scopesForAgentAccessRole('publisher') },
+      update: { role: 'publisher' },
     }));
     expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({

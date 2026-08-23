@@ -22,8 +22,8 @@ export const DocsOverview: React.FC = () => {
         </p>
         <p className="text-gray-600 leading-relaxed mb-8">
           {zh
-            ? '与传统的「给 Agent 一个 API Key」不同，AgentWiki 提供完整的权限隔离、审核与审计追踪。所有 Agent 写入都会记录在可审计的变更集（ChangeSet）中。Reader 不可写；Editor 写入进入待审核，由具备审批权的人类决定；仅当 Publisher 凭据、Publisher Space 授权与 Space 发布策略同时允许时，Publisher 写入才可自动发布，否则同样进入待审核。Agent 永远不能执行人工审批或成员管理。'
-            : 'Unlike simply giving an Agent an API key, AgentWiki provides permission isolation, review, and audit trails. All Agent writes are recorded in auditable ChangeSets. Reader cannot write; Editor writes enter pending review and are decided by authorized humans. Publisher writes can auto-publish only when the Publisher Credential, Publisher Space Grant, and Space publishing policy all permit it; otherwise they enter pending review. Agents can never perform human approval or member management.'}
+            ? '与传统的「给 Agent 一个 API Key」不同，AgentWiki 提供完整的权限隔离、审核与审计追踪。所有 Agent 写入都会记录在可审计的变更集（ChangeSet）中。Reader 不可写；Editor 写入进入待审核，由具备审批权的人类决定；仅当 Publisher Space 授权与 Space 发布策略同时允许时，Publisher 写入才可自动发布，否则同样进入待审核。Agent 永远不能执行人工审批或成员管理。'
+            : 'Unlike simply giving an Agent an API key, AgentWiki provides permission isolation, review, and audit trails. All Agent writes are recorded in auditable ChangeSets. Reader cannot write; Editor writes enter pending review and are decided by authorized humans. Publisher writes can auto-publish only when the Publisher Space Grant and Space publishing policy both permit it; otherwise they enter pending review. Agents can never perform human approval or member management.'}
         </p>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-4">{zh ? '\u89e3\u51b3\u4ec0\u4e48\u95ee\u9898' : 'The Problem It Solves'}</h2>

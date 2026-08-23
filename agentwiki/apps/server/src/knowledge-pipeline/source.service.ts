@@ -18,7 +18,7 @@ import { Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
-import { agentRoleAllowsScope, agentRoleSpaceCapability } from '@neomei/agentwiki-sync-protocol';
+import { agentRoleAllowsScope, agentRoleSpaceCapability, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
@@ -964,21 +964,16 @@ export class SourceService {
                 revokedAt: null,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
               },
-              select: { role: true, scopes: true },
+              select: { authorizationId: true },
             })
           : Promise.resolve(null),
       ]);
       if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
         grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
-        !agentRoleAllowsScope(credential.role, 'runs:write') || !credential.scopes.includes('runs:write') ||
-        (grant.scopes.length > 0 && !grant.scopes.includes('runs:write'))) {
+        credential.authorizationId !== grant.id || !agentRoleAllowsScope(grant.role, 'runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
-      const roleAllowedScopes = credential.scopes.filter((scope) =>
-        agentRoleAllowsScope(credential.role, scope) && agentRoleAllowsScope(grant.role, scope));
-      return grant.scopes.length > 0
-        ? roleAllowedScopes.filter((scope) => grant.scopes.includes(scope))
-        : roleAllowedScopes;
+      return scopesForAgentAccessRole(grant.role);
     }
     const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
       where: { id: run.requestedByUserId },

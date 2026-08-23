@@ -20,7 +20,16 @@ export interface AccessResult {
     name: string;
     status: string;
     grants: Array<{ role: AgentAccessRole; space: { id: string; name: string } }>;
-    credentials: Array<{ id: string; role: AgentAccessRole; scopes: string[]; active: boolean }>;
+    credentials: Array<{
+      id: string;
+      authorization: {
+        id: string;
+        role: AgentAccessRole;
+        scopes: string[];
+        space: { id: string; name: string };
+      };
+      active: boolean;
+    }>;
   }>;
 }
 

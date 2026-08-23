@@ -841,7 +841,9 @@ export class ReviewService {
         JOIN "Agent" AS a ON a."id" = c."agentId"
         JOIN "User" AS u ON u."id" = a."ownerId"
         JOIN "AgentGrant" AS g
-          ON g."agentId" = a."id" AND g."spaceId" = ${spaceId}
+          ON g."id" = c."authorizationId"
+          AND g."agentId" = a."id"
+          AND g."spaceId" = ${spaceId}
         JOIN "Space" AS s ON s."id" = g."spaceId"
         WHERE c."id" = ${context.credentialId}
           AND c."agentId" = ${context.agentId}
@@ -854,7 +856,7 @@ export class ReviewService {
     const [credential, agent, grant, space] = await Promise.all([
       db.agentCredential.findFirst({
         where: { id: context.credentialId, agentId: context.agentId },
-        select: { role: true, scopes: true, revokedAt: true, expiresAt: true },
+        select: { authorizationId: true, revokedAt: true, expiresAt: true },
       }),
       db.agent.findUnique({
         where: { id: context.agentId },
@@ -868,7 +870,7 @@ export class ReviewService {
       }),
       db.agentGrant.findUnique({
         where: { agentId_spaceId: { agentId: context.agentId, spaceId } },
-        select: { role: true, scopes: true },
+        select: { id: true, role: true },
       }),
       db.space.findUnique({
         where: { id: spaceId },
@@ -888,15 +890,11 @@ export class ReviewService {
       !agent.owner.lockedAt &&
       (!requiredScopes.includes('memory:write') || agent.memoryEnabled) &&
       !!grant &&
+      credential.authorizationId === grant.id &&
       !!space &&
       !space.deletedAt &&
       space.approvalPolicy === 'scoped-auto-publish' &&
-      gatedScopes.every((scope) =>
-        agentRoleAllowsScope(credential.role, scope) &&
-        credential.scopes.includes(scope) &&
-        agentRoleAllowsScope(grant.role, scope) &&
-        (grant.scopes.length === 0 || grant.scopes.includes(scope)),
-      );
+      gatedScopes.every((scope) => agentRoleAllowsScope(grant.role, scope));
   }
 
   private async createKnowledgeRevision(

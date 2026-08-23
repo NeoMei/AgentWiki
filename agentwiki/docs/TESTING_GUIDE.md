@@ -19,7 +19,7 @@
 **角色体系：**
 - 平台角色（全局）：`super_admin`（超管）、`user`（普通用户）
 - Space 角色：Owner → Admin → Editor → Viewer（权限递减）
-- Agent 是独立实体，通过 Credential（agk_...）+ Space Grant 接入；Agent 角色仅为 Reader → Editor → Publisher
+- Agent 是独立实体；Credential（agk_...）只标识并绑定一条 Space Grant，唯一权限角色为 Reader → Editor → Publisher
 
 ---
 
@@ -48,13 +48,13 @@
 | 2.3 | 查看 Space | `GET /spaces/:id` | 返回 Space 详情含角色；无权→403/404 |
 | 2.4 | 编辑 Space | `PATCH /spaces/:id` | Owner/Admin 可编辑名称、审批策略等 |
 | 2.5 | 删除 Space | `DELETE /spaces/:id` | 仅 Owner 可删除 |
-| 2.6 | 成员列表 | `GET /spaces/:id/members` | 列出人类用户+Agent 成员，含角色和权限范围 |
+| 2.6 | 成员列表 | `GET /spaces/:id/members` | 列出人类用户+Agent 授权，Agent scopes 由当前角色派生 |
 | 2.7 | 添加成员 | `POST /spaces/:id/members` | 按邮箱添加人类用户；支持 Viewer/Editor 预设 |
-| 2.8 | 添加 Agent 成员 | `PUT /agents/:id/grants/:spaceId` | 选择自己拥有的 active Agent；仅接受 `reader/editor/publisher` 角色，scopes 由服务端派生；无权 Agent→404 |
+| 2.8 | 添加 Agent 授权 | `PUT /agents/:id/grants/:spaceId` | 选择自己拥有的 active Agent；仅接受 `reader/editor/publisher` 角色；Grant 是唯一权限事实，scopes 不持久化；无权 Agent→404 |
 | 2.9 | 编辑成员角色 | `PATCH /spaces/:id/members/:userId` | Admin 可升降成员角色 |
 | 2.10 | 移除成员 | `DELETE /spaces/:id/members/:userId` | Admin 可移除成员（Owner 除外） |
 | 2.11 | Owner 转移 | `PATCH /spaces/:id/members/:userId` | 仅 Owner 可转移；操作者降为 Admin；原子操作 |
-| 2.12 | 审批策略 | — | `always-review`（默认）/ `scoped-auto-publish`（Agent+Space+Grant 三方许可时免审） |
+| 2.12 | 审批策略 | — | `always-review`（默认）/ `scoped-auto-publish`（Publisher Grant、Agent 开关与 Space 策略许可时免审） |
 
 **前端路由：** `/spaces/:id`（Space 视图）、`/spaces/:id/members`（成员管理）、`/spaces/:id/settings`（设置）
 

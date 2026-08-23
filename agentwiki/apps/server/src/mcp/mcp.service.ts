@@ -102,7 +102,7 @@ export class McpService {
       return this.text(await this.knowledge.getGraph(spaceId));
     });
     registerTool('propose_page', {
-      description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the Credential and Space Grant are publisher and both Agent mode and Space policy allow it.',
+      description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID), title: z.string().min(1), content: z.string() },
     }, async ({ spaceId, title, content }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'pages:write');

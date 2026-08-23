@@ -1,6 +1,6 @@
 # Agent Unified Access Roles Implementation Plan
 
-> **2026-08-23 correction:** The manual Credential creation and Agent-detail Grant editor described in this historical plan are superseded by `2026-08-23-unified-agent-access-single-entry-fix-plan.md`. The supported product model has one editable `Space + role` connection flow; credentials are generated internally during exchange, while existing Grant/Credential records are read-only diagnostics with revoke actions.
+> **2026-08-23 correction:** This historical plan is superseded by `2026-08-23-agent-authorization-single-source-plan.md`. Any step involving Credential role/scopes, Grant scopes, or their permission intersection is not a current implementation instruction. A Credential is identity-only and binds one AgentGrant; `AgentGrant.role` is the sole persisted permission fact.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

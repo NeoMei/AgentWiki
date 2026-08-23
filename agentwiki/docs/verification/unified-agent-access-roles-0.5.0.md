@@ -12,7 +12,7 @@ connection change, or real OpenCode acceptance was performed.
 - Application/local-sync/onboarding version: `0.5.0`
 - Shared sync-protocol package version: `0.2.0`
 - Agent roles: exactly `reader | editor | publisher`
-- Local candidate branch: `master`
+- Local candidate branch: `codex/agent-authorization-single-source`
 
 ## Build and full repository tests
 
@@ -26,9 +26,9 @@ Result: exit 0. All workspace packages built, then the root test chain passed:
 
 | Suite | Result |
 | --- | --- |
-| Runtime contracts | 85 passed, 0 failed, 47 skipped |
-| Server Jest | 64 suites, 761 tests passed |
-| Client Vitest | 45 files, 221 tests passed |
+| Runtime contracts | 87 passed, 0 failed, 47 skipped |
+| Server Jest | 64 suites, 751 tests passed |
+| Client Vitest | 45 files, 223 tests passed |
 | Sync protocol Vitest | 6 files, 25 tests passed |
 | Local Sync Vitest | 59 files, 736 tests passed |
 
@@ -55,13 +55,24 @@ reported `prisma/schema.prisma` valid. A preceding `prisma validate` without the
 placeholder URL exited with P1012 because this clean worktree intentionally has no
 `DATABASE_URL`; validation does not connect to the placeholder database.
 
-Migration `20260822120000_unify_agent_access_roles` was also inspected directly:
+The current migration chain, including
+`20260823090000_bind_agent_credentials_to_grants`, was applied to a fresh PostgreSQL
+database and inspected directly:
 
 - it creates only `reader`, `editor`, and `publisher`;
-- `AgentCredential.role` is added `NOT NULL DEFAULT 'reader'`;
-- every legacy `AgentGrant.role` is converted through the constant expression
-  `USING ('reader'::"AgentAccessRole")`;
-- the migration contains no `CASE`, `WHEN`, or scopes-based inference.
+- `AgentCredential` has `authorizationId` but no `role` or `scopes` columns;
+- `AgentGrant` has `role` but no `scopes` column;
+- a composite foreign key enforces `(authorizationId, agentId) -> AgentGrant(id, agentId)`;
+- existing Agent Credentials are deliberately deleted because legacy data compatibility
+  is outside this breaking release.
+
+After the final diagnostic-boundary change, the full 40-migration chain and real
+Streamable HTTP MCP smoke were repeated on another fresh PostgreSQL database. The smoke
+returned `{"status":"passed","checks":31}` and covered live role downgrade/restore,
+Editor proposal to `pending_review`, Agent approval denial, human review-publish, and the
+derived connection diagnostic query including the Credential-filtered recent MCP call.
+The temporary database was then dropped and its
+absence verified.
 
 ## Three-client onboarding
 
@@ -90,12 +101,9 @@ pnpm test:package:local-sync-clean-install
 ```
 
 The pack lifecycles rebuilt both packages and passed sync-protocol 6 files / 25 tests and
-Local Sync 59 files / 736 tests. Audited artifacts:
-
-- sync-protocol: `neomei-agentwiki-sync-protocol-0.2.0.tgz`, 48 entries, 27343
-  bytes, SHA-256 `796f9e682b6ee75b9452fff8a49f83f04f57bc747a15fe659ee3674ada101ef8`
-- local-sync: `neomei-agentwiki-local-sync-0.5.0.tgz`, 151 entries, 148007 bytes,
-  SHA-256 `8e6543080a80d4233bf8ac5d5cb6287bca4909183654585f32e474498f0d6926`
+Local Sync 59 files / 736 tests. The clean-install verifier then packed both current
+workspace candidates, installed them into a new temporary directory, and completed with
+`{"status":"passed","localSyncVersion":"0.5.0","syncProtocolVersion":"0.2.0"}`.
 
 The local-sync tarball metadata pins `@neomei/agentwiki-sync-protocol` to `0.2.0`. The
 clean-install gate installed both generated tarballs into a new temporary directory and
@@ -125,8 +133,8 @@ fixtures:
 - `GET /spaces/:id/members` returns `canManageRole` per Agent grant. It is true only for
   a Space owner/admin who also owns that Agent; another user's Agent is rendered read-only,
   and grant removal uses the same dual authorization gate.
-- Agent auto-publish revalidates the live Credential, Agent/owner, Grant, Space policy,
-  canonical role ceilings, stored scopes, and item-domain scopes after acquiring row
+- Agent auto-publish revalidates the live Credential binding, Agent/owner, Grant, Space policy,
+  canonical role ceilings, derived scopes, and item-domain scopes after acquiring row
   locks in the publication transaction. Sixteen revoke, expiry, deactivation, deletion,
   role/scope, switch, policy, and domain-gate races fall back to `pending_review` without
   writing a page. MCP and background ingestion pass the same Agent/Credential identity
@@ -150,9 +158,18 @@ additional issues before convergence:
   IDs, role, scopes, and package version.
 - The UI discards generated instructions when Space/role changes and repairs a stale Space
   selection before issuing a request.
-- Manual Credential creation and Grant upsert/removal revalidate live Agent ownership,
-  owner state, Space administration, and platform-admin override inside their database
-  transactions; Grant mutation and its audit record commit together.
+- Grant upsert/removal revalidates live Agent ownership, owner state, Space administration,
+  and platform-admin override inside its database transaction; Grant mutation and its
+  audit record commit together. Manual Agent Credential creation does not exist.
+- A connection bound to one Space no longer receives MCP diagnostic grants, Credentials,
+  or recent-call audit records from another Space; the latter is filtered by the current
+  Credential identity.
+- The unified role selector now initializes from the selected Space's existing Grant and
+  does not silently propose a downgrade to Reader or overwrite an in-progress role choice
+  during an equivalent parent rerender.
+- The disk-backed Local Sync lock tests now wait for actual critical-section entry and use
+  an explicit 20-second I/O test budget, eliminating false failures under clean-install load
+  without weakening the production lock timeout.
 
 The final no-find pass re-read the active DTO, controller, authorization, exchange,
 onboarding, installation, and UI paths and found no further defect worth changing. Fresh
@@ -166,9 +183,10 @@ connection, and Credential controls. The correction now enforces one product aut
 surface:
 
 - Agent detail contains exactly one editable `Space + role` selector in the connection card;
-- connection exchange atomically creates the matching Credential and Space Grant;
-- existing Space authorizations and connection credentials are read-only records with
-  remove/revoke actions;
+- connection exchange atomically creates/updates the Space Grant and binds an identity-only Credential;
+- existing Space authorizations and connection records are read-only diagnostics with
+  remove/revoke actions; Credential diagnostics nest the live bound authorization instead
+  of exposing a second flat role/scopes model;
 - the server no longer exposes `POST /agents/:id/credentials` or its DTO/service path;
 - smoke and cross-machine E2E fixtures obtain credentials only through connection exchange;
 - user and security documentation no longer describes a separate API-key authorization path.

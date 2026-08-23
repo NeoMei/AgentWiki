@@ -5,20 +5,19 @@ import { McpService } from './mcp.service';
 
 describe('MCP Agent access roles', () => {
   const grant: {
+    id: string;
     role: AgentAccessRole;
-    scopes: string[];
     agent: { status: string; revokedAt: null };
     space: { id: string; name: string; deletedAt: null };
   } = {
+    id: 'grant-1',
     role: 'reader',
-    scopes: scopesForAgentAccessRole('reader'),
     agent: { status: 'active', revokedAt: null },
     space: { id: 'space-1', name: 'NeoMei-Space', deletedAt: null },
   };
   let spaceApprovalPolicy = 'scoped-auto-publish';
   let agentApprovalMode = 'scoped-auto-publish';
-  let credentialRole: AgentAccessRole = 'reader';
-  let credentialScopes: string[] = scopesForAgentAccessRole('reader');
+  let credentialAuthorizationId = 'grant-1';
   const prisma = {
     space: { findUnique: jest.fn() },
     agent: { findUnique: jest.fn() },
@@ -46,8 +45,7 @@ describe('MCP Agent access roles', () => {
     jest.clearAllMocks();
     spaceApprovalPolicy = 'scoped-auto-publish';
     agentApprovalMode = 'scoped-auto-publish';
-    credentialRole = 'reader';
-    credentialScopes = scopesForAgentAccessRole('reader');
+    credentialAuthorizationId = 'grant-1';
     prisma.space.findUnique.mockImplementation(async ({ select }: any) =>
       select?.approvalPolicy
         ? { approvalPolicy: spaceApprovalPolicy, deletedAt: null }
@@ -57,7 +55,7 @@ describe('MCP Agent access roles', () => {
       owner: { deletedAt: null, lockedAt: null },
     }));
     prisma.agentCredential.findFirst.mockImplementation(async () => ({
-      role: credentialRole, scopes: credentialScopes, revokedAt: null, expiresAt: null,
+      authorizationId: credentialAuthorizationId, revokedAt: null, expiresAt: null,
     }));
     prisma.agentGrant.findUnique.mockImplementation(async () => grant);
     prisma.agentGrant.findMany.mockImplementation(async () => [{
@@ -78,8 +76,6 @@ describe('MCP Agent access roles', () => {
     description?: string;
     handler: (args: any) => Promise<any>;
   }> {
-    credentialRole = principal.agentRole ?? 'reader';
-    credentialScopes = principal.scopes ?? [];
     const service = new (McpService as any)(
       { get: jest.fn() },
       authorization,
@@ -107,11 +103,14 @@ describe('MCP Agent access roles', () => {
       userId: 'owner-1',
       agentId: 'agent-1',
       credentialId: `credential-${role}`,
-      agentRole: role,
-      scopes: scopesForAgentAccessRole(role),
+      authorizationId: 'grant-1',
+      authorizationSpaceId: 'space-1',
+      // These metadata fields are deliberately stale for Editor. Authorization
+      // must use the live bound Grant, never a Credential-owned ceiling.
+      agentRole: role === 'editor' ? 'reader' : role,
+      scopes: scopesForAgentAccessRole(role === 'editor' ? 'reader' : role),
     };
     grant.role = role;
-    grant.scopes = scopesForAgentAccessRole(role);
     const tools = createTools(principal);
 
     await expect(tools.list_spaces.handler({})).resolves.toBeDefined();
@@ -163,52 +162,25 @@ describe('MCP Agent access roles', () => {
   });
 
   it.each([
-    ['Credential role', () => ({
-      credentialRole: 'editor' as const,
-      credentialScopes: scopesForAgentAccessRole('publisher'),
-    })],
-    ['Credential scope', () => ({
-      credentialRole: 'publisher' as const,
-      credentialScopes: scopesForAgentAccessRole('publisher')
-        .filter((scope) => scope !== 'review:auto-publish'),
-    })],
+    ['Credential authorization binding', () => {
+      credentialAuthorizationId = 'grant-other';
+    }],
     ['Grant role', () => {
       grant.role = 'editor';
-      grant.scopes = scopesForAgentAccessRole('publisher');
-      return {
-        credentialRole: 'publisher' as const,
-        credentialScopes: scopesForAgentAccessRole('publisher'),
-      };
-    }],
-    ['Grant scope', () => {
-      grant.scopes = scopesForAgentAccessRole('publisher')
-        .filter((scope) => scope !== 'review:auto-publish');
-      return {
-        credentialRole: 'publisher' as const,
-        credentialScopes: scopesForAgentAccessRole('publisher'),
-      };
     }],
     ['Agent approval mode', () => {
       agentApprovalMode = 'always-review';
-      return {
-        credentialRole: 'publisher' as const,
-        credentialScopes: scopesForAgentAccessRole('publisher'),
-      };
     }],
     ['Space policy', () => {
       spaceApprovalPolicy = 'always-review';
-      return {
-        credentialRole: 'publisher' as const,
-        credentialScopes: scopesForAgentAccessRole('publisher'),
-      };
     }],
   ] as const)('keeps the MCP proposal pending when the %s gate is missing', async (_gate, arrange) => {
     grant.role = 'publisher';
-    grant.scopes = scopesForAgentAccessRole('publisher');
-    const { credentialRole, credentialScopes } = arrange();
+    arrange();
     const principal: Principal = {
       userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
-      agentRole: credentialRole, scopes: credentialScopes,
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
     };
     const tools = createTools(principal);
 
@@ -230,6 +202,8 @@ describe('MCP Agent access roles', () => {
       userId: 'owner-1',
       agentId: 'agent-1',
       credentialId: 'credential-publisher',
+      authorizationId: 'grant-1',
+      authorizationSpaceId: 'space-1',
       agentRole: 'publisher',
       scopes: scopesForAgentAccessRole('publisher'),
     });
@@ -250,12 +224,16 @@ describe('MCP Agent access roles', () => {
       userId: 'owner-1',
       agentId: 'agent-1',
       credentialId: 'credential-publisher',
+      authorizationId: 'grant-1',
+      authorizationSpaceId: 'space-1',
       agentRole: 'publisher',
       scopes: scopesForAgentAccessRole('publisher'),
     });
 
     expect(tools.propose_page.description).toContain('Publisher');
     expect(tools.propose_page.description).toContain('Space policy');
+    expect(tools.propose_page.description).toContain('bound Space Grant');
+    expect(tools.propose_page.description).not.toContain('Credential and Space Grant');
     expect(tools.propose_page.description).not.toContain('never bypasses review');
   });
 });

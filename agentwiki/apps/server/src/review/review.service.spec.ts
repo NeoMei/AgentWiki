@@ -1298,12 +1298,12 @@ describe('one-shot review-publish and agent auto-publish', () => {
       : {
         status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
         owner: { deletedAt: null, lockedAt: null },
-      });
+    });
     prisma.agentCredential.findFirst.mockResolvedValue({
-      role: 'publisher', scopes: scopesForAgentAccessRole('publisher'), revokedAt: null, expiresAt: null,
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
     });
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+      id: 'grant-1', role: 'publisher',
     });
     prisma.$queryRaw.mockResolvedValue([{ id: 'credential-1' }]);
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-auto', status: 'approved' });
@@ -1332,9 +1332,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it.each([
     ['Credential revoked', (state: any) => { state.credential.revokedAt = new Date(); }],
     ['Credential expired', (state: any) => { state.credential.expiresAt = new Date(Date.now() - 1_000); }],
-    ['Credential role downgraded', (state: any) => { state.credential.role = 'editor'; }],
-    ['Credential auto-publish scope removed', (state: any) => { state.credential.scopes = ['pages:write']; }],
-    ['Credential domain scope removed', (state: any) => { state.credential.scopes = ['review:auto-publish']; }],
+    ['Credential rebound to another authorization', (state: any) => { state.credential.authorizationId = 'grant-other'; }],
     ['Agent paused', (state: any) => { state.agent.status = 'paused'; }],
     ['Agent revoked', (state: any) => { state.agent.revokedAt = new Date(); }],
     ['Agent auto-publish disabled', (state: any) => { state.agent.approvalMode = 'always-review'; }],
@@ -1342,21 +1340,19 @@ describe('one-shot review-publish and agent auto-publish', () => {
     ['Agent owner deleted', (state: any) => { state.agent.owner.deletedAt = new Date(); }],
     ['Grant removed', (state: any) => { state.grant = null; }],
     ['Grant role downgraded', (state: any) => { state.grant.role = 'editor'; }],
-    ['Grant auto-publish scope removed', (state: any) => { state.grant.scopes = ['pages:write']; }],
-    ['Grant domain scope removed', (state: any) => { state.grant.scopes = ['review:auto-publish']; }],
     ['Space deleted', (state: any) => { state.space.deletedAt = new Date(); }],
     ['Space policy downgraded', (state: any) => { state.space.approvalPolicy = 'always-review'; }],
   ])('revalidates %s inside the final publish transaction and falls back to pending review', async (_gate, mutate) => {
     const state: any = {
       credential: {
-        id: 'credential-1', agentId: 'agent-1', role: 'publisher',
-        scopes: scopesForAgentAccessRole('publisher'), expiresAt: null, revokedAt: null,
+        id: 'credential-1', agentId: 'agent-1', authorizationId: 'grant-1',
+        expiresAt: null, revokedAt: null,
       },
       agent: {
         id: 'agent-1', status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
         owner: { id: 'owner-1', lockedAt: null, deletedAt: null },
       },
-      grant: { role: 'publisher', scopes: scopesForAgentAccessRole('publisher') },
+      grant: { id: 'grant-1', role: 'publisher' },
       space: { approvalPolicy: 'scoped-auto-publish', deletedAt: null },
       changeSetStatus: 'approved',
       itemStatus: 'accepted',
@@ -1422,25 +1418,18 @@ describe('one-shot review-publish and agent auto-publish', () => {
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ['editor', 'editor'],
-    ['editor', 'publisher'],
-    ['publisher', 'editor'],
-  ] as const)(
-    'propose stays pending_review when credential role is %s and grant role is %s despite stale auto-publish scopes',
-    async (credentialRole, grantRole) => {
+  it.each(['reader', 'editor'] as const)(
+    'propose stays pending_review when the sole Grant role is %s despite stale Publisher principal metadata',
+    async (grantRole) => {
       prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
       prisma.agent.findUnique.mockResolvedValue({
         status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
         owner: { deletedAt: null, lockedAt: null },
       });
       prisma.agentCredential.findFirst.mockResolvedValue({
-        role: credentialRole, scopes: ['pages:write', 'review:auto-publish'], revokedAt: null, expiresAt: null,
+        authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
       });
-      prisma.agentGrant.findUnique.mockResolvedValue({
-        role: grantRole,
-        scopes: ['pages:write', 'review:auto-publish'],
-      });
+      prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: grantRole });
       prisma.changeSet.create.mockResolvedValue({ id: 'cs-role-ceiling', status: 'pending_review', items: [] });
 
       const result = await service.propose(
@@ -1448,8 +1437,8 @@ describe('one-shot review-publish and agent auto-publish', () => {
           userId: 'owner-1',
           agentId: 'agent-1',
           credentialId: 'credential-1',
-          agentRole: credentialRole,
-          scopes: ['pages:write', 'review:auto-publish'],
+          agentRole: 'publisher',
+          scopes: scopesForAgentAccessRole('publisher'),
         },
         'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
       );
@@ -1461,29 +1450,6 @@ describe('one-shot review-publish and agent auto-publish', () => {
     },
   );
 
-  it('propose stays pending_review when the space grant excludes auto-publish', async () => {
-    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
-    prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
-      owner: { deletedAt: null, lockedAt: null },
-    });
-    prisma.agentCredential.findFirst.mockResolvedValue({
-      role: 'publisher', scopes: ['pages:write', 'review:auto-publish'], revokedAt: null, expiresAt: null,
-    });
-    prisma.agentGrant.findUnique.mockResolvedValue({ role: 'publisher', scopes: ['pages:read', 'pages:write'] });
-    prisma.changeSet.create.mockResolvedValue({ id: 'cs-p', status: 'pending_review', items: [] });
-
-    const result = await service.propose(
-      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'publisher', scopes: ['pages:write', 'review:auto-publish'] },
-      'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
-    );
-
-    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'pending_review' }),
-    }));
-    expect(result.autoPublished).toBeFalsy();
-  });
-
   it('propose stays pending_review when auto-publish conditions are not met', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
@@ -1491,8 +1457,9 @@ describe('one-shot review-publish and agent auto-publish', () => {
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
-      role: 'publisher', scopes: ['pages:write', 'review:auto-publish'], revokedAt: null, expiresAt: null,
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
     });
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'publisher' });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-p', status: 'pending_review', items: [] });
     const result = await service.propose(
       { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'publisher', scopes: ['review:auto-publish'] },
@@ -1505,22 +1472,8 @@ describe('one-shot review-publish and agent auto-publish', () => {
   });
 
   it.each([
-    ['credential scope', {
-      spacePolicy: 'scoped-auto-publish', agentMode: 'scoped-auto-publish',
-      credentialScopes: ['pages:write'], grantScopes: [],
-    }],
-    ['Agent approval mode', {
-      spacePolicy: 'scoped-auto-publish', agentMode: 'always-review',
-      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: [],
-    }],
-    ['Space policy', {
-      spacePolicy: 'always-review', agentMode: 'scoped-auto-publish',
-      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: [],
-    }],
-    ['Grant scope', {
-      spacePolicy: 'scoped-auto-publish', agentMode: 'scoped-auto-publish',
-      credentialScopes: ['pages:write', 'review:auto-publish'], grantScopes: ['pages:write'],
-    }],
+    ['Agent approval mode', { spacePolicy: 'scoped-auto-publish', agentMode: 'always-review' }],
+    ['Space policy', { spacePolicy: 'always-review', agentMode: 'scoped-auto-publish' }],
   ])('keeps publisher proposals pending when the %s gate is missing', async (_gate, values) => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: values.spacePolicy, deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
@@ -1528,15 +1481,15 @@ describe('one-shot review-publish and agent auto-publish', () => {
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
-      role: 'publisher', scopes: values.credentialScopes, revokedAt: null, expiresAt: null,
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
     });
-    prisma.agentGrant.findUnique.mockResolvedValue({ role: 'publisher', scopes: values.grantScopes });
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'publisher' });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-gated', status: 'pending_review', items: [] });
 
     const result = await service.propose(
       {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'publisher',
-        scopes: values.credentialScopes,
+        scopes: scopesForAgentAccessRole('publisher'),
       },
       'space-1', 'Manual', { type: 'create_page', payload: { title: 'A' } },
     );

@@ -1,16 +1,40 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { assertE2ETarget, cleanupFixture } from './e2e-safety.mjs';
 
 const PREFIX = 'AGENTWIKI_SMOKE_E2E';
+const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
+const { Client } = requireFromServer('@modelcontextprotocol/sdk/client/index.js');
+const { StreamableHTTPClientTransport } = requireFromServer('@modelcontextprotocol/sdk/client/streamableHttp.js');
 
-async function request(apiUrl, path, { method = 'GET', token, body, expected } = {}) {
+async function proposePageThroughMcp(apiUrl, apiKey, spaceId) {
+  const client = new Client({ name: 'agentwiki-smoke', version: '1.0.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(`${apiUrl}/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${apiKey}` } },
+  });
+  await client.connect(transport);
+  try {
+    const result = await client.callTool({
+      name: 'propose_page',
+      arguments: { spaceId, title: 'Agent editor proposal', content: 'Pending review.' },
+    });
+    const text = result.content?.find((item) => item.type === 'text')?.text;
+    assert.equal(typeof text, 'string');
+    return JSON.parse(text);
+  } finally {
+    await client.close();
+  }
+}
+
+async function request(apiUrl, path, { method = 'GET', token, apiKey, body, expected } = {}) {
   const response = await fetch(`${apiUrl}${path}`, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -98,13 +122,63 @@ export async function runSmoke(environment = process.env) {
     assert.equal(credential.data.role, 'editor');
     assert.equal(credential.data.spaceId, space.data.id);
 
+    const connectionAccess = await request(apiUrl, '/integrations/mcp', {
+      apiKey: credential.data.apiKey,
+    });
+    assert.equal(connectionAccess.data.access.length, 1);
+    assert.deepEqual(connectionAccess.data.access[0].grants.map((grant) => grant.space.id), [space.data.id]);
+    const connectionRecord = connectionAccess.data.access[0].credentials.find(
+      (candidate) => candidate.id === credential.data.credentialId,
+    );
+    assert.equal(connectionRecord.authorization.space.id, space.data.id);
+    assert.equal(connectionRecord.authorization.role, 'editor');
+    assert.equal('role' in connectionRecord, false);
+    assert.equal('scopes' in connectionRecord, false);
+
+    await request(apiUrl, `/agents/${agent.data.id}/grants/${space.data.id}`, {
+      method: 'PUT', token, body: { role: 'reader' },
+    });
+    const downgradedAccess = await request(apiUrl, '/integrations/mcp', {
+      apiKey: credential.data.apiKey,
+    });
+    assert.equal(downgradedAccess.data.access[0].credentials[0].authorization.role, 'reader');
+    await request(apiUrl, '/pages', {
+      method: 'POST', apiKey: credential.data.apiKey,
+      body: { spaceId: space.data.id, title: 'Must be denied', content: 'Reader cannot write.' },
+      expected: [403],
+    });
+    await request(apiUrl, `/agents/${agent.data.id}/grants/${space.data.id}`, {
+      method: 'PUT', token, body: { role: 'editor' },
+    });
+
+    const proposal = await proposePageThroughMcp(
+      apiUrl, credential.data.apiKey, space.data.id,
+    );
+    assert.equal(proposal.status, 'pending_review');
+    const postProposalAccess = await request(apiUrl, '/integrations/mcp', {
+      apiKey: credential.data.apiKey,
+    });
+    assert.ok(postProposalAccess.data.recentCalls.some(
+      (call) => call.action === 'mcp.tool.propose_page',
+    ));
+    await request(apiUrl, `/change-sets/${proposal.id}/approve`, {
+      method: 'POST', apiKey: credential.data.apiKey, body: {}, expected: [403],
+    });
+    await request(apiUrl, `/change-sets/${proposal.id}/review-publish`, {
+      method: 'POST', token, body: { comment: 'Smoke acceptance' },
+    });
+    const publishedPages = await request(apiUrl, `/pages?spaceId=${encodeURIComponent(space.data.id)}`, { token });
+    assert.ok((publishedPages.data.data ?? publishedPages.data).some(
+      (candidate) => candidate.title === 'Agent editor proposal',
+    ));
+
     await request(apiUrl, '/search?q=Smoke', { token });
     await request(apiUrl, `/knowledge/graph/${space.data.id}`, { token });
     const profile = await request(apiUrl, '/users/me', { token });
     assert.equal(profile.data.email, email);
     await request(apiUrl, '/integrations/mcp', { token });
 
-    return { status: 'passed', checks: 18 };
+    return { status: 'passed', checks: 31 };
   } finally {
     if (token) {
       await cleanupFixture(fixture, async (kind, id) => {

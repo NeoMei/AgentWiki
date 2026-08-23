@@ -259,21 +259,21 @@ export const UsageGuide: React.FC = () => {
           </h2>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
             <p className="text-gray-700 mb-6">
-              {zh ? '产品入口只选择统一角色；运行时仍由三层治理约束取交集：' : 'Product entry points select one unified role; runtime access remains the intersection of three governance layers:'}
+              {zh ? '接入时只选择一次 Space 授权角色；凭据仅标识连接，权限只来自这条 Space 授权：' : 'Choose the Space authorization role once when connecting. The credential identifies the connection; permission comes only from that Space authorization:'}
             </p>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-white rounded-lg p-5 border-2 border-blue-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Key className="text-blue-600" size={18} />
-                  <div className="font-semibold text-gray-900">{zh ? '凭据角色' : 'Credential Role'}</div>
+                  <div className="font-semibold text-gray-900">{zh ? '连接身份' : 'Connection Identity'}</div>
                 </div>
-                <div className="text-sm text-gray-600">{zh ? '全局能力上限' : 'Global capability ceiling'}</div>
-                <div className="text-xs text-gray-500 mt-2">Reader · Editor · Publisher</div>
+                <div className="text-sm text-gray-600">{zh ? '密钥、有效期与撤销状态，不保存权限' : 'Key, lifecycle, and revocation; no permission fields'}</div>
+                <div className="text-xs text-gray-500 mt-2">Credential → one authorization</div>
               </div>
               <div className="bg-white rounded-lg p-5 border-2 border-purple-200">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="text-purple-600" size={18} />
-                  <div className="font-semibold text-gray-900">{zh ? 'Space Agent 角色' : 'Space Agent Role'}</div>
+                  <div className="font-semibold text-gray-900">{zh ? 'Space 授权角色' : 'Space Authorization Role'}</div>
                 </div>
                 <div className="text-sm text-gray-600">{zh ? '每个空间的权限' : 'Per-space permissions'}</div>
                 <div className="text-xs text-gray-500 mt-2">Reader · Editor · Publisher</div>
@@ -289,7 +289,7 @@ export const UsageGuide: React.FC = () => {
             </div>
             <div className="mt-6 text-center text-sm text-gray-600">
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200">
-                <span>{zh ? '有效权限 = 凭据角色 ∩ Space Agent 角色 ∩ Space 策略' : 'Effective = Credential role ∩ Space Agent role ∩ Space policy'}</span>
+                <span>{zh ? '有效权限 = Space 授权角色 ∩ Space 策略 ∩ 领域安全规则' : 'Effective = Space authorization role ∩ Space policy ∩ domain safety rules'}</span>
               </div>
             </div>
           </div>

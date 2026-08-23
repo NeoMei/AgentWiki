@@ -71,8 +71,8 @@ describe('Agent write review boundary', () => {
       changeSet: { findUnique: jest.fn().mockResolvedValue({ id: 'change-1', spaceId: 'space-1' }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        id: 'grant-1',
         role: 'publisher',
-        scopes: scopesForAgentAccessRole('publisher'),
         agent: { status: 'active', revokedAt: null },
         space: { deletedAt: null },
       }) },
@@ -85,6 +85,7 @@ describe('Agent write review boundary', () => {
     const request = {
       user: {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
         agentRole: 'publisher',
         scopes: [...scopesForAgentAccessRole('publisher'), 'review:decide'],
       },
@@ -95,7 +96,7 @@ describe('Agent write review boundary', () => {
         .rejects.toThrow('Agents cannot approve or publish change sets');
     } else {
       await expect(invoke(controller, request)).rejects.toMatchObject({
-        businessCode: 'AUTH_SCOPE_REQUIRED',
+        businessCode: 'SPACE_ACCESS_DENIED',
       });
     }
     expect(review.decideItem).not.toHaveBeenCalled();
@@ -121,8 +122,8 @@ describe('Agent write review boundary', () => {
     const prisma = {
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
+        id: 'grant-1',
         role: 'publisher',
-        scopes: scopesForAgentAccessRole('publisher'),
         agent: { status: 'active', revokedAt: null },
         space: { deletedAt: null },
       }) },
@@ -134,6 +135,7 @@ describe('Agent write review boundary', () => {
     const request = {
       user: {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+        authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
         agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
       },
     } as any;

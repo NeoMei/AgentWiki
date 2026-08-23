@@ -30,9 +30,9 @@
 ## 安装体验
 
 - 用户只需要 AgentWiki 生成的一个接入指令和后续自然语言操作。
-- `0.5.0` 接入时一次选择 Space 和 `reader` / `editor` / `publisher`；兑换必须原子创建同角色 Credential 与 Grant，scopes 仅由服务端派生。
+- `0.5.0` 接入时一次选择 Space 和 `reader` / `editor` / `publisher`；兑换必须原子创建/更新 Grant 并把身份型 Credential 绑定到该 Grant，只有 Grant 存 role，scopes 实时派生。
 - 本地 Agent 只安装一个名为 `agentwiki` 的 stdio MCP gateway；它统一提供 `wiki_*`、`local_*`、`knowledge_*`，远程 `/api/mcp` 只作为 gateway 内部桥接目标。
-- 普通 Agent Credential 只用于 API、脚本或外部系统，不生成第二个 MCP 指令。已有 Agent 使用精确版本 `onboard --code` 接入；全局新 Agent 使用 Device Auth `onboard`。
+- Agent Credential 不提供独立权限设置，只作为绑定一条 Space Grant 的连接身份。已有 Agent 使用精确版本 `onboard --code` 接入；全局新 Agent 使用 Device Auth `onboard`。
 - Adapter 按需安装到 `~/.agentwiki/runtime/`，优先复用兼容版本，不修改全局环境，不运行交互式 init。
 - 基础组件使用 stdio MCP，不要求用户配置模型、额外 Key、MCP JSON、本地端口或 daemon。
 

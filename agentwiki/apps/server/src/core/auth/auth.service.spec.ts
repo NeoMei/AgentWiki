@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 const mockPrisma = {
   user: {
@@ -118,15 +119,15 @@ describe('AuthService', () => {
       });
     });
 
-    it('maps an Agent credential to the Agent principal without granting owner identity privileges', async () => {
+    it('derives an Agent principal from the Credential-bound Grant authorization', async () => {
       mockPrisma.apiKeyCredential.findUnique.mockResolvedValue(null);
       mockPrisma.agentCredential.findUnique.mockResolvedValue({
         id: 'agent-credential-1',
         agentId: 'agent-1',
+        authorizationId: 'grant-1',
         revokedAt: null,
         expiresAt: null,
-        role: 'editor',
-        scopes: ['pages:read'],
+        authorization: { id: 'grant-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor' },
         agent: {
           status: 'active',
           revokedAt: null,
@@ -138,9 +139,18 @@ describe('AuthService', () => {
       await expect(service.validateApiKey('agk_secret')).resolves.toMatchObject({
         userId: 'owner-1',
         agentId: 'agent-1',
+        authorizationId: 'grant-1',
+        authorizationSpaceId: 'space-1',
         agentRole: 'editor',
         type: 'agent',
-        scopes: ['pages:read'],
+        scopes: scopesForAgentAccessRole('editor'),
+      });
+      expect(mockPrisma.agentCredential.findUnique).toHaveBeenCalledWith({
+        where: expect.any(Object),
+        include: {
+          agent: { include: { owner: true } },
+          authorization: true,
+        },
       });
     });
   });

@@ -57,8 +57,8 @@ confirmation. Passwords and login information never enter the Agent conversation
 
 Every 0.5.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
 Agent, the user chooses the Space and role before generating the one-time code; exchange
-atomically creates the same role on the Credential and Space Grant. The server derives
-all scopes. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
+atomically creates or updates the Space Grant and binds an identity-only Credential to it.
+Only the Grant stores a role; the server derives all scopes at request time. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
 inputs are not accepted. Publisher eligibility does not change the Space policy and no
 Agent role can approve a ChangeSet or manage members.
 

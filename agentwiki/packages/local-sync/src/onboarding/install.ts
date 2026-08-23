@@ -361,13 +361,15 @@ function productionDependencies(): BootstrapInstallerDeps {
       const hasCredential = agent?.credentials.some((credential) => (
         credential.id === connection.credentialId
         && credential.active
-        && credential.role === expected.role
-        && sameScopes(credential.scopes, expected.scopes)
+        && credential.authorization.id.length > 0
+        && credential.authorization.space.id === expected.spaceId
+        && credential.authorization.role === expected.role
+        && sameScopes(credential.authorization.scopes, expected.scopes)
       )) ?? false;
       if (agent?.status !== 'active' || !hasSpace || !hasCredential) {
         throw new OnboardingError({
           code: 'TOOLSET_MISMATCH',
-          message: 'gateway remote identity, Space grant, or credential verification failed',
+          message: 'gateway remote identity or bound Space authorization verification failed',
           retryable: false,
         });
       }

@@ -333,7 +333,6 @@ export class SpaceService {
         select: {
           id: true,
           role: true,
-          scopes: true,
           agentId: true,
           spaceId: true,
           createdAt: true,

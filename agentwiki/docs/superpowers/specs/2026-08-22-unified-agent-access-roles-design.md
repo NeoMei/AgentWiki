@@ -2,7 +2,7 @@
 
 日期：2026-08-22
 状态：已确认
-选定方案：以连接授权包统一 Space Grant 与 Credential
+选定方案：连接凭据绑定单一 Space Grant 授权
 
 ## 背景
 
@@ -12,10 +12,10 @@
 
 ## 目标
 
-- 用户只选择一次 Space 和 Agent 角色，连接授权与凭证授权使用同一角色。
+- 用户只选择一次 Space 和 Agent 角色；凭据只绑定授权，不再拥有独立角色。
 - 角色名称统一为 `reader`、`editor`、`publisher`。
-- Grant 和 Credential 的权限都由服务端统一角色表展开，普通产品入口不再逐项选择 scopes。
-- 保留 Credential 与 Grant 的运行时交集，但 Credential 是连接授权包兑换产生的内部安全对象，不再是一条独立的产品授权路径。
+- `AgentGrant.role` 是唯一持久化权限事实，scopes 在请求时由统一角色表派生。
+- `AgentCredential` 只保存身份、生命周期和所绑定的 Grant，不保存 role 或 scopes。
 - `editor` 必须能够调用 `wiki_propose_page`，产生的变更仍进入人工审核。
 - `publisher` 可以获得 Agent 可用的完整内容权限，但不能管理成员、执行人工审批或获得 `review:decide`。
 
@@ -39,12 +39,12 @@
 
 `review:decide` 不属于任何 Agent 角色。`publisher` 不是人类管理员，也不获得 Space 成员管理、Agent 管理或审批权限。
 
-角色同时记录在 `AgentGrant` 和 `AgentCredential` 上，展开后的 scopes 也持久化，用于现有鉴权、审计和运行中复核。应用代码只能通过统一角色策略生成 scopes，不能在普通 Grant、Credential 或连接码接口中提交任意 scope 数组。
+角色只记录在 `AgentGrant` 上，展开后的 scopes 不持久化。`AgentCredential.authorizationId` 通过数据库复合外键绑定同一 Agent 的一个 Grant。应用代码只能通过统一角色策略从当前 Grant 角色派生 scopes，不能在 Grant、Credential 或连接码接口中提交任意 scope 数组。
 
 有效权限继续取下列条件的交集：
 
-1. 当前 Credential 角色与 scopes；
-2. 目标 Space 的 AgentGrant 角色与 scopes；
+1. Credential、Agent 及 owner 当前有效；
+2. Credential 绑定的目标 Space AgentGrant 当前角色；
 3. Agent 当前状态及全局能力开关；
 4. Space Policy；
 5. 具体领域操作的角色和资源约束。
@@ -70,9 +70,9 @@ OpenCode、Codex 或 Claude Code 兑换连接码时，服务端重新验证用�
 
 随后在同一个 PostgreSQL 事务中：
 
-1. 从统一角色策略解析角色和 scopes；
-2. 创建或幂等取得本次安装对应的 AgentCredential，并记录相同角色和 scopes；
-3. 创建或更新目标 Space 的 AgentGrant，并记录相同角色和 scopes；
+1. 创建或更新目标 Space 的 AgentGrant，并记录唯一角色；
+2. 创建或幂等取得本次安装对应的 AgentCredential，并把它绑定到该 Grant；
+3. 从 Grant 当前角色派生只读 scopes 诊断信息；
 4. 当角色为 `publisher` 时，启用 Agent 的 Memory 和 `scoped-auto-publish` 能力开关；
 5. 写入包含 Agent、Space、Credential、旧角色和新角色的审计事件。
 
@@ -82,18 +82,18 @@ OpenCode、Codex 或 Claude Code 兑换连接码时，服务端重新验证用�
 
 ## 多 Space 与多 Credential 语义
 
-AgentGrant 是 Agent 在一个 Space 内的能力上限，AgentCredential 是某个客户端连接的全局能力上限。两者都使用三档角色，但不会取消运行时交集。
+AgentGrant 是 Agent 在一个 Space 内的唯一权限事实。每个 AgentCredential 只能绑定其中一个 Grant，因此一个连接只能访问其绑定 Space；同一 Agent 访问另一 Space 时需要另一条绑定该 Space Grant 的连接。
 
 例如：
 
-- `publisher` Credential 访问 `reader` Grant 的 Space 时只能读取；
-- `reader` Credential 访问 `publisher` Grant 的 Space 时仍只能读取；
-- 只有 Credential 和 Grant 都至少是 `editor` 时，`wiki_propose_page` 才可执行；
-- 只有双方都为 `publisher`，且 Agent 与 Space 的自动发布策略也允许时，才可能自动发布。
+- Credential 绑定 `reader` Grant 时只能读取；
+- 把该 Grant 升为 `editor` 后，所有绑定连接立即可以提交写入提案；
+- 把该 Grant 降为 `reader` 后，所有绑定连接立即失去写能力；
+- 只有绑定 Grant 为 `publisher`，且 Agent 与 Space 的自动发布治理条件同时允许时，才可能自动发布。
 
 同一个 Space 只有一个 `(agentId, spaceId)` Grant。生成连接码时如果目标 Space 已有不同角色，界面必须在签发前显示旧角色和新角色，说明连接成功后会调整该 Agent 在该 Space 的能力上限。
 
-角色降级会立即收紧 Grant，因此已经存在的高权限 Credential 也不能绕过新上限。降级不主动关闭 Agent 的 Memory 或自动发布全局开关，因为其他 Space 可能仍有 `publisher` Grant；缺少对应 Credential/Grant scopes 时，这些开关本身不能授予权限。
+角色降级会立即收紧 Grant，因此所有绑定 Credential 同步生效。降级不主动关闭 Agent 的 Memory 或自动发布全局开关，因为其他 Space 可能仍有 `publisher` Grant；缺少对应 Grant 角色时，这些开关本身不能授予权限。
 
 ## API 边界
 
@@ -103,7 +103,7 @@ AgentGrant 是 Agent 在一个 Space 内的能力上限，AgentCredential 是某
 - 查看和撤销已有连接凭据，但不提供手工创建 Credential 的 Agent API；
 - Space 成员管理流程仍可修改或移除 AgentGrant，但 Agent“访问权限”页不再把它作为第二个授权表单。
 
-服务端响应同时返回角色和由服务端展开的只读 scopes，便于诊断，但客户端不能把响应 scopes 修改后回传以改变权限。
+服务端把 Credential 显示为“连接记录 + 所绑定的授权”，其中角色和只读 scopes 均从 Grant 实时派生；客户端不能把响应 scopes 修改后回传以改变权限。
 
 角色策略应位于服务端、Local Sync 和契约测试可共同引用的单一模块。前端通过服务端契约展示角色说明，不维护另一套权限数组。所有 DTO、会话 schema、计划哈希和安装码 payload 都使用 `reader | editor | publisher`。
 
@@ -124,8 +124,8 @@ Agent“访问权限”页只保留一个可编辑的授权区域，并附带只
 ### 现有授权与连接记录
 
 - Space 授权记录显示当前 Agent 角色并允许移除，不再提供独立角色下拉框；角色变更通过上方的统一连接表单重新授权。
-- Credential 记录显示名称、角色、前缀、最后使用时间、过期时间和撤销操作，但不提供新建、改角色或编辑 scopes 的控件。
-- scopes 仅作为诊断详情只读展示。
+- Credential 记录显示名称、绑定 Space 及其当前角色、前缀、最后使用时间、过期时间和撤销操作，但不把角色/scopes 画成 Credential 自身字段。
+- 如需显示 scopes，只能嵌套在所绑定的 Space 授权诊断中。
 
 当前分离的“Space Access”“Local Sync 连接授权”“Credential 授权”不再作为三套可编辑控件存在。Agent 访问页中只能找到一个 Agent 角色选择器。
 

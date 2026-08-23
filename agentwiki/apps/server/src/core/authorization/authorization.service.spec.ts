@@ -51,11 +51,11 @@ describe('AuthorizationService', () => {
 
   it('does not let an Agent admin-shaped grant bypass an editor gate', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'admin', scopes: ['pages:write'],
+      id: 'grant-1', role: 'admin',
       agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
     });
     await expect(service.assertSpaceAccess(
-      { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:write'] },
+      { userId: 'owner-1', agentId: 'agent-1', authorizationId: 'grant-1' },
       'space-1', ['owner', 'editor'], 'pages:write',
     )).rejects.toMatchObject({ statusCode: 403 });
   });
@@ -80,29 +80,35 @@ describe('AuthorizationService', () => {
     expect(prisma.spaceMember.findUnique).not.toHaveBeenCalled();
   });
 
-  it('requires both an Agent grant and the requested scope', async () => {
+  it('uses the bound Grant role as the only Agent permission source', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'editor',
+      id: 'grant-1', role: 'editor',
       agent: { status: 'active', revokedAt: null },
       space: { deletedAt: null },
     });
     await expect(
       service.assertSpaceAccess(
-        { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:read'] },
-        'space-1',
-        ['owner', 'editor'],
-        'pages:write',
-      ),
-    ).rejects.toMatchObject({ statusCode: 403 });
-
-    await expect(
-      service.assertSpaceAccess(
-        { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:write'] },
+        {
+          userId: 'owner-1', agentId: 'agent-1', authorizationId: 'grant-1',
+          agentRole: 'reader', scopes: ['pages:read'],
+        },
         'space-1',
         ['owner', 'editor'],
         'pages:write',
       ),
     ).resolves.toMatchObject({ role: 'editor' });
+  });
+
+  it('denies a Credential in a different Space even when the Agent has another Grant', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-space-b', role: 'publisher',
+      agent: { status: 'active', revokedAt: null },
+      space: { deletedAt: null },
+    });
+    await expect(service.assertSpaceAccess(
+      { userId: 'owner-1', agentId: 'agent-1', authorizationId: 'grant-space-a' },
+      'space-b', ['owner', 'editor'], 'pages:write',
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
   it.each([
@@ -111,80 +117,33 @@ describe('AuthorizationService', () => {
     ['publisher', ['owner', 'editor'], true],
   ] as const)('maps %s to the expected write capability', async (role, allowedRoles, allowed) => {
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role,
-      scopes: scopesForAgentAccessRole(role),
+      id: 'grant-1', role,
       agent: { status: 'active', revokedAt: null },
       space: { deletedAt: null },
     });
     const call = service.assertSpaceAccess({
       userId: 'owner-1',
       agentId: 'agent-1',
-      agentRole: role,
-      scopes: scopesForAgentAccessRole(role),
+      authorizationId: 'grant-1',
     }, 'space-1', [...allowedRoles], 'pages:write');
     if (allowed) await expect(call).resolves.toBeDefined();
     else await expect(call).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
-  it('rejects a stored write scope when the credential role is reader', async () => {
+  it('denies pages:write when the bound Grant is Reader', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'publisher',
-      scopes: scopesForAgentAccessRole('publisher'),
+      id: 'grant-1', role: 'reader',
       agent: { status: 'active', revokedAt: null },
       space: { deletedAt: null },
     });
     await expect(service.assertSpaceAccess({
       userId: 'owner-1',
       agentId: 'agent-1',
-      agentRole: 'reader',
-      scopes: ['spaces:read', 'pages:read', 'pages:write'],
+      authorizationId: 'grant-1',
+      agentRole: 'publisher',
+      scopes: scopesForAgentAccessRole('publisher'),
     }, 'space-1', ['owner', 'editor'], 'pages:write'))
-      .rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
-  });
-
-  it('restricts agent to per-space grant scopes when set', async () => {
-    prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'editor',
-      scopes: ['pages:read'],
-      agent: { status: 'active', revokedAt: null },
-      space: { deletedAt: null },
-    });
-    // credential has pages:write but grant only allows pages:read → denied
-    await expect(
-      service.assertSpaceAccess(
-        { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:read', 'pages:write'] },
-        'space-1',
-        ['owner', 'editor'],
-        'pages:write',
-      ),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    // pages:read is within grant scopes → allowed
-    await expect(
-      service.assertSpaceAccess(
-        { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:read', 'pages:write'] },
-        'space-1',
-        ['owner', 'editor'],
-        'pages:read',
-      ),
-    ).resolves.toMatchObject({ role: 'editor' });
-  });
-
-  it('falls back to credential scope when grant scopes are empty', async () => {
-    prisma.agentGrant.findUnique.mockResolvedValue({
-      role: 'editor',
-      scopes: [],
-      agent: { status: 'active', revokedAt: null },
-      space: { deletedAt: null },
-    });
-    // empty grant scopes = inherit all credential scopes → pages:write allowed
-    await expect(
-      service.assertSpaceAccess(
-        { userId: 'owner-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:write'] },
-        'space-1',
-        ['owner', 'editor'],
-        'pages:write',
-      ),
-    ).resolves.toMatchObject({ role: 'editor' });
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 });
 
@@ -225,31 +184,29 @@ describe('space discovery and self-describing errors', () => {
     prisma.agentGrant.findMany.mockResolvedValue([
       { role: 'editor', space: { id: 'space-1', name: 'MySpace', deletedAt: null } },
     ]);
-    const result = await service.listAccessibleSpaces({ userId: 'user-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['spaces:read'] });
+    const result = await service.listAccessibleSpaces({
+      userId: 'user-1', agentId: 'agent-1', authorizationId: 'grant-1',
+    });
     expect(result).toEqual([{ id: 'space-1', name: 'MySpace', role: 'editor' }]);
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        OR: [
-          { scopes: { has: 'spaces:read' } },
-          { scopes: { isEmpty: true } },
-        ],
+        id: 'grant-1',
+        agentId: 'agent-1',
       }),
     }));
   });
 
-  it('filters accessible space ids by grant scope while inheriting empty grant scopes', async () => {
+  it('returns only the Credential-bound accessible Space id', async () => {
     prisma.agentGrant.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'editor' }]);
 
     await expect(service.getAccessibleSpaceIds(
-      { userId: 'user-1', agentId: 'agent-1', agentRole: 'editor', scopes: ['pages:read'] },
+      { userId: 'user-1', agentId: 'agent-1', authorizationId: 'grant-1' },
       'pages:read',
     )).resolves.toEqual(['space-1']);
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        OR: [
-          { scopes: { has: 'pages:read' } },
-          { scopes: { isEmpty: true } },
-        ],
+        id: 'grant-1',
+        agentId: 'agent-1',
       }),
     }));
   });

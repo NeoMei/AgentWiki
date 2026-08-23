@@ -184,36 +184,38 @@ model AgentCredential {
   prefix                  String
   keyHash                 String    @unique
   localSyncInstallationId String?   @unique
-  scopes                  String[]
-  role                    AgentAccessRole @default(reader)
   expiresAt               DateTime?
   revokedAt               DateTime?
   lastUsedAt              DateTime?
 
-  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  agentId String
+  agent           Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId         String
+  authorization   AgentGrant @relation(fields: [authorizationId, agentId], references: [id, agentId], onDelete: Cascade)
+  authorizationId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([prefix])
   @@index([agentId, revokedAt])
+  @@index([authorizationId, agentId])
 }
 
 model AgentGrant {
-  id     String          @id @default(cuid())
-  role   AgentAccessRole @default(reader)
-  scopes String[]        @default([])
+  id   String          @id @default(cuid())
+  role AgentAccessRole @default(reader)
 
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId String
   space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId String
+  credentials AgentCredential[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([agentId, spaceId])
+  @@unique([id, agentId])
   @@index([spaceId])
 }
 

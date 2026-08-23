@@ -31,9 +31,13 @@ export class McpController {
       authentication: 'Bearer Agent credential or x-api-key',
       tools: Object.entries(toolScopes).map(([name, requiredScope]) => ({ name, requiredScope })),
       resources: ['agentwiki://spaces', 'agentwiki://pages/{pageId}'],
-      note: 'Agent proposals always use ChangeSets. Editor proposals remain pending review. Publisher proposals auto-publish only when the Credential and Space Grant are publisher and both Agent mode and Space policy allow it.',
-      access: await this.agents.integrationAccess(principal.userId, principal.agentId),
-      recentCalls: await this.agents.recentMcpCalls(principal.userId, principal.agentId),
+      note: 'Agent proposals always use ChangeSets. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
+      access: await this.agents.integrationAccess(
+        principal.userId, principal.agentId, principal.authorizationId,
+      ),
+      recentCalls: await this.agents.recentMcpCalls(
+        principal.userId, principal.agentId, principal.credentialId,
+      ),
     };
   }
 }

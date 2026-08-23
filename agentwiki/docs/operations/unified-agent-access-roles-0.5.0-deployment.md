@@ -25,13 +25,15 @@ release evidence.
 ## Migration semantics
 
 Migration `20260822120000_unify_agent_access_roles` creates the exact enum
-`reader | editor | publisher`, adds `AgentCredential.role`, and converts every existing
-`AgentGrant.role` to `reader` with a constant expression. It deliberately does not infer
-a role from legacy scopes. Existing stored scopes remain diagnostic data but cannot
-raise effective access above the persisted role ceiling.
+`reader | editor | publisher`. The later breaking migration
+`20260823090000_bind_agent_credentials_to_grants` makes `AgentGrant.role` the sole
+persisted permission fact: it removes Credential role/scopes and Grant scopes, adds the
+required Credential `authorizationId`, and enforces the same-Agent binding with a
+composite foreign key. Because old-version data is explicitly unsupported, this migration
+deletes existing Agent Credentials; owners must create new connections after deployment.
 
-After migration, owners must authorize a new role package for each connection that needs
-more than Reader. The server accepts only the 0.5.0 onboarding flow; 0.4.0 clients and
+After migration, owners must authorize a new connection for each required Space. The
+server accepts only the 0.5.0 onboarding flow; 0.4.0 clients and
 legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, or custom-scope requests are
 not compatible.
 

@@ -3,11 +3,13 @@
 - 设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
 - 计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
 - 单入口纠正计划：`agentwiki/docs/superpowers/plans/2026-08-23-unified-agent-access-single-entry-fix-plan.md`
+- 单一授权源重构计划：`agentwiki/docs/superpowers/plans/2026-08-23-agent-authorization-single-source-plan.md`
 - 当前缺陷位置：`agentwiki/apps/client/src/features/agent/LocalSyncInstallCard.tsx`
 - 当前单入口界面：`agentwiki/apps/client/src/features/agent/AgentDetail.tsx`
 - 当前 Grant/Credential 服务：`agentwiki/apps/server/src/core/agent/agent.service.ts`
+- MCP 诊断边界：`agentwiki/apps/server/src/mcp/mcp.controller.ts`
 - 当前连接兑换：`agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts`
-- 当前权限交集：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
+- 当前单一授权检查：`agentwiki/apps/server/src/core/authorization/authorization.service.ts`
 - 当前 onboarding 预设：`agentwiki/apps/server/src/onboard/onboard.types.ts`
 - 验证证据：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 部署与回滚门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
@@ -19,4 +21,4 @@
 - Reader 只读协调器：`agentwiki/packages/local-sync/src/onboarding/coordinator.ts`
 - Agent Grant 可管理事实：`agentwiki/apps/server/src/core/space/space.service.ts`
 - Auto-publish 发布临界点重验：`agentwiki/apps/server/src/review/review.service.ts`
-- 修复后 local-sync 0.5.0 包：151 项、148007 bytes、SHA-256 `8e6543080a80d4233bf8ac5d5cb6287bca4909183654585f32e474498f0d6926`
+- 双包当前工作区干净安装：`agentwiki/scripts/verify-local-sync-clean-install.mjs` 返回 sync-protocol 0.2.0 / local-sync 0.5.0 `status=passed`。

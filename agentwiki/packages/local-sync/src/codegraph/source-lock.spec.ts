@@ -94,10 +94,11 @@ describe('source locks', () => {
   });
 
   it('serializes same keys, permits different keys, and release never removes another ticket', async () => {
-    const root = await temporaryDirectory(); const lock = testLock({ root, retryMs: 1, timeoutMs: 200 }); const events: string[] = [];
+    const root = await temporaryDirectory(); const lock = testLock({ root, retryMs: 1, timeoutMs: 5_000 }); const events: string[] = [];
     let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
     const first = lock.withLock('e'.repeat(64), async () => { events.push('same'); await gate; });
     await lock.waitForTicketForTest('e'.repeat(64));
+    while (!events.includes('same')) await new Promise((resolve) => setTimeout(resolve, 1));
     const second = lock.withLock('e'.repeat(64), async () => { events.push('second'); });
     const other = lock.withLock('f'.repeat(64), async () => { events.push('other'); });
     await other; expect(events).toContain('other'); expect(events).not.toContain('second'); release(); await Promise.all([first, second]);
@@ -144,7 +145,7 @@ describe('source locks', () => {
     await mkdir(dir, { recursive: true }); const old = new Date(Date.now() - 20_000); await writeFile(residue, JSON.stringify({ pid: 999999, token: 'dead', createdAt: old.toISOString(), phase: 'ticket', ticketNumber: 1 })); await utimes(residue, old, old);
     const lock = testLock({ root, staleAfterMs: 100, isProcessAlive: () => false }); await lock.withLock(key, async () => undefined);
     await expect(stat(residue)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
+  }, 20_000);
 
   it('never deletes fresh, live, or filename-mismatched private records', async () => {
     const root = await temporaryDirectory(); const old = new Date(Date.now() - 20_000);
@@ -210,7 +211,7 @@ describe('source locks', () => {
     await mkdir(dir, { recursive: true }); await writeFile(residue, JSON.stringify({ pid: 999999, token: 'dead', createdAt: old.toISOString(), phase: 'choosing' })); await utimes(residue, old, old);
     await expect(testLock({ root, staleAfterMs: 100, isProcessAlive: () => false }).withLock(key, async () => 'ok')).resolves.toBe('ok');
     await expect(stat(residue)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
+  }, 20_000);
 
   it('leaves fresh and live hidden staging residues inert', async () => {
     const root = await temporaryDirectory(); const key = 'f'.repeat(64); const dir = join(root, `.codegraph-${key}.coordination`); const old = new Date(Date.now() - 20_000); const fresh = join(dir, '.staging-choosing-999999-fresh~uuid'); const live = join(dir, '.staging-choosing-777-live~uuid');

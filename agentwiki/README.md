@@ -41,9 +41,9 @@ for setup details.
 
 ### Agent Integration
 - **Independent identity** — Agents have their own credentials (`agk_...`), not shared user tokens
-- **Unified Agent roles** — choose Reader, Editor, or Publisher once; the server derives matching Credential and Space Grant scopes
+- **Unified Agent roles** — choose Reader, Editor, or Publisher once; `AgentGrant.role` is the only persisted permission and scopes are derived at request time
 - **Review workflow** — Agent writes enter a ChangeSet for human approval before publishing
-- **Least-privilege intersection** — effective access is limited by Credential role/scopes, Space Grant role/scopes, Agent state, Space policy, and domain authorization
+- **Least privilege** — each identity-only Credential binds one Space Grant; effective access is limited by its live role, connection/Agent state, Space policy, and domain authorization
 - **Memory** — episodic and semantic memory, scoped per Agent and optionally per Space
 - **MCP protocol** — Agents interact through a Model Context Protocol server
 
@@ -163,7 +163,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.5.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates the matching Credential and Space Grant. Ordinary Agent credentials remain available for APIs, scripts, and external systems, but do not create another MCP connection.
+Source and generated instructions target 0.5.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
 
 ### Example local workflow
 
@@ -199,9 +199,9 @@ See the hosted [Usage Guide](https://agentwiki.quukk.com/guide) for the complete
 
 ## Connecting an Agent
 
-AgentWiki Agents use separate identities and role-derived credentials. The recommended
-connection flow selects the Space and role once, then atomically creates the matching
-Credential and Space Grant when the one-time code is exchanged.
+AgentWiki Agents use separate connection identities bound to Space authorizations. The
+connection flow selects the Space and role once, then atomically creates or updates the
+Space Grant and binds an identity-only Credential when the one-time code is exchanged.
 
 ### 1. Create an Agent
 
@@ -284,12 +284,13 @@ curl -X PATCH "$BASE/pages/PAGE_ID" \
 
 ## Permission Model
 
-Agent permissions are the intersection of all current authorization gates:
+`AgentGrant.role` is the sole persisted permission fact. Agent permissions pass through
+the following live gates:
 
 ```
-Credential Role + Derived Scopes
-        ∩
-Space Grant Role + Derived Scopes
+Active Credential bound to exactly one Grant
+        +
+Space Grant Role → Derived Scopes
         ∩
 Agent State ∩ Space Policy ∩ Domain Authorization
 ```
@@ -299,8 +300,8 @@ Only `reader`, `editor`, and `publisher` are accepted for Agent access. Legacy
 are rejected. Human Space roles remain a separate Owner / Admin / Editor / Viewer model.
 Reader onboarding ends with a read-only pull; only Editor and Publisher perform the
 initial write sync. Auto-publish re-reads and row-locks the live Credential, Agent owner,
-Agent Grant, and Space before publishing, so a concurrent revoke, expiry, deactivation,
-role/scope downgrade, deletion, or policy downgrade falls back to `pending_review`.
+bound Agent Grant, and Space before publishing, so a concurrent revoke, expiry,
+deactivation, role downgrade, deletion, or policy downgrade falls back to `pending_review`.
 
 **Space roles for humans:**
 - **Owner** — full control, can transfer ownership, cannot be removed

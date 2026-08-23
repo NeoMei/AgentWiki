@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -14,6 +15,14 @@ const renderCard = ({
   agentId = 'agent-1',
   spaces = [{ id: 'space-1', name: '团队知识库' }],
   grants = [{ spaceId: 'space-1', role: 'reader' as const, space: { id: 'space-1', name: '团队知识库' } }],
+}: {
+  agentId?: string;
+  spaces?: Array<{ id: string; name: string }>;
+  grants?: Array<{
+    spaceId: string;
+    role: AgentAccessRole;
+    space: { id: string; name: string };
+  }>;
 } = {}) => render(
   <LanguageProvider>
     <LocalSyncInstallCard agentId={agentId} spaces={spaces} grants={grants} />
@@ -55,6 +64,53 @@ describe('LocalSyncInstallCard', () => {
       '/agents/agent-1/local-sync-installations',
       { pluginVersion: '0.5.0', spaceId: 'space-1', role: 'editor' },
     ));
+  });
+
+  it('defaults the role selector to the selected Space authorization', async () => {
+    renderCard({
+      spaces: [
+        { id: 'space-1', name: '编辑空间' },
+        { id: 'space-2', name: '发布空间' },
+      ],
+      grants: [
+        { spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: '编辑空间' } },
+        { spaceId: 'space-2', role: 'publisher', space: { id: 'space-2', name: '发布空间' } },
+      ],
+    });
+
+    expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('editor');
+    expect(screen.queryByText(/当前角色为 Editor/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: '空间' }), {
+      target: { value: 'space-2' },
+    });
+
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('publisher'));
+    expect(screen.queryByText(/当前角色为 Publisher/)).not.toBeInTheDocument();
+  });
+
+  it('does not overwrite an unsubmitted role choice when equivalent grant props rerender', () => {
+    const props = {
+      agentId: 'agent-1',
+      spaces: [{ id: 'space-1', name: '团队知识库' }],
+      grants: [{ spaceId: 'space-1', role: 'editor' as const, space: { id: 'space-1', name: '团队知识库' } }],
+    };
+    const view = render(
+      <LanguageProvider>
+        <LocalSyncInstallCard {...props} />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent 角色' }), {
+      target: { value: 'publisher' },
+    });
+    view.rerender(
+      <LanguageProvider>
+        <LocalSyncInstallCard {...props} grants={[...props.grants]} />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('publisher');
   });
 
   it('shows the publisher governance warning', () => {

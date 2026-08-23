@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { SourceService } from './source.service';
 import axios from 'axios';
 import { createServer as createHttpServer } from 'http';
@@ -168,17 +169,15 @@ describe('SourceService safety and idempotency', () => {
     })).rejects.toThrow('Run requester is no longer authorized');
   });
 
-  it('returns only the intersection of credential and non-empty grant scopes', async () => {
+  it('returns scopes derived solely from the Credential-bound Grant role', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
-        role: 'editor',
-        scopes: ['runs:write', 'pages:read'],
+        id: 'grant-1', role: 'editor',
         agent: { status: 'active', revokedAt: null, owner: { deletedAt: null } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
-        role: 'editor',
-        scopes: ['runs:write', 'review:auto-publish'],
+        authorizationId: 'grant-1',
       }) },
     } as any;
     const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
@@ -186,26 +185,20 @@ describe('SourceService safety and idempotency', () => {
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-    })).resolves.toEqual(['runs:write']);
+    })).resolves.toEqual(scopesForAgentAccessRole('editor'));
   });
 
-  it.each([
-    ['editor', 'editor'],
-    ['editor', 'publisher'],
-    ['publisher', 'editor'],
-  ] as const)(
-    'filters queued-run scopes through credential role %s and grant role %s',
-    async (credentialRole, grantRole) => {
+  it.each(['editor', 'publisher'] as const)(
+    'derives queued-run scopes from the live %s Grant',
+    async (grantRole) => {
       const authorizationPrisma = {
         agentGrant: { findUnique: jest.fn().mockResolvedValue({
-          role: grantRole,
-          scopes: ['runs:write', 'review:auto-publish'],
+          id: 'grant-1', role: grantRole,
           agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
           space: { deletedAt: null },
         }) },
         agentCredential: { findFirst: jest.fn().mockResolvedValue({
-          role: credentialRole,
-          scopes: ['runs:write', 'review:auto-publish'],
+          authorizationId: 'grant-1',
         }) },
       } as any;
       const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
@@ -213,21 +206,19 @@ describe('SourceService safety and idempotency', () => {
       await expect((authorizationService as any).assertRequesterStillAuthorized({
         requestedByAgentId: 'agent-1', spaceId: 'space-1',
         requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-      })).resolves.toEqual(['runs:write']);
+      })).resolves.toEqual(scopesForAgentAccessRole(grantRole));
     },
   );
 
   it('allows a queued publisher run when credential and grant remain authorized', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
-        role: 'publisher',
-        scopes: ['runs:write'],
+        id: 'grant-1', role: 'publisher',
         agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
-        role: 'publisher',
-        scopes: ['runs:write', 'review:auto-publish'],
+        authorizationId: 'grant-1',
       }) },
     } as any;
     const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
@@ -235,20 +226,18 @@ describe('SourceService safety and idempotency', () => {
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-    })).resolves.toEqual(['runs:write']);
+    })).resolves.toEqual(scopesForAgentAccessRole('publisher'));
   });
 
-  it('rejects a queued run when a reader credential retains a stale runs:write scope', async () => {
+  it('rejects a queued run when the Credential is bound to another Grant', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
-        role: 'publisher',
-        scopes: ['runs:write'],
+        id: 'grant-1', role: 'publisher',
         agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
-        role: 'reader',
-        scopes: ['runs:write'],
+        authorizationId: 'grant-other',
       }) },
     } as any;
     const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
@@ -259,17 +248,15 @@ describe('SourceService safety and idempotency', () => {
     })).rejects.toThrow('Run requester is no longer authorized');
   });
 
-  it('rejects a queued run when a non-empty grant omits runs:write', async () => {
+  it('rejects a queued run when the sole Grant role is Reader', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
-        role: 'editor',
-        scopes: ['pages:read'],
+        id: 'grant-1', role: 'reader',
         agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
-        role: 'editor',
-        scopes: ['runs:write'],
+        authorizationId: 'grant-1',
       }) },
     } as any;
     const authorizationService = new SourceService(authorizationPrisma, config, {} as any);

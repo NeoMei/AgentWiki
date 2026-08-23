@@ -55,7 +55,7 @@ AgentWiki 已经具备 Space、Agent 独立身份、Credential、Space Grant、M
 | `editor` | `collaboration:read`、`collaboration:execute` | 查看运行并领取、执行、提交任务 |
 | `publisher` | 与 `editor` 相同 | 协作执行能力不因发布角色额外放宽 |
 
-协作 scopes 必须加入 `@neomei/agentwiki-sync-protocol` 的唯一角色策略，由 Credential 和 AgentGrant 的角色同时派生。有效权限仍是 Credential 角色/scopes、Space Grant 角色/scopes、Agent 状态、Space Policy 和协作领域授权的交集。任何角色仍不包含 `review:decide`。
+协作 scopes 必须加入 `@neomei/agentwiki-sync-protocol` 的唯一角色策略，并只从 Credential 所绑定的当前 AgentGrant 角色派生。有效权限是连接/Agent 状态、Space Grant 角色、Space Policy 和协作领域授权的交集。任何角色仍不包含 `review:decide`。
 
 “Agent 访问角色”表示 Agent 在 Space 中的权限上限；“协作角色槽位”表示某个模板中的职责。两者不得混用。
 

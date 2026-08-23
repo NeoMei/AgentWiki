@@ -50,9 +50,9 @@ describe('HTTP authentication and space authorization', () => {
       type: 'human',
     })),
     validateApiKey: jest.fn(async (key: string) => key === 'agk_reader'
-      ? { userId: 'owner', agentId: 'agent-1', agentRole: 'reader', credentialId: 'credential-1', scopes: ['pages:read'], type: 'agent', email: 'owner@example.test' }
-      : key === 'agk_no_scope'
-        ? { userId: 'owner', agentId: 'agent-1', agentRole: 'reader', credentialId: 'credential-2', scopes: [], type: 'agent', email: 'owner@example.test' }
+      ? { userId: 'owner', agentId: 'agent-1', agentRole: 'reader', credentialId: 'credential-1', authorizationId: 'grant-reader', authorizationSpaceId: 'space-1', scopes: ['pages:read'], type: 'agent', email: 'owner@example.test' }
+      : key === 'agk_wrong_binding'
+        ? { userId: 'owner', agentId: 'agent-1', agentRole: 'reader', credentialId: 'credential-2', authorizationId: 'grant-other', authorizationSpaceId: 'space-2', scopes: ['pages:read'], type: 'agent', email: 'owner@example.test' }
         : null),
   };
 
@@ -107,10 +107,10 @@ describe('HTTP authentication and space authorization', () => {
     })).status).toBe(401);
   });
 
-  it('requires both the Agent scope and matching space grant', async () => {
-    prisma.agentGrant.findUnique.mockResolvedValue({ role: 'reader', scopes: ['pages:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } });
+  it('uses the credential-bound grant as the sole space permission source', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-reader', role: 'reader', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } });
     expect((await fetch(`${baseUrl}/permission-probe/space-1`, { headers: { 'x-api-key': 'agk_reader' } })).status).toBe(200);
-    expect((await fetch(`${baseUrl}/permission-probe/space-1`, { headers: { 'x-api-key': 'agk_no_scope' } })).status).toBe(403);
+    expect((await fetch(`${baseUrl}/permission-probe/space-1`, { headers: { 'x-api-key': 'agk_wrong_binding' } })).status).toBe(403);
     prisma.agentGrant.findUnique.mockResolvedValue(null);
     expect((await fetch(`${baseUrl}/permission-probe/space-2`, { headers: { 'x-api-key': 'agk_reader' } })).status).toBe(403);
   });

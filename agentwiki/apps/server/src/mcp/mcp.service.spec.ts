@@ -54,6 +54,8 @@ describe('McpService knowledge-sync tool', () => {
     userId: 'owner-1',
     agentId: 'agent-1',
     credentialId: 'credential-1',
+    authorizationId: 'grant-1',
+    authorizationSpaceId: 'space-1',
     scopes: ['sources:read'],
   } as any;
   const authorization = {
@@ -114,10 +116,11 @@ describe('McpService knowledge-sync tool', () => {
   });
 
   it('advertises the knowledge-sync state tool as sources:read', async () => {
+    const integrationAccess = jest.fn().mockResolvedValue({});
     const controller = new McpController(
       {} as any,
       {
-        integrationAccess: jest.fn().mockResolvedValue({}),
+        integrationAccess,
         recentMcpCalls: jest.fn().mockResolvedValue([]),
       } as any,
     );
@@ -128,6 +131,12 @@ describe('McpService knowledge-sync tool', () => {
       name: 'get_knowledge_sync_state',
       requiredScope: 'sources:read',
     });
+    expect(integrationAccess).toHaveBeenCalledWith(
+      principal.userId, principal.agentId, principal.authorizationId,
+    );
+    expect((controller as any).agents.recentMcpCalls).toHaveBeenCalledWith(
+      principal.userId, principal.agentId, principal.credentialId,
+    );
   });
 
   it('describes publisher auto-publish as governed by Agent and Space policy', async () => {
@@ -143,6 +152,7 @@ describe('McpService knowledge-sync tool', () => {
 
     expect(result.note).toContain('Publisher');
     expect(result.note).toContain('Space policy');
+    expect(result.note).not.toContain('Credential and Space Grant');
     expect(result.note).not.toContain('cannot bypass review');
   });
 });

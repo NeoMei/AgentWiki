@@ -86,7 +86,7 @@
   "scripts": {
     "build": "node ./scripts/clean-dist.mjs && tsc",
     "typecheck": "tsc --noEmit --incremental false",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=20000",
     "prepack": "pnpm build && pnpm test"
   },
   "dependencies": {

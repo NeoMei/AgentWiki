@@ -26,18 +26,25 @@ export const LocalSyncInstallCard: React.FC<{
 }> = ({ agentId, spaces, grants, title }) => {
   const { t } = useLanguage();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
-  const [role, setRole] = useState<AgentAccessRole>('reader');
+  const [role, setRole] = useState<AgentAccessRole>(() => (
+    grants.find((grant) => grant.spaceId === spaces[0]?.id)?.role ?? 'reader'
+  ));
   const [result, setResult] = useState<InstallationResult | null>(null);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const grantedRole = grants.find((grant) => grant.spaceId === spaceId)?.role ?? 'reader';
 
   useEffect(() => {
     if (!spaces.some((space) => space.id === spaceId)) {
       setSpaceId(spaces[0]?.id ?? '');
     }
   }, [spaceId, spaces]);
+
+  useEffect(() => {
+    setRole(grantedRole);
+  }, [grantedRole, spaceId]);
 
   useEffect(() => {
     setResult(null);

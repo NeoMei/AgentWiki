@@ -289,17 +289,17 @@ export async function runDoctor(
     checks.push(
       check('identity', agent?.status === 'active', agent?.status === 'active' ? 'Agent identity is active' : 'Configured AgentWiki identity is unavailable or inactive'),
       check('space-grants', (agent?.grants.length ?? 0) > 0, (agent?.grants.length ?? 0) > 0 ? 'Agent has Space grants' : 'Agent has no Space grants'),
-      check('credential-scopes', Boolean(agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.scopes.length > 0)),
-        agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.scopes.length > 0)
-          ? 'Active credential has scopes'
-          : 'Configured credential is inactive or has no scopes'),
+      check('connection-authorization', Boolean(agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.authorization.space.id.length > 0)),
+        agent?.credentials.some((credential) => credential.id === connection.credentialId && credential.active && credential.authorization.space.id.length > 0)
+          ? 'Active connection is bound to a Space authorization'
+          : 'Configured connection is inactive or has no bound Space authorization'),
     );
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     checks.push(
       check('identity', false, `Unable to verify AgentWiki identity: ${detail}`),
       check('space-grants', false, 'Unable to verify Space grants'),
-      check('credential-scopes', false, 'Unable to verify credential scopes'),
+      check('connection-authorization', false, 'Unable to verify the bound Space authorization'),
     );
   }
 

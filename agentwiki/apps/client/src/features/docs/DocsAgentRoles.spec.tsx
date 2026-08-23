@@ -23,21 +23,21 @@ describe('Agent role documentation', () => {
     expect(document.body.textContent).not.toMatch(/为 Agent 成员配置按 Space 的权限范围/);
   });
 
-  it('describes role ceilings and human-only approval in the security guide', () => {
+  it('describes one Space authorization role and identity-only credentials', () => {
     renderDoc(<DocsSecurity />);
 
-    expect(screen.getByRole('heading', { name: '凭据角色' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Space Agent 角色' })).toBeInTheDocument();
-    expect(screen.getByText(/Reader、Editor、Publisher/)).toBeInTheDocument();
-    expect(screen.getByText(/接入时.*选择一次/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '连接身份' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Space 授权角色' })).toBeInTheDocument();
+    expect(screen.getByText(/Reader、Editor 或 Publisher/)).toBeInTheDocument();
+    expect(screen.getAllByText(/唯一权限事实/)).not.toHaveLength(0);
     expect(screen.getByText(/Agent (?:永远)?不能执行人工审批或成员管理/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/Credential Scope|凭据范围|具体权限范围|创建凭据时/);
+    expect(document.body.textContent).not.toMatch(/凭据角色|Credential Role|Credential Scope|凭据范围|具体权限范围|创建凭据时/);
   });
 
   it('uses unified roles in the architecture guide', () => {
     renderDoc(<DocsArchitecture />);
 
-    expect(screen.getByText(/凭据角色和 Space Agent 角色/)).toBeInTheDocument();
+    expect(screen.getByText(/绑定的 Space 授权角色/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/凭据范围和空间授权|credential scope and space grants/i);
   });
 
@@ -49,7 +49,7 @@ describe('Agent role documentation', () => {
 
     expect(copy).toMatch(/Reader 不可写/);
     expect(copy).toMatch(/Editor.*进入待审核/);
-    expect(copy).toMatch(/Publisher 凭据、Publisher Space 授权与 Space 发布策略/);
+    expect(copy).toMatch(/Publisher Space 授权与 Space 发布策略/);
     expect(copy).toMatch(/Agent 永远不能执行人工审批或成员管理/);
     expect(copy).toMatch(/只撤销该凭据/);
     expect(copy).toMatch(/暂停或撤销 Agent.*全局停止/);
@@ -67,7 +67,7 @@ describe('Agent role documentation', () => {
 
     expect(copy).toMatch(/Reader cannot write/i);
     expect(copy).toMatch(/Editor.*pending review/i);
-    expect(copy).toMatch(/Publisher Credential, Publisher Space Grant, and Space publishing policy/i);
+    expect(copy).toMatch(/Publisher Space Grant and Space publishing policy/i);
     expect(copy).toMatch(/Agents can never perform human approval or member management/i);
     expect(copy).toMatch(/revokes only that credential/i);
     expect(copy).toMatch(/Pausing or revoking the Agent.*global stop/i);

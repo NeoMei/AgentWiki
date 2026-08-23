@@ -84,15 +84,15 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('shows credential role and lifecycle diagnostics with an accessible revoke action', async () => {
+  it('shows the Space authorization bound to a connection record with an accessible revoke action', async () => {
     vi.mocked(api.get)
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
         approvalMode: 'scoped-auto-publish', grants: [], memoryEnabled: true,
         credentials: [{
-          id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview', role: 'publisher',
-          scopes: ['pages:read', 'pages:write', 'review:auto-publish'],
+          id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview',
+          authorization: { id: 'grant-1', role: 'publisher', scopes: ['pages:read', 'pages:write', 'review:auto-publish'], space: { id: 'space-1', name: '团队知识库' } },
           lastUsedAt: null, expiresAt: '2030-01-01T00:00:00.000Z',
         }],
       } } as any)
@@ -105,6 +105,7 @@ describe('AgentDetail', () => {
     const credentialRow = revoke.closest('div');
     expect(credentialRow).not.toBeNull();
     expect(credentialRow).toHaveTextContent('Deploy key');
+    expect(credentialRow).toHaveTextContent('团队知识库');
     expect(credentialRow).toHaveTextContent('Publisher');
     expect(credentialRow).toHaveTextContent('agk_preview…');
     expect(credentialRow).toHaveTextContent('上次使用: 从未');

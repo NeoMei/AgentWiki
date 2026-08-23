@@ -37,16 +37,14 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     }),
   };
   const principals: Record<string, any> = {
-    agk_missing_sources: { userId: 'owner-1', agentId: 'agent-missing-sources', agentRole: 'editor', credentialId: 'credential-1', scopes: ['runs:write'] },
-    agk_grant_no_runs: { userId: 'owner-1', agentId: 'agent-grant-no-runs', agentRole: 'editor', credentialId: 'credential-2', scopes: ['sources:write', 'runs:write'] },
-    agk_viewer: { userId: 'owner-1', agentId: 'agent-viewer', agentRole: 'reader', credentialId: 'credential-3', scopes: ['sources:write', 'runs:write', 'sources:read'] },
-    agk_editor: { userId: 'owner-1', agentId: 'agent-editor', agentRole: 'editor', credentialId: 'credential-4', scopes: ['sources:write', 'runs:write', 'sources:read'] },
+    agk_wrong_binding: { userId: 'owner-1', agentId: 'agent-wrong-binding', agentRole: 'editor', credentialId: 'credential-1', authorizationId: 'grant-other', authorizationSpaceId: 'space-2', scopes: ['sources:write', 'runs:write'] },
+    agk_reader: { userId: 'owner-1', agentId: 'agent-reader', agentRole: 'reader', credentialId: 'credential-2', authorizationId: 'grant-reader', authorizationSpaceId: 'space-1', scopes: ['sources:read'] },
+    agk_editor: { userId: 'owner-1', agentId: 'agent-editor', agentRole: 'reader', credentialId: 'credential-3', authorizationId: 'grant-editor', authorizationSpaceId: 'space-1', scopes: ['sources:read'] },
   };
   const grants: Record<string, any> = {
-    'agent-missing-sources': { role: 'editor', scopes: ['sources:write', 'runs:write'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
-    'agent-grant-no-runs': { role: 'editor', scopes: ['sources:write'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
-    'agent-viewer': { role: 'reader', scopes: ['sources:write', 'runs:write', 'sources:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
-    'agent-editor': { role: 'editor', scopes: ['sources:write', 'runs:write', 'sources:read'], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+    'agent-wrong-binding': { id: 'grant-writer', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+    'agent-reader': { id: 'grant-reader', role: 'reader', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+    'agent-editor': { id: 'grant-editor', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
   };
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
@@ -91,27 +89,18 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     });
   }
 
-  it('returns AUTH_SCOPE_REQUIRED when the credential lacks sources:write', async () => {
-    const response = await upload('agk_missing_sources', {
-      'idempotency-key': 'missing-sources', 'x-agentwiki-user-confirmed': 'true',
-    });
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({ code: 'AUTH_SCOPE_REQUIRED' });
-  });
-
-  it('returns SPACE_ACCESS_DENIED when the grant lacks runs:write', async () => {
-    const response = await upload('agk_grant_no_runs', {
-      'idempotency-key': 'missing-runs', 'x-agentwiki-user-confirmed': 'true',
+  it('rejects a credential that is not bound to the requested space grant', async () => {
+    const response = await upload('agk_wrong_binding', {
+      'idempotency-key': 'wrong-binding', 'x-agentwiki-user-confirmed': 'true',
     });
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toMatchObject({ code: 'SPACE_ACCESS_DENIED' });
   });
 
-  it('rejects a non-editor with 403', async () => {
-    const response = await upload('agk_viewer', {
-      'idempotency-key': 'viewer', 'x-agentwiki-user-confirmed': 'true',
+  it('rejects a reader grant even if stale credential metadata claims write access', async () => {
+    const response = await upload('agk_reader', {
+      'idempotency-key': 'reader', 'x-agentwiki-user-confirmed': 'true',
     });
 
     expect(response.status).toBe(403);
