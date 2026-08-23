@@ -275,43 +275,50 @@ export class RunService {
 
   async startRun(spaceId: string, runId: string, body: StartRunDto, principal: Principal) {
     await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
-    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
-      runId,
-      actorKind: 'human',
-      actorId: principal.userId,
-      actorUserId: principal.userId,
-      operation: 'start_run',
-      target: runId,
-      key: body.idempotencyKey,
-      requestHash: canonicalRequestHash({ expectedVersion: body.expectedVersion }),
-      responseForStorage: () => ({ runId }),
-      replayResponse: () => this.loadHumanRun(tx, runId),
-    }, async () => {
-      const run = await tx.collaborationRun.findFirst({
-        where: { id: runId, spaceId, status: 'ready', version: body.expectedVersion },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const scopedRun = await tx.collaborationRun.findFirst({
+        where: { id: runId, spaceId },
+        select: { id: true },
       });
-      if (!run) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-      const template = await this.loadTemplate(tx, spaceId, run.templateId);
-      const definition = parseDefinition(template.definition);
-      const bindings = await this.loadBindings(tx, runId, run);
-      this.validateInputs(definition, run.inputs);
-      this.normalizeBindings(definition, bindings);
-      await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
-      const snapshot = structuredClone(definition);
-      await tx.collaborationRun.update({
-        where: { id: runId },
-        data: {
-          templateVersion: template.version,
-          templateSnapshot: toJson(snapshot),
-          snapshotHash: hashCollaborationTemplate(snapshot),
-          status: 'running',
-          startedAt: new Date(),
-          version: { increment: 1 },
-        },
+      if (!scopedRun) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+      return this.events.executeIdempotent(tx, {
+        runId,
+        actorKind: 'human',
+        actorId: principal.userId,
+        actorUserId: principal.userId,
+        operation: 'start_run',
+        target: runId,
+        key: body.idempotencyKey,
+        requestHash: canonicalRequestHash({ expectedVersion: body.expectedVersion }),
+        responseForStorage: () => ({ runId }),
+        replayResponse: () => this.loadHumanRun(tx, runId),
+      }, async () => {
+        const run = await tx.collaborationRun.findFirst({
+          where: { id: runId, spaceId, status: 'ready', version: body.expectedVersion },
+        });
+        if (!run) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
+        const template = await this.loadTemplate(tx, spaceId, run.templateId);
+        const definition = parseDefinition(template.definition);
+        const bindings = await this.loadBindings(tx, runId, run);
+        this.validateInputs(definition, run.inputs);
+        this.normalizeBindings(definition, bindings);
+        await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
+        const snapshot = structuredClone(definition);
+        await tx.collaborationRun.update({
+          where: { id: runId },
+          data: {
+            templateVersion: template.version,
+            templateSnapshot: toJson(snapshot),
+            snapshotHash: hashCollaborationTemplate(snapshot),
+            status: 'running',
+            startedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        await this.expandRun(tx, runId, definition, bindings);
+        return this.loadHumanRun(tx, runId);
       });
-      await this.expandRun(tx, runId, definition, bindings);
-      return this.loadHumanRun(tx, runId);
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);
     return result;
   }

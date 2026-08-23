@@ -112,7 +112,7 @@ describe('RunService', () => {
   });
 
   it('validates fresh grants then freezes and expands the ready run on start', async () => {
-    tx.collaborationRun.findFirst.mockResolvedValueOnce(ready);
+    tx.collaborationRun.findFirst.mockResolvedValueOnce({ id: 'run-1' }).mockResolvedValueOnce(ready);
     const result = await service.startRun('space-1', 'run-1', {
       expectedVersion: 2, idempotencyKey: 'start-run-0001',
     }, humanPrincipal);
