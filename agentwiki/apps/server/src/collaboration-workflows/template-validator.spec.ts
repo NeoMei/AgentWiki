@@ -119,6 +119,100 @@ describe('collaboration template validator', () => {
     );
   });
 
+  it('rejects indirect and nested any releases that do not guarantee a required Artifact', () => {
+    const indirect = validDefinition({
+      nodes: [
+        task('producer', 'required'),
+        task('relay'),
+        task('bypass'),
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [
+        { from: 'producer', to: 'relay', mode: 'all' },
+        { from: 'relay', to: 'consumer', mode: 'any' },
+        { from: 'bypass', to: 'consumer', mode: 'any' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(indirect)).toContainEqual(
+      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
+    );
+
+    const nestedAny = validDefinition({
+      nodes: [
+        task('producer', 'required'),
+        task('alternate'),
+        task('inner'),
+        task('outer-bypass'),
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [
+        { from: 'producer', to: 'inner', mode: 'any' },
+        { from: 'alternate', to: 'inner', mode: 'any' },
+        { from: 'inner', to: 'consumer', mode: 'any' },
+        { from: 'outer-bypass', to: 'consumer', mode: 'any' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(nestedAny)).toContainEqual(
+      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
+    );
+  });
+
+  it('accepts nested any joins when every release path guarantees the required Artifact', () => {
+    const definition = validDefinition({
+      nodes: [
+        task('producer', 'required'),
+        task('left'),
+        task('right'),
+        task('inner'),
+        task('outer'),
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [
+        { from: 'producer', to: 'left', mode: 'all' },
+        { from: 'producer', to: 'right', mode: 'all' },
+        { from: 'left', to: 'inner', mode: 'any' },
+        { from: 'right', to: 'inner', mode: 'any' },
+        { from: 'producer', to: 'outer', mode: 'all' },
+        { from: 'inner', to: 'consumer', mode: 'any' },
+        { from: 'outer', to: 'consumer', mode: 'any' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(definition)).toEqual([]);
+  });
+
+  it('rejects required Artifact paths that a skippable producer or relay can bypass', () => {
+    const skippableProducer = validDefinition({
+      nodes: [
+        { ...task('producer', 'required'), skippable: true },
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [{ from: 'producer', to: 'consumer', mode: 'all' }],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(skippableProducer)).toContainEqual(
+      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
+    );
+
+    const skippableRelay = validDefinition({
+      nodes: [
+        task('producer', 'required'),
+        { ...task('relay'), skippable: true },
+        { ...task('consumer'), upstreamArtifacts: [{ key: 'required', required: true }] },
+      ],
+      dependencies: [
+        { from: 'producer', to: 'relay', mode: 'all' },
+        { from: 'relay', to: 'consumer', mode: 'all' },
+      ],
+      terminalNodeIds: ['consumer'],
+    });
+    expect(validateCollaborationTemplate(skippableRelay)).toContainEqual(
+      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
+    );
+  });
+
   it('hashes canonical object-key order and accepts a sound graph', () => {
     const definition = CollaborationTemplateDefinitionSchema.parse(validDefinition());
     expect(validateCollaborationTemplate(definition)).toEqual([]);

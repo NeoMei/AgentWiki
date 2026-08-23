@@ -197,6 +197,72 @@ function duplicates(values: readonly string[]): string[] {
   return [...repeated].sort();
 }
 
+type CollaborationReadinessDependency = {
+  from: string;
+  to: string;
+  mode: unknown;
+};
+
+type CollaborationReadinessNode = {
+  id: string;
+  skippable?: unknown;
+};
+
+export function collaborationGuaranteedPredecessors(
+  nodes: Iterable<CollaborationReadinessNode>,
+  dependencies: readonly CollaborationReadinessDependency[],
+): Map<string, ReadonlySet<string>> {
+  const nodeList = [...nodes];
+  const ids = [...new Set(nodeList.map((node) => node.id))].sort();
+  const idSet = new Set(ids);
+  const skippableIds = new Set(nodeList.filter((node) => node.skippable === true).map((node) => node.id));
+  const incoming = new Map(ids.map((id) => [id, [] as CollaborationReadinessDependency[]]));
+  const outgoing = new Map(ids.map((id) => [id, new Set<string>()]));
+  const seenEdges = new Set<string>();
+  for (const dependency of dependencies) {
+    if (!idSet.has(dependency.from) || !idSet.has(dependency.to)) continue;
+    const edgeKey = `${dependency.from}\u0000${dependency.to}`;
+    if (seenEdges.has(edgeKey)) continue;
+    seenEdges.add(edgeKey);
+    incoming.get(dependency.to)!.push(dependency);
+    outgoing.get(dependency.from)!.add(dependency.to);
+  }
+  for (const edges of incoming.values()) {
+    edges.sort((left, right) => left.from.localeCompare(right.from));
+  }
+
+  const remainingParents = new Map(ids.map((id) => [id, incoming.get(id)!.length]));
+  const ready = ids.filter((id) => remainingParents.get(id) === 0);
+  const order: string[] = [];
+  while (ready.length > 0) {
+    const id = ready.shift()!;
+    order.push(id);
+    for (const next of [...outgoing.get(id)!].sort()) {
+      const remaining = remainingParents.get(next)! - 1;
+      remainingParents.set(next, remaining);
+      if (remaining === 0) ready.push(next);
+    }
+    ready.sort();
+  }
+
+  const guaranteed = new Map<string, ReadonlySet<string>>(ids.map((id) => [id, new Set<string>()]));
+  for (const id of order) {
+    const parents = incoming.get(id)!;
+    if (parents.length === 0) continue;
+    const releasePaths = parents.map(({ from }) => skippableIds.has(from)
+      ? new Set<string>()
+      : new Set([from, ...(guaranteed.get(from) ?? [])]));
+    if (parents.every(({ mode }) => mode === "all")) {
+      guaranteed.set(id, new Set(releasePaths.flatMap((path) => [...path])));
+      continue;
+    }
+    guaranteed.set(id, new Set([...releasePaths[0]].filter((candidate) =>
+      releasePaths.every((path) => path.has(candidate)),
+    )));
+  }
+  return guaranteed;
+}
+
 export const CollaborationTemplateDefinitionSchema = CollaborationTemplateDefinitionBaseSchema.superRefine(
   (definition, context) => {
     const inputIds = new Set(definition.inputs.map((input) => input.key));
@@ -205,6 +271,7 @@ export const CollaborationTemplateDefinitionSchema = CollaborationTemplateDefini
     const nodeIds = new Set(nodeById.keys());
     const agentTasks = definition.nodes.filter((node): node is z.infer<typeof CollaborationAgentTaskNodeSchema> => node.kind === "agent_task");
     const outputProducer = new Map(agentTasks.map((node) => [node.output.key, node.id]));
+    const guaranteedPredecessors = collaborationGuaranteedPredecessors(definition.nodes, definition.dependencies);
 
     const addDuplicateIssues = (values: readonly string[], path: (string | number)[], label: string) => {
       for (const value of duplicates(values)) {
@@ -344,11 +411,11 @@ export const CollaborationTemplateDefinitionSchema = CollaborationTemplateDefini
             });
             continue;
           }
-          if (artifact.required && incoming.get(node.id)?.some((edge) => edge.mode === "any" && edge.from === producerId)) {
+          if (artifact.required && !guaranteedPredecessors.get(node.id)?.has(producerId)) {
             context.addIssue({
               code: z.ZodIssueCode.custom,
               path: ["nodes", nodeIndex, "upstreamArtifacts", artifactIndex],
-              message: `Required artifact cannot use an any dependency: ${artifact.key}`,
+              message: `Required artifact is not guaranteed before the consumer becomes ready: ${artifact.key}`,
             });
           }
         }

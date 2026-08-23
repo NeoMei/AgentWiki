@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  collaborationGuaranteedPredecessors,
   CollaborationTemplateDefinitionSchema,
   type CollaborationTemplateDefinition,
 } from '@neomei/agentwiki-sync-protocol';
@@ -18,6 +19,7 @@ type RawNode = {
   upstreamArtifacts?: unknown;
   output?: unknown;
   todos?: unknown;
+  skippable?: unknown;
   artifactTaskId?: unknown;
   revisionTaskId?: unknown;
 };
@@ -62,6 +64,14 @@ export function validateCollaborationTemplate(input: unknown): TemplateValidatio
     .map((node) => [isRecord(node.output) ? node.output.key : undefined, node.id] as const)
     .filter((pair): pair is readonly [string, string] => typeof pair[0] === 'string' && typeof pair[1] === 'string');
   const outputProducer = new Map(outputPairs);
+  const guaranteedPredecessors = collaborationGuaranteedPredecessors(
+    nodes.flatMap((node) => typeof node.id === 'string'
+      ? [{ id: node.id, skippable: node.skippable }]
+      : []),
+    dependencies.flatMap((edge) => typeof edge.from === 'string' && typeof edge.to === 'string'
+      ? [{ from: edge.from, to: edge.to, mode: edge.mode }]
+      : []),
+  );
 
   addDuplicateIssues(issues, inputKeys, 'inputs', 'input key');
   addDuplicateIssues(issues, roleIds, 'roleSlots', 'role slot id');
@@ -173,7 +183,7 @@ export function validateCollaborationTemplate(input: unknown): TemplateValidatio
       const producer = outputProducer.get(artifact.key);
       if (!producer || producer === node.id || !hasPath(producer, node.id)) {
         issues.push(issue('UPSTREAM_ARTIFACT_UNREACHABLE', `nodes.${node.id}.upstreamArtifacts`, artifact.key));
-      } else if (artifact.required === true && incoming.get(node.id)?.some((edge) => edge.mode === 'any' && edge.from === producer)) {
+      } else if (artifact.required === true && !guaranteedPredecessors.get(node.id)?.has(producer)) {
         issues.push(issue('ANY_REQUIRED_ARTIFACT_UNSAFE', `nodes.${node.id}.upstreamArtifacts`, artifact.key));
       }
     }
@@ -206,7 +216,7 @@ function codeForSchemaIssue(message: string): string {
   if (/direct source edge/i.test(message)) return 'REVIEW_SOURCE_EDGE_MISSING';
   if (/revision target/i.test(message)) return 'REVISION_TARGET_INVALID';
   if (/upstream artifact/i.test(message)) return 'UPSTREAM_ARTIFACT_UNREACHABLE';
-  if (/any dependency/i.test(message)) return 'ANY_REQUIRED_ARTIFACT_UNSAFE';
+  if (/required artifact.*not guaranteed|any dependency/i.test(message)) return 'ANY_REQUIRED_ARTIFACT_UNSAFE';
   if (/modes cannot mix/i.test(message)) return 'DEPENDENCY_MODE_CONFLICT';
   if (/required Todo/i.test(message)) return 'REQUIRED_TODO_MISSING';
   if (/role slot/i.test(message)) return 'ROLE_SLOT_MISSING';

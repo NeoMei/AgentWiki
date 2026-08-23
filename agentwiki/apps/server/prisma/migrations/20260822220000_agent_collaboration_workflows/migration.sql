@@ -203,8 +203,7 @@ CREATE INDEX "CollaborationTaskAttempt_lease_scan" ON "CollaborationTaskAttempt"
 CREATE UNIQUE INDEX "CollaborationTaskAttempt_taskId_generation_attemptNumber_key" ON "CollaborationTaskAttempt"("taskId", "generation", "attemptNumber");
 CREATE UNIQUE INDEX "CollaborationTaskAttempt_id_taskId_runId_generation_key" ON "CollaborationTaskAttempt"("id", "taskId", "runId", "generation");
 CREATE INDEX "CollaborationTaskArtifact_taskId_generation_status_version_idx" ON "CollaborationTaskArtifact"("taskId", "generation", "status", "version");
-CREATE UNIQUE INDEX "CollaborationTaskArtifact_id_runId_key" ON "CollaborationTaskArtifact"("id", "runId");
-CREATE UNIQUE INDEX "CollaborationTaskArtifact_id_runId_generation_key" ON "CollaborationTaskArtifact"("id", "runId", "generation");
+CREATE UNIQUE INDEX "CollaborationTaskArtifact_id_taskId_runId_generation_key" ON "CollaborationTaskArtifact"("id", "taskId", "runId", "generation");
 CREATE UNIQUE INDEX "CollaborationTaskArtifact_taskId_generation_version_key" ON "CollaborationTaskArtifact"("taskId", "generation", "version");
 CREATE INDEX "CollaborationReview_runId_status_idx" ON "CollaborationReview"("runId", "status");
 CREATE UNIQUE INDEX "CollaborationReview_runId_nodeId_revision_key" ON "CollaborationReview"("runId", "nodeId", "revision");
@@ -246,7 +245,7 @@ ALTER TABLE "CollaborationTaskArtifact" ADD CONSTRAINT "CollaborationTaskArtifac
 ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_runId_fkey" FOREIGN KEY ("runId") REFERENCES "CollaborationRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_sourceTaskId_runId_fkey" FOREIGN KEY ("sourceTaskId", "runId") REFERENCES "CollaborationRunTask"("id", "runId") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_revisionTaskId_runId_fkey" FOREIGN KEY ("revisionTaskId", "runId") REFERENCES "CollaborationRunTask"("id", "runId") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_artifactId_runId_generation_fkey" FOREIGN KEY ("artifactId", "runId", "generation") REFERENCES "CollaborationTaskArtifact"("id", "runId", "generation") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_artifact_source_identity_fkey" FOREIGN KEY ("artifactId", "sourceTaskId", "runId", "generation") REFERENCES "CollaborationTaskArtifact"("id", "taskId", "runId", "generation") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "CollaborationReview" ADD CONSTRAINT "CollaborationReview_reviewerUserId_fkey" FOREIGN KEY ("reviewerUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "CollaborationRunEvent" ADD CONSTRAINT "CollaborationRunEvent_runId_fkey" FOREIGN KEY ("runId") REFERENCES "CollaborationRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "CollaborationRunEvent" ADD CONSTRAINT "CollaborationRunEvent_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

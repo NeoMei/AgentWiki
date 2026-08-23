@@ -184,7 +184,129 @@ describe("collaboration contract", () => {
       { from: "source-b", to: "merge", mode: "any" },
     ];
     definition.terminalNodeIds = ["merge"];
-    expect(() => CollaborationTemplateDefinitionSchema.parse(definition)).toThrow(/any/i);
+    expect(() => CollaborationTemplateDefinitionSchema.parse(definition)).toThrow(/guaranteed|required artifact/i);
+  });
+
+  it("rejects indirect and nested any paths that can release before a required artifact", () => {
+    const indirect = validDefinition();
+    indirect.nodes = [
+      agentTask({ id: "producer", name: "Producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "relay", name: "Relay", output: { key: "relay", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "bypass", name: "Bypass", output: { key: "bypass", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    indirect.dependencies = [
+      { from: "producer", to: "relay", mode: "all" },
+      { from: "relay", to: "consumer", mode: "any" },
+      { from: "bypass", to: "consumer", mode: "any" },
+    ];
+    indirect.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(indirect)).toThrow(/guaranteed|required artifact/i);
+
+    const nestedAny = validDefinition();
+    nestedAny.nodes = [
+      agentTask({ id: "producer", name: "Producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "alternate", name: "Alternate", output: { key: "alternate", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "inner", name: "Inner", output: { key: "inner", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "outer-bypass", name: "Outer bypass", output: { key: "outer-bypass", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    nestedAny.dependencies = [
+      { from: "producer", to: "inner", mode: "any" },
+      { from: "alternate", to: "inner", mode: "any" },
+      { from: "inner", to: "consumer", mode: "any" },
+      { from: "outer-bypass", to: "consumer", mode: "any" },
+    ];
+    nestedAny.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(nestedAny)).toThrow(/guaranteed|required artifact/i);
+  });
+
+  it("accepts nested any joins when the required producer is guaranteed on every release path", () => {
+    const definition = validDefinition();
+    definition.nodes = [
+      agentTask({ id: "producer", name: "Producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "left", name: "Left", output: { key: "left", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "right", name: "Right", output: { key: "right", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "inner", name: "Inner", output: { key: "inner", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "outer", name: "Outer", output: { key: "outer", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    definition.dependencies = [
+      { from: "producer", to: "left", mode: "all" },
+      { from: "producer", to: "right", mode: "all" },
+      { from: "left", to: "inner", mode: "any" },
+      { from: "right", to: "inner", mode: "any" },
+      { from: "producer", to: "outer", mode: "all" },
+      { from: "inner", to: "consumer", mode: "any" },
+      { from: "outer", to: "consumer", mode: "any" },
+    ];
+    definition.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(definition)).not.toThrow();
+  });
+
+  it("rejects required Artifact paths that a skippable producer or relay can bypass", () => {
+    const skippableProducer = validDefinition();
+    skippableProducer.nodes = [
+      agentTask({
+        id: "producer",
+        name: "Producer",
+        output: { key: "required", kind: "markdown" },
+        humanAcceptance: false,
+        skippable: true,
+      }),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    skippableProducer.dependencies = [{ from: "producer", to: "consumer", mode: "all" }];
+    skippableProducer.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(skippableProducer)).toThrow(/guaranteed|required artifact/i);
+
+    const skippableRelay = validDefinition();
+    skippableRelay.nodes = [
+      agentTask({ id: "producer", name: "Producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
+      agentTask({ id: "relay", name: "Relay", output: { key: "relay", kind: "markdown" }, humanAcceptance: false, skippable: true }),
+      agentTask({
+        id: "consumer",
+        name: "Consumer",
+        inputKeys: [],
+        upstreamArtifacts: [{ key: "required", required: true }],
+        output: { key: "result", kind: "markdown" },
+        humanAcceptance: false,
+      }),
+    ];
+    skippableRelay.dependencies = [
+      { from: "producer", to: "relay", mode: "all" },
+      { from: "relay", to: "consumer", mode: "all" },
+    ];
+    skippableRelay.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(skippableRelay)).toThrow(/guaranteed|required artifact/i);
   });
 
   it("keeps input values and artifact variants strict", () => {

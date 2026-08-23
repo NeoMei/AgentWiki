@@ -1183,8 +1183,7 @@ model CollaborationTaskArtifact {
   attempt CollaborationTaskAttempt @relation(fields: [attemptId, taskId, runId, generation], references: [id, taskId, runId, generation], onDelete: Restrict)
   reviews CollaborationReview[]
 
-  @@unique([id, runId])
-  @@unique([id, runId, generation])
+  @@unique([id, taskId, runId, generation])
   @@unique([taskId, generation, version])
   @@index([taskId, generation, status, version])
 }
@@ -1210,7 +1209,7 @@ model CollaborationReview {
   run          CollaborationRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
   sourceTask   CollaborationRunTask      @relation("CollaborationReviewSourceTask", fields: [sourceTaskId, runId], references: [id, runId], onDelete: Cascade)
   revisionTask CollaborationRunTask      @relation("CollaborationReviewRevisionTask", fields: [revisionTaskId, runId], references: [id, runId], onDelete: Restrict)
-  artifact     CollaborationTaskArtifact @relation(fields: [artifactId, runId, generation], references: [id, runId, generation], onDelete: Restrict)
+  artifact     CollaborationTaskArtifact @relation(fields: [artifactId, sourceTaskId, runId, generation], references: [id, taskId, runId, generation], onDelete: Restrict, map: "CollaborationReview_artifact_source_identity_fkey")
   reviewer     User?                     @relation("CollaborationReviewReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
 
   @@unique([runId, nodeId, revision])

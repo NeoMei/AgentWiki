@@ -178,6 +178,49 @@ test('collaboration migration exposes all ten tables and integrity guards', {
         payload: { markdown: 'done' },
         evidence: [],
       } });
+      const otherSourceTaskId = `task1_other_${suffix}`;
+      await prisma.collaborationRunTask.create({ data: {
+        id: otherSourceTaskId,
+        runId: ids.run1,
+        nodeId: 'task-1-other',
+        ordinal: 2,
+        name: 'Other source task',
+        objective: 'Must not own Task 1 Artifact',
+        roleSlotId: 'writer',
+        assigneeAgentId: ids.agent1,
+        outputContract: {},
+        requiredEvidence: [],
+        leaseSeconds: 300,
+        maxExecutionSeconds: 3600,
+      } });
+
+      await assert.rejects(
+        prisma.collaborationReview.create({ data: {
+          id: `bad_same_run_review_${suffix}`,
+          runId: ids.run1,
+          nodeId: 'review-wrong-source-task',
+          generation: 1,
+          sourceTaskId: otherSourceTaskId,
+          artifactId: ids.artifact1,
+          revisionTaskId: ids.task1,
+          minimumRole: 'editor',
+          reviewerUserIds: [],
+        } }),
+        /foreign key|constraint/i,
+      );
+      const validReview = await prisma.collaborationReview.create({ data: {
+        id: `valid_review_${suffix}`,
+        runId: ids.run1,
+        nodeId: 'review-matching-source-task',
+        generation: 1,
+        sourceTaskId: ids.task1,
+        artifactId: ids.artifact1,
+        revisionTaskId: ids.task1,
+        minimumRole: 'editor',
+        reviewerUserIds: [],
+      } });
+      assert.equal(validReview.sourceTaskId, ids.task1);
+      assert.equal(validReview.artifactId, ids.artifact1);
 
       await assert.rejects(
         prisma.collaborationTaskAttempt.create({ data: {
