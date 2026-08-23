@@ -2,8 +2,8 @@
 
 # 当前目标
 
-- 2026-08-23 综合安全与可靠性审查已完成修复和多轮验证，应用与 Local Sync `0.5.1` 发行候选已就绪。
-- Agent 统一访问角色 0.5.0 线上版本保持不变；本轮本地修复完成后，下一产品目标仍为 Agent 协作模板与组件。
+- 2026-08-23 综合安全与可靠性审查、Local Sync `0.5.1` npm 发行和生产部署均已完成，下一产品目标为 Agent 协作模板与组件。
+- Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
 # 范围 / 不做
@@ -15,17 +15,18 @@
 
 # 当前状态
 
-- `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；npm 仍为 Local Sync `0.5.0` / Sync Protocol `0.2.0`，三次 npm 网页安全密钥授权均超时且 registry 反查确认 `0.5.1` 未发布；生产尚未部署。
+- `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
-- GitHub `master` 已推送至 `d88e930`；生产 633 个受部署管理的 tracked 文件与该提交逐文件 SHA-256 一致。
-- npm 已发布 `@neomei/agentwiki-sync-protocol@0.2.0` 与 `@neomei/agentwiki-local-sync@0.5.0`，registry 干净安装和 CLI 启动验证通过。
+- GitHub `master` 已包含 `0.5.1` 代码；npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
+- npm 已发布 `@neomei/agentwiki-sync-protocol@0.2.0` 与 `@neomei/agentwiki-local-sync@0.5.1`；候选 tarball SHA-256 为 `8e7bd2723718c17a4335e1a96b4692de230d1e4052eb42ca2756b5d02f3e2ea2`。
 - 生产已应用 40 条迁移，最新为 `20260823090000_bind_agent_credentials_to_grants`；API、Worker、Frontend 三项 user service 均 active、`NRestarts=0`，最终切换后 error 日志为 0。
 - 公网 `/api/health` 的 database、redis、auditPersistence 均为 `ok`；生产统一授权烟测 `31/31` 通过，覆盖角色降权即时撤写、Editor 提案进入审核、Agent 不可审批、人工发布和清理。
-- 已登录生产浏览器确认主导航直接显示“连接 Obsidian”，链接 `/guide/obsidian`；Agent 访问页只有“生成统一网关接入指令”一个接入动作，角色恰为 Reader、Editor、Publisher，无独立 Credential 授权控件。
+- 已登录生产浏览器确认主导航直接显示“连接 Obsidian”，链接 `/guide/obsidian`；专页同屏提供安装、官方 `/api` 地址、连接码和设备管理。Agent 访问页只有“生成统一网关接入指令”一个接入动作，角色恰为 Reader、Editor、Publisher，无独立 Credential 授权控件，并显示 npm `0.5.1`。
 - 发布验收发现并修复两类额外问题：部署包 AppleDouble/xattr 污染（`888113f`、`ba2bd72`）和 AuditService 在 Redis 初始化前排空事件的启动竞态（`d88e930`）。最终服务器 AppleDouble 文件为 0，启动 error 为 0。
-- 发布前回滚备份已验证：数据库 `/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857.dump`，应用 `/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857-app.tar.gz`；对应 SHA-256 记录在统一角色任务引用中。
+- `0.5.1` 发布前回滚备份已验证：数据库 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643.dump`（SHA-256 `644207455d12f8191b5c51b5a871e6b8dfd5ad29a6f045c6a079507c23adc222`），应用 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643-app.tar.gz`（SHA-256 `046fbff3c2628a4272713d1d988ac4e5f92efbcbaa9f79194bcdcf0d85e9d26b`）。
+- 生产已切换到应用与 Local Sync `0.5.1`，保留旧应用树 `/root/agentwiki-previous-20260823223846`；三项服务 active/running、`NRestarts=0`，部署后 error 日志为 0，公网和本机健康检查均为全 `ok`。
 - 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
 
 # 稳定约束
@@ -49,8 +50,8 @@
 
 # 风险 / 下一步
 
-- 继续 `0.5.1` 发行时，需要用户在 npm 授权链接有效期内完成 Security Key / Touch ID；生产部署前还需先建立可用 SSH 会话。之后仍必须先验证数据库/应用双备份，再部署并做真实浏览器与公网协议验收。
+- `0.5.1` 已完成 GitHub、npm 与生产对齐；后续重点是观察线上授权、同步和审计指标，不再需要补发。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
-- 回退 0.5.0 必须成对恢复数据库与应用备份，不能只回退 schema 或只切旧应用目录。
+- 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
 - 下一阶段按 13 个任务的 TDD 计划实施协作模板；不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。
