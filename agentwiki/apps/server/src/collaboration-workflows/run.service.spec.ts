@@ -701,12 +701,15 @@ describe('RunService', () => {
     expect(Buffer.byteLength(serialized, 'utf8')).toBeLessThan(512_000);
   });
 
-  it('materializes at most four full Artifacts and paginates maximum legal payloads without gaps', async () => {
+  it('returns one worst-case escaped legal Artifact per page while materializing at most two rows', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
-    const artifacts = Array.from({ length: 5 }, (_, index) => ({
-      id: `artifact-${5 - index}`, runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
-      version: 5 - index, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(999_900) },
-      evidence: [], acceptedAt: new Date(), createdAt: new Date(`2026-08-24T00:00:0${5 - index}.000Z`),
+    const worstEvidence = Array.from({ length: 50 }, () => ({
+      kind: 'e'.repeat(128), reference: '\u0001'.repeat(2_048),
+    }));
+    const artifacts = [2, 1].map((version) => ({
+      id: `artifact-${version}`, runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
+      version, kind: 'markdown', status: 'accepted', payload: { markdown: '\u0001'.repeat(1_000_000) },
+      evidence: worstEvidence, acceptedAt: new Date(), createdAt: new Date(`2026-08-24T00:00:0${version}.000Z`),
     }));
     tx.collaborationTaskArtifact.findMany.mockImplementation(async ({ where, take }: any) => {
       const at = where.OR?.[0]?.createdAt?.lt as Date | undefined;
@@ -717,14 +720,16 @@ describe('RunService', () => {
         .slice(0, take);
     });
 
-    const first = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', undefined, '100', humanPrincipal);
-    const second = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', first.nextCursor!, '100', humanPrincipal);
+    const first = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', undefined, '1', humanPrincipal);
+    const second = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', first.nextCursor!, '1', humanPrincipal);
 
-    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ take: 4 }));
-    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ take: 4 }));
-    expect(first.items.map((artifact: any) => artifact.id)).toEqual(['artifact-5', 'artifact-4', 'artifact-3']);
-    expect(second.items.map((artifact: any) => artifact.id)).toEqual(['artifact-2', 'artifact-1']);
-    expect(new Set([...first.items, ...second.items].map((artifact: any) => artifact.id)).size).toBe(5);
+    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ take: 2 }));
+    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ take: 2 }));
+    expect(first.items.map((artifact: any) => artifact.id)).toEqual(['artifact-2']);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(Buffer.byteLength(JSON.stringify(first), 'utf8')).toBeGreaterThan(6_500_000);
+    expect(second.items.map((artifact: any) => artifact.id)).toEqual(['artifact-1']);
+    expect(new Set([...first.items, ...second.items].map((artifact: any) => artifact.id)).size).toBe(2);
     expect(second.nextCursor).toBeNull();
   });
 
@@ -743,13 +748,14 @@ describe('RunService', () => {
     expect(page.items).toHaveLength(1);
     expect(page.items[0].payload.markdown).toHaveLength(999_900);
     expect(page.nextCursor).toBeNull();
+    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2 }));
   });
 
   it('rejects a History page whose aggregate serialized details exceed the page budget', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationTaskArtifact.findMany.mockResolvedValue([{
       id: 'artifact-corrupt', runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
-      version: 1, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(4_000_000) },
+      version: 1, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(8_000_000) },
       evidence: [], acceptedAt: new Date(), createdAt: new Date('2026-08-24T00:00:01.000Z'),
     }]);
 

@@ -26,8 +26,8 @@ export const CollaborationWorkspace: React.FC = () => {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [nextRunCursor, setNextRunCursor] = useState<string | null>(null);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
-  const runRequestEpoch = useRef(0);
-  const runScope = useRef<{ spaceId: string; tab: Tab }>({ spaceId: id, tab });
+  const workspaceRequestEpoch = useRef(0);
+  const workspaceScope = useRef<{ spaceId: string; tab: Tab }>({ spaceId: id, tab });
   const nextRunCursorRef = useRef<string | null>(null);
   const [state, setState] = useState<LoadState>('loading');
   const [canManage, setCanManage] = useState(false);
@@ -36,22 +36,25 @@ export const CollaborationWorkspace: React.FC = () => {
   const [copyName, setCopyName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
-  runScope.current = { spaceId: id, tab };
+  workspaceScope.current = { spaceId: id, tab };
 
-  const isCurrentRunRequest = useCallback((spaceId: string, kind: RunListKind, epoch: number) => (
-    runRequestEpoch.current === epoch
-    && runScope.current.spaceId === spaceId
-    && runScope.current.tab === kind
+  const isCurrentWorkspaceRequest = useCallback((spaceId: string, requestTab: Tab, epoch: number) => (
+    workspaceRequestEpoch.current === epoch
+    && workspaceScope.current.spaceId === spaceId
+    && workspaceScope.current.tab === requestTab
   ), []);
 
   const loadTemplates = useCallback(async () => {
     if (!id) return;
+    const spaceId = id;
+    const epoch = ++workspaceRequestEpoch.current;
     setState('loading');
     try {
       const [nextTemplates, members] = await Promise.all([
-        collaborationApi.listTemplates(id),
-        collaborationApi.listMembers(id),
+        collaborationApi.listTemplates(spaceId),
+        collaborationApi.listMembers(spaceId),
       ]);
+      if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setTemplates(nextTemplates);
       const myRole = user?.platformRole === 'super_admin'
         ? 'owner'
@@ -60,59 +63,68 @@ export const CollaborationWorkspace: React.FC = () => {
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setState('ready');
     } catch (error) {
+      if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, t, user?.id, user?.platformRole]);
+  }, [id, isCurrentWorkspaceRequest, t, user?.id, user?.platformRole]);
 
   const loadRuns = useCallback(async (kind: RunListKind) => {
     if (!id) return;
     const spaceId = id;
-    const epoch = ++runRequestEpoch.current;
+    const epoch = ++workspaceRequestEpoch.current;
     setState('loading');
     try {
       const page = await collaborationApi.listRuns(spaceId, kind);
-      if (!isCurrentRunRequest(spaceId, kind, epoch)) return;
+      if (!isCurrentWorkspaceRequest(spaceId, kind, epoch)) return;
       setRuns(page.items);
       nextRunCursorRef.current = page.nextCursor;
       setNextRunCursor(page.nextCursor);
       setState('ready');
     } catch (error) {
-      if (!isCurrentRunRequest(spaceId, kind, epoch)) return;
+      if (!isCurrentWorkspaceRequest(spaceId, kind, epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, isCurrentRunRequest, t]);
+  }, [id, isCurrentWorkspaceRequest, t]);
 
   const loadMoreRuns = useCallback(async () => {
     if (!id || tab === 'templates' || !nextRunCursor || loadingMoreRuns) return;
     const spaceId = id;
     const kind = tab;
     const cursor = nextRunCursor;
-    const epoch = ++runRequestEpoch.current;
+    const epoch = ++workspaceRequestEpoch.current;
     setLoadingMoreRuns(true);
     try {
       const page = await collaborationApi.listRuns(spaceId, kind, cursor);
-      if (!isCurrentRunRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
+      if (!isCurrentWorkspaceRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
       setRuns((current) => [...current, ...page.items]);
       nextRunCursorRef.current = page.nextCursor;
       setNextRunCursor(page.nextCursor);
     } catch (error) {
-      if (!isCurrentRunRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
+      if (!isCurrentWorkspaceRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
     } finally {
-      if (isCurrentRunRequest(spaceId, kind, epoch)) setLoadingMoreRuns(false);
+      if (isCurrentWorkspaceRequest(spaceId, kind, epoch)) setLoadingMoreRuns(false);
     }
-  }, [id, isCurrentRunRequest, loadingMoreRuns, nextRunCursor, t, tab]);
+  }, [id, isCurrentWorkspaceRequest, loadingMoreRuns, nextRunCursor, t, tab]);
 
   useEffect(() => {
-    runRequestEpoch.current += 1;
+    workspaceRequestEpoch.current += 1;
     nextRunCursorRef.current = null;
+    setTemplates([]);
     setRuns([]);
     setNextRunCursor(null);
     setLoadingMoreRuns(false);
+    setCanManage(false);
+    setCanStart(false);
+    setToast(null);
+    setState('loading');
     if (tab === 'templates') void loadTemplates();
     else void loadRuns(tab);
+    return () => {
+      workspaceRequestEpoch.current += 1;
+    };
   }, [loadRuns, loadTemplates, tab]);
 
   const labels = useMemo(() => ({

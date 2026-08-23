@@ -79,7 +79,11 @@ const HUMAN_EVENT_PREVIEW_SELECT = {
 
 const HUMAN_RUN_MAX_SERIALIZED_BYTES = 512_000;
 const HUMAN_HISTORY_MAX_SERIALIZED_BYTES = 4_000_000;
-const HUMAN_ARTIFACT_HISTORY_MAX_PAGE = 3;
+// One legal 1 MB Markdown/evidence-summary payload can expand to 6 MB when every
+// byte is JSON-escaped. Fifty 2,048-character Evidence references add < 0.7 MB;
+// 8 MB leaves > 1 MB for the fixed row/page envelope while remaining bounded.
+const HUMAN_ARTIFACT_HISTORY_MAX_SERIALIZED_BYTES = 8_000_000;
+const HUMAN_ARTIFACT_HISTORY_MAX_PAGE = 1;
 const HUMAN_TODO_PREVIEW_LIMIT = 3;
 const HUMAN_EVENT_PREVIEW_LIMIT = 20;
 const ACTIVE_RUN_STATUSES = ['draft', 'ready', 'running', 'waiting_review', 'paused'] as const;
@@ -403,7 +407,10 @@ export class RunService {
       nextCursor = this.historyCursors.encode({ kind: historyKind, runId, position: nextPosition });
     }
     const page = { items, nextCursor };
-    if (Buffer.byteLength(JSON.stringify(page), 'utf8') > HUMAN_HISTORY_MAX_SERIALIZED_BYTES) {
+    const serializedBudget = historyKind === 'artifacts'
+      ? HUMAN_ARTIFACT_HISTORY_MAX_SERIALIZED_BYTES
+      : HUMAN_HISTORY_MAX_SERIALIZED_BYTES;
+    if (Buffer.byteLength(JSON.stringify(page), 'utf8') > serializedBudget) {
       throw new BusinessException('COLLABORATION_HISTORY_PAGE_TOO_LARGE', 'Reduce the History page limit');
     }
     return page;

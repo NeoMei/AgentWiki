@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -22,6 +22,17 @@ const spaceTemplate = {
   id: 'space-template', spaceId: 'space-1', slug: 'backend-release', name: 'Backend release',
   description: 'Release workflow', system: false, version: 2,
 };
+const spaceBTemplate = {
+  id: 'space-b-template', spaceId: 'space-2', slug: 'space-b', name: 'Space B template',
+  description: 'Space B workflow', system: false, version: 1,
+};
+
+let navigateWorkspace!: ReturnType<typeof useNavigate>;
+
+const NavigationCapture = () => {
+  navigateWorkspace = useNavigate();
+  return null;
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -38,6 +49,7 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
   return render(
     <LanguageProvider>
       <MemoryRouter initialEntries={['/spaces/space-1/collaboration']}>
+        <NavigationCapture />
         <Routes>
           <Route path="/spaces/:id/collaboration" element={<CollaborationWorkspace />} />
         </Routes>
@@ -197,6 +209,82 @@ describe('CollaborationWorkspace', () => {
     await waitFor(() => expect(screen.getByText('Current history')).toBeVisible());
     expect(screen.queryByTestId('collaboration-error')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not let an older Space A Templates success replace Space B data or permissions', async () => {
+    const spaceA = deferred<Awaited<ReturnType<typeof collaborationApi.listTemplates>>>();
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? spaceA.promise
+      : [spaceBTemplate]);
+    vi.mocked(collaborationApi.listMembers).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? [{ type: 'human', userId: 'owner-1', role: 'owner' }]
+      : [{ type: 'human', userId: 'owner-1', role: 'viewer' }]);
+    renderWorkspace();
+    await waitFor(() => expect(collaborationApi.listTemplates).toHaveBeenCalledWith('space-1'));
+
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Create template' })).not.toBeInTheDocument();
+    await act(async () => spaceA.resolve([spaceTemplate]));
+
+    await waitFor(() => expect(screen.getByText('Space B template')).toBeVisible());
+    expect(screen.queryByText('Backend release')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create template' })).not.toBeInTheDocument();
+  });
+
+  it('does not let an older Space A Templates error replace ready Space B', async () => {
+    const spaceA = deferred<Awaited<ReturnType<typeof collaborationApi.listTemplates>>>();
+    vi.mocked(collaborationApi.listTemplates).mockImplementation(async (spaceId) => spaceId === 'space-1'
+      ? spaceA.promise
+      : [spaceBTemplate]);
+    renderWorkspace();
+    await waitFor(() => expect(collaborationApi.listTemplates).toHaveBeenCalledWith('space-1'));
+
+    await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
+    expect(await screen.findByText('Space B template')).toBeVisible();
+    await act(async () => spaceA.reject(new Error('obsolete Space A failure')));
+
+    await waitFor(() => expect(screen.getByText('Space B template')).toBeVisible());
+    expect(screen.queryByTestId('collaboration-error')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not let an obsolete Templates error replace an Active Runs tab', async () => {
+    const templates = deferred<Awaited<ReturnType<typeof collaborationApi.listTemplates>>>();
+    vi.mocked(collaborationApi.listTemplates).mockReturnValue(templates.promise);
+    vi.mocked(collaborationApi.listRuns).mockResolvedValue({
+      items: [{ id: 'active-current', name: 'Current active', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }],
+      nextCursor: null,
+    });
+    renderWorkspace();
+    await waitFor(() => expect(collaborationApi.listTemplates).toHaveBeenCalledWith('space-1'));
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    expect(await screen.findByText('Current active')).toBeVisible();
+    await act(async () => templates.reject(new Error('obsolete Templates failure')));
+
+    await waitFor(() => expect(screen.getByText('Current active')).toBeVisible());
+    expect(screen.queryByTestId('collaboration-error')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('does not inspect or publish a Templates failure after unmount', async () => {
+    const templates = deferred<Awaited<ReturnType<typeof collaborationApi.listTemplates>>>();
+    vi.mocked(collaborationApi.listTemplates).mockReturnValue(templates.promise);
+    let inspected = false;
+    const obsoleteError = Object.defineProperty({}, 'response', {
+      get: () => {
+        inspected = true;
+        return undefined;
+      },
+    });
+    const view = renderWorkspace();
+    await waitFor(() => expect(collaborationApi.listTemplates).toHaveBeenCalledWith('space-1'));
+
+    view.unmount();
+    await act(async () => templates.reject(obsoleteError));
+
+    expect(inspected).toBe(false);
   });
 
   it('renders loading, empty, error, permissions, and Chinese copy', async () => {
