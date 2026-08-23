@@ -40,6 +40,7 @@ fi
 
 echo "Packaging AgentWiki direct-runtime release..."
 COPYFILE_DISABLE=1 tar \
+  --no-xattrs \
   --exclude='.env' \
   --exclude='apps/server/.env' \
   --exclude='node_modules' \

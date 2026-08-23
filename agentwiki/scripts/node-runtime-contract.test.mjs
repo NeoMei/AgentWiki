@@ -230,6 +230,11 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
     /COPYFILE_DISABLE=1\s+tar/,
     'macOS deployment archives must not emit AppleDouble metadata files on Linux',
   );
+  assert.match(
+    deploy,
+    /tar\s+\\\s*\n\s*--no-xattrs\s+\\/,
+    'macOS deployment archives must omit extended attributes that Linux cannot consume',
+  );
   assert.ok(
     /release_dir\/scripts\/.*HOME.*PROJECT_DIR.*scripts\//s.test(deploy)
       || /mv -- "\\\$release_dir" "\\\$live_dir"/.test(deploy),
