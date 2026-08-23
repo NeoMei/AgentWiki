@@ -282,10 +282,10 @@ export class ExecutionService {
           orderBy: { version: 'desc' },
           select: { version: true },
         });
-        const reviewNode = templateNodes(participant.run.templateSnapshot).find((node) =>
+        const requiresReview = templateNodes(participant.run.templateSnapshot).some((node) =>
           node.kind === 'human_review' && node.artifactTaskId === attempt.task.nodeId);
-        const artifactStatus = reviewNode ? 'pending' : 'accepted';
-        const taskStatus = reviewNode ? 'submitted' : 'completed';
+        const artifactStatus = requiresReview ? 'pending' : 'accepted';
+        const taskStatus = requiresReview ? 'submitted' : 'completed';
         const normalized = validation.normalizedArtifact;
         const artifact = await tx.collaborationTaskArtifact.create({
           data: {
@@ -298,7 +298,7 @@ export class ExecutionService {
             status: artifactStatus,
             payload: toJson(artifactPayload(normalized)),
             evidence: toJson(normalized.evidence),
-            acceptedAt: reviewNode ? null : new Date(),
+            acceptedAt: requiresReview ? null : new Date(),
           },
         });
         await tx.collaborationTaskAttempt.updateMany({
@@ -307,9 +307,8 @@ export class ExecutionService {
         });
         await tx.collaborationRunTask.update({
           where: { id: attempt.taskId },
-          data: { status: taskStatus, ...(reviewNode ? {} : { completedAt: new Date() }) },
+          data: { status: taskStatus, ...(requiresReview ? {} : { completedAt: new Date() }) },
         });
-        if (reviewNode) await this.createReview(tx, participant.run.id, attempt, artifact.id, reviewNode);
         await this.progression.advanceRun(tx, input.runId, `artifact-submitted:${artifact.id}`, false);
         const progressedRun = await tx.collaborationRun.findUnique({ where: { id: input.runId } });
         if (!progressedRun) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
@@ -684,33 +683,6 @@ export class ExecutionService {
     };
   }
 
-  private async createReview(tx: Tx, runId: string, attempt: AttemptWithTask, artifactId: string, reviewNode: any) {
-    const revisionTask = await tx.collaborationRunTask.findFirst({
-      where: { runId, nodeId: reviewNode.revisionTaskId },
-      select: { id: true },
-    });
-    if (!revisionTask) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
-    const prior = await tx.collaborationReview.findFirst({
-      where: { runId, nodeId: reviewNode.id },
-      orderBy: { revision: 'desc' },
-      select: { revision: true },
-    });
-    await tx.collaborationReview.create({
-      data: {
-        runId,
-        nodeId: reviewNode.id,
-        revision: (prior?.revision ?? 0) + 1,
-        generation: attempt.generation,
-        sourceTaskId: attempt.taskId,
-        artifactId,
-        revisionTaskId: revisionTask.id,
-        minimumRole: reviewNode.minimumRole,
-        reviewerUserIds: toJson(reviewNode.reviewerUserIds),
-        allowTerminate: reviewNode.allowTerminate,
-        status: 'pending',
-      },
-    });
-  }
 }
 
 class RetryableClaimConflict extends Error {}

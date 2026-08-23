@@ -57,6 +57,18 @@ function renderDashboard(run: any = runningRun, role: 'owner' | 'admin' | 'edito
   </MemoryRouter></LanguageProvider>);
 }
 
+function renderSuperAdminDashboard(run: any = waitingReviewRun) {
+  vi.mocked(useAuth).mockReturnValue({
+    user: { id: 'platform-admin', platformRole: 'super_admin' },
+  } as ReturnType<typeof useAuth>);
+  vi.mocked(collaborationApi.getRun).mockResolvedValue(run as any);
+  vi.mocked(collaborationApi.listMembers).mockResolvedValue([]);
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  return render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/runs/run-1']}>
+    <Routes><Route path="/spaces/:id/collaboration/runs/:runId" element={<RunDashboard />} /></Routes>
+  </MemoryRouter></LanguageProvider>);
+}
+
 describe('RunDashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -95,6 +107,15 @@ describe('RunDashboard', () => {
     const order = screen.getAllByTestId(/^dashboard-section-/u).map((element) => element.dataset.testid?.replace('dashboard-section-', ''));
     expect(order).toEqual(['summary', 'current-task', 'reviews', 'artifacts', 'activity']);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+
+  it('gives a non-member platform super admin Owner controls', async () => {
+    renderSuperAdminDashboard({
+      ...waitingReviewRun,
+      reviews: waitingReviewRun.reviews.map((review) => ({ ...review, reviewerUserIds: [] })),
+    });
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'End as failed' })).toBeVisible();
   });
 
   it('submits a human review with a required reason and authoritative refresh', async () => {

@@ -75,4 +75,19 @@ describe('built-in collaboration templates', () => {
     expect(serialized).not.toContain('automatically publish');
     expect(serialized).not.toContain('直接修改仓库');
   });
+
+  it('gates bid consensus on both tender analysis and material catalog without an outline bypass', () => {
+    const bid = BUILT_IN_COLLABORATION_TEMPLATES.find((seed) => seed.slug === 'bid-writing')!;
+    const incoming = bid.definition.dependencies
+      .filter((dependency) => dependency.to === 'bid-consensus-review')
+      .map((dependency) => dependency.from)
+      .sort();
+    expect(incoming).toEqual(['material-catalog', 'tender-analysis']);
+    expect(bid.definition.dependencies).not.toContainEqual({
+      from: 'material-catalog', to: 'outline-and-mapping', mode: 'all',
+    });
+    expect(bid.definition.dependencies).toContainEqual({
+      from: 'bid-consensus-review', to: 'outline-and-mapping', mode: 'all',
+    });
+  });
 });

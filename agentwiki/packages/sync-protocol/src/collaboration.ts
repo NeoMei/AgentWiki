@@ -100,6 +100,12 @@ export const CollaborationInputValuesSchema = z.record(IdentifierSchema, Collabo
         message: `Input values cannot exceed ${COLLABORATION_LIMITS.inputs} entries`,
       });
     }
+    if (!isBoundedJson(values)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Input values cannot exceed ${COLLABORATION_LIMITS.jsonBytes} UTF-8 bytes or JSON depth ${COLLABORATION_LIMITS.jsonDepth}`,
+      });
+    }
   });
 
 const CollaborationTodoDefinitionSchema = z.object({
@@ -254,22 +260,25 @@ export function collaborationGuaranteedPredecessors(
   const guaranteed = new Map<string, ReadonlySet<string>>(ids.map((id) => [id, new Set<string>()]));
   for (const id of order) {
     const reviewSource = reviewSourceById.get(id);
-    if (reviewSource !== undefined && idSet.has(reviewSource)) {
-      guaranteed.set(id, new Set([reviewSource, ...(guaranteed.get(reviewSource) ?? [])]));
+    const reviewGuarantees = reviewSource !== undefined && idSet.has(reviewSource)
+      ? new Set([reviewSource, ...(guaranteed.get(reviewSource) ?? [])])
+      : new Set<string>();
+    const parents = incoming.get(id)!;
+    if (parents.length === 0) {
+      guaranteed.set(id, reviewGuarantees);
       continue;
     }
-    const parents = incoming.get(id)!;
-    if (parents.length === 0) continue;
     const releasePaths = parents.map(({ from }) => skippableIds.has(from)
       ? new Set<string>()
       : new Set([from, ...(guaranteed.get(from) ?? [])]));
     if (parents.every(({ mode }) => mode === "all")) {
-      guaranteed.set(id, new Set(releasePaths.flatMap((path) => [...path])));
+      guaranteed.set(id, new Set([...reviewGuarantees, ...releasePaths.flatMap((path) => [...path])]));
       continue;
     }
-    guaranteed.set(id, new Set([...releasePaths[0]].filter((candidate) =>
-      releasePaths.every((path) => path.has(candidate)),
-    )));
+    guaranteed.set(id, new Set([
+      ...reviewGuarantees,
+      ...[...releasePaths[0]].filter((candidate) => releasePaths.every((path) => path.has(candidate))),
+    ]));
   }
   return guaranteed;
 }

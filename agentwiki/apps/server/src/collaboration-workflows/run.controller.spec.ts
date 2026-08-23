@@ -20,6 +20,7 @@ describe('RunController', () => {
       .filter(Boolean);
     expect(paths).toEqual(expect.arrayContaining([
       'drafts', ':runId/draft', ':runId/validate', ':runId/start', ':runId',
+      ':runId/history/:kind',
       ':runId/actions/pause', ':runId/actions/resume', ':runId/actions/fail', ':runId/actions/cancel',
       ':runId/tasks/:taskId/retry', ':runId/tasks/:taskId/reassign', ':runId/tasks/:taskId/skip',
       ':runId/reviews/:reviewId/decision',

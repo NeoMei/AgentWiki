@@ -7,8 +7,8 @@ import { canonicalRequestHash, RunEventStore } from './run-event.store';
 type Tx = Prisma.TransactionClient;
 type ProgressionState = {
   run: { status: string; pauseReason: string | null; templateSnapshot: unknown };
-  tasks: Array<{ id: string; nodeId: string; status: string; dependencyMode?: string; skippable?: boolean }>;
-  reviews: Array<{ nodeId: string; status: string }>;
+  tasks: Array<{ id: string; nodeId: string; status: string; generation: number; dependencyMode?: string; skippable?: boolean }>;
+  reviews: Array<{ nodeId: string; status: string; generation: number; sourceTaskId: string }>;
   satisfiedNodeIds: Set<string>;
 };
 
@@ -20,6 +20,7 @@ export class ProgressionService {
     const mutation = async () => {
       const state = await this.loadState(tx, runId);
       const dependencies = await tx.collaborationTaskDependency.findMany({ where: { runId } });
+      await this.createActionableReviews(tx, runId, state, dependencies);
       for (const task of state.tasks.filter((item) => item.status === 'blocked')) {
         const incoming = dependencies.filter((edge) => edge.toNodeId === task.nodeId);
         const satisfied = task.dependencyMode === 'any'
@@ -73,11 +74,78 @@ export class ProgressionService {
       tx.collaborationReview.findMany({ where: { runId } }),
     ]);
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+    const taskById = new Map(tasks.map((task) => [task.id, task]));
+    const currentReviews = reviews.filter((review) => {
+      const source = taskById.get(review.sourceTaskId);
+      return source !== undefined && source.generation === review.generation;
+    });
     const satisfiedNodeIds = new Set<string>(
       tasks.filter((task) => ['completed', 'skipped'].includes(task.status)).map((task) => task.nodeId),
     );
-    for (const review of reviews) if (review.status === 'approved') satisfiedNodeIds.add(review.nodeId);
-    return { run, tasks, reviews, satisfiedNodeIds };
+    for (const review of currentReviews) if (review.status === 'approved') satisfiedNodeIds.add(review.nodeId);
+    return { run, tasks, reviews: currentReviews, satisfiedNodeIds };
+  }
+
+  private async createActionableReviews(
+    tx: Tx,
+    runId: string,
+    state: ProgressionState,
+    dependencies: Array<{ fromNodeId: string; toNodeId: string; mode: string }>,
+  ): Promise<void> {
+    const reviewNodes = snapshotReviewNodes(state.run.templateSnapshot);
+    if (!reviewNodes.length) return;
+    const taskByNodeId = new Map(state.tasks.map((task) => [task.nodeId, task]));
+
+    for (const reviewNode of reviewNodes) {
+      const sourceTask = taskByNodeId.get(reviewNode.artifactTaskId);
+      if (!sourceTask || sourceTask.status !== 'submitted') continue;
+      if (state.reviews.some((review) =>
+        review.nodeId === reviewNode.id
+        && review.sourceTaskId === sourceTask.id
+        && review.generation === sourceTask.generation)) continue;
+      const incoming = dependencies.filter((edge) => edge.toNodeId === reviewNode.id);
+      const edgeSatisfied = (fromNodeId: string) =>
+        state.satisfiedNodeIds.has(fromNodeId) || fromNodeId === sourceTask.nodeId;
+      const satisfied = !incoming.length || (incoming[0].mode === 'any'
+        ? incoming.some((edge) => edgeSatisfied(edge.fromNodeId))
+        : incoming.every((edge) => edgeSatisfied(edge.fromNodeId)));
+      if (!satisfied) continue;
+      const [artifact, revisionTask, prior] = await Promise.all([
+        tx.collaborationTaskArtifact.findFirst({
+          where: {
+            runId, taskId: sourceTask.id, generation: sourceTask.generation, status: 'pending',
+          },
+          orderBy: { version: 'desc' },
+          select: { id: true },
+        }),
+        tx.collaborationRunTask.findFirst({
+          where: { runId, nodeId: reviewNode.revisionTaskId },
+          select: { id: true },
+        }),
+        tx.collaborationReview.findFirst({
+          where: { runId, nodeId: reviewNode.id },
+          orderBy: { revision: 'desc' },
+          select: { revision: true },
+        }),
+      ]);
+      if (!artifact || !revisionTask) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+      const created = await tx.collaborationReview.create({
+        data: {
+          runId,
+          nodeId: reviewNode.id,
+          revision: (prior?.revision ?? 0) + 1,
+          generation: sourceTask.generation,
+          sourceTaskId: sourceTask.id,
+          artifactId: artifact.id,
+          revisionTaskId: revisionTask.id,
+          minimumRole: reviewNode.minimumRole,
+          reviewerUserIds: structuredClone(reviewNode.reviewerUserIds) as Prisma.InputJsonValue,
+          allowTerminate: reviewNode.allowTerminate,
+          status: 'pending',
+        },
+      });
+      state.reviews.push(created);
+    }
   }
 }
 
@@ -97,4 +165,27 @@ function terminalNodeIds(snapshot: unknown): string[] {
   if (!snapshot || typeof snapshot !== 'object') return [];
   const value = (snapshot as { terminalNodeIds?: unknown }).terminalNodeIds;
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+type SnapshotReviewNode = {
+  kind: 'human_review';
+  id: string;
+  artifactTaskId: string;
+  revisionTaskId: string;
+  minimumRole: string;
+  reviewerUserIds: string[];
+  allowTerminate: boolean;
+};
+
+function snapshotReviewNodes(snapshot: unknown): SnapshotReviewNode[] {
+  if (!snapshot || typeof snapshot !== 'object') return [];
+  const nodes = (snapshot as { nodes?: unknown }).nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes.filter((node): node is SnapshotReviewNode =>
+    node !== null
+    && typeof node === 'object'
+    && (node as { kind?: unknown }).kind === 'human_review'
+    && typeof (node as { id?: unknown }).id === 'string'
+    && typeof (node as { artifactTaskId?: unknown }).artifactTaskId === 'string'
+    && typeof (node as { revisionTaskId?: unknown }).revisionTaskId === 'string');
 }

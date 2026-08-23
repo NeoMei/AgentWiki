@@ -130,7 +130,7 @@ export function normalizeExternalReference(reference: ExternalReference): Extern
     throw invalidReference();
   }
   const hasSecretKey = [...url.searchParams.keys()].some((key) =>
-    /^(?:token|key|signature|sig|x-amz-.+|x-goog-.+)$/iu.test(key));
+    /^(?:access_token|refresh_token|api_key|apikey|auth|credential|password|secret|token|key|signature|sig|provider|x-amz-.+|x-goog-.+)$/iu.test(key));
   if (url.protocol !== 'https:' || url.username || url.password || hasSecretKey || !reference.contentHash) {
     throw invalidReference();
   }

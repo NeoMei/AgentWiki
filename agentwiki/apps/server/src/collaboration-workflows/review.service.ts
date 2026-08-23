@@ -108,7 +108,12 @@ export class ReviewService {
             data: { status: 'cancelled', finishedAt: decidedAt },
           });
         }
-        return tx.collaborationRun.findUnique({ where: { id: runId } });
+        const receipt = await tx.collaborationRun.findUnique({
+          where: { id: runId },
+          select: { id: true, status: true, version: true },
+        });
+        if (!receipt) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+        return { runId: receipt.id, status: receipt.status, version: receipt.version };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);

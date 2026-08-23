@@ -43,7 +43,9 @@ export const RunDashboard: React.FC = () => {
   }, [id]);
 
   const run = state.kind === 'ready' ? state.value : state.kind === 'error' ? state.previous : undefined;
-  const humanRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role as HumanSpaceRole | undefined;
+  const humanRole = (user?.platformRole === 'super_admin'
+    ? 'owner'
+    : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
   const executableAgents = useMemo(() => members.filter((member) => member.type === 'agent' && member.agent?.status === 'active' && !member.agent.revokedAt && ['editor', 'publisher'].includes(member.role)), [members]);
 
   useEffect(() => {

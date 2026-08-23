@@ -22,6 +22,8 @@ export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'lease expiry and late rejection', 'maximum execution deadline', 'ordered Todo and Todo failure',
   'Artifact union, external reference, and bounded JSON Schema validation', 'all dependency',
   'any early release with all-upstream completion', 'approve', 'causal generation reject revision',
+  'current-generation review gates revision release',
+  'bid review waits for material in both submission orders',
   'stale Artifact cannot release or complete', 'mixed review and ready status precedence',
   'terminate', 'retry once then exhaustion pause', 'reassigned Agent join and old lease rejection',
   'active claim pause resume reclaim', 'active reassignment new Agent continues Todo progress',
@@ -297,6 +299,110 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: terminated.run.id } })).status, 'cancelled');
 
         cover('approve', 'causal generation reject revision', 'terminate');
+      });
+
+      await suite.test('Review progression is current-generation and waits for every bid predecessor', async () => {
+        const revision = await createFixture(prisma, {
+          taskSpecs: [
+            { nodeId: 'a', status: 'ready' },
+            { nodeId: 'b', status: 'blocked', ordinal: 1 },
+          ],
+          dependencies: [
+            { from: 'a', to: 'review-1', mode: 'all' },
+            { from: 'review-1', to: 'b', mode: 'all' },
+            { from: 'b', to: 'review-2', mode: 'all' },
+          ],
+          terminalNodeIds: ['review-2'],
+        });
+        const reviewNodes = [
+          reviewNode('review-1', 'a', 'a'),
+          reviewNode('review-2', 'b', 'a'),
+        ];
+        const revisionSnapshot = {
+          ...revision.snapshot,
+          nodes: [...revision.snapshot.nodes, ...reviewNodes],
+          terminalNodeIds: ['review-2'],
+        };
+        await prisma.collaborationRun.update({
+          where: { id: revision.run.id }, data: { templateSnapshot: revisionSnapshot },
+        });
+
+        await completeTask(services, revision.run.id, revision.principals[0], 'generation-a-1');
+        const review1v1 = await prisma.collaborationReview.findFirstOrThrow({
+          where: { runId: revision.run.id, nodeId: 'review-1', status: 'pending' },
+        });
+        await services.reviews.decide(
+          revision.space.id, revision.run.id, review1v1.id,
+          { kind: 'approve', reason: 'A generation one accepted', idempotencyKey: 'generation-review-1-v1' },
+          revision.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: revision.tasks[1].id } })).status, 'ready');
+
+        await completeTask(services, revision.run.id, revision.principals[0], 'generation-b-1');
+        const review2v1 = await prisma.collaborationReview.findFirstOrThrow({
+          where: { runId: revision.run.id, nodeId: 'review-2', status: 'pending' },
+        });
+        await services.reviews.decide(
+          revision.space.id, revision.run.id, review2v1.id,
+          { kind: 'reject_for_revision', reason: 'Revise A', idempotencyKey: 'generation-review-2-reject' },
+          revision.humanPrincipal,
+        );
+        assert.deepEqual(
+          (await prisma.collaborationRunTask.findMany({
+            where: { runId: revision.run.id }, orderBy: { ordinal: 'asc' },
+          })).map((task) => [task.nodeId, task.generation, task.status]),
+          [['a', 2, 'ready'], ['b', 2, 'blocked']],
+        );
+
+        await completeTask(services, revision.run.id, revision.principals[0], 'generation-a-2');
+        const review1v2 = await prisma.collaborationReview.findFirstOrThrow({
+          where: { runId: revision.run.id, nodeId: 'review-1', generation: 2, status: 'pending' },
+        });
+        assert.notEqual(review1v2.id, review1v1.id);
+        assert.equal((await prisma.collaborationReview.findUniqueOrThrow({ where: { id: review1v1.id } })).status, 'approved');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: revision.tasks[1].id } })).status, 'blocked');
+        await services.reviews.decide(
+          revision.space.id, revision.run.id, review1v2.id,
+          { kind: 'approve', reason: 'A generation two accepted', idempotencyKey: 'generation-review-1-v2' },
+          revision.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: revision.tasks[1].id } })).status, 'ready');
+
+        for (const order of ['tender-first', 'material-first']) {
+          const bid = await createFixture(prisma, {
+            agentRoles: ['editor', 'editor'],
+            taskSpecs: [
+              { nodeId: 'tender-analysis', status: 'ready', assigneeIndex: 0 },
+              { nodeId: 'material-catalog', status: 'ready', assigneeIndex: 1, ordinal: 1 },
+            ],
+            dependencies: [
+              { from: 'tender-analysis', to: 'bid-consensus-review', mode: 'all' },
+              { from: 'material-catalog', to: 'bid-consensus-review', mode: 'all' },
+            ],
+            terminalNodeIds: ['bid-consensus-review'],
+          });
+          const bidSnapshot = {
+            ...bid.snapshot,
+            nodes: [...bid.snapshot.nodes, reviewNode('bid-consensus-review', 'tender-analysis', 'tender-analysis')],
+            terminalNodeIds: ['bid-consensus-review'],
+          };
+          await prisma.collaborationRun.update({
+            where: { id: bid.run.id }, data: { templateSnapshot: bidSnapshot },
+          });
+          const firstIndex = order === 'tender-first' ? 0 : 1;
+          const secondIndex = firstIndex === 0 ? 1 : 0;
+          await completeTask(services, bid.run.id, bid.principals[firstIndex], `${order}-first`);
+          assert.equal(await prisma.collaborationReview.count({ where: { runId: bid.run.id } }), 0);
+          await completeTask(services, bid.run.id, bid.principals[secondIndex], `${order}-second`);
+          assert.equal(await prisma.collaborationReview.count({
+            where: { runId: bid.run.id, nodeId: 'bid-consensus-review', status: 'pending' },
+          }), 1);
+        }
+
+        cover(
+          'current-generation review gates revision release',
+          'bid review waits for material in both submission orders',
+        );
       });
 
       await suite.test('active claim survives pause and resume as a new same-generation Attempt', async () => {
@@ -770,6 +876,36 @@ async function insertHistoricalArtifact(prisma, fixture, task, generation, statu
     kind: 'markdown', status, payload: { markdown: 'historical' }, evidence: [],
     acceptedAt: status === 'accepted' ? now : null,
   } });
+}
+
+async function completeTask(services, runId, principal, keyPrefix) {
+  const claim = await services.execution.nextAction(nextInput(runId, `${keyPrefix}-claim`), principal);
+  assert.equal(claim.action, 'execute_task');
+  for (const todo of claim.task.todos) {
+    await services.execution.updateTodo({
+      runId,
+      attemptId: claim.attemptId,
+      todoId: todo.id,
+      leaseToken: claim.leaseToken,
+      status: 'done',
+      evidence: [],
+      idempotencyKey: `${keyPrefix}-todo-${todo.id}`,
+    }, principal);
+  }
+  return services.execution.submitResult({
+    runId,
+    attemptId: claim.attemptId,
+    leaseToken: claim.leaseToken,
+    artifact: { kind: 'markdown', markdown: keyPrefix, evidence: [] },
+    idempotencyKey: `${keyPrefix}-submit`,
+  }, principal);
+}
+
+function reviewNode(id, artifactTaskId, revisionTaskId) {
+  return {
+    kind: 'human_review', id, name: id, artifactTaskId, revisionTaskId,
+    minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['Evidence'], allowTerminate: true,
+  };
 }
 
 function taskNode(id, todoNames = ['Complete']) {

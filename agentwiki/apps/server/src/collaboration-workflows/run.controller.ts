@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
@@ -50,6 +50,18 @@ export class RunController {
     return this.runs.getHumanRun(spaceId, runId, req.user as Principal);
   }
 
+  @Get(':runId/history/:kind')
+  history(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @Param('kind') kind: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.runs.getHumanRunHistory(spaceId, runId, kind, cursor, limit, req.user as Principal);
+  }
+
   @Post(':runId/actions/pause')
   pause(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('runId') runId: string, @Body() body: RunActionDto) {
     return this.runs.pauseRun(runId, body, req.user as Principal, spaceId);
@@ -86,13 +98,14 @@ export class RunController {
   }
 
   @Post(':runId/reviews/:reviewId/decision')
-  decideReview(
+  async decideReview(
     @Req() req: Request,
     @Param('spaceId') spaceId: string,
     @Param('runId') runId: string,
     @Param('reviewId') reviewId: string,
     @Body() body: ReviewDecisionDto,
   ) {
-    return this.reviews.decide(spaceId, runId, reviewId, body, req.user as Principal);
+    await this.reviews.decide(spaceId, runId, reviewId, body, req.user as Principal);
+    return this.runs.getHumanRun(spaceId, runId, req.user as Principal);
   }
 }

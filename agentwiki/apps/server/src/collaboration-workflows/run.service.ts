@@ -30,6 +30,35 @@ const TERMINAL_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 type RoleBindingInput = { roleSlotId: string; agentId: string };
 type Tx = Prisma.TransactionClient;
 
+const HUMAN_TODO_SELECT = {
+  id: true, runId: true, taskId: true, generation: true, templateId: true, ordinal: true,
+  name: true, required: true, status: true, summary: true, evidence: true, updatedAt: true,
+} satisfies Prisma.CollaborationTaskTodoSelect;
+
+const HUMAN_ATTEMPT_SELECT = {
+  id: true, runId: true, taskId: true, generation: true, agentId: true, attemptNumber: true,
+  status: true, leaseStartedAt: true, leaseExpiresAt: true, maxExecutionAt: true,
+  failureCode: true, repairCount: true, finishedAt: true, createdAt: true, updatedAt: true,
+} satisfies Prisma.CollaborationTaskAttemptSelect;
+
+const HUMAN_ARTIFACT_SELECT = {
+  id: true, runId: true, taskId: true, attemptId: true, generation: true, version: true,
+  kind: true, status: true, payload: true, evidence: true, acceptedAt: true, createdAt: true,
+} satisfies Prisma.CollaborationTaskArtifactSelect;
+
+const HUMAN_REVIEW_SELECT = {
+  id: true, runId: true, nodeId: true, revision: true, generation: true, sourceTaskId: true,
+  artifactId: true, revisionTaskId: true, minimumRole: true, reviewerUserIds: true,
+  allowTerminate: true, status: true, reviewerUserId: true, reason: true, decidedAt: true,
+  createdAt: true,
+} satisfies Prisma.CollaborationReviewSelect;
+
+const HUMAN_EVENT_SELECT = {
+  id: true, runId: true, sequence: true, type: true, actorKind: true, actorId: true,
+  operation: true, target: true, actorUserId: true, actorAgentId: true, metadata: true,
+  createdAt: true,
+} satisfies Prisma.CollaborationRunEventSelect;
+
 const HUMAN_RUN_SELECT = {
   id: true,
   spaceId: true,
@@ -77,98 +106,10 @@ const HUMAN_RUN_SELECT = {
       completedAt: true,
       createdAt: true,
       updatedAt: true,
-      todos: {
-        select: {
-          id: true,
-          runId: true,
-          taskId: true,
-          generation: true,
-          templateId: true,
-          ordinal: true,
-          name: true,
-          required: true,
-          status: true,
-          summary: true,
-          evidence: true,
-          updatedAt: true,
-        },
-      },
-      attempts: {
-        select: {
-          id: true,
-          runId: true,
-          taskId: true,
-          generation: true,
-          agentId: true,
-          attemptNumber: true,
-          status: true,
-          leaseStartedAt: true,
-          leaseExpiresAt: true,
-          maxExecutionAt: true,
-          failureCode: true,
-          repairCount: true,
-          finishedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
-      artifacts: {
-        select: {
-          id: true,
-          runId: true,
-          taskId: true,
-          attemptId: true,
-          generation: true,
-          version: true,
-          kind: true,
-          status: true,
-          payload: true,
-          evidence: true,
-          acceptedAt: true,
-          createdAt: true,
-        },
-      },
     },
   },
   dependencies: {
     select: { id: true, runId: true, fromNodeId: true, toNodeId: true, mode: true },
-  },
-  reviews: {
-    select: {
-      id: true,
-      runId: true,
-      nodeId: true,
-      revision: true,
-      generation: true,
-      sourceTaskId: true,
-      artifactId: true,
-      revisionTaskId: true,
-      minimumRole: true,
-      reviewerUserIds: true,
-      allowTerminate: true,
-      status: true,
-      reviewerUserId: true,
-      reason: true,
-      decidedAt: true,
-      createdAt: true,
-    },
-  },
-  events: {
-    orderBy: { sequence: 'asc' },
-    select: {
-      id: true,
-      runId: true,
-      sequence: true,
-      type: true,
-      actorKind: true,
-      actorId: true,
-      operation: true,
-      target: true,
-      actorUserId: true,
-      actorAgentId: true,
-      metadata: true,
-      createdAt: true,
-    },
   },
 } satisfies Prisma.CollaborationRunSelect;
 
@@ -184,10 +125,11 @@ export class RunService {
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    const receipt = await this.prisma.$transaction(async (tx) => {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
+      const inputs = this.parseInputs(definition, body.inputs);
       const bindings = this.normalizeBindings(definition, body.roleBindings, true);
       const run = await tx.collaborationRun.create({
         data: {
@@ -199,7 +141,7 @@ export class RunService {
           name: body.name.trim(),
           status: 'draft',
           version: 1,
-          inputs: toJson(body.inputs),
+          inputs: toJson(inputs),
           startedById: principal.userId,
         },
       });
@@ -208,15 +150,15 @@ export class RunService {
           data: bindings.map((binding) => ({ runId: run.id, ...binding })),
         });
       }
-      return run;
+      return { runId: run.id, status: run.status, version: run.version };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    await this.notifications.publishCurrentRun(result.id);
-    return result;
+    await this.notifications.publishCurrentRun(receipt.runId);
+    return this.loadHumanRun(this.prisma as unknown as Tx, receipt.runId);
   }
 
   async updateDraft(spaceId: string, runId: string, body: UpdateRunDraftDto, principal: Principal) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const current = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: { in: ['draft', 'ready'] }, version: body.expectedVersion },
@@ -224,6 +166,7 @@ export class RunService {
       if (!current) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
       const template = await this.loadTemplate(tx, spaceId, current.templateId);
       const definition = parseDefinition(template.definition);
+      const inputs = body.inputs === undefined ? undefined : this.parseInputs(definition, body.inputs);
       if (body.roleBindings) {
         const bindings = this.normalizeBindings(definition, body.roleBindings);
         await tx.collaborationRoleBinding.deleteMany({ where: { runId } });
@@ -236,15 +179,15 @@ export class RunService {
         data: {
           status: 'draft',
           ...(body.name === undefined ? {} : { name: body.name.trim() }),
-          ...(body.inputs === undefined ? {} : { inputs: toJson(body.inputs) }),
+          ...(inputs === undefined ? {} : { inputs: toJson(inputs) }),
           version: { increment: 1 },
         },
       });
       if (updated.count !== 1) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-      return tx.collaborationRun.findUnique({ where: { id: runId } });
+      return { runId, status: 'draft' as const, version: body.expectedVersion + 1 };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    if (result) await this.notifications.publishCurrentRun(runId);
-    return result;
+    await this.notifications.publishCurrentRun(runId);
+    return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
   async validateDraft(
@@ -254,7 +197,7 @@ export class RunService {
     principal: Principal,
   ) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const run = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
@@ -263,7 +206,7 @@ export class RunService {
       const template = await this.loadTemplate(tx, spaceId, run.templateId);
       const definition = parseDefinition(template.definition);
       const bindings = await this.loadBindings(tx, runId, run);
-      this.validateInputs(definition, run.inputs);
+      this.parseInputs(definition, run.inputs);
       this.normalizeBindings(definition, bindings);
       await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
       const updated = await tx.collaborationRun.updateMany({
@@ -271,15 +214,15 @@ export class RunService {
         data: { status: 'ready', version: { increment: 1 } },
       });
       if (updated.count !== 1) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-      return tx.collaborationRun.findUnique({ where: { id: runId } });
+      return { runId, status: 'ready' as const, version: body.expectedVersion + 1 };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    if (result) await this.notifications.publishCurrentRun(runId);
-    return result;
+    await this.notifications.publishCurrentRun(runId);
+    return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
   async startRun(spaceId: string, runId: string, body: StartRunDto, principal: Principal) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const scopedRun = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId },
@@ -295,8 +238,6 @@ export class RunService {
         target: runId,
         key: body.idempotencyKey,
         requestHash: canonicalRequestHash({ expectedVersion: body.expectedVersion }),
-        responseForStorage: () => ({ runId }),
-        replayResponse: () => this.loadHumanRun(tx, runId),
       }, async () => {
         const run = await tx.collaborationRun.findFirst({
           where: { id: runId, spaceId, status: 'ready', version: body.expectedVersion },
@@ -305,11 +246,11 @@ export class RunService {
         const template = await this.loadTemplate(tx, spaceId, run.templateId);
         const definition = parseDefinition(template.definition);
         const bindings = await this.loadBindings(tx, runId, run);
-        this.validateInputs(definition, run.inputs);
+        this.parseInputs(definition, run.inputs);
         this.normalizeBindings(definition, bindings);
         await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
         const snapshot = structuredClone(definition);
-        await tx.collaborationRun.update({
+        const updated = await tx.collaborationRun.update({
           where: { id: runId },
           data: {
             templateVersion: template.version,
@@ -321,11 +262,11 @@ export class RunService {
           },
         });
         await this.expandRun(tx, runId, definition, bindings);
-        return this.loadHumanRun(tx, runId);
+        return { runId, status: updated.status, version: updated.version };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);
-    return result;
+    return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
   async listRuns(spaceId: string, principal: Principal) {
@@ -341,6 +282,49 @@ export class RunService {
     const run = await this.prisma.collaborationRun.findFirst({ where: { id: runId, spaceId } });
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
     return this.loadHumanRun(this.prisma as unknown as Tx, runId);
+  }
+
+  async getHumanRunHistory(
+    spaceId: string,
+    runId: string,
+    kind: string,
+    cursor: string | undefined,
+    limit: string | undefined,
+    principal: Principal,
+  ) {
+    await this.assertHumanAccess(principal, spaceId, READ_ROLES);
+    const run = await this.prisma.collaborationRun.findFirst({
+      where: { id: runId, spaceId },
+      select: { id: true },
+    });
+    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+    const offset = parseHistoryInteger(cursor ?? '0', 0, 10_000);
+    const pageSize = parseHistoryInteger(limit ?? '50', 1, 100);
+    const query = {
+      where: { runId },
+      orderBy: { createdAt: 'desc' as const },
+      skip: offset,
+      take: pageSize + 1,
+    };
+    let rows: unknown[];
+    if (kind === 'events') {
+      rows = await this.prisma.collaborationRunEvent.findMany({
+        ...query,
+        orderBy: { sequence: 'desc' },
+        select: HUMAN_EVENT_SELECT,
+      });
+    } else if (kind === 'attempts') {
+      rows = await this.prisma.collaborationTaskAttempt.findMany({ ...query, select: HUMAN_ATTEMPT_SELECT });
+    } else if (kind === 'artifacts') {
+      rows = await this.prisma.collaborationTaskArtifact.findMany({ ...query, select: HUMAN_ARTIFACT_SELECT });
+    } else if (kind === 'reviews') {
+      rows = await this.prisma.collaborationReview.findMany({ ...query, select: HUMAN_REVIEW_SELECT });
+    } else {
+      throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
+    }
+    const hasMore = rows.length > pageSize;
+    const items = rows.slice(0, pageSize);
+    return { items, nextCursor: hasMore ? String(offset + items.length) : null };
   }
 
   pauseRun(runId: string, body: RunActionDto, principal: Principal, expectedSpaceId?: string) {
@@ -465,7 +449,7 @@ export class RunService {
     expectedSpaceId?: string,
   ) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       const current = await tx.collaborationRun.findUnique({
         where: { id: runId },
         select: { id: true, spaceId: true, status: true, startedById: true, templateSnapshot: true },
@@ -496,15 +480,18 @@ export class RunService {
         key: body.idempotencyKey,
         requestHash: canonicalRequestHash(body),
         metadata: { reason: body.reason },
-        responseForStorage: () => ({ runId }),
-        replayResponse: () => this.loadHumanRun(tx, runId),
       }, async () => {
         await mutation(tx, current);
-        return this.loadHumanRun(tx, runId);
+        const updated = await tx.collaborationRun.findUnique({
+          where: { id: runId },
+          select: { id: true, status: true, version: true },
+        });
+        if (!updated) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+        return { runId: updated.id, status: updated.status, version: updated.version };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);
-    return result;
+    return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
   private async assertHumanAccess(principal: Principal, spaceId: string, roles: SpaceRole[]) {
@@ -563,7 +550,10 @@ export class RunService {
     return bindings;
   }
 
-  private validateInputs(definition: CollaborationTemplateDefinition, raw: unknown): void {
+  private parseInputs(
+    definition: CollaborationTemplateDefinition,
+    raw: unknown,
+  ): Record<string, string | number | boolean> {
     const parsed = CollaborationInputValuesSchema.safeParse(raw);
     if (!parsed.success) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues: parsed.error.issues });
     const definitions = new Map(definition.inputs.map((input) => [input.key, input]));
@@ -579,6 +569,11 @@ export class RunService {
       if (input.type === 'url' && (typeof value !== 'string' || !isHttpsUrl(value))) issues.push(`${input.key} must be an HTTPS URL`);
     }
     if (issues.length) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
+    return Object.fromEntries(Object.entries(parsed.data).map(([key, value]) => {
+      const input = definitions.get(key)!;
+      if (input.type === 'url' && typeof value === 'string') return [key, new URL(value).toString()];
+      return [key, value];
+    }));
   }
 
   private async validateFreshAgents(tx: Tx, spaceId: string, agentIds: string[]): Promise<void> {
@@ -678,7 +673,52 @@ export class RunService {
     });
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
     const roleBindings = run.roleBindings;
-    const tasks = run.tasks;
+    const taskGenerations = run.tasks.map((task) => ({ taskId: task.id, generation: task.generation }));
+    const [todos, latestAttempts, latestArtifacts, reviews, newestEvents] = await Promise.all([
+      tx.collaborationTaskTodo.findMany({
+        where: { OR: taskGenerations },
+        orderBy: [{ taskId: 'asc' }, { ordinal: 'asc' }],
+        select: HUMAN_TODO_SELECT,
+      }),
+      Promise.all(taskGenerations.map(({ taskId, generation }) => tx.collaborationTaskAttempt.findFirst({
+        where: { taskId, generation },
+        orderBy: { attemptNumber: 'desc' },
+        select: HUMAN_ATTEMPT_SELECT,
+      }))),
+      Promise.all(taskGenerations.map(({ taskId, generation }) => tx.collaborationTaskArtifact.findFirst({
+        where: { taskId, generation },
+        orderBy: { version: 'desc' },
+        select: HUMAN_ARTIFACT_SELECT,
+      }))),
+      tx.collaborationReview.findMany({
+        where: { OR: taskGenerations.map(({ taskId, generation }) => ({ sourceTaskId: taskId, generation })) },
+        orderBy: { revision: 'desc' },
+        take: 100,
+        select: HUMAN_REVIEW_SELECT,
+      }),
+      tx.collaborationRunEvent.findMany({
+        where: { runId },
+        orderBy: { sequence: 'desc' },
+        take: 50,
+        select: HUMAN_EVENT_SELECT,
+      }),
+    ]);
+    const currentReviews = [
+      ...reviews
+        .reduce((latestByNode, review) => {
+          if (!latestByNode.has(review.nodeId)) {
+            latestByNode.set(review.nodeId, review);
+          }
+          return latestByNode;
+        }, new Map<string, (typeof reviews)[number]>())
+        .values(),
+    ];
+    const tasks = run.tasks.map((task, index) => ({
+      ...task,
+      todos: todos.filter((todo) => todo.taskId === task.id),
+      attempts: latestAttempts[index] ? [latestAttempts[index]] : [],
+      artifacts: latestArtifacts[index] ? [latestArtifacts[index]] : [],
+    }));
     const instructions = new Map<string, { agentId: string; roleSlotIds: string[]; taskIds: string[] }>();
     for (const binding of roleBindings) {
       const current = instructions.get(binding.agentId) ?? { agentId: binding.agentId, roleSlotIds: [], taskIds: [] };
@@ -694,6 +734,9 @@ export class RunService {
     }
     return {
       ...run,
+      tasks,
+      reviews: currentReviews,
+      events: newestEvents.reverse(),
       joinInstructions: [...instructions.values()],
     };
   }
@@ -738,4 +781,13 @@ function snapshotNodes(value: unknown): any[] {
   return value && typeof value === 'object' && Array.isArray((value as { nodes?: unknown }).nodes)
     ? (value as { nodes: any[] }).nodes
     : [];
+}
+
+function parseHistoryInteger(value: string, minimum: number, maximum: number): number {
+  if (!/^\d+$/u.test(value)) throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
+  }
+  return parsed;
 }

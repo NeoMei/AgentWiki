@@ -85,6 +85,14 @@ describe("collaboration contract", () => {
     })).toThrow();
   });
 
+  it("bounds typed Run inputs by UTF-8 bytes and rejects nested values", () => {
+    expect(() => CollaborationInputValuesSchema.parse({ topic: "汉".repeat(100_000) })).toThrow(/byte/i);
+    expect(() => CollaborationInputValuesSchema.parse({ topic: { nested: true } })).toThrow();
+    expect(CollaborationInputValuesSchema.parse({ topic: "bounded", count: 2, enabled: true })).toEqual({
+      topic: "bounded", count: 2, enabled: true,
+    });
+  });
+
   it("derives collaboration execution from access roles without review decisions", () => {
     expect(scopesForAgentAccessRole("reader")).toContain("collaboration:read");
     expect(scopesForAgentAccessRole("reader")).not.toContain("collaboration:execute");
@@ -309,7 +317,7 @@ describe("collaboration contract", () => {
     expect(() => CollaborationTemplateDefinitionSchema.parse(skippableRelay)).toThrow(/guaranteed|required artifact/i);
   });
 
-  it("derives Human Review guarantees only from its Artifact source", () => {
+  it("combines Human Review Artifact-source guarantees with all/any dependency guarantees", () => {
     const review = (artifactTaskId: string) => ({
       kind: "human_review",
       id: "review",
@@ -322,8 +330,8 @@ describe("collaboration contract", () => {
       allowTerminate: true,
     });
 
-    const unsafeExtraAll = validDefinition();
-    unsafeExtraAll.nodes = [
+    const safeExtraAll = validDefinition();
+    safeExtraAll.nodes = [
       agentTask({ id: "required-producer", name: "Required producer", output: { key: "required", kind: "markdown" }, humanAcceptance: false }),
       agentTask({ id: "artifact-source", name: "Artifact source", output: { key: "source", kind: "markdown" }, humanAcceptance: false }),
       review("artifact-source"),
@@ -336,13 +344,13 @@ describe("collaboration contract", () => {
         humanAcceptance: false,
       }),
     ];
-    unsafeExtraAll.dependencies = [
+    safeExtraAll.dependencies = [
       { from: "required-producer", to: "review", mode: "all" },
       { from: "artifact-source", to: "review", mode: "all" },
       { from: "review", to: "consumer", mode: "all" },
     ];
-    unsafeExtraAll.terminalNodeIds = ["consumer"];
-    expect(() => CollaborationTemplateDefinitionSchema.parse(unsafeExtraAll)).toThrow(/guaranteed|required artifact/i);
+    safeExtraAll.terminalNodeIds = ["consumer"];
+    expect(() => CollaborationTemplateDefinitionSchema.parse(safeExtraAll)).not.toThrow();
 
     const safeSourceWithExtraAny = validDefinition();
     safeSourceWithExtraAny.nodes = [

@@ -50,6 +50,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   COLLABORATION_TEMPLATE_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Collaboration template changed; reload before saving' },
   COLLABORATION_HUMAN_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot perform the collaboration action' },
   COLLABORATION_RUN_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Collaboration run draft changed; reload before continuing' },
+  COLLABORATION_HISTORY_QUERY_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Collaboration history query is invalid' },
   COLLABORATION_RUN_TERMINAL: { status: HttpStatus.CONFLICT, message: 'The collaboration run is terminal' },
   COLLABORATION_PROGRESS_INVARIANT: { status: HttpStatus.CONFLICT, message: 'Collaboration progression state requires human recovery' },
   COLLABORATION_AGENT_INACTIVE: { status: HttpStatus.CONFLICT, message: 'A bound Agent is inactive' },

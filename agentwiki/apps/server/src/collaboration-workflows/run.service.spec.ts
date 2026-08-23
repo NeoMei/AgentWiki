@@ -62,10 +62,12 @@ describe('RunService', () => {
     collaborationRun: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
     collaborationRoleBinding: { createMany: jest.fn(), deleteMany: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
     collaborationRunTask: { createMany: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-    collaborationTaskTodo: { createMany: jest.fn() },
+    collaborationTaskTodo: { createMany: jest.fn(), findMany: jest.fn() },
     collaborationTaskDependency: { createMany: jest.fn() },
-    collaborationTaskAttempt: { updateMany: jest.fn() },
-    collaborationTaskArtifact: { updateMany: jest.fn() },
+    collaborationTaskAttempt: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
+    collaborationTaskArtifact: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
+    collaborationReview: { findMany: jest.fn() },
+    collaborationRunEvent: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
@@ -90,10 +92,18 @@ describe('RunService', () => {
     tx.agentGrant.findMany.mockResolvedValue([grant('agent-a'), grant('agent-b')]);
     tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskAttempt.updateMany.mockResolvedValue({ count: 1 });
+    tx.collaborationTaskTodo.findMany.mockResolvedValue([]);
+    tx.collaborationTaskAttempt.findFirst.mockResolvedValue(null);
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
+    tx.collaborationReview.findMany.mockResolvedValue([]);
+    tx.collaborationRunEvent.findMany.mockResolvedValue([]);
     service = new RunService(prisma, authorization, events, progression, notifications);
   });
 
   it('persists an optimistic draft', async () => {
+    tx.collaborationRun.findUnique.mockResolvedValueOnce({
+      ...draft, tasks: [], dependencies: [], roleBindings: bindings,
+    });
     const result = await service.createDraft('space-1', {
       templateId: 'template-1', name: 'Release 1', inputs: { objective: 'Ship feature' },
       roleBindings: [{ roleSlotId: 'planner', agentId: 'agent-a' }, { roleSlotId: 'builder', agentId: 'agent-b' }],
@@ -109,6 +119,9 @@ describe('RunService', () => {
   });
 
   it('persists step-one input as an incomplete draft before Agent mapping', async () => {
+    tx.collaborationRun.findUnique.mockResolvedValueOnce({
+      ...draft, roleBindings: [], tasks: [], dependencies: [],
+    });
     const result = await service.createDraft('space-1', {
       templateId: 'template-1', name: 'Release 1', inputs: { objective: 'Ship feature' }, roleBindings: [],
     }, humanPrincipal);
@@ -116,9 +129,30 @@ describe('RunService', () => {
     expect(tx.collaborationRoleBinding.createMany).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['unknown key', { objective: 'Ship feature', extra: 'not allowed' }],
+    ['wrong type', { objective: 42 }],
+    ['oversized UTF-8 value', { objective: '汉'.repeat(400_000) }],
+  ])('rejects %s before creating a draft', async (_label, inputs) => {
+    await expect(service.createDraft('space-1', {
+      templateId: 'template-1', name: 'Release 1', inputs, roleBindings: [],
+    }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(tx.collaborationRun.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid updated inputs before mutating the draft', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    await expect(service.updateDraft('space-1', 'run-1', {
+      expectedVersion: 2, inputs: { objective: false },
+    }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
+  });
+
   it('reopens a ready draft for editing without creating a second run', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
-    tx.collaborationRun.findUnique.mockResolvedValue({ ...ready, status: 'draft', version: 3 });
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...ready, status: 'draft', version: 3, tasks: [], dependencies: [], roleBindings: bindings,
+    });
 
     await service.updateDraft('space-1', 'run-1', {
       expectedVersion: 2, name: 'Revised release', inputs: { objective: 'Ship safely' },
@@ -372,6 +406,12 @@ describe('RunService', () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) =>
       args.select ? projectSelect(unsafeRun, args.select) : structuredClone(unsafeRun));
+    tx.collaborationTaskAttempt.findFirst.mockImplementation(async (args: any) =>
+      projectSelect(unsafeRun.tasks[0].attempts[0], args.select));
+    tx.collaborationRunEvent.findMany.mockResolvedValue([projectSelect(unsafeRun.events[0], {
+      id: true, runId: true, sequence: true, type: true, actorKind: true, actorId: true,
+      operation: true, target: true, actorUserId: true, actorAgentId: true, metadata: true, createdAt: true,
+    })]);
 
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
     const serialized = JSON.stringify(result);
@@ -382,6 +422,78 @@ describe('RunService', () => {
     expect(serialized).not.toContain('leaseTokenHash');
     expect(serialized).not.toContain('claimIdempotencyKey');
     expect(result.tasks[0].attempts[0]).toMatchObject({ id: 'attempt-1', status: 'running' });
+  });
+
+  it('bounds the main human DTO to current-generation latest task records and newest events', async () => {
+    const unsafeRun = {
+      ...ready,
+      roleBindings: bindings,
+      tasks: [{
+        id: 'task-1', assigneeAgentId: 'agent-a', ordinal: 0, generation: 2,
+        todos: [
+          { id: 'todo-old', taskId: 'task-1', generation: 1, ordinal: 0 },
+          { id: 'todo-current', taskId: 'task-1', generation: 2, ordinal: 0 },
+        ],
+        attempts: [
+          { id: 'attempt-old', generation: 1, attemptNumber: 9 },
+          { id: 'attempt-current-old', generation: 2, attemptNumber: 1 },
+          { id: 'attempt-current-latest', generation: 2, attemptNumber: 2 },
+        ],
+        artifacts: [
+          { id: 'artifact-old', generation: 1, version: 9, payload: { markdown: 'old' } },
+          { id: 'artifact-current-old', generation: 2, version: 1, payload: { markdown: 'v1' } },
+          { id: 'artifact-current-latest', generation: 2, version: 2, payload: { markdown: 'v2' } },
+        ],
+      }],
+      dependencies: [],
+      reviews: [
+        { id: 'review-old', nodeId: 'review', sourceTaskId: 'task-1', generation: 1, revision: 1 },
+        { id: 'review-current', nodeId: 'review', sourceTaskId: 'task-1', generation: 2, revision: 2 },
+      ],
+      events: [{ id: 'event-1' }],
+    };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) =>
+      args.select ? projectSelect(unsafeRun, args.select) : structuredClone(unsafeRun));
+    tx.collaborationTaskTodo.findMany.mockResolvedValue([unsafeRun.tasks[0].todos[1]]);
+    tx.collaborationTaskAttempt.findFirst.mockResolvedValue(unsafeRun.tasks[0].attempts[2]);
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue(unsafeRun.tasks[0].artifacts[2]);
+    tx.collaborationReview.findMany.mockResolvedValue([unsafeRun.reviews[1]]);
+    tx.collaborationRunEvent.findMany.mockResolvedValue(unsafeRun.events);
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+
+    expect(result.events.map((item: any) => item.id)).toEqual(['event-1']);
+    expect(result.tasks[0].todos.map((item: any) => item.id)).toEqual(['todo-current']);
+    expect(result.tasks[0].attempts.map((item: any) => item.id)).toEqual(['attempt-current-latest']);
+    expect(result.tasks[0].artifacts.map((item: any) => item.id)).toEqual(['artifact-current-latest']);
+    expect(result.reviews.map((item: any) => item.id)).toEqual(['review-current']);
+  });
+
+  it('paginates historical detail with a bounded limit and safe Attempt fields', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationTaskAttempt.findMany.mockResolvedValue(Array.from({ length: 3 }, (_, index) => ({
+      id: `attempt-${index}`, status: 'completed', attemptNumber: index + 1,
+    })));
+
+    const page = await service.getHumanRunHistory(
+      'space-1', 'run-1', 'attempts', '20', '2', humanPrincipal,
+    );
+
+    expect(tx.collaborationTaskAttempt.findMany).toHaveBeenCalledWith({
+      where: { runId: 'run-1' },
+      orderBy: { createdAt: 'desc' },
+      skip: 20,
+      take: 3,
+      select: expect.not.objectContaining({ leaseTokenHash: true, claimIdempotencyKey: true }),
+    });
+    expect(page).toEqual({
+      items: [{ id: 'attempt-0', status: 'completed', attemptNumber: 1 }, { id: 'attempt-1', status: 'completed', attemptNumber: 2 }],
+      nextCursor: '22',
+    });
+    await expect(service.getHumanRunHistory(
+      'space-1', 'run-1', 'events', '0', '101', humanPrincipal,
+    )).rejects.toMatchObject({ businessCode: 'COLLABORATION_HISTORY_QUERY_INVALID' });
   });
 
   it('stores bounded human control receipts and reloads the authoritative safe run on replay', async () => {
@@ -437,9 +549,9 @@ describe('RunService', () => {
 
     expect(first.status).toBe('paused');
     expect([...stored.values()]).toEqual([
-      { runId: 'run-1' },
-      { runId: 'run-1' },
-      { runId: 'run-1' },
+      { runId: 'run-1', status: 'paused', version: 2 },
+      { runId: 'run-1', status: 'running', version: 2 },
+      { runId: 'run-1', status: 'paused', version: 2 },
     ]);
     expect(JSON.stringify([...stored.values()])).not.toContain('events');
     expect(replay.eventSequence).toBe(7);

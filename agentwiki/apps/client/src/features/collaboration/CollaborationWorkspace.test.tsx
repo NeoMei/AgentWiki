@@ -130,4 +130,16 @@ describe('CollaborationWorkspace', () => {
     expect(startLinks).toHaveLength(2);
     startLinks.forEach((link) => expect(link).toBeVisible());
   });
+
+  it('treats a platform super admin without Space membership as Owner', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'platform-admin', platformRole: 'super_admin' },
+    } as ReturnType<typeof useAuth>);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([]);
+
+    renderWorkspace();
+
+    expect(await screen.findByRole('link', { name: 'Create template' })).toBeVisible();
+    expect(screen.getAllByRole('link', { name: 'Start run' })).toHaveLength(2);
+  });
 });

@@ -54,6 +54,16 @@ describe('ArtifactValidator', () => {
       kind: 'git_commit', displayName: 'Commit', value: 'b'.repeat(40),
     }), 'COLLABORATION_EXTERNAL_REFERENCE_INVALID');
   });
+
+  it.each([
+    'access_token', 'refresh_token', 'api_key', 'apikey', 'auth', 'credential', 'password',
+    'secret', 'token', 'key', 'signature', 'sig', 'provider', 'X-Amz-Credential',
+  ])('rejects the credential-bearing URL query key %s', (key) => {
+    expectBusinessCode(() => normalizeExternalReference({
+      kind: 'url', displayName: 'Output',
+      value: `https://example.com/file?${key}=sensitive`, contentHash: hash,
+    }), 'COLLABORATION_EXTERNAL_REFERENCE_INVALID');
+  });
 });
 
 function deeplyNestedSchema(depth: number): Record<string, unknown> {

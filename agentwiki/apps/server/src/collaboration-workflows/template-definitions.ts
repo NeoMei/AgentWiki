@@ -268,7 +268,8 @@ const bidWritingTemplate = defineSeed({
     ],
     dependencies: [
       edge('tender-analysis', 'bid-consensus-review'),
-      edge('bid-consensus-review', 'outline-and-mapping'), edge('material-catalog', 'outline-and-mapping'),
+      edge('material-catalog', 'bid-consensus-review'),
+      edge('bid-consensus-review', 'outline-and-mapping'),
       edge('outline-and-mapping', 'write-technical-sections'), edge('outline-and-mapping', 'write-service-sections'),
       edge('write-technical-sections', 'missing-material-review'),
       edge('missing-material-review', 'coverage-and-visual-check'), edge('write-service-sections', 'coverage-and-visual-check'),

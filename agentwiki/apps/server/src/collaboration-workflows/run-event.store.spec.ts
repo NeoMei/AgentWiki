@@ -158,6 +158,7 @@ describe('RunEventStore', () => {
           authoritative.events.push(data);
           return data;
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       collaborationRun: runTable,
       collaborationTemplate: {
@@ -167,7 +168,10 @@ describe('RunEventStore', () => {
       },
       collaborationRoleBinding: { findMany: jest.fn().mockResolvedValue([binding]) },
       collaborationRunTask: { createMany: jest.fn() },
-      collaborationTaskTodo: { createMany: jest.fn() },
+      collaborationTaskTodo: { createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+      collaborationTaskAttempt: { findMany: jest.fn().mockResolvedValue([]) },
+      collaborationArtifact: { findMany: jest.fn().mockResolvedValue([]) },
+      collaborationReview: { findMany: jest.fn().mockResolvedValue([]) },
       collaborationTaskDependency: { createMany: jest.fn() },
       agentGrant: {
         findMany: jest.fn().mockResolvedValue([{
@@ -203,7 +207,7 @@ describe('RunEventStore', () => {
 
     await service.startRun('space-a', 'run-a', input, principal);
     expect(storedEvents).toHaveLength(1);
-    expect(storedEvents[0].response).toEqual({ runId: 'run-a' });
+    expect(storedEvents[0].response).toEqual({ runId: 'run-a', status: 'running', version: 3 });
 
     allowedSpace = 'space-b';
     const authoritativeLoadsBeforeReplay = findAuthoritative.mock.calls.length;

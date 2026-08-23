@@ -41,7 +41,9 @@ export const CollaborationWorkspace: React.FC = () => {
         collaborationApi.listMembers(id),
       ]);
       setTemplates(nextTemplates);
-      const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
+      const myRole = user?.platformRole === 'super_admin'
+        ? 'owner'
+        : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setState('ready');
@@ -49,7 +51,7 @@ export const CollaborationWorkspace: React.FC = () => {
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, t, user?.id]);
+  }, [id, t, user?.id, user?.platformRole]);
 
   const loadRuns = useCallback(async (kind: RunListKind) => {
     if (!id) return;

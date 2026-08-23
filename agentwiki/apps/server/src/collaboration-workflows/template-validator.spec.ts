@@ -213,7 +213,7 @@ describe('collaboration template validator', () => {
     );
   });
 
-  it('derives Human Review guarantees only from its Artifact source', () => {
+  it('combines Human Review Artifact-source guarantees with all/any dependency guarantees', () => {
     const review = (artifactTaskId: string) => ({
       kind: 'human_review' as const,
       id: 'review',
@@ -225,7 +225,7 @@ describe('collaboration template validator', () => {
       revisionTaskId: artifactTaskId,
       allowTerminate: true,
     });
-    const unsafeExtraAll = validDefinition({
+    const safeExtraAll = validDefinition({
       nodes: [
         task('required-producer', 'required'),
         task('artifact-source', 'source'),
@@ -239,9 +239,7 @@ describe('collaboration template validator', () => {
       ],
       terminalNodeIds: ['consumer'],
     });
-    expect(validateCollaborationTemplate(unsafeExtraAll)).toContainEqual(
-      expect.objectContaining({ code: 'ANY_REQUIRED_ARTIFACT_UNSAFE' }),
-    );
+    expect(validateCollaborationTemplate(safeExtraAll)).toEqual([]);
 
     const safeSourceWithExtraAny = validDefinition({
       nodes: [
