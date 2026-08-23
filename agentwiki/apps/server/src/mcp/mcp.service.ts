@@ -14,6 +14,23 @@ import { IngestQueue } from '../knowledge-pipeline/ingest.queue';
 import { KnowledgeService } from '../core/knowledge/knowledge.service';
 import { AuditService } from '../core/security/audit.service';
 import { PrismaService } from '../database/prisma.service';
+import {
+  CollaborationGetRunInputSchema,
+  CollaborationGetRunOutputSchema,
+  CollaborationHeartbeatInputSchema,
+  CollaborationHeartbeatOutputSchema,
+  CollaborationJoinRunInputSchema,
+  CollaborationJoinRunOutputSchema,
+  CollaborationNextActionInputSchema,
+  CollaborationNextActionOutputSchema,
+  CollaborationSubmitResultInputSchema,
+  CollaborationSubmitResultOutputSchema,
+  CollaborationUpdateTodoInputSchema,
+  CollaborationUpdateTodoOutputSchema,
+  agentRoleAllowsScope,
+} from '@neomei/agentwiki-sync-protocol';
+import { BusinessException } from '../core/filters/business-error';
+import { ExecutionService } from '../collaboration-workflows/execution.service';
 
 // Keep the protocol SDK behind this adapter boundary. Its deeply recursive
 // schema types otherwise make the application's declaration build prohibitively slow.
@@ -36,6 +53,7 @@ export class McpService {
     private audit: AuditService,
     private prisma: PrismaService,
     private syncs: KnowledgeSyncService,
+    private collaborationExecution: ExecutionService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -168,6 +186,66 @@ export class McpService {
       await this.authorization.assertChangeSetAccess(principal, changeSetId, ['owner'], 'review:decide');
       return this.text(await this.review.approve(changeSetId, principal.userId, comment));
     });
+    registerTool('collaboration_join_run', {
+      description: 'Join a bound collaboration run as the authenticated Agent and receive the safe execution loop.',
+      inputSchema: CollaborationJoinRunInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:execute');
+      const input = CollaborationJoinRunInputSchema.parse(args);
+      return this.text(CollaborationJoinRunOutputSchema.parse(
+        await this.collaborationExecution.joinRun(input.runId, principal),
+      ));
+    });
+    registerTool('collaboration_next_action', {
+      description: 'Claim one assigned ready task or receive a bounded wait, human-wait, paused, or terminal action.',
+      inputSchema: CollaborationNextActionInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:execute');
+      const input = CollaborationNextActionInputSchema.parse(args);
+      return this.text(CollaborationNextActionOutputSchema.parse(
+        await this.collaborationExecution.nextAction(input, principal),
+      ));
+    });
+    registerTool('collaboration_heartbeat', {
+      description: 'Extend an active collaboration task lease without exceeding its maximum execution deadline.',
+      inputSchema: CollaborationHeartbeatInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:execute');
+      const input = CollaborationHeartbeatInputSchema.parse(args);
+      return this.text(CollaborationHeartbeatOutputSchema.parse(
+        await this.collaborationExecution.heartbeat(input, principal),
+      ));
+    });
+    registerTool('collaboration_update_todo', {
+      description: 'Advance one ordered Todo item in the currently leased collaboration task.',
+      inputSchema: CollaborationUpdateTodoInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:execute');
+      const input = CollaborationUpdateTodoInputSchema.parse(args);
+      return this.text(CollaborationUpdateTodoOutputSchema.parse(
+        await this.collaborationExecution.updateTodo(input, principal),
+      ));
+    });
+    registerTool('collaboration_submit_result', {
+      description: 'Submit one schema-checked, evidence-backed Artifact for the currently leased task.',
+      inputSchema: CollaborationSubmitResultInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:execute');
+      const input = CollaborationSubmitResultInputSchema.parse(args);
+      return this.text(CollaborationSubmitResultOutputSchema.parse(
+        await this.collaborationExecution.submitResult(input, principal),
+      ));
+    });
+    registerTool('collaboration_get_run', {
+      description: 'Read the authenticated Agent\'s safe collaboration run state without lease secrets.',
+      inputSchema: CollaborationGetRunInputSchema.shape,
+    }, async (args: unknown) => {
+      this.assertCollaborationScope(principal, 'collaboration:read');
+      const input = CollaborationGetRunInputSchema.parse(args);
+      return this.text(CollaborationGetRunOutputSchema.parse(
+        await this.collaborationExecution.getAgentRun(input, principal),
+      ));
+    });
     server.registerResource('spaces', 'agentwiki://spaces', {
       title: 'Authorized AgentWiki spaces',
       description: 'Spaces available to the authenticated principal.',
@@ -191,6 +269,15 @@ export class McpService {
 
   private text(data: unknown): { content: Array<{ type: 'text'; text: string }> } {
     return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
+  }
+
+  private assertCollaborationScope(
+    principal: Principal,
+    required: 'collaboration:read' | 'collaboration:execute',
+  ): void {
+    if (!principal.agentId || !principal.agentRole || !agentRoleAllowsScope(principal.agentRole, required)) {
+      throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${required}`);
+    }
   }
 
   private async executeMcpCall<T>(

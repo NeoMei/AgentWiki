@@ -24,6 +24,12 @@ export class McpController {
       list_sources: 'sources:read', get_knowledge_sync_state: 'sources:read',
       start_source_run: 'runs:write', recall_memory: 'memory:read',
       list_reviews: 'review:read', approve_change_set: 'review:decide (human only)',
+      collaboration_join_run: 'collaboration:execute',
+      collaboration_next_action: 'collaboration:execute',
+      collaboration_heartbeat: 'collaboration:execute',
+      collaboration_update_todo: 'collaboration:execute',
+      collaboration_submit_result: 'collaboration:execute',
+      collaboration_get_run: 'collaboration:read',
     };
     return {
       transport: 'Streamable HTTP',

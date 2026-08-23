@@ -12,6 +12,7 @@ import { formatMcpOutput } from './output.js';
 import { STATIC_TOOLS, staticToolNames, toRemoteGatewayName, isLegacyToolName } from './manifest.js';
 import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import { PublicLocalScanResultSchema, type PublicLocalScanResult } from '../codegraph/contracts.js';
+import { exactRemoteToolSchema } from './collaboration-tools.js';
 
 /** Wrap a result as an MCP text content response. */
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
@@ -60,7 +61,7 @@ export const gatewayToolInputSchemas = {
  * tools are registered and remote calls return REMOTE_UNAVAILABLE.
  */
 export async function createGatewayServer(context: GatewayContext): Promise<GatewayServer> {
-  const version = context.version ?? '0.5.1';
+  const version = context.version ?? '0.6.0';
   const server = new McpServer({ name: 'agentwiki', version });
   const toolNames: string[] = [];
 
@@ -158,15 +159,21 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
       const gatewayName = toRemoteGatewayName(remote.name);
       // Never expose a legacy name even if the remote somehow offers one.
       if (isLegacyToolName(remote.name) || STATIC_TOOLS.some((t) => t.name === gatewayName)) continue;
+      const exactSchema = exactRemoteToolSchema(remote.name);
       toolNames.push(gatewayName);
       server.registerTool(
         gatewayName,
         {
           description: remote.description ?? `Remote AgentWiki tool: ${remote.name}`,
-          inputSchema: { __args: z.record(z.unknown()).optional() },
+          inputSchema: exactSchema ?? { __args: z.record(z.unknown()).optional() },
         },
         async (input) => {
-          const result = await context.bridge!.callGatewayTool(gatewayName, (input as { __args?: Record<string, unknown> })?.__args ?? {});
+          const result = await context.bridge!.callGatewayTool(
+            gatewayName,
+            exactSchema
+              ? input as Record<string, unknown>
+              : (input as { __args?: Record<string, unknown> })?.__args ?? {},
+          );
           return text(formatMcpOutput(result));
         },
       );

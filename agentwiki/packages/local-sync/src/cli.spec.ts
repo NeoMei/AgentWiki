@@ -50,7 +50,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.5.1' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.6.0' });
   });
 
   it('redacts secrets in MCP output before serializing it', () => {

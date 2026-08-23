@@ -333,7 +333,12 @@ export class ExecutionService {
 
   async getAgentRun(inputRaw: { runId: string }, principal: Principal) {
     const input = CollaborationGetRunInputSchema.parse(inputRaw);
-    const participant = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
+    const participant = await this.authorizeParticipant(
+      this.prisma as unknown as Tx,
+      input.runId,
+      principal,
+      'collaboration:read',
+    );
     const bindings = await this.prisma.collaborationRoleBinding.findMany({
       where: { runId: input.runId, agentId: participant.agentId },
       orderBy: { roleSlotId: 'asc' },
@@ -441,14 +446,13 @@ export class ExecutionService {
     return { ...response, leaseToken };
   }
 
-  private async attemptResponse(tx: Tx, run: AgentRun['run'], attempt: any, replayed: boolean) {
+  private async attemptResponse(tx: Tx, run: AgentRun['run'], attempt: any, _replayed: boolean) {
     return {
       action: 'execute_task',
       attemptId: attempt.id,
       leaseToken: this.leaseTokenFor(attempt.id, run.id, attempt.agentId, attempt.claimIdempotencyKey),
       leaseExpiresAt: attempt.leaseExpiresAt.toISOString(),
       task: await this.loadTaskContext(tx, run, attempt.task),
-      replayed,
     };
   }
 
@@ -537,7 +541,12 @@ export class ExecutionService {
     ) throw new BusinessException('COLLABORATION_LEASE_EXPIRED');
   }
 
-  private async authorizeParticipant(tx: Tx, runId: string, principal: Principal) {
+  private async authorizeParticipant(
+    tx: Tx,
+    runId: string,
+    principal: Principal,
+    requiredScope: 'collaboration:read' | 'collaboration:execute' = 'collaboration:execute',
+  ) {
     const agentId = principal.agentId;
     if (!agentId) throw new BusinessException('COLLABORATION_AGENT_NOT_BOUND');
     const run = await tx.collaborationRun.findUnique({ where: { id: runId } });
@@ -545,8 +554,10 @@ export class ExecutionService {
     await this.authorization.assertSpaceAccess(
       principal,
       run.spaceId,
-      ['owner', 'admin', 'editor'],
-      'collaboration:execute',
+      requiredScope === 'collaboration:read'
+        ? ['owner', 'admin', 'editor', 'viewer']
+        : ['owner', 'admin', 'editor'],
+      requiredScope,
     );
     const grant = await tx.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId: run.spaceId } },
@@ -562,7 +573,7 @@ export class ExecutionService {
       || grant.agent.revokedAt
       || grant.space.deletedAt
       || !AgentAccessRoleSchema.safeParse(grant.role).success
-      || !agentRoleAllowsScope(grant.role, 'collaboration:execute')
+      || !agentRoleAllowsScope(grant.role, requiredScope)
     ) throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
     const binding = await tx.collaborationRoleBinding.findFirst({ where: { runId, agentId } });
     const assignment = binding ? null : await tx.collaborationRunTask.findFirst({ where: { runId, assigneeAgentId: agentId } });

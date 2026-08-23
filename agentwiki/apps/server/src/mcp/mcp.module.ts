@@ -11,9 +11,13 @@ import { AgentModule } from '../core/agent/agent.module';
 import { McpController } from './mcp.controller';
 import { McpService } from './mcp.service';
 import { DatabaseModule } from '../database/database.module';
+import { CollaborationWorkflowsModule } from '../collaboration-workflows/collaboration-workflows.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule, KnowledgePipelineModule, ReviewModule, MemoryModule],
+  imports: [
+    DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule,
+    KnowledgePipelineModule, ReviewModule, MemoryModule, CollaborationWorkflowsModule,
+  ],
   providers: [McpService],
   controllers: [McpController],
 })

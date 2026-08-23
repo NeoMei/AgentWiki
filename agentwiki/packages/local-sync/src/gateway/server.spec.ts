@@ -31,7 +31,7 @@ function onlineBridge(tools: string[]): RemoteMcpBridge {
     listTools: async () => tools.map((name) => ({ name })),
     listGatewayToolNames: async () => tools.map((name) => `wiki_${name}`),
     callTool: async () => ({ content: [{ type: 'text', text: 'ok' }], isError: false }),
-    callGatewayTool: async () => ({ content: [{ type: 'text', text: 'ok' }], isError: false }),
+    callGatewayTool: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }], isError: false })),
     isOnline: () => true,
   } as unknown as RemoteMcpBridge;
 }
@@ -62,6 +62,17 @@ describe('gateway server tool registration', () => {
     });
     expect(toolNames).toContain('wiki_list_pages');
     expect(toolNames).toContain('wiki_list_graph');
+  });
+
+  it('forwards collaboration aliases with direct named inputs', async () => {
+    const bridge = onlineBridge(['collaboration_next_action']);
+    const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
+    const registered = (server as any)._registeredTools.wiki_collaboration_next_action;
+    const input = registered.inputSchema.parse({ runId: 'run-1', idempotencyKey: 'next-0001' });
+    await registered.handler(input);
+    expect(bridge.callGatewayTool).toHaveBeenCalledWith('wiki_collaboration_next_action', {
+      runId: 'run-1', idempotencyKey: 'next-0001',
+    });
   });
 
   it('does not register any legacy tool name', async () => {

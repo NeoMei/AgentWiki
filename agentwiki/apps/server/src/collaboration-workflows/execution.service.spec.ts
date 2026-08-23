@@ -95,6 +95,17 @@ describe('ExecutionService', () => {
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_CANNOT_EXECUTE' });
   });
 
+  it('allows a bound reader to inspect safe run state but not join the execution loop', async () => {
+    const reader = { ...agent, agentRole: 'reader' as const, scopes: ['collaboration:read'] };
+    tx.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-a', agentId: 'agent-a', spaceId: 'space-1', role: 'reader',
+      agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
+    });
+    await expect(service.getAgentRun({ runId: 'run-1' }, reader)).resolves.toMatchObject({ runId: 'run-1' });
+    await expect(service.joinRun('run-1', reader))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_CANNOT_EXECUTE' });
+  });
+
   it('claims one task, persists only the token hash, and never stores plaintext in the event response', async () => {
     const result = await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-agent-a-1' }, agent);
     expect(result).toMatchObject({ action: 'execute_task', leaseToken: expect.stringMatching(/^[a-f0-9]{64}$/u) });

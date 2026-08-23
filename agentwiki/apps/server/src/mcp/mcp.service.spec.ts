@@ -21,6 +21,7 @@ describe('McpService transport security', () => {
     audit,
     prisma,
     dependency,
+    dependency,
   );
 
   it('accepts an explicitly allowlisted Host header', () => {
