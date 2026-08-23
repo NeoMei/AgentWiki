@@ -13,6 +13,72 @@ enum AgentAccessRole {
   publisher
 }
 
+enum CollaborationRunStatus {
+  draft
+  ready
+  running
+  waiting_review
+  paused
+  completed
+  failed
+  cancelled
+}
+
+enum CollaborationTaskStatus {
+  blocked
+  ready
+  claimed
+  running
+  submitted
+  completed
+  retry_wait
+  failed
+  skipped
+}
+
+enum CollaborationTodoStatus {
+  pending
+  doing
+  done
+  failed
+}
+
+enum CollaborationDependencyMode {
+  all
+  any
+}
+
+enum CollaborationAttemptStatus {
+  claimed
+  running
+  expired
+  completed
+  failed
+  invalidated
+}
+
+enum CollaborationArtifactKind {
+  markdown
+  json
+  external_reference
+  evidence_summary
+}
+
+enum CollaborationArtifactStatus {
+  pending
+  accepted
+  rejected
+  superseded
+}
+
+enum CollaborationReviewStatus {
+  pending
+  approved
+  rejected
+  terminated
+  superseded
+}
+
 // 用户表 - 支持人类用户和Agent
 model User {
   id           String  @id @default(cuid())
@@ -39,6 +105,10 @@ model User {
   obsidianInstallations         ObsidianInstallation[]
   humanDeviceCredentialFamilies HumanDeviceCredentialFamily[]
   humanDeviceCredentials        HumanDeviceCredential[]
+  collaborationTemplatesCreated CollaborationTemplate[]       @relation("CollaborationTemplateCreatedBy")
+  collaborationRunsStarted      CollaborationRun[]            @relation("CollaborationRunStartedBy")
+  collaborationReviewsDecided   CollaborationReview[]         @relation("CollaborationReviewReviewer")
+  collaborationEvents           CollaborationRunEvent[]       @relation("CollaborationEventUser")
   lockedAt                      DateTime?
   mustChangePassword            Boolean                       @default(false)
   authVersion                   Int                           @default(0)
@@ -114,6 +184,8 @@ model Space {
   agentMemories        AgentMemory[]
   assistTasks          AssistTask[]
   graphState           SpaceGraphState?
+  collaborationTemplates CollaborationTemplate[]
+  collaborationRuns      CollaborationRun[]
 }
 
 model AssistTask {
@@ -170,6 +242,10 @@ model Agent {
   createdPages      Page[]               @relation("PageCreatedByAgent")
   modifiedPages     Page[]               @relation("PageLastModifiedByAgent")
   createdRelations  KnowledgeRelation[]  @relation("RelationCreatedByAgent")
+  collaborationRoleBindings  CollaborationRoleBinding[]
+  collaborationAssignedTasks CollaborationRunTask[]
+  collaborationAttempts      CollaborationTaskAttempt[]
+  collaborationEvents        CollaborationRunEvent[]    @relation("CollaborationEventAgent")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -917,4 +993,252 @@ model HumanDeviceCredential {
   @@index([credentialFamilyId, status])
   @@index([userId, createdAt])
   @@index([credentialFamilyId, provisionalExpiresAt])
+}
+
+model CollaborationTemplate {
+  id          String    @id @default(cuid())
+  spaceId     String?
+  scopeKey    String
+  slug        String
+  name        String
+  description String    @default("")
+  version     Int       @default(1)
+  seedVersion Int?
+  system      Boolean   @default(false)
+  archivedAt  DateTime?
+  definition  Json
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  space     Space?             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  createdBy User?              @relation("CollaborationTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  runs      CollaborationRun[]
+
+  @@unique([scopeKey, slug])
+  @@index([spaceId, archivedAt])
+}
+
+model CollaborationRun {
+  id               String                 @id @default(cuid())
+  spaceId          String
+  templateId       String
+  templateVersion  Int
+  templateSnapshot Json
+  snapshotHash     String
+  name             String
+  status           CollaborationRunStatus @default(draft)
+  version          Int                    @default(1)
+  inputs           Json
+  startedById      String
+  pauseReason      String?
+  eventSequence    Int                    @default(0)
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  template     CollaborationTemplate         @relation(fields: [templateId], references: [id])
+  space        Space                         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  startedBy    User                          @relation("CollaborationRunStartedBy", fields: [startedById], references: [id], onDelete: Restrict)
+  roleBindings CollaborationRoleBinding[]
+  tasks        CollaborationRunTask[]
+  dependencies CollaborationTaskDependency[]
+  reviews      CollaborationReview[]
+  events       CollaborationRunEvent[]
+
+  @@index([spaceId, status, updatedAt])
+}
+
+model CollaborationRoleBinding {
+  id           String @id @default(cuid())
+  runId        String
+  roleSlotId   String
+  roleSlotName String
+  agentId      String
+
+  run   CollaborationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  agent Agent            @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, roleSlotId])
+  @@index([agentId, runId])
+}
+
+model CollaborationRunTask {
+  id                  String                      @id @default(cuid())
+  runId               String
+  nodeId              String
+  ordinal             Int
+  name                String
+  objective           String
+  roleSlotId          String
+  assigneeAgentId     String
+  status              CollaborationTaskStatus     @default(blocked)
+  generation          Int                         @default(1)
+  dependencyMode      CollaborationDependencyMode @default(all)
+  outputContract      Json
+  requiredEvidence    Json
+  humanAcceptance     Boolean                     @default(false)
+  skippable           Boolean                     @default(false)
+  leaseSeconds        Int
+  maxExecutionSeconds Int
+  retryBudget         Int                         @default(0)
+  repairBudget        Int                         @default(0)
+  nextAttemptAt       DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  run             CollaborationRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  assignee        Agent                       @relation(fields: [assigneeAgentId], references: [id], onDelete: Restrict)
+  todos           CollaborationTaskTodo[]
+  attempts        CollaborationTaskAttempt[]
+  artifacts       CollaborationTaskArtifact[]
+  sourceReviews   CollaborationReview[]       @relation("CollaborationReviewSourceTask")
+  revisionReviews CollaborationReview[]       @relation("CollaborationReviewRevisionTask")
+
+  @@unique([id, runId])
+  @@unique([runId, nodeId])
+  @@index([runId, assigneeAgentId, status, ordinal])
+  @@index([status, nextAttemptAt])
+}
+
+model CollaborationTaskTodo {
+  id         String                  @id @default(cuid())
+  runId      String
+  taskId     String
+  generation Int
+  templateId String
+  ordinal    Int
+  name       String
+  required   Boolean                 @default(true)
+  status     CollaborationTodoStatus @default(pending)
+  summary    String?
+  evidence   Json?
+  updatedAt  DateTime                @updatedAt
+
+  task CollaborationRunTask @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
+
+  @@unique([taskId, generation, templateId])
+  @@unique([taskId, generation, ordinal])
+}
+
+model CollaborationTaskDependency {
+  id         String                      @id @default(cuid())
+  runId      String
+  fromNodeId String
+  toNodeId   String
+  mode       CollaborationDependencyMode
+
+  run CollaborationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, fromNodeId, toNodeId])
+  @@index([runId, toNodeId])
+}
+
+model CollaborationTaskAttempt {
+  id                  String                     @id @default(cuid())
+  runId               String
+  taskId              String
+  generation          Int
+  agentId             String
+  attemptNumber       Int
+  status              CollaborationAttemptStatus
+  claimIdempotencyKey String
+  leaseTokenHash      String
+  leaseStartedAt      DateTime
+  leaseExpiresAt      DateTime
+  maxExecutionAt      DateTime
+  failureCode         String?
+  repairCount         Int                        @default(0)
+  finishedAt          DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  runTask   CollaborationRunTask        @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
+  agent     Agent                       @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  artifacts CollaborationTaskArtifact[]
+
+  @@unique([taskId, generation, attemptNumber])
+  @@unique([id, taskId, runId, generation])
+  @@index([runId, agentId, status])
+  @@index([status, leaseExpiresAt], map: "CollaborationTaskAttempt_lease_scan")
+}
+
+model CollaborationTaskArtifact {
+  id         String                      @id @default(cuid())
+  runId      String
+  taskId     String
+  attemptId  String
+  generation Int
+  version    Int
+  kind       CollaborationArtifactKind
+  status     CollaborationArtifactStatus @default(pending)
+  payload    Json
+  evidence   Json
+  acceptedAt DateTime?
+  createdAt  DateTime                    @default(now())
+
+  task    CollaborationRunTask     @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
+  attempt CollaborationTaskAttempt @relation(fields: [attemptId, taskId, runId, generation], references: [id, taskId, runId, generation], onDelete: Restrict)
+  reviews CollaborationReview[]
+
+  @@unique([id, runId])
+  @@unique([id, runId, generation])
+  @@unique([taskId, generation, version])
+  @@index([taskId, generation, status, version])
+}
+
+model CollaborationReview {
+  id              String                    @id @default(cuid())
+  runId           String
+  nodeId          String
+  revision        Int                       @default(1)
+  generation      Int
+  sourceTaskId    String
+  artifactId      String
+  revisionTaskId  String
+  minimumRole     String
+  reviewerUserIds Json
+  allowTerminate  Boolean                   @default(false)
+  status          CollaborationReviewStatus @default(pending)
+  reviewerUserId  String?
+  reason          String?
+  decidedAt       DateTime?
+  createdAt       DateTime                  @default(now())
+
+  run          CollaborationRun          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sourceTask   CollaborationRunTask      @relation("CollaborationReviewSourceTask", fields: [sourceTaskId, runId], references: [id, runId], onDelete: Cascade)
+  revisionTask CollaborationRunTask      @relation("CollaborationReviewRevisionTask", fields: [revisionTaskId, runId], references: [id, runId], onDelete: Restrict)
+  artifact     CollaborationTaskArtifact @relation(fields: [artifactId, runId, generation], references: [id, runId, generation], onDelete: Restrict)
+  reviewer     User?                     @relation("CollaborationReviewReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, nodeId, revision])
+  @@index([runId, status])
+}
+
+model CollaborationRunEvent {
+  id             String   @id @default(cuid())
+  runId          String
+  sequence       Int
+  type           String
+  actorKind      String
+  actorId        String
+  operation      String
+  target         String
+  actorUserId    String?
+  actorAgentId   String?
+  idempotencyKey String
+  requestHash    String
+  metadata       Json
+  response       Json?
+  createdAt      DateTime @default(now())
+
+  run        CollaborationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  actorUser  User?            @relation("CollaborationEventUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorAgent Agent?           @relation("CollaborationEventAgent", fields: [actorAgentId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, sequence])
+  @@unique([runId, actorKind, actorId, operation, idempotencyKey])
+  @@index([runId, createdAt])
 }
