@@ -9,11 +9,11 @@
 - 需求、架构、领域模型、五个组件、五类模板、页面交互、MCP 协议、失败恢复和验收设计均已由用户确认。
 - 正式设计文档已确认，13 个任务的 TDD 实施计划已完成完整性修订和跨文档一致性检查。
 - 修订已把驳回后的因果子图 generation 失效、改派后的加入授权、`waiting_review` 优先级、隔离 PostgreSQL schema 测试、复合外键/约束、完整 REST API、严格共享契约、受限 Ajv、幂等作用域、`any` 提前释放、外部引用规范化、seed 非降级和 0.6.0 合并发布写成可验收规则。
-- 尚未开始生产代码实现；必须先完成 `unified-agent-access-roles` 0.5.0 本地门禁，但不单独发布/部署中间版本。
+- 统一访问角色前置能力已经随 `0.5.1` 发布并完成生产验证；协作实现已在隔离分支 `codex/agent-collaboration-workflows` 启动。
 
 ## 依赖
 
-- 必须先完成活跃任务 `unified-agent-access-roles` 的 0.5.0 角色模型和本地门禁。
+- 直接复用已经发布的 `0.5.1` 统一角色模型和实时授权门禁。
 - 协作能力在统一角色策略中派生 `collaboration:read` 与 `collaboration:execute`，普通界面仍只选择 `reader | editor | publisher`。
 - 协作完成后 local-sync、server/client、网关和 onboarding 兼容面统一进入 0.6.0；sync-protocol 保持独立包 semver。
 
@@ -35,6 +35,6 @@
 
 ## 下一步
 
-1. 先完成并验证统一访问角色 0.5.0 本地门禁，不单独发布或部署。
+1. 在隔离工作区完成依赖安装和 `0.5.1` 干净基线验证。
 2. 按协作模板计划的 13 个任务逐项红绿测试、审查和提交。
 3. 通过隔离数据库、HTTP/MCP、前端、全量回归和真实多 Agent 验收后，再单独请求 push/npm/生产授权。

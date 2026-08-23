@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- This plan starts only after `agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md` is complete and its local `0.5.0` gates are green. Do not separately publish/deploy that intermediate version; this plan finishes by moving local-sync, server/client app packages, the unified gateway, server onboarding compatibility, and user-visible instructions to `0.6.0` for one combined release. The sync-protocol package carries the contract but keeps its independent package semver.
+- The unified Agent access-role prerequisite is already released and production-verified as local-sync/onboarding `0.5.1`. This plan starts from that baseline and finishes by moving local-sync, server/client app packages, the unified gateway, server onboarding compatibility, and user-visible instructions to `0.6.0`. The sync-protocol package carries the contract but keeps its independent package semver.
 - The only Agent access roles remain exactly `reader`, `editor`, and `publisher`; collaboration Role Slots are template responsibilities and must never be treated as access roles.
 - Add `collaboration:read` to `reader`; add `collaboration:read` and `collaboration:execute` to both `editor` and `publisher`; no Agent role gains `review:decide`.
 - Effective access remains the intersection of Credential identity/lifecycle, its exact bound current Space Grant, scopes derived at request time from that Grant role, Agent state, Space policy, and collaboration-domain authorization. Credential and Grant scopes are never separate persisted inputs.
@@ -1608,7 +1608,7 @@ export function exactRemoteToolSchema(name: string): z.ZodRawShape | undefined {
 }
 ```
 
-In `createGatewayServer`, if `exactRemoteToolSchema(remote.name)` exists, register it directly and forward `input` unchanged. Preserve generic `{ __args }` for unrelated discovered tools to avoid expanding this feature into a full remote-schema conversion project. Assert the returned names are `wiki_collaboration_join_run` through `wiki_collaboration_get_run`. Before the gate, set local-sync and server/client package versions, gateway/CLI runtime constants, `LOCAL_SYNC_VERSION`, server onboarding acceptance, generated instructions, and compatibility tests to `0.6.0`; do not force the independently versioned sync-protocol package to `0.6.0`. Run the `rg` commands from the Files list and classify every remaining active `0.5.0` occurrence as a defect.
+In `createGatewayServer`, if `exactRemoteToolSchema(remote.name)` exists, register it directly and forward `input` unchanged. Preserve generic `{ __args }` for unrelated discovered tools to avoid expanding this feature into a full remote-schema conversion project. Assert the returned names are `wiki_collaboration_join_run` through `wiki_collaboration_get_run`. Before the gate, update the active local-sync and server/client package versions, gateway/CLI runtime constants, `LOCAL_SYNC_VERSION`, server onboarding acceptance, generated instructions, and compatibility tests from `0.5.1` to `0.6.0`; do not force the independently versioned sync-protocol package to `0.6.0`. Run the `rg` commands from the Files list and classify every remaining active `0.5.1` occurrence on those release surfaces as a defect.
 
 - [ ] **Step 5: Verify MCP packages and commit**
 
@@ -1938,9 +1938,11 @@ Never merge event payloads into local workflow state. After any mutation, await 
 
 ```tsx
 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
-  <aside className="order-1 min-w-0"><RunSummary run={run} /></aside>
-  <main className="order-2 min-w-0"><TaskPanel run={run} /><ReviewPanel className="mt-4 lg:hidden" run={run} /></main>
-  <aside className="order-4 min-w-0 lg:order-3"><ReviewPanel className="hidden lg:block" run={run} /><ArtifactPanel run={run} /><AgentActivityPanel run={run} /></aside>
+  <aside className="order-1 min-w-0 lg:col-start-1 lg:row-start-1"><RunSummary run={run} /></aside>
+  <main className="order-2 min-w-0 lg:col-start-2 lg:row-span-3"><TaskPanel run={run} /></main>
+  <section className="order-3 min-w-0 lg:col-start-3 lg:row-start-1"><ReviewPanel run={run} /></section>
+  <section className="order-4 min-w-0 lg:col-start-3 lg:row-start-2"><ArtifactPanel run={run} /></section>
+  <section className="order-5 min-w-0 lg:col-start-3 lg:row-start-3"><AgentActivityPanel run={run} /></section>
 </div>
 ```
 
@@ -2101,7 +2103,7 @@ git commit -m "test(collaboration): add workflow acceptance gates"
 - [ ] Run `rg -n "review:decide|collaboration_approve|collaboration_reassign|collaboration_cancel" agentwiki/apps/server/src/mcp agentwiki/packages/local-sync/src/gateway` and confirm there is no Agent-callable human-control tool.
 - [ ] Run `rg -n "process\.env|child_process|eval\(|new Function|webhook" agentwiki/apps/server/src/collaboration-workflows agentwiki/apps/client/src/features/collaboration` and confirm user template data is never executed.
 - [ ] Run the Task 13 complete local release gate and preserve fresh command output as evidence.
-- [ ] Run `rg -n "0\\.5\\.0|0\\.6\\.0|LOCAL_SYNC_VERSION|packageVersion" agentwiki/apps/server agentwiki/apps/client agentwiki/packages/local-sync` and confirm every active local-sync/onboarding and server/client package surface is `0.6.0`; sync-protocol keeps independent semver, and historical docs may retain `0.5.0` only when explicitly labelled intermediate.
+- [ ] Run `rg -n "0\\.5\\.1|0\\.6\\.0|LOCAL_SYNC_VERSION|packageVersion" agentwiki/apps/server agentwiki/apps/client agentwiki/packages/local-sync` and confirm every active local-sync/onboarding and server/client package surface is `0.6.0`; sync-protocol keeps independent semver, and historical docs may retain older versions only when explicitly labelled historical.
 - [ ] Execute the real-client acceptance runbook with at least two connected client types before claiming full feature acceptance.
 - [ ] Before any production action, obtain explicit user authorization, perform read-only host/database/app preflight, create verified PostgreSQL and application rollback backups, run migration checks, deploy, observe services, verify public health, and run business smoke.
 - [ ] After an authorized release, report alignment separately for local `master`, GitHub `origin/master`, npm packages if any, and production; local test success alone does not imply any of those were updated.

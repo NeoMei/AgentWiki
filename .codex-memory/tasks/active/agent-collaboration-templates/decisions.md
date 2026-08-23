@@ -25,4 +25,4 @@
 23. 写操作幂等作用域固定为 run、actor、operation 和 key，并校验 request hash/target；租约明文只可在授权精确重放时确定性重建。
 24. JSON Artifact 使用严格判别联合；JSON Schema 只支持受限 2020-12 子集，由直接依赖 Ajv 8.18.0 严格校验且禁止远程引用。
 25. PostgreSQL 集成测试只允许专用 `COLLABORATION_TEST_DATABASE_URL` 和随机 `collaboration_test_*` schema，不直接迁移或清理任意 DATABASE_URL/public。
-26. 统一角色 0.5.0 只做本地中间门禁；协作完成后 local-sync、server/client、网关和 onboarding 合并发布 0.6.0，sync-protocol 保持独立包 semver。
+26. 统一角色已经随 local-sync/onboarding 0.5.1 发布并完成生产验证；协作从该基线开发，完成后把 local-sync、server/client、网关和 onboarding 统一提升到 0.6.0，sync-protocol 保持独立包 semver。

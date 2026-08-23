@@ -45,7 +45,7 @@ AgentWiki 已经具备 Space、Agent 独立身份、Credential、Space Grant、M
 
 ## 与 Agent 统一访问角色的关系
 
-本设计依赖已确认、尚未实现的 `reader | editor | publisher` Agent 统一访问角色设计。实现顺序仍是先完成统一访问角色，再实现协作模板；但二者采用一次合并发布：统一访问角色先在本地以 local-sync/onboarding 协议 `0.5.0` 完成门禁，不单独发布或部署；协作能力完成后，把 local-sync、server/client 应用包、统一网关、服务端 onboarding 兼容声明和用户指令统一提升到 `0.6.0`。`@neomei/agentwiki-sync-protocol` 同步包含新契约，但保持其独立包版本策略，不把它的包版本强行等同于 local-sync 协议版本。如果 `0.5.0` 在协作开发前已被另行授权发布，协作版本仍使用 `0.6.0`，不得把新增 MCP 契约伪装成 patch 版本。
+本设计依赖的 `reader | editor | publisher` Agent 统一访问角色已经随 local-sync/onboarding `0.5.1` 发布并完成生产验证。协作实现直接复用该单一角色事实，不再把角色改造作为待完成的中间门禁。协作能力完成后，把 local-sync、server/client 应用包、统一网关、服务端 onboarding 兼容声明和用户指令统一提升到 `0.6.0`。`@neomei/agentwiki-sync-protocol` 同步包含新契约，但保持其独立包版本策略，不把它的包版本强行等同于 local-sync 协议版本。
 
 普通界面继续只显示和提交访问角色，不能重新暴露逐项 scope 配置。协作能力只扩展统一角色策略的底层派生 scopes：
 
@@ -449,7 +449,7 @@ Space 导航新增 `Collaboration / 协作`，位于现有 `Runs` 与 `Members` 
 
 ## 实施顺序
 
-1. 先完成并验证统一访问角色 0.5.0 本地门禁，但不单独发布或部署。
+1. 以已发布并通过生产验证的统一访问角色 `0.5.1` 为基线。
 2. 在共享协议中扩展协作 scopes、模板 Schema、状态枚举和 MCP DTO。
 3. 实现服务端模板、运行、任务、租约、产物、审核和事件核心。
 4. 实现 Agent MCP 执行循环和授权边界。

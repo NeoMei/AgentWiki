@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 2026-08-23 综合安全与可靠性审查、Local Sync `0.5.1` npm 发行和生产部署均已完成，下一产品目标为 Agent 协作模板与组件。
+- 以已经发布并通过生产验证的 `0.5.1` 为基线，在隔离分支 `codex/agent-collaboration-workflows` 实现 Agent 协作模板与组件。
 - Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
@@ -15,6 +15,7 @@
 
 # 当前状态
 
+- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划进入实施前基线校验阶段，尚未 push、发布 npm 或部署生产。
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
@@ -54,4 +55,4 @@
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
-- 下一阶段按 13 个任务的 TDD 计划实施协作模板；不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。
+- 先完成隔离工作区依赖安装和 server/client/sync/local-sync 基线验证，再按 13 个任务逐项执行红绿测试；不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。
