@@ -326,6 +326,27 @@ describe('RunService', () => {
     }]);
   });
 
+  it('keeps RoleBinding Agents but excludes terminal task-only assignees from join instructions', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...ready,
+      roleBindings: [bindings[0]],
+      tasks: [
+        { id: 'task-role-terminal', assigneeAgentId: 'agent-a', status: 'completed' },
+        { id: 'task-alternate-terminal', assigneeAgentId: 'agent-alternate', status: 'skipped' },
+        { id: 'task-active', assigneeAgentId: 'agent-active', status: 'ready' },
+      ],
+      dependencies: [], reviews: [], events: [],
+    });
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+
+    expect(result.joinInstructions).toEqual([
+      { agentId: 'agent-a', roleSlotIds: ['planner'], taskIds: ['task-role-terminal'] },
+      { agentId: 'agent-active', roleSlotIds: [], taskIds: ['task-active'] },
+    ]);
+  });
+
   it('loads an explicit human DTO without event response or Attempt lease internals', async () => {
     const unsafeRun = {
       ...ready,

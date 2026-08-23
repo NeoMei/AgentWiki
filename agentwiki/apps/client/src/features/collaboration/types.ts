@@ -72,6 +72,12 @@ export interface RoleBinding {
   agentId: string;
 }
 
+export interface RunJoinInstruction {
+  agentId: string;
+  roleSlotIds: string[];
+  taskIds: string[];
+}
+
 export interface CollaborationRun extends RunSummary {
   spaceId?: string;
   templateId?: string;
@@ -81,7 +87,7 @@ export interface CollaborationRun extends RunSummary {
   inputs: Record<string, string | number | boolean>;
   roleBindings: RoleBinding[];
   templateSnapshot?: CollaborationTemplateDefinition;
-  joinInstructions?: AgentInstruction[];
+  joinInstructions?: RunJoinInstruction[];
   startedById?: string;
   pauseReason?: string | null;
   eventSequence?: number;

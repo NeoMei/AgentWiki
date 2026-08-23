@@ -11,6 +11,7 @@ import type {
   AgentInstruction,
   CollaborationRun,
   RoleBinding,
+  RunJoinInstruction,
   SpaceMemberSummary,
   TemplateDetail,
 } from './types';
@@ -18,17 +19,29 @@ import type {
 type Step = 1 | 2 | 3;
 type RetryAction = 'input' | 'mapping' | 'start' | null;
 
-export function buildAgentJoinInstructions(run: { id: string; roleBindings: RoleBinding[] }): AgentInstruction[] {
+export function buildAgentJoinInstructions(run: { id: string; roleBindings: RoleBinding[]; joinInstructions?: RunJoinInstruction[] }): AgentInstruction[] {
+  if (run.joinInstructions !== undefined) {
+    return run.joinInstructions.map((instruction) => {
+      const roleSlots = instruction.roleSlotIds.map((roleSlotId) =>
+        run.roleBindings.find((binding) => binding.roleSlotId === roleSlotId)?.roleSlotName || roleSlotId);
+      return toAgentInstruction(run.id, instruction.agentId, roleSlots);
+    });
+  }
   const byAgent = new Map<string, string[]>();
   for (const binding of run.roleBindings) {
     const name = binding.roleSlotName || binding.roleSlotId;
     byAgent.set(binding.agentId, [...(byAgent.get(binding.agentId) ?? []), name]);
   }
-  return [...byAgent.entries()].map(([agentId, roleSlots]) => ({
+  return [...byAgent.entries()].map(([agentId, roleSlots]) => toAgentInstruction(run.id, agentId, roleSlots));
+}
+
+function toAgentInstruction(runId: string, agentId: string, roleSlots: string[]): AgentInstruction {
+  const roleSummary = roleSlots.length ? ` Roles: ${roleSlots.join(', ')}.` : '';
+  return {
     agentId,
     roleSlots,
-    text: `Run ${run.id}. Roles: ${roleSlots.join(', ')}. Use the existing AgentWiki MCP connection. Call wiki_collaboration_join_run with runId ${run.id}, then call wiki_collaboration_next_action and follow each action until waiting_human, paused, completed, failed, or cancelled. Never invent or request a new connection secret.`,
-  }));
+    text: `Run ${runId}.${roleSummary} Use the existing AgentWiki MCP connection. Call wiki_collaboration_join_run with runId ${runId}, then call wiki_collaboration_next_action and follow each action until waiting_human, paused, completed, failed, or cancelled. Never invent or request a new connection secret.`,
+  };
 }
 
 export const RunStartWizard: React.FC = () => {
@@ -48,6 +61,34 @@ export const RunStartWizard: React.FC = () => {
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [idempotencyKey] = useState(() => `start-${safeUuid()}`);
   const storageKey = `agentwiki.collaboration.draft.${id}.${templateId}`;
+
+  const validatedInputs = () => {
+    if (!template || !runName.trim()) return null;
+    const normalized: Record<string, string | number | boolean> = {};
+    for (const input of template.definition.inputs) {
+      const value = inputValues[input.key];
+      if (input.required && (value === undefined || value === '')) {
+        setToast({ kind: 'error', message: t('collaboration.wizard.requiredInputs') });
+        return null;
+      }
+      if (value !== undefined && value !== '') normalized[input.key] = value;
+    }
+    const parsed = CollaborationInputValuesSchema.safeParse(normalized);
+    if (!parsed.success) {
+      setToast({ kind: 'error', message: t('collaboration.wizard.invalidInputs') });
+      return null;
+    }
+    return parsed.data;
+  };
+
+  const validatedBindings = () => {
+    if (!template) return null;
+    if (template.definition.roleSlots.some((slot) => slot.required && !bindings.some((binding) => binding.roleSlotId === slot.id))) {
+      setToast({ kind: 'error', message: t('collaboration.wizard.requiredBindings') });
+      return null;
+    }
+    return bindings.map(({ roleSlotId, agentId }) => ({ roleSlotId, agentId }));
+  };
 
   const initialize = useCallback(async () => {
     if (!id || !templateId) return;
@@ -84,26 +125,13 @@ export const RunStartWizard: React.FC = () => {
   useEffect(() => { void initialize(); }, [initialize]);
 
   const completeInputs = async (currentRun: CollaborationRun | null = run) => {
-    if (!template || !runName.trim()) return;
-    const normalized: Record<string, string | number | boolean> = {};
-    for (const input of template.definition.inputs) {
-      const value = inputValues[input.key];
-      if (input.required && (value === undefined || value === '')) {
-        setToast({ kind: 'error', message: t('collaboration.wizard.requiredInputs') });
-        return;
-      }
-      if (value !== undefined && value !== '') normalized[input.key] = value;
-    }
-    const parsed = CollaborationInputValuesSchema.safeParse(normalized);
-    if (!parsed.success) {
-      setToast({ kind: 'error', message: t('collaboration.wizard.invalidInputs') });
-      return;
-    }
+    const inputs = validatedInputs();
+    if (!inputs) return;
     setSubmitting(true);
     try {
       const draft = currentRun && ['draft', 'ready'].includes(currentRun.status)
-        ? await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, name: runName.trim(), inputs: parsed.data })
-        : await collaborationApi.createRunDraft(id, { templateId, name: runName.trim(), inputs: parsed.data, roleBindings: [] });
+        ? await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, name: runName.trim(), inputs })
+        : await collaborationApi.createRunDraft(id, { templateId, name: runName.trim(), inputs, roleBindings: [] });
       setRun(draft);
       localStorage.setItem(storageKey, draft.id);
       setRetryAction(null);
@@ -117,13 +145,10 @@ export const RunStartWizard: React.FC = () => {
 
   const completeMapping = async (currentRun: CollaborationRun | null = run) => {
     if (!template || !currentRun) return;
-    if (template.definition.roleSlots.some((slot) => slot.required && !bindings.some((binding) => binding.roleSlotId === slot.id))) {
-      setToast({ kind: 'error', message: t('collaboration.wizard.requiredBindings') });
-      return;
-    }
+    const roleBindings = validatedBindings();
+    if (!roleBindings) return;
     setSubmitting(true);
     try {
-      const roleBindings = bindings.map(({ roleSlotId, agentId }) => ({ roleSlotId, agentId }));
       const updated = await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, roleBindings });
       const ready = await collaborationApi.validateRunDraft(id, currentRun.id, updated.version);
       setRun(ready);
@@ -175,14 +200,27 @@ export const RunStartWizard: React.FC = () => {
       if (!['draft', 'ready'].includes(latest.status)) {
         setStarted(latest);
         localStorage.removeItem(storageKey);
-        setSubmitting(false);
         return;
       }
       if (action === 'input') await completeInputs(latest);
       else if (action === 'mapping') await completeMapping(latest);
-      else await start(latest);
+      else if (latest.status === 'draft') {
+        const inputs = validatedInputs();
+        const roleBindings = validatedBindings();
+        if (!inputs || !roleBindings) return;
+        const updated = await collaborationApi.updateRunDraft(id, latest.id, {
+          expectedVersion: latest.version,
+          name: runName.trim(),
+          inputs,
+          roleBindings,
+        });
+        const ready = await collaborationApi.validateRunDraft(id, latest.id, updated.version);
+        setRun(ready);
+        await start(ready);
+      } else await start(latest);
     } catch {
       setToast({ kind: 'error', message: t('collaboration.wizard.actionFailed') });
+    } finally {
       setSubmitting(false);
     }
   };

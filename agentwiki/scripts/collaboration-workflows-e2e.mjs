@@ -236,6 +236,7 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
     assert.equal(finalRun.tasks.every((task) => task.status === 'completed'), true);
     assert.equal(finalRun.reviews.every((item) => item.status === 'approved'), true);
     assert.equal(finalRun.events.some((event) => event.operation === 'reassign_task'), true);
+    assert.equal(finalRun.joinInstructions.some((item) => item.agentId === alternateAgent.id), false);
 
     process.stdout.write(JSON.stringify({
       status: 'PASS', schemaName, checks: {

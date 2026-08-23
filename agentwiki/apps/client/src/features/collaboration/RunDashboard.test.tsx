@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -98,9 +98,15 @@ describe('RunDashboard', () => {
   });
 
   it('submits a human review with a required reason and authoritative refresh', async () => {
-    vi.mocked(collaborationApi.decideReview).mockResolvedValue({ ...waitingReviewRun, status: 'running' } as any);
+    const resumedRun = {
+      ...waitingReviewRun,
+      status: 'running' as const,
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }],
+    };
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue(resumedRun as any);
     renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    vi.mocked(collaborationApi.getRun).mockResolvedValue(resumedRun as any);
     expect(screen.getByRole('dialog')).toHaveTextContent('Release run');
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Evidence is complete' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
@@ -123,6 +129,103 @@ describe('RunDashboard', () => {
 
     await waitFor(() => expect(collaborationApi.decideReview).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Resume Agent instructions')).not.toBeInTheDocument();
+  });
+
+  it('uses authoritative join instructions after skip and does not invent a task RoleBinding', async () => {
+    const skippableRun = {
+      ...runningRun,
+      tasks: [{
+        ...runningRun.tasks[0],
+        roleSlotId: 'alternate-task-only',
+        assigneeAgentId: 'agent-alternate',
+        status: 'ready',
+        skippable: true,
+        attempts: [],
+      }],
+    };
+    vi.mocked(collaborationApi.skipTask).mockResolvedValue({
+      ...skippableRun,
+      status: 'running',
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: [] }],
+    } as any);
+    renderDashboard(skippableRun, 'owner', 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip task' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Other branch remains active' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm skip task' }));
+
+    expect(await screen.findByText('Resume Agent instructions')).toBeVisible();
+    expect(screen.getByText(/Roles: Writer/u)).toBeVisible();
+    expect(document.body).not.toHaveTextContent('Roles: alternate-task-only');
+  });
+
+  it('clears prior recovery instructions when a later mutation is non-running', async () => {
+    const resumedRun = {
+      ...waitingReviewRun,
+      status: 'running' as const,
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: [] }],
+    };
+    vi.mocked(collaborationApi.decideReview)
+      .mockResolvedValueOnce(resumedRun as any)
+      .mockResolvedValueOnce({ ...waitingReviewRun, joinInstructions: [] } as any);
+    renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(resumedRun as any);
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'First decision' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(await screen.findByText('Resume Agent instructions')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Terminal decision' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    await waitFor(() => expect(screen.queryByText('Resume Agent instructions')).not.toBeInTheDocument());
+  });
+
+  it('clears recovery instructions when a Socket refresh observes a non-running run', async () => {
+    const resumedRun = {
+      ...waitingReviewRun,
+      status: 'running' as const,
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: [] }],
+    };
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue(resumedRun as any);
+    vi.mocked(collaborationApi.getRun)
+      .mockResolvedValueOnce(waitingReviewRun as any)
+      .mockResolvedValueOnce(resumedRun as any)
+      .mockResolvedValueOnce({ ...waitingReviewRun, status: 'completed', joinInstructions: [] } as any);
+    renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Resume work' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(await screen.findByText('Resume Agent instructions')).toBeVisible();
+
+    socketHandlers.get('collaborationRunChanged')?.({ runId: 'run-1', eventSequence: 10 });
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByText('Resume Agent instructions')).not.toBeInTheDocument());
+  });
+
+  it('keeps a running mutation instruction during refresh, then clears it for the resolved non-running status', async () => {
+    const resumedRun = {
+      ...waitingReviewRun,
+      status: 'running' as const,
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }],
+    };
+    let resolveRefresh!: (run: any) => void;
+    const pendingRefresh = new Promise<any>((resolve) => { resolveRefresh = resolve; });
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue(resumedRun as any);
+    renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    vi.mocked(collaborationApi.getRun).mockReturnValueOnce(pendingRefresh as any);
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Resume work' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(screen.getByText('Resume Agent instructions')).toBeVisible();
+    expect(screen.getByText(/wiki_collaboration_join_run/u)).toBeVisible();
+    resolveRefresh(waitingReviewRun);
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('Resume Agent instructions')).not.toBeInTheDocument());
   });
 
   it.each(['submitted', 'completed', 'skipped'])(

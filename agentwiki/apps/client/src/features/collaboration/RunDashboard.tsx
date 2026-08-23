@@ -12,7 +12,7 @@ import { ArtifactPanel } from './components/ArtifactPanel';
 import { ReviewPanel } from './components/ReviewPanel';
 import { RunSummary } from './components/RunSummary';
 import { TaskPanel } from './components/TaskPanel';
-import type { AgentInstruction, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, RoleBinding, SpaceMemberSummary } from './types';
+import type { AgentInstruction, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
 import { buildAgentJoinInstructions } from './RunStartWizard';
 
@@ -45,6 +45,13 @@ export const RunDashboard: React.FC = () => {
   const run = state.kind === 'ready' ? state.value : state.kind === 'error' ? state.previous : undefined;
   const humanRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role as HumanSpaceRole | undefined;
   const executableAgents = useMemo(() => members.filter((member) => member.type === 'agent' && member.agent?.status === 'active' && !member.agent.revokedAt && ['editor', 'publisher'].includes(member.role)), [members]);
+
+  useEffect(() => {
+    if (state.kind === 'ready' && !state.updating && state.value.status !== 'running') setResumeInstructions([]);
+  }, [state]);
+
+  const showResumeInstructions = resumeInstructions.length > 0
+    && !(state.kind === 'ready' && !state.updating && state.value.status !== 'running');
 
   const openAction = (action: PendingAction) => {
     setPending(action);
@@ -81,11 +88,8 @@ export const RunDashboard: React.FC = () => {
         || (pending.type === 'run' && pending.kind === 'resume')
         || (pending.type === 'task' && ['retry', 'reassign', 'skip'].includes(pending.kind));
       if (shouldResume && result.status === 'running') {
-        setResumeInstructions(buildAgentJoinInstructions({
-          id: run.id,
-          roleBindings: affectedBindings(pending, run, agentId),
-        }));
-      }
+        setResumeInstructions(buildAgentJoinInstructions(result));
+      } else setResumeInstructions([]);
       setPending(null);
       setToast({ kind: 'success', message: t('collaboration.dashboard.actionSuccess') });
       await refresh();
@@ -107,7 +111,7 @@ export const RunDashboard: React.FC = () => {
         {state.kind === 'ready' && state.updating ? <span role="status" className="text-sm text-gray-500">{t('collaboration.dashboard.updating')}</span> : <button type="button" aria-label={t('common.refresh')} onClick={() => void refresh()} className="rounded-lg border p-2"><RefreshCw size={16} /></button>}
       </div>
       {state.kind === 'error' ? <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.dashboard.stale')}</div> : null}
-      {resumeInstructions.length ? <section className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
+      {showResumeInstructions ? <section className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
 
       <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
         <RunSummary run={run} role={humanRole} userId={user?.id} t={t} onAction={(kind) => openAction({ type: 'run', kind })} />
@@ -143,17 +147,6 @@ const ActionDialog: React.FC<{
 
 function safeUuid(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function affectedBindings(pending: PendingAction, run: CollaborationRun, reassignedAgentId: string): RoleBinding[] {
-  if (pending.type !== 'task') return run.roleBindings;
-  const roleSlotName = run.roleBindings.find((binding) => binding.roleSlotId === pending.task.roleSlotId)?.roleSlotName
-    ?? pending.task.roleSlotId;
-  return [{
-    roleSlotId: pending.task.roleSlotId,
-    roleSlotName,
-    agentId: pending.kind === 'reassign' ? reassignedAgentId : pending.task.assigneeAgentId,
-  }];
 }
 
 async function copyResumeInstruction(

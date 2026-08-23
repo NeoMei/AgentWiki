@@ -686,8 +686,9 @@ export class RunService {
       instructions.set(binding.agentId, current);
     }
     for (const task of tasks) {
-      const current = instructions.get(task.assigneeAgentId)
-        ?? { agentId: task.assigneeAgentId, roleSlotIds: [], taskIds: [] };
+      const existing = instructions.get(task.assigneeAgentId);
+      if (!existing && ['completed', 'failed', 'skipped'].includes(task.status)) continue;
+      const current = existing ?? { agentId: task.assigneeAgentId, roleSlotIds: [], taskIds: [] };
       current.taskIds.push(task.id);
       instructions.set(task.assigneeAgentId, current);
     }
