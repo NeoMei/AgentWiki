@@ -27,7 +27,7 @@ services:
       API_KEY_SECRET: ${API_KEY_SECRET:?API_KEY_SECRET is required}
       CORS_ORIGINS: ${CLIENT_URL:?CLIENT_URL is required}
       PUBLIC_API_URL: ${PUBLIC_API_URL:?PUBLIC_API_URL is required}
-      LOCAL_SYNC_PACKAGE_VERSION: ${LOCAL_SYNC_PACKAGE_VERSION:-0.5.0}
+      LOCAL_SYNC_PACKAGE_VERSION: ${LOCAL_SYNC_PACKAGE_VERSION:-0.5.1}
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-100.64.35.78,localhost,127.0.0.1}
       ALLOWED_GIT_HOSTS: ${ALLOWED_GIT_HOSTS:-github.com,gitlab.com}
       ASSIST_OPENCODE_FREE_MODELS: ${ASSIST_OPENCODE_FREE_MODELS:-opencode/big-pickle}
@@ -79,6 +79,8 @@ services:
       INGEST_LEASE_MS: ${INGEST_LEASE_MS:-300000}
       INGEST_QUEUE_POLL_MS: ${INGEST_QUEUE_POLL_MS:-1000}
       INGEST_RECOVERY_POLL_MS: ${INGEST_RECOVERY_POLL_MS:-30000}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=268435456,mode=1777
     depends_on:
       backend:
         condition: service_healthy

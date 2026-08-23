@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
-import { SourceService } from './source.service';
+import { gitCloneArguments, gitSafeEnvironment, SourceService, validateGitTreeInventory } from './source.service';
 import axios from 'axios';
 import { createServer as createHttpServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
@@ -41,15 +41,72 @@ async function close(server: LocalServer): Promise<void> {
 
 describe('SourceService safety and idempotency', () => {
   const prisma = {
-    source: { findUnique: jest.fn() },
-    ingestRun: { findUnique: jest.fn(), create: jest.fn() },
+    source: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    ingestRun: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    changeSet: { deleteMany: jest.fn() },
+    artifact: { deleteMany: jest.fn() },
+    evidence: { deleteMany: jest.fn() },
+    $transaction: jest.fn(),
   } as any;
   const config = { get: jest.fn() } as any;
-  const service = new SourceService(prisma, config, {} as any);
+  const authorization = { assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined) } as any;
+  const service = new SourceService(prisma, config, {} as any, authorization);
+  const agentPrincipal = { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' };
 
   beforeEach(() => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
+    authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
+  });
+
+  it('writes no Source when the Agent Credential is revoked before commit', async () => {
+    prisma.source.findUnique.mockResolvedValue(null);
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.create(
+      'space-1',
+      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' },
+      { type: 'text', name: 'Source', content: 'content' },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.source.create).not.toHaveBeenCalled();
+  });
+
+  it('does not return an existing Source after the Agent Credential is revoked', async () => {
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-existing', spaceId: 'space-1' });
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.create(
+      'space-1', agentPrincipal,
+      { type: 'text', name: 'Source', content: 'content' },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
+
+  it.each([
+    ['update Source', () => service.update('source-1', { name: 'Renamed' }, agentPrincipal)],
+    ['create Run', () => service.createRun('source-1', agentPrincipal)],
+    ['retry Run', () => service.retryRun('run-1', agentPrincipal)],
+    ['cancel Run', () => service.cancelRun('run-1', agentPrincipal)],
+  ])('writes nothing when live authorization rejects %s', async (_label, invoke) => {
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active' });
+    prisma.ingestRun.findUnique.mockResolvedValue({
+      id: 'run-1', sourceId: 'source-1', spaceId: 'space-1', status: 'failed', changeSet: null,
+    });
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(invoke()).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    expect(prisma.source.update).not.toHaveBeenCalled();
+    expect(prisma.ingestRun.create).not.toHaveBeenCalled();
+    expect(prisma.ingestRun.update).not.toHaveBeenCalled();
+    expect(prisma.ingestRun.updateMany).not.toHaveBeenCalled();
   });
 
   it('returns the existing run for the same source idempotency key', async () => {
@@ -59,8 +116,57 @@ describe('SourceService safety and idempotency', () => {
     expect(prisma.ingestRun.create).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['requeued run', null, 'update'],
+    ['replacement run', { status: 'published' }, 'create'],
+  ])('attributes a %s retry to the current principal', async (_label, changeSet, operation) => {
+    prisma.ingestRun.findUnique.mockResolvedValue({
+      id: 'run-1', sourceId: 'source-1', spaceId: 'space-1', status: 'failed', changeSet,
+      requestedByUserId: null, requestedByAgentId: 'publisher-agent',
+      requestedScopes: ['review:auto-publish'], requestedCredentialId: 'publisher-credential',
+      requestedCredentialType: 'agent',
+    });
+    prisma.ingestRun[operation].mockResolvedValue({ id: 'retried-run' });
+
+    await service.retryRun('run-1', agentPrincipal);
+
+    expect(prisma.ingestRun[operation]).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        requestedByUserId: null,
+        requestedByAgentId: 'agent-1',
+        requestedScopes: [],
+        requestedCredentialId: 'credential-1',
+        requestedCredentialType: 'agent',
+      }),
+    }));
+  });
+
   it('rejects private-network URL sources', async () => {
     await expect((service as any).validateRemoteUrl('http://127.0.0.1/admin')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects Git inventories that exceed file-count or checkout-byte limits', () => {
+    const row = (index: number, size: number) => `100644 blob ${String(index).padStart(40, '0')} ${size}\tfile-${index}.md\0`;
+    const tooManyFiles = Array.from({ length: 20_001 }, (_, index) => row(index, 1)).join('');
+    expect(() => validateGitTreeInventory(tooManyFiles)).toThrow('Git repository exceeds');
+
+    const tooManyBytes = row(1, 101 * 1024 * 1024);
+    expect(() => validateGitTreeInventory(tooManyBytes)).toThrow('Git repository exceeds');
+  });
+
+  it('requests a partial clone and disables interactive checkout smudge filters', () => {
+    expect(gitCloneArguments('https://github.com/example/repo.git', '/tmp/repo')).toEqual(expect.arrayContaining([
+      '--no-checkout', '--filter=blob:none',
+    ]));
+    const environment = gitSafeEnvironment({ PATH: '/usr/bin', HOME: '/sensitive/home' });
+    expect(environment).toEqual(expect.objectContaining({
+      PATH: '/usr/bin',
+      GIT_LFS_SKIP_SMUDGE: '1',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_ATTR_NOSYSTEM: '1',
+      GIT_TERMINAL_PROMPT: '0',
+    }));
   });
 
   it.each(['::ffff:7f00:1', '::ffff:a00:1', '0:0:0:0:0:ffff:c0a8:101'])(
@@ -162,7 +268,7 @@ describe('SourceService safety and idempotency', () => {
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue(null) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'revoked-credential', requestedCredentialType: 'agent',
@@ -180,7 +286,7 @@ describe('SourceService safety and idempotency', () => {
         authorizationId: 'grant-1',
       }) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
@@ -201,7 +307,7 @@ describe('SourceService safety and idempotency', () => {
           authorizationId: 'grant-1',
         }) },
       } as any;
-      const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+      const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
       await expect((authorizationService as any).assertRequesterStillAuthorized({
         requestedByAgentId: 'agent-1', spaceId: 'space-1',
@@ -221,7 +327,7 @@ describe('SourceService safety and idempotency', () => {
         authorizationId: 'grant-1',
       }) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
@@ -240,7 +346,7 @@ describe('SourceService safety and idempotency', () => {
         authorizationId: 'grant-other',
       }) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
@@ -259,7 +365,7 @@ describe('SourceService safety and idempotency', () => {
         authorizationId: 'grant-1',
       }) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
@@ -274,7 +380,7 @@ describe('SourceService safety and idempotency', () => {
       }) },
       spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByUserId: 'admin-1',
@@ -295,7 +401,7 @@ describe('SourceService safety and idempotency', () => {
         role: 'admin', space: { deletedAt: null }, user: { deletedAt: null, type: 'human' },
       }) },
     } as any;
-    const authorizationService = new SourceService(authorizationPrisma, config, {} as any);
+    const authorizationService = new SourceService(authorizationPrisma, config, {} as any, {} as any);
 
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByUserId: 'admin-1', requestedByAgentId: null, spaceId: 'space-1',
@@ -341,7 +447,7 @@ describe('SourceService pipeline lifecycle', () => {
       return Promise.resolve(run);
     });
     const review = { publish: jest.fn() } as any;
-    const service = new SourceService(prisma, { get: jest.fn() } as any, review);
+    const service = new SourceService(prisma, { get: jest.fn() } as any, review, {} as any);
     return { service, prisma, review, run };
   };
 

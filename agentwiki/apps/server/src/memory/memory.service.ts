@@ -41,21 +41,71 @@ export class MemoryService {
       }
     }
     const contentHash = this.hash(dto.content);
-    const duplicate = await this.prisma.agentMemory.findFirst({
-      where: { agentId, spaceId: dto.spaceId, type: dto.type, contentHash, deletedAt: null },
-    });
-    if (duplicate) return { ...duplicate, deduplicated: true };
     const quota = Number(this.config.get('AGENT_MEMORY_QUOTA') || 10_000);
-    const count = await this.prisma.agentMemory.count({
-      where: { agentId, status: 'active', deletedAt: null },
+    const activeDuplicate = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, dto.spaceId, ['memory:write'],
+      );
+      await this.lockAgentMemoryWrites(tx, agentId);
+      const duplicate = await tx.agentMemory.findFirst({
+        where: { agentId, spaceId: dto.spaceId, type: dto.type, contentHash, deletedAt: null },
+      });
+      if (duplicate && this.isActiveMemory(duplicate)) return duplicate;
+      const activeCount = await tx.agentMemory.count({
+        where: {
+          agentId, status: 'active', deletedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+      });
+      if (activeCount >= quota) {
+        throw new BusinessException('MEMORY_QUOTA_EXCEEDED', 'Memory quota exceeded');
+      }
+      return null;
     });
-    if (count >= quota) throw new BusinessException('MEMORY_QUOTA_EXCEEDED', 'Memory quota exceeded');
+    if (activeDuplicate) return { ...activeDuplicate, deduplicated: true };
     const embedded = await this.embedding(dto.content);
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.authorization.assertLiveAgentWriteAccess(
           tx, principal, dto.spaceId, ['memory:write'],
         );
+        // Humans do not pass through the Agent authorization row locks. Use a
+        // transaction-scoped advisory lock as the single per-Agent quota gate
+        // for both human and Agent callers, then re-read state under that lock.
+        await this.lockAgentMemoryWrites(tx, agentId);
+        const concurrentDuplicate = await tx.agentMemory.findFirst({
+          where: { agentId, spaceId: dto.spaceId, type: dto.type, contentHash, deletedAt: null },
+        });
+        if (concurrentDuplicate && this.isActiveMemory(concurrentDuplicate)) {
+          return { ...concurrentDuplicate, deduplicated: true };
+        }
+        const count = await tx.agentMemory.count({
+          where: {
+            agentId, status: 'active', deletedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+        });
+        if (count >= quota) {
+          throw new BusinessException('MEMORY_QUOTA_EXCEEDED', 'Memory quota exceeded');
+        }
+        if (concurrentDuplicate) {
+          const reactivated = await tx.agentMemory.update({
+            where: { id: concurrentDuplicate.id },
+            data: {
+              content: dto.content,
+              importance: dto.importance ?? 0.5,
+              tags: dto.tags || [],
+              entities: dto.entities as any,
+              sourceEvidenceId: dto.sourceEvidenceId ?? null,
+              expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+              visibility: dto.visibility || 'private',
+              embedding: embedded.embedding,
+              embeddingModel: embedded.model ?? null,
+              status: 'active', archivedAt: null,
+            },
+          });
+          return { ...reactivated, deduplicated: true };
+        }
         return tx.agentMemory.create({
           data: {
             agentId, spaceId: dto.spaceId, type: dto.type, content: dto.content,
@@ -69,10 +119,40 @@ export class MemoryService {
       });
     } catch (error) {
       if ((error instanceof Prisma.PrismaClientKnownRequestError || (error as any)?.code === 'P2002') && (error as any).code === 'P2002') {
-        const concurrentDuplicate = await this.prisma.agentMemory.findFirst({
-          where: { agentId, spaceId: dto.spaceId, type: dto.type, contentHash, deletedAt: null },
+        const concurrentDuplicate = await this.prisma.$transaction(async (tx) => {
+          await this.authorization.assertLiveAgentWriteAccess(
+            tx, principal, dto.spaceId, ['memory:write'],
+          );
+          await this.lockAgentMemoryWrites(tx, agentId);
+          const winner = await tx.agentMemory.findFirst({
+            where: { agentId, spaceId: dto.spaceId, type: dto.type, contentHash, deletedAt: null },
+          });
+          if (!winner || this.isActiveMemory(winner)) return winner;
+          const activeCount = await tx.agentMemory.count({
+            where: {
+              agentId, status: 'active', deletedAt: null,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            },
+          });
+          if (activeCount >= quota) {
+            throw new BusinessException('MEMORY_QUOTA_EXCEEDED', 'Memory quota exceeded');
+          }
+          return tx.agentMemory.update({
+            where: { id: winner.id },
+            data: {
+              content: dto.content, importance: dto.importance ?? 0.5,
+              tags: dto.tags || [], entities: dto.entities as any,
+              sourceEvidenceId: dto.sourceEvidenceId ?? null,
+              expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+              visibility: dto.visibility || 'private',
+              embedding: embedded.embedding, embeddingModel: embedded.model ?? null,
+              status: 'active', archivedAt: null,
+            },
+          });
         });
-        if (concurrentDuplicate) return { ...concurrentDuplicate, deduplicated: true };
+        if (concurrentDuplicate) {
+          return { ...concurrentDuplicate, deduplicated: true };
+        }
       }
       throw error;
     }
@@ -128,7 +208,10 @@ export class MemoryService {
 
   async consolidate(agentId: string, dto: ConsolidateMemoryDto, principal: Principal) {
     const memories = await this.prisma.agentMemory.findMany({
-      where: { id: { in: dto.memoryIds }, agentId, spaceId: dto.spaceId, status: 'active', deletedAt: null },
+      where: {
+        id: { in: dto.memoryIds }, agentId, spaceId: dto.spaceId, status: 'active', deletedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
     });
     if (memories.length !== new Set(dto.memoryIds).size) throw new BadRequestException('One or more memories are unavailable');
     const content = dto.summary || memories.map((memory) => memory.content).join('\n\n');
@@ -137,17 +220,32 @@ export class MemoryService {
       where: { agentId, spaceId: dto.spaceId, type: 'semantic', contentHash, deletedAt: null },
     });
     if (existing) {
-      if (dto.memoryIds.includes(existing.id)) return { ...existing, deduplicated: true };
-      await this.prisma.$transaction(async (tx) => {
+      const liveExisting = await this.prisma.$transaction(async (tx) => {
         await this.authorization.assertLiveAgentWriteAccess(
           tx, principal, dto.spaceId, ['memory:write'],
         );
+        await this.lockAgentMemoryWrites(tx, agentId);
+        const currentMemories = await this.loadConsolidationMemories(
+          tx, agentId, dto.spaceId, dto.memoryIds,
+        );
+        const currentExisting = await tx.agentMemory.findFirst({
+          where: { agentId, spaceId: dto.spaceId, type: 'semantic', contentHash, deletedAt: null },
+        });
+        if (!currentExisting) return null;
+        const liveTarget = this.isActiveMemory(currentExisting)
+          ? currentExisting
+          : await tx.agentMemory.update({
+            where: { id: currentExisting.id },
+            data: { status: 'active', archivedAt: null, expiresAt: null },
+          });
+        if (dto.memoryIds.includes(liveTarget.id)) return liveTarget;
         await tx.agentMemory.updateMany({
-          where: { id: { in: memories.map((memory) => memory.id) } },
+          where: { id: { in: currentMemories.map((memory) => memory.id) } },
           data: { status: 'archived', archivedAt: new Date() },
         });
+        return liveTarget;
       });
-      return { ...existing, deduplicated: true };
+      if (liveExisting) return { ...liveExisting, deduplicated: true };
     }
     const embedded = await this.embedding(content);
     try {
@@ -155,39 +253,58 @@ export class MemoryService {
         await this.authorization.assertLiveAgentWriteAccess(
           tx, principal, dto.spaceId, ['memory:write'],
         );
+        await this.lockAgentMemoryWrites(tx, agentId);
+        const currentMemories = await this.loadConsolidationMemories(
+          tx, agentId, dto.spaceId, dto.memoryIds,
+        );
+        if (!dto.summary && this.hash(currentMemories.map((memory) => memory.content).join('\n\n')) !== contentHash) {
+          throw new BadRequestException('One or more memories changed during consolidation');
+        }
         const consolidated = await tx.agentMemory.create({
           data: {
             agentId, spaceId: dto.spaceId, type: 'semantic', content,
-            importance: Math.max(...memories.map((memory) => memory.importance)),
-            tags: Array.from(new Set(memories.flatMap((memory) => memory.tags))),
-            sourceMemoryIds: memories.map((memory) => memory.id),
-            sourceEvidenceId: memories.find((memory) => memory.sourceEvidenceId)?.sourceEvidenceId,
+            importance: Math.max(...currentMemories.map((memory) => memory.importance)),
+            tags: Array.from(new Set(currentMemories.flatMap((memory) => memory.tags))),
+            sourceMemoryIds: currentMemories.map((memory) => memory.id),
+            sourceEvidenceId: currentMemories.find((memory) => memory.sourceEvidenceId)?.sourceEvidenceId,
             contentHash,
-            visibility: memories.every((memory) => memory.visibility === 'space') ? 'space' : 'private',
+            visibility: currentMemories.every((memory) => memory.visibility === 'space') ? 'space' : 'private',
             embedding: embedded.embedding, embeddingModel: embedded.model,
           },
         });
         await tx.agentMemory.updateMany({
-          where: { id: { in: memories.map((memory) => memory.id) } },
+          where: { id: { in: currentMemories.map((memory) => memory.id) } },
           data: { status: 'archived', archivedAt: new Date() },
         });
         return consolidated;
       });
     } catch (error: any) {
       if (error?.code === 'P2002') {
-        const winner = await this.prisma.agentMemory.findFirst({
-          where: { agentId, spaceId: dto.spaceId, type: 'semantic', contentHash, deletedAt: null },
-        });
-        if (winner) {
-          await this.prisma.$transaction(async (tx) => {
+        const winner = await this.prisma.$transaction(async (tx) => {
             await this.authorization.assertLiveAgentWriteAccess(
               tx, principal, dto.spaceId, ['memory:write'],
             );
+            await this.lockAgentMemoryWrites(tx, agentId);
+            const currentMemories = await this.loadConsolidationMemories(
+              tx, agentId, dto.spaceId, dto.memoryIds,
+            );
+            const currentWinner = await tx.agentMemory.findFirst({
+              where: { agentId, spaceId: dto.spaceId, type: 'semantic', contentHash, deletedAt: null },
+            });
+            if (!currentWinner) return null;
+            const liveWinner = this.isActiveMemory(currentWinner)
+              ? currentWinner
+              : await tx.agentMemory.update({
+                where: { id: currentWinner.id },
+                data: { status: 'active', archivedAt: null, expiresAt: null },
+              });
             await tx.agentMemory.updateMany({
-              where: { id: { in: memories.map((memory) => memory.id) } },
+              where: { id: { in: currentMemories.map((memory) => memory.id) } },
               data: { status: 'archived', archivedAt: new Date() },
             });
+            return liveWinner;
           });
+        if (winner) {
           return { ...winner, deduplicated: true };
         }
       }
@@ -200,6 +317,7 @@ export class MemoryService {
       await this.authorization.assertLiveAgentWriteAccess(
         tx, principal, spaceId, ['memory:write'],
       );
+      await this.lockAgentMemoryWrites(tx, agentId);
       return tx.agentMemory.updateMany({
         where: { id, agentId, spaceId, deletedAt: null },
         data: { status: 'archived', archivedAt: new Date() },
@@ -214,6 +332,7 @@ export class MemoryService {
       await this.authorization.assertLiveAgentWriteAccess(
         tx, principal, spaceId, ['memory:write'],
       );
+      await this.lockAgentMemoryWrites(tx, agentId);
       return tx.agentMemory.updateMany({
         where: { id, agentId, spaceId, deletedAt: null },
         data: {
@@ -232,6 +351,35 @@ export class MemoryService {
       where: { status: 'active', deletedAt: null, expiresAt: { lte: new Date() } },
       data: { status: 'archived', archivedAt: new Date() },
     });
+  }
+
+  private lockAgentMemoryWrites(tx: Prisma.TransactionClient, agentId: string) {
+    return tx.$queryRaw(Prisma.sql`
+      SELECT pg_advisory_xact_lock(hashtext(${agentId}))
+    `);
+  }
+
+  private async loadConsolidationMemories(
+    tx: Prisma.TransactionClient,
+    agentId: string,
+    spaceId: string,
+    memoryIds: string[],
+  ) {
+    const memories = await tx.agentMemory.findMany({
+      where: {
+        id: { in: memoryIds }, agentId, spaceId, status: 'active', deletedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+    });
+    if (memories.length !== new Set(memoryIds).size) {
+      throw new BadRequestException('One or more memories are unavailable');
+    }
+    return memories;
+  }
+
+  private isActiveMemory(memory: { status?: string; expiresAt?: Date | null }): boolean {
+    return memory.status !== 'archived' && memory.status !== 'deleted' &&
+      (!memory.expiresAt || memory.expiresAt > new Date());
   }
 
   private tokens(value: string) {

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Us
 import { Request } from 'express';
 import { IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
+import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { AssistService } from './assist.service';
 import { AssistQueue } from './assist.queue';
@@ -28,7 +29,7 @@ class CreateAssistTaskDto {
 }
 
 @Controller('assist')
-@UseGuards(CombinedAuthGuard)
+@UseGuards(CombinedAuthGuard, HumanOnlyGuard)
 export class AssistController {
   constructor(
     private readonly assist: AssistService,

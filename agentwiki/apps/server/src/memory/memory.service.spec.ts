@@ -6,10 +6,11 @@ import {
 
 describe('MemoryService', () => {
   const prisma = {
-    agentMemory: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    agentMemory: { findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     page: { findMany: jest.fn() },
     knowledgeRelation: { findMany: jest.fn() },
     evidence: { findUnique: jest.fn() },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   } as any;
   const llm = { generateEmbedding: jest.fn().mockRejectedValue(new Error('not configured')) } as any;
@@ -47,7 +48,10 @@ describe('MemoryService', () => {
   });
 
   it('returns the winning row when concurrent writes hit the unique memory key', async () => {
-    prisma.agentMemory.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'winner', content: 'same' });
+    prisma.agentMemory.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'winner', content: 'same', status: 'active', expiresAt: null });
     prisma.agentMemory.count.mockResolvedValue(0);
     prisma.agentMemory.create.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }));
     const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: 'same' } as any, humanPrincipal);
@@ -55,15 +59,169 @@ describe('MemoryService', () => {
   });
 
   it('deduplicates normalized content before consuming quota', async () => {
-    prisma.agentMemory.findFirst.mockResolvedValue({ id: 'existing', content: 'same' });
+    prisma.agentMemory.findFirst.mockResolvedValue({ id: 'existing', content: 'same', status: 'active', expiresAt: null });
     const result = await service.create('agent-1', { spaceId: 'space-1', type: 'semantic', content: ' Same  ' } as any, humanPrincipal);
     expect(result).toMatchObject({ id: 'existing', deduplicated: true });
     expect(prisma.agentMemory.count).not.toHaveBeenCalled();
+    expect(llm.generateEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('reactivates an archived duplicate instead of returning an invisible memory', async () => {
+    prisma.agentMemory.findFirst.mockResolvedValue({
+      id: 'existing', content: 'same', status: 'archived', archivedAt: new Date(), expiresAt: null,
+    });
+    prisma.agentMemory.count.mockResolvedValue(0);
+    prisma.agentMemory.update.mockResolvedValue({ id: 'existing', content: 'same', status: 'active' });
+
+    await expect(service.create(
+      'agent-1', { spaceId: 'space-1', type: 'semantic', content: 'same' } as any, humanPrincipal,
+    )).resolves.toMatchObject({ id: 'existing', status: 'active', deduplicated: true });
+
+    expect(prisma.agentMemory.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'active', archivedAt: null }),
+    }));
+  });
+
+  it('does not return a duplicate after the Agent Credential has been revoked', async () => {
+    prisma.agentMemory.findFirst.mockResolvedValue({ id: 'existing', content: 'same' });
+    authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
+    );
+
+    await expect(service.create(
+      'agent-1',
+      { spaceId: 'space-1', type: 'semantic', content: 'same' } as any,
+      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
+
+  it('serializes and rechecks quota inside the live-authorized transaction', async () => {
+    const order: string[] = [];
+    prisma.agentMemory.findFirst.mockImplementation(async () => {
+      order.push('duplicate');
+      return null;
+    });
+    prisma.agentMemory.count.mockImplementation(async () => {
+      order.push('quota');
+      return 0;
+    });
+    prisma.$queryRaw.mockImplementation(async () => {
+      order.push('lock');
+      return 1;
+    });
+    authorization.assertLiveAgentWriteAccess.mockImplementation(async () => {
+      order.push('authorization');
+    });
+    prisma.agentMemory.create.mockImplementation(async () => {
+      order.push('create');
+      return { id: 'memory-1' };
+    });
+
+    await service.create(
+      'agent-1',
+      { spaceId: 'space-1', type: 'semantic', content: 'new memory' } as any,
+      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' },
+    );
+
+    expect(order).toEqual([
+      'authorization',
+      'lock',
+      'duplicate',
+      'quota',
+      'authorization',
+      'lock',
+      'duplicate',
+      'quota',
+      'create',
+    ]);
   });
 
   it('rejects evidence from a different space', async () => {
     prisma.evidence.findUnique.mockResolvedValue({ run: { spaceId: 'space-2' } });
     await expect(service.create('agent-1', { spaceId: 'space-1', type: 'episodic', content: 'Observed failure', sourceEvidenceId: 'evidence-1' } as any, humanPrincipal)).rejects.toThrow('Source evidence must belong');
+  });
+
+  it('does not resurrect a memory deleted while consolidation is being prepared', async () => {
+    prisma.agentMemory.findMany
+      .mockResolvedValueOnce([
+        { id: 'memory-1', content: 'one', importance: 0.5, tags: [], visibility: 'private' },
+        { id: 'memory-2', content: 'two', importance: 0.6, tags: [], visibility: 'private' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'memory-2', content: 'two', importance: 0.6, tags: [], visibility: 'private' },
+      ]);
+    prisma.agentMemory.findFirst.mockResolvedValue(null);
+
+    await expect(service.consolidate(
+      'agent-1',
+      { spaceId: 'space-1', memoryIds: ['memory-1', 'memory-2'] },
+      humanPrincipal,
+    )).rejects.toThrow('One or more memories are unavailable');
+
+    expect(prisma.agentMemory.create).not.toHaveBeenCalled();
+  });
+
+  it('excludes expired memories from both consolidation reads', async () => {
+    const memories = [
+      { id: 'memory-1', content: 'one', importance: 0.5, tags: [], visibility: 'private' },
+      { id: 'memory-2', content: 'two', importance: 0.6, tags: [], visibility: 'private' },
+    ];
+    prisma.agentMemory.findMany.mockResolvedValue(memories);
+    prisma.agentMemory.findFirst.mockResolvedValue(null);
+    prisma.agentMemory.create.mockResolvedValue({ id: 'consolidated' });
+    prisma.agentMemory.updateMany.mockResolvedValue({ count: 2 });
+
+    await service.consolidate(
+      'agent-1',
+      { spaceId: 'space-1', memoryIds: ['memory-1', 'memory-2'] },
+      humanPrincipal,
+    );
+
+    for (const [query] of prisma.agentMemory.findMany.mock.calls) {
+      expect(query.where).toEqual(expect.objectContaining({
+        OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+      }));
+    }
+  });
+
+  it('does not return a stale deduplication target deleted before consolidation commits', async () => {
+    const memories = [
+      { id: 'memory-1', content: 'one', importance: 0.5, tags: [], visibility: 'private' },
+      { id: 'memory-2', content: 'two', importance: 0.6, tags: [], visibility: 'private' },
+    ];
+    prisma.agentMemory.findMany.mockResolvedValue(memories);
+    prisma.agentMemory.findFirst
+      .mockResolvedValueOnce({ id: 'stale-existing', content: 'one\n\ntwo' })
+      .mockResolvedValueOnce(null);
+    prisma.agentMemory.create.mockResolvedValue({ id: 'fresh-consolidation' });
+    prisma.agentMemory.updateMany.mockResolvedValue({ count: 2 });
+
+    await expect(service.consolidate(
+      'agent-1',
+      { spaceId: 'space-1', memoryIds: ['memory-1', 'memory-2'] },
+      humanPrincipal,
+    )).resolves.toMatchObject({ id: 'fresh-consolidation' });
+
+    expect(prisma.agentMemory.create).toHaveBeenCalled();
+  });
+
+  it('reactivates an archived consolidation target before archiving its sources', async () => {
+    const memories = [
+      { id: 'memory-1', content: 'one', importance: 0.5, tags: [], visibility: 'private' },
+      { id: 'memory-2', content: 'two', importance: 0.6, tags: [], visibility: 'private' },
+    ];
+    prisma.agentMemory.findMany.mockResolvedValue(memories);
+    prisma.agentMemory.findFirst.mockResolvedValue({
+      id: 'archived-target', content: 'one\n\ntwo', status: 'archived', archivedAt: new Date(), expiresAt: null,
+    });
+    prisma.agentMemory.update.mockResolvedValue({
+      id: 'archived-target', content: 'one\n\ntwo', status: 'active', archivedAt: null,
+    });
+    prisma.agentMemory.updateMany.mockResolvedValue({ count: 2 });
+
+    await expect(service.consolidate(
+      'agent-1', { spaceId: 'space-1', memoryIds: ['memory-1', 'memory-2'] }, humanPrincipal,
+    )).resolves.toMatchObject({ id: 'archived-target', status: 'active', deduplicated: true });
   });
 
   it('writes nothing when an Agent Credential is revoked before a memory delete', async () => {

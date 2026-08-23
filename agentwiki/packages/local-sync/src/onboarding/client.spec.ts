@@ -36,7 +36,7 @@ describe('OnboardingClient.start', () => {
     const client = new OnboardingClient({ fetchImpl });
     const result = await client.start({
       serverBaseUrl: SERVER,
-      packageVersion: '0.5.0',
+      packageVersion: '0.5.1',
       clientType: 'codex',
       fetchImpl,
     });
@@ -60,7 +60,7 @@ describe('OnboardingClient.start', () => {
     const client = new OnboardingClient({ fetchImpl });
     await client.start({
       serverBaseUrl: 'https://example.test/api///',
-      packageVersion: '0.5.0',
+      packageVersion: '0.5.1',
       clientType: 'codex',
       fetchImpl,
     });
@@ -149,7 +149,7 @@ describe('OnboardingClient.bootstrap', () => {
     space: { mode: 'create' as const, name: 'R&D' },
     agentName: 'Codex',
     role: 'editor' as const,
-    packageVersion: '0.5.0' as const,
+    packageVersion: '0.5.1' as const,
   };
 
   it('posts the plan with onboarding token and idempotency key', async () => {

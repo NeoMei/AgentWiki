@@ -1,5 +1,13 @@
 import { join } from 'node:path';
 
+export const SAFE_SPACE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u;
+
+export function assertSafeSpaceId(spaceId: string): void {
+  if (!SAFE_SPACE_ID_PATTERN.test(spaceId)) {
+    throw new Error('Invalid Space id: expected 1-100 letters, numbers, underscores, or hyphens');
+  }
+}
+
 /**
  * Space Local Workspace layout.
  *
@@ -24,6 +32,7 @@ export interface SpaceWorkspacePaths {
 }
 
 export function workspacePaths(baseDir: string, spaceId: string): SpaceWorkspacePaths {
+  assertSafeSpaceId(spaceId);
   const root = join(baseDir, 'spaces', spaceId);
   return {
     root,

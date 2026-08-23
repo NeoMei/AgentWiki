@@ -55,13 +55,13 @@ export class SourceController {
   @Patch('sources/:id')
   async update(@Param('id') id: string, @Req() req: Request, @Body() dto: UpdateSourceDto) {
     await this.authorization.assertSourceAccess(req.user as any, id, ['owner', 'editor'], 'sources:write');
-    return this.sources.update(id, dto);
+    return this.sources.update(id, dto, req.user as any);
   }
 
   @Delete('sources/:id')
   async archive(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertSourceAccess(req.user as any, id, ['owner', 'editor'], 'sources:write');
-    return this.sources.update(id, { status: 'archived' });
+    return this.sources.update(id, { status: 'archived' }, req.user as any);
   }
 
   @Post('sources/:id/runs')
@@ -87,7 +87,7 @@ export class SourceController {
   @Post('runs/:id/retry')
   async retry(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertIngestRunAccess(req.user as any, id, ['owner', 'editor'], 'runs:write');
-    const run = await this.sources.retryRun(id);
+    const run = await this.sources.retryRun(id, req.user as any);
     this.queue.enqueue();
     return run;
   }
@@ -95,6 +95,6 @@ export class SourceController {
   @Post('runs/:id/cancel')
   async cancel(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertIngestRunAccess(req.user as any, id, ['owner', 'editor'], 'runs:write');
-    return this.sources.cancelRun(id);
+    return this.sources.cancelRun(id, req.user as any);
   }
 }

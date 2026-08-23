@@ -42,4 +42,16 @@ describe('space workspace', () => {
     expect(stableSpaceId('my space')).toBe(stableSpaceId('my space'));
     expect(stableSpaceId('my space')).not.toBe(stableSpaceId('other space'));
   });
+
+  it.each([
+    '../Documents',
+    '..\\Documents',
+    '/tmp/escaped',
+    '.',
+    'space/id',
+    `space-${'x'.repeat(100)}`,
+    'space\u0000id',
+  ])('rejects unsafe space ids before deriving workspace paths: %j', (spaceId) => {
+    expect(() => workspacePaths(home, spaceId)).toThrow('Invalid Space id');
+  });
 });

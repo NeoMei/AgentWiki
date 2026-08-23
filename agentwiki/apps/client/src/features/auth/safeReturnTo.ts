@@ -1,4 +1,5 @@
 const DEVICE_AUTH_PATH = '/onboard/device';
+const OBSIDIAN_GUIDE_PATH = '/guide/obsidian';
 const DEVICE_CODE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const ENCODED_CONTROL_PATTERN = /%(?:0[0-9a-f]|1[0-9a-f]|7f)/i;
 
@@ -11,7 +12,7 @@ const containsControlCharacter = (value: string): boolean => {
 };
 
 /**
- * Accept only the one public route that needs to survive an authentication
+ * Accept only the exact public routes that need to survive an authentication
  * round-trip. Keeping this deliberately narrow avoids turning the landing
  * page's returnTo parameter into an open redirect.
  */
@@ -28,9 +29,14 @@ export const safeReturnTo = (value: unknown): string | null => {
     return null;
   }
 
-  if (parsed.origin !== 'https://agentwiki.invalid' || parsed.pathname !== DEVICE_AUTH_PATH || parsed.hash) {
+  if (parsed.origin !== 'https://agentwiki.invalid' || parsed.hash) {
     return null;
   }
+
+  if (parsed.pathname === OBSIDIAN_GUIDE_PATH) {
+    return parsed.search ? null : OBSIDIAN_GUIDE_PATH;
+  }
+  if (parsed.pathname !== DEVICE_AUTH_PATH) return null;
 
   const keys = [...parsed.searchParams.keys()];
   if (keys.some((key) => key !== 'user_code') || parsed.searchParams.getAll('user_code').length > 1) {

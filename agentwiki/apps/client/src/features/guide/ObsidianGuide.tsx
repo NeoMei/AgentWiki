@@ -2,12 +2,15 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Download, ExternalLink, Gem, Globe, Link2, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { ObsidianConnectionPanel } from './ObsidianConnectionPanel';
 
 const GITHUB_RELEASE_URL = 'https://github.com/NeoMei/agentwiki-sync/releases/latest';
 const SERVER_URL = 'https://agentwiki.quukk.com/api';
 
 export const ObsidianGuide: React.FC = () => {
   const { language } = useLanguage();
+  const { token } = useAuth();
   const zh = language === 'zh-CN';
 
   const steps = [
@@ -114,27 +117,17 @@ export const ObsidianGuide: React.FC = () => {
         </div>
       </section>
 
-      <section className="mt-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50">
-            <ShieldCheck size={18} className="text-blue-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="font-semibold leading-6">{zh ? '管理已连接的设备' : 'Manage connected devices'}</h2>
-            <p className="mt-1 text-sm leading-6 text-gray-600">
-              {zh
-                ? '连接后可以在网页端的「集成」页面查看和管理 Obsidian 设备，包括撤销不再使用的设备凭据。'
-                : 'After connecting, manage Obsidian devices (including revoking unused device credentials) on the Integrations page of this site.'}
-            </p>
-            <Link
-              to="/settings/integrations"
-              className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
-            >
-              {zh ? '打开集成管理' : 'Open integrations'}
-            </Link>
-          </div>
-        </div>
-      </section>
+      {token ? <ObsidianConnectionPanel /> : (
+        <section className="mt-8 rounded-2xl border border-purple-200 bg-purple-50 p-5 sm:p-6">
+          <h2 className="font-semibold text-purple-950">{zh ? '登录后生成连接码' : 'Sign in to generate a connection code'}</h2>
+          <p className="mt-1 text-sm leading-6 text-purple-800">
+            {zh ? '安装好插件后，登录 AgentWiki，即可在本页生成一次性连接码并管理已连接设备。' : 'After installing the plugin, sign in to generate a one-time code and manage connected devices on this page.'}
+          </p>
+          <Link to="/?intent=workspace&returnTo=%2Fguide%2Fobsidian#login" className="mt-3 inline-flex rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
+            {zh ? '登录 AgentWiki' : 'Sign in to AgentWiki'}
+          </Link>
+        </section>
+      )}
     </article>
   );
 };

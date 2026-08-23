@@ -105,7 +105,7 @@ export const Profile: React.FC = () => {
         ← {t('search.back')}
       </Link>
       <h1 className="text-2xl font-bold mb-6">{t('profile.title')}</h1>
-      <Link to="/settings/integrations" className="inline-flex items-center text-sm text-blue-600 mb-4">{t('profile.integrations')} →</Link>
+      <Link to="/guide/obsidian" className="inline-flex items-center text-sm text-blue-600 mb-4">{t('nav.obsidian')} →</Link>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm flex items-center justify-between">

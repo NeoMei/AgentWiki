@@ -100,9 +100,20 @@ export class OpencodeCliRunner implements OpencodeRunner {
     return new Promise((resolve, reject) => {
       // Pass only what opencode needs (config dir + LLM creds), not the whole
       // host environment (which may hold DB passwords and other secrets).
+      const isolatedConfigDir = join(sandbox, '.config', 'opencode');
       const env = {
         PATH: process.env.PATH,
-        HOME: process.env.HOME,
+        HOME: sandbox,
+        XDG_CONFIG_HOME: join(sandbox, '.config'),
+        XDG_DATA_HOME: join(sandbox, '.local', 'share'),
+        XDG_CACHE_HOME: join(sandbox, '.cache'),
+        XDG_STATE_HOME: join(sandbox, '.local', 'state'),
+        OPENCODE_CONFIG_DIR: isolatedConfigDir,
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { '*': 'deny' } }),
+        OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+        OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
+        OPENCODE_DISABLE_CLAUDE_CODE: 'true',
         ...this.llmEnv(),
       };
       let child: ChildProcessWithoutNullStreams;
@@ -363,6 +374,16 @@ export class OpencodeCliRunner implements OpencodeRunner {
 
   private parse(output: string): OpencodeAttemptResult {
     const { usage, cost } = this.readUsage(output);
+    for (const line of output.split('\n')) {
+      try {
+        const event = JSON.parse(line.trim());
+        if (event?.type === 'tool_use' || event?.type === 'tool_result') {
+          throw new OpencodeExecutionError('process_error', 'process_error', 'global', usage, cost);
+        }
+      } catch (error) {
+        if (error instanceof OpencodeExecutionError) throw error;
+      }
+    }
     let text = '';
     try {
       for (const line of output.split('\n')) {

@@ -50,7 +50,7 @@ try {
     installDirectory, 'node_modules', '@neomei', 'agentwiki-local-sync', 'package.json',
   ), 'utf8'));
   assert.equal(installedProtocol.version, '0.2.0');
-  assert.equal(installedLocalSync.version, '0.5.0');
+  assert.equal(installedLocalSync.version, '0.5.1');
   assert.equal(installedLocalSync.dependencies[protocolName], installedProtocol.version);
 
   const cli = spawnSync(process.execPath, [

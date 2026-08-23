@@ -60,6 +60,16 @@ describe('OpencodeCliRunner', () => {
     expect(childEnv).not.toHaveProperty('DATABASE_URL');
     expect(childEnv).not.toHaveProperty('JWT_SECRET');
     expect(childEnv).not.toHaveProperty('REDIS_URL');
+    expect(childEnv.HOME).toContain('agentwiki-assist-');
+    expect(childEnv.HOME).not.toBe(process.env.HOME);
+    expect(JSON.parse(childEnv.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+      permission: { '*': 'deny' },
+    });
+    expect(childEnv).toMatchObject({
+      OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+      OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
+      OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
+    });
 
     child.stdout.write(JSON.stringify({
       type: 'text',
@@ -68,6 +78,16 @@ describe('OpencodeCliRunner', () => {
     child.emit('close', 0);
 
     await expect(execution).resolves.toMatchObject({ summary: 'ok', changes: '# Result' });
+  });
+
+  it('rejects model output containing any tool execution event', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      JSON.stringify({ type: 'tool_use', part: { tool: 'bash', input: { command: 'id' } } }),
+      JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: 'ok', changes: '# Result' }) } }),
+    ].join('\n');
+
+    expect(() => (runner as any).parse(output)).toThrow('process_error');
   });
 
   it('forwards standard proxy settings required by model providers', async () => {

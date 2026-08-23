@@ -16,7 +16,7 @@ describe('server plan normalization', () => {
       space: { mode: 'existing' as const, id: 'space-1' },
       agentName: 'OpenCode',
       role,
-      packageVersion: '0.5.0' as const,
+      packageVersion: '0.5.1' as const,
     };
     expect(normalizeServerPlan(plan)).toEqual({
       ...plan,
@@ -35,7 +35,7 @@ describe('server plan hashing', () => {
       space: { mode: 'create' as const, name: '研发知识库' },
       agentName: 'Codex',
       role: 'editor' as const,
-      packageVersion: '0.5.0' as const,
+      packageVersion: '0.5.1' as const,
     };
     const a = hashServerPlan(plan);
     const b = hashServerPlan(plan);
@@ -48,7 +48,7 @@ describe('server plan hashing', () => {
     const base = {
       space: { mode: 'create' as const, name: 'S' },
       agentName: 'A',
-      packageVersion: '0.5.0' as const,
+      packageVersion: '0.5.1' as const,
     };
     expect(hashServerPlan({ ...base, role: 'editor' })).not.toBe(
       hashServerPlan({ ...base, role: 'publisher' }),
@@ -60,10 +60,10 @@ describe('server plan hashing', () => {
       agentName: 'Codex',
       space: { mode: 'create', name: 'S' },
       role: 'editor',
-      packageVersion: '0.5.0',
+      packageVersion: '0.5.1',
     });
     const b = hashServerPlan({
-      packageVersion: '0.5.0',
+      packageVersion: '0.5.1',
       role: 'editor',
       agentName: 'Codex',
       space: { mode: 'create', name: 'S' },

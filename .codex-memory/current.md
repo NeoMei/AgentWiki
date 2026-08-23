@@ -2,17 +2,23 @@
 
 # 当前目标
 
-- Agent 统一访问角色 0.5.0 已完成 GitHub、npm 与生产发布；当前待启动目标为 Agent 协作模板与组件。
+- 2026-08-23 综合安全与可靠性审查已完成修复和多轮验证，应用与 Local Sync `0.5.1` 发行候选已就绪。
+- Agent 统一访问角色 0.5.0 线上版本保持不变；本轮本地修复完成后，下一产品目标仍为 Agent 协作模板与组件。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
 # 范围 / 不做
 
 - 已发布范围包括 `reader`、`editor`、`publisher` 三角色，单一 `Space + role` 接入、身份型 Credential、统一网关、MCP 实时鉴权、Obsidian 专页与主导航入口。
+- 本轮本地审查覆盖授权 TOCTOU、任务身份继承、WebSocket、模型工具隔离、Memory 并发/生命周期、HTTP 限流、Git 导入、Local Sync 路径边界与 Obsidian 单页连接流程。
 - 不兼容旧 Agent `viewer` / `full` / 自定义 scopes 客户端或旧 Credential 数据；人类 Space 成员角色属于独立领域。
 - 协作模板首期仍为编码、标书、论文、视频脚本和小说五类模板，以及 Agent 任务、Todo、依赖/并行、人工审核和结果交接/汇总。
 
 # 当前状态
 
+- 发行前基线为本地 `master` / `origin/master` `0c9eb70`；`0.5.1` 候选已通过本地门禁，等待提交、GitHub/npm 同步与生产部署。
+- 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
+- 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
+- Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
 - GitHub `master` 已推送至 `d88e930`；生产 633 个受部署管理的 tracked 文件与该提交逐文件 SHA-256 一致。
 - npm 已发布 `@neomei/agentwiki-sync-protocol@0.2.0` 与 `@neomei/agentwiki-local-sync@0.5.0`，registry 干净安装和 CLI 启动验证通过。
 - 生产已应用 40 条迁移，最新为 `20260823090000_bind_agent_credentials_to_grants`；API、Worker、Frontend 三项 user service 均 active、`NRestarts=0`，最终切换后 error 日志为 0。
@@ -28,7 +34,7 @@
 - 普通产品入口只使用 `reader | editor | publisher`；任何 Agent 都没有 `review:decide` 或成员管理权限。
 - Agent 详情页唯一可编辑授权动作是生成 `Space + role` 连接；不得恢复独立 Grant 角色编辑器或手工 Credential 签发入口。
 - Publisher 不修改 Space Policy；自动发布必须在发布临界点重验 Credential、Agent/owner、Grant、Space、Policy 与领域门槛。
-- 高频集成流程应有显眼主入口；Obsidian 使用主导航 `/guide/obsidian` 专页，设备管理仍归 `/settings/integrations`。
+- 高频集成流程应有显眼主入口；Obsidian 使用主导航 `/guide/obsidian` 专页，安装、连接码与设备管理必须同页，旧 `/settings/integrations` 只允许重定向。
 - 协作运行保存不可变模板快照；人工审核只能由人类完成；现有 Local Knowledge Orchestrator 保持专用。
 
 # 关键索引
@@ -36,12 +42,15 @@
 - 统一访问角色验证：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 统一访问角色部署门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
 - 已归档统一访问角色任务：`.codex-memory/tasks/archive/unified-agent-access-roles/`
+- 综合安全与可靠性审查：`.codex-memory/tasks/archive/comprehensive-security-reliability-audit-2026-08-23/`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
 
 # 风险 / 下一步
 
+- `0.5.1` 发行必须先同步 GitHub 与 npm，再在数据库/应用双备份验证后部署生产，并做真实浏览器与公网协议验收。
+- Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复数据库与应用备份，不能只回退 schema 或只切旧应用目录。
 - 下一阶段按 13 个任务的 TDD 计划实施协作模板；不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。

@@ -8,6 +8,7 @@
 
 ## 最近完成
 
+- [comprehensive-security-reliability-audit-2026-08-23](archive/comprehensive-security-reliability-audit-2026-08-23/brief.md)：多轮全仓安全与可靠性审查完成；本地修复授权 TOCTOU、Run 身份升级、WebSocket、Memory、限流、Git/Local Sync 边界和 Obsidian 单页连接，尚未提交或外部发布。
 - [unified-agent-access-roles](archive/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、单一 Grant 权限源、npm 0.5.0/0.2.0、GitHub 与生产发布完成；公网权限烟测 31/31、浏览器入口和三角色界面验收通过。
 - [codegraph-local-code-analysis](archive/codegraph-local-code-analysis/brief.md)：CodeGraph 标准扫描切换、Codebase Memory 移除、三客户端验收和五轮最终审查完成；2026-08-20 已发布 npm 0.4.0、更新 GitHub、完成备份优先的生产部署与公网 smoke。深度分析仍为以后用户显式触发的独立第二阶段。
 - [unified-agentwiki-mcp-fix](archive/unified-agentwiki-mcp-fix/brief.md)：消除 Credential 与本地同步两套 MCP 接入指令，统一为 0.3.7 单一 `agentwiki` gateway；发布、生产部署与三客户端公网 E2E 均已完成（2026-08-15，2026-08-18 归档复核）。

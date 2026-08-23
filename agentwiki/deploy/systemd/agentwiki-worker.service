@@ -20,6 +20,7 @@ RestartSec=3
 TimeoutStopSec=60
 NoNewPrivileges=true
 PrivateTmp=true
+TemporaryFileSystem=/tmp:rw,nosuid,nodev,noexec,size=256M,mode=1777
 UMask=0077
 
 [Install]

@@ -9,6 +9,12 @@ describe('safeReturnTo', () => {
     expect(safeReturnTo('/onboard/device')).toBe('/onboard/device');
   });
 
+  it('accepts the exact Obsidian connection page without query or fragment', () => {
+    expect(safeReturnTo('/guide/obsidian')).toBe('/guide/obsidian');
+    expect(safeReturnTo('/guide/obsidian?next=/dashboard')).toBeNull();
+    expect(safeReturnTo('/guide/obsidian#devices')).toBeNull();
+  });
+
   it.each([
     undefined,
     '',

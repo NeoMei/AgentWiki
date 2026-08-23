@@ -7,6 +7,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { SAFE_SPACE_ID_PATTERN } from '../workspace/layout.js';
 import { formatMcpOutput } from './output.js';
 import { STATIC_TOOLS, staticToolNames, toRemoteGatewayName, isLegacyToolName } from './manifest.js';
 import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
@@ -44,7 +45,7 @@ export const gatewayToolInputSchemas = {
     analysisMode: z.enum(['standard', 'deep']).default('standard'),
   }).strict(),
   knowledgePrepare: z.object({
-    spaceId: z.string().min(1),
+    spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN),
     sourcePaths: z.array(z.string().min(1)),
     sourceType: z.enum(['auto', 'code', 'documents']).optional(),
     analysisMode: z.enum(['standard', 'deep']).default('standard'),
@@ -59,7 +60,7 @@ export const gatewayToolInputSchemas = {
  * tools are registered and remote calls return REMOTE_UNAVAILABLE.
  */
 export async function createGatewayServer(context: GatewayContext): Promise<GatewayServer> {
-  const version = context.version ?? '0.5.0';
+  const version = context.version ?? '0.5.1';
   const server = new McpServer({ name: 'agentwiki', version });
   const toolNames: string[] = [];
 
@@ -144,7 +145,7 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     'knowledge_pull',
     {
       description: toolDescription('knowledge_pull'),
-      inputSchema: { spaceId: z.string().min(1) },
+      inputSchema: { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN) },
     },
     async (input) =>
       text(formatMcpOutput(await context.handlers.pull(input as { spaceId: string }))),

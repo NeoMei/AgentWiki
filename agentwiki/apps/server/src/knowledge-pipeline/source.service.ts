@@ -14,7 +14,7 @@ import { tmpdir } from 'os';
 import { extname, posix, resolve } from 'path';
 import { promisify } from 'util';
 import { PrismaService } from '../database/prisma.service';
-import { Principal } from '../core/authorization/authorization.service';
+import { AuthorizationService, Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
@@ -24,6 +24,49 @@ const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.
 const execFileAsync = promisify(execFile);
 const MAX_REMOTE_REDIRECTS = 5;
 const MAX_REMOTE_BYTES = 10 * 1024 * 1024;
+const MAX_GIT_TREE_FILES = 20_000;
+const MAX_GIT_TREE_BYTES = 100 * 1024 * 1024;
+const MAX_GIT_TRAVERSAL_ENTRIES = 40_000;
+const MAX_GIT_TREE_DEPTH = 64;
+
+export function gitCloneArguments(url: string, target: string): string[] {
+  return [
+    'clone', '--depth', '1', '--single-branch', '--no-checkout', '--filter=blob:none',
+    url, target,
+  ];
+}
+
+export function gitSafeEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return {
+    ...base,
+    GIT_LFS_SKIP_SMUDGE: '1',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_ATTR_NOSYSTEM: '1',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+}
+
+export function validateGitTreeInventory(inventory: string): { fileCount: number; declaredBytes: number } {
+  let fileCount = 0;
+  let declaredBytes = 0;
+  for (const record of inventory.split('\0')) {
+    if (!record) continue;
+    const tab = record.indexOf('\t');
+    const metadata = (tab >= 0 ? record.slice(0, tab) : record).trim().split(/\s+/u);
+    if (metadata[1] !== 'blob') continue;
+    const size = Number(metadata[3]);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new BusinessException('SOURCE_INVALID', 'Git repository has an invalid tree inventory');
+    }
+    fileCount += 1;
+    declaredBytes += size;
+    if (fileCount > MAX_GIT_TREE_FILES || declaredBytes > MAX_GIT_TREE_BYTES) {
+      throw new BusinessException('SOURCE_INVALID', 'Git repository exceeds checkout limits');
+    }
+  }
+  return { fileCount, declaredBytes };
+}
 
 interface FetchedSegment {
   sourcePath: string;
@@ -84,37 +127,49 @@ export class SourceService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly review: ReviewService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   async create(spaceId: string, principal: Principal, dto: CreateSourceDto | { type: 'file'; name: string; content: string }) {
     this.validateInput(dto);
     const identity = dto.type === 'url' || dto.type === 'git' ? dto.uri! : dto.content!;
     const contentHash = this.hash(identity);
-    const existing = await this.prisma.source.findUnique({
-      where: { spaceId_type_contentHash: { spaceId, type: dto.type, contentHash } },
-    });
-    if (existing) return existing;
     try {
-      return await this.prisma.source.create({
-        data: {
-          spaceId,
-          type: dto.type,
-          name: dto.name,
-          uri: 'uri' in dto ? dto.uri : undefined,
-          contentHash,
-          createdByUserId: principal.agentId ? undefined : principal.userId,
-          createdByAgentId: principal.agentId,
-          versions: dto.type === 'text' || dto.type === 'file' ? {
-            create: { version: 1, content: dto.content, contentHash },
-          } : undefined,
-        },
-        include: { versions: true },
+      return await this.prisma.$transaction(async (tx) => {
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, spaceId, ['sources:write'],
+        );
+        const concurrent = await tx.source.findUnique({
+          where: { spaceId_type_contentHash: { spaceId, type: dto.type, contentHash } },
+          include: { versions: true },
+        });
+        if (concurrent) return concurrent;
+        return tx.source.create({
+          data: {
+            spaceId,
+            type: dto.type,
+            name: dto.name,
+            uri: 'uri' in dto ? dto.uri : undefined,
+            contentHash,
+            createdByUserId: principal.agentId ? undefined : principal.userId,
+            createdByAgentId: principal.agentId,
+            versions: dto.type === 'text' || dto.type === 'file' ? {
+              create: { version: 1, content: dto.content, contentHash },
+            } : undefined,
+          },
+          include: { versions: true },
+        });
       });
     } catch (error: any) {
       if (error?.code === 'P2002') {
-        const concurrent = await this.prisma.source.findUnique({
-          where: { spaceId_type_contentHash: { spaceId, type: dto.type, contentHash } },
-          include: { versions: true },
+        const concurrent = await this.prisma.$transaction(async (tx) => {
+          await this.authorization.assertLiveAgentWriteAccess(
+            tx, principal, spaceId, ['sources:write'],
+          );
+          return tx.source.findUnique({
+            where: { spaceId_type_contentHash: { spaceId, type: dto.type, contentHash } },
+            include: { versions: true },
+          });
         });
         if (concurrent) return concurrent;
       }
@@ -142,39 +197,70 @@ export class SourceService {
     return source;
   }
 
-  async update(id: string, dto: UpdateSourceDto) {
-    return this.prisma.source.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        status: dto.status,
-        archivedAt: dto.status === 'archived' ? new Date() : dto.status === 'active' ? null : undefined,
-      },
+  async update(id: string, dto: UpdateSourceDto, principal: Principal) {
+    return this.prisma.$transaction(async (tx) => {
+      const source = await tx.source.findUnique({ where: { id }, select: { spaceId: true } });
+      if (!source) throw new NotFoundException('Source not found');
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, source.spaceId, ['sources:write'],
+      );
+      return tx.source.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          status: dto.status,
+          archivedAt: dto.status === 'archived' ? new Date() : dto.status === 'active' ? null : undefined,
+        },
+      });
     });
   }
 
   async createRun(sourceId: string, principal: Principal, idempotencyKey?: string) {
-    const source = await this.prisma.source.findUnique({ where: { id: sourceId } });
-    if (!source || source.status !== 'active') throw new BadRequestException('Source is not active');
-    if (idempotencyKey) {
-      if (idempotencyKey.length > 128) throw new BadRequestException('Idempotency key is too long');
-      const existing = await this.prisma.ingestRun.findUnique({
-        where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } },
-      });
-      if (existing) return existing;
+    if (idempotencyKey && idempotencyKey.length > 128) {
+      throw new BadRequestException('Idempotency key is too long');
     }
-    return this.prisma.ingestRun.create({
-      data: {
-        sourceId,
-        idempotencyKey,
-        spaceId: source.spaceId,
-        requestedByUserId: principal.agentId ? undefined : principal.userId,
-        requestedByAgentId: principal.agentId,
-        requestedScopes: principal.scopes || [],
-        requestedCredentialId: principal.credentialId,
-        requestedCredentialType: principal.agentId ? 'agent' : principal.credentialId ? 'personal' : 'jwt',
-      },
-    });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const source = await tx.source.findUnique({ where: { id: sourceId } });
+        if (!source || source.status !== 'active') throw new BadRequestException('Source is not active');
+        await this.authorization.assertLiveAgentWriteAccess(
+          tx, principal, source.spaceId, ['runs:write'],
+        );
+        if (idempotencyKey) {
+          const existing = await tx.ingestRun.findUnique({
+            where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } },
+          });
+          if (existing) return existing;
+        }
+        return tx.ingestRun.create({
+          data: {
+            sourceId,
+            idempotencyKey,
+            spaceId: source.spaceId,
+            requestedByUserId: principal.agentId ? undefined : principal.userId,
+            requestedByAgentId: principal.agentId,
+            requestedScopes: principal.scopes || [],
+            requestedCredentialId: principal.credentialId,
+            requestedCredentialType: principal.agentId ? 'agent' : principal.credentialId ? 'personal' : 'jwt',
+          },
+        });
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && idempotencyKey) {
+        const concurrent = await this.prisma.$transaction(async (tx) => {
+          const source = await tx.source.findUnique({ where: { id: sourceId } });
+          if (!source || source.status !== 'active') throw new BadRequestException('Source is not active');
+          await this.authorization.assertLiveAgentWriteAccess(
+            tx, principal, source.spaceId, ['runs:write'],
+          );
+          return tx.ingestRun.findUnique({
+            where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } },
+          });
+        });
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
   }
 
   async listRuns(spaceId: string) {
@@ -194,25 +280,31 @@ export class SourceService {
     return run;
   }
 
-  async retryRun(id: string) {
-    const run = await this.prisma.ingestRun.findUnique({
-      where: { id },
-      include: { changeSet: { select: { status: true } } },
-    });
-    if (!run || !['failed', 'partial', 'cancelled'].includes(run.status)) {
-      throw new BusinessException('RUN_NOT_RETRYABLE', 'Run is not retryable');
-    }
+  async retryRun(id: string, principal: Principal) {
     return this.prisma.$transaction(async (tx) => {
+      const run = await tx.ingestRun.findUnique({
+        where: { id },
+        include: { changeSet: { select: { status: true } } },
+      });
+      if (!run || !['failed', 'partial', 'cancelled'].includes(run.status)) {
+        throw new BusinessException('RUN_NOT_RETRYABLE', 'Run is not retryable');
+      }
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, run.spaceId, ['runs:write'],
+      );
+      const requester = {
+        requestedByUserId: principal.agentId ? null : principal.userId,
+        requestedByAgentId: principal.agentId ?? null,
+        requestedScopes: principal.scopes || [],
+        requestedCredentialId: principal.credentialId ?? null,
+        requestedCredentialType: principal.agentId ? 'agent' : principal.credentialId ? 'personal' : 'jwt',
+      };
       if (run.changeSet?.status === 'published' || run.changeSet?.status === 'reverted') {
         return tx.ingestRun.create({
           data: {
             sourceId: run.sourceId,
             spaceId: run.spaceId,
-            requestedByUserId: run.requestedByUserId,
-            requestedByAgentId: run.requestedByAgentId,
-            requestedScopes: run.requestedScopes,
-            requestedCredentialId: run.requestedCredentialId,
-            requestedCredentialType: run.requestedCredentialType,
+            ...requester,
             nextAttemptAt: new Date(),
           },
         });
@@ -226,22 +318,29 @@ export class SourceService {
           status: 'queued', stage: 'queued', error: null, cancelRequested: false,
           attempts: 0, nextAttemptAt: new Date(), completedAt: null,
           lockedAt: null, leaseOwner: null, leaseExpiresAt: null,
+          ...requester,
         },
       });
     });
   }
 
-  async cancelRun(id: string) {
-    const [queued, active] = await this.prisma.$transaction([
-      this.prisma.ingestRun.updateMany({
+  async cancelRun(id: string, principal: Principal) {
+    const [queued, active] = await this.prisma.$transaction(async (tx) => {
+      const run = await tx.ingestRun.findUnique({ where: { id }, select: { spaceId: true } });
+      if (!run) throw new BadRequestException('Run can no longer be cancelled');
+      await this.authorization.assertLiveAgentWriteAccess(
+        tx, principal, run.spaceId, ['runs:write'],
+      );
+      const queued = await tx.ingestRun.updateMany({
         where: { id, status: 'queued' },
         data: { cancelRequested: true, status: 'cancelled', stage: 'cancelled', completedAt: new Date(), nextAttemptAt: null },
-      }),
-      this.prisma.ingestRun.updateMany({
+      });
+      const active = await tx.ingestRun.updateMany({
         where: { id, status: { in: ['reserved', 'fetching', 'extracting', 'compiling', 'indexing'] } },
         data: { cancelRequested: true },
-      }),
-    ]);
+      });
+      return [queued, active] as const;
+    });
     if (!queued.count && !active.count) throw new BadRequestException('Run can no longer be cancelled');
     return { success: true };
   }
@@ -609,22 +708,54 @@ export class SourceService {
     const root = mkdtempSync(resolve(tmpdir(), 'agentwiki-source-'));
     try {
       const target = resolve(root, 'repo');
-      await execFileAsync('git', [
-        'clone', '--depth', '1', '--single-branch', '--filter=blob:limit=1048576',
-        url.toString(), target,
-      ], { timeout: 120_000, maxBuffer: 1024 * 1024 });
+      const gitEnvironment = gitSafeEnvironment();
+      await execFileAsync('git', gitCloneArguments(url.toString(), target), {
+        timeout: 120_000, maxBuffer: 1024 * 1024, env: gitEnvironment,
+      });
+      const validateObjectStorage = () => {
+        const objectStats = execFileSync('git', ['-C', target, 'count-objects', '-v'], {
+          timeout: 10_000, encoding: 'utf8', maxBuffer: 64 * 1024, env: gitEnvironment,
+        });
+        const objectKilobytes = objectStats.split('\n').reduce((total, line) => {
+          const match = /^(?:size|size-pack|size-garbage):\s+(\d+)$/u.exec(line.trim());
+          return total + (match ? Number(match[1]) : 0);
+        }, 0);
+        if (!Number.isSafeInteger(objectKilobytes) || objectKilobytes * 1024 > MAX_GIT_TREE_BYTES) {
+          throw new BusinessException('SOURCE_INVALID', 'Git repository exceeds storage limits');
+        }
+      };
+      validateObjectStorage();
+      const inventory = execFileSync('git', ['-C', target, 'ls-tree', '-rz', '--long', 'HEAD'], {
+        timeout: 20_000, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: gitEnvironment,
+      });
+      validateGitTreeInventory(inventory);
+      execFileSync('git', [
+        '-c', 'filter.lfs.smudge=', '-c', 'filter.lfs.required=false',
+        '-C', target, 'checkout', '--force', 'HEAD',
+      ], {
+        timeout: 60_000, encoding: 'utf8', maxBuffer: 1024 * 1024, env: gitEnvironment,
+      });
+      validateObjectStorage();
       const parts: string[] = [];
       const files: Array<{ path: string; contentHash: string; size: number; commit?: string }> = [];
       const segments: FetchedSegment[] = [];
       let bytes = 0;
       let fileCount = 0;
       let skippedFiles = 0;
-      const walk = (directory: string) => {
+      let traversedEntries = 0;
+      const walk = (directory: string, depth = 0) => {
+        if (depth > MAX_GIT_TREE_DEPTH) {
+          throw new BusinessException('SOURCE_INVALID', 'Git repository exceeds traversal depth');
+        }
         for (const entry of readdirSync(directory, { withFileTypes: true })) {
           if (entry.name === '.git') continue;
+          traversedEntries += 1;
+          if (traversedEntries > MAX_GIT_TRAVERSAL_ENTRIES) {
+            throw new BusinessException('SOURCE_INVALID', 'Git repository exceeds traversal limits');
+          }
           if (bytes >= 10 * 1024 * 1024) { skippedFiles += 1; continue; }
           const fullPath = resolve(directory, entry.name);
-          if (entry.isDirectory()) walk(fullPath);
+          if (entry.isDirectory()) walk(fullPath, depth + 1);
           else if (entry.isFile() && TEXT_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
             const size = statSync(fullPath).size;
             if (size <= 1024 * 1024 && bytes + size <= 10 * 1024 * 1024) {
