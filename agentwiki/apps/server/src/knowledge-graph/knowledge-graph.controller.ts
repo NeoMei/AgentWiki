@@ -56,6 +56,9 @@ export class KnowledgeGraphController {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('body must be an object');
     }
+    if (Object.keys(body).length === 0) {
+      throw new BadRequestException('body must contain at least one graph setting');
+    }
     const allowed = new Set(['wikilinkEnabled', 'similarEnabled', 'similarThreshold', 'llmEnabled']);
     if (Object.keys(body).some((key) => !allowed.has(key))) {
       throw new BadRequestException('body contains unknown graph settings');
@@ -65,17 +68,11 @@ export class KnowledgeGraphController {
         throw new BadRequestException(`${key} must be a boolean`);
       }
     }
-    const current = await this.graph.getOrCreateState(id);
     if (body.similarThreshold !== undefined
       && (!Number.isFinite(body.similarThreshold) || body.similarThreshold < 0.5 || body.similarThreshold > 1)) {
       throw new BadRequestException('similarThreshold must be between 0.5 and 1');
     }
-    const updated = await this.graph.updateSettings(id, {
-      wikilinkEnabled: body.wikilinkEnabled ?? current.wikilinkEnabled,
-      similarEnabled: body.similarEnabled ?? current.similarEnabled,
-      similarThreshold: body.similarThreshold ?? current.similarThreshold,
-      llmEnabled: body.llmEnabled ?? current.llmEnabled,
-    });
+    const updated = await this.graph.updateSettings(id, body);
     return {
       wikilinkEnabled: updated.wikilinkEnabled,
       similarEnabled: updated.similarEnabled,
