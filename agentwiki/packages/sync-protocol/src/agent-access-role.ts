@@ -5,10 +5,10 @@ export const AgentAccessRoleSchema = z.enum(AGENT_ACCESS_ROLES);
 export type AgentAccessRole = z.infer<typeof AgentAccessRoleSchema>;
 
 const READER_SCOPES = [
-  "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
+  "collaboration:read", "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
 ] as const;
 const EDITOR_SCOPES = [
-  ...READER_SCOPES, "graph:write", "pages:write", "runs:write", "sources:write",
+  ...READER_SCOPES, "collaboration:execute", "graph:write", "pages:write", "runs:write", "sources:write",
 ].sort();
 const PUBLISHER_SCOPES = [
   ...EDITOR_SCOPES, "memory:read", "memory:write", "review:auto-publish",

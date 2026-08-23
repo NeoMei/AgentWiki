@@ -10,16 +10,16 @@ describe("Agent access roles", () => {
   it("expands the three exact role scope sets", () => {
     expect(AGENT_ACCESS_ROLES).toEqual(["reader", "editor", "publisher"]);
     expect(scopesForAgentAccessRole("reader")).toEqual([
-      "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
+      "collaboration:read", "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
     ]);
     expect(scopesForAgentAccessRole("editor")).toEqual([
-      "graph:read", "graph:write", "pages:read", "pages:write", "review:read",
-      "runs:read", "runs:write", "sources:read", "sources:write", "spaces:read",
+      "collaboration:execute", "collaboration:read", "graph:read", "graph:write", "pages:read",
+      "pages:write", "review:read", "runs:read", "runs:write", "sources:read", "sources:write", "spaces:read",
     ]);
     expect(scopesForAgentAccessRole("publisher")).toEqual([
-      "graph:read", "graph:write", "memory:read", "memory:write", "pages:read",
-      "pages:write", "review:auto-publish", "review:read", "runs:read", "runs:write",
-      "sources:read", "sources:write", "spaces:read",
+      "collaboration:execute", "collaboration:read", "graph:read", "graph:write", "memory:read",
+      "memory:write", "pages:read", "pages:write", "review:auto-publish", "review:read", "runs:read",
+      "runs:write", "sources:read", "sources:write", "spaces:read",
     ]);
   });
 
