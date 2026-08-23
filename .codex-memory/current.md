@@ -15,7 +15,7 @@
 
 # 当前状态
 
-- 发行前基线为本地 `master` / `origin/master` `0c9eb70`；`0.5.1` 候选已通过本地门禁，等待提交、GitHub/npm 同步与生产部署。
+- `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；npm 仍为 Local Sync `0.5.0` / Sync Protocol `0.2.0`，三次 npm 网页安全密钥授权均超时且 registry 反查确认 `0.5.1` 未发布；生产尚未部署。
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
@@ -49,7 +49,7 @@
 
 # 风险 / 下一步
 
-- `0.5.1` 发行必须先同步 GitHub 与 npm，再在数据库/应用双备份验证后部署生产，并做真实浏览器与公网协议验收。
+- 继续 `0.5.1` 发行时，需要用户在 npm 授权链接有效期内完成 Security Key / Touch ID；生产部署前还需先建立可用 SSH 会话。之后仍必须先验证数据库/应用双备份，再部署并做真实浏览器与公网协议验收。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复数据库与应用备份，不能只回退 schema 或只切旧应用目录。

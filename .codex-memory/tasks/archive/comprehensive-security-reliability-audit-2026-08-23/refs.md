@@ -19,3 +19,5 @@
 - `pnpm peers check`：0 peer dependency issues。
 - `bash -n deploy.sh && git diff --check`：通过。
 - `pnpm test:package:local-sync-clean-install`：通过，候选组合为 Local Sync `0.5.1` + Sync Protocol `0.2.0`。
+- GitHub 代码发行：`2700baccbf9ba9fda9539c2d1bd2404c683bb248`。
+- npm 候选 tarball：148311 bytes，151 entries，SHA-256 `8e7bd2723718c17a4335e1a96b4692de230d1e4052eb42ca2756b5d02f3e2ea2`；授权超时后 registry 反查仍无 `0.5.1`。
