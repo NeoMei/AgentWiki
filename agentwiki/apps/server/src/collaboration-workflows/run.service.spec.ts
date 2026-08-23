@@ -701,13 +701,57 @@ describe('RunService', () => {
     expect(Buffer.byteLength(serialized, 'utf8')).toBeLessThan(512_000);
   });
 
+  it('materializes at most four full Artifacts and paginates maximum legal payloads without gaps', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const artifacts = Array.from({ length: 5 }, (_, index) => ({
+      id: `artifact-${5 - index}`, runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
+      version: 5 - index, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(999_900) },
+      evidence: [], acceptedAt: new Date(), createdAt: new Date(`2026-08-24T00:00:0${5 - index}.000Z`),
+    }));
+    tx.collaborationTaskArtifact.findMany.mockImplementation(async ({ where, take }: any) => {
+      const at = where.OR?.[0]?.createdAt?.lt as Date | undefined;
+      const id = where.OR?.[1]?.id?.lt as string | undefined;
+      return artifacts
+        .filter((artifact) => !at || artifact.createdAt < at
+          || (artifact.createdAt.getTime() === at.getTime() && artifact.id < id!))
+        .slice(0, take);
+    });
+
+    const first = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', undefined, '100', humanPrincipal);
+    const second = await service.getHumanRunHistory('space-1', 'run-1', 'artifacts', first.nextCursor!, '100', humanPrincipal);
+
+    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ take: 4 }));
+    expect(tx.collaborationTaskArtifact.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ take: 4 }));
+    expect(first.items.map((artifact: any) => artifact.id)).toEqual(['artifact-5', 'artifact-4', 'artifact-3']);
+    expect(second.items.map((artifact: any) => artifact.id)).toEqual(['artifact-2', 'artifact-1']);
+    expect(new Set([...first.items, ...second.items].map((artifact: any) => artifact.id)).size).toBe(5);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it('returns one legal full Artifact through the detail history path', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationTaskArtifact.findMany.mockResolvedValue([{
+      id: 'artifact-one', runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
+      version: 1, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(999_900) },
+      evidence: [], acceptedAt: new Date(), createdAt: new Date('2026-08-24T00:00:01.000Z'),
+    }]);
+
+    const page = await service.getHumanRunHistory(
+      'space-1', 'run-1', 'artifacts', undefined, '100', humanPrincipal,
+    );
+
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].payload.markdown).toHaveLength(999_900);
+    expect(page.nextCursor).toBeNull();
+  });
+
   it('rejects a History page whose aggregate serialized details exceed the page budget', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
-    tx.collaborationTaskArtifact.findMany.mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({
-      id: `artifact-${index}`, runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
-      version: index + 1, kind: 'json', status: 'accepted', payload: { text: 'x'.repeat(1_000_000) },
-      evidence: [], acceptedAt: new Date(), createdAt: new Date(`2026-08-24T00:00:0${index}.000Z`),
-    })));
+    tx.collaborationTaskArtifact.findMany.mockResolvedValue([{
+      id: 'artifact-corrupt', runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
+      version: 1, kind: 'markdown', status: 'accepted', payload: { markdown: 'x'.repeat(4_000_000) },
+      evidence: [], acceptedAt: new Date(), createdAt: new Date('2026-08-24T00:00:01.000Z'),
+    }]);
 
     await expect(service.getHumanRunHistory(
       'space-1', 'run-1', 'artifacts', undefined, '4', humanPrincipal,

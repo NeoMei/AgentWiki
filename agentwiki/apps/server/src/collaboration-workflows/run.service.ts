@@ -79,6 +79,7 @@ const HUMAN_EVENT_PREVIEW_SELECT = {
 
 const HUMAN_RUN_MAX_SERIALIZED_BYTES = 512_000;
 const HUMAN_HISTORY_MAX_SERIALIZED_BYTES = 4_000_000;
+const HUMAN_ARTIFACT_HISTORY_MAX_PAGE = 3;
 const HUMAN_TODO_PREVIEW_LIMIT = 3;
 const HUMAN_EVENT_PREVIEW_LIMIT = 20;
 const ACTIVE_RUN_STATUSES = ['draft', 'ready', 'running', 'waiting_review', 'paused'] as const;
@@ -357,6 +358,9 @@ export class RunService {
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
     const historyKind = parseHistoryKind(kind);
     const pageSize = parseHistoryLimit(limit ?? '50');
+    const materializedPageSize = historyKind === 'artifacts'
+      ? Math.min(pageSize, HUMAN_ARTIFACT_HISTORY_MAX_PAGE)
+      : pageSize;
     const position = cursor ? this.historyCursors.decode(cursor, historyKind, runId) : undefined;
     let rows: any[];
     if (historyKind === 'events') {
@@ -364,7 +368,7 @@ export class RunService {
       rows = await this.prisma.collaborationRunEvent.findMany({
         where: { runId, ...(sequence === undefined ? {} : { sequence: { lt: sequence } }) },
         orderBy: { sequence: 'desc' },
-        take: pageSize + 1,
+        take: materializedPageSize + 1,
         select: HUMAN_EVENT_DETAIL_SELECT,
       });
     } else {
@@ -376,7 +380,7 @@ export class RunService {
       const query = {
         where: { runId, ...timestampWhere },
         orderBy: [{ [timestampField]: 'desc' as const }, { id: 'desc' as const }],
-        take: pageSize + 1,
+        take: materializedPageSize + 1,
       };
       if (historyKind === 'todos') {
         rows = await this.prisma.collaborationTaskTodo.findMany({ ...query, select: HUMAN_TODO_DETAIL_SELECT } as any);
@@ -388,8 +392,8 @@ export class RunService {
         rows = await this.prisma.collaborationReview.findMany({ ...query, select: HUMAN_REVIEW_DETAIL_SELECT } as any);
       }
     }
-    const hasMore = rows.length > pageSize;
-    const items = rows.slice(0, pageSize);
+    const hasMore = rows.length > materializedPageSize;
+    const items = rows.slice(0, materializedPageSize);
     let nextCursor: string | null = null;
     if (hasMore && items.length) {
       const last = items[items.length - 1]!;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
@@ -26,6 +26,9 @@ export const CollaborationWorkspace: React.FC = () => {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [nextRunCursor, setNextRunCursor] = useState<string | null>(null);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const runRequestEpoch = useRef(0);
+  const runScope = useRef<{ spaceId: string; tab: Tab }>({ spaceId: id, tab });
+  const nextRunCursorRef = useRef<string | null>(null);
   const [state, setState] = useState<LoadState>('loading');
   const [canManage, setCanManage] = useState(false);
   const [canStart, setCanStart] = useState(false);
@@ -33,6 +36,13 @@ export const CollaborationWorkspace: React.FC = () => {
   const [copyName, setCopyName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  runScope.current = { spaceId: id, tab };
+
+  const isCurrentRunRequest = useCallback((spaceId: string, kind: RunListKind, epoch: number) => (
+    runRequestEpoch.current === epoch
+    && runScope.current.spaceId === spaceId
+    && runScope.current.tab === kind
+  ), []);
 
   const loadTemplates = useCallback(async () => {
     if (!id) return;
@@ -57,33 +67,50 @@ export const CollaborationWorkspace: React.FC = () => {
 
   const loadRuns = useCallback(async (kind: RunListKind) => {
     if (!id) return;
+    const spaceId = id;
+    const epoch = ++runRequestEpoch.current;
     setState('loading');
     try {
-      const page = await collaborationApi.listRuns(id, kind);
+      const page = await collaborationApi.listRuns(spaceId, kind);
+      if (!isCurrentRunRequest(spaceId, kind, epoch)) return;
       setRuns(page.items);
+      nextRunCursorRef.current = page.nextCursor;
       setNextRunCursor(page.nextCursor);
       setState('ready');
     } catch (error) {
+      if (!isCurrentRunRequest(spaceId, kind, epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, t]);
+  }, [id, isCurrentRunRequest, t]);
 
   const loadMoreRuns = useCallback(async () => {
     if (!id || tab === 'templates' || !nextRunCursor || loadingMoreRuns) return;
+    const spaceId = id;
+    const kind = tab;
+    const cursor = nextRunCursor;
+    const epoch = ++runRequestEpoch.current;
     setLoadingMoreRuns(true);
     try {
-      const page = await collaborationApi.listRuns(id, tab, nextRunCursor);
+      const page = await collaborationApi.listRuns(spaceId, kind, cursor);
+      if (!isCurrentRunRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
       setRuns((current) => [...current, ...page.items]);
+      nextRunCursorRef.current = page.nextCursor;
       setNextRunCursor(page.nextCursor);
     } catch (error) {
+      if (!isCurrentRunRequest(spaceId, kind, epoch) || nextRunCursorRef.current !== cursor) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
     } finally {
-      setLoadingMoreRuns(false);
+      if (isCurrentRunRequest(spaceId, kind, epoch)) setLoadingMoreRuns(false);
     }
-  }, [id, loadingMoreRuns, nextRunCursor, t, tab]);
+  }, [id, isCurrentRunRequest, loadingMoreRuns, nextRunCursor, t, tab]);
 
   useEffect(() => {
+    runRequestEpoch.current += 1;
+    nextRunCursorRef.current = null;
+    setRuns([]);
+    setNextRunCursor(null);
+    setLoadingMoreRuns(false);
     if (tab === 'templates') void loadTemplates();
     else void loadRuns(tab);
   }, [loadRuns, loadTemplates, tab]);

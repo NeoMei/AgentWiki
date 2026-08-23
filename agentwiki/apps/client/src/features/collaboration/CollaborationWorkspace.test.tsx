@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -22,6 +22,16 @@ const spaceTemplate = {
   id: 'space-template', spaceId: 'space-1', slug: 'backend-release', name: 'Backend release',
   description: 'Release workflow', system: false, version: 2,
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
+}
 
 function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
   localStorage.setItem('agentwiki.language.v1', language);
@@ -110,6 +120,83 @@ describe('CollaborationWorkspace', () => {
     expect(screen.getByText('Active 100')).toBeVisible();
     expect(collaborationApi.listRuns).toHaveBeenLastCalledWith('space-1', 'active', 'active-page-2');
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('does not let an older Active first-page response overwrite the current History tab', async () => {
+    const active = deferred<Awaited<ReturnType<typeof collaborationApi.listRuns>>>();
+    vi.mocked(collaborationApi.listRuns).mockImplementation(async (_spaceId, kind) => {
+      if (kind === 'active') return active.promise;
+      return {
+        items: [{ id: 'history-current', name: 'Current history', status: 'completed', createdAt: '2026-08-23T00:00:00Z', updatedAt: '2026-08-23T00:00:00Z' }],
+        nextCursor: null,
+      };
+    });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+    expect(await screen.findByText('Current history')).toBeVisible();
+    await act(async () => active.resolve({
+      items: [{ id: 'active-stale', name: 'Stale active', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }],
+      nextCursor: 'stale-active-cursor',
+    }));
+
+    await waitFor(() => expect(screen.getByText('Current history')).toBeVisible());
+    expect(screen.queryByText('Stale active')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('does not append an older Active load-more response or cursor after switching to History', async () => {
+    const activeMore = deferred<Awaited<ReturnType<typeof collaborationApi.listRuns>>>();
+    vi.mocked(collaborationApi.listRuns).mockImplementation(async (_spaceId, kind, cursor) => {
+      if (kind === 'active' && cursor) return activeMore.promise;
+      if (kind === 'active') return {
+        items: [{ id: 'active-current', name: 'Current active', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }],
+        nextCursor: 'active-page-2',
+      };
+      return {
+        items: [{ id: 'history-current', name: 'Current history', status: 'completed', createdAt: '2026-08-23T00:00:00Z', updatedAt: '2026-08-23T00:00:00Z' }],
+        nextCursor: null,
+      };
+    });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    expect(await screen.findByText('Current active')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+    expect(await screen.findByText('Current history')).toBeVisible();
+    await act(async () => activeMore.resolve({
+      items: [{ id: 'active-stale-more', name: 'Stale active page', status: 'ready', createdAt: '2026-08-22T00:00:00Z', updatedAt: '2026-08-22T00:00:00Z' }],
+      nextCursor: 'stale-page-3',
+    }));
+
+    await waitFor(() => expect(screen.getByText('Current history')).toBeVisible());
+    expect(screen.queryByText('Stale active page')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('does not let an obsolete Active error replace the ready History state', async () => {
+    const active = deferred<Awaited<ReturnType<typeof collaborationApi.listRuns>>>();
+    vi.mocked(collaborationApi.listRuns).mockImplementation(async (_spaceId, kind) => kind === 'active'
+      ? active.promise
+      : {
+        items: [{ id: 'history-current', name: 'Current history', status: 'completed', createdAt: '2026-08-23T00:00:00Z', updatedAt: '2026-08-23T00:00:00Z' }],
+        nextCursor: null,
+      });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+    expect(await screen.findByText('Current history')).toBeVisible();
+    await act(async () => active.reject(new Error('obsolete active failure')));
+
+    await waitFor(() => expect(screen.getByText('Current history')).toBeVisible());
+    expect(screen.queryByTestId('collaboration-error')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('renders loading, empty, error, permissions, and Chinese copy', async () => {
