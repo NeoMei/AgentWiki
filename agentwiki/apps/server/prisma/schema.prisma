@@ -1115,12 +1115,14 @@ model CollaborationTaskTodo {
   status     CollaborationTodoStatus @default(pending)
   summary    String?
   evidence   Json?
+  createdAt  DateTime                @default(now())
   updatedAt  DateTime                @updatedAt
 
   task CollaborationRunTask @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
 
   @@unique([taskId, generation, templateId])
   @@unique([taskId, generation, ordinal])
+  @@index([runId, createdAt, id])
 }
 
 model CollaborationTaskDependency {

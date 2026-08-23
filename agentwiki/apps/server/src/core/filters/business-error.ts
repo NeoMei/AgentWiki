@@ -51,6 +51,8 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   COLLABORATION_HUMAN_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot perform the collaboration action' },
   COLLABORATION_RUN_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Collaboration run draft changed; reload before continuing' },
   COLLABORATION_HISTORY_QUERY_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Collaboration history query is invalid' },
+  COLLABORATION_HISTORY_PAGE_TOO_LARGE: { status: HttpStatus.PAYLOAD_TOO_LARGE, message: 'Collaboration history page exceeds the response budget' },
+  COLLABORATION_RUN_LIST_QUERY_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Collaboration run list query is invalid' },
   COLLABORATION_RUN_TERMINAL: { status: HttpStatus.CONFLICT, message: 'The collaboration run is terminal' },
   COLLABORATION_PROGRESS_INVARIANT: { status: HttpStatus.CONFLICT, message: 'Collaboration progression state requires human recovery' },
   COLLABORATION_AGENT_INACTIVE: { status: HttpStatus.CONFLICT, message: 'A bound Agent is inactive' },
@@ -72,6 +74,7 @@ function errorNameFor(status: HttpStatus): string {
     : status === HttpStatus.NOT_FOUND ? 'Not Found'
     : status === HttpStatus.CONFLICT ? 'Conflict'
     : status === HttpStatus.TOO_MANY_REQUESTS ? 'Too Many Requests'
+    : status === HttpStatus.PAYLOAD_TOO_LARGE ? 'Payload Too Large'
     : 'Bad Request';
 }
 

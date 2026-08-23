@@ -26,7 +26,9 @@ export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'current-generation review gates revision release',
   'bid review waits for material in both submission orders',
   'same-source review group approval', 'same-source review rejection supersedes siblings',
+  'same-source chained review actionability',
   'skippable review source rejected before start',
+  'immutable Todo history keyset survives updates', 'Run list server filtering and authorization',
   'stale Artifact cannot release or complete', 'mixed review and ready status precedence',
   'terminate', 'retry once then exhaustion pause', 'reassigned Agent join and old lease rejection',
   'active claim pause resume reclaim', 'active reassignment new Agent continues Todo progress',
@@ -185,6 +187,54 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         );
       });
 
+      await suite.test('Todo history and Run list use stable bounded server pages', async () => {
+        const fixture = await createFixture(prisma, {
+          taskSpecs: [{ nodeId: 'history-task', status: 'ready', todoNames: ['One', 'Two', 'Three'] }],
+        });
+        const orderedTodos = await prisma.collaborationTaskTodo.findMany({
+          where: { runId: fixture.run.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        });
+        const firstPage = await services.runs.getHumanRunHistory(
+          fixture.space.id, fixture.run.id, 'todos', undefined, '1', fixture.humanPrincipal,
+        );
+        assert.equal(firstPage.items[0].id, orderedTodos[0].id);
+        await prisma.collaborationTaskTodo.update({
+          where: { id: orderedTodos[1].id }, data: { summary: 'updated after page one' },
+        });
+        const secondPage = await services.runs.getHumanRunHistory(
+          fixture.space.id, fixture.run.id, 'todos', firstPage.nextCursor, '1', fixture.humanPrincipal,
+        );
+        assert.equal(secondPage.items[0].id, orderedTodos[1].id);
+
+        const completed = await prisma.collaborationRun.create({ data: {
+          spaceId: fixture.space.id, templateId: fixture.template.id, templateVersion: 1,
+          templateSnapshot: fixture.snapshot, snapshotHash: 'c'.repeat(64), name: 'Historical DB Run',
+          status: 'completed', inputs: { private: 'must not list' }, startedById: fixture.human.id,
+          startedAt: new Date(), finishedAt: new Date(),
+        } });
+        const activePage = await services.runs.listRuns(
+          fixture.space.id, 'active', undefined, '100', fixture.humanPrincipal,
+        );
+        assert.deepEqual(activePage.items.map((run) => run.id), [fixture.run.id]);
+        const historyPage = await services.runs.listRuns(
+          fixture.space.id, 'history', undefined, '100', fixture.humanPrincipal,
+        );
+        assert.deepEqual(historyPage.items.map((run) => run.id), [completed.id]);
+        assert.equal('inputs' in historyPage.items[0], false);
+        assert.equal('templateSnapshot' in historyPage.items[0], false);
+
+        const superAdmin = await prisma.user.create({ data: {
+          email: `collaboration-super-${randomUUID()}@example.test`, name: 'Platform admin', platformRole: 'super_admin',
+        } });
+        const adminPage = await services.runs.listRuns(
+          fixture.space.id, 'active', undefined, '100', { userId: superAdmin.id, platformRole: 'super_admin' },
+        );
+        assert.deepEqual(adminPage.items.map((run) => run.id), [fixture.run.id]);
+
+        cover('immutable Todo history keyset survives updates', 'Run list server filtering and authorization');
+      });
+
       await suite.test('parallel Agents and dependency progression preserve deterministic precedence', async () => {
         const parallel = await createFixture(prisma, {
           agentRoles: ['editor', 'publisher'],
@@ -320,6 +370,31 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: grouped.publishTask.id } })).status, 'ready');
         assert.equal((await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: grouped.artifact.id } })).status, 'accepted');
 
+        const chained = await createChainedReviewGroupFixture(prisma, services, 'approve-chain');
+        assert.deepEqual(chained.reviews.map((review) => review.nodeId), ['review-a']);
+        await services.reviews.decide(
+          chained.space.id, chained.run.id, chained.reviews[0].id,
+          { kind: 'approve', reason: 'First chained gate approved', idempotencyKey: 'approve-review-chain-first' },
+          chained.humanPrincipal,
+        );
+        const chainedReviews = await prisma.collaborationReview.findMany({
+          where: { runId: chained.run.id, sourceTaskId: chained.sourceTask.id, generation: 1 },
+          orderBy: { nodeId: 'asc' },
+        });
+        assert.deepEqual(chainedReviews.map((review) => [review.nodeId, review.status]), [
+          ['review-a', 'approved'], ['review-b', 'pending'],
+        ]);
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: chained.sourceTask.id } })).status, 'submitted');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: chained.publishTask.id } })).status, 'blocked');
+        await services.reviews.decide(
+          chained.space.id, chained.run.id, chainedReviews[1].id,
+          { kind: 'approve', reason: 'Second chained gate approved', idempotencyKey: 'approve-review-chain-final' },
+          chained.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: chained.sourceTask.id } })).status, 'completed');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: chained.publishTask.id } })).status, 'ready');
+        assert.equal((await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: chained.artifact.id } })).status, 'accepted');
+
         const groupRejected = await createReviewGroupFixture(prisma, services, 'reject-group');
         await services.reviews.decide(
           groupRejected.space.id, groupRejected.run.id, groupRejected.reviews[0].id,
@@ -352,6 +427,7 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         cover(
           'approve', 'causal generation reject revision', 'terminate',
           'same-source review group approval', 'same-source review rejection supersedes siblings',
+          'same-source chained review actionability',
           'skippable review source rejected before start',
         );
       });
@@ -917,7 +993,7 @@ async function createReviewFixture(prisma, services, mode) {
   return { ...fixture, revisionArtifact, review, artifact };
 }
 
-async function createReviewGroupFixture(prisma, services, mode) {
+async function createReviewGroupFixture(prisma, services, mode, chained = false) {
   const fixture = await createFixture(prisma, {
     taskSpecs: [
       { nodeId: 'revision', status: 'completed' },
@@ -928,6 +1004,7 @@ async function createReviewGroupFixture(prisma, services, mode) {
       { from: 'revision', to: 'source', mode: 'all' },
       { from: 'source', to: 'review-a', mode: 'all' },
       { from: 'source', to: 'review-b', mode: 'all' },
+      ...(chained ? [{ from: 'review-a', to: 'review-b', mode: 'all' }] : []),
       { from: 'review-a', to: 'publish', mode: 'all' },
       { from: 'review-b', to: 'publish', mode: 'all' },
     ],
@@ -949,9 +1026,13 @@ async function createReviewGroupFixture(prisma, services, mode) {
     where: { runId: fixture.run.id, sourceTaskId: fixture.tasks[1].id, generation: 1 },
     orderBy: { nodeId: 'asc' },
   });
-  assert.equal(reviews.length, 2);
+  assert.equal(reviews.length, chained ? 1 : 2);
   const artifact = await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: reviews[0].artifactId } });
   return { ...fixture, sourceTask: fixture.tasks[1], publishTask: fixture.tasks[2], reviews, artifact };
+}
+
+function createChainedReviewGroupFixture(prisma, services, mode) {
+  return createReviewGroupFixture(prisma, services, mode, true);
 }
 
 async function insertHistoricalArtifact(prisma, fixture, task, generation, status) {

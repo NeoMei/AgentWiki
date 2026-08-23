@@ -31,4 +31,16 @@ describe('HistoryCursorService', () => {
 
     expect(() => cursors.decode(`${body}.${signature}`, 'events', 'run-1')).toThrow(BusinessException);
   });
+
+  it('binds Run-list cursors to the Space and exact status filter', () => {
+    const cursor = (cursors as any).encodeRunList({
+      spaceId: 'space-1', status: 'active', position: { at: '2026-08-24T00:00:00.000Z', id: 'run-100' },
+    });
+
+    expect((cursors as any).decodeRunList(cursor, 'space-1', 'active')).toEqual({
+      at: '2026-08-24T00:00:00.000Z', id: 'run-100',
+    });
+    expect(() => (cursors as any).decodeRunList(cursor, 'space-2', 'active')).toThrow(BusinessException);
+    expect(() => (cursors as any).decodeRunList(cursor, 'space-1', 'history')).toThrow(BusinessException);
+  });
 });

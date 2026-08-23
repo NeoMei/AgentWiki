@@ -24,6 +24,8 @@ export const CollaborationWorkspace: React.FC = () => {
   const [tab, setTab] = useState<Tab>('templates');
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [nextRunCursor, setNextRunCursor] = useState<string | null>(null);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [state, setState] = useState<LoadState>('loading');
   const [canManage, setCanManage] = useState(false);
   const [canStart, setCanStart] = useState(false);
@@ -57,13 +59,29 @@ export const CollaborationWorkspace: React.FC = () => {
     if (!id) return;
     setState('loading');
     try {
-      setRuns(await collaborationApi.listRuns(id, kind));
+      const page = await collaborationApi.listRuns(id, kind);
+      setRuns(page.items);
+      setNextRunCursor(page.nextCursor);
       setState('ready');
     } catch (error) {
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
   }, [id, t]);
+
+  const loadMoreRuns = useCallback(async () => {
+    if (!id || tab === 'templates' || !nextRunCursor || loadingMoreRuns) return;
+    setLoadingMoreRuns(true);
+    try {
+      const page = await collaborationApi.listRuns(id, tab, nextRunCursor);
+      setRuns((current) => [...current, ...page.items]);
+      setNextRunCursor(page.nextCursor);
+    } catch (error) {
+      setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  }, [id, loadingMoreRuns, nextRunCursor, t, tab]);
 
   useEffect(() => {
     if (tab === 'templates') void loadTemplates();
@@ -167,13 +185,22 @@ export const CollaborationWorkspace: React.FC = () => {
             ) : <div data-testid="collaboration-empty" className="rounded-xl border bg-white py-14 text-center text-sm text-gray-500">{t('collaboration.templatesEmpty')}</div>
           ) : null}
           {state === 'ready' && tab !== 'templates' ? (
-            <RunList
-              spaceId={id}
-              runs={runs}
-              emptyLabel={t(tab === 'active' ? 'collaboration.activeEmpty' : 'collaboration.historyEmpty')}
-              statusLabel={(status) => t(`collaboration.status.${status}`)}
-              locale={language}
-            />
+            <>
+              <RunList
+                spaceId={id}
+                runs={runs}
+                emptyLabel={t(tab === 'active' ? 'collaboration.activeEmpty' : 'collaboration.historyEmpty')}
+                statusLabel={(status) => t(`collaboration.status.${status}`)}
+                locale={language}
+              />
+              {nextRunCursor ? (
+                <div className="mt-4 text-center">
+                  <button type="button" disabled={loadingMoreRuns} onClick={() => void loadMoreRuns()} className="min-h-10 rounded-lg border bg-white px-4 text-sm disabled:opacity-50">
+                    {loadingMoreRuns ? t('common.loading') : t('dashboard.loadMore')}
+                  </button>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       </section>

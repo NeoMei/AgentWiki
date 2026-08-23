@@ -10,6 +10,7 @@ type ProgressionState = {
   tasks: Array<{ id: string; nodeId: string; status: string; generation: number; dependencyMode?: string; skippable?: boolean }>;
   reviews: Array<{ nodeId: string; status: string; generation: number; sourceTaskId: string }>;
   satisfiedNodeIds: Set<string>;
+  reviewActionableNodeIds: Set<string>;
 };
 
 @Injectable()
@@ -82,11 +83,15 @@ export class ProgressionService {
     const satisfiedNodeIds = new Set<string>(
       tasks.filter((task) => ['completed', 'skipped'].includes(task.status)).map((task) => task.nodeId),
     );
+    const reviewActionableNodeIds = new Set(satisfiedNodeIds);
     for (const review of currentReviews) {
       const source = taskById.get(review.sourceTaskId);
-      if (review.status === 'approved' && source?.status === 'completed') satisfiedNodeIds.add(review.nodeId);
+      if (review.status === 'approved') {
+        reviewActionableNodeIds.add(review.nodeId);
+        if (source?.status === 'completed') satisfiedNodeIds.add(review.nodeId);
+      }
     }
-    return { run, tasks, reviews: currentReviews, satisfiedNodeIds };
+    return { run, tasks, reviews: currentReviews, satisfiedNodeIds, reviewActionableNodeIds };
   }
 
   private async createActionableReviews(
@@ -108,7 +113,7 @@ export class ProgressionService {
         && review.generation === sourceTask.generation)) continue;
       const incoming = dependencies.filter((edge) => edge.toNodeId === reviewNode.id);
       const edgeSatisfied = (fromNodeId: string) =>
-        state.satisfiedNodeIds.has(fromNodeId) || fromNodeId === sourceTask.nodeId;
+        state.reviewActionableNodeIds.has(fromNodeId) || fromNodeId === sourceTask.nodeId;
       const satisfied = !incoming.length || (incoming[0].mode === 'any'
         ? incoming.some((edge) => edgeSatisfied(edge.fromNodeId))
         : incoming.every((edge) => edgeSatisfied(edge.fromNodeId)));

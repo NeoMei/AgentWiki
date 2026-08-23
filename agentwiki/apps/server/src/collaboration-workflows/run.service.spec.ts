@@ -383,6 +383,65 @@ describe('RunService', () => {
     ]);
   });
 
+  it('lists the first 100 active Runs with DB filtering, a small projection, and a stable cursor', async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => ({
+      id: `run-${String(101 - index).padStart(3, '0')}`, name: `Run ${index}`,
+      status: index % 2 ? 'ready' : 'running', templateId: 'template-1', templateVersion: 1,
+      createdAt: new Date(`2026-08-23T${String(23 - Math.floor(index / 5)).padStart(2, '0')}:${String(59 - (index % 5)).padStart(2, '0')}:00.000Z`),
+      updatedAt: new Date(), startedAt: null, finishedAt: null,
+      inputs: { private: 'input' }, templateSnapshot: { private: 'snapshot' },
+    }));
+    tx.collaborationRun.findMany.mockResolvedValue(rows);
+
+    const page = await (service as any).listRuns(
+      'space-1', 'active', undefined, '100', humanPrincipal,
+    );
+
+    expect(page.items).toHaveLength(100);
+    expect(page.nextCursor).toEqual(expect.any(String));
+    expect(tx.collaborationRun.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', status: { in: ['draft', 'ready', 'running', 'waiting_review', 'paused'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 101,
+      select: expect.not.objectContaining({ inputs: true, templateSnapshot: true }),
+    });
+    expect(JSON.stringify(page)).not.toContain('private');
+
+    tx.collaborationRun.findMany.mockResolvedValue([]);
+    await (service as any).listRuns('space-1', 'active', page.nextCursor, '100', humanPrincipal);
+    const last = page.items[99];
+    expect(tx.collaborationRun.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        spaceId: 'space-1', status: { in: ['draft', 'ready', 'running', 'waiting_review', 'paused'] },
+        OR: [{ createdAt: { lt: last.createdAt } }, { createdAt: last.createdAt, id: { lt: last.id } }],
+      },
+    }));
+  });
+
+  it('strictly validates Run-list status, limit, cursor scope, and human authorization', async () => {
+    tx.collaborationRun.findMany.mockResolvedValue([]);
+    const superAdmin = { userId: 'platform-admin', platformRole: 'super_admin' } as const;
+
+    await (service as any).listRuns('space-1', 'history', undefined, '50', humanPrincipal);
+    await (service as any).listRuns('space-1', 'history', undefined, '50', superAdmin);
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(humanPrincipal, 'space-1', ['owner', 'admin', 'editor', 'viewer']);
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(superAdmin, 'space-1', ['owner', 'admin', 'editor', 'viewer']);
+    expect(tx.collaborationRun.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { spaceId: 'space-1', status: { in: ['completed', 'failed', 'cancelled'] } },
+    }));
+
+    await expect((service as any).listRuns('space-1', 'all', undefined, '50', humanPrincipal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_RUN_LIST_QUERY_INVALID' });
+    await expect((service as any).listRuns('space-1', 'active', undefined, '101', humanPrincipal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_RUN_LIST_QUERY_INVALID' });
+
+    const cursor = (historyCursors as any).encodeRunList({
+      spaceId: 'space-1', status: 'active', position: { at: '2026-08-24T00:00:00.000Z', id: 'run-1' },
+    });
+    await expect((service as any).listRuns('space-1', 'history', cursor, '50', humanPrincipal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_RUN_LIST_QUERY_INVALID' });
+  });
+
   it('loads an explicit human DTO without event response or Attempt lease internals', async () => {
     const unsafeRun = {
       ...ready,
@@ -565,17 +624,18 @@ describe('RunService', () => {
 
   it('reads old-generation Todo details and continues events beyond sequence 10,100', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const createdAt = new Date('2026-08-23T22:00:00.000Z');
     const updatedAt = new Date('2026-08-23T23:00:00.000Z');
     tx.collaborationTaskTodo.findMany.mockResolvedValue([{
       id: 'todo-generation-1', runId: 'run-1', taskId: 'task-1', generation: 1, ordinal: 0,
-      name: 'Old Todo', status: 'done', summary: 'complete historical summary', evidence: [{ kind: 'test-log' }], updatedAt,
+      name: 'Old Todo', status: 'done', summary: 'complete historical summary', evidence: [{ kind: 'test-log' }], createdAt, updatedAt,
     }]);
     const todoPage = await service.getHumanRunHistory('space-1', 'run-1', 'todos', undefined, '50', humanPrincipal);
     expect(todoPage.items[0]).toMatchObject({
       id: 'todo-generation-1', generation: 1, summary: 'complete historical summary', evidence: [{ kind: 'test-log' }],
     });
     expect(tx.collaborationTaskTodo.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { runId: 'run-1' }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: 51,
+      where: { runId: 'run-1' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 51,
     }));
 
     const eventCursor = historyCursors.encode({ kind: 'events', runId: 'run-1', position: { sequence: 10_100 } });
@@ -588,6 +648,70 @@ describe('RunService', () => {
 
     await expect(service.getHumanRunHistory('space-1', 'run-1', 'reviews', eventCursor, '10', humanPrincipal))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_HISTORY_QUERY_INVALID' });
+  });
+
+  it('does not omit an unread Todo when its mutable fields change between pages', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const todos = [3, 2, 1].map((ordinal) => ({
+      id: `todo-${ordinal}`, runId: 'run-1', taskId: 'task-1', generation: 1, ordinal,
+      name: `Todo ${ordinal}`, required: true, status: 'pending', summary: null, evidence: null,
+      createdAt: new Date(`2026-08-24T00:00:0${ordinal}.000Z`),
+      updatedAt: new Date(`2026-08-24T00:00:0${ordinal}.000Z`),
+    }));
+    tx.collaborationTaskTodo.findMany.mockImplementation(async ({ where, orderBy, take }: any) => {
+      const field = Object.keys(orderBy[0])[0];
+      const cursorAt = where.OR?.[0]?.[field]?.lt as Date | undefined;
+      const cursorId = where.OR?.[1]?.id?.lt as string | undefined;
+      return todos
+        .filter((todo: any) => !cursorAt
+          || todo[field] < cursorAt
+          || (todo[field].getTime() === cursorAt.getTime() && todo.id < cursorId!))
+        .sort((left: any, right: any) => right[field].getTime() - left[field].getTime() || right.id.localeCompare(left.id))
+        .slice(0, take);
+    });
+
+    const first = await service.getHumanRunHistory('space-1', 'run-1', 'todos', undefined, '1', humanPrincipal);
+    todos[1].updatedAt = new Date('2026-08-24T00:01:00.000Z');
+    const second = await service.getHumanRunHistory('space-1', 'run-1', 'todos', first.nextCursor!, '1', humanPrincipal);
+
+    expect(first.items.map((todo: any) => todo.id)).toEqual(['todo-3']);
+    expect(second.items.map((todo: any) => todo.id)).toEqual(['todo-2']);
+  });
+
+  it('never exposes a next_action Event response containing multiple one-megabyte Artifacts', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const hugeResponse = {
+      action: 'next_action',
+      artifacts: [1, 2, 3].map((id) => ({ id, payload: `private-${id}-${'x'.repeat(1_000_000)}` })),
+    };
+    tx.collaborationRunEvent.findMany.mockImplementation(async ({ select }: any) => [{
+      id: 'event-1', runId: 'run-1', sequence: 1, type: 'collaboration.next_action',
+      actorKind: 'agent', actorId: 'agent-1', actorUserId: null, actorAgentId: 'agent-1',
+      operation: 'next_action', target: 'run-1', metadata: { taskId: 'task-1' },
+      response: hugeResponse, idempotencyKey: 'private-key', requestHash: 'private-hash', createdAt: new Date(),
+    }].map((event) => projectSelect(event, select)));
+
+    const page = await service.getHumanRunHistory('space-1', 'run-1', 'events', undefined, '10', humanPrincipal);
+    const serialized = JSON.stringify(page);
+
+    expect(tx.collaborationRunEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.not.objectContaining({ response: true, idempotencyKey: true, requestHash: true }),
+    }));
+    expect(serialized).not.toContain('private-1');
+    expect(Buffer.byteLength(serialized, 'utf8')).toBeLessThan(512_000);
+  });
+
+  it('rejects a History page whose aggregate serialized details exceed the page budget', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationTaskArtifact.findMany.mockResolvedValue(Array.from({ length: 5 }, (_, index) => ({
+      id: `artifact-${index}`, runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', generation: 1,
+      version: index + 1, kind: 'json', status: 'accepted', payload: { text: 'x'.repeat(1_000_000) },
+      evidence: [], acceptedAt: new Date(), createdAt: new Date(`2026-08-24T00:00:0${index}.000Z`),
+    })));
+
+    await expect(service.getHumanRunHistory(
+      'space-1', 'run-1', 'artifacts', undefined, '4', humanPrincipal,
+    )).rejects.toMatchObject({ businessCode: 'COLLABORATION_HISTORY_PAGE_TOO_LARGE' });
   });
 
   it('keeps an event traversal stable when newer events are inserted between pages', async () => {

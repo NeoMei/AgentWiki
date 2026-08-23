@@ -61,6 +61,8 @@ export interface RunSummary {
   name: string;
   status: CollaborationRunStatus;
   templateId?: string;
+  templateVersion?: number;
+  createdAt?: string;
   updatedAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -207,3 +209,8 @@ export interface AgentInstruction {
 }
 
 export type RunListKind = 'active' | 'history';
+
+export interface RunListPage {
+  items: RunSummary[];
+  nextCursor: string | null;
+}

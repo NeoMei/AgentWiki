@@ -26,4 +26,18 @@ describe('RunController', () => {
       ':runId/reviews/:reviewId/decision',
     ]));
   });
+
+  it('passes the strict Run-list status and pagination query to the service', async () => {
+    const runs = { listRuns: jest.fn().mockResolvedValue({ items: [], nextCursor: null }) } as any;
+    const controller = new RunController(runs, {} as any);
+    const principal = { userId: 'user-1' };
+
+    await (controller as any).list(
+      { user: principal }, 'space-1', 'history', 'opaque-cursor', '25',
+    );
+
+    expect(runs.listRuns).toHaveBeenCalledWith(
+      'space-1', 'history', 'opaque-cursor', '25', principal,
+    );
+  });
 });

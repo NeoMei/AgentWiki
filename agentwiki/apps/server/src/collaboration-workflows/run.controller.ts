@@ -41,8 +41,14 @@ export class RunController {
   }
 
   @Get()
-  list(@Req() req: Request, @Param('spaceId') spaceId: string) {
-    return this.runs.listRuns(spaceId, req.user as Principal);
+  list(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Query('status') status?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.runs.listRuns(spaceId, status ?? '', cursor, limit, req.user as Principal);
   }
 
   @Get(':runId')

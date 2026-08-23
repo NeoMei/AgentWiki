@@ -22,7 +22,7 @@ import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { hashCollaborationTemplate } from './template-validator';
 import { ProgressionService } from './progression.service';
 import { CollaborationEventsService } from './collaboration-events.service';
-import { HISTORY_KINDS, HistoryCursorService, type HistoryKind, type HistoryPosition } from './history-cursor.service';
+import { HISTORY_KINDS, HistoryCursorService, type HistoryKind, type HistoryPosition, type RunListStatus } from './history-cursor.service';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -33,7 +33,7 @@ type Tx = Prisma.TransactionClient;
 
 const HUMAN_TODO_DETAIL_SELECT = {
   id: true, runId: true, taskId: true, generation: true, templateId: true, ordinal: true,
-  name: true, required: true, status: true, summary: true, evidence: true, updatedAt: true,
+  name: true, required: true, status: true, summary: true, evidence: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.CollaborationTaskTodoSelect;
 
 const HUMAN_TODO_PREVIEW_SELECT = {
@@ -70,7 +70,7 @@ const HUMAN_REVIEW_PREVIEW_SELECT = {
 const HUMAN_EVENT_DETAIL_SELECT = {
   id: true, runId: true, sequence: true, type: true, actorKind: true, actorId: true,
   operation: true, target: true, actorUserId: true, actorAgentId: true, metadata: true,
-  response: true, createdAt: true,
+  createdAt: true,
 } satisfies Prisma.CollaborationRunEventSelect;
 
 const HUMAN_EVENT_PREVIEW_SELECT = {
@@ -78,8 +78,16 @@ const HUMAN_EVENT_PREVIEW_SELECT = {
 } satisfies Prisma.CollaborationRunEventSelect;
 
 const HUMAN_RUN_MAX_SERIALIZED_BYTES = 512_000;
+const HUMAN_HISTORY_MAX_SERIALIZED_BYTES = 4_000_000;
 const HUMAN_TODO_PREVIEW_LIMIT = 3;
 const HUMAN_EVENT_PREVIEW_LIMIT = 20;
+const ACTIVE_RUN_STATUSES = ['draft', 'ready', 'running', 'waiting_review', 'paused'] as const;
+const HISTORY_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+
+const HUMAN_RUN_SUMMARY_SELECT = {
+  id: true, name: true, status: true, templateId: true, templateVersion: true,
+  createdAt: true, updatedAt: true, startedAt: true, finishedAt: true,
+} satisfies Prisma.CollaborationRunSelect;
 
 const HUMAN_RUN_SELECT = {
   id: true,
@@ -280,12 +288,37 @@ export class RunService {
     return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
-  async listRuns(spaceId: string, principal: Principal) {
+  async listRuns(
+    spaceId: string,
+    status: string,
+    cursor: string | undefined,
+    limit: string | undefined,
+    principal: Principal,
+  ) {
     await this.assertHumanAccess(principal, spaceId, READ_ROLES);
-    return this.prisma.collaborationRun.findMany({
-      where: { spaceId },
-      orderBy: { updatedAt: 'desc' },
+    const listStatus = parseRunListStatus(status);
+    const pageSize = parseRunListLimit(limit ?? '100');
+    const position = cursor ? this.historyCursors.decodeRunList(cursor, spaceId, listStatus) : undefined;
+    const statusValues = listStatus === 'active' ? ACTIVE_RUN_STATUSES : HISTORY_RUN_STATUSES;
+    const rows = await this.prisma.collaborationRun.findMany({
+      where: {
+        spaceId,
+        status: { in: [...statusValues] },
+        ...(position ? timestampKeyset('createdAt', position) : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pageSize + 1,
+      select: HUMAN_RUN_SUMMARY_SELECT,
     });
+    const hasMore = rows.length > pageSize;
+    const items = rows.slice(0, pageSize).map(runSummary);
+    const last = hasMore ? items[items.length - 1] : undefined;
+    const nextCursor = last
+      ? this.historyCursors.encodeRunList({
+        spaceId, status: listStatus, position: { at: new Date(last.createdAt).toISOString(), id: last.id },
+      })
+      : null;
+    return { items, nextCursor };
   }
 
   async getHumanRun(spaceId: string, runId: string, principal: Principal) {
@@ -336,7 +369,7 @@ export class RunService {
       });
     } else {
       const timestampPosition = position && 'at' in position ? position : undefined;
-      const timestampField = historyKind === 'todos' ? 'updatedAt' : 'createdAt';
+      const timestampField = 'createdAt';
       const timestampWhere = timestampPosition
         ? timestampKeyset(timestampField, timestampPosition)
         : {};
@@ -362,10 +395,14 @@ export class RunService {
       const last = items[items.length - 1]!;
       const nextPosition: HistoryPosition = historyKind === 'events'
         ? { sequence: last.sequence }
-        : { at: new Date(historyKind === 'todos' ? last.updatedAt : last.createdAt).toISOString(), id: last.id };
+        : { at: new Date(last.createdAt).toISOString(), id: last.id };
       nextCursor = this.historyCursors.encode({ kind: historyKind, runId, position: nextPosition });
     }
-    return { items, nextCursor };
+    const page = { items, nextCursor };
+    if (Buffer.byteLength(JSON.stringify(page), 'utf8') > HUMAN_HISTORY_MAX_SERIALIZED_BYTES) {
+      throw new BusinessException('COLLABORATION_HISTORY_PAGE_TOO_LARGE', 'Reduce the History page limit');
+    }
+    return page;
   }
 
   pauseRun(runId: string, body: RunActionDto, principal: Principal, expectedSpaceId?: string) {
@@ -852,6 +889,22 @@ function parseHistoryLimit(value: string): number {
   return parsed;
 }
 
+function parseRunListStatus(value: string): RunListStatus {
+  if (value !== 'active' && value !== 'history') {
+    throw new BusinessException('COLLABORATION_RUN_LIST_QUERY_INVALID');
+  }
+  return value;
+}
+
+function parseRunListLimit(value: string): number {
+  if (!/^\d+$/u.test(value)) throw new BusinessException('COLLABORATION_RUN_LIST_QUERY_INVALID');
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new BusinessException('COLLABORATION_RUN_LIST_QUERY_INVALID');
+  }
+  return parsed;
+}
+
 function timestampKeyset(field: 'createdAt' | 'updatedAt', position: { at: string; id: string }) {
   const at = new Date(position.at);
   return {
@@ -899,5 +952,13 @@ function artifactPreview(artifact: any) {
     id: artifact.id, taskId: artifact.taskId, generation: artifact.generation, version: artifact.version,
     kind: artifact.kind, status: artifact.status, createdAt: artifact.createdAt,
     preview: `${artifact.kind} v${artifact.version}`,
+  };
+}
+
+function runSummary(run: any) {
+  return {
+    id: run.id, name: run.name, status: run.status, templateId: run.templateId,
+    templateVersion: run.templateVersion, createdAt: run.createdAt, updatedAt: run.updatedAt,
+    startedAt: run.startedAt, finishedAt: run.finishedAt,
   };
 }

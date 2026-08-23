@@ -44,7 +44,7 @@ describe('CollaborationWorkspace', () => {
     vi.mocked(collaborationApi.listMembers).mockResolvedValue([
       { type: 'human', userId: 'owner-1', role: 'owner' },
     ]);
-    vi.mocked(collaborationApi.listRuns).mockResolvedValue([]);
+    vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
   });
 
   it('shows system and Space templates and copies a system template', async () => {
@@ -76,8 +76,8 @@ describe('CollaborationWorkspace', () => {
 
   it('shows active and history runs on separate tabs', async () => {
     vi.mocked(collaborationApi.listRuns)
-      .mockResolvedValueOnce([{ id: 'active-1', name: 'Active release', status: 'running', updatedAt: '2026-08-24T00:00:00Z' }])
-      .mockResolvedValueOnce([{ id: 'done-1', name: 'Finished release', status: 'completed', updatedAt: '2026-08-23T00:00:00Z' }]);
+      .mockResolvedValueOnce({ items: [{ id: 'active-1', name: 'Active release', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }], nextCursor: null })
+      .mockResolvedValueOnce({ items: [{ id: 'done-1', name: 'Finished release', status: 'completed', createdAt: '2026-08-23T00:00:00Z', updatedAt: '2026-08-23T00:00:00Z' }], nextCursor: null });
     renderWorkspace();
     await screen.findByText('Coding collaboration');
 
@@ -87,6 +87,29 @@ describe('CollaborationWorkspace', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'History' }));
     expect(await screen.findByText('Finished release')).toBeVisible();
     expect(collaborationApi.listRuns).toHaveBeenCalledWith('space-1', 'history');
+  });
+
+  it('loads the next server-filtered Run page without truncating after the first 100', async () => {
+    vi.mocked(collaborationApi.listRuns)
+      .mockResolvedValueOnce({
+        items: [{ id: 'active-100', name: 'Active 100', status: 'running', createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:00:00Z' }],
+        nextCursor: 'active-page-2',
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: 'active-101', name: 'Active 101', status: 'ready', createdAt: '2026-08-23T00:00:00Z', updatedAt: '2026-08-23T00:00:00Z' }],
+        nextCursor: null,
+      });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
+    expect(await screen.findByText('Active 100')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByText('Active 101')).toBeVisible();
+    expect(screen.getByText('Active 100')).toBeVisible();
+    expect(collaborationApi.listRuns).toHaveBeenLastCalledWith('space-1', 'active', 'active-page-2');
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 
   it('renders loading, empty, error, permissions, and Chinese copy', async () => {

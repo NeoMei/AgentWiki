@@ -118,6 +118,54 @@ describe('ProgressionService', () => {
     }));
   });
 
+  it('creates a chained sibling Review from an individually approved current Review without releasing Tasks', async () => {
+    const tasks = [task('source', 'submitted'), task('downstream', 'blocked')];
+    const tx = {
+      collaborationRun: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'run-1', status: 'waiting_review', pauseReason: null,
+          templateSnapshot: {
+            nodes: [
+              { kind: 'human_review', id: 'review-a', artifactTaskId: 'source', revisionTaskId: 'source', minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true },
+              { kind: 'human_review', id: 'review-b', artifactTaskId: 'source', revisionTaskId: 'source', minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true },
+            ],
+            terminalNodeIds: ['downstream'],
+          },
+        }),
+        update: jest.fn(),
+      },
+      collaborationRunTask: {
+        findMany: jest.fn().mockResolvedValue(tasks), updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findFirst: jest.fn(async ({ where }: any) => tasks.find((item) => item.nodeId === where.nodeId)),
+      },
+      collaborationTaskDependency: { findMany: jest.fn().mockResolvedValue([
+        { fromNodeId: 'source', toNodeId: 'review-a', mode: 'all' },
+        { fromNodeId: 'source', toNodeId: 'review-b', mode: 'all' },
+        { fromNodeId: 'review-a', toNodeId: 'review-b', mode: 'all' },
+        { fromNodeId: 'review-a', toNodeId: 'downstream', mode: 'all' },
+      ]) },
+      collaborationTaskArtifact: { findFirst: jest.fn().mockResolvedValue({ id: 'artifact-source' }) },
+      collaborationReview: {
+        findMany: jest.fn().mockResolvedValue([
+          { nodeId: 'review-a', status: 'approved', generation: 1, sourceTaskId: 'task-source' },
+        ]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'review-b-record', ...data })),
+      },
+    } as any;
+    const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
+
+    await new ProgressionService(events).advanceRun(tx, 'run-1', 'review-a-approved');
+
+    expect(tx.collaborationReview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ nodeId: 'review-b', sourceTaskId: 'task-source', generation: 1 }),
+    });
+    expect(tx.collaborationRunTask.updateMany).not.toHaveBeenCalled();
+    expect(tx.collaborationRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'waiting_review' }),
+    }));
+  });
+
   it('creates every actionable Review only after its all-mode predecessors are satisfied', async () => {
     const tasks = [
       task('source-a', 'submitted'), task('source-b', 'submitted'), task('material', 'submitted'),
@@ -179,5 +227,6 @@ function state(options: {
     tasks: [{ id: 'task-1', nodeId, status: options.taskStatus ?? 'submitted', generation: 1, skippable: false }],
     reviews: options.pendingReview ? [{ nodeId: 'review', status: 'pending', generation: 1, sourceTaskId: 'task-1' }] : [],
     satisfiedNodeIds: new Set(options.terminalSatisfied ? [nodeId] : []),
+    reviewActionableNodeIds: new Set(options.terminalSatisfied ? [nodeId] : []),
   };
 }
