@@ -50,4 +50,30 @@ export const collaborationApi = {
     (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/start`, input)).data,
   getRun: async (spaceId: string, runId: string): Promise<CollaborationRun> =>
     (await api.get<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}`)).data,
+  pauseRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/actions/pause`, input)).data,
+  resumeRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/actions/resume`, input)).data,
+  failRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/actions/fail`, input)).data,
+  cancelRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/actions/cancel`, input)).data,
+  retryTask: async (spaceId: string, runId: string, taskId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/tasks/${taskId}/retry`, input)).data,
+  reassignTask: async (spaceId: string, runId: string, taskId: string, input: RunActionInput & { agentId: string }): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/tasks/${taskId}/reassign`, input)).data,
+  skipTask: async (spaceId: string, runId: string, taskId: string, input: RunActionInput): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/tasks/${taskId}/skip`, input)).data,
+  decideReview: async (
+    spaceId: string,
+    runId: string,
+    reviewId: string,
+    input: { kind: 'approve' | 'reject_for_revision' | 'terminate'; reason: string; idempotencyKey: string },
+  ): Promise<CollaborationRun> =>
+    (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/reviews/${reviewId}/decision`, input)).data,
 };
+
+export interface RunActionInput {
+  reason: string;
+  idempotencyKey: string;
+}

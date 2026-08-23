@@ -73,11 +73,97 @@ export interface RoleBinding {
 }
 
 export interface CollaborationRun extends RunSummary {
+  spaceId?: string;
+  templateId?: string;
+  templateVersion?: number;
+  snapshotHash?: string;
   version: number;
   inputs: Record<string, string | number | boolean>;
   roleBindings: RoleBinding[];
   templateSnapshot?: CollaborationTemplateDefinition;
   joinInstructions?: AgentInstruction[];
+  startedById?: string;
+  pauseReason?: string | null;
+  eventSequence?: number;
+  createdAt?: string;
+  tasks?: CollaborationTask[];
+  dependencies?: Array<{ id: string; fromNodeId: string; toNodeId: string; mode: 'all' | 'any' }>;
+  reviews?: CollaborationReview[];
+  events?: CollaborationRunEvent[];
+}
+
+export interface CollaborationTodo {
+  id: string;
+  ordinal: number;
+  name: string;
+  status: 'pending' | 'doing' | 'done' | 'failed';
+  required: boolean;
+  generation: number;
+  summary?: string | null;
+  evidence?: unknown;
+}
+
+export interface CollaborationAttempt {
+  id: string;
+  status: string;
+  attemptNumber: number;
+  agentId: string;
+  leaseExpiresAt: string;
+  maxExecutionAt?: string;
+  failureCode?: string | null;
+}
+
+export interface CollaborationArtifact {
+  id: string;
+  taskId?: string;
+  generation?: number;
+  version: number;
+  kind: string;
+  status: string;
+  payload: unknown;
+  evidence?: unknown;
+  createdAt: string;
+}
+
+export interface CollaborationTask {
+  id: string;
+  nodeId: string;
+  ordinal: number;
+  name: string;
+  objective: string;
+  roleSlotId: string;
+  assigneeAgentId: string;
+  status: string;
+  generation: number;
+  skippable: boolean;
+  completedAt?: string | null;
+  todos: CollaborationTodo[];
+  attempts: CollaborationAttempt[];
+  artifacts: CollaborationArtifact[];
+}
+
+export interface CollaborationReview {
+  id: string;
+  nodeId: string;
+  status: string;
+  minimumRole: HumanSpaceRole;
+  reviewerUserIds: string[];
+  allowTerminate: boolean;
+  revisionTaskId: string;
+  artifactId: string;
+  reason?: string | null;
+  createdAt: string;
+}
+
+export interface CollaborationRunEvent {
+  id: string;
+  sequence: number;
+  type: string;
+  actorKind: string;
+  operation: string;
+  target: string;
+  createdAt: string;
+  metadata: unknown;
 }
 
 export interface CreateRunDraftInput {
