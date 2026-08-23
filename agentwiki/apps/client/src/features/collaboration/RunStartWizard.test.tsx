@@ -91,7 +91,7 @@ describe('RunStartWizard', () => {
 
     expect(await screen.findByText('This Agent fills roles that review each other.')).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Copy join instruction' })).toHaveLength(1);
-    expect(screen.getByText(/collaboration_join_run/u)).toBeVisible();
+    expect(screen.getByText(/wiki_collaboration_join_run/u)).toBeVisible();
     expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
     expect(collaborationApi.startRun).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ expectedVersion: 3, idempotencyKey: expect.any(String) }));
   });
@@ -105,7 +105,9 @@ describe('RunStartWizard', () => {
     });
     expect(instructions).toHaveLength(1);
     expect(instructions[0].roleSlots).toEqual(['Writer', 'Reviewer']);
-    expect(instructions[0].text).toContain('collaboration_join_run');
+    expect(instructions[0].text).toContain('wiki_collaboration_join_run');
+    expect(instructions[0].text).toContain('wiki_collaboration_next_action');
+    expect(instructions[0].text).not.toMatch(/(?<!wiki_)collaboration_(?:join_run|next_action)/u);
     expect(instructions[0].text).not.toMatch(/credential|api[-_ ]?key|token=/iu);
   });
 });

@@ -27,7 +27,7 @@ export function buildAgentJoinInstructions(run: { id: string; roleBindings: Role
   return [...byAgent.entries()].map(([agentId, roleSlots]) => ({
     agentId,
     roleSlots,
-    text: `Run ${run.id}. Roles: ${roleSlots.join(', ')}. Use the existing AgentWiki MCP connection. Call collaboration_join_run with runId ${run.id}, then call collaboration_next_action and follow each action until waiting_human, paused, completed, failed, or cancelled. Never invent or request a new connection secret.`,
+    text: `Run ${run.id}. Roles: ${roleSlots.join(', ')}. Use the existing AgentWiki MCP connection. Call wiki_collaboration_join_run with runId ${run.id}, then call wiki_collaboration_next_action and follow each action until waiting_human, paused, completed, failed, or cancelled. Never invent or request a new connection secret.`,
   }));
 }
 

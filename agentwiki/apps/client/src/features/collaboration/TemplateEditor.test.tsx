@@ -19,7 +19,14 @@ const template: TemplateDetail = {
 function renderEditor() {
   localStorage.setItem('agentwiki.language.v1', 'en');
   return render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-1']}>
-    <Routes><Route path="/spaces/:id/collaboration/templates/:templateId" element={<TemplateEditor />} /></Routes>
+    <Routes><Route path="/spaces/:id/collaboration/templates/:templateId" element={<TemplateEditor mode="edit" />} /></Routes>
+  </MemoryRouter></LanguageProvider>);
+}
+
+function renderCreateEditor() {
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  return render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/new']}>
+    <Routes><Route path="/spaces/:id/collaboration/templates/new" element={<TemplateEditor mode="create" />} /></Routes>
   </MemoryRouter></LanguageProvider>);
 }
 
@@ -29,6 +36,15 @@ describe('TemplateEditor', () => {
     vi.mocked(collaborationApi.getTemplate).mockResolvedValue(template);
     vi.mocked(collaborationApi.validateTemplate).mockResolvedValue({ valid: true, issues: [] });
     vi.mocked(collaborationApi.updateTemplate).mockResolvedValue({ ...template, version: 2, name: 'Release workflow' });
+  });
+
+  it('renders a usable blank editor when the static route selects create mode', async () => {
+    renderCreateEditor();
+
+    expect(await screen.findByRole('heading', { name: 'Create collaboration template' })).toBeVisible();
+    expect(screen.queryByTestId('template-editor-loading')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Template name')).toHaveValue('');
+    expect(collaborationApi.getTemplate).not.toHaveBeenCalled();
   });
 
   it('uses a five-section form directory and shows deterministic graph errors without a canvas', async () => {

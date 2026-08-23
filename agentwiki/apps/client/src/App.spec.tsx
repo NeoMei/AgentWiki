@@ -1,10 +1,20 @@
+import type { ReactNode } from 'react';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
-import { ProtectedRoute } from './App';
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import App, { ProtectedRoute } from './App';
+
+const authState = vi.hoisted(() => ({ token: null as string | null }));
 
 vi.mock('./context/AuthContext', () => ({
-  useAuth: () => ({ token: null }),
+  AuthProvider: ({ children }: { children: ReactNode }) => children,
+  useAuth: () => ({ token: authState.token }),
+}));
+
+vi.mock('./components/Layout', () => ({ Layout: () => <Outlet /> }));
+
+vi.mock('./features/collaboration/TemplateEditor', () => ({
+  TemplateEditor: ({ mode }: { mode: string }) => <h1>Template editor mode: {mode}</h1>,
 }));
 
 const LocationProbe = () => {
@@ -13,6 +23,11 @@ const LocationProbe = () => {
 };
 
 describe('ProtectedRoute', () => {
+  beforeEach(() => {
+    authState.token = null;
+    window.history.replaceState({}, '', '/');
+  });
+
   it('redirects signed-out protected routes to the workspace login intent', () => {
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
@@ -24,5 +39,14 @@ describe('ProtectedRoute', () => {
     );
 
     expect(screen.getByText('/?intent=workspace#login')).toBeInTheDocument();
+  });
+
+  it('routes the static new-template URL to explicit create mode', async () => {
+    authState.token = 'signed-in';
+    window.history.replaceState({}, '', '/spaces/space-1/collaboration/templates/new');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Template editor mode: create' })).toBeVisible();
   });
 });

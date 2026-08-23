@@ -69,8 +69,8 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/sources" element={<Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense>} />
         <Route path="/spaces/:id/runs" element={<Suspense fallback={<RouteLoading />}><RunsPage /></Suspense>} />
         <Route path="/spaces/:id/collaboration" element={<Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/templates/new" element={<Suspense fallback={<RouteLoading />}><TemplateEditor /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<Suspense fallback={<RouteLoading />}><TemplateEditor /></Suspense>} />
+        <Route path="/spaces/:id/collaboration/templates/new" element={<Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense>} />
         <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense>} />
         <Route path="/spaces/:id/collaboration/runs/:runId" element={<Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />

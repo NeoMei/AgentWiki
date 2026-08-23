@@ -14,9 +14,13 @@ import type { TemplateDetail, ValidationIssue } from './types';
 const SECTIONS = ['overview', 'inputs', 'roles', 'flow', 'outputs'] as const;
 type Section = typeof SECTIONS[number];
 
-export const TemplateEditor: React.FC = () => {
+export interface TemplateEditorProps {
+  mode: 'create' | 'edit';
+}
+
+export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
   const { id = '', templateId = '' } = useParams<{ id: string; templateId: string }>();
-  const creating = templateId === 'new';
+  const creating = mode === 'create';
   const navigate = useNavigate();
   const { t } = useLanguage();
   const [section, setSection] = useState<Section>('overview');
