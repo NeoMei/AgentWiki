@@ -33,6 +33,7 @@ const PageEditor = lazy(() => import('./features/page/PageEditor').then((module)
 const PageVersionHistory = lazy(() => import('./features/page/PageVersionHistory').then((module) => ({ default: module.PageVersionHistory })));
 const PagePreview = lazy(() => import('./features/page/PagePreview').then((module) => ({ default: module.PagePreview })));
 const KnowledgeGraph = lazy(() => import('./features/knowledge/KnowledgeGraph').then((module) => ({ default: module.KnowledgeGraph })));
+const CollaborationWorkspace = lazy(() => import('./features/collaboration/CollaborationWorkspace').then((module) => ({ default: module.CollaborationWorkspace })));
 
 const RouteLoading: React.FC = () => {
   const { t } = useLanguage();
@@ -64,6 +65,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
         <Route path="/spaces/:id/sources" element={<Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense>} />
         <Route path="/spaces/:id/runs" element={<Suspense fallback={<RouteLoading />}><RunsPage /></Suspense>} />
+        <Route path="/spaces/:id/collaboration" element={<Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>

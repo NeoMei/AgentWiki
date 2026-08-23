@@ -7,6 +7,7 @@ const CODE_KEYS: Record<string, string> = {
   AUTH_PASSWORD_MISMATCH: 'error.passwordMismatch',
   SPACE_ACCESS_DENIED: 'error.spaceAccessDenied',
   AUTH_SCOPE_REQUIRED: 'error.spaceAccessDenied',
+  COLLABORATION_HUMAN_PERMISSION_DENIED: 'error.spaceAccessDenied',
   CHANGESET_INVALID_STATE: 'error.changeSetState',
   CHANGESET_CONFLICT: 'error.changeSetConflict',
   APPROVAL_REQUIRED: 'error.approvalRequired',

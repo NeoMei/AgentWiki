@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Database, FileText, Network, Settings, Users } from 'lucide-react';
+import { Activity, Database, FileText, Network, Settings, Users, Workflow } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -8,6 +8,7 @@ const ITEMS = [
   { key: 'graph', labelKey: 'space.graph', suffix: '/graph', icon: Network },
   { key: 'sources', labelKey: 'space.sources', suffix: '/sources', icon: Database },
   { key: 'runs', labelKey: 'space.runs', suffix: '/runs', icon: Activity },
+  { key: 'collaboration', labelKey: 'space.collaboration', suffix: '/collaboration', icon: Workflow },
   { key: 'members', labelKey: 'space.members', suffix: '/members', icon: Users },
   { key: 'settings', labelKey: 'space.settings', suffix: '/settings', icon: Settings },
 ] as const;
