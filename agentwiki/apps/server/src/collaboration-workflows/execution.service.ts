@@ -126,8 +126,6 @@ export class ExecutionService {
 
   async heartbeat(inputRaw: CollaborationHeartbeatInput, principal: Principal) {
     const input = CollaborationHeartbeatInputSchema.parse(inputRaw);
-    const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
-    this.assertRunMutable(outer.run.status);
     const result = await this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
@@ -137,7 +135,7 @@ export class ExecutionService {
         });
       const replay = await this.events.findReplay<Record<string, unknown>>(tx, scope);
       if (replay) {
-        await this.verifyReplayAttempt(tx, input, participant.agentId);
+        await this.loadLiveAttempt(tx, input, participant.agentId);
         return replay;
       }
       return this.events.executeIdempotent(tx, scope, async () => {
@@ -161,8 +159,6 @@ export class ExecutionService {
 
   async updateTodo(inputRaw: CollaborationUpdateTodoInput, principal: Principal) {
     const input = CollaborationUpdateTodoInputSchema.parse(inputRaw);
-    const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
-    this.assertRunMutable(outer.run.status);
     const result = await this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
@@ -176,7 +172,7 @@ export class ExecutionService {
         });
       const replay = await this.events.findReplay<Record<string, unknown>>(tx, scope);
       if (replay) {
-        await this.verifyReplayAttempt(tx, input, participant.agentId);
+        await this.loadLiveAttempt(tx, input, participant.agentId);
         return replay;
       }
       return this.events.executeIdempotent(tx, scope, async () => {
@@ -245,21 +241,22 @@ export class ExecutionService {
 
   async submitResult(inputRaw: CollaborationSubmitResultInput, principal: Principal) {
     const input = CollaborationSubmitResultInputSchema.parse(inputRaw);
-    const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
-    this.assertRunMutable(outer.run.status);
     const result = await this.prisma.$transaction(async (tx) => {
-      const participant = await this.authorizeParticipant(tx, input.runId, principal);
-      this.assertRunMutable(participant.run.status);
-      const scope = this.agentScope(input.runId, participant.agentId, 'submit_result', input.attemptId, input.idempotencyKey, {
+      const access = await this.authorizeAgentRun(tx, input.runId, principal, 'collaboration:execute');
+      const scope = this.agentScope(input.runId, access.agentId, 'submit_result', input.attemptId, input.idempotencyKey, {
           attemptId: input.attemptId,
           artifact: input.artifact,
           leaseTokenHash: sha256(input.leaseToken),
         });
       const replay = await this.events.findReplay<Record<string, unknown>>(tx, scope);
       if (replay) {
-        await this.verifyReplayAttempt(tx, input, participant.agentId);
+        await this.verifySubmitReplayAttempt(tx, input, access.agentId, replay);
+        if (replay.action !== 'submitted') this.assertRunMutable(access.run.status);
         return replay;
       }
+      this.assertRunMutable(access.run.status);
+      await this.assertCurrentParticipation(tx, input.runId, access.agentId);
+      const participant = access;
       return this.events.executeIdempotent(tx, {
         ...scope,
         responseForStorage: redactLeaseToken,
@@ -523,11 +520,16 @@ export class ExecutionService {
     return { ...attempt, repairCount: attempt.repairCount ?? 0 };
   }
 
-  private async verifyReplayAttempt(
+  private async verifySubmitReplayAttempt(
     tx: Tx,
     input: { runId: string; attemptId: string; leaseToken: string },
     agentId: string,
+    replay: Record<string, unknown>,
   ): Promise<void> {
+    if (replay.action !== 'submitted') {
+      await this.loadLiveAttempt(tx, input, agentId);
+      return;
+    }
     const attempt = await tx.collaborationTaskAttempt.findUnique({
       where: { id: input.attemptId },
       include: { runTask: true },
@@ -536,6 +538,7 @@ export class ExecutionService {
       !attempt
       || attempt.runId !== input.runId
       || attempt.agentId !== agentId
+      || attempt.status !== 'completed'
       || attempt.generation !== attempt.runTask.generation
       || !secureHashEquals(attempt.leaseTokenHash, sha256(input.leaseToken))
     ) throw new BusinessException('COLLABORATION_LEASE_EXPIRED');
@@ -547,18 +550,26 @@ export class ExecutionService {
     principal: Principal,
     requiredScope: 'collaboration:read' | 'collaboration:execute' = 'collaboration:execute',
   ) {
+    const access = await this.authorizeAgentRun(tx, runId, principal, requiredScope);
+    await this.assertCurrentParticipation(tx, runId, access.agentId);
+    return access;
+  }
+
+  private async authorizeAgentRun(
+    tx: Tx,
+    runId: string,
+    principal: Principal,
+    requiredScope: 'collaboration:read' | 'collaboration:execute',
+  ): Promise<AgentRun> {
     const agentId = principal.agentId;
     if (!agentId) throw new BusinessException('COLLABORATION_AGENT_NOT_BOUND');
     const run = await tx.collaborationRun.findUnique({ where: { id: runId } });
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    await this.authorization.assertSpaceAccess(
-      principal,
-      run.spaceId,
-      requiredScope === 'collaboration:read'
-        ? ['owner', 'admin', 'editor', 'viewer']
-        : ['owner', 'admin', 'editor'],
-      requiredScope,
-    );
+    if (requiredScope === 'collaboration:execute') {
+      await this.authorization.assertLiveAgentWriteAccess(tx, principal, run.spaceId, ['collaboration:execute']);
+    } else {
+      await this.authorization.assertSpaceAccess(principal, run.spaceId, ['owner', 'admin', 'editor', 'viewer'], requiredScope);
+    }
     const grant = await tx.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId: run.spaceId } },
       include: {
@@ -575,10 +586,13 @@ export class ExecutionService {
       || !AgentAccessRoleSchema.safeParse(grant.role).success
       || !agentRoleAllowsScope(grant.role, requiredScope)
     ) throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
+    return { run, agentId };
+  }
+
+  private async assertCurrentParticipation(tx: Tx, runId: string, agentId: string): Promise<void> {
     const binding = await tx.collaborationRoleBinding.findFirst({ where: { runId, agentId } });
     const assignment = binding ? null : await tx.collaborationRunTask.findFirst({ where: { runId, assigneeAgentId: agentId } });
     if (!binding && !assignment) throw new BusinessException('COLLABORATION_AGENT_NOT_BOUND');
-    return { run, agentId };
   }
 
   private immediateRunAction(status: string): Record<string, unknown> | undefined {

@@ -181,6 +181,10 @@ describe('RunEventStore', () => {
         if (spaceId !== allowedSpace) throw new Error('unexpected unauthorized Space lookup');
         return { role: 'editor' };
       }),
+      assertLiveHumanSpaceAccess: jest.fn(async (_tx: unknown, _principal: unknown, spaceId: string) => {
+        if (spaceId !== allowedSpace) throw new Error('unexpected unauthorized Space lookup');
+        return { role: 'editor', userId: 'user-cross', spaceId };
+      }),
     } as any;
     const service = new RunService(
       prisma,

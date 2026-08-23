@@ -4,6 +4,7 @@ import { ExecutionService } from './execution.service';
 
 const agent: Principal = {
   userId: 'agent-user-a', agentId: 'agent-a', authorizationId: 'grant-a',
+  credentialId: 'credential-a',
   authorizationSpaceId: 'space-1', agentRole: 'editor', scopes: ['collaboration:read', 'collaboration:execute'],
 };
 const run = {
@@ -28,7 +29,7 @@ describe('ExecutionService', () => {
     agentGrant: { findUnique: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = { assertSpaceAccess: jest.fn(), assertLiveAgentWriteAccess: jest.fn() } as any;
   const config = { get: jest.fn().mockReturnValue('execution-test-secret') } as any;
   const eventResponses = new Map<string, unknown>();
   const events = {
@@ -68,6 +69,7 @@ describe('ExecutionService', () => {
     tx.collaborationTaskArtifact.findMany.mockResolvedValue([]);
     events.findReplay.mockResolvedValue(undefined);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+    authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
     tx.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-a', agentId: 'agent-a', spaceId: 'space-1', role: 'editor',
       agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
@@ -93,6 +95,13 @@ describe('ExecutionService', () => {
     });
     await expect(service.joinRun('run-1', agent))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_CANNOT_EXECUTE' });
+  });
+
+  it('rechecks the exact live Credential inside the execution transaction', async () => {
+    await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-live-credential-1' }, agent);
+    expect(authorization.assertLiveAgentWriteAccess).toHaveBeenCalledWith(
+      tx, agent, 'space-1', ['collaboration:execute'],
+    );
   });
 
   it('allows a bound reader to inspect safe run state but not join the execution loop', async () => {
@@ -141,6 +150,26 @@ describe('ExecutionService', () => {
     }, agent)).rejects.toMatchObject({ businessCode: 'COLLABORATION_LEASE_EXPIRED' });
   });
 
+  it.each([
+    ['heartbeat', async (leaseToken: string) => service.heartbeat({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken, idempotencyKey: 'expired-heartbeat-replay-1',
+    }, agent)],
+    ['Todo', async (leaseToken: string) => service.updateTodo({
+      runId: 'run-1', attemptId: 'attempt-1', todoId: 'todo-1', leaseToken,
+      status: 'done', evidence: [], idempotencyKey: 'expired-todo-replay-1',
+    }, agent)],
+  ] as const)('rejects an exact %s replay after the active lease expires', async (_label, invoke) => {
+    const leaseToken = 'b'.repeat(64);
+    events.findReplay.mockResolvedValueOnce({ replayed: true });
+    tx.collaborationTaskAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', runId: 'run-1', taskId: 'task-1', generation: 1, agentId: 'agent-a', status: 'running',
+      claimIdempotencyKey: 'claim-1', leaseTokenHash: hashLease(leaseToken),
+      leaseExpiresAt: new Date(Date.now() - 1), maxExecutionAt: new Date(Date.now() + 60_000), runTask: task,
+    });
+
+    await expect(invoke(leaseToken)).rejects.toMatchObject({ businessCode: 'COLLABORATION_LEASE_EXPIRED' });
+  });
+
   it('returns the idempotent submission result and creates one Artifact version', async () => {
     const leaseToken = 'a'.repeat(64);
     const attempt = {
@@ -164,6 +193,28 @@ describe('ExecutionService', () => {
     expect(second).toEqual(first);
     expect(tx.collaborationTaskArtifact.create).toHaveBeenCalledTimes(1);
     expect(events.executeIdempotent).toHaveBeenCalled();
+  });
+
+  it('returns a completed submission replay after run completion without reopening the Attempt', async () => {
+    const leaseToken = 'c'.repeat(64);
+    const receipt = {
+      action: 'submitted', artifactId: 'artifact-1', version: 1,
+      artifactStatus: 'accepted', taskStatus: 'completed', runStatus: 'completed', replayed: false,
+    };
+    tx.collaborationRun.findUnique.mockResolvedValue({ ...run, status: 'completed' });
+    tx.collaborationTaskAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', runId: 'run-1', taskId: 'task-1', generation: 1, agentId: 'agent-a', status: 'completed',
+      claimIdempotencyKey: 'claim-1', leaseTokenHash: hashLease(leaseToken),
+      leaseExpiresAt: new Date(Date.now() - 1), maxExecutionAt: new Date(Date.now() - 1), runTask: { ...task, status: 'completed' },
+    });
+    events.findReplay.mockResolvedValue(receipt);
+
+    await expect(service.submitResult({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken,
+      artifact: { kind: 'markdown', markdown: 'done', evidence: [] }, idempotencyKey: 'submit-completed-replay-1',
+    }, agent)).resolves.toEqual(receipt);
+    expect(tx.collaborationTaskAttempt.updateMany).not.toHaveBeenCalled();
+    expect(tx.collaborationTaskArtifact.create).not.toHaveBeenCalled();
   });
 
   it('records one repair failure and does not consume the repair budget twice on replay', async () => {

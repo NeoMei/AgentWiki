@@ -1,4 +1,5 @@
 import type { Principal } from '../core/authorization/authorization.service';
+import { BusinessException } from '../core/filters/business-error';
 import { RunService } from './run.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
@@ -68,7 +69,7 @@ describe('RunService', () => {
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
   const events = {
     executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()),
   } as any;
@@ -79,6 +80,7 @@ describe('RunService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'editor', userId: 'user-1', spaceId: 'space-1' });
     tx.collaborationTemplate.findFirst.mockResolvedValue(template);
     tx.collaborationRun.create.mockResolvedValue(draft);
     tx.collaborationRun.findUnique.mockResolvedValue({ ...ready, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings });
@@ -101,6 +103,9 @@ describe('RunService', () => {
       data: expect.objectContaining({ status: 'draft', version: 1, startedById: 'user-1' }),
     }));
     expect(tx.collaborationRoleBinding.createMany).toHaveBeenCalled();
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      tx, humanPrincipal, 'space-1', ['owner', 'admin', 'editor'],
+    );
   });
 
   it('persists step-one input as an incomplete draft before Agent mapping', async () => {
@@ -150,6 +155,29 @@ describe('RunService', () => {
     await expect(service.pauseRun('run-1', { reason: 'maintenance', idempotencyKey: 'pause-run-1' }, starterPrincipal)).resolves.toBeDefined();
     await expect(service.skipTask('run-1', 'task-1', { reason: 'not needed', idempotencyKey: 'skip-task-1' }, starterPrincipal))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+  });
+
+  it('rejects a control replay when the starter was downgraded before the serializable transaction', async () => {
+    const running = { ...ready, status: 'running', startedById: 'starter-1' };
+    tx.collaborationRun.findUnique.mockResolvedValue(running);
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'viewer', userId: 'starter-1', spaceId: 'space-1' });
+
+    await expect(service.failRun(
+      'run-1',
+      { reason: 'force stop', idempotencyKey: 'fail-after-downgrade-1' },
+      starterPrincipal,
+    )).rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+    expect(events.executeIdempotent).not.toHaveBeenCalled();
+  });
+
+  it('revalidates the live human before a start idempotency replay', async () => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'));
+
+    await expect(service.startRun('space-1', 'run-1', {
+      expectedVersion: 2,
+      idempotencyKey: 'start-revoked-human-1',
+    }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+    expect(events.executeIdempotent).not.toHaveBeenCalled();
   });
 
   it('makes active current-generation tasks reclaimable when pausing without replacing their Todo history', async () => {

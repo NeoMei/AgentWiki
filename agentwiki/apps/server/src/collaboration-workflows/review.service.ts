@@ -29,72 +29,88 @@ export class ReviewService {
     principal: Principal,
   ) {
     if (principal.agentId) throw new BusinessException('HUMAN_AUTH_REQUIRED');
-    const run = await this.prisma.collaborationRun.findUnique({ where: { id: runId } });
-    if (!run || run.spaceId !== spaceId) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    const review = await this.prisma.collaborationReview.findFirst({ where: { id: reviewId, runId } });
-    if (!review) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration review not found');
-    const member = await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor']);
-    this.assertReviewer(review, member.role as SpaceRole, principal.userId);
-
-    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
-      runId,
-      actorKind: 'human',
-      actorId: principal.userId,
-      actorUserId: principal.userId,
-      operation: `review_${input.kind}`,
-      target: reviewId,
-      key: input.idempotencyKey,
-      requestHash: canonicalRequestHash(input),
-      metadata: { reviewId, kind: input.kind, reason: input.reason },
-    }, async () => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const currentRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
-      const current = await tx.collaborationReview.findFirst({ where: { id: reviewId, runId, status: 'pending' } });
-      if (!currentRun || currentRun.spaceId !== spaceId || !current) {
-        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review is no longer pending');
+      if (!currentRun || currentRun.spaceId !== spaceId) {
+        throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
       }
-      if (['completed', 'failed', 'cancelled'].includes(currentRun.status)) {
-        throw new BusinessException('COLLABORATION_RUN_TERMINAL');
+      const currentReview = await tx.collaborationReview.findFirst({ where: { id: reviewId, runId } });
+      if (!currentReview) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration review not found');
+      let member: { role: SpaceRole };
+      try {
+        member = await this.authorization.assertLiveHumanSpaceAccess(
+          tx,
+          principal,
+          spaceId,
+          ['owner', 'admin', 'editor'],
+        );
+      } catch (error) {
+        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+          throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
+        }
+        throw error;
       }
-      const currentTasks = await tx.collaborationRunTask.findMany({ where: { runId } });
-      const currentSource = currentTasks.find((task) => task.id === current.sourceTaskId);
-      if (!currentSource || currentSource.generation !== current.generation || currentSource.status !== 'submitted') {
-        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review generation is stale');
-      }
-      const decidedAt = new Date();
-      const status = input.kind === 'approve' ? 'approved' : input.kind === 'terminate' ? 'terminated' : 'rejected';
-      const decided = await tx.collaborationReview.updateMany({
-        where: { id: reviewId, runId, status: 'pending' },
-        data: { status, reviewerUserId: principal.userId, reason: input.reason, decidedAt },
-      });
-      if (decided.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
+      this.assertReviewer(currentReview, member.role, principal.userId);
+      return this.events.executeIdempotent(tx, {
+        runId,
+        actorKind: 'human',
+        actorId: principal.userId,
+        actorUserId: principal.userId,
+        operation: `review_${input.kind}`,
+        target: reviewId,
+        key: input.idempotencyKey,
+        requestHash: canonicalRequestHash(input),
+        metadata: { reviewId, kind: input.kind, reason: input.reason },
+      }, async () => {
+        const mutationRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
+        const current = await tx.collaborationReview.findFirst({ where: { id: reviewId, runId, status: 'pending' } });
+        if (!mutationRun || mutationRun.spaceId !== spaceId || !current) {
+          throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review is no longer pending');
+        }
+        if (['completed', 'failed', 'cancelled'].includes(mutationRun.status)) {
+          throw new BusinessException('COLLABORATION_RUN_TERMINAL');
+        }
+        const currentTasks = await tx.collaborationRunTask.findMany({ where: { runId } });
+        const currentSource = currentTasks.find((task) => task.id === current.sourceTaskId);
+        if (!currentSource || currentSource.generation !== current.generation || currentSource.status !== 'submitted') {
+          throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review generation is stale');
+        }
+        const decidedAt = new Date();
+        const status = input.kind === 'approve' ? 'approved' : input.kind === 'terminate' ? 'terminated' : 'rejected';
+        const decided = await tx.collaborationReview.updateMany({
+          where: { id: reviewId, runId, status: 'pending' },
+          data: { status, reviewerUserId: principal.userId, reason: input.reason, decidedAt },
+        });
+        if (decided.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
 
-      if (input.kind === 'approve') {
-        const accepted = await tx.collaborationTaskArtifact.updateMany({
-          where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
-          data: { status: 'accepted', acceptedAt: decidedAt },
-        });
-        if (accepted.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
-        await tx.collaborationRunTask.update({
-          where: { id: current.sourceTaskId },
-          data: { status: 'completed', completedAt: decidedAt },
-        });
-        await this.progression.advanceRun(tx, runId, `review-approved:${reviewId}`, false);
-      } else if (input.kind === 'reject_for_revision') {
-        await this.rejectForRevision(tx, currentRun, current, input.reason, currentTasks);
-        await this.progression.advanceRun(tx, runId, `review-rejected:${reviewId}`, false);
-      } else {
-        if (!current.allowTerminate) throw new BusinessException('COLLABORATION_REVIEW_TERMINATE_DENIED');
-        await tx.collaborationTaskAttempt.updateMany({
-          where: { runId, status: { in: ['claimed', 'running'] } },
-          data: { status: 'invalidated', failureCode: 'review_terminated', finishedAt: decidedAt },
-        });
-        await tx.collaborationRun.update({
-          where: { id: runId },
-          data: { status: 'cancelled', finishedAt: decidedAt },
-        });
-      }
-      return tx.collaborationRun.findUnique({ where: { id: runId } });
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        if (input.kind === 'approve') {
+          const accepted = await tx.collaborationTaskArtifact.updateMany({
+            where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
+            data: { status: 'accepted', acceptedAt: decidedAt },
+          });
+          if (accepted.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
+          await tx.collaborationRunTask.update({
+            where: { id: current.sourceTaskId },
+            data: { status: 'completed', completedAt: decidedAt },
+          });
+          await this.progression.advanceRun(tx, runId, `review-approved:${reviewId}`, false);
+        } else if (input.kind === 'reject_for_revision') {
+          await this.rejectForRevision(tx, mutationRun, current, input.reason, currentTasks);
+          await this.progression.advanceRun(tx, runId, `review-rejected:${reviewId}`, false);
+        } else {
+          if (!current.allowTerminate) throw new BusinessException('COLLABORATION_REVIEW_TERMINATE_DENIED');
+          await tx.collaborationTaskAttempt.updateMany({
+            where: { runId, status: { in: ['claimed', 'running'] } },
+            data: { status: 'invalidated', failureCode: 'review_terminated', finishedAt: decidedAt },
+          });
+          await tx.collaborationRun.update({
+            where: { id: runId },
+            data: { status: 'cancelled', finishedAt: decidedAt },
+          });
+        }
+        return tx.collaborationRun.findUnique({ where: { id: runId } });
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);
     return result;
   }

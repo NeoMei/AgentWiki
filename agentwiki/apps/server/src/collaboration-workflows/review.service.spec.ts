@@ -1,4 +1,5 @@
 import type { Principal } from '../core/authorization/authorization.service';
+import { BusinessException } from '../core/filters/business-error';
 import { ReviewService } from './review.service';
 
 const reviewer: Principal = { userId: 'reviewer-1' };
@@ -39,7 +40,7 @@ describe('ReviewService', () => {
     collaborationTaskTodo: { createMany: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
   const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
@@ -47,12 +48,14 @@ describe('ReviewService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    events.executeIdempotent.mockImplementation(async (_tx: any, _scope: any, mutation: () => unknown) => mutation());
     tx.collaborationRun.findUnique.mockResolvedValue(run);
     tx.collaborationReview.findFirst.mockResolvedValue(review);
     tx.collaborationReview.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue(tasks);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'editor', userId: 'reviewer-1', spaceId: 'space-1' });
     service = new ReviewService(prisma, authorization, events, progression, notifications);
   });
 
@@ -64,6 +67,25 @@ describe('ReviewService', () => {
     await expect(service.decide('space-1', 'run-1', 'review-1', {
       kind: 'approve', reason: 'looks good', idempotencyKey: 'approve-review-1',
     }, reviewer)).rejects.toMatchObject({ businessCode: 'COLLABORATION_REVIEWER_DENIED' });
+  });
+
+  it('rejects a replay after reviewer membership revocation inside the transaction', async () => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'));
+
+    await expect(service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'looks good', idempotencyKey: 'approve-revoked-reviewer-1',
+    }, reviewer)).rejects.toMatchObject({ businessCode: 'COLLABORATION_REVIEWER_DENIED' });
+    expect(events.executeIdempotent).not.toHaveBeenCalled();
+  });
+
+  it('re-reads current reviewer constraints before returning an idempotent replay', async () => {
+    tx.collaborationReview.findFirst.mockResolvedValue({ ...review, reviewerUserIds: ['other-user'] });
+    events.executeIdempotent.mockResolvedValue({ id: 'run-1', status: 'running' });
+
+    await expect(service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'looks good', idempotencyKey: 'approve-review-replay-1',
+    }, reviewer)).rejects.toMatchObject({ businessCode: 'COLLABORATION_REVIEWER_DENIED' });
+    expect(events.executeIdempotent).not.toHaveBeenCalled();
   });
 
   it('approves the Artifact and source task then advances the run', async () => {

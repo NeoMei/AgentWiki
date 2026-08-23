@@ -4,6 +4,7 @@ import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 describe('AuthorizationService', () => {
   const prisma = {
+    user: { findUnique: jest.fn() },
     spaceMember: { findUnique: jest.fn(), findMany: jest.fn() },
     page: { findUnique: jest.fn() },
     knowledgeRelation: { findUnique: jest.fn() },
@@ -78,6 +79,49 @@ describe('AuthorizationService', () => {
       ),
     ).resolves.toMatchObject({ role: 'owner', isSuperAdmin: true });
     expect(prisma.spaceMember.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('reloads the live human, platform role, Space, and membership from the provided transaction', async () => {
+    const tx = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'editor' }) },
+    } as any;
+
+    await expect(service.assertLiveHumanSpaceAccess(
+      tx,
+      { userId: 'user-1', platformRole: 'super_admin' },
+      'space-1',
+      ['owner', 'admin', 'editor'],
+    )).resolves.toMatchObject({ role: 'editor', userId: 'user-1', spaceId: 'space-1' });
+    expect(tx.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'user-1' } }));
+    expect(tx.space.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'space-1' } }));
+    expect(tx.spaceMember.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId_spaceId: { userId: 'user-1', spaceId: 'space-1' } },
+    }));
+  });
+
+  it('uses only the live platform role and fails closed for a revoked or downgraded human', async () => {
+    const tx = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'viewer' }) },
+    } as any;
+
+    await expect(service.assertLiveHumanSpaceAccess(
+      tx,
+      { userId: 'user-1', platformRole: 'super_admin' },
+      'space-1',
+      ['owner', 'admin', 'editor'],
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+
+    tx.user.findUnique.mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'super_admin', deletedAt: new Date(), lockedAt: null });
+    await expect(service.assertLiveHumanSpaceAccess(
+      tx,
+      { userId: 'user-1' },
+      'space-1',
+      ['owner'],
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
   it('uses the bound Grant role as the only Agent permission source', async () => {

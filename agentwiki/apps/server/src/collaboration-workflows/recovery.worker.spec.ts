@@ -13,7 +13,7 @@ describe('RecoveryWorker', () => {
   const tx = {
     collaborationTaskAttempt: { findUnique: jest.fn(), updateMany: jest.fn() },
     collaborationRunTask: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-    collaborationRun: { update: jest.fn(), findUnique: jest.fn() },
+    collaborationRun: { update: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
     agentGrant: { findUnique: jest.fn() },
   } as any;
   const prisma = {
@@ -32,9 +32,12 @@ describe('RecoveryWorker', () => {
     prisma.collaborationTaskAttempt.findMany.mockResolvedValue([expired]);
     tx.collaborationTaskAttempt.findUnique.mockResolvedValue(expired);
     tx.collaborationTaskAttempt.updateMany.mockResolvedValue({ count: 1 });
+    tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
+    tx.collaborationRun.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue([]);
     tx.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
+      credentials: [{ revokedAt: null, expiresAt: null }],
     });
     tx.collaborationRun.findUnique.mockResolvedValue({ eventSequence: 7 });
     prisma.collaborationRun.findUnique.mockResolvedValue({ spaceId: 'space-1', eventSequence: 8 });
@@ -56,7 +59,7 @@ describe('RecoveryWorker', () => {
       where: expect.objectContaining({ id: 'attempt-1', status: { in: ['claimed', 'running'] } }),
       data: expect.objectContaining({ status: 'expired' }),
     }));
-    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.collaborationRunTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'retry_wait', nextAttemptAt: expect.any(Date) }),
     }));
     expect(notifications.publishRunChanged).toHaveBeenCalledWith('space-1', 'run-1', 8);
@@ -67,10 +70,10 @@ describe('RecoveryWorker', () => {
       ...expired, attemptNumber: 3, runTask: { ...expired.runTask, retryBudget: 2 },
     });
     await worker.tick();
-    expect(tx.collaborationRun.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'paused', pauseReason: 'retry_exhausted' }),
     }));
-    expect(JSON.stringify(tx.collaborationRun.update.mock.calls)).not.toContain('"failed"');
+    expect(JSON.stringify(tx.collaborationRun.updateMany.mock.calls)).not.toContain('"failed"');
   });
 
   it('pauses instead of releasing work after Agent authorization changes', async () => {
@@ -78,11 +81,89 @@ describe('RecoveryWorker', () => {
       id: 'grant-1', role: 'reader', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
     });
     await worker.tick();
-    expect(tx.collaborationRun.update).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'paused', pauseReason: 'agent_authorization_changed' }),
     }));
-    expect(tx.collaborationRunTask.update).not.toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.collaborationRunTask.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'retry_wait' }),
+    }));
+  });
+
+  it('pauses when the assignee no longer has a live Credential for the Grant', async () => {
+    tx.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
+      credentials: [{ revokedAt: new Date(), expiresAt: null }],
+    });
+    await worker.tick();
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'paused', pauseReason: 'agent_authorization_changed' }),
+    }));
+  });
+
+  it.each(['paused', 'waiting_review', 'completed', 'failed', 'cancelled'])(
+    'does not recover an expired Attempt while its Run is %s',
+    async (status) => {
+      tx.collaborationTaskAttempt.findUnique.mockResolvedValue({
+        ...expired,
+        runTask: { ...expired.runTask, run: { ...expired.runTask.run, status } },
+      });
+
+      await worker.tick();
+      expect(events.executeIdempotent).not.toHaveBeenCalled();
+      expect(tx.collaborationTaskAttempt.updateMany).not.toHaveBeenCalled();
+      expect(tx.collaborationRunTask.update).not.toHaveBeenCalled();
+      expect(tx.collaborationRun.update).not.toHaveBeenCalled();
+      expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not recover an Attempt when the Task is no longer active in the current generation', async () => {
+    tx.collaborationTaskAttempt.findUnique.mockResolvedValue({
+      ...expired,
+      runTask: { ...expired.runTask, status: 'ready' },
+    });
+
+    await worker.tick();
+    expect(events.executeIdempotent).not.toHaveBeenCalled();
+    expect(tx.collaborationTaskAttempt.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(['paused', 'waiting_review', 'completed', 'failed', 'cancelled'])(
+    'does not release a due retry while its Run is %s',
+    async (status) => {
+      prisma.collaborationTaskAttempt.findMany.mockResolvedValue([]);
+      tx.collaborationRunTask.findMany.mockResolvedValue([{ id: 'task-retry' }]);
+      tx.collaborationRunTask.findUnique.mockResolvedValue({
+        id: 'task-retry', runId: 'run-1', generation: 3, status: 'retry_wait',
+        nextAttemptAt: new Date(Date.now() - 1), assigneeAgentId: 'agent-1',
+        run: { id: 'run-1', spaceId: 'space-1', status },
+      });
+
+      await worker.tick();
+      expect(tx.agentGrant.findUnique).not.toHaveBeenCalled();
+      expect(tx.collaborationRunTask.updateMany).not.toHaveBeenCalled();
+      expect(tx.collaborationRun.update).not.toHaveBeenCalled();
+      expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('conditions retry release on the current Task generation and due deadline', async () => {
+    prisma.collaborationTaskAttempt.findMany.mockResolvedValue([]);
+    tx.collaborationRunTask.findMany.mockResolvedValue([{ id: 'task-retry' }]);
+    tx.collaborationRunTask.findUnique.mockResolvedValue({
+      id: 'task-retry', runId: 'run-1', generation: 3, status: 'retry_wait',
+      nextAttemptAt: new Date(Date.now() - 1), assigneeAgentId: 'agent-1',
+      run: { id: 'run-1', spaceId: 'space-1', status: 'running' },
+    });
+    tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
+
+    await worker.tick();
+    expect(tx.collaborationRunTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'task-retry', runId: 'run-1', generation: 3, status: 'retry_wait',
+        nextAttemptAt: { lte: expect.any(Date) },
+      }),
+      data: { status: 'ready', nextAttemptAt: null },
     }));
   });
 });

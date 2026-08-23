@@ -183,8 +183,9 @@ export class RunService {
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
-    await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
+    if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
       const bindings = this.normalizeBindings(definition, body.roleBindings, true);
@@ -214,8 +215,9 @@ export class RunService {
   }
 
   async updateDraft(spaceId: string, runId: string, body: UpdateRunDraftDto, principal: Principal) {
-    await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
+    if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const current = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
       });
@@ -250,8 +252,9 @@ export class RunService {
     body: ValidateRunDraftDto,
     principal: Principal,
   ) {
-    await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
+    if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const run = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
       });
@@ -274,8 +277,9 @@ export class RunService {
   }
 
   async startRun(spaceId: string, runId: string, body: StartRunDto, principal: Principal) {
-    await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
+    if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const scopedRun = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId },
         select: { id: true },
@@ -454,43 +458,44 @@ export class RunService {
     expectedSpaceId?: string,
   ) {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    const run = await this.prisma.collaborationRun.findUnique({
-      where: { id: runId },
-      select: { id: true, spaceId: true, status: true, startedById: true },
-    });
-    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    if (expectedSpaceId !== undefined && run.spaceId !== expectedSpaceId) {
-      throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    }
-    const member = await this.assertHumanAccess(principal, run.spaceId, managersOnly ? MANAGE_ROLES : READ_ROLES);
-    const role = member.role as SpaceRole;
-    if (managersOnly && !MANAGE_ROLES.includes(role)) {
-      throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    }
-    if (!managersOnly && !MANAGE_ROLES.includes(role) && run.startedById !== principal.userId) {
-      throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
-    }
-    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
-      runId,
-      actorKind: 'human',
-      actorId: principal.userId,
-      actorUserId: principal.userId,
-      operation,
-      target,
-      key: body.idempotencyKey,
-      requestHash: canonicalRequestHash(body),
-      metadata: { reason: body.reason },
-      responseForStorage: () => ({ runId }),
-      replayResponse: () => this.loadHumanRun(tx, runId),
-    }, async () => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const current = await tx.collaborationRun.findUnique({
         where: { id: runId },
         select: { id: true, spaceId: true, status: true, startedById: true, templateSnapshot: true },
       });
-      if (!current || current.spaceId !== run.spaceId) throw new BusinessException('RESOURCE_NOT_FOUND');
-      await mutation(tx, current);
-      return this.loadHumanRun(tx, runId);
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      if (!current || (expectedSpaceId !== undefined && current.spaceId !== expectedSpaceId)) {
+        throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+      }
+      const member = await this.assertLiveHumanAccess(
+        tx,
+        principal,
+        current.spaceId,
+        managersOnly ? MANAGE_ROLES : READ_ROLES,
+      );
+      const role = member.role as SpaceRole;
+      if (managersOnly && !MANAGE_ROLES.includes(role)) {
+        throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
+      }
+      if (!managersOnly && !MANAGE_ROLES.includes(role) && current.startedById !== principal.userId) {
+        throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
+      }
+      return this.events.executeIdempotent(tx, {
+        runId,
+        actorKind: 'human',
+        actorId: principal.userId,
+        actorUserId: principal.userId,
+        operation,
+        target,
+        key: body.idempotencyKey,
+        requestHash: canonicalRequestHash(body),
+        metadata: { reason: body.reason },
+        responseForStorage: () => ({ runId }),
+        replayResponse: () => this.loadHumanRun(tx, runId),
+      }, async () => {
+        await mutation(tx, current);
+        return this.loadHumanRun(tx, runId);
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await this.notifications.publishCurrentRun(runId);
     return result;
   }
@@ -499,6 +504,17 @@ export class RunService {
     if (principal.agentId) throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     try {
       return await this.authorization.assertSpaceAccess(principal, spaceId, roles);
+    } catch (error) {
+      if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+        throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
+      }
+      throw error;
+    }
+  }
+
+  private async assertLiveHumanAccess(tx: Tx, principal: Principal, spaceId: string, roles: SpaceRole[]) {
+    try {
+      return await this.authorization.assertLiveHumanSpaceAccess(tx, principal, spaceId, roles);
     } catch (error) {
       if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
         throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');

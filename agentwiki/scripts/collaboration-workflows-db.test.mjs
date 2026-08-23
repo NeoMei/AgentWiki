@@ -428,7 +428,7 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         await prisma.space.update({ where: { id: deleted.space.id }, data: { deletedAt: new Date() } });
         await assertBusinessCode(
           services.execution.nextAction(nextInput(deleted.run.id, 'deleted-space-claim'), deleted.principals[0]),
-          'SPACE_NOT_FOUND',
+          'SPACE_ACCESS_DENIED',
         );
 
         const reauthorized = await createFixture(prisma);
@@ -444,6 +444,120 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         cover(
           'retry once then exhaustion pause', 'reassigned Agent join and old lease rejection',
           'Agent revoke', 'Agent role downgrade', 'Space deletion', 'manual reauthorization',
+        );
+      });
+
+      await suite.test('transactional live authorization and replay/recovery gates fail closed', async () => {
+        const humanReplay = await createFixture(prisma);
+        const pauseInput = { reason: 'maintenance', idempotencyKey: 'human-live-auth-pause-01' };
+        await services.runs.pauseRun(
+          humanReplay.run.id,
+          pauseInput,
+          humanReplay.humanPrincipal,
+          humanReplay.space.id,
+        );
+        await prisma.spaceMember.delete({
+          where: { userId_spaceId: { userId: humanReplay.human.id, spaceId: humanReplay.space.id } },
+        });
+        await assertBusinessCode(
+          services.runs.pauseRun(
+            humanReplay.run.id,
+            pauseInput,
+            humanReplay.humanPrincipal,
+            humanReplay.space.id,
+          ),
+          'COLLABORATION_HUMAN_PERMISSION_DENIED',
+        );
+
+        const heartbeatReplay = await createFixture(prisma);
+        const heartbeatClaim = await services.execution.nextAction(
+          nextInput(heartbeatReplay.run.id, 'heartbeat-replay-claim-01'),
+          heartbeatReplay.principals[0],
+        );
+        const heartbeatInput = {
+          runId: heartbeatReplay.run.id,
+          attemptId: heartbeatClaim.attemptId,
+          leaseToken: heartbeatClaim.leaseToken,
+          idempotencyKey: 'heartbeat-expired-replay-01',
+        };
+        await services.execution.heartbeat(heartbeatInput, heartbeatReplay.principals[0]);
+        await expireAttempt(prisma, heartbeatClaim.attemptId);
+        await assertBusinessCode(
+          services.execution.heartbeat(heartbeatInput, heartbeatReplay.principals[0]),
+          'COLLABORATION_LEASE_EXPIRED',
+        );
+
+        const completedReplay = await createFixture(prisma);
+        const completedClaim = await services.execution.nextAction(
+          nextInput(completedReplay.run.id, 'completed-submit-claim-01'),
+          completedReplay.principals[0],
+        );
+        for (const todo of completedClaim.task.todos) {
+          await services.execution.updateTodo({
+            runId: completedReplay.run.id,
+            attemptId: completedClaim.attemptId,
+            todoId: todo.id,
+            leaseToken: completedClaim.leaseToken,
+            status: 'done',
+            evidence: [],
+            idempotencyKey: `completed-submit-todo-${todo.id}`,
+          }, completedReplay.principals[0]);
+        }
+        const submitInput = {
+          runId: completedReplay.run.id,
+          attemptId: completedClaim.attemptId,
+          leaseToken: completedClaim.leaseToken,
+          artifact: { kind: 'markdown', markdown: 'Complete', evidence: [] },
+          idempotencyKey: 'completed-submit-replay-01',
+        };
+        const submitted = await services.execution.submitResult(submitInput, completedReplay.principals[0]);
+        assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: completedReplay.run.id } })).status, 'completed');
+        assert.deepEqual(
+          await services.execution.submitResult(submitInput, completedReplay.principals[0]),
+          submitted,
+        );
+        assert.equal(await prisma.collaborationTaskArtifact.count({
+          where: { taskId: completedReplay.tasks[0].id },
+        }), 1);
+
+        for (const status of ['paused', 'waiting_review', 'completed']) {
+          const gated = await createFixture(prisma, {
+            runStatus: status,
+            taskSpecs: [{ status: 'retry_wait' }],
+          });
+          await prisma.collaborationRunTask.update({
+            where: { id: gated.tasks[0].id },
+            data: { nextAttemptAt: new Date(Date.now() - 1_000) },
+          });
+          await services.recovery.tick();
+          assert.equal(
+            (await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: gated.tasks[0].id } })).status,
+            'retry_wait',
+          );
+          assert.equal(
+            (await prisma.collaborationRun.findUniqueOrThrow({ where: { id: gated.run.id } })).status,
+            status,
+          );
+        }
+
+        const credentialGate = await createFixture(prisma);
+        const credentialClaim = await services.execution.nextAction(
+          nextInput(credentialGate.run.id, 'credential-recovery-claim-01'),
+          credentialGate.principals[0],
+        );
+        await expireAttempt(prisma, credentialClaim.attemptId);
+        await prisma.agentCredential.update({
+          where: { id: credentialGate.principals[0].credentialId },
+          data: { revokedAt: new Date() },
+        });
+        await services.recovery.tick();
+        assert.equal(
+          (await prisma.collaborationRun.findUniqueOrThrow({ where: { id: credentialGate.run.id } })).status,
+          'paused',
+        );
+        assert.equal(
+          (await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: credentialGate.tasks[0].id } })).status,
+          'failed',
         );
       });
 
@@ -487,10 +601,18 @@ async function createFixture(prisma, options = {}) {
       id: `agent_${index}_${suffix}`, name: `Agent ${index}`, ownerId: human.id,
     } });
     const grant = await prisma.agentGrant.create({ data: { agentId: agent.id, spaceId: space.id, role } });
+    const credential = await prisma.agentCredential.create({ data: {
+      name: `DB fixture credential ${index}`,
+      prefix: `db${index}${suffix.slice(0, 6)}`,
+      keyHash: `${suffix}${String(index).padStart(32, '0')}`,
+      agentId: agent.id,
+      authorizationId: grant.id,
+    } });
     agents.push(agent);
     grants.push(grant);
     principals.push({
-      userId: human.id, agentId: agent.id, authorizationId: grant.id, authorizationSpaceId: space.id,
+      userId: human.id, agentId: agent.id, authorizationId: grant.id, credentialId: credential.id,
+      authorizationSpaceId: space.id,
       agentRole: role, scopes: role === 'reader' ? ['collaboration:read'] : ['collaboration:read', 'collaboration:execute'],
     });
   }

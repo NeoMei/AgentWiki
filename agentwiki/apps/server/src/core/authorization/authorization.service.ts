@@ -27,6 +27,37 @@ type PrincipalInput = string | Principal;
 export class AuthorizationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async assertLiveHumanSpaceAccess(
+    db: Prisma.TransactionClient,
+    principal: Principal,
+    spaceId: string,
+    allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
+  ): Promise<{ role: SpaceRole; userId: string; spaceId: string; isSuperAdmin?: true }> {
+    if (principal.agentId) throw new BusinessException('SPACE_ACCESS_DENIED', 'Human authorization is required');
+    const [user, space] = await Promise.all([
+      db.user.findUnique({
+        where: { id: principal.userId },
+        select: { id: true, type: true, platformRole: true, deletedAt: true, lockedAt: true },
+      }),
+      db.space.findUnique({ where: { id: spaceId }, select: { id: true, deletedAt: true } }),
+    ]);
+    if (!user || user.type !== 'human' || user.deletedAt || user.lockedAt || !space || space.deletedAt) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
+    }
+    if (user.platformRole === 'super_admin') {
+      return { role: 'owner', userId: user.id, spaceId, isSuperAdmin: true };
+    }
+    const member = await db.spaceMember.findUnique({
+      where: { userId_spaceId: { userId: user.id, spaceId } },
+      select: { role: true },
+    });
+    const effectiveAllowedRoles = humanAllowedRoles(allowedRoles);
+    if (!member || !effectiveAllowedRoles.includes(member.role as SpaceRole)) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
+    }
+    return { role: member.role as SpaceRole, userId: user.id, spaceId };
+  }
+
   async assertSpaceAccess(
     principalInput: PrincipalInput,
     spaceId: string,
@@ -34,11 +65,7 @@ export class AuthorizationService {
     requiredScope?: string,
   ) {
     const principal = this.normalize(principalInput);
-    const effectiveAllowedRoles: SpaceRole[] = !principal.agentId
-      && allowedRoles.includes('editor')
-      && !allowedRoles.includes('admin')
-      ? [...allowedRoles, 'admin']
-      : allowedRoles;
+    const effectiveAllowedRoles = !principal.agentId ? humanAllowedRoles(allowedRoles) : allowedRoles;
     // Distinguish "space id does not exist" from "no permission". Callers (and
     // agents) often pass a display name; a 404 with a self-describing message
     // turns a dead-end permission error into a self-correcting one.
@@ -221,6 +248,8 @@ export class AuthorizationService {
       !state.credential.revokedAt &&
       (!state.credential.expiresAt || state.credential.expiresAt > now) &&
       state.credential.authorizationId === state.grant.id &&
+      principal.authorizationId === state.grant.id &&
+      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId) &&
       requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
     if (!authorized) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is no longer valid');
@@ -312,4 +341,10 @@ export class AuthorizationService {
       throw new BusinessException('SPACE_ACCESS_DENIED', `Agent role is not granted scope ${requiredScope} in this space`);
     }
   }
+}
+
+function humanAllowedRoles(allowedRoles: SpaceRole[]): SpaceRole[] {
+  return allowedRoles.includes('editor') && !allowedRoles.includes('admin')
+    ? [...allowedRoles, 'admin']
+    : allowedRoles;
 }

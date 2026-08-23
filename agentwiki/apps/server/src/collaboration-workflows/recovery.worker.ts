@@ -41,7 +41,10 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       const expired = await this.prisma.collaborationTaskAttempt.findMany({
-        where: { status: { in: ['claimed', 'running'] }, leaseExpiresAt: { lte: new Date() } },
+        where: {
+          status: { in: ['claimed', 'running'] },
+          OR: [{ leaseExpiresAt: { lte: new Date() } }, { maxExecutionAt: { lte: new Date() } }],
+        },
         orderBy: [{ leaseExpiresAt: 'asc' }, { id: 'asc' }],
         take: BATCH_SIZE,
         select: { id: true },
@@ -67,10 +70,14 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
         where: { id: attemptId },
         include: { runTask: { include: { run: true } } },
       });
+      const now = new Date();
       if (
         !attempt
         || !['claimed', 'running'].includes(attempt.status)
-        || attempt.leaseExpiresAt.getTime() > Date.now()
+        || attempt.runTask.run.status !== 'running'
+        || !['claimed', 'running'].includes(attempt.runTask.status)
+        || attempt.agentId !== attempt.runTask.assigneeAgentId
+        || (attempt.leaseExpiresAt > now && attempt.maxExecutionAt > now)
         || attempt.generation !== attempt.runTask.generation
       ) return null;
       return this.events.executeIdempotent(tx, {
@@ -87,36 +94,49 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
           where: {
             id: attempt.id,
             status: { in: ['claimed', 'running'] },
-            leaseExpiresAt: { lte: new Date() },
+            generation: attempt.generation,
+            agentId: attempt.runTask.assigneeAgentId,
+            OR: [{ leaseExpiresAt: { lte: now } }, { maxExecutionAt: { lte: now } }],
           },
           data: { status: 'expired', failureCode: 'lease_expired', finishedAt: new Date() },
         });
         if (won.count !== 1) return null;
-        if (!await this.canExecute(tx, attempt.runTask.run.spaceId, attempt.runTask.assigneeAgentId)) {
-          await tx.collaborationRunTask.update({
-            where: { id: attempt.taskId },
-            data: { status: 'failed', nextAttemptAt: null },
-          });
-          await tx.collaborationRun.update({
-            where: { id: attempt.runId },
+        if (!await this.canExecute(tx, attempt.runTask.run.spaceId, attempt.runTask.assigneeAgentId, now)) {
+          const paused = await tx.collaborationRun.updateMany({
+            where: { id: attempt.runId, status: 'running' },
             data: { status: 'paused', pauseReason: 'agent_authorization_changed' },
+          });
+          if (paused.count !== 1) return null;
+          await tx.collaborationRunTask.updateMany({
+            where: {
+              id: attempt.taskId, runId: attempt.runId, generation: attempt.generation,
+              assigneeAgentId: attempt.runTask.assigneeAgentId, status: { in: ['claimed', 'running'] },
+            },
+            data: { status: 'failed', nextAttemptAt: null },
           });
           return { runId: attempt.runId, spaceId: attempt.runTask.run.spaceId };
         }
         if (attempt.attemptNumber <= attempt.runTask.retryBudget) {
           const nextAttemptAt = new Date(Date.now() + retryDelaySeconds(attempt.attemptNumber) * 1_000);
-          await tx.collaborationRunTask.update({
-            where: { id: attempt.taskId },
+          await tx.collaborationRunTask.updateMany({
+            where: {
+              id: attempt.taskId, runId: attempt.runId, generation: attempt.generation,
+              assigneeAgentId: attempt.runTask.assigneeAgentId, status: { in: ['claimed', 'running'] },
+            },
             data: { status: 'retry_wait', nextAttemptAt },
           });
         } else {
-          await tx.collaborationRunTask.update({
-            where: { id: attempt.taskId },
-            data: { status: 'failed', nextAttemptAt: null },
-          });
-          await tx.collaborationRun.update({
-            where: { id: attempt.runId },
+          const paused = await tx.collaborationRun.updateMany({
+            where: { id: attempt.runId, status: 'running' },
             data: { status: 'paused', pauseReason: 'retry_exhausted' },
+          });
+          if (paused.count !== 1) return null;
+          await tx.collaborationRunTask.updateMany({
+            where: {
+              id: attempt.taskId, runId: attempt.runId, generation: attempt.generation,
+              assigneeAgentId: attempt.runTask.assigneeAgentId, status: { in: ['claimed', 'running'] },
+            },
+            data: { status: 'failed', nextAttemptAt: null },
           });
         }
         return { runId: attempt.runId, spaceId: attempt.runTask.run.spaceId };
@@ -138,20 +158,32 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
           where: { id: item.id },
           include: { run: true },
         });
-        if (!task || task.status !== 'retry_wait' || !task.nextAttemptAt || task.nextAttemptAt.getTime() > Date.now()) return null;
-        if (!await this.canExecute(tx, task.run.spaceId, task.assigneeAgentId)) {
-          await tx.collaborationRunTask.updateMany({
-            where: { id: task.id, status: 'retry_wait' },
-            data: { status: 'failed', nextAttemptAt: null },
-          });
-          await tx.collaborationRun.update({
-            where: { id: task.runId },
+        const now = new Date();
+        if (
+          !task || task.run.status !== 'running' || task.status !== 'retry_wait'
+          || !task.nextAttemptAt || task.nextAttemptAt > now
+        ) return null;
+        if (!await this.canExecute(tx, task.run.spaceId, task.assigneeAgentId, now)) {
+          const paused = await tx.collaborationRun.updateMany({
+            where: { id: task.runId, status: 'running' },
             data: { status: 'paused', pauseReason: 'agent_authorization_changed' },
+          });
+          if (paused.count !== 1) return null;
+          await tx.collaborationRunTask.updateMany({
+            where: {
+              id: task.id, runId: task.runId, generation: task.generation,
+              assigneeAgentId: task.assigneeAgentId, status: 'retry_wait', nextAttemptAt: { lte: now },
+            },
+            data: { status: 'failed', nextAttemptAt: null },
           });
           return { runId: task.runId, spaceId: task.run.spaceId };
         }
         const released = await tx.collaborationRunTask.updateMany({
-          where: { id: task.id, status: 'retry_wait', nextAttemptAt: { lte: new Date() } },
+          where: {
+            id: task.id, runId: task.runId, generation: task.generation,
+            assigneeAgentId: task.assigneeAgentId, status: 'retry_wait', nextAttemptAt: { lte: now },
+            run: { status: 'running' },
+          },
           data: { status: 'ready', nextAttemptAt: null },
         });
         return released.count === 1 ? { runId: task.runId, spaceId: task.run.spaceId } : null;
@@ -160,12 +192,20 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async canExecute(tx: Tx, spaceId: string, agentId: string): Promise<boolean> {
+  private async canExecute(tx: Tx, spaceId: string, agentId: string, now: Date): Promise<boolean> {
     const grant = await tx.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId } },
       include: {
         agent: { select: { status: true, revokedAt: true } },
         space: { select: { deletedAt: true } },
+        credentials: {
+          where: {
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+          select: { revokedAt: true, expiresAt: true },
+          take: 1,
+        },
       },
     });
     return Boolean(
@@ -173,6 +213,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
       && grant.agent.status === 'active'
       && !grant.agent.revokedAt
       && !grant.space.deletedAt
+      && grant.credentials?.some((credential) => !credential.revokedAt && (!credential.expiresAt || credential.expiresAt > now))
       && AgentAccessRoleSchema.safeParse(grant.role).success
       && agentRoleAllowsScope(grant.role, 'collaboration:execute'),
     );
