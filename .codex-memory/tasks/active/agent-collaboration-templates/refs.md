@@ -12,5 +12,8 @@
 - 现有租约队列参考：`agentwiki/apps/server/src/assist/assist.queue.ts`
 - 隔离 PostgreSQL 测试参考：`agentwiki/scripts/relation-concurrency-db.test.mjs`
 - Prisma drift 窄例外参考：`agentwiki/scripts/pgvector-semantic-search-db.test.mjs`
+- 共享协作契约提交：`158eb47`
+- 协作数据库模型与迁移提交：`5268dd5`
+- 五个内置模板与图校验提交：`aa79465`
 - Space 导航：`agentwiki/apps/client/src/components/SpaceNav.tsx`
 - 标书阶段与人工门参考：`/Users/neomei/.agents/skills/superwriter/SKILL.md`

@@ -5,6 +5,7 @@ export interface BusinessErrorPayload {
   code: string;
   message: string;
   error: string;
+  details?: unknown;
 }
 
 /**
@@ -42,25 +43,48 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   CHANGESET_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Change set conflicts with newer resource state' },
   APPROVAL_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Approval is required before publishing' },
   MEMORY_QUOTA_EXCEEDED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Memory quota exceeded' },
+  COLLABORATION_TEMPLATE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Collaboration template is invalid' },
+  COLLABORATION_TEMPLATE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Collaboration template not found' },
+  COLLABORATION_SYSTEM_TEMPLATE_IMMUTABLE: { status: HttpStatus.CONFLICT, message: 'System collaboration templates are immutable' },
+  COLLABORATION_TEMPLATE_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Collaboration template changed; reload before saving' },
+  COLLABORATION_HUMAN_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot perform the collaboration action' },
+  COLLABORATION_RUN_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Collaboration run draft changed; reload before continuing' },
+  COLLABORATION_RUN_TERMINAL: { status: HttpStatus.CONFLICT, message: 'The collaboration run is terminal' },
+  COLLABORATION_PROGRESS_INVARIANT: { status: HttpStatus.CONFLICT, message: 'Collaboration progression state requires human recovery' },
+  COLLABORATION_AGENT_INACTIVE: { status: HttpStatus.CONFLICT, message: 'A bound Agent is inactive' },
+  COLLABORATION_AGENT_CANNOT_EXECUTE: { status: HttpStatus.FORBIDDEN, message: 'A bound Agent cannot execute collaboration tasks' },
+  COLLABORATION_AGENT_NOT_BOUND: { status: HttpStatus.FORBIDDEN, message: 'The Agent is not a bound or assigned participant in this run' },
+  COLLABORATION_LEASE_EXPIRED: { status: HttpStatus.CONFLICT, message: 'The collaboration task lease expired' },
+  COLLABORATION_TODO_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Collaboration Todo not found' },
+  COLLABORATION_TODO_OUT_OF_ORDER: { status: HttpStatus.CONFLICT, message: 'Required earlier Todo items must finish first' },
+  COLLABORATION_TODO_TRANSITION_INVALID: { status: HttpStatus.CONFLICT, message: 'Collaboration Todo transition is invalid' },
+  COLLABORATION_EXTERNAL_REFERENCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'External Artifact reference is invalid' },
+  COLLABORATION_REVIEWER_DENIED: { status: HttpStatus.FORBIDDEN, message: 'The human member is not an allowed reviewer' },
+  COLLABORATION_REVIEW_TERMINATE_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This review gate cannot terminate the run' },
+  COLLABORATION_IDEMPOTENCY_MISMATCH: { status: HttpStatus.CONFLICT, message: 'Idempotency key was reused for another collaboration action' },
 };
+
+function errorNameFor(status: HttpStatus): string {
+  return status === HttpStatus.UNAUTHORIZED ? 'Unauthorized'
+    : status === HttpStatus.FORBIDDEN ? 'Forbidden'
+    : status === HttpStatus.NOT_FOUND ? 'Not Found'
+    : status === HttpStatus.CONFLICT ? 'Conflict'
+    : status === HttpStatus.TOO_MANY_REQUESTS ? 'Too Many Requests'
+    : 'Bad Request';
+}
 
 export class BusinessException extends HttpException {
   readonly businessCode: string;
   readonly statusCode: number;
 
-  constructor(code: keyof typeof ERROR_CODE_MAP, messageOverride?: string) {
+  constructor(code: keyof typeof ERROR_CODE_MAP, messageOverride?: string, details?: unknown) {
     const def = ERROR_CODE_MAP[code];
-    const errorName = def.status === HttpStatus.UNAUTHORIZED ? 'Unauthorized'
-      : def.status === HttpStatus.FORBIDDEN ? 'Forbidden'
-      : def.status === HttpStatus.NOT_FOUND ? 'Not Found'
-      : def.status === HttpStatus.CONFLICT ? 'Conflict'
-      : def.status === HttpStatus.TOO_MANY_REQUESTS ? 'Too Many Requests'
-      : 'Bad Request';
     const payload: BusinessErrorPayload = {
       statusCode: def.status,
       code,
       message: messageOverride || def.message,
-      error: errorName,
+      error: errorNameFor(def.status),
+      ...(details === undefined ? {} : { details }),
     };
     super(payload, def.status);
     this.businessCode = code;

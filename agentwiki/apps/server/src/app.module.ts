@@ -23,6 +23,7 @@ import { ReviewModule } from './review/review.module';
 import { MemoryModule } from './memory/memory.module';
 import { McpModule } from './mcp/mcp.module';
 import { HealthController } from './health.controller';
+import { CollaborationWorkflowsModule } from './collaboration-workflows/collaboration-workflows.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { HealthController } from './health.controller';
     PlatformAdminModule,
     OnboardModule,
     ObsidianModule,
+    CollaborationWorkflowsModule,
   ],
   controllers: [HealthController],
 })
