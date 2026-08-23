@@ -39,46 +39,7 @@ describe('LlmService', () => {
 
     it('should select coder model for coding task', () => {
       const model = service.selectModelForTask('coding');
-      expect(model).toBe('deepseek-v4-flash');
-    });
-  });
-
-  describe('generateText configuration', () => {
-    it('uses DeepSeek V4 Flash as the default text model', async () => {
-      envValues.LLM_GATEWAY = 'direct';
-      envValues.DEEPSEEK_API_KEY = 'deepseek-test-key-1234567890';
-      mockedAxios.post.mockResolvedValueOnce({
-        data: { choices: [{ message: { content: '{"relations":[]}' } }] },
-      });
-
-      const result = await service.generateText('hello');
-
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        'https://api.deepseek.com/v1/chat/completions',
-        expect.objectContaining({ model: 'deepseek-v4-flash' }),
-        expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'Bearer deepseek-test-key-1234567890' }),
-        }),
-      );
-      expect(result.modelId).toBe('deepseek-v4-flash');
-    });
-
-    it('honors LLM_DEFAULT_MODEL when no explicit model is passed', async () => {
-      envValues.LLM_GATEWAY = 'direct';
-      envValues.LLM_DEFAULT_MODEL = 'qwen-plus';
-      envValues.QWEN_API_KEY = 'qwen-test-key-1234567890';
-      mockedAxios.post.mockResolvedValueOnce({
-        data: { choices: [{ message: { content: 'ok' } }] },
-      });
-
-      const result = await service.generateText('hello');
-
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-        expect.objectContaining({ model: 'qwen-plus' }),
-        expect.anything(),
-      );
-      expect(result.modelId).toBe('qwen-plus');
+      expect(model).toBe('deepseek-coder');
     });
   });
 

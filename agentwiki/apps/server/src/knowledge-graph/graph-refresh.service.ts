@@ -160,10 +160,10 @@ export class GraphRefreshService {
   async updateSettings(
     spaceId: string,
     input: {
-      wikilinkEnabled?: boolean;
-      similarEnabled?: boolean;
-      similarThreshold?: number;
-      llmEnabled?: boolean;
+      wikilinkEnabled: boolean;
+      similarEnabled: boolean;
+      similarThreshold: number;
+      llmEnabled: boolean;
     },
   ) {
     return this.prisma.spaceGraphState.upsert({
@@ -237,32 +237,19 @@ export class GraphRefreshService {
           sourcePage: { spaceId },
           origin: ORIGIN_SIMILAR,
         },
-        select: {
-          id: true,
-          sourcePageId: true,
-          targetPageId: true,
-          relation: true,
-          confidence: true,
-          strength: true,
-        },
+        select: { id: true, sourcePageId: true, targetPageId: true, relation: true },
     });
     const existingByKey = new Map(existing.map((relation) => [
       `${relation.sourcePageId}|${relation.targetPageId}|${relation.relation}`,
       relation,
     ]));
     const retainedKeys = new Set<string>();
-    const scoreUpdates: Array<{ id: string; score: number }> = [];
     let created = 0;
     for (const pairs of this.extraction.computeSimilarPairChunks(pages, threshold)) {
       const toCreate = pairs.filter((pair) => {
         const key = `${pair.sourcePageId}|${pair.targetPageId}|similar_to`;
-        const relation = existingByKey.get(key);
-        if (!relation) return true;
+        if (!existingByKey.has(key)) return true;
         retainedKeys.add(key);
-        if (Math.abs(relation.confidence - pair.score) > 1e-9
-          || Math.abs(relation.strength - pair.score) > 1e-9) {
-          scoreUpdates.push({ id: relation.id, score: pair.score });
-        }
         return false;
       });
       if (!toCreate.length) continue;
@@ -278,20 +265,6 @@ export class GraphRefreshService {
         skipDuplicates: true,
       });
       created += creation.count;
-    }
-    for (let offset = 0; offset < scoreUpdates.length; offset += 500) {
-      const batch = scoreUpdates.slice(offset, offset + 500);
-      await database.$executeRaw(Prisma.sql`
-        UPDATE "KnowledgeRelation" AS relation
-        SET "confidence" = incoming."score",
-            "strength" = incoming."score",
-            "lastModifiedAt" = NOW()
-        FROM (VALUES ${Prisma.join(batch.map((item) => Prisma.sql`
-          (${item.id}::text, ${item.score}::double precision)
-        `))}) AS incoming("id", "score")
-        WHERE relation."id" = incoming."id"
-          AND relation."origin" = ${ORIGIN_SIMILAR}
-      `);
     }
     const toDelete = existing
       .filter((relation) => !retainedKeys.has(`${relation.sourcePageId}|${relation.targetPageId}|${relation.relation}`))
@@ -351,12 +324,6 @@ export class GraphRefreshService {
       }
     } catch (error) {
       this.logger.warn(`LLM graph proposal failed: ${error instanceof Error ? error.message : String(error)}`);
-      await this.prisma.spaceGraphState.updateMany({
-        where: { spaceId, lastLlmRunAt: now },
-        data: { lastLlmRunAt: null },
-      }).catch((releaseError: unknown) => {
-        this.logger.warn(`Failed to release LLM graph run claim: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
-      });
       return { changeSetId: null, proposed: 0, reason: 'llm_unavailable' };
     }
     const uniqueProposals = [...new Map(proposals.map((proposal) => [

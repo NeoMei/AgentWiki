@@ -38,14 +38,6 @@ describe('KnowledgeGraphController', () => {
       .rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects an empty settings patch instead of invalidating the graph sweep for no change', async () => {
-    graph.updateSettings.mockClear();
-
-    await expect(controller.updateSettings(request, 'space-1', {}))
-      .rejects.toBeInstanceOf(BadRequestException);
-    expect(graph.updateSettings).not.toHaveBeenCalled();
-  });
-
   it('settings read allows viewers and write requires owner/admin', async () => {
     await controller.getSettings(request, 'space-1');
     expect(authorization.assertSpaceAccess).toHaveBeenLastCalledWith(
@@ -56,17 +48,8 @@ describe('KnowledgeGraphController', () => {
       request.user, 'space-1', ['owner', 'admin'],
     );
     expect(graph.updateSettings).toHaveBeenCalledWith('space-1', {
-      similarEnabled: true, similarThreshold: 0.8,
+      wikilinkEnabled: true, similarEnabled: true, similarThreshold: 0.8, llmEnabled: false,
     });
-  });
-
-  it('applies settings as one atomic partial update without a read-modify-write race', async () => {
-    graph.getOrCreateState.mockClear();
-
-    await controller.updateSettings(request, 'space-1', { llmEnabled: true });
-
-    expect(graph.getOrCreateState).not.toHaveBeenCalled();
-    expect(graph.updateSettings).toHaveBeenCalledWith('space-1', { llmEnabled: true });
   });
 
   it('returns a 400 error for an invalid similarity threshold', async () => {

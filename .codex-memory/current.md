@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 以已经发布并通过生产验证的 `0.5.1` 和 2026-08-24 图谱热修为基线，在隔离分支 `codex/agent-collaboration-workflows` 完成 Agent 协作模板与组件的最终审查、验收与主线整合。
+- 以已经发布并通过生产验证的 `0.5.1` 为基线，在隔离分支 `codex/agent-collaboration-workflows` 实现 Agent 协作模板与组件。
 - Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
@@ -20,7 +20,7 @@
 - 真实并发门禁发现并修复 Prisma `P2010` + PostgreSQL SQLSTATE `40001` 未被识别为可重试领取冲突的问题；修复后同 Agent 与多 Agent 并发领取稳定通过。
 - 协作新增门禁通过：sync-protocol 36/36、隔离 PostgreSQL Schema 2/2、协作服务聚焦套件 57/57、API/Worker 模块图 2/2；任务 9 另通过服务端兼容测试 161/161、MCP 聚焦测试 20/20、前端兼容测试 23/23、Local Sync 全量 746/746，以及 server/client/local-sync 类型检查与构建。Worker 不导入 HTTP Controller/Guard，Redis/Socket 只发布 `spaceId/runId/eventSequence` 刷新提示。
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
-- 最新本地全量验证通过：Runtime 90/90（47 个数据库/环境门禁跳过）、Server 800/800（3 个环境门禁跳过）、Client 240/240、Sync Protocol 25/25、Local Sync 743/743；全仓 lint、typecheck、生产 build 和 `git diff --check` 均通过。
+- 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
 - GitHub `master` 已包含 `0.5.1` 代码与发行证据；带注释标签 `v0.5.1` 指向证据提交 `ad198e3`。npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
@@ -32,13 +32,6 @@
 - `0.5.1` 发布前回滚备份已验证：数据库 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643.dump`（SHA-256 `644207455d12f8191b5c51b5a871e6b8dfd5ad29a6f045c6a079507c23adc222`），应用 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643-app.tar.gz`（SHA-256 `046fbff3c2628a4272713d1d988ac4e5f92efbcbaa9f79194bcdcf0d85e9d26b`）。
 - 生产已切换到应用与 Local Sync `0.5.1`，保留旧应用树 `/root/agentwiki-previous-20260823223846`；三项服务 active/running、`NRestarts=0`，部署后 error 日志为 0，公网和本机健康检查均为全 `ok`。
 - 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
-- 空间图谱设置保存故障的根因为 GET 响应中的只读 `lastRunAt` 被前端随完整设置对象 PATCH 回服务端，触发未知字段 400；前端现只提交实际变更字段并显示“已保存”。同时按当前用户的 Space 角色禁用无权修改的空间/图谱控件，避免 Editor/Viewer 触发必然失败的请求。
-- 图谱热修追加修复：Space 路由切换不再残留旧数据/权限，失败的阈值保存回滚到服务器确认值，Space 保存使用服务器返回值且草稿变更会清除“已保存”，旧 Space 的延迟响应不再覆盖新 Space。后端设置 PATCH 改为原子局部更新并拒绝空更新，保留的自动相似关系会批量刷新分数。图谱专项 37/37 与全量门禁均通过；代码提交 `898dc0b` 已推送并部署。
-- 生产登录态浏览器已完整验证开关与阈值保存、刷新后持久化、恢复原配置和“立即刷新”；未出现“保存失败”。公网 HTTP/MCP smoke 31/31 通过，本轮新增测试用户、空间和 Agent 残留均为 0，部署后无 500/FATAL。
-- 图谱热修回滚备份已验证：数据库 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450.dump`（SHA-256 `2750daf8a0c48c0621695307fdcbf9eb6849e9d5862c83a735400a1e7910b206`），应用 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450-app.tar.gz`（SHA-256 `63ccb0d97b412b094fdb887f8980921935095631573a913736bb4e13295dcc2e`）；旧应用树为 `/root/agentwiki-previous-20260824000843`。
-- 图谱 LLM 提案根因已修复并发布：`LlmService` 现在读取 `LLM_DEFAULT_MODEL`，文本/编码默认模型为官方 `deepseek-v4-flash`；失败调用释放精确的 24 小时 claim，前端显示 `llm.reason`。代码提交 `5b0fe34` 已推送并部署，生产使用 `LLM_GATEWAY=direct` 与 `LLM_DEFAULT_MODEL=deepseek-v4-flash`，密钥仅存在于 mode 600 的生产 `.env`。
-- 真实 `NeoMei-Space` 验收已生成待审核 ChangeSet `cmt62cy37002i1frf8cfy7qw9`，含 2 条 `auto_llm` 提案；重复刷新返回 `proposal_pending` 且没有重复项，已发布 `auto_llm` 关系仍为 0。公网 smoke 31/31 通过且残留为 0，三项服务 active、`NRestarts=0`，无 500/FATAL/缺少密钥/LLM 失败日志。
-- DeepSeek V4 Flash 发布前备份已验证：数据库 `/root/backups/agentwiki/pre-deepseek-v4-flash-20260824-010610.dump`，应用 `/root/backups/agentwiki/pre-deepseek-v4-flash-20260824-010610-app.tar.gz`；旧应用树 `/root/agentwiki-previous-20260824010908`，旧配置副本位于该目录内的 `.env.pre-deepseek-v4-flash-20260824-010738`。
 
 # 稳定约束
 
@@ -55,8 +48,6 @@
 - 统一访问角色部署门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
 - 已归档统一访问角色任务：`.codex-memory/tasks/archive/unified-agent-access-roles/`
 - 综合安全与可靠性审查：`.codex-memory/tasks/archive/comprehensive-security-reliability-audit-2026-08-23/`
-- 图谱设置热修发布证据：`agentwiki/docs/verification/graph-settings-hotfix-2026-08-24.md`
-- DeepSeek V4 Flash 图谱提案发布证据：`agentwiki/docs/verification/deepseek-v4-flash-graph-proposals-2026-08-24.md`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
@@ -64,8 +55,6 @@
 # 风险 / 下一步
 
 - `0.5.1` 已完成 GitHub、npm 与生产对齐；后续重点是观察线上授权、同步和审计指标，不再需要补发。
-- 空间图谱设置保存热修已发布；无需 npm 版本或数据库迁移，后续只需观察线上保存失败率、刷新任务日志和自动关系生成结果。
-- DeepSeek V4 Flash 图谱提案已在线生效；下一步由人工审核 `cmt62cy37002i1frf8cfy7qw9`，不得绕过审核直接发布 LLM 关系。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
