@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../api/client';
 import { SpaceNav } from '../../components/SpaceNav';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface SpaceSettingsModel {
   name: string;
   description?: string;
   approvalPolicy: 'always-review' | 'scoped-auto-publish';
+  members?: Array<{ userId: string; role: 'owner' | 'admin' | 'editor' | 'viewer' }>;
 }
 interface GraphSettings {
   wikilinkEnabled: boolean;
@@ -15,7 +17,7 @@ interface GraphSettings {
   similarThreshold: number;
   llmEnabled: boolean;
 }
-const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
+const AutoGraphCard: React.FC<{ spaceId: string; canManage: boolean }> = ({ spaceId, canManage }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [settings, setSettings] = useState<GraphSettings | null>(null);
@@ -48,12 +50,13 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
     };
   }, [spaceId, reloadKey]);
   const patch = async (update: Partial<GraphSettings>) => {
-    if (!settings || busy) return;
+    if (!settings || busy || !canManage) return;
     setBusy(true);
     setMessage('');
     try {
-      const response = await api.patch(`/spaces/${spaceId}/graph/settings`, { ...settings, ...update });
+      const response = await api.patch(`/spaces/${spaceId}/graph/settings`, update);
       setSettings(response.data);
+      setMessage(zh ? '已保存' : 'Saved');
     } catch {
       setMessage(zh ? '保存失败' : 'Save failed');
     } finally {
@@ -61,6 +64,7 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
     }
   };
   const refresh = async () => {
+    if (busy || !canManage) return;
     setBusy(true);
     setMessage('');
     try {
@@ -109,7 +113,7 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
               type='checkbox'
               className='mt-1'
               checked={Boolean(settings[key])}
-              disabled={busy || key === 'similarThreshold'}
+              disabled={busy || !canManage || key === 'similarThreshold'}
               onChange={(event) => void patch({ [key]: event.target.checked })}
             />
             <span>
@@ -126,7 +130,7 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
             max={1}
             step={0.01}
             value={settings.similarThreshold}
-            disabled={busy || !settings.similarEnabled}
+            disabled={busy || !canManage || !settings.similarEnabled}
             onChange={(event) => setSettings({ ...settings, similarThreshold: Number(event.target.value) })}
             onBlur={() => void patch({ similarThreshold: settings.similarThreshold })}
             className='w-24 border rounded-lg px-2 py-1 text-sm'
@@ -137,24 +141,34 @@ const AutoGraphCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
         <button
           type='button'
           onClick={() => void refresh()}
-          disabled={busy}
+          disabled={busy || !canManage}
           className='h-9 px-4 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50'
         >
           {zh ? '立即刷新' : 'Refresh now'}
         </button>
         {message ? <span className='text-xs text-gray-600'>{message}</span> : null}
       </div>
+      {!canManage ? (
+        <p className='mt-3 text-xs text-gray-500'>
+          {zh ? '只有空间 Owner 或 Admin 可以修改和刷新。' : 'Only Space Owners or Admins can change settings and refresh.'}
+        </p>
+      ) : null}
     </section>
   );
 };
 
 export const SpaceSettings: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { t } = useLanguage();
   const [space, setSpace] = useState<SpaceSettingsModel | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const memberRole = space?.members?.find((member) => member.userId === user?.id)?.role;
+  const isSuperAdmin = user?.platformRole === 'super_admin';
+  const canEditSpace = isSuperAdmin || memberRole === 'owner';
+  const canManageGraph = isSuperAdmin || memberRole === 'owner' || memberRole === 'admin';
 
   useEffect(() => {
     if (!id) return;
@@ -165,7 +179,7 @@ export const SpaceSettings: React.FC = () => {
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || !space?.name.trim()) return;
+    if (!id || !space?.name.trim() || !canEditSpace) return;
     setSaving(true);
     setSaved(false);
     setError('');
@@ -194,27 +208,27 @@ export const SpaceSettings: React.FC = () => {
       <form onSubmit={save} className="space-y-5 border rounded-[14px] bg-white p-5">
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-name">{t('common.name')}</label>
-          <input id="space-name" value={space.name} onChange={(event) => setSpace({ ...space, name: event.target.value })} className="w-full border rounded-lg px-3 py-2" required />
+          <input id="space-name" value={space.name} onChange={(event) => setSpace({ ...space, name: event.target.value })} className="w-full border rounded-lg px-3 py-2" required disabled={!canEditSpace} />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-description">{t('common.description')}</label>
-          <textarea id="space-description" value={space.description || ''} onChange={(event) => setSpace({ ...space, description: event.target.value })} className="w-full border rounded-lg px-3 py-2" rows={3} />
+          <textarea id="space-description" value={space.description || ''} onChange={(event) => setSpace({ ...space, description: event.target.value })} className="w-full border rounded-lg px-3 py-2" rows={3} disabled={!canEditSpace} />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="approval-policy">{t('settings.approval')}</label>
           <p className="text-sm text-gray-500 mb-3">{t('settings.approvalHelp')}</p>
-          <select id="approval-policy" value={space.approvalPolicy} onChange={(event) => setSpace({ ...space, approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })} className="border rounded-lg px-3 py-2 text-sm">
+          <select id="approval-policy" value={space.approvalPolicy} onChange={(event) => setSpace({ ...space, approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })} className="border rounded-lg px-3 py-2 text-sm" disabled={!canEditSpace}>
             <option value="always-review">{t('settings.alwaysReview')}</option>
             <option value="scoped-auto-publish">{t('settings.autoPublish')}</option>
           </select>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{saving ? t('common.saving') : t('settings.save')}</button>
+          <button type="submit" disabled={saving || !canEditSpace} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{saving ? t('common.saving') : t('settings.save')}</button>
           {saved ? <span className="text-sm text-green-600">{t('common.saved')}</span> : null}
         </div>
       </form>
-      {id ? <AutoGraphCard spaceId={id} /> : null}
+      {id ? <AutoGraphCard spaceId={id} canManage={canManageGraph} /> : null}
     </div>
   );
 };

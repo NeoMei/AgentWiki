@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthProvider } from '../../context/AuthContext';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceSettings } from './SpaceSettings';
 
@@ -14,15 +15,21 @@ const graphSettings = {
   similarThreshold: 0.86,
   llmEnabled: false,
 };
+const spaceSettings = {
+  name: 'Docs', description: '', approvalPolicy: 'always-review',
+  members: [{ userId: 'user-1', role: 'owner' }],
+};
 
 const renderSettings = () => render(
-  <LanguageProvider>
-    <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
-      <Routes>
-        <Route path='/spaces/:id/settings' element={<SpaceSettings />} />
-      </Routes>
-    </MemoryRouter>
-  </LanguageProvider>,
+  <AuthProvider>
+    <LanguageProvider>
+      <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
+        <Routes>
+          <Route path='/spaces/:id/settings' element={<SpaceSettings />} />
+        </Routes>
+      </MemoryRouter>
+    </LanguageProvider>
+  </AuthProvider>,
 );
 
 const NavigableSettings = () => {
@@ -36,12 +43,11 @@ const NavigableSettings = () => {
 describe('SpaceSettings auto graph card', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-1', platformRole: 'user' }));
     vi.clearAllMocks();
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
-        return Promise.resolve({ data: {
-          name: 'Docs', description: '', approvalPolicy: 'always-review',
-        } });
+        return Promise.resolve({ data: spaceSettings });
       }
       if (url === '/spaces/space-1/graph/settings') {
         return Promise.resolve({ data: graphSettings });
@@ -51,6 +57,15 @@ describe('SpaceSettings auto graph card', () => {
   });
 
   it('patches graph settings and runs a manual refresh', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') {
+        return Promise.resolve({ data: spaceSettings });
+      }
+      if (url === '/spaces/space-1/graph/settings') {
+        return Promise.resolve({ data: { ...graphSettings, lastRunAt: '2026-08-23T14:00:00.000Z' } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
     api.patch.mockResolvedValue({ data: { ...graphSettings, similarEnabled: true } });
     api.post.mockResolvedValue({ data: {
       wikilink: { created: 2, removed: 1, dangling: 0 },
@@ -62,8 +77,9 @@ describe('SpaceSettings auto graph card', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: /相似度建议/ }));
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
       '/spaces/space-1/graph/settings',
-      { ...graphSettings, similarEnabled: true },
+      { similarEnabled: true },
     ));
+    expect(await screen.findByText('已保存')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '立即刷新' }));
     expect(await screen.findByText(/链接 \+2\/-1/)).toBeInTheDocument();
@@ -73,9 +89,7 @@ describe('SpaceSettings auto graph card', () => {
   it('shows a retryable error instead of silently hiding the card', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
-        return Promise.resolve({ data: {
-          name: 'Docs', description: '', approvalPolicy: 'always-review',
-        } });
+        return Promise.resolve({ data: spaceSettings });
       }
       return Promise.reject(new Error('offline'));
     });
@@ -85,9 +99,7 @@ describe('SpaceSettings auto graph card', () => {
 
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
-        return Promise.resolve({ data: {
-          name: 'Docs', description: '', approvalPolicy: 'always-review',
-        } });
+        return Promise.resolve({ data: spaceSettings });
       }
       return Promise.resolve({ data: graphSettings });
     });
@@ -99,9 +111,7 @@ describe('SpaceSettings auto graph card', () => {
   it('clears the previous space graph settings while a new space loads', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1' || url === '/spaces/space-2') {
-        return Promise.resolve({ data: {
-          name: 'Docs', description: '', approvalPolicy: 'always-review',
-        } });
+        return Promise.resolve({ data: spaceSettings });
       }
       if (url === '/spaces/space-1/graph/settings') {
         return Promise.resolve({ data: graphSettings });
@@ -112,13 +122,15 @@ describe('SpaceSettings auto graph card', () => {
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
     render(
-      <LanguageProvider>
-        <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
-          <Routes>
-            <Route path='/spaces/:id/settings' element={<NavigableSettings />} />
-          </Routes>
-        </MemoryRouter>
-      </LanguageProvider>,
+      <AuthProvider>
+        <LanguageProvider>
+          <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
+            <Routes>
+              <Route path='/spaces/:id/settings' element={<NavigableSettings />} />
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>
+      </AuthProvider>,
     );
     expect(await screen.findByRole('checkbox', { name: /Wiki 链接提取/ })).toBeInTheDocument();
 
@@ -126,6 +138,28 @@ describe('SpaceSettings auto graph card', () => {
 
     expect(await screen.findByText('正在加载图谱设置…')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Wiki 链接提取/ })).not.toBeInTheDocument();
+  });
+
+  it('renders automatic graph controls read-only when the current member cannot manage them', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') {
+        return Promise.resolve({ data: {
+          ...spaceSettings,
+          members: [{ userId: 'user-1', role: 'editor' }],
+        } });
+      }
+      if (url === '/spaces/space-1/graph/settings') return Promise.resolve({ data: graphSettings });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    renderSettings();
+
+    expect(await screen.findByRole('checkbox', { name: /Wiki 链接提取/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '立即刷新' })).toBeDisabled();
+    expect(screen.getByText('只有空间 Owner 或 Admin 可以修改和刷新。')).toBeInTheDocument();
+    const form = screen.getByRole('button', { name: '保存设置' }).closest('form');
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('explains the complete Publisher auto-publish gate in Chinese', async () => {

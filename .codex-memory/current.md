@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 2026-08-23 综合安全与可靠性审查、Local Sync `0.5.1` npm 发行和生产部署均已完成，下一产品目标为 Agent 协作模板与组件。
+- 2026-08-23 空间设置的知识图谱自动生成保存故障已完成本地修复和三轮验证，等待确认后发布网页热修；之后下一产品目标为 Agent 协作模板与组件。
 - Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
@@ -28,6 +28,8 @@
 - `0.5.1` 发布前回滚备份已验证：数据库 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643.dump`（SHA-256 `644207455d12f8191b5c51b5a871e6b8dfd5ad29a6f045c6a079507c23adc222`），应用 `/root/backups/agentwiki/pre-local-sync-0.5.1-20260823-223643-app.tar.gz`（SHA-256 `046fbff3c2628a4272713d1d988ac4e5f92efbcbaa9f79194bcdcf0d85e9d26b`）。
 - 生产已切换到应用与 Local Sync `0.5.1`，保留旧应用树 `/root/agentwiki-previous-20260823223846`；三项服务 active/running、`NRestarts=0`，部署后 error 日志为 0，公网和本机健康检查均为全 `ok`。
 - 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
+- 空间图谱设置保存故障的根因为 GET 响应中的只读 `lastRunAt` 被前端随完整设置对象 PATCH 回服务端，触发未知字段 400；前端现只提交实际变更字段并显示“已保存”。同时按当前用户的 Space 角色禁用无权修改的空间/图谱控件，避免 Editor/Viewer 触发必然失败的请求。
+- 图谱热修本地门禁通过：Client 236/236、图谱 Server 34/34，Client lint、TypeScript、生产构建与 `git diff --check` 均通过；真实生产“立即刷新”已返回成功，但保存热修尚未推送或部署。
 
 # 稳定约束
 
@@ -51,6 +53,7 @@
 # 风险 / 下一步
 
 - `0.5.1` 已完成 GitHub、npm 与生产对齐；后续重点是观察线上授权、同步和审计指标，不再需要补发。
+- 空间图谱设置保存热修当前仅在本地；发布时不需要 npm 或数据库迁移，但仍需按生产门禁备份、部署并在登录态浏览器中验证开关保存、阈值保存、刷新和只读角色状态。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
