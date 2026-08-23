@@ -27,6 +27,16 @@ export const LLM_PROVIDERS: Record<string, LlmProviderConfig> = {
     defaultApiBaseUrl: 'https://api.deepseek.com/v1',
     models: [
       {
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        provider: 'deepseek',
+        apiBaseUrl: 'https://api.deepseek.com/v1',
+        contextLength: 1_000_000,
+        inputPricePer1kTokens: 0.00014,
+        outputPricePer1kTokens: 0.00028,
+        supportsEmbedding: false,
+      },
+      {
         id: 'deepseek-chat',
         name: 'DeepSeek Chat',
         provider: 'deepseek',
@@ -150,7 +160,7 @@ export const OPENROUTER_MODEL_MAP: Record<string, string> = {
   'qwen-plus': 'qwen/qwen-plus',
 };
 
-export const DEFAULT_MODEL = 'deepseek-chat';
+export const DEFAULT_MODEL = 'deepseek-v4-flash';
 export const DEFAULT_GATEWAY = 'openrouter';
 
 export function getModelConfig(modelId: string): LlmModelConfig | undefined {

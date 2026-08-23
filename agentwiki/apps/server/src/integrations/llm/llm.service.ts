@@ -111,7 +111,7 @@ export class LlmService {
           }
         : undefined;
 
-      return { text, modelId: options.modelId ?? DEFAULT_MODEL, usage };
+      return { text, modelId, usage };
     } catch (error: any) {
       const status = error.response?.status ?? 'unknown';
       const errorText = error.response?.data ? JSON.stringify(error.response.data) : error.message;
@@ -125,7 +125,9 @@ export class LlmService {
     prompt: string,
     options: GenerateTextOptions = {},
   ): Promise<GenerateTextResult> {
-    const modelId = options.modelId ?? DEFAULT_MODEL;
+    const modelId = options.modelId
+      ?? this.configService.get<string>('LLM_DEFAULT_MODEL')
+      ?? DEFAULT_MODEL;
     const gateway = this.resolveGateway(options.gateway);
     const modelConfig = getModelConfig(modelId);
 
@@ -243,7 +245,7 @@ export class LlmService {
           models.find((m) => m.supportsEmbedding)?.id ?? models[0]?.id ?? DEFAULT_MODEL
         );
       case 'coding':
-        return 'deepseek-coder';
+        return DEFAULT_MODEL;
       case 'generation':
       default:
         return DEFAULT_MODEL;
