@@ -256,13 +256,14 @@ describe('AuditService persistence boundary', () => {
     ));
   });
 
-  it('drains on startup, polls, and stops polling on module destroy', async () => {
+  it('waits until application bootstrap to drain, then polls and stops polling on destroy', async () => {
     jest.useFakeTimers();
     const redis = redisDouble();
     const { service } = serviceWith(jest.fn(), redis);
 
     try {
-      await (service as any).onModuleInit();
+      expect((service as any).onModuleInit).toBeUndefined();
+      await (service as any).onApplicationBootstrap();
       expect(redis.scanHashFields).toHaveBeenCalledTimes(1);
 
       await jest.advanceTimersByTimeAsync(30_000);

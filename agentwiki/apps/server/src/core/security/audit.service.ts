@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
@@ -39,7 +39,7 @@ const AggregateErrorWithCause = AggregateError as unknown as new (
 ) => AggregateError;
 
 @Injectable()
-export class AuditService implements OnModuleInit, OnModuleDestroy {
+export class AuditService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(AuditService.name);
   private retryTimer?: NodeJS.Timeout;
   private drainPromise?: Promise<number>;
@@ -50,7 +50,7 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
     private readonly redis: RedisService,
   ) {}
 
-  async onModuleInit() {
+  async onApplicationBootstrap() {
     await this.tryDrainPending();
     this.retryTimer = setInterval(() => void this.tryDrainPending(), AUDIT_RETRY_INTERVAL_MS);
     this.retryTimer.unref?.();
