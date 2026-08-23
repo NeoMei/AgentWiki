@@ -15,7 +15,9 @@
 
 # 当前状态
 
-- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划已完成任务 1-9：共享契约、数据库、五模板、管理 API、运行快照/人工控制、Agent 租约执行、依赖/人工审核、Worker 恢复/实时刷新，以及六个协作 MCP 工具和 Local Sync 0.6.0 兼容面。仍未 push、发布 npm 或部署生产。
+- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划的功能实现已全部完成：共享契约、数据库、五模板、管理 API、运行/审核/恢复、六个 MCP 工具、Space 协作工作台、模板编辑/启动向导、运行看板、真实 PostgreSQL 与 HTTP/MCP E2E 均已落地。仍未 push、发布 npm 或部署生产。
+- Task 13 真实门禁已通过：PostgreSQL 21 个必需场景全部在随机 `collaboration_test_*` schema 中执行且精确清理；真实 API + Worker + Credential + 远程 MCP 完成 owner/editor/viewer、reader/editor/publisher、六个工具、人工审核、恢复、手工改派和完成闭环。
+- 真实并发门禁发现并修复 Prisma `P2010` + PostgreSQL SQLSTATE `40001` 未被识别为可重试领取冲突的问题；修复后同 Agent 与多 Agent 并发领取稳定通过。
 - 协作新增门禁通过：sync-protocol 36/36、隔离 PostgreSQL Schema 2/2、协作服务聚焦套件 57/57、API/Worker 模块图 2/2；任务 9 另通过服务端兼容测试 161/161、MCP 聚焦测试 20/20、前端兼容测试 23/23、Local Sync 全量 746/746，以及 server/client/local-sync 类型检查与构建。Worker 不导入 HTTP Controller/Guard，Redis/Socket 只发布 `spaceId/runId/eventSequence` 刷新提示。
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
@@ -56,4 +58,4 @@
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
-- 下一步从任务 10 开始实现 Space 协作工作台与模板库，随后完成模板编辑/启动向导、运行看板、可观测性、真实多 Agent E2E 和全量验收。
+- 下一步执行 Task 13 完整本地发行门禁和最终安全/一致性复核。真实 Codex/Claude Code/OpenCode 中至少两种客户端验收尚未执行，在此前必须保持 `BLOCKED`，不宣称用户可见功能已完全验收。

@@ -21,4 +21,9 @@
 - 依赖推进与人工审核提交：`896abe3`
 - Worker 恢复与实时刷新提交：`f3b2d89`
 - 六个协作 MCP 工具与 0.6.0 兼容提交：`73de8d8`
+- Space 协作工作台提交：`bf3d026`
+- 模板编辑与启动向导提交：`4d3e057`
+- 运行看板提交：`bafdb4e`
+- PostgreSQL 并发与 HTTP/MCP 门禁：`agentwiki/scripts/collaboration-workflows-db.test.mjs`、`agentwiki/scripts/collaboration-workflows-e2e.mjs`
+- 真实客户端验收清单：`agentwiki/docs/testing/collaboration-real-agent-acceptance.md`
 - 标书阶段与人工门参考：`/Users/neomei/.agents/skills/superwriter/SKILL.md`

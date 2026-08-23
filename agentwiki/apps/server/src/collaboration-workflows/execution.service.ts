@@ -701,7 +701,16 @@ class RetryableClaimConflict extends Error {}
 
 function isClaimConflict(error: unknown): boolean {
   return error instanceof RetryableClaimConflict
-    || (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code));
+    || (error instanceof Prisma.PrismaClientKnownRequestError && (
+      ['P2002', 'P2034'].includes(error.code)
+      || (error.code === 'P2010' && rawDatabaseCode(error.meta) === '40001')
+    ));
+}
+
+function rawDatabaseCode(meta: unknown): string | undefined {
+  if (!meta || typeof meta !== 'object') return undefined;
+  const code = (meta as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 function redactLeaseToken(response: unknown): unknown {

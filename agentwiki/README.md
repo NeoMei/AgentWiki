@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.5.1** — Unified `reader | editor | publisher` Agent access packages for the AgentWiki gateway and reviewable knowledge workflows.
+> **v0.6.0** — Agent collaboration templates, observable workflows, and unified `reader | editor | publisher` gateway access.
 
 
 ## Hosted Service
@@ -163,7 +163,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.5.1; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
+Source and generated instructions target 0.6.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
 
 ### Example local workflow
 
@@ -230,7 +230,7 @@ Or via API:
 curl -X POST $BASE/agents/AGENT_ID/local-sync-installations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.5.1"}'
+  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.6.0"}'
 ```
 
 Paste the returned one-time instruction into Codex, Claude Code, or OpenCode. On
@@ -359,7 +359,7 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    PostgreSQL custom-format backup and an application rollback archive.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
 3. Pack `@neomei/agentwiki-sync-protocol@0.2.0` and
-   `@neomei/agentwiki-local-sync@0.5.1`, then run
+   `@neomei/agentwiki-local-sync@0.6.0`, then run
    `pnpm test:package:local-sync-clean-install`. Confirm the unchanged protocol
    package is already available, then publish the audited local-sync tarball.
 4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
@@ -369,8 +369,8 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    - `agentwiki-frontend.service` — static file server for the built frontend
 
 The 0.5.0 role migration deliberately resets every existing Agent Credential and Grant
-role to `reader`; it never infers a new role from legacy scopes. The 0.5.1 onboarding
-protocol requires the matching 0.5.1 client. Treat rollback as a coordinated restore of
+role to `reader`; it never infers a new role from legacy scopes. The 0.6.0 onboarding
+protocol requires the matching 0.6.0 client. Treat rollback as a coordinated restore of
 the verified database backup and matching application archive, not as a schema-only
 downgrade.
 

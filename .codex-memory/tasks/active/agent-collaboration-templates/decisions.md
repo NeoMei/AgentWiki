@@ -26,3 +26,5 @@
 24. JSON Artifact 使用严格判别联合；JSON Schema 只支持受限 2020-12 子集，由直接依赖 Ajv 8.18.0 严格校验且禁止远程引用。
 25. PostgreSQL 集成测试只允许专用 `COLLABORATION_TEST_DATABASE_URL` 和随机 `collaboration_test_*` schema，不直接迁移或清理任意 DATABASE_URL/public。
 26. 统一角色已经随 local-sync/onboarding 0.5.1 发布并完成生产验证；协作从该基线开发，完成后把 local-sync、server/client、网关和 onboarding 统一提升到 0.6.0，sync-protocol 保持独立包 semver。
+27. 真实 PostgreSQL 并发下，Prisma `P2010` 且 `meta.code=40001` 与 `P2034` 同属可重试序列化冲突；只在领取的有界三次重试内分类，不扩大为通用无界重试。
+28. 自动化 API/Worker/MCP E2E 与真实 Codex/Claude Code/OpenCode 客户端验收是两个证据层级；后者未执行时必须标记 `BLOCKED`。
