@@ -12,11 +12,13 @@ import {
   ValidateRunDraftDto,
 } from './run.dto';
 import { RunService } from './run.service';
+import { ReviewDecisionDto } from './review.dto';
+import { ReviewService } from './review.service';
 
 @Controller('spaces/:spaceId/collaboration/runs')
 @UseGuards(CombinedAuthGuard, HumanOnlyGuard)
 export class RunController {
-  constructor(private readonly runs: RunService) {}
+  constructor(private readonly runs: RunService, private readonly reviews: ReviewService) {}
 
   @Post('drafts')
   create(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: CreateRunDraftDto) {
@@ -81,5 +83,16 @@ export class RunController {
   @Post(':runId/tasks/:taskId/skip')
   skip(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('runId') runId: string, @Param('taskId') taskId: string, @Body() body: RunActionDto) {
     return this.runs.skipTask(runId, taskId, body, req.user as Principal, spaceId);
+  }
+
+  @Post(':runId/reviews/:reviewId/decision')
+  decideReview(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @Param('reviewId') reviewId: string,
+    @Body() body: ReviewDecisionDto,
+  ) {
+    return this.reviews.decide(spaceId, runId, reviewId, body, req.user as Principal);
   }
 }

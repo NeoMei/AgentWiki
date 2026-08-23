@@ -20,6 +20,7 @@ import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
 import { ArtifactValidator, type ArtifactOutputContract } from './artifact-validator';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
+import { ProgressionService } from './progression.service';
 
 type Tx = Prisma.TransactionClient;
 type AgentRun = { run: any; agentId: string };
@@ -60,6 +61,7 @@ export class ExecutionService {
     config: ConfigService,
     private readonly events: RunEventStore,
     private readonly artifacts: ArtifactValidator,
+    private readonly progression: ProgressionService,
   ) {
     this.leaseSecret = String(config.get('JWT_SECRET') || '');
     if (!this.leaseSecret) throw new Error('JWT_SECRET is required for collaboration task leases');
@@ -304,13 +306,16 @@ export class ExecutionService {
           data: { status: taskStatus, ...(reviewNode ? {} : { completedAt: new Date() }) },
         });
         if (reviewNode) await this.createReview(tx, participant.run.id, attempt, artifact.id, reviewNode);
+        await this.progression.advanceRun(tx, input.runId, `artifact-submitted:${artifact.id}`, false);
+        const progressedRun = await tx.collaborationRun.findUnique({ where: { id: input.runId } });
+        if (!progressedRun) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
         return {
           action: 'submitted' as const,
           artifactId: artifact.id,
           version: artifact.version,
           artifactStatus,
           taskStatus,
-          runStatus: participant.run.status,
+          runStatus: progressedRun.status,
           replayed: false,
         };
       });

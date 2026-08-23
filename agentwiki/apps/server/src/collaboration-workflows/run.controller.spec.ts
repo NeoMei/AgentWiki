@@ -5,7 +5,8 @@ import { RunController } from './run.controller';
 
 describe('RunController', () => {
   const runs = new Proxy({}, { get: () => jest.fn() }) as any;
-  const controller = new RunController(runs);
+  const reviews = { decide: jest.fn() } as any;
+  const controller = new RunController(runs, reviews);
 
   it('uses the exact collaboration run route and human guards', () => {
     expect(Reflect.getMetadata(PATH_METADATA, RunController)).toBe('spaces/:spaceId/collaboration/runs');
@@ -25,6 +26,7 @@ describe('RunController', () => {
       'drafts', ':runId/draft', ':runId/validate', ':runId/start', ':runId',
       ':runId/actions/pause', ':runId/actions/resume', ':runId/actions/fail', ':runId/actions/cancel',
       ':runId/tasks/:taskId/retry', ':runId/tasks/:taskId/reassign', ':runId/tasks/:taskId/skip',
+      ':runId/reviews/:reviewId/decision',
     ]));
   });
 });

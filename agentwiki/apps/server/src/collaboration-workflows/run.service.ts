@@ -20,6 +20,7 @@ import type {
 } from './run.dto';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { hashCollaborationTemplate } from './template-validator';
+import { ProgressionService } from './progression.service';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -34,6 +35,7 @@ export class RunService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly events: RunEventStore,
+    private readonly progression: ProgressionService,
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
@@ -185,6 +187,7 @@ export class RunService {
     return this.mutateRun(runId, 'resume_run', body, principal, false, async (tx, run) => {
       if (run.status !== 'paused') throw this.runStateError(run.status);
       await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'running', pauseReason: null } });
+      await this.progression.advanceRun(tx, runId, `human-resume:${body.idempotencyKey}`, false);
     }, runId, expectedSpaceId);
   }
 
@@ -209,11 +212,35 @@ export class RunService {
       this.assertNotTerminal(run.status);
       const task = await tx.collaborationRunTask.findFirst({ where: { id: taskId, runId } });
       if (!task) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration task not found');
+      if (!['failed', 'retry_wait'].includes(task.status)) {
+        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Only failed or waiting-retry tasks can be retried');
+      }
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
+      const generation = task.generation + 1;
       await tx.collaborationRunTask.update({
         where: { id: taskId },
-        data: { status: 'ready', generation: { increment: 1 }, nextAttemptAt: null, completedAt: null },
+        data: { status: 'ready', generation, nextAttemptAt: null, completedAt: null },
       });
+      await tx.collaborationTaskArtifact.updateMany({
+        where: { runId, taskId, generation: task.generation, status: { in: ['pending', 'accepted'] } },
+        data: { status: 'superseded' },
+      });
+      const node = snapshotNodes(run.templateSnapshot).find((item) => item.kind === 'agent_task' && item.id === task.nodeId);
+      if (!node || node.kind !== 'agent_task') throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+      await tx.collaborationTaskTodo.createMany({
+        data: node.todos.map((todo: any, ordinal: number) => ({
+          runId,
+          taskId,
+          generation,
+          templateId: todo.id,
+          ordinal,
+          name: todo.name,
+          required: todo.required,
+          status: 'pending',
+        })),
+      });
+      await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'running', pauseReason: null } });
+      await this.progression.advanceRun(tx, runId, `human-retry:${body.idempotencyKey}`, false);
     }, taskId, expectedSpaceId);
   }
 
@@ -236,6 +263,7 @@ export class RunService {
       if (!task.skippable) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'This task is not skippable');
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
       await tx.collaborationRunTask.update({ where: { id: taskId }, data: { status: 'skipped', completedAt: new Date() } });
+      await this.progression.advanceRun(tx, runId, `human-skip:${body.idempotencyKey}`, false);
     }, taskId, expectedSpaceId);
   }
 
@@ -245,7 +273,9 @@ export class RunService {
     body: RunActionDto,
     principal: Principal,
     managersOnly: boolean,
-    mutation: (tx: Tx, run: { id: string; spaceId: string; status: string; startedById: string }) => Promise<void>,
+    mutation: (tx: Tx, run: {
+      id: string; spaceId: string; status: string; startedById: string; templateSnapshot: unknown;
+    }) => Promise<void>,
     target = runId,
     expectedSpaceId?: string,
   ) {
@@ -279,7 +309,7 @@ export class RunService {
     }, async () => {
       const current = await tx.collaborationRun.findUnique({
         where: { id: runId },
-        select: { id: true, spaceId: true, status: true, startedById: true },
+        select: { id: true, spaceId: true, status: true, startedById: true, templateSnapshot: true },
       });
       if (!current || current.spaceId !== run.spaceId) throw new BusinessException('RESOURCE_NOT_FOUND');
       await mutation(tx, current);
@@ -502,4 +532,10 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function snapshotNodes(value: unknown): any[] {
+  return value && typeof value === 'object' && Array.isArray((value as { nodes?: unknown }).nodes)
+    ? (value as { nodes: any[] }).nodes
+    : [];
 }

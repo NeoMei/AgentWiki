@@ -42,6 +42,7 @@ describe('ExecutionService', () => {
     }),
   } as any;
   const artifacts = { validate: jest.fn() } as any;
+  const progression = { advanceRun: jest.fn() } as any;
   let service: ExecutionService;
 
   beforeEach(() => {
@@ -71,7 +72,7 @@ describe('ExecutionService', () => {
       agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
     });
     artifacts.validate.mockReturnValue({ valid: true, normalizedArtifact: { kind: 'markdown', markdown: 'done', evidence: [] }, issues: [] });
-    service = new ExecutionService(prisma, authorization, config, events, artifacts);
+    service = new ExecutionService(prisma, authorization, config, events, artifacts, progression);
   });
 
   it('joins a bound Agent and rejects an unbound Agent', async () => {

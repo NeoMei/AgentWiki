@@ -54,6 +54,7 @@ describe('RunService', () => {
     collaborationTaskTodo: { createMany: jest.fn() },
     collaborationTaskDependency: { createMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn() },
+    collaborationTaskArtifact: { updateMany: jest.fn() },
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
@@ -61,6 +62,7 @@ describe('RunService', () => {
   const events = {
     executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()),
   } as any;
+  const progression = { advanceRun: jest.fn() } as any;
   let service: RunService;
 
   beforeEach(() => {
@@ -75,7 +77,7 @@ describe('RunService', () => {
     tx.agentGrant.findMany.mockResolvedValue([grant('agent-a'), grant('agent-b')]);
     tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskAttempt.updateMany.mockResolvedValue({ count: 1 });
-    service = new RunService(prisma, authorization, events);
+    service = new RunService(prisma, authorization, events, progression);
   });
 
   it('persists an optimistic draft', async () => {
@@ -172,5 +174,31 @@ describe('RunService', () => {
     expect(result.joinInstructions).toEqual([{
       agentId: 'agent-a', roleSlotIds: ['planner', 'builder'], taskIds: ['task-1'],
     }]);
+  });
+
+  it('retries into a fresh generation with new Todo rows and superseded current Artifacts', async () => {
+    const paused = {
+      ...ready, status: 'paused', startedById: 'starter-1', pauseReason: 'task_failed',
+      templateSnapshot: definition, roleBindings: bindings, tasks: [], dependencies: [], reviews: [], events: [],
+    };
+    prisma.collaborationRun.findUnique.mockResolvedValue(paused);
+    tx.collaborationRun.findUnique.mockResolvedValue(paused);
+    tx.collaborationRunTask.findFirst.mockResolvedValue({
+      id: 'task-1', runId: 'run-1', nodeId: 'build', status: 'failed', generation: 1,
+    });
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+    await service.retryTask('run-1', 'task-1', {
+      reason: 'fixed the runner', idempotencyKey: 'retry-task-001',
+    }, starterPrincipal);
+    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: { status: 'ready', generation: 2, nextAttemptAt: null, completedAt: null },
+    });
+    expect(tx.collaborationTaskTodo.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ taskId: 'task-1', generation: 2, templateId: 'build' })],
+    }));
+    expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'superseded' },
+    }));
   });
 });

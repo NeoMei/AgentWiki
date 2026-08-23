@@ -10,11 +10,17 @@ import { RunEventStore } from './run-event.store';
 import { RunService } from './run.service';
 import { ArtifactValidator } from './artifact-validator';
 import { ExecutionService } from './execution.service';
+import { ProgressionService } from './progression.service';
+import { ReviewService } from './review.service';
 
 @Module({
   imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule],
   controllers: [TemplateController, RunController],
-  providers: [TemplateService, RunEventStore, RunService, ArtifactValidator, ExecutionService],
-  exports: [TemplateService, RunEventStore, RunService, ArtifactValidator, ExecutionService],
+  providers: [
+    TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
+  ],
+  exports: [
+    TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
+  ],
 })
 export class CollaborationWorkflowsModule {}
