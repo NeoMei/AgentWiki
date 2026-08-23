@@ -50,6 +50,7 @@ describe('GraphRefreshService', () => {
         const text = Array.isArray(sql?.strings) ? sql.strings.join('') : String(sql);
         return text.includes('embeddingVector') ? vectorRows : [];
       }),
+      $executeRaw: jest.fn().mockResolvedValue(0),
       $transaction: jest.fn().mockImplementation(async (fn: any) => fn(prisma)),
       ...overrides,
     };
@@ -207,6 +208,42 @@ describe('GraphRefreshService', () => {
       data: [expect.objectContaining({ sourcePageId: 'p1', targetPageId: 'p2', relation: 'similar_to', origin: 'auto_similar' })],
       skipDuplicates: true,
     });
+  });
+
+  it('updates the score of a retained automatic similarity relation', async () => {
+    const prisma = buildPrisma({
+      knowledgeRelation: {
+        findMany: jest.fn().mockResolvedValue([{
+          id: 'rel-similar', sourcePageId: 'p1', targetPageId: 'p2', relation: 'similar_to',
+          confidence: 0.91, strength: 0.91,
+        }]),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    });
+    prisma.spaceGraphState.findUnique.mockResolvedValue({
+      wikilinkEnabled: false, similarEnabled: true, similarThreshold: 0.9, llmEnabled: false,
+    });
+    prisma.page.findMany.mockResolvedValue([
+      { id: 'p1', title: 'A', slug: 'a', content: '' },
+      { id: 'p2', title: 'B', slug: 'b', content: '' },
+    ]);
+    (prisma as any).__setVectors([
+      { id: 'p1', vector: '[1,0]' },
+      { id: 'p2', vector: '[0.99,0.141]' },
+    ]);
+
+    await new GraphRefreshService(prisma, extraction, buildLlm() as any)
+      .refresh('space-1', ['similar']);
+
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    const scoreUpdate = prisma.$executeRaw.mock.calls[0][0];
+    expect(scoreUpdate.values).toContain('rel-similar');
+    expect(scoreUpdate.values).toContain('auto_similar');
+    expect(scoreUpdate.values.find((value: unknown) => typeof value === 'number'))
+      .toBeCloseTo(extraction.cosineSimilarity([1, 0], [0.99, 0.141]));
+    expect(prisma.knowledgeRelation.createMany).not.toHaveBeenCalled();
+    expect(prisma.knowledgeRelation.deleteMany).not.toHaveBeenCalled();
   });
 
   it('reports llm_unavailable when layer 3 runs without a provider', async () => {

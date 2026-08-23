@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 2026-08-23 空间设置的知识图谱自动生成保存故障已完成本地修复和三轮验证，等待确认后发布网页热修；之后下一产品目标为 Agent 协作模板与组件。
+- 2026-08-23 空间设置的知识图谱自动生成故障已完成本地多轮修复与全量验证，等待确认后发布网页/API 热修；之后下一产品目标为 Agent 协作模板与组件。
 - Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
@@ -16,7 +16,7 @@
 # 当前状态
 
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
-- 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
+- 最新本地全量验证通过：Runtime 90/90（47 个数据库/环境门禁跳过）、Server 800/800（3 个环境门禁跳过）、Client 240/240、Sync Protocol 25/25、Local Sync 743/743；全仓 lint、typecheck、生产 build 和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
 - GitHub `master` 已包含 `0.5.1` 代码与发行证据；带注释标签 `v0.5.1` 指向证据提交 `ad198e3`。npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
@@ -29,7 +29,7 @@
 - 生产已切换到应用与 Local Sync `0.5.1`，保留旧应用树 `/root/agentwiki-previous-20260823223846`；三项服务 active/running、`NRestarts=0`，部署后 error 日志为 0，公网和本机健康检查均为全 `ok`。
 - 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
 - 空间图谱设置保存故障的根因为 GET 响应中的只读 `lastRunAt` 被前端随完整设置对象 PATCH 回服务端，触发未知字段 400；前端现只提交实际变更字段并显示“已保存”。同时按当前用户的 Space 角色禁用无权修改的空间/图谱控件，避免 Editor/Viewer 触发必然失败的请求。
-- 图谱热修本地门禁通过：Client 236/236、图谱 Server 34/34，Client lint、TypeScript、生产构建与 `git diff --check` 均通过；真实生产“立即刷新”已返回成功，但保存热修尚未推送或部署。
+- 图谱热修追加修复：Space 路由切换不再残留旧数据/权限，失败的阈值保存回滚到服务器确认值，Space 保存使用服务器返回值且草稿变更会清除“已保存”，旧 Space 的延迟响应不再覆盖新 Space。后端设置 PATCH 改为原子局部更新并拒绝空更新，保留的自动相似关系会批量刷新分数。图谱专项 37/37与全量门禁均通过；真实生产“立即刷新”已返回成功，但这些热修尚未推送或部署。
 
 # 稳定约束
 

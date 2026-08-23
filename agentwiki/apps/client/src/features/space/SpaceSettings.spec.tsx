@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider } from '../../context/AuthContext';
@@ -86,6 +86,45 @@ describe('SpaceSettings auto graph card', () => {
     expect(api.post).toHaveBeenCalledWith('/spaces/space-1/graph/refresh', {});
   });
 
+  it('restores the last confirmed threshold when saving fails', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') return Promise.resolve({ data: spaceSettings });
+      if (url === '/spaces/space-1/graph/settings') {
+        return Promise.resolve({ data: { ...graphSettings, similarEnabled: true } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    api.patch.mockRejectedValue(new Error('offline'));
+    renderSettings();
+
+    const threshold = await screen.findByRole('spinbutton', { name: '相似度阈值' });
+    fireEvent.change(threshold, { target: { value: '0.72' } });
+    fireEvent.blur(threshold);
+
+    expect(await screen.findByText('保存失败')).toBeInTheDocument();
+    expect(threshold).toHaveValue(0.86);
+  });
+
+  it('uses the confirmed Space response and clears Saved after another edit', async () => {
+    api.patch.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') {
+        return Promise.resolve({ data: { name: 'Renamed', description: '', approvalPolicy: 'always-review' } });
+      }
+      return Promise.reject(new Error(`Unexpected PATCH ${url}`));
+    });
+    renderSettings();
+
+    const name = await screen.findByLabelText('名称');
+    fireEvent.change(name, { target: { value: '  Renamed  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+
+    expect(await screen.findByText('已保存')).toBeInTheDocument();
+    expect(name).toHaveValue('Renamed');
+
+    fireEvent.change(name, { target: { value: 'Draft' } });
+    expect(screen.queryByText('已保存')).not.toBeInTheDocument();
+  });
+
   it('shows a retryable error instead of silently hiding the card', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
@@ -138,6 +177,76 @@ describe('SpaceSettings auto graph card', () => {
 
     expect(await screen.findByText('正在加载图谱设置…')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Wiki 链接提取/ })).not.toBeInTheDocument();
+  });
+
+  it('clears the previous Space and its permissions while the next Space loads', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') return Promise.resolve({ data: spaceSettings });
+      if (url === '/spaces/space-1/graph/settings' || url === '/spaces/space-2/graph/settings') {
+        return Promise.resolve({ data: graphSettings });
+      }
+      if (url === '/spaces/space-2') return new Promise(() => undefined);
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    render(
+      <AuthProvider>
+        <LanguageProvider>
+          <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
+            <Routes>
+              <Route path='/spaces/:id/settings' element={<NavigableSettings />} />
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>
+      </AuthProvider>,
+    );
+    expect(await screen.findByRole('checkbox', { name: /Wiki 链接提取/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+
+    expect(await screen.findByText('正在加载设置…')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Wiki 链接提取/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存设置' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a completed save from the Space visited before navigation', async () => {
+    let finishOldSave: (value: unknown) => void = () => undefined;
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') return Promise.resolve({ data: spaceSettings });
+      if (url === '/spaces/space-2') return Promise.resolve({ data: { ...spaceSettings, name: 'Space Two' } });
+      if (url.endsWith('/graph/settings')) return Promise.resolve({ data: graphSettings });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    api.patch.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') {
+        return new Promise((resolve) => {
+          finishOldSave = resolve;
+        });
+      }
+      return Promise.reject(new Error(`Unexpected PATCH ${url}`));
+    });
+    render(
+      <AuthProvider>
+        <LanguageProvider>
+          <MemoryRouter initialEntries={['/spaces/space-1/settings']}>
+            <Routes>
+              <Route path='/spaces/:id/settings' element={<NavigableSettings />} />
+            </Routes>
+          </MemoryRouter>
+        </LanguageProvider>
+      </AuthProvider>,
+    );
+    const name = await screen.findByLabelText('名称');
+    fireEvent.change(name, { target: { value: 'Old draft' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    expect(await screen.findByLabelText('名称')).toHaveValue('Space Two');
+    await act(async () => {
+      finishOldSave({ data: { name: 'Old normalized', description: '', approvalPolicy: 'always-review' } });
+    });
+
+    expect(screen.getByLabelText('名称')).toHaveValue('Space Two');
+    expect(screen.queryByText('已保存')).not.toBeInTheDocument();
   });
 
   it('renders automatic graph controls read-only when the current member cannot manage them', async () => {
