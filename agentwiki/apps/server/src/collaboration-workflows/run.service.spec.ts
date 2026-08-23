@@ -45,6 +45,16 @@ const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'edito
   agent: { id: agentId, status, revokedAt: null }, space: { deletedAt: null },
 });
 
+function projectSelect(value: any, select: Record<string, any>): any {
+  return Object.fromEntries(Object.entries(select).map(([key, selection]) => {
+    const child = value[key];
+    if (selection === true || child == null) return [key, child];
+    const childSelect = selection.select;
+    if (Array.isArray(child)) return [key, child.map((item) => projectSelect(item, childSelect))];
+    return [key, projectSelect(child, childSelect)];
+  }));
+}
+
 describe('RunService', () => {
   const tx = {
     collaborationTemplate: { findFirst: jest.fn() },
@@ -183,6 +193,104 @@ describe('RunService', () => {
     expect(result.joinInstructions).toEqual([{
       agentId: 'agent-a', roleSlotIds: ['planner', 'builder'], taskIds: ['task-1'],
     }]);
+  });
+
+  it('loads an explicit human DTO without event response or Attempt lease internals', async () => {
+    const unsafeRun = {
+      ...ready,
+      roleBindings: bindings,
+      tasks: [{
+        id: 'task-1', assigneeAgentId: 'agent-a', ordinal: 0,
+        todos: [], artifacts: [],
+        attempts: [{
+          id: 'attempt-1', runId: 'run-1', taskId: 'task-1', generation: 1,
+          agentId: 'agent-a', attemptNumber: 1, status: 'running',
+          claimIdempotencyKey: 'claim-secret', leaseTokenHash: 'lease-hash-secret',
+        }],
+      }],
+      dependencies: [], reviews: [],
+      events: [{
+        id: 'event-1', runId: 'run-1', sequence: 1, type: 'collaboration.pause_run',
+        actorKind: 'human', actorId: 'starter-1', actorUserId: 'starter-1', actorAgentId: null,
+        operation: 'pause_run', target: 'run-1', metadata: {}, createdAt: new Date(),
+        idempotencyKey: 'pause-secret', requestHash: 'request-hash-secret',
+        response: { events: [{ response: { nested: true } }] },
+      }],
+    };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) =>
+      args.select ? projectSelect(unsafeRun, args.select) : structuredClone(unsafeRun));
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    const serialized = JSON.stringify(result);
+
+    expect(serialized).not.toContain('response');
+    expect(serialized).not.toContain('requestHash');
+    expect(serialized).not.toContain('idempotencyKey');
+    expect(serialized).not.toContain('leaseTokenHash');
+    expect(serialized).not.toContain('claimIdempotencyKey');
+    expect(result.tasks[0].attempts[0]).toMatchObject({ id: 'attempt-1', status: 'running' });
+  });
+
+  it('stores bounded human control receipts and reloads the authoritative safe run on replay', async () => {
+    const authoritative: any = {
+      ...ready, status: 'running', startedById: 'starter-1', eventSequence: 0,
+      roleBindings: bindings, tasks: [], dependencies: [], reviews: [], events: [],
+    };
+    const stored = new Map<string, unknown>();
+    const receiptEvents = {
+      executeIdempotent: jest.fn(async (_tx: any, scope: any, mutation: () => Promise<unknown>) => {
+        if (stored.has(scope.key)) {
+          return scope.replayResponse ? scope.replayResponse() : structuredClone(stored.get(scope.key));
+        }
+        const response = await mutation();
+        const storedResponse = scope.responseForStorage ? scope.responseForStorage(response) : structuredClone(response);
+        stored.set(scope.key, storedResponse);
+        authoritative.events.push({
+          id: `event-${authoritative.events.length + 1}`,
+          runId: 'run-1', sequence: authoritative.events.length + 1, type: `collaboration.${scope.operation}`,
+          actorKind: scope.actorKind, actorId: scope.actorId, operation: scope.operation, target: scope.target,
+          actorUserId: scope.actorUserId, actorAgentId: null, metadata: scope.metadata ?? {},
+          idempotencyKey: scope.key, requestHash: scope.requestHash, response: structuredClone(storedResponse),
+          createdAt: new Date(),
+        });
+        return response;
+      }),
+    } as any;
+    const projectingFindUnique = jest.fn(async (args: any) =>
+      args.select ? projectSelect(authoritative, args.select) : structuredClone(authoritative));
+    const receiptTx = {
+      ...tx,
+      collaborationRun: {
+        ...tx.collaborationRun,
+        findUnique: projectingFindUnique,
+        update: jest.fn(async ({ data }: any) => {
+          Object.assign(authoritative, data);
+          return structuredClone(authoritative);
+        }),
+      },
+    } as any;
+    const receiptPrisma = {
+      ...receiptTx,
+      $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(receiptTx)),
+    } as any;
+    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications);
+    const input = { reason: 'maintenance', idempotencyKey: 'pause-bounded-1' };
+
+    const first = await receiptService.pauseRun('run-1', input, starterPrincipal);
+    await receiptService.resumeRun('run-1', { reason: 'continue', idempotencyKey: 'resume-bounded-1' }, starterPrincipal);
+    await receiptService.pauseRun('run-1', { reason: 'maintenance again', idempotencyKey: 'pause-bounded-2' }, starterPrincipal);
+    authoritative.eventSequence = 7;
+    const replay = await receiptService.pauseRun('run-1', input, starterPrincipal);
+
+    expect(first.status).toBe('paused');
+    expect([...stored.values()]).toEqual([
+      { runId: 'run-1' },
+      { runId: 'run-1' },
+      { runId: 'run-1' },
+    ]);
+    expect(JSON.stringify([...stored.values()])).not.toContain('events');
+    expect(replay.eventSequence).toBe(7);
   });
 
   it('retries into a fresh generation with new Todo rows and superseded current Artifacts', async () => {

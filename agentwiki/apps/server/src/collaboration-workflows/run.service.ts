@@ -30,6 +30,148 @@ const TERMINAL_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 type RoleBindingInput = { roleSlotId: string; agentId: string };
 type Tx = Prisma.TransactionClient;
 
+const HUMAN_RUN_SELECT = {
+  id: true,
+  spaceId: true,
+  templateId: true,
+  templateVersion: true,
+  templateSnapshot: true,
+  snapshotHash: true,
+  name: true,
+  status: true,
+  version: true,
+  inputs: true,
+  startedById: true,
+  pauseReason: true,
+  eventSequence: true,
+  startedAt: true,
+  finishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  roleBindings: {
+    select: { id: true, runId: true, roleSlotId: true, roleSlotName: true, agentId: true },
+  },
+  tasks: {
+    orderBy: { ordinal: 'asc' },
+    select: {
+      id: true,
+      runId: true,
+      nodeId: true,
+      ordinal: true,
+      name: true,
+      objective: true,
+      roleSlotId: true,
+      assigneeAgentId: true,
+      status: true,
+      generation: true,
+      dependencyMode: true,
+      outputContract: true,
+      requiredEvidence: true,
+      humanAcceptance: true,
+      skippable: true,
+      leaseSeconds: true,
+      maxExecutionSeconds: true,
+      retryBudget: true,
+      repairBudget: true,
+      nextAttemptAt: true,
+      completedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      todos: {
+        select: {
+          id: true,
+          runId: true,
+          taskId: true,
+          generation: true,
+          templateId: true,
+          ordinal: true,
+          name: true,
+          required: true,
+          status: true,
+          summary: true,
+          evidence: true,
+          updatedAt: true,
+        },
+      },
+      attempts: {
+        select: {
+          id: true,
+          runId: true,
+          taskId: true,
+          generation: true,
+          agentId: true,
+          attemptNumber: true,
+          status: true,
+          leaseStartedAt: true,
+          leaseExpiresAt: true,
+          maxExecutionAt: true,
+          failureCode: true,
+          repairCount: true,
+          finishedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      artifacts: {
+        select: {
+          id: true,
+          runId: true,
+          taskId: true,
+          attemptId: true,
+          generation: true,
+          version: true,
+          kind: true,
+          status: true,
+          payload: true,
+          evidence: true,
+          acceptedAt: true,
+          createdAt: true,
+        },
+      },
+    },
+  },
+  dependencies: {
+    select: { id: true, runId: true, fromNodeId: true, toNodeId: true, mode: true },
+  },
+  reviews: {
+    select: {
+      id: true,
+      runId: true,
+      nodeId: true,
+      revision: true,
+      generation: true,
+      sourceTaskId: true,
+      artifactId: true,
+      revisionTaskId: true,
+      minimumRole: true,
+      reviewerUserIds: true,
+      allowTerminate: true,
+      status: true,
+      reviewerUserId: true,
+      reason: true,
+      decidedAt: true,
+      createdAt: true,
+    },
+  },
+  events: {
+    orderBy: { sequence: 'asc' },
+    select: {
+      id: true,
+      runId: true,
+      sequence: true,
+      type: true,
+      actorKind: true,
+      actorId: true,
+      operation: true,
+      target: true,
+      actorUserId: true,
+      actorAgentId: true,
+      metadata: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.CollaborationRunSelect;
+
 @Injectable()
 export class RunService {
   constructor(
@@ -142,6 +284,8 @@ export class RunService {
       target: runId,
       key: body.idempotencyKey,
       requestHash: canonicalRequestHash({ expectedVersion: body.expectedVersion }),
+      responseForStorage: () => ({ runId }),
+      replayResponse: () => this.loadHumanRun(tx, runId),
     }, async () => {
       const run = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'ready', version: body.expectedVersion },
@@ -318,6 +462,8 @@ export class RunService {
       key: body.idempotencyKey,
       requestHash: canonicalRequestHash(body),
       metadata: { reason: body.reason },
+      responseForStorage: () => ({ runId }),
+      replayResponse: () => this.loadHumanRun(tx, runId),
     }, async () => {
       const current = await tx.collaborationRun.findUnique({
         where: { id: runId },
@@ -487,17 +633,11 @@ export class RunService {
   private async loadHumanRun(tx: Tx, runId: string) {
     const run = await tx.collaborationRun.findUnique({
       where: { id: runId },
-      include: {
-        roleBindings: true,
-        tasks: { include: { todos: true, attempts: true, artifacts: true }, orderBy: { ordinal: 'asc' } },
-        dependencies: true,
-        reviews: true,
-        events: { orderBy: { sequence: 'asc' } },
-      },
+      select: HUMAN_RUN_SELECT,
     });
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    const roleBindings = 'roleBindings' in run && Array.isArray(run.roleBindings) ? run.roleBindings : [];
-    const tasks = 'tasks' in run && Array.isArray(run.tasks) ? run.tasks : [];
+    const roleBindings = run.roleBindings;
+    const tasks = run.tasks;
     const instructions = new Map<string, { agentId: string; roleSlotIds: string[]; taskIds: string[] }>();
     for (const binding of roleBindings) {
       const current = instructions.get(binding.agentId) ?? { agentId: binding.agentId, roleSlotIds: [], taskIds: [] };

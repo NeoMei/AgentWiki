@@ -61,4 +61,23 @@ describe('RunEventStore', () => {
     }, async () => response);
     expect(JSON.stringify(events)).not.toContain('secret-token');
   });
+
+  it('stores a compact receipt but reloads the current authoritative response on replay', async () => {
+    const mutation = jest.fn().mockResolvedValue({ id: 'run-1', status: 'paused', events: [{ response: { nested: true } }] });
+    const replayResponse = jest.fn().mockResolvedValue({ id: 'run-1', status: 'running', events: [] });
+    const receiptScope = {
+      ...scope,
+      responseForStorage: () => ({ runId: 'run-1' }),
+      replayResponse,
+    };
+
+    const first = await store.executeIdempotent(tx, receiptScope, mutation);
+    const second = await store.executeIdempotent(tx, receiptScope, mutation);
+
+    expect(first).toMatchObject({ status: 'paused' });
+    expect(events[0].response).toEqual({ runId: 'run-1' });
+    expect(second).toEqual({ id: 'run-1', status: 'running', events: [] });
+    expect(replayResponse).toHaveBeenCalledTimes(1);
+    expect(mutation).toHaveBeenCalledTimes(1);
+  });
 });

@@ -18,6 +18,7 @@ export type IdempotencyScope<T> = {
   eventType?: string;
   metadata?: Record<string, unknown>;
   responseForStorage?: (response: T) => unknown;
+  replayResponse?: () => Promise<T>;
 };
 
 @Injectable()
@@ -43,11 +44,11 @@ export class RunEventStore {
     mutation: () => Promise<T>,
   ): Promise<T> {
     const replay = await this.findReplay(tx, scope);
-    if (replay !== undefined) return replay;
+    if (replay !== undefined) return scope.replayResponse ? scope.replayResponse() : replay;
 
     await tx.$queryRawUnsafe('SELECT "id" FROM "CollaborationRun" WHERE "id" = $1 FOR UPDATE', scope.runId);
     const replayAfterLock = await this.findReplay(tx, scope);
-    if (replayAfterLock !== undefined) return replayAfterLock;
+    if (replayAfterLock !== undefined) return scope.replayResponse ? scope.replayResponse() : replayAfterLock;
 
     const response = await mutation();
     const run = await tx.collaborationRun.update({
