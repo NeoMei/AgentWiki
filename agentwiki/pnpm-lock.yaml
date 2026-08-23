@@ -195,6 +195,9 @@ importers:
       '@prisma/client':
         specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
+      ajv:
+        specifier: 8.18.0
+        version: 8.18.0
       axios:
         specifier: ^1.7.0
         version: 1.18.1
