@@ -32,6 +32,9 @@
 - 图谱热修追加修复：Space 路由切换不再残留旧数据/权限，失败的阈值保存回滚到服务器确认值，Space 保存使用服务器返回值且草稿变更会清除“已保存”，旧 Space 的延迟响应不再覆盖新 Space。后端设置 PATCH 改为原子局部更新并拒绝空更新，保留的自动相似关系会批量刷新分数。图谱专项 37/37 与全量门禁均通过；代码提交 `898dc0b` 已推送并部署。
 - 生产登录态浏览器已完整验证开关与阈值保存、刷新后持久化、恢复原配置和“立即刷新”；未出现“保存失败”。公网 HTTP/MCP smoke 31/31 通过，本轮新增测试用户、空间和 Agent 残留均为 0，部署后无 500/FATAL。
 - 图谱热修回滚备份已验证：数据库 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450.dump`（SHA-256 `2750daf8a0c48c0621695307fdcbf9eb6849e9d5862c83a735400a1e7910b206`），应用 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450-app.tar.gz`（SHA-256 `63ccb0d97b412b094fdb887f8980921935095631573a913736bb4e13295dcc2e`）；旧应用树为 `/root/agentwiki-previous-20260824000843`。
+- 图谱 LLM 提案根因已修复并发布：`LlmService` 现在读取 `LLM_DEFAULT_MODEL`，文本/编码默认模型为官方 `deepseek-v4-flash`；失败调用释放精确的 24 小时 claim，前端显示 `llm.reason`。代码提交 `5b0fe34` 已推送并部署，生产使用 `LLM_GATEWAY=direct` 与 `LLM_DEFAULT_MODEL=deepseek-v4-flash`，密钥仅存在于 mode 600 的生产 `.env`。
+- 真实 `NeoMei-Space` 验收已生成待审核 ChangeSet `cmt62cy37002i1frf8cfy7qw9`，含 2 条 `auto_llm` 提案；重复刷新返回 `proposal_pending` 且没有重复项，已发布 `auto_llm` 关系仍为 0。公网 smoke 31/31 通过且残留为 0，三项服务 active、`NRestarts=0`，无 500/FATAL/缺少密钥/LLM 失败日志。
+- DeepSeek V4 Flash 发布前备份已验证：数据库 `/root/backups/agentwiki/pre-deepseek-v4-flash-20260824-010610.dump`，应用 `/root/backups/agentwiki/pre-deepseek-v4-flash-20260824-010610-app.tar.gz`；旧应用树 `/root/agentwiki-previous-20260824010908`，旧配置副本位于该目录内的 `.env.pre-deepseek-v4-flash-20260824-010738`。
 
 # 稳定约束
 
@@ -49,6 +52,7 @@
 - 已归档统一访问角色任务：`.codex-memory/tasks/archive/unified-agent-access-roles/`
 - 综合安全与可靠性审查：`.codex-memory/tasks/archive/comprehensive-security-reliability-audit-2026-08-23/`
 - 图谱设置热修发布证据：`agentwiki/docs/verification/graph-settings-hotfix-2026-08-24.md`
+- DeepSeek V4 Flash 图谱提案发布证据：`agentwiki/docs/verification/deepseek-v4-flash-graph-proposals-2026-08-24.md`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
@@ -57,6 +61,7 @@
 
 - `0.5.1` 已完成 GitHub、npm 与生产对齐；后续重点是观察线上授权、同步和审计指标，不再需要补发。
 - 空间图谱设置保存热修已发布；无需 npm 版本或数据库迁移，后续只需观察线上保存失败率、刷新任务日志和自动关系生成结果。
+- DeepSeek V4 Flash 图谱提案已在线生效；下一步由人工审核 `cmt62cy37002i1frf8cfy7qw9`，不得绕过审核直接发布 LLM 关系。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
