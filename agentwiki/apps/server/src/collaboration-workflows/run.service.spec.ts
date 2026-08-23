@@ -63,6 +63,7 @@ describe('RunService', () => {
     executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()),
   } as any;
   const progression = { advanceRun: jest.fn() } as any;
+  const notifications = { publishCurrentRun: jest.fn() } as any;
   let service: RunService;
 
   beforeEach(() => {
@@ -77,7 +78,7 @@ describe('RunService', () => {
     tx.agentGrant.findMany.mockResolvedValue([grant('agent-a'), grant('agent-b')]);
     tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskAttempt.updateMany.mockResolvedValue({ count: 1 });
-    service = new RunService(prisma, authorization, events, progression);
+    service = new RunService(prisma, authorization, events, progression, notifications);
   });
 
   it('persists an optimistic draft', async () => {

@@ -6,6 +6,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ProgressionService } from './progression.service';
 import type { ReviewDecisionDto } from './review.dto';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
+import { CollaborationEventsService } from './collaboration-events.service';
 
 type Tx = Prisma.TransactionClient;
 const ROLE_ORDER: SpaceRole[] = ['viewer', 'editor', 'admin', 'owner'];
@@ -17,6 +18,7 @@ export class ReviewService {
     private readonly authorization: AuthorizationService,
     private readonly events: RunEventStore,
     private readonly progression: ProgressionService,
+    private readonly notifications: CollaborationEventsService,
   ) {}
 
   async decide(
@@ -34,7 +36,7 @@ export class ReviewService {
     const member = await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor']);
     this.assertReviewer(review, member.role as SpaceRole, principal.userId);
 
-    return this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
+    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
       runId,
       actorKind: 'human',
       actorId: principal.userId,
@@ -93,6 +95,8 @@ export class ReviewService {
       }
       return tx.collaborationRun.findUnique({ where: { id: runId } });
     }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(runId);
+    return result;
   }
 
   private assertReviewer(review: { minimumRole: string; reviewerUserIds: unknown }, role: SpaceRole, userId: string): void {

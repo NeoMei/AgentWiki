@@ -16,4 +16,7 @@
 - 协作数据库模型与迁移提交：`5268dd5`
 - 五个内置模板与图校验提交：`aa79465`
 - Space 导航：`agentwiki/apps/client/src/components/SpaceNav.tsx`
+- 运行创建与人工控制提交：`8f37c96`
+- Agent 租约执行提交：`b92a8f2`
+- 依赖推进与人工审核提交：`896abe3`
 - 标书阶段与人工门参考：`/Users/neomei/.agents/skills/superwriter/SKILL.md`

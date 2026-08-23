@@ -42,6 +42,7 @@ describe('ReviewService', () => {
   const authorization = { assertSpaceAccess: jest.fn() } as any;
   const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
   const progression = { advanceRun: jest.fn() } as any;
+  const notifications = { publishCurrentRun: jest.fn() } as any;
   let service: ReviewService;
 
   beforeEach(() => {
@@ -52,7 +53,7 @@ describe('ReviewService', () => {
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue(tasks);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
-    service = new ReviewService(prisma, authorization, events, progression);
+    service = new ReviewService(prisma, authorization, events, progression, notifications);
   });
 
   it('refuses an Agent principal and a human outside reviewer constraints', async () => {

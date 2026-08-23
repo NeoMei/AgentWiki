@@ -8,13 +8,15 @@ describe('CollaborationGateway authentication', () => {
     subscribe: jest.fn().mockResolvedValue(() => undefined),
     publish: jest.fn().mockResolvedValue(undefined),
   } as any;
-  const gateway = new CollaborationGateway(jwt, redis, auth, authorization);
+  const runs = { getHumanRun: jest.fn().mockResolvedValue({ id: 'run-1' }) } as any;
+  const gateway = new CollaborationGateway(jwt, redis, auth, authorization, runs);
 
   beforeEach(() => {
     jest.clearAllMocks();
     jwt.verify.mockReturnValue({ sub: 'user-1', authVersion: 0 });
     auth.validateJwtUser.mockResolvedValue({ userId: 'user-1', name: 'Alice', authVersion: 0 });
     authorization.assertPageAccess.mockResolvedValue({ id: 'page-1', spaceId: 'space-1' });
+    runs.getHumanRun.mockResolvedValue({ id: 'run-1' });
     (gateway as any).activeUsers.clear();
     (gateway as any).collaborationRates.clear();
     (gateway as any).userSockets.clear();
@@ -77,12 +79,39 @@ describe('CollaborationGateway authentication', () => {
   });
 
   it('subscribes to the assist bridge channel on init and unsubscribes on destroy', async () => {
-    const unsub = jest.fn();
-    redis.subscribe.mockResolvedValueOnce(unsub);
+    const assistUnsub = jest.fn();
+    const runUnsub = jest.fn();
+    redis.subscribe.mockResolvedValueOnce(assistUnsub).mockResolvedValueOnce(runUnsub);
     await gateway.onModuleInit();
     expect(redis.subscribe).toHaveBeenCalledWith('agentwiki:collab:assist', expect.any(Function));
+    expect(redis.subscribe).toHaveBeenCalledWith('agentwiki:collaboration:runs', expect.any(Function));
     await gateway.onModuleDestroy();
-    expect(unsub).toHaveBeenCalled();
+    expect(assistUnsub).toHaveBeenCalled();
+    expect(runUnsub).toHaveBeenCalled();
+  });
+
+  it('joins an authorized workflow room and relays refresh hints only', async () => {
+    let runListener: ((raw: string) => void) | undefined;
+    redis.subscribe.mockImplementation(async (channel: string, listener: (raw: string) => void) => {
+      if (channel === 'agentwiki:collaboration:runs') runListener = listener;
+      return () => undefined;
+    });
+    await gateway.onModuleInit();
+    const client = {
+      id: 'socket-run', data: { user: { userId: 'user-1', name: 'Alice', authVersion: 0 }, socketAuthVersion: 0 },
+      join: jest.fn(), leave: jest.fn(), emit: jest.fn(), disconnect: jest.fn(), rooms: new Set(['socket-run']),
+    } as any;
+    await gateway.handleJoinCollaborationRun(client, { spaceId: 'space-1', runId: 'run-1' });
+    expect(runs.getHumanRun).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ userId: 'user-1' }));
+    expect(client.join).toHaveBeenCalledWith('collaboration:run:run-1');
+
+    runListener?.(JSON.stringify({ spaceId: 'space-1', runId: 'run-1', eventSequence: 42, secret: 'ignored' }));
+    const room = (gateway as any).server.to;
+    expect(room).toHaveBeenCalledWith('collaboration:run:run-1');
+    const emitted = room('collaboration:run:run-1').emit;
+    expect(emitted).toHaveBeenCalledWith('collaborationRunChanged', {
+      spaceId: 'space-1', runId: 'run-1', eventSequence: 42,
+    });
   });
 
   it('tracks active users only after checking page read access', async () => {

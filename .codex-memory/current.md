@@ -15,8 +15,8 @@
 
 # 当前状态
 
-- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划已完成任务 1-4：共享契约、数据库模型/迁移、五个内置模板及模板管理 API。仍未 push、发布 npm 或部署生产。
-- 协作基线验证与当前新增门禁通过：sync-protocol 36/36、隔离 PostgreSQL Schema 2/2、模板图与内置模板 8/8、模板服务/控制器 10/10；server 类型检查、Prisma 校验/生成、模块图和迁移漂移窄白名单均通过。
+- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划已完成任务 1-8：共享契约、数据库、五模板、管理 API、运行快照/人工控制、Agent 租约执行、依赖/人工审核和 Worker 恢复/实时刷新。仍未 push、发布 npm 或部署生产。
+- 协作新增门禁通过：sync-protocol 36/36、隔离 PostgreSQL Schema 2/2、协作服务聚焦套件 57/57、API/Worker 模块图 2/2，且 server 类型检查与构建通过。Worker 不导入 HTTP Controller/Guard，Redis/Socket 只发布 `spaceId/runId/eventSequence` 刷新提示。
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
 - 最新本地全量验证通过：Runtime 90/90（47 个环境门禁跳过）、Server 797/797（3 个环境门禁跳过）、Client 235/235、Sync Protocol 25/25、Local Sync 743/743；lint、typecheck、build、生产依赖审计、peer 检查、部署脚本语法和 `git diff --check` 均通过。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
@@ -56,4 +56,4 @@
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
-- 下一步从任务 5 开始实现运行快照扩展、调度、审核、恢复和 MCP；继续逐项执行红绿测试，不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。
+- 下一步从任务 9 开始实现六个规范 MCP 工具与 Local Sync 直接入参 Schema，随后完成前端、可观测性、真实多 Agent E2E 和全量验收。

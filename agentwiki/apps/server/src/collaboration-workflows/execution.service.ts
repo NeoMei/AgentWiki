@@ -21,6 +21,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ArtifactValidator, type ArtifactOutputContract } from './artifact-validator';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { ProgressionService } from './progression.service';
+import { CollaborationEventsService } from './collaboration-events.service';
 
 type Tx = Prisma.TransactionClient;
 type AgentRun = { run: any; agentId: string };
@@ -62,6 +63,7 @@ export class ExecutionService {
     private readonly events: RunEventStore,
     private readonly artifacts: ArtifactValidator,
     private readonly progression: ProgressionService,
+    private readonly notifications: CollaborationEventsService,
   ) {
     this.leaseSecret = String(config.get('JWT_SECRET') || '');
     if (!this.leaseSecret) throw new Error('JWT_SECRET is required for collaboration task leases');
@@ -108,6 +110,7 @@ export class ExecutionService {
           }, async () => this.claimReadyTask(tx, current, input.idempotencyKey));
           return this.restoreClaimToken(tx, input.runId, current.agentId, response);
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        await this.notifications.publishCurrentRun(input.runId);
         if (result.action !== 'waiting_dependency' || !input.waitSeconds) return result;
         return result;
       } catch (error) {
@@ -125,7 +128,7 @@ export class ExecutionService {
     const input = CollaborationHeartbeatInputSchema.parse(inputRaw);
     const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
     this.assertRunMutable(outer.run.status);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'heartbeat', input.attemptId, input.idempotencyKey, {
@@ -152,13 +155,15 @@ export class ExecutionService {
         return { attemptId: attempt.id, leaseExpiresAt: leaseExpiresAt.toISOString(), replayed: false };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(input.runId);
+    return result;
   }
 
   async updateTodo(inputRaw: CollaborationUpdateTodoInput, principal: Principal) {
     const input = CollaborationUpdateTodoInputSchema.parse(inputRaw);
     const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
     this.assertRunMutable(outer.run.status);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'update_todo', input.todoId, input.idempotencyKey, {
@@ -234,13 +239,15 @@ export class ExecutionService {
         };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(input.runId);
+    return result;
   }
 
   async submitResult(inputRaw: CollaborationSubmitResultInput, principal: Principal) {
     const input = CollaborationSubmitResultInputSchema.parse(inputRaw);
     const outer = await this.authorizeParticipant(this.prisma as unknown as Tx, input.runId, principal);
     this.assertRunMutable(outer.run.status);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'submit_result', input.attemptId, input.idempotencyKey, {
@@ -320,6 +327,8 @@ export class ExecutionService {
         };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(input.runId);
+    return result;
   }
 
   async getAgentRun(inputRaw: { runId: string }, principal: Principal) {

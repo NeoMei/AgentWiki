@@ -14,6 +14,9 @@ import { SearchCoreModule } from './core/search/search-core.module';
 import { CollaborationModule } from './core/collaboration/collaboration.module';
 import { SyncModule } from './core/sync/sync.module';
 import { KnowledgeGraphModule } from './knowledge-graph/knowledge-graph.module';
+import { RunEventStore } from './collaboration-workflows/run-event.store';
+import { CollaborationEventsService } from './collaboration-workflows/collaboration-events.service';
+import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule],
@@ -33,6 +36,9 @@ import { KnowledgeGraphModule } from './knowledge-graph/knowledge-graph.module';
     RedisModelHealthStore,
     { provide: 'MODEL_HEALTH_STORE', useExisting: RedisModelHealthStore },
     OpencodeModelRouter,
+    RunEventStore,
+    CollaborationEventsService,
+    RecoveryWorker,
     { provide: 'OPENCODE_RUNNER', useExisting: OpencodeModelRouter },
   ],
 })

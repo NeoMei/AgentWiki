@@ -12,15 +12,19 @@ import { ArtifactValidator } from './artifact-validator';
 import { ExecutionService } from './execution.service';
 import { ProgressionService } from './progression.service';
 import { ReviewService } from './review.service';
+import { CollaborationEventsService } from './collaboration-events.service';
+import { RecoveryWorker } from './recovery.worker';
 
 @Module({
   imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule],
   controllers: [TemplateController, RunController],
   providers: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
+    CollaborationEventsService, RecoveryWorker,
   ],
   exports: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
+    CollaborationEventsService,
   ],
 })
 export class CollaborationWorkflowsModule {}

@@ -6,6 +6,8 @@ import { Logger } from '@nestjs/common';
 import { RedisService } from '../../database/redis.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
+import { COLLABORATION_RUN_CHANNEL } from '../../collaboration-workflows/collaboration-events.service';
+import { CollaborationRunAccessService } from './collaboration-run-access.service';
 
 const ASSIST_CHANNEL = 'agentwiki:collab:assist';
 const SOCKET_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000')
@@ -42,6 +44,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   server: Server;
   private logger = new Logger('CollaborationGateway');
   private unsubscribeRedis: (() => void) | null = null;
+  private unsubscribeRuns: (() => void) | null = null;
   private activeUsers = new Map<string, Map<string, CursorPosition>>();
   private userSockets = new Map<string, Set<string>>();
   private roomAuthorizationCheckedAt = new Map<string, number>();
@@ -52,6 +55,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     private readonly redis: RedisService,
     private readonly auth: AuthService,
     private readonly authorization: AuthorizationService,
+    private readonly runs: CollaborationRunAccessService,
   ) {}
 
   async onModuleInit() {
@@ -70,6 +74,25 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           /* ignore malformed bridge messages */
         }
       });
+      this.unsubscribeRuns = await this.redis.subscribe(COLLABORATION_RUN_CHANNEL, (raw) => {
+        try {
+          const message = JSON.parse(raw) as { spaceId?: unknown; runId?: unknown; eventSequence?: unknown };
+          if (
+            !this.validRunId(message.spaceId)
+            || !this.validRunId(message.runId)
+            || !Number.isSafeInteger(message.eventSequence)
+            || Number(message.eventSequence) < 0
+          ) return;
+          const hint = {
+            spaceId: message.spaceId,
+            runId: message.runId,
+            eventSequence: message.eventSequence,
+          };
+          this.server.to(`collaboration:run:${message.runId}`).emit('collaborationRunChanged', hint);
+        } catch {
+          /* ignore malformed refresh hints */
+        }
+      });
     } catch (error: any) {
       this.logger.error(`Failed to subscribe to assist channel: ${error?.message || error}`);
     }
@@ -78,6 +101,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   async onModuleDestroy() {
     this.unsubscribeRedis?.();
     this.unsubscribeRedis = null;
+    this.unsubscribeRuns?.();
+    this.unsubscribeRuns = null;
   }
 
   async handleConnection(client: Socket) {
@@ -196,6 +221,38 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     this.logger.log(`Socket ${client.id} left page room ${body.pageId}`);
   }
 
+  @SubscribeMessage('joinCollaborationRun')
+  async handleJoinCollaborationRun(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { spaceId: string; runId: string },
+  ) {
+    if (!this.validRunId(body?.spaceId) || !this.validRunId(body?.runId)) return;
+    const principal = await this.refreshSocketPrincipal(client);
+    if (!principal) return;
+    const room = `collaboration:run:${body.runId}`;
+    const joinedRunRooms = [...client.rooms].filter((name) => name.startsWith('collaboration:run:'));
+    if (!client.rooms.has(room) && joinedRunRooms.length >= 20) {
+      client.emit('collaborationError', { code: 'ROOM_LIMIT_EXCEEDED' });
+      return;
+    }
+    try {
+      await this.runs.getHumanRun(body.spaceId, body.runId, principal);
+    } catch {
+      client.emit('collaborationError', { code: 'COLLABORATION_RUN_ACCESS_DENIED' });
+      return;
+    }
+    await client.join(room);
+  }
+
+  @SubscribeMessage('leaveCollaborationRun')
+  async handleLeaveCollaborationRun(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { runId: string },
+  ) {
+    if (!this.validRunId(body?.runId)) return;
+    await client.leave(`collaboration:run:${body.runId}`);
+  }
+
   @SubscribeMessage('contentChange')
   async handleContentChange(
     @ConnectedSocket() client: Socket,
@@ -290,6 +347,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   private validPageId(value: unknown): value is string {
     return typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
+  }
+
+  private validRunId(value: unknown): value is string {
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value);
   }
 
   private readonly collaborationRates = new Map<string, { startedAt: number; count: number }>();

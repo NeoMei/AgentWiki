@@ -21,6 +21,7 @@ import type {
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { hashCollaborationTemplate } from './template-validator';
 import { ProgressionService } from './progression.service';
+import { CollaborationEventsService } from './collaboration-events.service';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -36,11 +37,12 @@ export class RunService {
     private readonly authorization: AuthorizationService,
     private readonly events: RunEventStore,
     private readonly progression: ProgressionService,
+    private readonly notifications: CollaborationEventsService,
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
     await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
       const bindings = this.normalizeBindings(definition, body.roleBindings);
@@ -63,11 +65,13 @@ export class RunService {
       });
       return run;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(result.id);
+    return result;
   }
 
   async updateDraft(spaceId: string, runId: string, body: UpdateRunDraftDto, principal: Principal) {
     await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const current = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
       });
@@ -92,6 +96,8 @@ export class RunService {
       if (updated.count !== 1) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
       return tx.collaborationRun.findUnique({ where: { id: runId } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (result) await this.notifications.publishCurrentRun(runId);
+    return result;
   }
 
   async validateDraft(
@@ -101,7 +107,7 @@ export class RunService {
     principal: Principal,
   ) {
     await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const run = await tx.collaborationRun.findFirst({
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
       });
@@ -119,11 +125,13 @@ export class RunService {
       if (updated.count !== 1) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
       return tx.collaborationRun.findUnique({ where: { id: runId } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (result) await this.notifications.publishCurrentRun(runId);
+    return result;
   }
 
   async startRun(spaceId: string, runId: string, body: StartRunDto, principal: Principal) {
     await this.assertHumanAccess(principal, spaceId, EDIT_ROLES);
-    return this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
+    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
       runId,
       actorKind: 'human',
       actorId: principal.userId,
@@ -158,6 +166,8 @@ export class RunService {
       await this.expandRun(tx, runId, definition, bindings);
       return this.loadHumanRun(tx, runId);
     }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(runId);
+    return result;
   }
 
   async listRuns(spaceId: string, principal: Principal) {
@@ -296,7 +306,7 @@ export class RunService {
     if (!managersOnly && !MANAGE_ROLES.includes(role) && run.startedById !== principal.userId) {
       throw new BusinessException('COLLABORATION_HUMAN_PERMISSION_DENIED');
     }
-    return this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
+    const result = await this.prisma.$transaction(async (tx) => this.events.executeIdempotent(tx, {
       runId,
       actorKind: 'human',
       actorId: principal.userId,
@@ -315,6 +325,8 @@ export class RunService {
       await mutation(tx, current);
       return this.loadHumanRun(tx, runId);
     }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    await this.notifications.publishCurrentRun(runId);
+    return result;
   }
 
   private async assertHumanAccess(principal: Principal, spaceId: string, roles: SpaceRole[]) {

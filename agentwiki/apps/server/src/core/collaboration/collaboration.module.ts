@@ -6,6 +6,7 @@ import { RedisModule } from '../../database/redis.module';
 import { DatabaseModule } from '../../database/database.module';
 import { AuthService } from '../auth/auth.service';
 import { AuthorizationModule } from '../authorization/authorization.module';
+import { CollaborationRunAccessService } from './collaboration-run-access.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { AuthorizationModule } from '../authorization/authorization.module';
   ],
   // Keep the gateway usable by the HTTP-free worker process. Importing the
   // full AuthModule here would also instantiate its controllers and guards.
-  providers: [AuthService, CollaborationGateway],
-  exports: [CollaborationGateway],
+  providers: [AuthService, CollaborationRunAccessService, CollaborationGateway],
+  exports: [CollaborationGateway, CollaborationRunAccessService],
 })
 export class CollaborationModule {}
