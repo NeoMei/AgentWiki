@@ -255,6 +255,10 @@ describe('GraphRefreshService', () => {
     const service = new GraphRefreshService(prisma, extraction, llm as any);
     const result = await service.refresh('space-1', ['llm']);
     expect(result.llm).toMatchObject({ changeSetId: null, proposed: 0, reason: 'llm_unavailable' });
+    expect(prisma.spaceGraphState.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { spaceId: 'space-1', lastLlmRunAt: expect.any(Date) },
+      data: { lastLlmRunAt: null },
+    });
   });
 
   it('creates a pending ChangeSet with create_relation items for valid llm proposals', async () => {

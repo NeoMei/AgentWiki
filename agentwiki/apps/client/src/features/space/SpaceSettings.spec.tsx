@@ -86,6 +86,19 @@ describe('SpaceSettings auto graph card', () => {
     expect(api.post).toHaveBeenCalledWith('/spaces/space-1/graph/refresh', {});
   });
 
+  it('shows why an LLM graph refresh produced no proposal', async () => {
+    api.post.mockResolvedValue({ data: {
+      wikilink: { created: 0, removed: 0, dangling: 0 },
+      similar: { created: 0, removed: 0, skipped: 0 },
+      llm: { changeSetId: null, proposed: 0, reason: 'llm_unavailable' },
+    } });
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole('button', { name: '立即刷新' }));
+
+    expect(await screen.findByText(/LLM 不可用，请检查模型与 API Key/)).toBeInTheDocument();
+  });
+
   it('restores the last confirmed threshold when saving fails', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') return Promise.resolve({ data: spaceSettings });

@@ -351,6 +351,12 @@ export class GraphRefreshService {
       }
     } catch (error) {
       this.logger.warn(`LLM graph proposal failed: ${error instanceof Error ? error.message : String(error)}`);
+      await this.prisma.spaceGraphState.updateMany({
+        where: { spaceId, lastLlmRunAt: now },
+        data: { lastLlmRunAt: null },
+      }).catch((releaseError: unknown) => {
+        this.logger.warn(`Failed to release LLM graph run claim: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
+      });
       return { changeSetId: null, proposed: 0, reason: 'llm_unavailable' };
     }
     const uniqueProposals = [...new Map(proposals.map((proposal) => [

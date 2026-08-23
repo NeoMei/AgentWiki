@@ -77,9 +77,19 @@ const AutoGraphCard: React.FC<{ spaceId: string; canManage: boolean }> = ({ spac
     try {
       const response = await api.post(`/spaces/${spaceId}/graph/refresh`, {});
       const result = response.data;
+      const llmReasons: Record<string, { zh: string; en: string }> = {
+        llm_unavailable: { zh: 'LLM 不可用，请检查模型与 API Key', en: 'LLM unavailable; check the model and API key' },
+        rate_limited: { zh: 'LLM 已在 24 小时内运行过', en: 'LLM already ran within the last 24 hours' },
+        proposal_pending: { zh: '已有待审核的 LLM 图谱提案', en: 'An LLM graph proposal is already pending review' },
+        no_valid_proposals: { zh: 'LLM 未发现有效关系', en: 'LLM found no valid relations' },
+        not_enough_pages: { zh: '至少需要两个页面', en: 'At least two pages are required' },
+        no_author: { zh: '找不到提案创建者', en: 'No proposal author is available' },
+      };
+      const llmReason = typeof result.llm.reason === 'string' ? llmReasons[result.llm.reason] : undefined;
+      const reasonSuffix = llmReason ? `${zh ? '；' : '; '}${zh ? llmReason.zh : llmReason.en}` : '';
       setMessage(zh
-        ? `刷新完成：链接 +${result.wikilink.created}/-${result.wikilink.removed}，相似 +${result.similar.created}/-${result.similar.removed}，LLM 提案 ${result.llm.proposed}`
-        : `Refreshed: links +${result.wikilink.created}/-${result.wikilink.removed}, similar +${result.similar.created}/-${result.similar.removed}, LLM proposals ${result.llm.proposed}`);
+        ? `刷新完成：链接 +${result.wikilink.created}/-${result.wikilink.removed}，相似 +${result.similar.created}/-${result.similar.removed}，LLM 提案 ${result.llm.proposed}${reasonSuffix}`
+        : `Refreshed: links +${result.wikilink.created}/-${result.wikilink.removed}, similar +${result.similar.created}/-${result.similar.removed}, LLM proposals ${result.llm.proposed}${reasonSuffix}`);
     } catch {
       setMessage(zh ? '刷新失败' : 'Refresh failed');
     } finally {
