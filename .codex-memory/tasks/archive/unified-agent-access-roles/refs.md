@@ -19,9 +19,13 @@
 - 角色 DTO 边界回归：`agentwiki/apps/server/src/core/dto/agent.dto.spec.ts`
 - 本地已验证运行时候选提交：统一角色主实现合并于 `2a71d1b`；重复审查修复提交为 `c7414af`、`87b88ec`、`ffaa295`、`c53c09d`。
 - 干净包安装门禁：`agentwiki/scripts/verify-local-sync-clean-install.mjs`
-- 当前外部基线：`origin/master=c06b9b8`、npm sync-protocol latest=0.1.0、local-sync latest=0.4.0、生产 onboarding=0.4.0
+- 最终发布提交：`d88e93036e00598e326421a03aa4a889406b49b9`；npm sync-protocol `0.2.0`、local-sync `0.5.0`；生产 onboarding `0.5.0`。
+- 生产数据库备份：`/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857.dump`，SHA-256 `8e1dc8a5cbbf43eef4bda5425870ed5f6073e6dccf6c848bdc72c5ad5263f6ec`。
+- 生产应用备份：`/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857-app.tar.gz`，SHA-256 `a649e6bef312f3a5c886503b2619dd13cfabd35c8febd7209047dcd5587c171a`。
+- 发布候选包留存：`/Users/neomei/AgentWiki-Releases/20260823-unified-agent-access-0.5.0/`；protocol tgz SHA-256 `796f9e682b6ee75b9452fff8a49f83f04f57bc747a15fe659ee3674ada101ef8`，local-sync tgz SHA-256 `4f87b67439c5f17fe9763b161e975aeed60ba092c68bce7755c0357faab323c7`。
 - 最终广度审查：`.superpowers/sdd/unified-agent-access-roles-final-review-result.md`
 - Reader 只读协调器：`agentwiki/packages/local-sync/src/onboarding/coordinator.ts`
 - Agent Grant 可管理事实：`agentwiki/apps/server/src/core/space/space.service.ts`
 - Auto-publish 发布临界点重验：`agentwiki/apps/server/src/review/review.service.ts`
 - 双包当前工作区干净安装：`agentwiki/scripts/verify-local-sync-clean-install.mjs` 返回 sync-protocol 0.2.0 / local-sync 0.5.0 `status=passed`。
+- 最终生产证据：633 个部署 tracked 文件指纹一致，40 条迁移，三项 user service active/NRestarts=0，最终切换后 error=0，公网 smoke `{"status":"passed","checks":31}`。

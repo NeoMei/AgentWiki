@@ -6,6 +6,10 @@
 
 ## 当前阶段
 
+- 2026-08-23 已完成外部发布：GitHub `master=d88e930`，npm sync-protocol 0.2.0 / local-sync 0.5.0，生产 40 条迁移与三项服务均正常。
+- 生产 633 个部署文件与本地 tracked 内容逐文件 SHA-256 一致；公网统一授权烟测 31/31，通过角色降权、Editor 提案、Agent 审批拒绝、人工发布和清理。
+- 已登录生产浏览器确认主导航“连接 Obsidian”入口、单一网关接入动作和 Reader/Editor/Publisher 三角色；无第二套 Credential 授权控件。
+- 发布期额外修复部署包 AppleDouble/xattr 污染与 AuditService/Redis 启动竞态；最终 AppleDouble=0、服务 NRestarts=0、启动后 error=0。
 - 本地生产代码、单一授权源数据库迁移、前端、sync-protocol、local-sync、onboarding、MCP 回归和文档已完成。
 - 旧 Agent `approvalMode` 请求旁路、0.4.0 部署默认、仍发送旧字段/scopes 的 onboarding/cross-machine/smoke E2E fixture 和未使用的 `agent.viewer` 文案键已在最终扫描中修复。
 - 已修复 local-sync 0.5.0 干净安装时依赖 npm 旧 sync-protocol 0.1.0 导致 CLI 无法启动的发布阻断；sync-protocol 升为 0.2.0，两个候选包联合干净安装通过。
@@ -33,8 +37,6 @@
 - Agent 人工审批、成员管理或 `review:decide`；
 - 自动修改 Space Policy。
 
-## 下一步
+## 完成状态
 
-1. 等待用户单独授权 push、npm sync-protocol 0.2.0 / local-sync 0.5.0 发布和生产部署；本轮修复尚在本地特性分支。
-2. 部署前创建并验证数据库 custom dump 和应用回滚包，记录指纹。
-3. 发布后用新 Editor 连接完成真实 OpenCode 提案、Agent 不可审批和人工审批后内容确认。
+- 任务已完成并归档。生产协议/权限验收由真实公网 HTTP/MCP 客户端完成；本轮未改动用户真实 OpenCode 本机配置。

@@ -203,23 +203,34 @@ its specific `Agent access and authorization` title. Targeted tests and the comp
 suite passed after that repair. A final copy scan also found and corrected two stale guide
 statements that still described manual Credential creation.
 
-## External release gate (read-only snapshot)
+## External release result
 
-Read-only checks on 2026-08-23 showed:
+The authorized release completed on 2026-08-23:
 
-- `origin/master`: `c06b9b83b8039a24722cb0a6ce4e1686809c6bf7`
-- npm `latest` for `@neomei/agentwiki-sync-protocol`: `0.1.0`
-- npm `latest` for `@neomei/agentwiki-local-sync`: `0.4.0`
-- production `/api/health`: database, Redis, and audit persistence all `ok`
-- production `/api/onboard`: advertises `0.4.0`
-- production commit: unavailable through current read-only access because SSH
-  authentication was not available; no credential prompt or mutation was attempted
+- GitHub `master`: `d88e93036e00598e326421a03aa4a889406b49b9`;
+- npm `@neomei/agentwiki-sync-protocol@0.2.0` and
+  `@neomei/agentwiki-local-sync@0.5.0` published, followed by registry clean-install and
+  installed CLI verification;
+- production applied all 40 migrations and advertises local-sync 0.5.0 / protocol 0.2.0;
+- all 633 deployment-managed tracked files matched local SHA-256 content, and no AppleDouble
+  files remained;
+- API, Worker, and Frontend user services were active with zero restarts and no error-level
+  journal entries after the final switch;
+- public health reported database, Redis, and audit persistence `ok`;
+- public HTTP/MCP smoke returned `{"status":"passed","checks":31}` and covered live role
+  downgrade/restore, Editor proposal to `pending_review`, Agent approval denial, human
+  publication, diagnostics isolation, and disposable fixture cleanup;
+- an authenticated production browser showed the primary `Connect Obsidian` navigation
+  entry, the single unified gateway action, exactly Reader/Editor/Publisher role choices,
+  and no independent Credential authorization control.
 
-Therefore local candidate, GitHub, npm, and production are intentionally not aligned yet.
-Before any authorized release, create and verify both a PostgreSQL custom-format backup
-and an application rollback archive. Publish the audited sync-protocol 0.2.0 artifact
-before local-sync 0.5.0 and repeat the registry clean-install check. The 0.5.0 protocol is
-breaking and rollback requires restoring the matching database and application pair; a
-schema-only downgrade is not supported. After release, the separate real OpenCode Editor
-acceptance must still prove that a page proposal enters `pending_review` and Agent approval
-fails.
+Verified rollback artifacts are the PostgreSQL custom dump
+`/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857.dump` (SHA-256
+`8e1dc8a5cbbf43eef4bda5425870ed5f6073e6dccf6c848bdc72c5ad5263f6ec`) and application
+archive `/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857-app.tar.gz`
+(SHA-256 `a649e6bef312f3a5c886503b2619dd13cfabd35c8febd7209047dcd5587c171a`). Rollback still
+requires restoring this database/application pair together.
+
+Release validation also found and fixed two issues before final convergence: macOS
+AppleDouble/xattr archive pollution (`888113f`, `ba2bd72`) and AuditService draining before
+Redis initialization (`d88e930`). The final production switch had neither condition.

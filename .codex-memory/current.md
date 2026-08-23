@@ -2,57 +2,46 @@
 
 # 当前目标
 
-- Agent `reader`、`editor`、`publisher` 统一访问角色已完成核心单一授权源重构：`AgentGrant.role` 是唯一权限事实，Credential 只绑定一条 Grant；外部发布门禁仍未执行。
-- 下一阶段按已修订 Spec 和 TDD 计划实施 Agent 协作模板与组件；统一访问角色作为其已完成前置基础，二者在外部发布时合并为 local-sync/onboarding 0.6.0，不单独发布中间版。
+- Agent 统一访问角色 0.5.0 已完成 GitHub、npm 与生产发布；当前待启动目标为 Agent 协作模板与组件。
+- 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
 # 范围 / 不做
 
-- 统一访问角色覆盖共享角色策略、单一 Grant 授权、身份型 Credential、连接授权包、原子兑换、Agent 管理 UI、本地同步 0.5.0 协议、MCP 与审核边界。
-- 协作模板首期包括编码、标书、论文、视频脚本和小说五类内置模板，以及 Agent 任务、Todo、依赖/并行、人工审核和结果交接/汇总。
-- 不兼容旧 Agent `viewer` / `full` / 自定义 scopes 客户端或旧版本权限数据；人类 Space 成员角色属于独立领域。
-- 未经单独授权不 push、不发布 npm、不部署生产，也不执行真实 OpenCode 验收。
+- 已发布范围包括 `reader`、`editor`、`publisher` 三角色，单一 `Space + role` 接入、身份型 Credential、统一网关、MCP 实时鉴权、Obsidian 专页与主导航入口。
+- 不兼容旧 Agent `viewer` / `full` / 自定义 scopes 客户端或旧 Credential 数据；人类 Space 成员角色属于独立领域。
+- 协作模板首期仍为编码、标书、论文、视频脚本和小说五类模板，以及 Agent 任务、Todo、依赖/并行、人工审核和结果交接/汇总。
 
 # 当前状态
 
-- `unified-agent-access-roles`：Agent 访问页只保留一个可编辑 `Space + role` 连接入口；`AgentCredential` 不再存 role/scopes，必须以同 Agent 复合外键绑定一条 `AgentGrant`；`AgentGrant` 只存 role，scopes 实时派生。手工 `POST /agents/:id/credentials` 已删除。
-- 最新全量候选测试为 runtime 89 通过 / 47 环境跳过、server 760 通过 / 3 环境跳过、client 231、sync-protocol 25、local-sync 736；双包干净安装、类型、lint、构建、peer 依赖与依赖安全审计均通过。真实本地浏览器已验证桌面和 390px 移动端都只有一个角色选择器，已有 Editor 授权默认选中 Editor，且无横向溢出。
-- Reader onboarding 已改为只读 pull 路径；Agent Grant 变更同时要求 Agent owner 与 Space owner/admin；auto-publish 在发布事务临界点锁定并重验 Credential 绑定、Agent/owner、Grant、Space 与领域门槛。
-- 全新 PostgreSQL 数据库已跑完 40 条迁移。真实 Streamable HTTP MCP 验收证明同一 Credential 在 Grant 降为 Reader 后立即失去写权限，升回 Editor 后 `propose_page` 生成 `pending_review`，Agent 审批 403，人工发布成功；临时数据库已删除。
-- MCP 诊断接口的授权、凭据和最近调用均已限制到当前 authorizationId/credentialId，不能通过一个 Space 的连接读取同 Agent 其他 Space 的诊断记录。
-- 2026-08-23 再经三轮独立复审和主代理逐路径检查：Review、Knowledge Submission/Sync 与 Memory 的 Agent 写入现在均在同一事务内按 User→Agent→Space→Grant→Credential 固定顺序加锁并重验；Grant 变更、Agent 撤销和用户删除与之对齐。专用 PostgreSQL 16 临时库已实跑 40 条迁移和三种并发场景，3/3 通过且临时库已删除。
-- 真实 `deploy.sh` 已改为预构建 staging、停止/排空旧进程后迁移、保全迁移尝试后的 staging、切换失败恢复 live 路径、防并发部署；静态顺序门禁与 `bash -n` 通过。
-- 依赖审计发现并修复 NestJS SSE 注入中危公告：Nest 系列已统一到 11.2.1，Express 到 5.2.1；`pnpm audit --prod` 为 0 漏洞，`pnpm peers check` 为 0 问题，升级后全量测试通过。
-- sync-protocol 0.2.0 与 local-sync 0.5.0 候选包已通过联合打包、空目录安装和 CLI 启动验证；尚未推送、发布或部署。
-- `agent-collaboration-templates`：正式设计和 13 个任务的 TDD 实施计划已完成完整性修订，尚未开始生产代码实现。
-- 外部 GitHub、npm 和生产仍保持旧基线，尚未与本地对齐。
+- GitHub `master` 已推送至 `d88e930`；生产 633 个受部署管理的 tracked 文件与该提交逐文件 SHA-256 一致。
+- npm 已发布 `@neomei/agentwiki-sync-protocol@0.2.0` 与 `@neomei/agentwiki-local-sync@0.5.0`，registry 干净安装和 CLI 启动验证通过。
+- 生产已应用 40 条迁移，最新为 `20260823090000_bind_agent_credentials_to_grants`；API、Worker、Frontend 三项 user service 均 active、`NRestarts=0`，最终切换后 error 日志为 0。
+- 公网 `/api/health` 的 database、redis、auditPersistence 均为 `ok`；生产统一授权烟测 `31/31` 通过，覆盖角色降权即时撤写、Editor 提案进入审核、Agent 不可审批、人工发布和清理。
+- 已登录生产浏览器确认主导航直接显示“连接 Obsidian”，链接 `/guide/obsidian`；Agent 访问页只有“生成统一网关接入指令”一个接入动作，角色恰为 Reader、Editor、Publisher，无独立 Credential 授权控件。
+- 发布验收发现并修复两类额外问题：部署包 AppleDouble/xattr 污染（`888113f`、`ba2bd72`）和 AuditService 在 Redis 初始化前排空事件的启动竞态（`d88e930`）。最终服务器 AppleDouble 文件为 0，启动 error 为 0。
+- 发布前回滚备份已验证：数据库 `/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857.dump`，应用 `/root/backups/agentwiki/pre-unified-agent-access-0.5.0-20260823-190857-app.tar.gz`；对应 SHA-256 记录在统一角色任务引用中。
+- 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
 
 # 稳定约束
 
 - `AgentGrant.role` 是唯一持久化权限事实；Credential 只保存身份、生命周期和 `authorizationId`，scopes 只能从当前 Grant 角色派生。
-- 普通产品入口只使用 `reader | editor | publisher`；scopes 由共享策略派生，任何 Agent 都没有 `review:decide` 或成员管理权限。
-- Agent 详情页唯一可编辑授权动作是生成 `Space + role` 连接；不得恢复独立 Grant 角色编辑器或手工 Credential 签发入口。Space Members 仍可管理成员授权。
-- Publisher 不修改 Space Policy；自动发布必须在发布临界点满足 Credential 有效且仍绑定该 Grant、Publisher Grant、Agent 开关、Space Policy 与领域门槛。
-- “Agent 访问角色”与协作模板中的“角色槽位”是两个不同概念。
-- 协作运行保存不可变模板快照；Todo 属于任务内部，依赖属于节点之间，并行由多个 ready 节点自然产生。
-- 人工审核只能由人类完成；Agent 审校任务只能提交建议。
-- 现有 Local Knowledge Orchestrator 保持专用，不与通用协作模板合并。
+- 普通产品入口只使用 `reader | editor | publisher`；任何 Agent 都没有 `review:decide` 或成员管理权限。
+- Agent 详情页唯一可编辑授权动作是生成 `Space + role` 连接；不得恢复独立 Grant 角色编辑器或手工 Credential 签发入口。
+- Publisher 不修改 Space Policy；自动发布必须在发布临界点重验 Credential、Agent/owner、Grant、Space、Policy 与领域门槛。
+- 高频集成流程应有显眼主入口；Obsidian 使用主导航 `/guide/obsidian` 专页，设备管理仍归 `/settings/integrations`。
+- 协作运行保存不可变模板快照；人工审核只能由人类完成；现有 Local Knowledge Orchestrator 保持专用。
 
 # 关键索引
 
-- 统一访问角色设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
-- 统一访问角色计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
-- 单一授权源重构计划：`agentwiki/docs/superpowers/plans/2026-08-23-agent-authorization-single-source-plan.md`
-- 单入口纠正计划：`agentwiki/docs/superpowers/plans/2026-08-23-unified-agent-access-single-entry-fix-plan.md`
 - 统一访问角色验证：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 统一访问角色部署门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
-- 统一访问角色任务：`.codex-memory/tasks/active/unified-agent-access-roles/`
+- 已归档统一访问角色任务：`.codex-memory/tasks/archive/unified-agent-access-roles/`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
 
 # 风险 / 下一步
 
-- 仍需单独授权并先完成 PostgreSQL custom-format 与应用回滚备份，才能 push、依次发布 sync-protocol/local-sync、部署破坏性迁移及执行真实 OpenCode 验收。
-- 新迁移会按“不考虑旧数据”的已确认边界删除现有 Agent Credential，且无 schema-only 回滚；回退必须成对恢复数据库与应用备份。
-- 协作模板实施不得重新引入角色与 scopes 两套配置，也不得把 Agent 角色槽位混同为访问权限。
-- 所有协作数据库集成测试必须使用 `COLLABORATION_TEST_DATABASE_URL` 和随机 `collaboration_test_*` schema。
+- 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
+- 回退 0.5.0 必须成对恢复数据库与应用备份，不能只回退 schema 或只切旧应用目录。
+- 下一阶段按 13 个任务的 TDD 计划实施协作模板；不得重新引入角色与 scopes 两套配置，也不得把协作角色槽位混同为访问角色。

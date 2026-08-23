@@ -4,11 +4,11 @@
 
 ## 活跃任务
 
-- [unified-agent-access-roles](active/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、本地实现、多轮缺陷审查和收敛验证已完成；等待单独授权后执行备份、GitHub/npm/生产发布与真实 OpenCode 验收。
 - [agent-collaboration-templates](active/agent-collaboration-templates/brief.md)：书面 Spec 与 13 个任务的 TDD 实施计划已完成，等待选择执行方式；依赖统一访问角色 0.5.0 先落地。
 
 ## 最近完成
 
+- [unified-agent-access-roles](archive/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、单一 Grant 权限源、npm 0.5.0/0.2.0、GitHub 与生产发布完成；公网权限烟测 31/31、浏览器入口和三角色界面验收通过。
 - [codegraph-local-code-analysis](archive/codegraph-local-code-analysis/brief.md)：CodeGraph 标准扫描切换、Codebase Memory 移除、三客户端验收和五轮最终审查完成；2026-08-20 已发布 npm 0.4.0、更新 GitHub、完成备份优先的生产部署与公网 smoke。深度分析仍为以后用户显式触发的独立第二阶段。
 - [unified-agentwiki-mcp-fix](archive/unified-agentwiki-mcp-fix/brief.md)：消除 Credential 与本地同步两套 MCP 接入指令，统一为 0.3.7 单一 `agentwiki` gateway；发布、生产部署与三客户端公网 E2E 均已完成（2026-08-15，2026-08-18 归档复核）。
 - [obsidian-sync-v1](archive/obsidian-sync-v1/brief.md)：浏览器协议包、人类设备身份、通用 `/api/sync/v1`、两阶段迁移、生产部署及公网全链路验收（2026-08-14）。
