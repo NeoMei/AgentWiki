@@ -14,6 +14,7 @@ const { RecoveryWorker } = requireFromServer('./dist/collaboration-workflows/rec
 const { ReviewService } = requireFromServer('./dist/collaboration-workflows/review.service.js');
 const { RunEventStore } = requireFromServer('./dist/collaboration-workflows/run-event.store.js');
 const { RunService } = requireFromServer('./dist/collaboration-workflows/run.service.js');
+const { TemplateService } = requireFromServer('./dist/collaboration-workflows/template.service.js');
 
 export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'same-Agent concurrent next action has one active lease', 'parallel assigned Agents claim distinct tasks',
@@ -448,6 +449,48 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
       });
 
       await suite.test('transactional live authorization and replay/recovery gates fail closed', async () => {
+        const templateAuth = await createFixture(prisma);
+        await prisma.spaceMember.delete({
+          where: { userId_spaceId: { userId: templateAuth.human.id, spaceId: templateAuth.space.id } },
+        });
+        await assertBusinessCode(
+          services.templates.updateSpaceTemplate(
+            templateAuth.space.id,
+            templateAuth.template.id,
+            { expectedVersion: 1, name: 'Unauthorized update', definition: templateAuth.snapshot },
+            templateAuth.humanPrincipal,
+          ),
+          'COLLABORATION_HUMAN_PERMISSION_DENIED',
+        );
+        assert.equal((await prisma.collaborationTemplate.findUniqueOrThrow({
+          where: { id: templateAuth.template.id },
+        })).version, 1);
+
+        await prisma.user.update({
+          where: { id: templateAuth.human.id },
+          data: { platformRole: 'super_admin' },
+        });
+        const archivedTemplate = await services.templates.archiveSpaceTemplate(
+          templateAuth.space.id,
+          templateAuth.template.id,
+          1,
+          templateAuth.humanPrincipal,
+        );
+        assert.ok(archivedTemplate.archivedAt);
+
+        await prisma.user.update({
+          where: { id: templateAuth.human.id },
+          data: { platformRole: 'user' },
+        });
+        await assertBusinessCode(
+          services.templates.createSpaceTemplate(
+            templateAuth.space.id,
+            { name: 'Denied after platform-role revocation', definition: templateAuth.snapshot },
+            templateAuth.humanPrincipal,
+          ),
+          'COLLABORATION_HUMAN_PERMISSION_DENIED',
+        );
+
         const humanReplay = await createFixture(prisma);
         const pauseInput = { reason: 'maintenance', idempotencyKey: 'human-live-auth-pause-01' };
         await services.runs.pauseRun(
@@ -580,6 +623,7 @@ function createServices(prisma) {
     recovery: new RecoveryWorker(prisma, config, events, notifications),
     reviews: new ReviewService(prisma, authorization, events, progression, notifications),
     runs: new RunService(prisma, authorization, events, progression, notifications),
+    templates: new TemplateService(prisma, authorization, config),
   };
 }
 

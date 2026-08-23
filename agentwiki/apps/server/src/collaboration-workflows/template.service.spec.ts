@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
+import { BusinessException } from '../core/filters/business-error';
 import { TemplateService } from './template.service';
 
 const principal: Principal = { userId: 'user-1' };
@@ -57,7 +59,10 @@ describe('TemplateService', () => {
     collaborationTemplate,
     $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(prisma)),
   } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = {
+    assertSpaceAccess: jest.fn(),
+    assertLiveHumanSpaceAccess: jest.fn(),
+  } as any;
   const config = { get: jest.fn().mockReturnValue('api') } as any;
   let service: TemplateService;
 
@@ -65,6 +70,7 @@ describe('TemplateService', () => {
     jest.clearAllMocks();
     config.get.mockReturnValue('api');
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
     collaborationTemplate.findMany.mockResolvedValue([]);
     collaborationTemplate.create.mockImplementation(async ({ data }: any) => ({ id: 'created-1', version: 1, ...data }));
     collaborationTemplate.findUniqueOrThrow.mockResolvedValue(templateRecord({ version: 2 }));
@@ -122,7 +128,9 @@ describe('TemplateService', () => {
     }, principal);
     await service.copySystemTemplate('space-1', 'system-1', 'Coding copy', principal);
 
-    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(principal, 'space-1', ['owner', 'admin']);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, principal, 'space-1', ['owner', 'admin'],
+    );
     const copied = collaborationTemplate.create.mock.calls[1][0].data.definition;
     expect(copied).toEqual(sourceDefinition);
     expect(copied).not.toBe(sourceDefinition);
@@ -170,5 +178,48 @@ describe('TemplateService', () => {
       where: expect.objectContaining({ id: 'template-1', version: 1, system: false }),
       data: expect.objectContaining({ archivedAt: expect.any(Date), version: { increment: 1 } }),
     }));
+  });
+
+  it.each([
+    ['create', () => service.createSpaceTemplate('space-1', {
+      name: 'Custom', definition: validDefinition(),
+    }, principal)],
+    ['copy', () => service.copySystemTemplate('space-1', 'system-1', 'Copy', principal)],
+    ['update', () => service.updateSpaceTemplate('space-1', 'template-1', {
+      expectedVersion: 1, definition: validDefinition(),
+    }, principal)],
+    ['archive', () => service.archiveSpaceTemplate('space-1', 'template-1', 1, principal)],
+  ])('rechecks live membership/platform role before %s mutation data access', async (_name, mutate) => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'));
+
+    await expect(mutate()).rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, principal, 'space-1', ['owner', 'admin'],
+    );
+    expect(collaborationTemplate.findUnique).not.toHaveBeenCalled();
+    expect(collaborationTemplate.findFirst).not.toHaveBeenCalled();
+    expect(collaborationTemplate.create).not.toHaveBeenCalled();
+    expect(collaborationTemplate.updateMany).not.toHaveBeenCalled();
+    expect(collaborationTemplate.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('uses Serializable transactions for all human template mutations', async () => {
+    collaborationTemplate.findFirst.mockResolvedValue(null);
+    collaborationTemplate.findUnique.mockResolvedValueOnce(templateRecord({
+      id: 'system-1', spaceId: null, scopeKey: 'system', system: true,
+    })).mockResolvedValue(templateRecord());
+
+    await service.createSpaceTemplate('space-1', { name: 'Custom', definition: validDefinition() }, principal);
+    await service.copySystemTemplate('space-1', 'system-1', 'Copy', principal);
+    await service.updateSpaceTemplate('space-1', 'template-1', {
+      expectedVersion: 1, definition: validDefinition(),
+    }, principal);
+    await service.archiveSpaceTemplate('space-1', 'template-1', 1, principal);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(4);
+    for (const call of prisma.$transaction.mock.calls) {
+      expect(call[1]).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }
   });
 });
