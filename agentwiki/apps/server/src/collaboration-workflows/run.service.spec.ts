@@ -152,11 +152,36 @@ describe('RunService', () => {
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
   });
 
+  it('makes active current-generation tasks reclaimable when pausing without replacing their Todo history', async () => {
+    const running = { ...ready, status: 'running', startedById: 'starter-1' };
+    prisma.collaborationRun.findUnique.mockResolvedValue(running);
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...running, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings,
+    });
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+
+    await service.pauseRun(
+      'run-1',
+      { reason: 'maintenance', idempotencyKey: 'pause-active-run-1' },
+      starterPrincipal,
+    );
+
+    expect(tx.collaborationTaskAttempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ runId: 'run-1', status: { in: ['claimed', 'running'] } }),
+      data: expect.objectContaining({ status: 'invalidated' }),
+    }));
+    expect(tx.collaborationRunTask.updateMany).toHaveBeenCalledWith({
+      where: { runId: 'run-1', status: { in: ['claimed', 'running'] } },
+      data: { status: 'ready', nextAttemptAt: null },
+    });
+    expect(tx.collaborationTaskTodo.createMany).not.toHaveBeenCalled();
+  });
+
   it('reassigns an executable Agent, invalidates the old lease, and keeps Role Bindings immutable', async () => {
     const running = { ...ready, status: 'running', startedById: 'starter-1' };
     prisma.collaborationRun.findUnique.mockResolvedValue(running);
     tx.collaborationRun.findUnique.mockResolvedValue({ ...running, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings });
-    tx.collaborationRunTask.findFirst.mockResolvedValue({ id: 'task-1', runId: 'run-1', assigneeAgentId: 'agent-old', status: 'ready' });
+    tx.collaborationRunTask.findFirst.mockResolvedValue({ id: 'task-1', runId: 'run-1', assigneeAgentId: 'agent-old', status: 'running' });
     tx.agentGrant.findMany.mockResolvedValue([grant('agent-new')]);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     await service.reassignTask('run-1', 'task-1', {
@@ -166,7 +191,9 @@ describe('RunService', () => {
       where: expect.objectContaining({ taskId: 'task-1', status: { in: ['claimed', 'running'] } }),
       data: expect.objectContaining({ status: 'invalidated' }),
     }));
-    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeAgentId: 'agent-new' } }));
+    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: { assigneeAgentId: 'agent-new', status: 'ready', nextAttemptAt: null },
+    }));
     expect(tx.collaborationRoleBinding.updateMany).not.toHaveBeenCalled();
   });
 

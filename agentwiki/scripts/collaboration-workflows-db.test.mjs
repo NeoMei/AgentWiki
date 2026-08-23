@@ -23,6 +23,7 @@ export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'any early release with all-upstream completion', 'approve', 'causal generation reject revision',
   'stale Artifact cannot release or complete', 'mixed review and ready status precedence',
   'terminate', 'retry once then exhaustion pause', 'reassigned Agent join and old lease rejection',
+  'active claim pause resume reclaim', 'active reassignment new Agent continues Todo progress',
   'Agent revoke', 'Agent role downgrade', 'Space deletion', 'manual reauthorization',
 ]);
 
@@ -295,6 +296,93 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: terminated.run.id } })).status, 'cancelled');
 
         cover('approve', 'causal generation reject revision', 'terminate');
+      });
+
+      await suite.test('active claim survives pause and resume as a new same-generation Attempt', async () => {
+        const paused = await createFixture(prisma, { taskSpecs: [{ todoNames: ['Inspect', 'Implement'] }] });
+        const oldClaim = await services.execution.nextAction(
+          nextInput(paused.run.id, 'pause-old-claim'),
+          paused.principals[0],
+        );
+        await services.execution.updateTodo({
+          runId: paused.run.id, attemptId: oldClaim.attemptId, todoId: oldClaim.task.todos[0].id,
+          leaseToken: oldClaim.leaseToken, status: 'doing', evidence: [], idempotencyKey: 'pause-todo-doing-01',
+        }, paused.principals[0]);
+
+        await services.runs.pauseRun(paused.run.id, {
+          reason: 'Human maintenance', idempotencyKey: 'pause-active-01',
+        }, paused.humanPrincipal, paused.space.id);
+        assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: paused.run.id } })).status, 'paused');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: paused.tasks[0].id } })).status, 'ready');
+        await assertBusinessCode(services.execution.heartbeat({
+          runId: paused.run.id, attemptId: oldClaim.attemptId, leaseToken: oldClaim.leaseToken,
+          idempotencyKey: 'pause-old-heartbeat-01',
+        }, paused.principals[0]), 'COLLABORATION_LEASE_EXPIRED');
+        assert.equal((await services.execution.nextAction(
+          nextInput(paused.run.id, 'pause-blocked-claim'), paused.principals[0],
+        )).action, 'paused');
+
+        await services.runs.resumeRun(paused.run.id, {
+          reason: 'Maintenance complete', idempotencyKey: 'resume-active-01',
+        }, paused.humanPrincipal, paused.space.id);
+        const resumedClaim = await services.execution.nextAction(
+          nextInput(paused.run.id, 'pause-new-claim'), paused.principals[0],
+        );
+        assert.equal(resumedClaim.action, 'execute_task');
+        assert.notEqual(resumedClaim.attemptId, oldClaim.attemptId);
+        const resumedAttempt = await prisma.collaborationTaskAttempt.findUniqueOrThrow({
+          where: { id: resumedClaim.attemptId },
+        });
+        assert.equal(resumedAttempt.generation, paused.tasks[0].generation);
+        assert.equal(resumedAttempt.attemptNumber, 2);
+        assert.equal(resumedClaim.task.todos[0].status, 'doing');
+
+        cover('active claim pause resume reclaim');
+      });
+
+      await suite.test('active reassignment issues a new lease and preserves current-generation Todo progress', async () => {
+        const reassigned = await createFixture(prisma, {
+          agentRoles: ['editor', 'editor'], bindAgentIndexes: [0],
+          taskSpecs: [{ todoNames: ['Inspect', 'Implement'] }],
+        });
+        const oldClaim = await services.execution.nextAction(
+          nextInput(reassigned.run.id, 'active-reassign-old-claim'), reassigned.principals[0],
+        );
+        await services.execution.updateTodo({
+          runId: reassigned.run.id, attemptId: oldClaim.attemptId, todoId: oldClaim.task.todos[0].id,
+          leaseToken: oldClaim.leaseToken, status: 'doing', evidence: [], idempotencyKey: 'active-reassign-todo-01',
+        }, reassigned.principals[0]);
+        const bindingsBefore = await prisma.collaborationRoleBinding.findMany({ where: { runId: reassigned.run.id } });
+
+        await services.runs.reassignTask(reassigned.run.id, reassigned.tasks[0].id, {
+          agentId: reassigned.agents[1].id, reason: 'Manual handoff', idempotencyKey: 'active-reassign-01',
+        }, reassigned.humanPrincipal, reassigned.space.id);
+        await assertBusinessCode(services.execution.heartbeat({
+          runId: reassigned.run.id, attemptId: oldClaim.attemptId, leaseToken: oldClaim.leaseToken,
+          idempotencyKey: 'active-reassign-old-heartbeat-01',
+        }, reassigned.principals[0]), 'COLLABORATION_LEASE_EXPIRED');
+
+        const newClaim = await services.execution.nextAction(
+          nextInput(reassigned.run.id, 'active-reassign-new-claim'), reassigned.principals[1],
+        );
+        assert.equal(newClaim.action, 'execute_task');
+        assert.notEqual(newClaim.attemptId, oldClaim.attemptId);
+        const newAttempt = await prisma.collaborationTaskAttempt.findUniqueOrThrow({
+          where: { id: newClaim.attemptId },
+        });
+        assert.equal(newAttempt.generation, reassigned.tasks[0].generation);
+        assert.equal(newAttempt.attemptNumber, 2);
+        assert.equal(newClaim.task.todos[0].status, 'doing');
+        await services.execution.updateTodo({
+          runId: reassigned.run.id, attemptId: newClaim.attemptId, todoId: newClaim.task.todos[0].id,
+          leaseToken: newClaim.leaseToken, status: 'done', evidence: [], idempotencyKey: 'active-reassign-continue-01',
+        }, reassigned.principals[1]);
+        assert.deepEqual(
+          await prisma.collaborationRoleBinding.findMany({ where: { runId: reassigned.run.id } }),
+          bindingsBefore,
+        );
+
+        cover('active reassignment new Agent continues Todo progress');
       });
 
       await suite.test('recovery, reassignment, revocation, downgrade, deletion, and reauthorization fail closed', async () => {

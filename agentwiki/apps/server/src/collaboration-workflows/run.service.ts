@@ -342,6 +342,10 @@ export class RunService {
     return this.mutateRun(runId, 'pause_run', body, principal, false, async (tx, run) => {
       if (!['running', 'waiting_review'].includes(run.status)) throw this.runStateError(run.status);
       await this.invalidateAttempts(tx, runId, body.reason);
+      await tx.collaborationRunTask.updateMany({
+        where: { runId, status: { in: ['claimed', 'running'] } },
+        data: { status: 'ready', nextAttemptAt: null },
+      });
       await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'paused', pauseReason: body.reason } });
     }, runId, expectedSpaceId);
   }
@@ -414,7 +418,14 @@ export class RunService {
       if (!task) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration task not found');
       await this.validateFreshAgents(tx, run.spaceId, [body.agentId]);
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
-      await tx.collaborationRunTask.update({ where: { id: taskId }, data: { assigneeAgentId: body.agentId } });
+      const executable = ['ready', 'claimed', 'running', 'retry_wait', 'failed'].includes(task.status);
+      await tx.collaborationRunTask.update({
+        where: { id: taskId },
+        data: {
+          assigneeAgentId: body.agentId,
+          ...(executable ? { status: 'ready', nextAttemptAt: null } : {}),
+        },
+      });
     }, taskId, expectedSpaceId);
   }
 
