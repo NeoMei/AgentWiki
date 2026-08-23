@@ -84,15 +84,26 @@ export class ReviewService {
         if (decided.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
 
         if (input.kind === 'approve') {
-          const accepted = await tx.collaborationTaskArtifact.updateMany({
-            where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
-            data: { status: 'accepted', acceptedAt: decidedAt },
+          const sourceReviewNodeIds = snapshotGraph(mutationRun.templateSnapshot).nodes
+            .filter((node) => node.kind === 'human_review' && node.artifactTaskId === currentSource.nodeId)
+            .map((node) => node.id);
+          const sourceReviews = await tx.collaborationReview.findMany({
+            where: { runId, sourceTaskId: current.sourceTaskId, generation: current.generation },
           });
-          if (accepted.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
-          await tx.collaborationRunTask.update({
-            where: { id: current.sourceTaskId },
-            data: { status: 'completed', completedAt: decidedAt },
-          });
+          const sourceReviewByNode = new Map(sourceReviews.map((item) => [item.nodeId, item]));
+          const groupApproved = sourceReviewNodeIds.length > 0
+            && sourceReviewNodeIds.every((nodeId) => sourceReviewByNode.get(nodeId)?.status === 'approved');
+          if (groupApproved) {
+            const accepted = await tx.collaborationTaskArtifact.updateMany({
+              where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
+              data: { status: 'accepted', acceptedAt: decidedAt },
+            });
+            if (accepted.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
+            await tx.collaborationRunTask.update({
+              where: { id: current.sourceTaskId },
+              data: { status: 'completed', completedAt: decidedAt },
+            });
+          }
           await this.progression.advanceRun(tx, runId, `review-approved:${reviewId}`, false);
         } else if (input.kind === 'reject_for_revision') {
           await this.rejectForRevision(tx, mutationRun, current, input.reason, currentTasks);
@@ -171,6 +182,16 @@ export class ReviewService {
         status: { in: ['pending', 'accepted'] },
       },
       data: { status: 'superseded' },
+    });
+    await tx.collaborationReview.updateMany({
+      where: {
+        runId: run.id,
+        sourceTaskId: review.sourceTaskId,
+        generation: review.generation,
+        id: { not: review.id },
+        status: 'pending',
+      },
+      data: { status: 'superseded', reason: `Superseded by revision: ${reason}` },
     });
     await tx.collaborationReview.updateMany({
       where: { runId: run.id, id: { not: review.id }, nodeId: { in: [...affectedNodes] }, status: 'pending' },

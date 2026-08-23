@@ -82,7 +82,10 @@ export class ProgressionService {
     const satisfiedNodeIds = new Set<string>(
       tasks.filter((task) => ['completed', 'skipped'].includes(task.status)).map((task) => task.nodeId),
     );
-    for (const review of currentReviews) if (review.status === 'approved') satisfiedNodeIds.add(review.nodeId);
+    for (const review of currentReviews) {
+      const source = taskById.get(review.sourceTaskId);
+      if (review.status === 'approved' && source?.status === 'completed') satisfiedNodeIds.add(review.nodeId);
+    }
     return { run, tasks, reviews: currentReviews, satisfiedNodeIds };
   }
 

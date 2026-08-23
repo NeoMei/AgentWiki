@@ -77,6 +77,47 @@ describe('ProgressionService', () => {
     }));
   });
 
+  it('does not release an approved Review node while a sibling Review keeps its source submitted', async () => {
+    const tasks = [task('source', 'submitted'), task('downstream', 'blocked')];
+    const tx = {
+      collaborationRun: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'run-1', status: 'waiting_review', pauseReason: null,
+          templateSnapshot: {
+            nodes: [
+              { kind: 'human_review', id: 'review-a', artifactTaskId: 'source', revisionTaskId: 'source', minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true },
+              { kind: 'human_review', id: 'review-b', artifactTaskId: 'source', revisionTaskId: 'source', minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true },
+            ],
+            terminalNodeIds: ['downstream'],
+          },
+        }),
+        update: jest.fn(),
+      },
+      collaborationRunTask: {
+        findMany: jest.fn().mockResolvedValue(tasks), updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn(),
+      },
+      collaborationTaskDependency: { findMany: jest.fn().mockResolvedValue([
+        { fromNodeId: 'review-a', toNodeId: 'downstream', mode: 'all' },
+      ]) },
+      collaborationTaskArtifact: { findFirst: jest.fn() },
+      collaborationReview: {
+        findMany: jest.fn().mockResolvedValue([
+          { nodeId: 'review-a', status: 'approved', generation: 1, sourceTaskId: 'task-source' },
+          { nodeId: 'review-b', status: 'pending', generation: 1, sourceTaskId: 'task-source' },
+        ]),
+        findFirst: jest.fn(), create: jest.fn(),
+      },
+    } as any;
+    const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
+
+    await new ProgressionService(events).advanceRun(tx, 'run-1', 'partial-review-group');
+
+    expect(tx.collaborationRunTask.updateMany).not.toHaveBeenCalled();
+    expect(tx.collaborationRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'waiting_review' }),
+    }));
+  });
+
   it('creates every actionable Review only after its all-mode predecessors are satisfied', async () => {
     const tasks = [
       task('source-a', 'submitted'), task('source-b', 'submitted'), task('material', 'submitted'),

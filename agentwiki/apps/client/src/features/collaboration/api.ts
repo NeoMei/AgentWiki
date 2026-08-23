@@ -2,6 +2,9 @@ import api from '../../api/client';
 import type {
   CreateTemplateInput,
   CollaborationRun,
+  CollaborationRunDraftDetails,
+  CollaborationHistoryKind,
+  CollaborationHistoryPage,
   CreateRunDraftInput,
   RunListKind,
   RunSummary,
@@ -50,6 +53,19 @@ export const collaborationApi = {
     (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/start`, input)).data,
   getRun: async (spaceId: string, runId: string): Promise<CollaborationRun> =>
     (await api.get<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}`)).data,
+  getRunDraftDetails: async (spaceId: string, runId: string): Promise<CollaborationRunDraftDetails> =>
+    (await api.get<CollaborationRunDraftDetails>(`/spaces/${spaceId}/collaboration/runs/${runId}/draft-details`)).data,
+  getRunHistory: async <T = unknown>(
+    spaceId: string,
+    runId: string,
+    kind: CollaborationHistoryKind,
+    cursor?: string,
+    limit = 50,
+  ): Promise<CollaborationHistoryPage<T>> =>
+    (await api.get<CollaborationHistoryPage<T>>(
+      `/spaces/${spaceId}/collaboration/runs/${runId}/history/${kind}`,
+      { params: { ...(cursor ? { cursor } : {}), limit } },
+    )).data,
   pauseRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>
     (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/actions/pause`, input)).data,
   resumeRun: async (spaceId: string, runId: string, input: RunActionInput): Promise<CollaborationRun> =>

@@ -1,5 +1,6 @@
 import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
+import { HistoryCursorService } from './history-cursor.service';
 import { RunService } from './run.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
@@ -77,6 +78,7 @@ describe('RunService', () => {
   } as any;
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
+  const historyCursors = new HistoryCursorService({ get: jest.fn().mockReturnValue('run-service-history-test-pepper') } as any);
   let service: RunService;
 
   beforeEach(() => {
@@ -97,7 +99,7 @@ describe('RunService', () => {
     tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
     tx.collaborationReview.findMany.mockResolvedValue([]);
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
-    service = new RunService(prisma, authorization, events, progression, notifications);
+    service = new RunService(prisma, authorization, events, progression, notifications, historyCursors);
   });
 
   it('persists an optimistic draft', async () => {
@@ -432,7 +434,7 @@ describe('RunService', () => {
         id: 'task-1', assigneeAgentId: 'agent-a', ordinal: 0, generation: 2,
         todos: [
           { id: 'todo-old', taskId: 'task-1', generation: 1, ordinal: 0 },
-          { id: 'todo-current', taskId: 'task-1', generation: 2, ordinal: 0 },
+          { id: 'todo-current', taskId: 'task-1', generation: 2, ordinal: 0, status: 'done', summary: 'private Todo summary', evidence: [{ secret: 'todo evidence' }] },
         ],
         attempts: [
           { id: 'attempt-old', generation: 1, attemptNumber: 9 },
@@ -442,7 +444,7 @@ describe('RunService', () => {
         artifacts: [
           { id: 'artifact-old', generation: 1, version: 9, payload: { markdown: 'old' } },
           { id: 'artifact-current-old', generation: 2, version: 1, payload: { markdown: 'v1' } },
-          { id: 'artifact-current-latest', generation: 2, version: 2, payload: { markdown: 'v2' } },
+          { id: 'artifact-current-latest', taskId: 'task-1', generation: 2, version: 2, kind: 'markdown', status: 'pending', payload: { markdown: 'private Artifact payload' }, evidence: [{ secret: 'artifact evidence' }], createdAt: new Date() },
         ],
       }],
       dependencies: [],
@@ -465,35 +467,158 @@ describe('RunService', () => {
 
     expect(result.events.map((item: any) => item.id)).toEqual(['event-1']);
     expect(result.tasks[0].todos.map((item: any) => item.id)).toEqual(['todo-current']);
+    expect(result.tasks[0].todoCounts).toEqual({ total: 1, pending: 0, doing: 0, done: 1, failed: 0 });
     expect(result.tasks[0].attempts.map((item: any) => item.id)).toEqual(['attempt-current-latest']);
     expect(result.tasks[0].artifacts.map((item: any) => item.id)).toEqual(['artifact-current-latest']);
+    expect(result.tasks[0].artifacts[0]).toMatchObject({ preview: 'markdown v2' });
     expect(result.reviews.map((item: any) => item.id)).toEqual(['review-current']);
+    expect(JSON.stringify(result)).not.toContain('private Todo summary');
+    expect(JSON.stringify(result)).not.toContain('todo evidence');
+    expect(JSON.stringify(result)).not.toContain('private Artifact payload');
+    expect(JSON.stringify(result)).not.toContain('artifact evidence');
   });
 
-  it('paginates historical detail with a bounded limit and safe Attempt fields', async () => {
-    tx.collaborationRun.findFirst.mockResolvedValue(ready);
-    tx.collaborationTaskAttempt.findMany.mockResolvedValue(Array.from({ length: 3 }, (_, index) => ({
-      id: `attempt-${index}`, status: 'completed', attemptNumber: index + 1,
+  it('keeps the maximum legal task/Todo shape within the aggregate main DTO byte budget', async () => {
+    const tasks = Array.from({ length: 100 }, (_, taskIndex) => ({
+      id: `task-${taskIndex}`, runId: 'run-1', nodeId: `node-${taskIndex}`, ordinal: taskIndex,
+      name: `Task ${taskIndex}`, objective: '目'.repeat(16_000), roleSlotId: 'planner', assigneeAgentId: 'agent-a',
+      status: 'running', generation: 1, dependencyMode: 'all', outputContract: { secret: 'contract' },
+      requiredEvidence: ['test-log'], humanAcceptance: false, skippable: false, leaseSeconds: 300,
+      maxExecutionSeconds: 3600, retryBudget: 1, repairBudget: 1, nextAttemptAt: null,
+      completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+    }));
+    const todos = tasks.flatMap((task) => Array.from({ length: 50 }, (_, ordinal) => ({
+      id: `${task.id}-todo-${ordinal}`, runId: 'run-1', taskId: task.id, generation: 1, templateId: `todo-${ordinal}`,
+      ordinal, name: `Todo ${ordinal} ${'事'.repeat(220)}`, required: true, status: 'pending',
+      summary: '私'.repeat(1_000), evidence: [{ secret: '证'.repeat(100) }], updatedAt: new Date(),
     })));
+    const hugeRun = { ...ready, roleBindings: bindings, tasks, dependencies: [] };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(hugeRun, args.select));
+    tx.collaborationTaskTodo.findMany.mockResolvedValue(todos);
+    tx.collaborationTaskArtifact.findFirst.mockImplementation(async ({ where, select }: any) => projectSelect({
+      id: `${where.taskId}-artifact`, runId: 'run-1', taskId: where.taskId, attemptId: 'attempt-1', generation: 1,
+      version: 1, kind: 'markdown', status: 'pending', payload: { markdown: '密'.repeat(10_000) },
+      evidence: [{ secret: '证'.repeat(1_000) }], acceptedAt: null, createdAt: new Date(),
+    }, select));
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
+
+    expect(bytes).toBeLessThanOrEqual(512_000);
+    expect(result.tasks).toHaveLength(100);
+    expect(result.tasks.every((task: any) => task.todos.length <= 3)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('私私私');
+    expect(JSON.stringify(result)).not.toContain('密密密');
+  });
+
+  it('serves bounded editable draft details outside the main Run summary', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'draft', version: 2,
+      inputs: { objective: 'Ship safely' }, roleBindings: bindings, updatedAt: new Date(),
+    });
+
+    const result = await service.getHumanRunDraftDetails('space-1', 'run-1', humanPrincipal);
+
+    expect(result).toMatchObject({ inputs: { objective: 'Ship safely' }, roleBindings: bindings });
+    expect(tx.collaborationRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'run-1', spaceId: 'space-1', status: { in: ['draft', 'ready'] } },
+      select: expect.not.objectContaining({ templateSnapshot: true, tasks: true, events: true }),
+    }));
+  });
+
+  it('paginates historical detail with stable timestamp/id keysets and safe Attempt fields', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const tiedAt = new Date('2026-08-24T00:00:00.000Z');
+    tx.collaborationTaskAttempt.findMany.mockResolvedValue([
+      { id: 'attempt-c', status: 'completed', attemptNumber: 3, createdAt: tiedAt },
+      { id: 'attempt-b', status: 'completed', attemptNumber: 2, createdAt: tiedAt },
+      { id: 'attempt-a', status: 'completed', attemptNumber: 1, createdAt: tiedAt },
+    ]);
 
     const page = await service.getHumanRunHistory(
-      'space-1', 'run-1', 'attempts', '20', '2', humanPrincipal,
+      'space-1', 'run-1', 'attempts', undefined, '2', humanPrincipal,
     );
 
     expect(tx.collaborationTaskAttempt.findMany).toHaveBeenCalledWith({
       where: { runId: 'run-1' },
-      orderBy: { createdAt: 'desc' },
-      skip: 20,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 3,
       select: expect.not.objectContaining({ leaseTokenHash: true, claimIdempotencyKey: true }),
     });
-    expect(page).toEqual({
-      items: [{ id: 'attempt-0', status: 'completed', attemptNumber: 1 }, { id: 'attempt-1', status: 'completed', attemptNumber: 2 }],
-      nextCursor: '22',
-    });
+    expect(page.items.map((item: any) => item.id)).toEqual(['attempt-c', 'attempt-b']);
+    expect(page.nextCursor).toEqual(expect.any(String));
+
+    tx.collaborationTaskAttempt.findMany.mockResolvedValue([]);
+    await service.getHumanRunHistory('space-1', 'run-1', 'attempts', page.nextCursor!, '2', humanPrincipal);
+    expect(tx.collaborationTaskAttempt.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        runId: 'run-1',
+        OR: [{ createdAt: { lt: tiedAt } }, { createdAt: tiedAt, id: { lt: 'attempt-b' } }],
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
     await expect(service.getHumanRunHistory(
-      'space-1', 'run-1', 'events', '0', '101', humanPrincipal,
+      'space-1', 'run-1', 'events', undefined, '101', humanPrincipal,
     )).rejects.toMatchObject({ businessCode: 'COLLABORATION_HISTORY_QUERY_INVALID' });
+  });
+
+  it('reads old-generation Todo details and continues events beyond sequence 10,100', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const updatedAt = new Date('2026-08-23T23:00:00.000Z');
+    tx.collaborationTaskTodo.findMany.mockResolvedValue([{
+      id: 'todo-generation-1', runId: 'run-1', taskId: 'task-1', generation: 1, ordinal: 0,
+      name: 'Old Todo', status: 'done', summary: 'complete historical summary', evidence: [{ kind: 'test-log' }], updatedAt,
+    }]);
+    const todoPage = await service.getHumanRunHistory('space-1', 'run-1', 'todos', undefined, '50', humanPrincipal);
+    expect(todoPage.items[0]).toMatchObject({
+      id: 'todo-generation-1', generation: 1, summary: 'complete historical summary', evidence: [{ kind: 'test-log' }],
+    });
+    expect(tx.collaborationTaskTodo.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { runId: 'run-1' }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: 51,
+    }));
+
+    const eventCursor = historyCursors.encode({ kind: 'events', runId: 'run-1', position: { sequence: 10_100 } });
+    tx.collaborationRunEvent.findMany.mockResolvedValue([]);
+    await service.getHumanRunHistory('space-1', 'run-1', 'events', eventCursor, '100', humanPrincipal);
+    expect(tx.collaborationRunEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { runId: 'run-1', sequence: { lt: 10_100 } }, orderBy: { sequence: 'desc' }, take: 101,
+      select: expect.not.objectContaining({ idempotencyKey: true, requestHash: true }),
+    }));
+
+    await expect(service.getHumanRunHistory('space-1', 'run-1', 'reviews', eventCursor, '10', humanPrincipal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_HISTORY_QUERY_INVALID' });
+  });
+
+  it('keeps an event traversal stable when newer events are inserted between pages', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    const events = [105, 104, 103, 102].map((sequence) => ({
+      id: `event-${sequence}`, runId: 'run-1', sequence, type: 'test', actorKind: 'system', actorId: 'system',
+      operation: 'advance_run', target: 'run-1', actorUserId: null, actorAgentId: null,
+      metadata: {}, response: null, createdAt: new Date(),
+    }));
+    tx.collaborationRunEvent.findMany.mockImplementation(async ({ where, take }: any) => events
+      .filter((event) => where.sequence?.lt === undefined || event.sequence < where.sequence.lt)
+      .sort((left, right) => right.sequence - left.sequence)
+      .slice(0, take));
+
+    const first = await service.getHumanRunHistory('space-1', 'run-1', 'events', undefined, '2', humanPrincipal);
+    events.push({ ...events[0], id: 'event-106', sequence: 106 });
+    const second = await service.getHumanRunHistory('space-1', 'run-1', 'events', first.nextCursor!, '2', humanPrincipal);
+
+    expect([...first.items, ...second.items].map((event: any) => event.sequence)).toEqual([105, 104, 103, 102]);
+  });
+
+  it('authorizes every history page before reading rows', async () => {
+    authorization.assertSpaceAccess.mockRejectedValueOnce(
+      new BusinessException('SPACE_ACCESS_DENIED'),
+    );
+
+    await expect(service.getHumanRunHistory(
+      'space-1', 'run-1', 'todos', undefined, '50', humanPrincipal,
+    )).rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+    expect(tx.collaborationRun.findFirst).not.toHaveBeenCalled();
+    expect(tx.collaborationTaskTodo.findMany).not.toHaveBeenCalled();
   });
 
   it('stores bounded human control receipts and reloads the authoritative safe run on replay', async () => {
@@ -538,7 +663,7 @@ describe('RunService', () => {
       ...receiptTx,
       $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(receiptTx)),
     } as any;
-    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications);
+    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications, historyCursors);
     const input = { reason: 'maintenance', idempotencyKey: 'pause-bounded-1' };
 
     const first = await receiptService.pauseRun('run-1', input, starterPrincipal);

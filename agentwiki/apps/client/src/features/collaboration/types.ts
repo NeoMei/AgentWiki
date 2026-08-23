@@ -84,7 +84,7 @@ export interface CollaborationRun extends RunSummary {
   templateVersion?: number;
   snapshotHash?: string;
   version: number;
-  inputs: Record<string, string | number | boolean>;
+  inputs?: Record<string, string | number | boolean>;
   roleBindings: RoleBinding[];
   templateSnapshot?: CollaborationTemplateDefinition;
   joinInstructions?: RunJoinInstruction[];
@@ -96,6 +96,10 @@ export interface CollaborationRun extends RunSummary {
   dependencies?: Array<{ id: string; fromNodeId: string; toNodeId: string; mode: 'all' | 'any' }>;
   reviews?: CollaborationReview[];
   events?: CollaborationRunEvent[];
+}
+
+export interface CollaborationRunDraftDetails extends CollaborationRun {
+  inputs: Record<string, string | number | boolean>;
 }
 
 export interface CollaborationTodo {
@@ -126,8 +130,9 @@ export interface CollaborationArtifact {
   version: number;
   kind: string;
   status: string;
-  payload: unknown;
+  payload?: unknown;
   evidence?: unknown;
+  preview?: string;
   createdAt: string;
 }
 
@@ -136,7 +141,8 @@ export interface CollaborationTask {
   nodeId: string;
   ordinal: number;
   name: string;
-  objective: string;
+  objective?: string;
+  objectivePreview?: string | null;
   roleSlotId: string;
   assigneeAgentId: string;
   status: string;
@@ -144,6 +150,7 @@ export interface CollaborationTask {
   skippable: boolean;
   completedAt?: string | null;
   todos: CollaborationTodo[];
+  todoCounts?: { total: number; pending: number; doing: number; done: number; failed: number };
   attempts: CollaborationAttempt[];
   artifacts: CollaborationArtifact[];
 }
@@ -169,7 +176,14 @@ export interface CollaborationRunEvent {
   operation: string;
   target: string;
   createdAt: string;
-  metadata: unknown;
+  metadata?: unknown;
+}
+
+export type CollaborationHistoryKind = 'events' | 'todos' | 'attempts' | 'artifacts' | 'reviews';
+
+export interface CollaborationHistoryPage<T = unknown> {
+  items: T[];
+  nextCursor: string | null;
 }
 
 export interface CreateRunDraftInput {

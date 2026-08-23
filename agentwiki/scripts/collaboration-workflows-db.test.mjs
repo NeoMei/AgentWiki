@@ -14,6 +14,7 @@ const { RecoveryWorker } = requireFromServer('./dist/collaboration-workflows/rec
 const { ReviewService } = requireFromServer('./dist/collaboration-workflows/review.service.js');
 const { RunEventStore } = requireFromServer('./dist/collaboration-workflows/run-event.store.js');
 const { RunService } = requireFromServer('./dist/collaboration-workflows/run.service.js');
+const { HistoryCursorService } = requireFromServer('./dist/collaboration-workflows/history-cursor.service.js');
 const { TemplateService } = requireFromServer('./dist/collaboration-workflows/template.service.js');
 
 export const REQUIRED_DB_SCENARIOS = Object.freeze([
@@ -24,6 +25,8 @@ export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'any early release with all-upstream completion', 'approve', 'causal generation reject revision',
   'current-generation review gates revision release',
   'bid review waits for material in both submission orders',
+  'same-source review group approval', 'same-source review rejection supersedes siblings',
+  'skippable review source rejected before start',
   'stale Artifact cannot release or complete', 'mixed review and ready status precedence',
   'terminate', 'retry once then exhaustion pause', 'reassigned Agent join and old lease rejection',
   'active claim pause resume reclaim', 'active reassignment new Agent continues Todo progress',
@@ -38,6 +41,7 @@ const notifications = {
 const config = {
   get(key) {
     if (key === 'JWT_SECRET') return 'collaboration-db-test-secret-with-enough-entropy';
+    if (key === 'AGENTWIKI_SERVER_PEPPER') return 'collaboration-db-test-history-pepper';
     if (key === 'PROCESS_ROLE') return 'api';
     return undefined;
   },
@@ -298,7 +302,58 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         await services.recovery.tick();
         assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: terminated.run.id } })).status, 'cancelled');
 
-        cover('approve', 'causal generation reject revision', 'terminate');
+        const grouped = await createReviewGroupFixture(prisma, services, 'approve-group');
+        await services.reviews.decide(
+          grouped.space.id, grouped.run.id, grouped.reviews[0].id,
+          { kind: 'approve', reason: 'First discipline approved', idempotencyKey: 'approve-review-group-first' },
+          grouped.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: grouped.sourceTask.id } })).status, 'submitted');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: grouped.publishTask.id } })).status, 'blocked');
+        assert.equal((await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: grouped.artifact.id } })).status, 'pending');
+        await services.reviews.decide(
+          grouped.space.id, grouped.run.id, grouped.reviews[1].id,
+          { kind: 'approve', reason: 'Second discipline approved', idempotencyKey: 'approve-review-group-final' },
+          grouped.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: grouped.sourceTask.id } })).status, 'completed');
+        assert.equal((await prisma.collaborationRunTask.findUniqueOrThrow({ where: { id: grouped.publishTask.id } })).status, 'ready');
+        assert.equal((await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: grouped.artifact.id } })).status, 'accepted');
+
+        const groupRejected = await createReviewGroupFixture(prisma, services, 'reject-group');
+        await services.reviews.decide(
+          groupRejected.space.id, groupRejected.run.id, groupRejected.reviews[0].id,
+          { kind: 'reject_for_revision', reason: 'Revise shared source', idempotencyKey: 'reject-review-group-first' },
+          groupRejected.humanPrincipal,
+        );
+        assert.equal((await prisma.collaborationReview.findUniqueOrThrow({ where: { id: groupRejected.reviews[1].id } })).status, 'superseded');
+        assert.equal(await prisma.collaborationReview.count({
+          where: { runId: groupRejected.run.id, sourceTaskId: groupRejected.sourceTask.id, generation: 1, status: 'pending' },
+        }), 0);
+
+        const invalidStart = await createFixture(prisma, { taskSpecs: [{ nodeId: 'unsafe-source', status: 'ready' }], runStatus: 'ready' });
+        const unsafeSource = { ...invalidStart.snapshot.nodes[0], skippable: true, humanAcceptance: true };
+        const unsafeDefinition = {
+          ...invalidStart.snapshot,
+          nodes: [unsafeSource, reviewNode('unsafe-review', 'unsafe-source', 'unsafe-source')],
+          dependencies: [{ from: 'unsafe-source', to: 'unsafe-review', mode: 'all' }],
+          terminalNodeIds: ['unsafe-review'],
+        };
+        await prisma.collaborationTemplate.update({
+          where: { id: invalidStart.template.id }, data: { definition: unsafeDefinition },
+        });
+        await assertBusinessCode(services.runs.startRun(
+          invalidStart.space.id, invalidStart.run.id,
+          { expectedVersion: invalidStart.run.version, idempotencyKey: 'unsafe-review-start' },
+          invalidStart.humanPrincipal,
+        ), 'COLLABORATION_TEMPLATE_INVALID');
+        assert.equal((await prisma.collaborationRun.findUniqueOrThrow({ where: { id: invalidStart.run.id } })).status, 'ready');
+
+        cover(
+          'approve', 'causal generation reject revision', 'terminate',
+          'same-source review group approval', 'same-source review rejection supersedes siblings',
+          'skippable review source rejected before start',
+        );
       });
 
       await suite.test('Review progression is current-generation and waits for every bid predecessor', async () => {
@@ -728,7 +783,7 @@ function createServices(prisma) {
     execution: new ExecutionService(prisma, authorization, config, events, artifacts, progression, notifications),
     recovery: new RecoveryWorker(prisma, config, events, notifications),
     reviews: new ReviewService(prisma, authorization, events, progression, notifications),
-    runs: new RunService(prisma, authorization, events, progression, notifications),
+    runs: new RunService(prisma, authorization, events, progression, notifications, new HistoryCursorService(config)),
     templates: new TemplateService(prisma, authorization, config),
   };
 }
@@ -860,6 +915,43 @@ async function createReviewFixture(prisma, services, mode) {
   const review = await prisma.collaborationReview.findFirstOrThrow({ where: { runId: fixture.run.id, status: 'pending' } });
   const artifact = await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: review.artifactId } });
   return { ...fixture, revisionArtifact, review, artifact };
+}
+
+async function createReviewGroupFixture(prisma, services, mode) {
+  const fixture = await createFixture(prisma, {
+    taskSpecs: [
+      { nodeId: 'revision', status: 'completed' },
+      { nodeId: 'source', status: 'ready', ordinal: 1 },
+      { nodeId: 'publish', status: 'blocked', ordinal: 2 },
+    ],
+    dependencies: [
+      { from: 'revision', to: 'source', mode: 'all' },
+      { from: 'source', to: 'review-a', mode: 'all' },
+      { from: 'source', to: 'review-b', mode: 'all' },
+      { from: 'review-a', to: 'publish', mode: 'all' },
+      { from: 'review-b', to: 'publish', mode: 'all' },
+    ],
+    terminalNodeIds: ['publish'],
+  });
+  const snapshot = {
+    ...fixture.snapshot,
+    nodes: [
+      ...fixture.snapshot.nodes,
+      reviewNode('review-a', 'source', 'revision'),
+      reviewNode('review-b', 'source', 'revision'),
+    ],
+    terminalNodeIds: ['publish'],
+  };
+  await prisma.collaborationRun.update({ where: { id: fixture.run.id }, data: { templateSnapshot: snapshot } });
+  await insertHistoricalArtifact(prisma, fixture, fixture.tasks[0], 1, 'accepted');
+  await completeTask(services, fixture.run.id, fixture.principals[0], mode);
+  const reviews = await prisma.collaborationReview.findMany({
+    where: { runId: fixture.run.id, sourceTaskId: fixture.tasks[1].id, generation: 1 },
+    orderBy: { nodeId: 'asc' },
+  });
+  assert.equal(reviews.length, 2);
+  const artifact = await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: reviews[0].artifactId } });
+  return { ...fixture, sourceTask: fixture.tasks[1], publishTask: fixture.tasks[2], reviews, artifact };
 }
 
 async function insertHistoricalArtifact(prisma, fixture, task, generation, status) {

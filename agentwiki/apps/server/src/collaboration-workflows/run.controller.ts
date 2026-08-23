@@ -50,6 +50,11 @@ export class RunController {
     return this.runs.getHumanRun(spaceId, runId, req.user as Principal);
   }
 
+  @Get(':runId/draft-details')
+  draftDetails(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('runId') runId: string) {
+    return this.runs.getHumanRunDraftDetails(spaceId, runId, req.user as Principal);
+  }
+
   @Get(':runId/history/:kind')
   history(
     @Req() req: Request,

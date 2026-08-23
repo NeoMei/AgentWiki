@@ -22,6 +22,7 @@ import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { hashCollaborationTemplate } from './template-validator';
 import { ProgressionService } from './progression.service';
 import { CollaborationEventsService } from './collaboration-events.service';
+import { HISTORY_KINDS, HistoryCursorService, type HistoryKind, type HistoryPosition } from './history-cursor.service';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -30,9 +31,13 @@ const TERMINAL_RUN_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 type RoleBindingInput = { roleSlotId: string; agentId: string };
 type Tx = Prisma.TransactionClient;
 
-const HUMAN_TODO_SELECT = {
+const HUMAN_TODO_DETAIL_SELECT = {
   id: true, runId: true, taskId: true, generation: true, templateId: true, ordinal: true,
   name: true, required: true, status: true, summary: true, evidence: true, updatedAt: true,
+} satisfies Prisma.CollaborationTaskTodoSelect;
+
+const HUMAN_TODO_PREVIEW_SELECT = {
+  id: true, taskId: true, generation: true, ordinal: true, name: true, required: true, status: true,
 } satisfies Prisma.CollaborationTaskTodoSelect;
 
 const HUMAN_ATTEMPT_SELECT = {
@@ -41,35 +46,50 @@ const HUMAN_ATTEMPT_SELECT = {
   failureCode: true, repairCount: true, finishedAt: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.CollaborationTaskAttemptSelect;
 
-const HUMAN_ARTIFACT_SELECT = {
+const HUMAN_ARTIFACT_DETAIL_SELECT = {
   id: true, runId: true, taskId: true, attemptId: true, generation: true, version: true,
   kind: true, status: true, payload: true, evidence: true, acceptedAt: true, createdAt: true,
 } satisfies Prisma.CollaborationTaskArtifactSelect;
 
-const HUMAN_REVIEW_SELECT = {
+const HUMAN_ARTIFACT_PREVIEW_SELECT = {
+  id: true, taskId: true, generation: true, version: true, kind: true, status: true, createdAt: true,
+} satisfies Prisma.CollaborationTaskArtifactSelect;
+
+const HUMAN_REVIEW_DETAIL_SELECT = {
   id: true, runId: true, nodeId: true, revision: true, generation: true, sourceTaskId: true,
   artifactId: true, revisionTaskId: true, minimumRole: true, reviewerUserIds: true,
   allowTerminate: true, status: true, reviewerUserId: true, reason: true, decidedAt: true,
   createdAt: true,
 } satisfies Prisma.CollaborationReviewSelect;
 
-const HUMAN_EVENT_SELECT = {
+const HUMAN_REVIEW_PREVIEW_SELECT = {
+  id: true, nodeId: true, generation: true, sourceTaskId: true, artifactId: true, revisionTaskId: true,
+  minimumRole: true, reviewerUserIds: true, allowTerminate: true, status: true, createdAt: true,
+} satisfies Prisma.CollaborationReviewSelect;
+
+const HUMAN_EVENT_DETAIL_SELECT = {
   id: true, runId: true, sequence: true, type: true, actorKind: true, actorId: true,
   operation: true, target: true, actorUserId: true, actorAgentId: true, metadata: true,
-  createdAt: true,
+  response: true, createdAt: true,
 } satisfies Prisma.CollaborationRunEventSelect;
+
+const HUMAN_EVENT_PREVIEW_SELECT = {
+  id: true, sequence: true, type: true, actorKind: true, operation: true, target: true, createdAt: true,
+} satisfies Prisma.CollaborationRunEventSelect;
+
+const HUMAN_RUN_MAX_SERIALIZED_BYTES = 512_000;
+const HUMAN_TODO_PREVIEW_LIMIT = 3;
+const HUMAN_EVENT_PREVIEW_LIMIT = 20;
 
 const HUMAN_RUN_SELECT = {
   id: true,
   spaceId: true,
   templateId: true,
   templateVersion: true,
-  templateSnapshot: true,
   snapshotHash: true,
   name: true,
   status: true,
   version: true,
-  inputs: true,
   startedById: true,
   pauseReason: true,
   eventSequence: true,
@@ -94,22 +114,12 @@ const HUMAN_RUN_SELECT = {
       status: true,
       generation: true,
       dependencyMode: true,
-      outputContract: true,
-      requiredEvidence: true,
-      humanAcceptance: true,
       skippable: true,
-      leaseSeconds: true,
-      maxExecutionSeconds: true,
-      retryBudget: true,
-      repairBudget: true,
       nextAttemptAt: true,
       completedAt: true,
       createdAt: true,
       updatedAt: true,
     },
-  },
-  dependencies: {
-    select: { id: true, runId: true, fromNodeId: true, toNodeId: true, mode: true },
   },
 } satisfies Prisma.CollaborationRunSelect;
 
@@ -121,6 +131,7 @@ export class RunService {
     private readonly events: RunEventStore,
     private readonly progression: ProgressionService,
     private readonly notifications: CollaborationEventsService,
+    private readonly historyCursors: HistoryCursorService,
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
@@ -284,6 +295,19 @@ export class RunService {
     return this.loadHumanRun(this.prisma as unknown as Tx, runId);
   }
 
+  async getHumanRunDraftDetails(spaceId: string, runId: string, principal: Principal) {
+    await this.assertHumanAccess(principal, spaceId, READ_ROLES);
+    const run = await this.prisma.collaborationRun.findFirst({
+      where: { id: runId, spaceId, status: { in: ['draft', 'ready'] } },
+      select: {
+        id: true, name: true, status: true, version: true, inputs: true, updatedAt: true,
+        roleBindings: { select: { roleSlotId: true, roleSlotName: true, agentId: true } },
+      },
+    });
+    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration draft not found');
+    return run;
+  }
+
   async getHumanRunHistory(
     spaceId: string,
     runId: string,
@@ -298,33 +322,50 @@ export class RunService {
       select: { id: true },
     });
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
-    const offset = parseHistoryInteger(cursor ?? '0', 0, 10_000);
-    const pageSize = parseHistoryInteger(limit ?? '50', 1, 100);
-    const query = {
-      where: { runId },
-      orderBy: { createdAt: 'desc' as const },
-      skip: offset,
-      take: pageSize + 1,
-    };
-    let rows: unknown[];
-    if (kind === 'events') {
+    const historyKind = parseHistoryKind(kind);
+    const pageSize = parseHistoryLimit(limit ?? '50');
+    const position = cursor ? this.historyCursors.decode(cursor, historyKind, runId) : undefined;
+    let rows: any[];
+    if (historyKind === 'events') {
+      const sequence = position && 'sequence' in position ? position.sequence : undefined;
       rows = await this.prisma.collaborationRunEvent.findMany({
-        ...query,
+        where: { runId, ...(sequence === undefined ? {} : { sequence: { lt: sequence } }) },
         orderBy: { sequence: 'desc' },
-        select: HUMAN_EVENT_SELECT,
+        take: pageSize + 1,
+        select: HUMAN_EVENT_DETAIL_SELECT,
       });
-    } else if (kind === 'attempts') {
-      rows = await this.prisma.collaborationTaskAttempt.findMany({ ...query, select: HUMAN_ATTEMPT_SELECT });
-    } else if (kind === 'artifacts') {
-      rows = await this.prisma.collaborationTaskArtifact.findMany({ ...query, select: HUMAN_ARTIFACT_SELECT });
-    } else if (kind === 'reviews') {
-      rows = await this.prisma.collaborationReview.findMany({ ...query, select: HUMAN_REVIEW_SELECT });
     } else {
-      throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
+      const timestampPosition = position && 'at' in position ? position : undefined;
+      const timestampField = historyKind === 'todos' ? 'updatedAt' : 'createdAt';
+      const timestampWhere = timestampPosition
+        ? timestampKeyset(timestampField, timestampPosition)
+        : {};
+      const query = {
+        where: { runId, ...timestampWhere },
+        orderBy: [{ [timestampField]: 'desc' as const }, { id: 'desc' as const }],
+        take: pageSize + 1,
+      };
+      if (historyKind === 'todos') {
+        rows = await this.prisma.collaborationTaskTodo.findMany({ ...query, select: HUMAN_TODO_DETAIL_SELECT } as any);
+      } else if (historyKind === 'attempts') {
+        rows = await this.prisma.collaborationTaskAttempt.findMany({ ...query, select: HUMAN_ATTEMPT_SELECT } as any);
+      } else if (historyKind === 'artifacts') {
+        rows = await this.prisma.collaborationTaskArtifact.findMany({ ...query, select: HUMAN_ARTIFACT_DETAIL_SELECT } as any);
+      } else {
+        rows = await this.prisma.collaborationReview.findMany({ ...query, select: HUMAN_REVIEW_DETAIL_SELECT } as any);
+      }
     }
     const hasMore = rows.length > pageSize;
     const items = rows.slice(0, pageSize);
-    return { items, nextCursor: hasMore ? String(offset + items.length) : null };
+    let nextCursor: string | null = null;
+    if (hasMore && items.length) {
+      const last = items[items.length - 1]!;
+      const nextPosition: HistoryPosition = historyKind === 'events'
+        ? { sequence: last.sequence }
+        : { at: new Date(historyKind === 'todos' ? last.updatedAt : last.createdAt).toISOString(), id: last.id };
+      nextCursor = this.historyCursors.encode({ kind: historyKind, runId, position: nextPosition });
+    }
+    return { items, nextCursor };
   }
 
   pauseRun(runId: string, body: RunActionDto, principal: Principal, expectedSpaceId?: string) {
@@ -678,7 +719,7 @@ export class RunService {
       tx.collaborationTaskTodo.findMany({
         where: { OR: taskGenerations },
         orderBy: [{ taskId: 'asc' }, { ordinal: 'asc' }],
-        select: HUMAN_TODO_SELECT,
+        select: HUMAN_TODO_PREVIEW_SELECT,
       }),
       Promise.all(taskGenerations.map(({ taskId, generation }) => tx.collaborationTaskAttempt.findFirst({
         where: { taskId, generation },
@@ -688,19 +729,19 @@ export class RunService {
       Promise.all(taskGenerations.map(({ taskId, generation }) => tx.collaborationTaskArtifact.findFirst({
         where: { taskId, generation },
         orderBy: { version: 'desc' },
-        select: HUMAN_ARTIFACT_SELECT,
+        select: HUMAN_ARTIFACT_PREVIEW_SELECT,
       }))),
       tx.collaborationReview.findMany({
         where: { OR: taskGenerations.map(({ taskId, generation }) => ({ sourceTaskId: taskId, generation })) },
         orderBy: { revision: 'desc' },
         take: 100,
-        select: HUMAN_REVIEW_SELECT,
+        select: HUMAN_REVIEW_PREVIEW_SELECT,
       }),
       tx.collaborationRunEvent.findMany({
         where: { runId },
         orderBy: { sequence: 'desc' },
-        take: 50,
-        select: HUMAN_EVENT_SELECT,
+        take: HUMAN_EVENT_PREVIEW_LIMIT,
+        select: HUMAN_EVENT_PREVIEW_SELECT,
       }),
     ]);
     const currentReviews = [
@@ -713,12 +754,20 @@ export class RunService {
         }, new Map<string, (typeof reviews)[number]>())
         .values(),
     ];
-    const tasks = run.tasks.map((task, index) => ({
-      ...task,
-      todos: todos.filter((todo) => todo.taskId === task.id),
-      attempts: latestAttempts[index] ? [latestAttempts[index]] : [],
-      artifacts: latestArtifacts[index] ? [latestArtifacts[index]] : [],
-    }));
+    const tasks = run.tasks.map((task, index) => {
+      const currentTodos = todos.filter((todo) => todo.taskId === task.id);
+      const { objective, ...taskFields } = task;
+      const attempt = latestAttempts[index];
+      const artifact = latestArtifacts[index];
+      return {
+        ...taskFields,
+        objectivePreview: previewText(objective, 240),
+        todoCounts: countTodoStatuses(currentTodos),
+        todos: currentTodos.slice(0, HUMAN_TODO_PREVIEW_LIMIT).map(todoPreview),
+        attempts: attempt ? [attemptPreview(attempt)] : [],
+        artifacts: artifact ? [artifactPreview(artifact)] : [],
+      };
+    });
     const instructions = new Map<string, { agentId: string; roleSlotIds: string[]; taskIds: string[] }>();
     for (const binding of roleBindings) {
       const current = instructions.get(binding.agentId) ?? { agentId: binding.agentId, roleSlotIds: [], taskIds: [] };
@@ -732,13 +781,17 @@ export class RunService {
       current.taskIds.push(task.id);
       instructions.set(task.assigneeAgentId, current);
     }
-    return {
+    const response = {
       ...run,
       tasks,
       reviews: currentReviews,
       events: newestEvents.reverse(),
       joinInstructions: [...instructions.values()],
     };
+    if (Buffer.byteLength(JSON.stringify(response), 'utf8') > HUMAN_RUN_MAX_SERIALIZED_BYTES) {
+      throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Human Run summary exceeds its response budget');
+    }
+    return response;
   }
 
   private assertNotTerminal(status: string): void {
@@ -783,11 +836,68 @@ function snapshotNodes(value: unknown): any[] {
     : [];
 }
 
-function parseHistoryInteger(value: string, minimum: number, maximum: number): number {
+function parseHistoryKind(value: string): HistoryKind {
+  if (!(HISTORY_KINDS as readonly string[]).includes(value)) {
+    throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
+  }
+  return value as HistoryKind;
+}
+
+function parseHistoryLimit(value: string): number {
   if (!/^\d+$/u.test(value)) throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
     throw new BusinessException('COLLABORATION_HISTORY_QUERY_INVALID');
   }
   return parsed;
+}
+
+function timestampKeyset(field: 'createdAt' | 'updatedAt', position: { at: string; id: string }) {
+  const at = new Date(position.at);
+  return {
+    OR: [
+      { [field]: { lt: at } },
+      { [field]: at, id: { lt: position.id } },
+    ],
+  };
+}
+
+function previewText(value: string | null | undefined, maximum: number): string | null {
+  if (!value) return null;
+  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+}
+
+function countTodoStatuses(todos: Array<{ status: string }>) {
+  const counts = { total: todos.length, pending: 0, doing: 0, done: 0, failed: 0 };
+  for (const todo of todos) {
+    if (todo.status === 'pending' || todo.status === 'doing' || todo.status === 'done' || todo.status === 'failed') {
+      counts[todo.status] += 1;
+    }
+  }
+  return counts;
+}
+
+function todoPreview(todo: any) {
+  return {
+    id: todo.id, taskId: todo.taskId, generation: todo.generation, ordinal: todo.ordinal,
+    name: previewText(todo.name, 120), required: todo.required, status: todo.status,
+  };
+}
+
+function attemptPreview(attempt: any) {
+  return {
+    id: attempt.id, taskId: attempt.taskId, generation: attempt.generation, agentId: attempt.agentId,
+    attemptNumber: attempt.attemptNumber, status: attempt.status, leaseStartedAt: attempt.leaseStartedAt,
+    leaseExpiresAt: attempt.leaseExpiresAt, maxExecutionAt: attempt.maxExecutionAt,
+    failureCode: previewText(attempt.failureCode, 240), repairCount: attempt.repairCount,
+    finishedAt: attempt.finishedAt, createdAt: attempt.createdAt, updatedAt: attempt.updatedAt,
+  };
+}
+
+function artifactPreview(artifact: any) {
+  return {
+    id: artifact.id, taskId: artifact.taskId, generation: artifact.generation, version: artifact.version,
+    kind: artifact.kind, status: artifact.status, createdAt: artifact.createdAt,
+    preview: `${artifact.kind} v${artifact.version}`,
+  };
 }

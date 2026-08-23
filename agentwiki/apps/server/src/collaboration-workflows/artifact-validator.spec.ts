@@ -56,13 +56,23 @@ describe('ArtifactValidator', () => {
   });
 
   it.each([
-    'access_token', 'refresh_token', 'api_key', 'apikey', 'auth', 'credential', 'password',
-    'secret', 'token', 'key', 'signature', 'sig', 'provider', 'X-Amz-Credential',
+    'access_token', 'access-token', 'access.token', 'refresh_token', 'api_key', 'api-key', 'apikey',
+    'client_secret', 'signing-secret', 'auth_token', 'auth-token', 'id_token', 'bearer-token', 'jwt_token',
+    'auth', 'bearer', 'jwt', 'credential', 'db_password', 'password',
+    'secret', 'token', 'key', 'signature', 'request_signature', 'sig', 'request-sig',
+    'provider', 'oauth-provider', 'client-api-key', 'basic_auth', 'X-Amz-Credential',
   ])('rejects the credential-bearing URL query key %s', (key) => {
     expectBusinessCode(() => normalizeExternalReference({
       kind: 'url', displayName: 'Output',
       value: `https://example.com/file?${key}=sensitive`, contentHash: hash,
     }), 'COLLABORATION_EXTERNAL_REFERENCE_INVALID');
+  });
+
+  it.each(['page', 'version'])('keeps the explicitly safe URL query key %s', (key) => {
+    expect(normalizeExternalReference({
+      kind: 'url', displayName: 'Output',
+      value: `https://example.com/file?${key}=2`, contentHash: hash,
+    })).toMatchObject({ value: `https://example.com/file?${key}=2` });
   });
 });
 

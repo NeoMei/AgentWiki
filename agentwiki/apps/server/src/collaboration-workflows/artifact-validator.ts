@@ -129,13 +129,19 @@ export function normalizeExternalReference(reference: ExternalReference): Extern
   } catch {
     throw invalidReference();
   }
-  const hasSecretKey = [...url.searchParams.keys()].some((key) =>
-    /^(?:access_token|refresh_token|api_key|apikey|auth|credential|password|secret|token|key|signature|sig|provider|x-amz-.+|x-goog-.+)$/iu.test(key));
+  const hasSecretKey = [...url.searchParams.keys()].some(isCredentialQueryKey);
   if (url.protocol !== 'https:' || url.username || url.password || hasSecretKey || !reference.contentHash) {
     throw invalidReference();
   }
   url.hash = '';
   return { ...reference, value: url.toString() };
+}
+
+function isCredentialQueryKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/gu, '');
+  return /^(?:accesstoken|refreshtoken|authtoken|clientsecret|apikey|auth|bearer|jwt|credential|password|secret|token|key|signature|sig|provider)$/u.test(normalized)
+    || /(?:token|secret|password|credential|apikey|signature|sig|provider|auth|bearer|jwt)$/u.test(normalized)
+    || /^(?:xamz|xgoog).+/u.test(normalized);
 }
 
 function inspectJsonSchema(schema: Record<string, unknown>): ArtifactValidationIssue[] {

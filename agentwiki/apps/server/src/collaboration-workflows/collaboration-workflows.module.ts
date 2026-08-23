@@ -14,13 +14,14 @@ import { ProgressionService } from './progression.service';
 import { ReviewService } from './review.service';
 import { CollaborationEventsService } from './collaboration-events.service';
 import { RecoveryWorker } from './recovery.worker';
+import { HistoryCursorService } from './history-cursor.service';
 
 @Module({
   imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule],
   controllers: [TemplateController, RunController],
   providers: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
-    CollaborationEventsService, RecoveryWorker,
+    CollaborationEventsService, HistoryCursorService, RecoveryWorker,
   ],
   exports: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,

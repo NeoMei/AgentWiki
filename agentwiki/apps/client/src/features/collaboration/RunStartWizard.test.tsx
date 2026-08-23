@@ -9,7 +9,7 @@ import type { TemplateDetail } from './types';
 
 vi.mock('./api', () => ({ collaborationApi: {
   getTemplate: vi.fn(), listMembers: vi.fn(), createRunDraft: vi.fn(), updateRunDraft: vi.fn(),
-  validateRunDraft: vi.fn(), startRun: vi.fn(), getRun: vi.fn(),
+  validateRunDraft: vi.fn(), startRun: vi.fn(), getRun: vi.fn(), getRunDraftDetails: vi.fn(),
 } }));
 
 const template: TemplateDetail = {
@@ -140,6 +140,22 @@ describe('RunStartWizard', () => {
       'space-1', 'run-ready', expect.objectContaining({ expectedVersion: 3, name: 'Revised release' }),
     ));
     expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+  });
+
+  it('loads bounded draft details when the main Run summary omits inputs', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-ready', name: 'Ready release', status: 'ready', version: 3,
+      roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    vi.mocked(collaborationApi.getRunDraftDetails).mockResolvedValue({
+      id: 'run-ready', name: 'Ready release', status: 'ready', version: 3,
+      inputs: { brief: 'Recovered brief' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+    });
+
+    renderWizard();
+    expect(await screen.findByRole('heading', { name: '3. Review and start' })).toBeVisible();
+    expect(collaborationApi.getRunDraftDetails).toHaveBeenCalledWith('space-1', 'run-ready');
   });
 
   it('reloads the authoritative version before retrying preserved mapping changes', async () => {

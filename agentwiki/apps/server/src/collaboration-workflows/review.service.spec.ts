@@ -24,6 +24,9 @@ const review = {
   sourceTaskId: 'task-polish', revisionTaskId: 'task-draft', artifactId: 'artifact-1',
   minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true,
 };
+const siblingReview = {
+  ...review, id: 'review-2', nodeId: 'review-security', status: 'pending',
+};
 
 describe('ReviewService', () => {
   const tasks = [
@@ -33,7 +36,7 @@ describe('ReviewService', () => {
   ];
   const tx = {
     collaborationRun: { findUnique: jest.fn(), update: jest.fn() },
-    collaborationReview: { findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    collaborationReview: { findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
     collaborationTaskArtifact: { update: jest.fn(), updateMany: jest.fn() },
     collaborationRunTask: { findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn() },
@@ -51,6 +54,7 @@ describe('ReviewService', () => {
     events.executeIdempotent.mockImplementation(async (_tx: any, _scope: any, mutation: () => unknown) => mutation());
     tx.collaborationRun.findUnique.mockResolvedValue(run);
     tx.collaborationReview.findFirst.mockResolvedValue(review);
+    tx.collaborationReview.findMany.mockResolvedValue([{ ...review, status: 'approved' }]);
     tx.collaborationReview.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue(tasks);
@@ -97,6 +101,57 @@ describe('ReviewService', () => {
     expect(progression.advanceRun).toHaveBeenCalled();
   });
 
+  it('keeps a shared source submitted until every matching Review is created and approved', async () => {
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...run,
+      templateSnapshot: {
+        ...snapshot,
+        nodes: [...snapshot.nodes, {
+          kind: 'human_review', id: 'review-security', artifactTaskId: 'polish', revisionTaskId: 'draft',
+        }],
+      },
+    });
+    tx.collaborationReview.findMany.mockResolvedValue([
+      { ...review, status: 'approved' }, siblingReview,
+    ]);
+
+    await service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'first approval', idempotencyKey: 'approve-review-group-1',
+    }, reviewer);
+
+    expect(tx.collaborationTaskArtifact.updateMany).not.toHaveBeenCalled();
+    expect(tx.collaborationRunTask.update).not.toHaveBeenCalled();
+    expect(progression.advanceRun).toHaveBeenCalled();
+  });
+
+  it('accepts a shared source only when the final matching Review is approved', async () => {
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...run,
+      templateSnapshot: {
+        ...snapshot,
+        nodes: [...snapshot.nodes, {
+          kind: 'human_review', id: 'review-security', artifactTaskId: 'polish', revisionTaskId: 'draft',
+        }],
+      },
+    });
+    tx.collaborationReview.findFirst.mockResolvedValue(siblingReview);
+    tx.collaborationReview.findMany.mockResolvedValue([
+      { ...review, status: 'approved' }, { ...siblingReview, status: 'approved' },
+    ]);
+
+    await service.decide('space-1', 'run-1', 'review-2', {
+      kind: 'approve', reason: 'final approval', idempotencyKey: 'approve-review-group-2',
+    }, reviewer);
+
+    expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'artifact-1', generation: 1, status: 'pending' }),
+      data: expect.objectContaining({ status: 'accepted' }),
+    }));
+    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-polish' }, data: expect.objectContaining({ status: 'completed' }),
+    }));
+  });
+
   it('rejects for revision by creating new generations without deleting history', async () => {
     await service.decide('space-1', 'run-1', 'review-1', {
       kind: 'reject_for_revision', reason: 'missing evidence', idempotencyKey: 'reject-review-1',
@@ -110,6 +165,12 @@ describe('ReviewService', () => {
       data: expect.arrayContaining([expect.objectContaining({ taskId: 'task-draft', generation: 2 })]),
     }));
     expect((tx.collaborationTaskArtifact as any).deleteMany).toBeUndefined();
+    expect(tx.collaborationReview.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        runId: 'run-1', sourceTaskId: 'task-polish', generation: 1, id: { not: 'review-1' }, status: 'pending',
+      }),
+      data: expect.objectContaining({ status: 'superseded' }),
+    }));
   });
 
   it('rejects a stale source generation before accepting its Artifact', async () => {

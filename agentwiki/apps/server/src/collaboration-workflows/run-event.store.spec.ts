@@ -201,6 +201,7 @@ describe('RunEventStore', () => {
       new RunEventStore(),
       { advanceRun: jest.fn() } as any,
       { publishCurrentRun: jest.fn() } as any,
+      { decode: jest.fn(), encode: jest.fn() } as any,
     );
     const principal = { userId: 'user-cross' };
     const input = { expectedVersion: 2, idempotencyKey: 'start-space-a-0001' };

@@ -103,10 +103,10 @@ export const RunStartWizard: React.FC = () => {
       const storedRunId = localStorage.getItem(storageKey);
       if (storedRunId) {
         try {
-          const existing = await collaborationApi.getRun(id, storedRunId);
+          const existing = await loadEditableRun(id, storedRunId);
           setRun(existing);
           setRunName(existing.name);
-          setInputValues(existing.inputs);
+          setInputValues(existing.inputs ?? {});
           setBindings(existing.roleBindings);
           if (existing.status === 'ready') setStep(3);
           else if (existing.status === 'draft') setStep(2);
@@ -194,7 +194,7 @@ export const RunStartWizard: React.FC = () => {
     if (!action || !run) return;
     setSubmitting(true);
     try {
-      const latest = await collaborationApi.getRun(id, run.id);
+      const latest = await loadEditableRun(id, run.id);
       setRun(latest);
       setRetryAction(null);
       if (!['draft', 'ready'].includes(latest.status)) {
@@ -264,6 +264,14 @@ function isExecutableAgent(member: SpaceMemberSummary): boolean {
   return member.type === 'agent' && !!member.agentId && !!member.agent
     && member.agent.status === 'active' && !member.agent.revokedAt
     && (member.role === 'editor' || member.role === 'publisher');
+}
+
+async function loadEditableRun(spaceId: string, runId: string): Promise<CollaborationRun> {
+  const summary = await collaborationApi.getRun(spaceId, runId);
+  if (['draft', 'ready'].includes(summary.status) && !summary.inputs) {
+    return collaborationApi.getRunDraftDetails(spaceId, runId);
+  }
+  return summary;
 }
 
 function safeUuid(): string {

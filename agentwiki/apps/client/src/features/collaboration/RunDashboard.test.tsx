@@ -22,23 +22,24 @@ vi.mock('./api', () => ({ collaborationApi: {
 
 const runningRun = {
   id: 'run-1', name: 'Release run', spaceId: 'space-1', templateId: 'template-1', templateVersion: 1,
-  templateSnapshot: {}, snapshotHash: 'a'.repeat(64), status: 'running' as const, version: 4,
-  inputs: { brief: 'Ship it' }, startedById: 'starter-1', eventSequence: 8,
+  snapshotHash: 'a'.repeat(64), status: 'running' as const, version: 4,
+  startedById: 'starter-1', eventSequence: 8,
   createdAt: '2026-08-24T00:00:00Z', updatedAt: '2026-08-24T00:10:00Z', startedAt: '2026-08-24T00:01:00Z', finishedAt: null,
   roleBindings: [{ roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-1' }],
   tasks: [{
-    id: 'task-1', nodeId: 'draft', ordinal: 0, name: 'Draft', objective: 'Draft release', roleSlotId: 'writer', assigneeAgentId: 'agent-1',
+    id: 'task-1', nodeId: 'draft', ordinal: 0, name: 'Draft', objectivePreview: 'Draft release preview', roleSlotId: 'writer', assigneeAgentId: 'agent-1',
     status: 'running', generation: 2, skippable: false, completedAt: null,
+    todoCounts: { total: 50, pending: 47, doing: 1, done: 2, failed: 0 },
     todos: [
       { id: 'todo-1', ordinal: 0, name: 'Inspect', status: 'done', required: true, generation: 2 },
       { id: 'todo-2', ordinal: 1, name: 'Implement', status: 'doing', required: true, generation: 2 },
       { id: 'todo-3', ordinal: 2, name: 'Test', status: 'pending', required: true, generation: 2 },
     ],
     attempts: [{ id: 'attempt-1', status: 'running', leaseExpiresAt: '2026-08-24T00:20:00Z', attemptNumber: 1, agentId: 'agent-1' }],
-    artifacts: [{ id: 'artifact-1', version: 2, kind: 'external_reference', status: 'accepted', payload: { name: 'artifact-v2.md' }, createdAt: '2026-08-24T00:09:00Z' }],
+    artifacts: [{ id: 'artifact-1', version: 2, kind: 'external_reference', status: 'accepted', preview: 'artifact-v2 preview', createdAt: '2026-08-24T00:09:00Z' }],
   }],
-  dependencies: [], reviews: [],
-  events: [{ id: 'event-1', sequence: 8, type: 'todo_updated', actorKind: 'agent', operation: 'update_todo', target: 'todo-2', createdAt: '2026-08-24T00:08:00Z', metadata: {} }],
+  reviews: [],
+  events: [{ id: 'event-1', sequence: 8, type: 'todo_updated', actorKind: 'agent', operation: 'update_todo', target: 'todo-2', createdAt: '2026-08-24T00:08:00Z' }],
   joinInstructions: [],
 };
 
@@ -84,7 +85,8 @@ describe('RunDashboard', () => {
       '1. Inspect', '2. Implement', '3. Test',
     ]);
     expect(screen.getByText(/Lease expires/u)).toBeVisible();
-    expect(screen.getByText('artifact-v2.md')).toBeVisible();
+    expect(screen.getByText('Draft release preview')).toBeVisible();
+    expect(screen.getByText('artifact-v2 preview')).toBeVisible();
     expect(screen.getByText('Todo updated')).toBeVisible();
   });
 

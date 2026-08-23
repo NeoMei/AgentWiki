@@ -354,7 +354,7 @@ describe("collaboration contract", () => {
 
     const safeSourceWithExtraAny = validDefinition();
     safeSourceWithExtraAny.nodes = [
-      agentTask({ id: "artifact-source", name: "Artifact source", output: { key: "source", kind: "markdown" }, humanAcceptance: false, skippable: true }),
+      agentTask({ id: "artifact-source", name: "Artifact source", output: { key: "source", kind: "markdown" }, humanAcceptance: false }),
       agentTask({ id: "extra", name: "Extra", output: { key: "extra", kind: "markdown" }, humanAcceptance: false }),
       review("artifact-source"),
       agentTask({
@@ -373,6 +373,13 @@ describe("collaboration contract", () => {
     ];
     safeSourceWithExtraAny.terminalNodeIds = ["consumer"];
     expect(() => CollaborationTemplateDefinitionSchema.parse(safeSourceWithExtraAny)).not.toThrow();
+  });
+
+  it("rejects a Human Review whose Artifact source task is skippable", () => {
+    const definition = validDefinition();
+    definition.nodes = definition.nodes.map((node) =>
+      node.kind === "agent_task" && node.id === "draft" ? { ...node, skippable: true } : node);
+    expect(() => CollaborationTemplateDefinitionSchema.parse(definition)).toThrow(/review.*source.*skippable/i);
   });
 
   it("keeps input values and artifact variants strict", () => {

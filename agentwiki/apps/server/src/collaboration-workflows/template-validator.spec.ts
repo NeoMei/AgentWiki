@@ -243,7 +243,7 @@ describe('collaboration template validator', () => {
 
     const safeSourceWithExtraAny = validDefinition({
       nodes: [
-        { ...task('artifact-source', 'source'), skippable: true },
+        task('artifact-source', 'source'),
         task('extra'),
         review('artifact-source'),
         { ...task('consumer'), upstreamArtifacts: [{ key: 'source', required: true }] },
@@ -256,6 +256,23 @@ describe('collaboration template validator', () => {
       terminalNodeIds: ['consumer'],
     });
     expect(validateCollaborationTemplate(safeSourceWithExtraAny)).toEqual([]);
+  });
+
+  it('rejects a Human Review whose Artifact source task is skippable', () => {
+    const definition = validDefinition({
+      nodes: [task('a', 'a-output'), { ...task('b', 'b-output'), skippable: true }, {
+        kind: 'human_review', id: 'review', name: 'Review', artifactTaskId: 'b', minimumRole: 'editor',
+        reviewerUserIds: [], approvalCriteria: ['Complete'], revisionTaskId: 'b', allowTerminate: true,
+      }],
+      dependencies: [
+        { from: 'a', to: 'b', mode: 'all' },
+        { from: 'b', to: 'review', mode: 'all' },
+      ],
+      terminalNodeIds: ['review'],
+    });
+    expect(validateCollaborationTemplate(definition)).toContainEqual(
+      expect.objectContaining({ code: 'REVIEW_SOURCE_TASK_SKIPPABLE', path: 'nodes.review.artifactTaskId' }),
+    );
   });
 
   it('hashes canonical object-key order and accepts a sound graph', () => {

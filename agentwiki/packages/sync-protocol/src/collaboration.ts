@@ -447,6 +447,12 @@ export const CollaborationTemplateDefinitionSchema = CollaborationTemplateDefini
             path: ["nodes", nodeIndex, "artifactTaskId"],
             message: `Review artifact source must be an Agent task: ${node.artifactTaskId}`,
           });
+        } else if (source.skippable) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["nodes", nodeIndex, "artifactTaskId"],
+            message: `Review artifact source task cannot be skippable: ${node.artifactTaskId}`,
+          });
         }
         if (!incoming.get(node.id)?.some((edge) => edge.from === node.artifactTaskId)) {
           context.addIssue({

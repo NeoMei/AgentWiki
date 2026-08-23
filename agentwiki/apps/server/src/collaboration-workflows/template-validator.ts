@@ -198,8 +198,11 @@ export function validateCollaborationTemplate(input: unknown): TemplateValidatio
     if (node.kind !== 'human_review' || typeof node.id !== 'string') continue;
     const sourceId = typeof node.artifactTaskId === 'string' ? node.artifactTaskId : '';
     const revisionId = typeof node.revisionTaskId === 'string' ? node.revisionTaskId : '';
-    if (nodeById.get(sourceId)?.kind !== 'agent_task') {
+    const source = nodeById.get(sourceId);
+    if (source?.kind !== 'agent_task') {
       issues.push(issue('REVIEW_SOURCE_TASK_INVALID', `nodes.${node.id}.artifactTaskId`, sourceId));
+    } else if (source.skippable === true) {
+      issues.push(issue('REVIEW_SOURCE_TASK_SKIPPABLE', `nodes.${node.id}.artifactTaskId`, sourceId));
     }
     if (!incoming.get(node.id)?.some((edge) => edge.from === sourceId)) {
       issues.push(issue('REVIEW_SOURCE_EDGE_MISSING', `nodes.${node.id}.artifactTaskId`, sourceId));
