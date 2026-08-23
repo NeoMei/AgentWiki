@@ -19,4 +19,3 @@ export const ReviewPanel: React.FC<{
     }) : <p className="text-sm text-gray-500">{t('collaboration.dashboard.noReviews')}</p>}</div>
   </section>
 );
-

@@ -30,4 +30,3 @@ export const ValidationIssueList: React.FC<{
     </section>
   );
 };
-

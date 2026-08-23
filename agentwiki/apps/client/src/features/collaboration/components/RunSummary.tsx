@@ -36,4 +36,3 @@ export const RunSummary: React.FC<{
     </aside>
   );
 };
-

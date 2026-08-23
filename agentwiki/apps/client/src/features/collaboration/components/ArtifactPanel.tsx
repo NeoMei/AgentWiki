@@ -12,4 +12,3 @@ function artifactName(payload: unknown, fallback: string): string {
   for (const key of ['name', 'filename', 'title']) if (typeof value[key] === 'string' && value[key]) return String(value[key]);
   return fallback;
 }
-

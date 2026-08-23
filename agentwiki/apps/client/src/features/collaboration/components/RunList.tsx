@@ -26,4 +26,3 @@ export const RunList: React.FC<{
     </div>
   );
 };
-
