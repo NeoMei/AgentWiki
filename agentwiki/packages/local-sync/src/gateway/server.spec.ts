@@ -67,7 +67,12 @@ describe('gateway server tool registration', () => {
   it('forwards collaboration aliases with direct named inputs', async () => {
     const bridge = onlineBridge(['collaboration_next_action']);
     const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
-    const registered = (server as any)._registeredTools.wiki_collaboration_next_action;
+    const registered = (server as unknown as {
+      _registeredTools: Record<string, {
+        inputSchema: { parse(input: unknown): unknown };
+        handler(input: unknown): Promise<unknown>;
+      }>;
+    })._registeredTools.wiki_collaboration_next_action;
     const input = registered.inputSchema.parse({ runId: 'run-1', idempotencyKey: 'next-0001' });
     await registered.handler(input);
     expect(bridge.callGatewayTool).toHaveBeenCalledWith('wiki_collaboration_next_action', {
