@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 2026-08-23 空间设置的知识图谱自动生成故障已完成本地多轮修复与全量验证，等待确认后发布网页/API 热修；之后下一产品目标为 Agent 协作模板与组件。
+- 2026-08-24 空间设置的知识图谱自动生成热修已完成 GitHub 推送、生产部署和真实浏览器验收；下一产品目标为 Agent 协作模板与组件。
 - Agent 统一访问角色和 Obsidian 单页连接流程现已在线上运行；继续监控而不另开平行授权入口。
 - 后续协作能力必须继续复用 `AgentGrant.role` 单一权限事实，不重新引入独立 Credential scopes 或第二套授权入口。
 
@@ -29,7 +29,9 @@
 - 生产已切换到应用与 Local Sync `0.5.1`，保留旧应用树 `/root/agentwiki-previous-20260823223846`；三项服务 active/running、`NRestarts=0`，部署后 error 日志为 0，公网和本机健康检查均为全 `ok`。
 - 本轮没有改动真实 OpenCode 本机配置；生产验收使用真实公网 HTTP/MCP 客户端完成协议与权限闭环。
 - 空间图谱设置保存故障的根因为 GET 响应中的只读 `lastRunAt` 被前端随完整设置对象 PATCH 回服务端，触发未知字段 400；前端现只提交实际变更字段并显示“已保存”。同时按当前用户的 Space 角色禁用无权修改的空间/图谱控件，避免 Editor/Viewer 触发必然失败的请求。
-- 图谱热修追加修复：Space 路由切换不再残留旧数据/权限，失败的阈值保存回滚到服务器确认值，Space 保存使用服务器返回值且草稿变更会清除“已保存”，旧 Space 的延迟响应不再覆盖新 Space。后端设置 PATCH 改为原子局部更新并拒绝空更新，保留的自动相似关系会批量刷新分数。图谱专项 37/37与全量门禁均通过；真实生产“立即刷新”已返回成功，但这些热修尚未推送或部署。
+- 图谱热修追加修复：Space 路由切换不再残留旧数据/权限，失败的阈值保存回滚到服务器确认值，Space 保存使用服务器返回值且草稿变更会清除“已保存”，旧 Space 的延迟响应不再覆盖新 Space。后端设置 PATCH 改为原子局部更新并拒绝空更新，保留的自动相似关系会批量刷新分数。图谱专项 37/37 与全量门禁均通过；代码提交 `898dc0b` 已推送并部署。
+- 生产登录态浏览器已完整验证开关与阈值保存、刷新后持久化、恢复原配置和“立即刷新”；未出现“保存失败”。公网 HTTP/MCP smoke 31/31 通过，本轮新增测试用户、空间和 Agent 残留均为 0，部署后无 500/FATAL。
+- 图谱热修回滚备份已验证：数据库 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450.dump`（SHA-256 `2750daf8a0c48c0621695307fdcbf9eb6849e9d5862c83a735400a1e7910b206`），应用 `/root/backups/agentwiki/pre-graph-settings-hotfix-20260824-000450-app.tar.gz`（SHA-256 `63ccb0d97b412b094fdb887f8980921935095631573a913736bb4e13295dcc2e`）；旧应用树为 `/root/agentwiki-previous-20260824000843`。
 
 # 稳定约束
 
@@ -46,6 +48,7 @@
 - 统一访问角色部署门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
 - 已归档统一访问角色任务：`.codex-memory/tasks/archive/unified-agent-access-roles/`
 - 综合安全与可靠性审查：`.codex-memory/tasks/archive/comprehensive-security-reliability-audit-2026-08-23/`
+- 图谱设置热修发布证据：`agentwiki/docs/verification/graph-settings-hotfix-2026-08-24.md`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 协作模板任务：`.codex-memory/tasks/active/agent-collaboration-templates/`
@@ -53,7 +56,7 @@
 # 风险 / 下一步
 
 - `0.5.1` 已完成 GitHub、npm 与生产对齐；后续重点是观察线上授权、同步和审计指标，不再需要补发。
-- 空间图谱设置保存热修当前仅在本地；发布时不需要 npm 或数据库迁移，但仍需按生产门禁备份、部署并在登录态浏览器中验证开关保存、阈值保存、刷新和只读角色状态。
+- 空间图谱设置保存热修已发布；无需 npm 版本或数据库迁移，后续只需观察线上保存失败率、刷新任务日志和自动关系生成结果。
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
