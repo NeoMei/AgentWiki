@@ -37,7 +37,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('heading', { name: '生成统一网关接入指令' })).toBeInTheDocument();
     const gatewayStepHeading = screen.getByRole('heading', { name: '生成统一网关接入指令' });
     expect(gatewayStepHeading.parentElement).toHaveClass('min-w-0');
-    expect(screen.getByText(/API Key 只用于脚本和外部系统/)).toBeInTheDocument();
+    expect(screen.getByText(/不会另行创建一套 API Key 授权/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '把接入指令交给本地 Agent' })).toBeInTheDocument();
     expect(screen.getByText(/把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/以下以 OpenCode 为例/)).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getAllByText(/Agent 不能执行人工审批或成员管理/).length).toBeGreaterThan(0);
 
     const guideText = document.body.textContent || '';
-    expect(guideText).not.toMatch(/配置权限范围|权限面板|凭据范围|可用权限范围|根据 scope 自动推导|审核者|完全授权/);
+    expect(guideText).not.toMatch(/配置权限范围|权限面板|凭据范围|可用权限范围|根据 scope 自动推导|审核者|完全授权|普通凭据区创建/);
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

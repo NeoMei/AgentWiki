@@ -114,13 +114,16 @@ export async function runCrossMachineE2E(environment = process.env) {
     });
     fixture.agentId = agent.id;
 
-    await request(apiUrl, `/agents/${agent.id}/grants/${space.id}`, {
-      method: 'PUT', token, body: { role: 'publisher' },
+    const installation = await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
+      method: 'POST', token,
+      body: { spaceId: space.id, role: 'publisher', pluginVersion: '0.5.0' },
     });
-    const credential = await request(apiUrl, `/agents/${agent.id}/credentials`, {
-      method: 'POST', token, body: { name: 'cross-machine-e2e', role: 'publisher' },
+    const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
+      method: 'POST', body: { code: installation.code },
     });
-    assert.ok(credential.apiKey, 'Agent credential must be created');
+    assert.ok(credential.apiKey, 'Unified connection exchange must create the Agent credential');
+    assert.equal(credential.role, 'publisher');
+    assert.equal(credential.spaceId, space.id);
 
     const connection = {
       id: `cross-${suffix}`,

@@ -19,3 +19,5 @@
 - Reader full onboarding 在网关验证后只允许远程 pull 并完成，不规划或调用写同步。
 - Agent Grant 变更与移除需要操作者同时是 Space owner/admin 且是 Agent owner；成员响应返回 `canManageRole`。
 - Auto-publish 不使用 principal 快照作最终判据；发布事务锁定 Credential、Agent/owner、Grant、Space 行并重验角色、scopes、状态、开关、Policy 和领域 scope，任一失效回 `pending_review`。
+- Agent 详情页只能有一个可编辑 `Space + role` 连接授权入口；Credential 是连接兑换的内部产物，不再允许通过 `POST /agents/:id/credentials` 手工签发，也不在该页独立编辑 Grant 角色。
+- 已有 Grant/Credential 作为授权和连接记录只读展示，保留移除/撤销动作；Space Members 的成员角色管理属于另一条管理流程，继续使用 Grant API。

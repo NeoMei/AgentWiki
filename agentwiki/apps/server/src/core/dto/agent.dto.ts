@@ -1,5 +1,5 @@
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
-import { IsBoolean, IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateAgentDto {
   @IsString() @MinLength(1) @MaxLength(100) name: string;
@@ -12,12 +12,6 @@ export class UpdateAgentDto {
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsIn(['active', 'paused']) status?: string;
   @IsOptional() @IsBoolean() memoryEnabled?: boolean;
-}
-
-export class CreateAgentCredentialDto {
-  @IsString() @MinLength(1) @MaxLength(100) name: string;
-  @IsIn(AGENT_ACCESS_ROLES) role: AgentAccessRole;
-  @IsOptional() @IsDateString() expiresAt?: string;
 }
 
 export class UpsertAgentGrantDto {

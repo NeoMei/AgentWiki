@@ -1,5 +1,7 @@
 # Agent Unified Access Roles Implementation Plan
 
+> **2026-08-23 correction:** The manual Credential creation and Agent-detail Grant editor described in this historical plan are superseded by `2026-08-23-unified-agent-access-single-entry-fix-plan.md`. The supported product model has one editable `Space + role` connection flow; credentials are generated internally during exchange, while existing Grant/Credential records are read-only diagnostics with revoke actions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace split Agent Grant, connection-code, and Credential permissions with one `reader | editor | publisher` role selected once per connection, while retaining least-privilege intersections and human-only review decisions.
@@ -27,7 +29,7 @@
 - `packages/sync-protocol/src/agent-access-role.ts`: canonical role names, exact scopes, capability ordering, Zod schema, and human-Space capability mapping.
 - `apps/server/prisma/schema.prisma` and migration: persisted role enum on Credential and Grant.
 - `apps/server/src/core/authorization/authorization.service.ts`: role-aware Space authorization and scope intersection.
-- `apps/server/src/core/agent/agent.service.ts`: role-derived manual credentials/grants and atomic connection exchange.
+- `apps/server/src/core/agent/agent.service.ts`: role-derived Space grants and atomic connection exchange; no manual Credential-creation API.
 - `apps/server/src/core/agent/local-sync-installation.service.ts`: short-lived `spaceId + role` intent and replay-safe exchange orchestration.
 - `apps/server/src/onboard/*`: 0.5.0 full onboarding expressed in the same role protocol.
 - `packages/local-sync/src/onboarding/*`: role-only client input, hashing, session validation, and bootstrap types.

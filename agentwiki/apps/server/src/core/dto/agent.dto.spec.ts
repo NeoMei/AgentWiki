@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
-  CreateAgentCredentialDto,
   CreateAgentDto,
   UpdateAgentDto,
   UpsertAgentGrantDto,
@@ -38,9 +37,6 @@ describe('Agent DTO role-only boundary', () => {
   });
 
   it.each([
-    [CreateAgentCredentialDto, { name: 'legacy', role: 'viewer' }],
-    [CreateAgentCredentialDto, { name: 'legacy', role: 'full' }],
-    [CreateAgentCredentialDto, { name: 'legacy', role: 'editor', scopes: ['pages:read'] }],
     [UpsertAgentGrantDto, { role: 'viewer' }],
     [UpsertAgentGrantDto, { role: 'full' }],
     [UpsertAgentGrantDto, { role: 'editor', scopes: ['pages:read'] }],

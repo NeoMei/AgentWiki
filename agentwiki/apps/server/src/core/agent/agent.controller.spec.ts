@@ -1,6 +1,10 @@
 import { AgentController } from './agent.controller';
 
 describe('AgentController platform authorization', () => {
+  it('does not expose a manual Agent credential creation route', () => {
+    expect('createCredential' in AgentController.prototype).toBe(false);
+  });
+
   it('preserves the authenticated platform role when authorizing an Agent grant', async () => {
     const agents = {
       upsertGrantForSpace: jest.fn().mockResolvedValue({ id: 'grant-1' }),

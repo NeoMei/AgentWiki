@@ -170,7 +170,7 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '生成统一网关接入指令' : 'Generate Gateway Instructions'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '进入「智能体 → 目标 Agent → 访问权限 → AgentWiki 统一网关」，选择 Space 与 Agent 角色，再生成 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。普通凭据区创建的 API Key 只用于脚本和外部系统。' : 'Go to Agents → target Agent → Access → AgentWiki unified gateway, choose a Space and Agent role, then generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. API keys in the credentials section are only for scripts and external systems.'}
+                    {zh ? '进入「智能体 → 目标 Agent → 访问权限 → AgentWiki 统一网关」，选择 Space 与 Agent 角色，再生成 10 分钟有效的一次性安装指令（onboard --code），点击「复制」完整复制后交给本地 Agent。连接兑换会在内部生成凭据，不会另行创建一套 API Key 授权。' : 'Go to Agents → target Agent → Access → AgentWiki unified gateway, choose a Space and Agent role, then generate the one-time installation instructions (onboard --code, valid for 10 minutes). Copy the complete prompt and give it to your local Agent. Connection exchange creates the credential internally; there is no separate API-key authorization flow.'}
                   </p>
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-700">
                     <strong>{zh ? '重要：' : 'Important: '}</strong>

@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- Agent `reader`、`editor`、`publisher` 统一访问角色已完成本地实现、多轮缺陷审查与本地 `master` 合并；外部发布门禁仍未执行。
+- Agent `reader`、`editor`、`publisher` 统一访问角色已完成本地实现和多轮缺陷审查；2026-08-23 又修正了 Agent 详情页仍保留三套可编辑授权入口的问题，外部发布门禁仍未执行。
 - 下一阶段按已修订 Spec 和 TDD 计划实施 Agent 协作模板与组件；统一访问角色作为其已完成前置基础，二者在外部发布时合并为 local-sync/onboarding 0.6.0，不单独发布中间版。
 
 # 范围 / 不做
@@ -14,8 +14,8 @@
 
 # 当前状态
 
-- `unified-agent-access-roles`：在原 FINAL CLEAN 后又完成多轮独立缺陷审查，修复授权写入原子性、删除 Space 的兑换回放、Reader 空 pull、token/checkpoint 顺序、bootstrap 名称绑定、前端旧接入码状态和手工 Grant/Credential 撤权竞态；收敛轮未再发现值得修复的问题。
-- 最新全量候选测试为 runtime 84 通过 / 47 环境跳过、server 768、client 226、sync-protocol 25、local-sync 736；三客户端 onboarding、双包干净安装、类型、lint、Prisma 与格式门禁均通过。
+- `unified-agent-access-roles`：Agent 访问页现只保留一个可编辑 `Space + role` 连接入口；Credential 仅在连接兑换时内部生成，已有 Grant/Credential 只读展示并可撤销，手工 `POST /agents/:id/credentials` 已删除。使用指南、安全文档、smoke 与 cross-machine E2E 同步改为单入口模型。
+- 最新全量候选测试为 runtime 85 通过 / 47 环境跳过、server 761、client 221、sync-protocol 25、local-sync 736；双包干净安装、类型、lint、Prisma、构建与格式门禁均通过。真实本地浏览器已验证桌面和 390px 移动端都只有一个角色选择器且无横向溢出或控制台错误。
 - Reader onboarding 已改为只读 pull 路径；Agent Grant 变更同时要求 Agent owner 与 Space owner/admin；auto-publish 在发布事务临界点锁定并重验 Credential、Agent/owner、Grant、Space 与领域门槛。
 - sync-protocol 0.2.0 与 local-sync 0.5.0 候选包已通过联合打包、空目录安装和 CLI 启动验证；尚未推送、发布或部署。
 - `agent-collaboration-templates`：正式设计和 13 个任务的 TDD 实施计划已完成完整性修订，尚未开始生产代码实现。
@@ -25,6 +25,7 @@
 
 - Agent 有效权限始终为 Credential 角色/scopes、Space Grant 角色/scopes、Agent/owner 状态、Space Policy 和领域授权的交集。
 - 普通产品入口只使用 `reader | editor | publisher`；scopes 由共享策略派生，任何 Agent 都没有 `review:decide` 或成员管理权限。
+- Agent 详情页唯一可编辑授权动作是生成 `Space + role` 连接；不得恢复独立 Grant 角色编辑器或手工 Credential 签发入口。Space Members 仍可管理成员授权。
 - Publisher 不修改 Space Policy；自动发布必须在发布临界点满足 Credential、Grant、Agent 开关、Space Policy 与领域门槛。
 - “Agent 访问角色”与协作模板中的“角色槽位”是两个不同概念。
 - 协作运行保存不可变模板快照；Todo 属于任务内部，依赖属于节点之间，并行由多个 ready 节点自然产生。
@@ -35,6 +36,7 @@
 
 - 统一访问角色设计：`agentwiki/docs/superpowers/specs/2026-08-22-unified-agent-access-roles-design.md`
 - 统一访问角色计划：`agentwiki/docs/superpowers/plans/2026-08-22-unified-agent-access-roles-plan.md`
+- 单入口纠正计划：`agentwiki/docs/superpowers/plans/2026-08-23-unified-agent-access-single-entry-fix-plan.md`
 - 统一访问角色验证：`agentwiki/docs/verification/unified-agent-access-roles-0.5.0.md`
 - 统一访问角色部署门禁：`agentwiki/docs/operations/unified-agent-access-roles-0.5.0-deployment.md`
 - 统一访问角色任务：`.codex-memory/tasks/active/unified-agent-access-roles/`

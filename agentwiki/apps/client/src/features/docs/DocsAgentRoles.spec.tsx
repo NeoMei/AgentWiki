@@ -29,8 +29,9 @@ describe('Agent role documentation', () => {
     expect(screen.getByRole('heading', { name: '凭据角色' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Space Agent 角色' })).toBeInTheDocument();
     expect(screen.getByText(/Reader、Editor、Publisher/)).toBeInTheDocument();
+    expect(screen.getByText(/接入时.*选择一次/)).toBeInTheDocument();
     expect(screen.getByText(/Agent (?:永远)?不能执行人工审批或成员管理/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/Credential Scope|凭据范围|具体权限范围/);
+    expect(document.body.textContent).not.toMatch(/Credential Scope|凭据范围|具体权限范围|创建凭据时/);
   });
 
   it('uses unified roles in the architecture guide', () => {

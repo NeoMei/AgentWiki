@@ -3,7 +3,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { HumanOnlyGuard } from '../auth/human-only.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
-import { CreateAgentCredentialDto, CreateAgentDto, UpdateAgentDto, UpsertAgentGrantDto } from '../dto/agent.dto';
+import { CreateAgentDto, UpdateAgentDto, UpsertAgentGrantDto } from '../dto/agent.dto';
 import { AgentService } from './agent.service';
 import { LocalSyncInstallationService } from './local-sync-installation.service';
 import { parseLimit, parseOffset } from '../utils/pagination';
@@ -40,11 +40,6 @@ export class AgentController {
   @Delete(':id')
   revoke(@Req() req: Request, @Param('id') id: string) {
     return this.agents.revoke((req.user as any).userId, id);
-  }
-
-  @Post(':id/credentials')
-  createCredential(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateAgentCredentialDto) {
-    return this.agents.createCredential((req.user as any).userId, id, dto);
   }
 
   @Get(':id/credentials')

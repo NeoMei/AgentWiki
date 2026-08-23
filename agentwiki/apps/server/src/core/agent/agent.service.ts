@@ -1,14 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
-import { CreateAgentDto, CreateAgentCredentialDto, UpdateAgentDto } from '../dto/agent.dto';
+import { CreateAgentDto, UpdateAgentDto } from '../dto/agent.dto';
 import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 @Injectable()
 export class AgentService {
-  private readonly logger = new Logger(AgentService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
   async create(ownerId: string, dto: CreateAgentDto) {
@@ -75,56 +73,6 @@ export class AgentService {
     ]);
     await this.audit(id, 'agent.revoke', 'success');
     return { success: true };
-  }
-
-  async createCredential(ownerId: string, agentId: string, dto: CreateAgentCredentialDto) {
-    const agent = await this.getOwned(ownerId, agentId);
-    if (agent.status === 'revoked') throw new BadRequestException('Agent is revoked');
-    const scopes = scopesForAgentAccessRole(dto.role);
-    const rawKey = 'agk_' + randomBytes(32).toString('base64url');
-    const createCredential = (db: Pick<PrismaService, 'agentCredential'>) => db.agentCredential.create({
-      data: {
-        agentId,
-        name: dto.name,
-        role: dto.role,
-        prefix: rawKey.slice(0, 12),
-        keyHash: createHash('sha256').update(rawKey).digest('hex'),
-        scopes,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      },
-      select: {
-        id: true, name: true, prefix: true, role: true, scopes: true,
-        expiresAt: true, lastUsedAt: true, createdAt: true,
-      },
-    });
-    const credential = await this.prisma.$transaction(async (tx) => {
-      const liveAgent = await tx.agent.findFirst({
-        where: {
-          id: agentId,
-          ownerId,
-          revokedAt: null,
-          owner: { deletedAt: null, lockedAt: null },
-        },
-        select: { id: true },
-      });
-      if (!liveAgent) {
-        throw new ForbiddenException('Credential authorization is no longer valid');
-      }
-      const created = await createCredential(tx);
-      if (dto.role === 'publisher') {
-        await tx.agent.update({
-          where: { id: agentId },
-          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
-        });
-      }
-      return created;
-    });
-    try {
-      await this.audit(agentId, 'credential.create', 'success', 'AgentCredential', credential.id);
-    } catch (error) {
-      this.logger.warn(`Credential ${credential.id} was persisted but its audit event failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return { ...credential, apiKey: rawKey };
   }
 
   async assertCanIssueConnection(ownerId: string, agentId: string, spaceId: string): Promise<void> {

@@ -91,17 +91,17 @@
 | 4.3 | 查看 Agent | `GET /agents/:id` | 含状态、角色化 Grants/Credentials、最近活动和只读治理诊断 |
 | 4.4 | 编辑 Agent | `PATCH /agents/:id` | 可修改 name/description/status；旧 `approvalMode` 输入必须拒绝 |
 | 4.5 | 删除 Agent | `DELETE /agents/:id` | 撤销 Agent；凭据同步失效 |
-| 4.6 | 创建凭据 | `POST /agents/:id/credentials` | name+`reader/editor/publisher`→200 返回 `apiKey`(agk_...)；自定义 scopes 和旧角色必须拒绝；key 仅显示一次 |
-| 4.7 | 列出凭据 | `GET /agents/:id/credentials` | 显示前缀、角色、只读派生 scopes、创建时间，不显示完整 key |
-| 4.8 | 撤销凭据 | `DELETE /agents/:id/credentials/:cid` | 凭据立即失效→401 |
-| 4.9 | Space 授权 | `PUT /agents/:id/grants/:spaceId` | 仅接受 `reader/editor/publisher`；Credential 与 Grant 有效能力取交集 |
-| 4.10 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
-| 4.11 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.12 | 本地同步安装 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.5.0`，生成一次性安装码（10分钟过期） |
-| 4.13 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
-| 4.14 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
+| 4.6 | 列出连接凭据 | `GET /agents/:id/credentials` | 显示前缀、角色、只读派生 scopes、创建时间，不显示完整 key |
+| 4.7 | 撤销连接凭据 | `DELETE /agents/:id/credentials/:cid` | 凭据立即失效→401 |
+| 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | 仅 Space 成员管理流程使用；仅接受 `reader/editor/publisher` |
+| 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
+| 4.10 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
+| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.5.0`，生成一次性安装码（10分钟过期） |
+| 4.12 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
+| 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
+| 4.14 | 禁止手工签发 | `POST /agents/:id/credentials` | 路由不存在；Credential 只能由统一连接兑换产生 |
 
-**前端路由：** `/agents`（Agent 列表）、`/agents/:id`（详情含凭证管理、接入指令生成）
+**前端路由：** `/agents`（Agent 列表）、`/agents/:id`（详情仅有一个 `Space + role` 授权入口，已有凭据仅作连接记录查看/撤销）
 
 ---
 

@@ -3,8 +3,7 @@
 ## Result
 
 Local release verification passed on 2026-08-23 (Asia/Shanghai) for the unified-role
-implementation plus repeated-audit fixes through `c53c09d`. The evidence-only
-documentation commit follows those runtime changes. No push,
+implementation plus the single-entry authorization correction. No push,
 npm publish, production deployment, migration application, service restart, live
 connection change, or real OpenCode acceptance was performed.
 
@@ -13,7 +12,7 @@ connection change, or real OpenCode acceptance was performed.
 - Application/local-sync/onboarding version: `0.5.0`
 - Shared sync-protocol package version: `0.2.0`
 - Agent roles: exactly `reader | editor | publisher`
-- Local candidate branch: `codex/unified-agent-access-roles`
+- Local candidate branch: `master`
 
 ## Build and full repository tests
 
@@ -27,9 +26,9 @@ Result: exit 0. All workspace packages built, then the root test chain passed:
 
 | Suite | Result |
 | --- | --- |
-| Runtime contracts | 84 passed, 0 failed, 47 skipped |
-| Server Jest | 64 suites, 768 tests passed |
-| Client Vitest | 45 files, 226 tests passed |
+| Runtime contracts | 85 passed, 0 failed, 47 skipped |
+| Server Jest | 64 suites, 761 tests passed |
+| Client Vitest | 45 files, 221 tests passed |
 | Sync protocol Vitest | 6 files, 25 tests passed |
 | Local Sync Vitest | 59 files, 736 tests passed |
 
@@ -158,6 +157,33 @@ additional issues before convergence:
 The final no-find pass re-read the active DTO, controller, authorization, exchange,
 onboarding, installation, and UI paths and found no further defect worth changing. Fresh
 full verification was then repeated rather than relying on an earlier green run.
+
+## Single-entry authorization correction
+
+A production screenshot exposed that the original role migration had not changed the
+actual product model: Agent detail still presented separate editable Space Grant,
+connection, and Credential controls. The correction now enforces one product authorization
+surface:
+
+- Agent detail contains exactly one editable `Space + role` selector in the connection card;
+- connection exchange atomically creates the matching Credential and Space Grant;
+- existing Space authorizations and connection credentials are read-only records with
+  remove/revoke actions;
+- the server no longer exposes `POST /agents/:id/credentials` or its DTO/service path;
+- smoke and cross-machine E2E fixtures obtain credentials only through connection exchange;
+- user and security documentation no longer describes a separate API-key authorization path.
+
+The corrected UI was exercised against an isolated migrated PostgreSQL database in the
+real local application. Desktop and 390x844 browser checks each found one role selector,
+zero manual Grant/Credential buttons, no horizontal overflow, and no console warning or
+error. Generating an Editor instruction produced one connection instruction block. The
+temporary QA user, Space, Agent, connection, and database were removed after validation.
+
+The first full suite after this correction caught a shared guide-title regression. The
+component now keeps the global `AgentWiki unified gateway` title while Agent detail passes
+its specific `Agent access and authorization` title. Targeted tests and the complete fresh
+suite passed after that repair. A final copy scan also found and corrected two stale guide
+statements that still described manual Credential creation.
 
 ## External release gate (read-only snapshot)
 

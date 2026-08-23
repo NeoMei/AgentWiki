@@ -236,19 +236,20 @@ curl -X POST $BASE/agents/AGENT_ID/local-sync-installations \
 Paste the returned one-time instruction into Codex, Claude Code, or OpenCode. On
 exchange, AgentWiki writes the `editor` Credential and `editor` Space Grant together.
 
-### 3. Optional Manual API Credential
+### 3. Agent API Connection
 
-For scripts or non-MCP integrations, create a role-limited Credential. The server derives
-its exact scopes; custom scopes are rejected. A matching Space Grant role is still required.
+Scripts or non-MCP integrations use the same connection authorization flow. Exchange the
+one-time code returned above; the exchange atomically creates the role-matched Credential
+and Space Grant and returns the one-time `apiKey`.
 
 ```bash
-curl -X POST $BASE/agents/AGENT_ID/credentials \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST $BASE/integrations/local-sync/exchange \
   -H "Content-Type: application/json" \
-  -d '{"name":"default","role":"editor"}'
+  -d '{"code":"AW-ONE-TIME-CODE"}'
 ```
 
-Save the returned `apiKey` (`agk_...`) — it's shown only once.
+Save the returned `apiKey` (`agk_...`). AgentWiki does not provide a second manual
+Credential-signing route.
 
 ### 4. Call the API
 

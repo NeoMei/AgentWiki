@@ -15,7 +15,7 @@
 - 用户只选择一次 Space 和 Agent 角色，连接授权与凭证授权使用同一角色。
 - 角色名称统一为 `reader`、`editor`、`publisher`。
 - Grant 和 Credential 的权限都由服务端统一角色表展开，普通产品入口不再逐项选择 scopes。
-- 保留 Credential 与 Grant 的运行时交集，支持同一 Agent 在不同 Space、不同客户端连接上拥有不同权限上限。
+- 保留 Credential 与 Grant 的运行时交集，但 Credential 是连接授权包兑换产生的内部安全对象，不再是一条独立的产品授权路径。
 - `editor` 必须能够调用 `wiki_propose_page`，产生的变更仍进入人工审核。
 - `publisher` 可以获得 Agent 可用的完整内容权限，但不能管理成员、执行人工审批或获得 `review:decide`。
 
@@ -97,11 +97,11 @@ AgentGrant 是 Agent 在一个 Space 内的能力上限，AgentCredential 是某
 
 ## API 边界
 
-新的普通产品接口只接受角色，不接受任意 scopes：
+新的普通产品接口只在连接授权包上接受角色，不接受任意 scopes：
 
 - 创建连接授权包：`agentId`、`spaceId`、`role`、`pluginVersion`；
-- 创建手工 API Credential：`name`、`role`、可选 `expiresAt`；
-- 修改 Space Grant：`role`。
+- 查看和撤销已有连接凭据，但不提供手工创建 Credential 的 Agent API；
+- Space 成员管理流程仍可修改或移除 AgentGrant，但 Agent“访问权限”页不再把它作为第二个授权表单。
 
 服务端响应同时返回角色和由服务端展开的只读 scopes，便于诊断，但客户端不能把响应 scopes 修改后回传以改变权限。
 
@@ -109,7 +109,7 @@ AgentGrant 是 Agent 在一个 Space 内的能力上限，AgentCredential 是某
 
 ## 前端体验
 
-Agent“访问权限”页改为两个主要区域：
+Agent“访问权限”页只保留一个可编辑的授权区域，并附带只读/撤销记录：
 
 ### 连接 Agent
 
@@ -121,14 +121,13 @@ Agent“访问权限”页改为两个主要区域：
 
 `Publisher` 必须显示提示：自动发布仍受 Space Policy 限制，并且 Agent 不能执行人工审批或成员管理。
 
-### 现有连接与 Space 角色
+### 现有授权与连接记录
 
-- Credential 列表显示名称、角色、前缀、最后使用时间、过期时间和撤销操作；
-- Space 列表显示当前 Agent 角色，并允许在三档角色间调整或移除；
-- 手工 API Credential 只选择角色，不显示逐项 scope 复选框；
+- Space 授权记录显示当前 Agent 角色并允许移除，不再提供独立角色下拉框；角色变更通过上方的统一连接表单重新授权。
+- Credential 记录显示名称、角色、前缀、最后使用时间、过期时间和撤销操作，但不提供新建、改角色或编辑 scopes 的控件。
 - scopes 仅作为诊断详情只读展示。
 
-当前分离的“Space Access”“Local Sync 安装码 scopes”“Credential scopes”不再作为三套可编辑控件存在。
+当前分离的“Space Access”“Local Sync 连接授权”“Credential 授权”不再作为三套可编辑控件存在。Agent 访问页中只能找到一个 Agent 角色选择器。
 
 ## Publisher 治理
 
@@ -172,9 +171,10 @@ Agent“访问权限”页改为两个主要区域：
 ### 前端与本地连接
 
 - 访问页面只提供三档角色；
+- 访问页面只有一个可编辑的角色选择器，不存在独立 Grant 授权表单或手工 Credential 签发表单；
 - 生成连接码提交 `spaceId + role`，不提交 scopes；
 - 已有 Grant 变更提示准确；
-- 手工 Credential 只按角色创建；
+- Credential 只能由连接授权包兑换产生，Agent API 不提供手工创建路由；
 - Local Sync 的会话 schema、计划哈希、协调器和三客户端安装流程使用同一角色协议。
 
 ### MCP 行为
@@ -198,7 +198,8 @@ Agent“访问权限”页改为两个主要区域：
 
 ## 完成标准
 
-- 产品界面不存在彼此独立的连接 scopes 与 Credential scopes 配置路径；
+- 产品界面只存在一个 `Space + role` 授权入口，不存在独立的 Grant 或 Credential 授权表单；
+- Agent API 不提供手工签发 Credential 的第二条授权路径；
 - 所有新 Grant、Credential 和连接码只使用 `reader`、`editor`、`publisher`；
 - OpenCode 的 editor 连接可以提议页面修改，并继续受人工审核约束；
 - 多 Space、多 Credential 的最小权限交集仍然有效；

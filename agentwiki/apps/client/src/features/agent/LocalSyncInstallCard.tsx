@@ -22,7 +22,8 @@ export const LocalSyncInstallCard: React.FC<{
   agentId: string;
   spaces: SpaceOption[];
   grants: GrantSummary[];
-}> = ({ agentId, spaces, grants }) => {
+  title?: string;
+}> = ({ agentId, spaces, grants, title }) => {
   const { t } = useLanguage();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
   const [role, setRole] = useState<AgentAccessRole>('reader');
@@ -83,7 +84,7 @@ export const LocalSyncInstallCard: React.FC<{
   return (
     <section className="border rounded-[14px] bg-white p-5">
       <h2 className="flex items-center gap-2 font-semibold">
-        <PlugZap size={18} /> {t('agent.localSync.title')}
+        <PlugZap size={18} /> {title ?? t('agent.localSync.title')}
       </h2>
       <p className="mt-2 text-sm text-gray-500">{t('agent.localSync.description')}</p>
 

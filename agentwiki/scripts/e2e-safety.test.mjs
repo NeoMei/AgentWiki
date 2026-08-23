@@ -91,6 +91,15 @@ test('active Agent E2E requests use roles without legacy permission inputs', asy
   }
 });
 
+test('active Agent E2E obtains credentials only through unified connection exchange', async () => {
+  for (const file of ['smoke-test.mjs', 'cross-machine-e2e.mjs']) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /local-sync-installations/u, `${file} must create a unified connection intent`);
+    assert.match(source, /integrations\/local-sync\/exchange/u, `${file} must exchange the unified connection code`);
+    assert.doesNotMatch(source, /\/agents\/\$\{[^}]+\}\/credentials/u, `${file} must not mint a manual Agent credential`);
+  }
+});
+
 test('cross-machine E2E exercises the real sync engine and conflict gate', async () => {
   const source = await readFile(new URL('cross-machine-e2e.mjs', import.meta.url), 'utf8');
   assert.match(source, /SyncEngine/);
