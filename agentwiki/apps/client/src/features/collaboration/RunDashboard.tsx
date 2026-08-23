@@ -57,20 +57,21 @@ export const RunDashboard: React.FC = () => {
     setSubmitting(true);
     const input = { reason: reason.trim(), idempotencyKey: `${pending.type}-${pending.kind}-${safeUuid()}` };
     try {
+      let result: CollaborationRun;
       if (pending.type === 'run') {
-        if (pending.kind === 'pause') await collaborationApi.pauseRun(id, run.id, input);
-        else if (pending.kind === 'resume') await collaborationApi.resumeRun(id, run.id, input);
-        else if (pending.kind === 'fail') await collaborationApi.failRun(id, run.id, input);
-        else await collaborationApi.cancelRun(id, run.id, input);
+        if (pending.kind === 'pause') result = await collaborationApi.pauseRun(id, run.id, input);
+        else if (pending.kind === 'resume') result = await collaborationApi.resumeRun(id, run.id, input);
+        else if (pending.kind === 'fail') result = await collaborationApi.failRun(id, run.id, input);
+        else result = await collaborationApi.cancelRun(id, run.id, input);
       } else if (pending.type === 'task') {
-        if (pending.kind === 'retry') await collaborationApi.retryTask(id, run.id, pending.task.id, input);
-        else if (pending.kind === 'skip') await collaborationApi.skipTask(id, run.id, pending.task.id, input);
+        if (pending.kind === 'retry') result = await collaborationApi.retryTask(id, run.id, pending.task.id, input);
+        else if (pending.kind === 'skip') result = await collaborationApi.skipTask(id, run.id, pending.task.id, input);
         else {
           if (!agentId) return;
-          await collaborationApi.reassignTask(id, run.id, pending.task.id, { ...input, agentId });
+          result = await collaborationApi.reassignTask(id, run.id, pending.task.id, { ...input, agentId });
         }
       } else {
-        await collaborationApi.decideReview(id, run.id, pending.review.id, {
+        result = await collaborationApi.decideReview(id, run.id, pending.review.id, {
           kind: pending.kind,
           reason: reason.trim(),
           idempotencyKey: input.idempotencyKey,
@@ -79,7 +80,7 @@ export const RunDashboard: React.FC = () => {
       const shouldResume = pending.type === 'review'
         || (pending.type === 'run' && pending.kind === 'resume')
         || (pending.type === 'task' && ['retry', 'reassign', 'skip'].includes(pending.kind));
-      if (shouldResume) {
+      if (shouldResume && result.status === 'running') {
         setResumeInstructions(buildAgentJoinInstructions({
           id: run.id,
           roleBindings: affectedBindings(pending, run, agentId),

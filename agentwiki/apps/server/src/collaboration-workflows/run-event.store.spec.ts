@@ -14,6 +14,7 @@ function projectSelected(value: any, select: Record<string, any>): any {
 describe('RunEventStore', () => {
   const events: any[] = [];
   const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'run-1' }]),
     $queryRawUnsafe: jest.fn().mockResolvedValue([{ id: 'run-1' }]),
     collaborationRunEvent: {
       findFirst: jest.fn(async ({ where }: any) => events.find((event) =>
@@ -41,6 +42,7 @@ describe('RunEventStore', () => {
     events.length = 0;
     jest.clearAllMocks();
     tx.$queryRawUnsafe.mockResolvedValue([{ id: 'run-1' }]);
+    tx.$queryRaw.mockResolvedValue([{ id: 'run-1' }]);
     tx.collaborationRun.update.mockResolvedValue({ id: 'run-1', eventSequence: 1 });
   });
 
@@ -52,6 +54,8 @@ describe('RunEventStore', () => {
     expect(second).toEqual(first);
     expect(mutation).toHaveBeenCalledTimes(1);
     expect(tx.collaborationRunEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   it('rejects key reuse across a different operation, target, or body', async () => {
@@ -140,6 +144,7 @@ describe('RunEventStore', () => {
       }),
     };
     const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'run-a' }]),
       $queryRawUnsafe: jest.fn().mockResolvedValue([{ id: 'run-a' }]),
       collaborationRunEvent: {
         findFirst: jest.fn(async ({ where }: any) => storedEvents.find((event) =>

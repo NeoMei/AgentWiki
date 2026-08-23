@@ -219,7 +219,7 @@ export class RunService {
     const result = await this.prisma.$transaction(async (tx) => {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const current = await tx.collaborationRun.findFirst({
-        where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
+        where: { id: runId, spaceId, status: { in: ['draft', 'ready'] }, version: body.expectedVersion },
       });
       if (!current) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
       const template = await this.loadTemplate(tx, spaceId, current.templateId);
@@ -232,8 +232,9 @@ export class RunService {
         });
       }
       const updated = await tx.collaborationRun.updateMany({
-        where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
+        where: { id: runId, spaceId, status: { in: ['draft', 'ready'] }, version: body.expectedVersion },
         data: {
+          status: 'draft',
           ...(body.name === undefined ? {} : { name: body.name.trim() }),
           ...(body.inputs === undefined ? {} : { inputs: toJson(body.inputs) }),
           version: { increment: 1 },
@@ -420,6 +421,9 @@ export class RunService {
       this.assertNotTerminal(run.status);
       const task = await tx.collaborationRunTask.findFirst({ where: { id: taskId, runId } });
       if (!task) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration task not found');
+      if (['submitted', 'completed', 'skipped'].includes(task.status)) {
+        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'This task can no longer be reassigned');
+      }
       await this.validateFreshAgents(tx, run.spaceId, [body.agentId]);
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
       const active = ['claimed', 'running'].includes(task.status);
@@ -439,6 +443,9 @@ export class RunService {
       const task = await tx.collaborationRunTask.findFirst({ where: { id: taskId, runId } });
       if (!task) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration task not found');
       if (!task.skippable) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'This task is not skippable');
+      if (['submitted', 'completed', 'skipped'].includes(task.status)) {
+        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'This task can no longer be skipped');
+      }
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
       await tx.collaborationRunTask.update({ where: { id: taskId }, data: { status: 'skipped', completedAt: new Date() } });
       await this.progression.advanceRun(tx, runId, `human-skip:${body.idempotencyKey}`, false);

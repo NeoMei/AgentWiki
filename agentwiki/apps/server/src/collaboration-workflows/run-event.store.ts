@@ -46,7 +46,9 @@ export class RunEventStore {
     const replay = await this.findReplay(tx, scope);
     if (replay !== undefined) return scope.replayResponse ? scope.replayResponse() : replay;
 
-    await tx.$queryRawUnsafe('SELECT "id" FROM "CollaborationRun" WHERE "id" = $1 FOR UPDATE', scope.runId);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "CollaborationRun" WHERE "id" = ${scope.runId} FOR UPDATE
+    `);
     const replayAfterLock = await this.findReplay(tx, scope);
     if (replayAfterLock !== undefined) return scope.replayResponse ? scope.replayResponse() : replayAfterLock;
 

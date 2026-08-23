@@ -9,6 +9,7 @@ interface TemplateCardProps {
   name: string;
   description: string;
   canManage: boolean;
+  canStart: boolean;
   labels: {
     system: string;
     space: string;
@@ -22,7 +23,7 @@ interface TemplateCardProps {
 }
 
 export const TemplateCard: React.FC<TemplateCardProps> = ({
-  spaceId, template, name, description, canManage, labels, onCopy, onArchive,
+  spaceId, template, name, description, canManage, canStart, labels, onCopy, onArchive,
 }) => (
   <article className="flex min-w-0 flex-col rounded-xl border bg-white p-5 shadow-sm">
     <div className="flex min-w-0 items-start justify-between gap-3">
@@ -36,12 +37,14 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
       </span>
     </div>
     <div className="mt-auto flex flex-wrap gap-2 pt-5">
-      <Link
-        to={`/spaces/${spaceId}/collaboration/templates/${template.id}/start`}
-        className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
-      >
-        <Play size={14} aria-hidden="true" />{labels.start}
-      </Link>
+      {canStart ? (
+        <Link
+          to={`/spaces/${spaceId}/collaboration/templates/${template.id}/start`}
+          className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          <Play size={14} aria-hidden="true" />{labels.start}
+        </Link>
+      ) : null}
       {template.system && canManage ? (
         <button type="button" onClick={() => onCopy(template)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border px-3 text-sm hover:bg-gray-50">
           <Copy size={14} aria-hidden="true" />{labels.copy}
@@ -60,4 +63,3 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
     </div>
   </article>
 );
-

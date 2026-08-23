@@ -26,6 +26,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [canManage, setCanManage] = useState(false);
+  const [canStart, setCanStart] = useState(false);
   const [copySource, setCopySource] = useState<TemplateSummary | null>(null);
   const [copyName, setCopyName] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +43,7 @@ export const CollaborationWorkspace: React.FC = () => {
       setTemplates(nextTemplates);
       const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
+      setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setState('ready');
     } catch (error) {
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
@@ -153,6 +155,7 @@ export const CollaborationWorkspace: React.FC = () => {
                     name={localizedTemplateName(template, t)}
                     description={localizedTemplateDescription(template, t)}
                     canManage={canManage}
+                    canStart={canStart}
                     labels={labels}
                     onCopy={openCopy}
                     onArchive={(item) => void archiveTemplate(item)}
@@ -201,4 +204,3 @@ function localizedTemplateDescription(template: TemplateSummary, t: (key: string
     ? t(`collaboration.template.${template.slug}.description`)
     : template.description;
 }
-

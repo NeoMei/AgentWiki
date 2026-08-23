@@ -83,7 +83,7 @@ export const RunStartWizard: React.FC = () => {
 
   useEffect(() => { void initialize(); }, [initialize]);
 
-  const completeInputs = async () => {
+  const completeInputs = async (currentRun: CollaborationRun | null = run) => {
     if (!template || !runName.trim()) return;
     const normalized: Record<string, string | number | boolean> = {};
     for (const input of template.definition.inputs) {
@@ -101,8 +101,8 @@ export const RunStartWizard: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      const draft = run?.status === 'draft'
-        ? await collaborationApi.updateRunDraft(id, run.id, { expectedVersion: run.version, name: runName.trim(), inputs: parsed.data })
+      const draft = currentRun && ['draft', 'ready'].includes(currentRun.status)
+        ? await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, name: runName.trim(), inputs: parsed.data })
         : await collaborationApi.createRunDraft(id, { templateId, name: runName.trim(), inputs: parsed.data, roleBindings: [] });
       setRun(draft);
       localStorage.setItem(storageKey, draft.id);
@@ -115,16 +115,17 @@ export const RunStartWizard: React.FC = () => {
     }
   };
 
-  const completeMapping = async () => {
-    if (!template || !run) return;
+  const completeMapping = async (currentRun: CollaborationRun | null = run) => {
+    if (!template || !currentRun) return;
     if (template.definition.roleSlots.some((slot) => slot.required && !bindings.some((binding) => binding.roleSlotId === slot.id))) {
       setToast({ kind: 'error', message: t('collaboration.wizard.requiredBindings') });
       return;
     }
     setSubmitting(true);
     try {
-      const updated = await collaborationApi.updateRunDraft(id, run.id, { expectedVersion: run.version, roleBindings: bindings });
-      const ready = await collaborationApi.validateRunDraft(id, run.id, updated.version);
+      const roleBindings = bindings.map(({ roleSlotId, agentId }) => ({ roleSlotId, agentId }));
+      const updated = await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, roleBindings });
+      const ready = await collaborationApi.validateRunDraft(id, currentRun.id, updated.version);
       setRun(ready);
       setRetryAction(null);
       setStep(3);
@@ -135,11 +136,11 @@ export const RunStartWizard: React.FC = () => {
     }
   };
 
-  const start = async () => {
-    if (!run) return;
+  const start = async (currentRun: CollaborationRun | null = run) => {
+    if (!currentRun) return;
     setSubmitting(true);
     try {
-      const result = await collaborationApi.startRun(id, run.id, { expectedVersion: run.version, idempotencyKey });
+      const result = await collaborationApi.startRun(id, currentRun.id, { expectedVersion: currentRun.version, idempotencyKey });
       const enrichedBindings = result.roleBindings.map((binding) => ({
         ...binding,
         roleSlotName: binding.roleSlotName || template?.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name || binding.roleSlotId,
@@ -163,10 +164,27 @@ export const RunStartWizard: React.FC = () => {
     }
   };
 
-  const retry = () => {
-    if (retryAction === 'input') void completeInputs();
-    else if (retryAction === 'mapping') void completeMapping();
-    else if (retryAction === 'start') void start();
+  const retry = async () => {
+    const action = retryAction;
+    if (!action || !run) return;
+    setSubmitting(true);
+    try {
+      const latest = await collaborationApi.getRun(id, run.id);
+      setRun(latest);
+      setRetryAction(null);
+      if (!['draft', 'ready'].includes(latest.status)) {
+        setStarted(latest);
+        localStorage.removeItem(storageKey);
+        setSubmitting(false);
+        return;
+      }
+      if (action === 'input') await completeInputs(latest);
+      else if (action === 'mapping') await completeMapping(latest);
+      else await start(latest);
+    } catch {
+      setToast({ kind: 'error', message: t('collaboration.wizard.actionFailed') });
+      setSubmitting(false);
+    }
   };
 
   const instructions = useMemo(() => started ? buildAgentJoinInstructions(started) : [], [started]);
@@ -190,7 +208,7 @@ export const RunStartWizard: React.FC = () => {
         {started ? <StartedStep started={started} instructions={instructions} hasSelfReview={hasSelfReview} onCopy={(text) => void copyInstruction(text, setToast, t)} t={t} spaceId={id} /> : null}
       </div>
 
-      {!started ? <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-5"><button type="button" disabled={submitting || step === 1} onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-40">{t('common.back')}</button><div className="flex items-center gap-2">{retryAction ? <button type="button" onClick={retry} disabled={submitting} className="min-h-10 rounded-lg border border-amber-300 px-4 text-sm text-amber-800">{t('collaboration.wizard.retryConflict')}</button> : null}<button type="button" disabled={submitting} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button></div></div> : null}
+      {!started ? <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-5"><button type="button" disabled={submitting || step === 1} onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-40">{t('common.back')}</button><div className="flex items-center gap-2">{retryAction ? <button type="button" onClick={() => void retry()} disabled={submitting} className="min-h-10 rounded-lg border border-amber-300 px-4 text-sm text-amber-800">{t('collaboration.wizard.retryConflict')}</button> : null}<button type="button" disabled={submitting} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button></div></div> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
     </div>
   );

@@ -98,7 +98,7 @@ describe('RunDashboard', () => {
   });
 
   it('submits a human review with a required reason and authoritative refresh', async () => {
-    vi.mocked(collaborationApi.decideReview).mockResolvedValue({} as any);
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue({ ...waitingReviewRun, status: 'running' } as any);
     renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('Release run');
@@ -107,7 +107,34 @@ describe('RunDashboard', () => {
     await waitFor(() => expect(collaborationApi.decideReview).toHaveBeenCalledWith('space-1', 'run-1', 'review-1', expect.objectContaining({ kind: 'approve', reason: 'Evidence is complete' })));
     expect(collaborationApi.getRun).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Resume Agent instructions')).toBeVisible();
-    expect(screen.getByText(/collaboration_next_action/u)).toBeVisible();
+    const instruction = screen.getByText(/wiki_collaboration_join_run/u);
+    expect(instruction).toHaveTextContent('wiki_collaboration_join_run');
+    expect(instruction).toHaveTextContent('wiki_collaboration_next_action');
+    expect(instruction.textContent).not.toMatch(/(?<!wiki_)collaboration_(?:join_run|next_action)/u);
     expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
   });
+
+  it('does not emit resume instructions when the mutation returns a non-running authoritative status', async () => {
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue(waitingReviewRun as any);
+    renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Another review remains' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+
+    await waitFor(() => expect(collaborationApi.decideReview).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Resume Agent instructions')).not.toBeInTheDocument();
+  });
+
+  it.each(['submitted', 'completed', 'skipped'])(
+    'does not offer reassignment or skipping after a task reaches %s',
+    async (status) => {
+      renderDashboard({
+        ...waitingReviewRun,
+        tasks: [{ ...waitingReviewRun.tasks[0], status, skippable: true }],
+      }, 'owner', 'owner-1');
+      await screen.findByLabelText('Waiting for review status');
+      expect(screen.queryByRole('button', { name: 'Reassign' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Skip task' })).not.toBeInTheDocument();
+    },
+  );
 });

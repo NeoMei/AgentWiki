@@ -218,12 +218,15 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
         idempotencyKey: `submit-alternate-${suffix}`,
       });
       protocol.CollaborationSubmitResultOutputSchema.parse(completed);
+      assert.equal(completed.action, 'submitted');
+      assert.equal(completed.taskStatus, 'completed');
       assert.equal(completed.runStatus, 'completed');
-      const terminal = await callJsonTool(alternate, 'collaboration_next_action', {
-        runId: draft.id, idempotencyKey: `terminal-${suffix}`, waitSeconds: 0,
+      const participationEnded = await alternate.callTool({
+        name: 'collaboration_next_action',
+        arguments: { runId: draft.id, idempotencyKey: `terminal-${suffix}`, waitSeconds: 0 },
       });
-      protocol.CollaborationNextActionOutputSchema.parse(terminal);
-      assert.equal(terminal.action, 'completed');
+      assert.equal(participationEnded.isError, true);
+      assert.match(toolText(participationEnded), /not bound|assigned participant|COLLABORATION_AGENT_NOT_BOUND/iu);
     } finally {
       await alternate.close();
     }

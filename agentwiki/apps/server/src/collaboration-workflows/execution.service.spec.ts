@@ -104,6 +104,17 @@ describe('ExecutionService', () => {
     );
   });
 
+  it('does not accept a completed reassignment as ongoing participation', async () => {
+    tx.collaborationRoleBinding.findFirst.mockResolvedValue(null);
+    tx.collaborationRunTask.findFirst.mockImplementation(async ({ where }: any) => {
+      const completedAssignment = { ...task, status: 'completed' };
+      return where.status?.notIn?.includes(completedAssignment.status) ? null : completedAssignment;
+    });
+
+    await expect(service.joinRun('run-1', agent))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_NOT_BOUND' });
+  });
+
   it('allows a bound reader to inspect safe run state but not join the execution loop', async () => {
     const reader = { ...agent, agentRole: 'reader' as const, scopes: ['collaboration:read'] };
     tx.agentGrant.findUnique.mockResolvedValue({

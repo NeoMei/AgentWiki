@@ -591,7 +591,9 @@ export class ExecutionService {
 
   private async assertCurrentParticipation(tx: Tx, runId: string, agentId: string): Promise<void> {
     const binding = await tx.collaborationRoleBinding.findFirst({ where: { runId, agentId } });
-    const assignment = binding ? null : await tx.collaborationRunTask.findFirst({ where: { runId, assigneeAgentId: agentId } });
+    const assignment = binding ? null : await tx.collaborationRunTask.findFirst({
+      where: { runId, assigneeAgentId: agentId, status: { notIn: ['completed', 'failed', 'skipped'] } },
+    });
     if (!binding && !assignment) throw new BusinessException('COLLABORATION_AGENT_NOT_BOUND');
   }
 

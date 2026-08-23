@@ -109,6 +109,7 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Copy as my template' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Start run' })).not.toBeInTheDocument();
   });
 
   it('renders a recoverable error state', async () => {
@@ -116,5 +117,17 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
     expect(await screen.findByTestId('collaboration-error')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+
+  it.each(['owner', 'admin', 'editor'] as const)('shows Start run to a human %s', async (role) => {
+    vi.mocked(useAuth).mockReturnValue({ user: { id: `${role}-1` } } as ReturnType<typeof useAuth>);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([
+      { type: 'human', userId: `${role}-1`, role },
+    ]);
+    renderWorkspace();
+
+    const startLinks = await screen.findAllByRole('link', { name: 'Start run' });
+    expect(startLinks).toHaveLength(2);
+    startLinks.forEach((link) => expect(link).toBeVisible());
   });
 });

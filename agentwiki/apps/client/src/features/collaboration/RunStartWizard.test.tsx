@@ -71,7 +71,13 @@ describe('RunStartWizard', () => {
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
-    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ expectedVersion: 1 })));
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({
+      expectedVersion: 1,
+      roleBindings: [
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+      ],
+    })));
     expect(await screen.findByRole('heading', { name: '3. Review and start' })).toBeVisible();
     expect(collaborationApi.validateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', 2);
   });
@@ -109,5 +115,128 @@ describe('RunStartWizard', () => {
     expect(instructions[0].text).toContain('wiki_collaboration_next_action');
     expect(instructions[0].text).not.toMatch(/(?<!wiki_)collaboration_(?:join_run|next_action)/u);
     expect(instructions[0].text).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+  });
+
+  it('edits the existing ready draft when navigating back instead of creating a duplicate run', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-ready', name: 'Ready release', status: 'ready', version: 3,
+      inputs: { brief: 'Original brief' },
+      roleBindings: [
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+      ],
+      updatedAt: '2026-08-24T00:00:00Z',
+    });
+    renderWizard();
+
+    expect(await screen.findByRole('heading', { name: '3. Review and start' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Revised release' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenCalledWith(
+      'space-1', 'run-ready', expect.objectContaining({ expectedVersion: 3, name: 'Revised release' }),
+    ));
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+  });
+
+  it('reloads the authoritative version before retrying preserved mapping changes', async () => {
+    vi.mocked(collaborationApi.updateRunDraft)
+      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockResolvedValueOnce({
+        id: 'run-1', name: 'Release 1', status: 'draft', version: 3, inputs: { brief: 'Ship it' },
+        roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-editor' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
+        updatedAt: '2026-08-24T00:01:00Z',
+      });
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'draft', version: 2, inputs: { brief: 'Ship it' },
+      roleBindings: [], updatedAt: '2026-08-24T00:01:00Z',
+    });
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Release 1' } });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'Ship it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenLastCalledWith(
+      'space-1', 'run-1', {
+        expectedVersion: 2,
+        roleBindings: [
+          { roleSlotId: 'writer', agentId: 'agent-editor' },
+          { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+        ],
+      },
+    ));
+    expect(collaborationApi.getRun).toHaveBeenCalledWith('space-1', 'run-1');
+  });
+
+  it('reloads the authoritative version before retrying preserved input changes', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-1');
+    vi.mocked(collaborationApi.getRun)
+      .mockResolvedValueOnce({
+        id: 'run-1', name: 'Original', status: 'draft', version: 1,
+        inputs: { brief: 'Original brief' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+      })
+      .mockResolvedValueOnce({
+        id: 'run-1', name: 'Remote edit', status: 'draft', version: 5,
+        inputs: { brief: 'Remote brief' }, roleBindings: [], updatedAt: '2026-08-24T00:01:00Z',
+      });
+    vi.mocked(collaborationApi.updateRunDraft)
+      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockResolvedValueOnce({
+        id: 'run-1', name: 'Preserved local edit', status: 'draft', version: 6,
+        inputs: { brief: 'Preserved local brief' }, roleBindings: [], updatedAt: '2026-08-24T00:02:00Z',
+      });
+    renderWizard();
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Preserved local edit' } });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'Preserved local brief' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
+
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenLastCalledWith('space-1', 'run-1', {
+      expectedVersion: 5,
+      name: 'Preserved local edit',
+      inputs: { brief: 'Preserved local brief' },
+    }));
+  });
+
+  it('reloads the authoritative version before retrying the same start intent', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    const readyRun = {
+      id: 'run-ready', name: 'Ready release', status: 'ready' as const, version: 3,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+      ],
+      updatedAt: '2026-08-24T00:00:00Z',
+    };
+    vi.mocked(collaborationApi.getRun)
+      .mockResolvedValueOnce(readyRun)
+      .mockResolvedValueOnce({ ...readyRun, version: 4, updatedAt: '2026-08-24T00:01:00Z' });
+    vi.mocked(collaborationApi.startRun)
+      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockResolvedValueOnce({ ...readyRun, status: 'running', version: 5 });
+    renderWizard();
+    await screen.findByRole('heading', { name: '3. Review and start' });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
+
+    await waitFor(() => expect(collaborationApi.startRun).toHaveBeenCalledTimes(2));
+    const firstStart = vi.mocked(collaborationApi.startRun).mock.calls[0];
+    const retriedStart = vi.mocked(collaborationApi.startRun).mock.calls[1];
+    expect(retriedStart).toEqual([
+      'space-1', 'run-ready',
+      { expectedVersion: 4, idempotencyKey: firstStart[2].idempotencyKey },
+    ]);
   });
 });

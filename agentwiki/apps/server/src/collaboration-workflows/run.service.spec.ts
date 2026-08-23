@@ -116,6 +116,20 @@ describe('RunService', () => {
     expect(tx.collaborationRoleBinding.createMany).not.toHaveBeenCalled();
   });
 
+  it('reopens a ready draft for editing without creating a second run', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockResolvedValue({ ...ready, status: 'draft', version: 3 });
+
+    await service.updateDraft('space-1', 'run-1', {
+      expectedVersion: 2, name: 'Revised release', inputs: { objective: 'Ship safely' },
+    }, humanPrincipal);
+
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'run-1', status: { in: ['draft', 'ready'] }, version: 2 }),
+      data: expect.objectContaining({ status: 'draft', name: 'Revised release', version: { increment: 1 } }),
+    }));
+  });
+
   it('validates fresh grants then freezes and expands the ready run on start', async () => {
     tx.collaborationRun.findFirst.mockResolvedValueOnce({ id: 'run-1' }).mockResolvedValueOnce(ready);
     const result = await service.startRun('space-1', 'run-1', {
@@ -249,6 +263,43 @@ describe('RunService', () => {
       where: { id: 'task-1' }, data: { assigneeAgentId: 'agent-new' },
     });
   });
+
+  it.each(['submitted', 'completed', 'skipped'] as const)(
+    'rejects reassignment after a task reaches %s',
+    async (status) => {
+      const running = { ...ready, status: 'waiting_review', startedById: 'starter-1' };
+      prisma.collaborationRun.findUnique.mockResolvedValue(running);
+      tx.collaborationRun.findUnique.mockResolvedValue({ ...running, templateSnapshot: definition });
+      tx.collaborationRunTask.findFirst.mockResolvedValue({
+        id: 'task-1', runId: 'run-1', assigneeAgentId: 'agent-old', status,
+      });
+      authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+
+      await expect(service.reassignTask('run-1', 'task-1', {
+        agentId: 'agent-new', reason: 'too late', idempotencyKey: 'reassign-0002',
+      }, starterPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_PROGRESS_INVARIANT' });
+      expect(tx.collaborationRunTask.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['submitted', 'completed', 'skipped'] as const)(
+    'rejects skipping a %s task because terminal task state is authoritative',
+    async (status) => {
+      const waiting = { ...ready, status: 'waiting_review', startedById: 'starter-1' };
+      prisma.collaborationRun.findUnique.mockResolvedValue(waiting);
+      tx.collaborationRun.findUnique.mockResolvedValue({ ...waiting, templateSnapshot: definition });
+      tx.collaborationRunTask.findFirst.mockResolvedValue({
+        id: 'task-1', runId: 'run-1', status, skippable: true,
+      });
+      authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+      authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'starter-1', spaceId: 'space-1' });
+
+      await expect(service.skipTask('run-1', 'task-1', {
+        reason: 'too late', idempotencyKey: 'skip-task-0002',
+      }, starterPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_PROGRESS_INVARIANT' });
+      expect(tx.collaborationRunTask.update).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a run that does not belong to the route Space', async () => {
     prisma.collaborationRun.findUnique.mockResolvedValue({ ...ready, status: 'running', startedById: 'starter-1' });
