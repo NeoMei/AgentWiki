@@ -143,6 +143,60 @@ describe('ExecutionService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 
+  it.each([
+    ['heartbeat', async (leaseToken: string) => service.heartbeat({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken, idempotencyKey: 'retry-heartbeat-01',
+    }, agent)],
+    ['Todo update', async (leaseToken: string) => service.updateTodo({
+      runId: 'run-1', attemptId: 'attempt-1', todoId: 'todo-1', leaseToken,
+      status: 'doing', evidence: [], idempotencyKey: 'retry-todo-doing-01',
+    }, agent)],
+    ['result submission', async (leaseToken: string) => service.submitResult({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken,
+      artifact: { kind: 'markdown', markdown: 'done', evidence: [] }, idempotencyKey: 'retry-submit-result-01',
+    }, agent)],
+  ] as const)('retries one raw 40001 conflict during %s instead of leaking Prisma errors', async (_label, invoke) => {
+    const leaseToken = 'd'.repeat(64);
+    const attempt = {
+      id: 'attempt-1', runId: 'run-1', taskId: 'task-1', generation: 1, agentId: 'agent-a', status: 'running',
+      attemptNumber: 1, repairCount: 0, claimIdempotencyKey: 'next-agent-a-1', leaseTokenHash: hashLease(leaseToken),
+      leaseExpiresAt: new Date(Date.now() + 60_000), maxExecutionAt: new Date(Date.now() + 120_000), task,
+    };
+    tx.collaborationTaskAttempt.findUnique.mockResolvedValue(attempt);
+    tx.collaborationTaskAttempt.updateMany.mockResolvedValue({ count: 1 });
+    tx.collaborationTaskTodo.findMany.mockResolvedValue([
+      {
+        id: 'todo-1', taskId: 'task-1', generation: 1, ordinal: 0, name: 'First', required: true,
+        status: _label === 'Todo update' ? 'pending' : 'done',
+      },
+    ]);
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
+    tx.collaborationTaskArtifact.create.mockResolvedValue({ id: 'artifact-1', version: 1, status: 'accepted' });
+    tx.collaborationRunTask.update.mockResolvedValue({ ...task, status: 'completed' });
+    prisma.$transaction
+      .mockRejectedValueOnce({ code: 'P2010', meta: { code: '40001', message: 'could not serialize access due to concurrent update' } })
+      .mockImplementation(async (callback: (value: any) => unknown) => callback(tx));
+
+    await expect(invoke(leaseToken)).resolves.toBeDefined();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('converts repeated heartbeat serialization conflicts into a bounded collaboration error', async () => {
+    const conflict = {
+      code: 'P2010', meta: { code: '40001', message: 'could not serialize access due to concurrent update' },
+    };
+    prisma.$transaction
+      .mockRejectedValueOnce(conflict)
+      .mockRejectedValueOnce(conflict)
+      .mockRejectedValueOnce(conflict);
+
+    await expect(service.heartbeat({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken: 'e'.repeat(64),
+      idempotencyKey: 'retry-heartbeat-exhausted-01',
+    }, agent)).rejects.toMatchObject({ businessCode: 'COLLABORATION_PROGRESS_INVARIANT' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects skipping a required earlier Todo and rejects an expired lease', async () => {
     const leaseToken = 'x'.repeat(64);
     const attempt = {

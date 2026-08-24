@@ -2,103 +2,83 @@
 
 ## 证据边界
 
-本文档用于验收 AgentWiki `0.6.0` 协作工作流。每项结果只能记录为 `PASS`、`FAIL` 或 `BLOCKED`，并必须附可复核证据。未执行的检查一律是 `BLOCKED`，不是通过证据。
-
-自动化 PostgreSQL 和 HTTP/MCP E2E 只证明服务端、Worker、数据库、真实 Credential 与 MCP SDK 闭环。只有下面的真实客户端流程实际完成后，才能宣称“真实多 Agent 验收通过”。
+本文档验收 AgentWiki `0.6.0` 协作工作流。自动化 PostgreSQL 与 HTTP/MCP E2E 证明服务端、Worker、数据库、Credential 与 MCP SDK 闭环；B–E 另由真实 Codex CLI 与 Claude Code 通过隔离 Local Sync 网关执行。所有测试资源只进入随机 `collaboration_test_*` schema，不连接生产。
 
 ## 本次验收记录
 
 | 字段 | 记录 |
 | --- | --- |
-| 操作人 | 待填 |
-| 开始/结束时间及时区 | 待填 |
-| 服务端 commit | 待填 |
-| AgentWiki / Local Sync 版本 | `0.6.0` / `0.6.0` |
-| Sync Protocol 版本 | `0.2.0` |
-| 客户端及版本 | Codex：待填；Claude Code：待填；OpenCode：待填 |
-| 测试 Space ID | 待填 |
-| 运行 ID | 待填 |
-| 证据目录/链接 | 待填 |
-| 最终结果 | `BLOCKED` — 尚未执行真实双客户端会话 |
-
-## 执行前门禁
-
-1. 记录当前 commit，确认 API、Worker、Client 和 Local Sync 都来自同一 `0.6.0` 候选版。
-2. 创建专用私有测试 Space；所有 Agent、模板、运行、外部文件和分支都使用唯一前缀。
-3. 至少准备两种真实客户端（Codex、Claude Code、OpenCode 中任意两种），分别用自己的 Agent Credential 接入唯一 `agentwiki` 网关。
-4. 保存客户端版本、Space/Agent 角色页、运行看板、任务产物、事件时间线及命令输出；不保存 Credential 明文。
-5. 若使用生产服务，必须另行获得授权；本文档不授权 push、npm 发布或生产部署。
+| 操作人 | Codex 本地验收 |
+| 开始/结束时间及时区 | 2026-08-24 01:56–12:16 CST |
+| 服务端基线 | `3eab1eb17425d8d4bc0993be0fb0cb20f63dc3fb` + 本验收文档所在发行候选提交的加固 |
+| AgentWiki / Local Sync / Sync Protocol | `0.6.0` / `0.6.0` / `0.2.0` |
+| 真实客户端 | Codex CLI `0.147.0`；Claude Code `2.1.211` |
+| 隔离 Space | `cmt6m7cun000ctaw2qn0dq0a1`、`cmt6ngb6d000cjmo6yyq2tekx`，均随 schema 清理 |
+| 证据保存 | 本文中的运行、审核、Artifact 与事件标识；完整命令输出保留在本次 Codex 任务 |
+| 最终结果 | `PASS` — A–F 全部通过；未执行 push、npm 发布或生产部署 |
 
 ## A. 自动化先决证据
 
-| 检查 | 命令 | 结果 | 证据 |
-| --- | --- | --- | --- |
-| 21 个真实 PostgreSQL 场景 | `COLLABORATION_TEST_DATABASE_URL=... pnpm test:e2e:collaboration-db` | 待填 | 命令输出；必须显示非 `public` 的 `collaboration_test_*` schema |
-| 真实 API + Worker + Credential + 远程 MCP | `COLLABORATION_TEST_DATABASE_URL=... pnpm test:e2e:collaboration` | 待填 | JSON `status: PASS`，包含六个工具和完整 flow |
-| 完整本地发行门禁 | 项目计划 Task 13 命令集 | 待填 | 新鲜输出或 CI 链接 |
+| 检查 | 结果 | 证据 |
+| --- | --- | --- |
+| 隔离 PostgreSQL 场景 | `PASS` | `collaboration-workflows-db.test.mjs` 10/10；新增双 Agent 并发 heartbeat、Todo、submit 的 `40001` 重试场景 |
+| 真实 API + Worker + Credential + MCP | `PASS` | `collaboration-workflows-e2e.mjs` 返回 `status: PASS`；六个执行工具、审核、恢复、改派、终态闭环 |
+| 可重复真实客户端 Harness | `PASS` | `collaboration-real-agent-harness.test.mjs` 4/4；无专用测试 URL 时 fail closed，状态文件 mode `0600`，SIGTERM 删除状态、临时仓库和随机 schema |
+| 完整本地发行门禁 | `PASS` | 全仓 lint、typecheck、build、test 与协作 schema/DB/E2E 全部通过；详见本次任务最终门禁输出 |
+
+真实客户端运行中曾观察到 Prisma `P2010` / PostgreSQL `40001` 从并行 heartbeat/submit 泄漏。根因是同一 Run 的幂等事件写入使用 Serializable 事务，而只有 `next_action` 有重试。修复后 heartbeat、Todo、submit 均最多重试三次；连续冲突转换为受控 `COLLABORATION_PROGRESS_INVARIANT`，并由单元测试与真实 PostgreSQL 并发测试覆盖。新运行时的 D–E 并行验收未再泄漏原始 Prisma 错误。
 
 ## B. 编码模板：真实多 Agent 闭环
 
-必须同时满足：
+运行 `cmt6m7cwh001etaw2bklnqqx7`，结果 `PASS`：
 
-- 至少两种真实连接客户端分别加入同一运行。
-- 两个实现任务在依赖解锁后并行领取；每个 Agent 按顺序完成 Todo，心跳和租约时间可见。
-- 产物包含 commit/patch 与测试证据，不以文字声称代替真实可复核引用。
-- 人类审核员至少执行一次 `reject_for_revision`，受影响因果子图 generation 递增，旧产物保留但不再释放依赖。
-- 驳回后指定 Agent 用合并恢复指令继续，再通过审核、汇总和终态完成。
+- Codex 与 Claude 加入同一运行；模块 A 与 B 同时持有独立租约，Todo 均按 ordinal 执行 `doing → done`，heartbeat 可见。
+- 隔离证据仓库的真实提交为 A `56a3dd144c6168f7e73dfbb4ab698ce65a82a262`、B `d01d8e0f51fba971aa721d7cccfbc0d14bca3dbc`；`npm test` 为 2/2。
+- 人工审核 `cmt6mpolf0159taw2uxqhnhk7` 执行 `reject_for_revision`，要求区分“当前测试已验证”与“历史 RED 阶段未证明”。只有 `release-summary` 进入 generation 2；上游 generation 1 完成记录保留且未被错误重跑。
+- Claude 使用新 attempt 恢复 generation 2，修订产物后，审核 `cmt6mueul018ttaw2yg2vl5bo` 批准；运行终态 `completed`。
+- 事件包含 `review_reject_for_revision`、generation 递增和 `review_approve`；错误 Artifact kind 与错误 evidence kind 均先被校验拒绝，再以新幂等键修复提交。
 
-| 检查 | 结果 | 证据/备注 |
-| --- | --- | --- |
-| 双客户端、并行任务、Todo、心跳 | `BLOCKED` | 待执行 |
-| commit/patch 和测试证据 | `BLOCKED` | 待执行 |
-| 人工驳回、generation 失效、恢复 | `BLOCKED` | 待执行 |
-| 通过、汇总、完成 | `BLOCKED` | 待执行 |
+## C. 租约超时与人工改派
 
-## C. 租约超时/撤权与人工改派
+运行 `cmt6n1a96019ataw2a6mlj7cp`，结果 `PASS`：
 
-1. 让一个正在执行的 Agent 租约超时，或立即撤销 Agent/Grant。
-2. 确认旧租约不能心跳或提交，任务按重试预算确定性释放，或以 `agent_authorization_changed` / `retry_exhausted` 暂停。
-3. 人类手工改派给之前未绑定的有效 Agent；新 Agent 凭当前 assignment 加入并完成。
-
-| 检查 | 结果 | 证据/备注 |
-| --- | --- | --- |
-| 超时或撤权后的确定性结果 | `BLOCKED` | 待执行 |
-| 旧租约被拒绝 | `BLOCKED` | 待执行 |
-| 手工改派及新 Agent 完成 | `BLOCKED` | 待执行 |
+- Codex 领取 30 秒租约并停止续期；过期后的 heartbeat 与 submit 均被拒绝。
+- Worker 事件 `recover_expired_lease` 将任务经重试预算确定性释放回 `ready`。
+- 人工执行 `reassign_task`，把同一任务交给此前未绑定的备用 Agent。
+- 备用 Claude 通过当前 assignment 加入，获得新 attempt 与新 lease，完成 Todo 和 Markdown Artifact；运行终态 `completed`。
+- 事件顺序为 `start_run → next_action → heartbeat → recover_expired_lease → reassign_task → next_action → heartbeat → update_todo ×2 → submit_result`。
 
 ## D. 标书模板
 
-启动一个代表性运行，必须保留三个人工门：
+运行 `cmt6ngba7002ijmo64o5m34ty`，8/8 任务完成、3/3 审核批准，结果 `PASS`：
 
-- `bid-consensus-review`
-- `missing-material-review`
-- `final-bid-review`
-
-覆盖矩阵、大纲映射、图文映射、引用/材料缺口检查和合并稿检查必须仍由 Agent 任务执行，不得改成人工检查或绕过。
-
-| 检查 | 结果 | 证据/备注 |
-| --- | --- | --- |
-| 三个人工门 | `BLOCKED` | 待执行 |
-| 覆盖、大纲、图文、合并稿机器任务 | `BLOCKED` | 待执行 |
-| 缺失材料不被虚构 | `BLOCKED` | 待执行 |
+- 三个人工门 `bid-consensus-review`、`missing-material-review`、`final-bid-review` 均真实生成并由人工按产物内容批准。
+- 覆盖矩阵、大纲与证据/图文映射、技术与服务章节、覆盖检查、终稿合并均由 Agent 任务执行。
+- 可用材料只登记“架构说明”“测试报告”；客户证书和具名人员简历始终是“缺失/待提供”。没有虚构评分权重、资格条款、SLA、人员、证书或图片资产。
+- 覆盖检查发现并交给合并节点处理 F1–F4，其中证据矩阵列口径差异为中风险；终稿统一为六列矩阵并闭环。
+- `export-reference` 使用真实 Git 基线 `ce5ba96974de42650d986692cb5a792682198451`，明确不把该提交冒充标书正文；运行终态 `completed`。
 
 ## E. 论文、视频脚本和小说模板
 
-| 模板 | 必查约束 | 结果 | 证据/备注 |
-| --- | --- | --- | --- |
-| 论文 | 内置 schema 有效；真实来源标识、引文/主张支持和不可验证主张均被显式核验 | `BLOCKED` | 待执行 |
-| 视频脚本 | 内置 schema 有效；事实来源、时长预算、品牌约束和旁白/分镜对齐被检查 | `BLOCKED` | 待执行 |
-| 小说 | 内置 schema 有效；世界规则、角色知识边界、时间线、状态和未解线索的连续性依赖被检查 | `BLOCKED` | 待执行 |
+| 模板 | 结果 | 关键证据 |
+| --- | --- | --- |
+| 论文 `cmt6ngbbm003qjmo6nhuipl7b` | `PASS` | 7/7 任务、2/2 审核；`source-identifiers` 与 `source-verification` 通过；机制、已观察、未观察、未验证四级声明分离；实验设计明确未执行；外部引用不冒充正文 |
+| 视频 `cmt6ngbd9004rjmo6rrvshasp` | `PASS` | 7/7 任务、1/1 审核；事实卡和发布检查使用 `source-verification`；逐镜时码 `6+8+9+9+10+7+5+6=60` 秒；画面、旁白、字幕对齐；超时恢复只标为协议机制示意 |
+| 小说 `cmt6ngbeu005rjmo6oltrkdxw` | `PASS` | 6/6 任务、2/2 审核；大纲裁决基础设定冲突；连续性审校提出 6 项实质问题；终稿修复专名、结算日历、登记盲区和知识链，红章授权人、裁页者、动机与失踪仍保持开放 |
 
 ## F. 清理与最终判定
 
-1. 删除或归档本次唯一前缀的测试 Space、Agent、模板、运行、Artifact 及外部文件。
-2. 核对非测试 Space、Agent、模板、运行、Artifact、Git 分支和外部文件未被改动。
-3. 附清理前后的资源列表或查询证据。
+清理前，第二隔离 schema 内共有 5 个 Run、36 个 Task、28 个 Attempt、28 个 Artifact、8 个 Review、279 个 Event；业务矩阵的 28/28 Task 全部完成，8/8 Review 全部批准。状态文件权限为 `0600`，隔离证据仓库 `git status --porcelain` 为空。
 
-| 检查 | 结果 | 证据/备注 |
-| --- | --- | --- |
-| 唯一前缀测试资源已清理 | `BLOCKED` | 待执行 |
-| 非测试资源无变更 | `BLOCKED` | 待执行 |
+Harness 收到 SIGINT 后返回 `{"status":"CLEANED"}`。清理后：
 
-最终结论只能在 A–F 所有必需项都是 `PASS` 后填写为 `PASS`。任一必需项是 `FAIL` 或 `BLOCKED`，整体必须保持对应状态。
+- `/private/tmp/agentwiki-release-business-20260824/state.json` 不存在；
+- 临时资源根目录与隔离 Git 仓库不存在；
+- schema `collaboration_test_5e5e1f764a15453792d0fb4d66148cfb` 数量为 0；
+- 测试数据库全部 `collaboration_test_*` schema 数量为 0；
+- 专用测试数据库的 `public` 中没有 AgentWiki 业务表，因此测试资源没有落入非测试 schema；
+- 正式项目工作树只保留本任务代码/文档和既有 Obsidian 引导改动，没有测试 Artifact、Credential 或临时客户端配置。
+
+## 结论
+
+A–F 全部为 `PASS`，本地代码、自动化门禁、真实浏览器既有证据和真实 Codex/Claude 业务验收共同达到“可进入发布操作”的标准。该结论不等于已经发布：push、npm 发布和生产部署仍需独立授权与发布前备份/预检。

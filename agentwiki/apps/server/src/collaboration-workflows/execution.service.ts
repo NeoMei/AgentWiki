@@ -126,7 +126,7 @@ export class ExecutionService {
 
   async heartbeat(inputRaw: CollaborationHeartbeatInput, principal: Principal) {
     const input = CollaborationHeartbeatInputSchema.parse(inputRaw);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'heartbeat', input.attemptId, input.idempotencyKey, {
@@ -152,14 +152,14 @@ export class ExecutionService {
         if (updated.count !== 1) throw new BusinessException('COLLABORATION_LEASE_EXPIRED');
         return { attemptId: attempt.id, leaseExpiresAt: leaseExpiresAt.toISOString(), replayed: false };
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     await this.notifications.publishCurrentRun(input.runId);
     return result;
   }
 
   async updateTodo(inputRaw: CollaborationUpdateTodoInput, principal: Principal) {
     const input = CollaborationUpdateTodoInputSchema.parse(inputRaw);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'update_todo', input.todoId, input.idempotencyKey, {
@@ -234,14 +234,14 @@ export class ExecutionService {
           replayed: false,
         };
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     await this.notifications.publishCurrentRun(input.runId);
     return result;
   }
 
   async submitResult(inputRaw: CollaborationSubmitResultInput, principal: Principal) {
     const input = CollaborationSubmitResultInputSchema.parse(inputRaw);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const access = await this.authorizeAgentRun(tx, input.runId, principal, 'collaboration:execute');
       const scope = this.agentScope(input.runId, access.agentId, 'submit_result', input.attemptId, input.idempotencyKey, {
           attemptId: input.attemptId,
@@ -322,7 +322,7 @@ export class ExecutionService {
           replayed: false,
         };
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     await this.notifications.publishCurrentRun(input.runId);
     return result;
   }
@@ -655,6 +655,23 @@ export class ExecutionService {
       .digest('hex');
   }
 
+  private async withSerializableRetry<T>(work: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await work();
+      } catch (error) {
+        if (!isSerializationConflict(error)) throw error;
+        if (attempt === 2) {
+          throw new BusinessException(
+            'COLLABORATION_PROGRESS_INVARIANT',
+            'Concurrent collaboration updates conflicted repeatedly',
+          );
+        }
+      }
+    }
+    throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Unable to serialize collaboration update');
+  }
+
   private async recordRepairFailure(tx: Tx, run: any, attempt: AttemptWithTask, issues: any[]) {
     const repairCount = attempt.repairCount + 1;
     await tx.collaborationTaskAttempt.update({ where: { id: attempt.id }, data: { repairCount } });
@@ -689,10 +706,24 @@ class RetryableClaimConflict extends Error {}
 
 function isClaimConflict(error: unknown): boolean {
   return error instanceof RetryableClaimConflict
-    || (error instanceof Prisma.PrismaClientKnownRequestError && (
-      ['P2002', 'P2034'].includes(error.code)
-      || (error.code === 'P2010' && rawDatabaseCode(error.meta) === '40001')
-    ));
+    || errorCode(error) === 'P2002'
+    || isSerializationConflict(error);
+}
+
+function isSerializationConflict(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === 'P2034'
+    || (code === 'P2010' && rawDatabaseCode(errorMeta(error)) === '40001');
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function errorMeta(error: unknown): unknown {
+  return error && typeof error === 'object' ? (error as { meta?: unknown }).meta : undefined;
 }
 
 function rawDatabaseCode(meta: unknown): string | undefined {

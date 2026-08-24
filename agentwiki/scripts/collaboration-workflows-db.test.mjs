@@ -19,6 +19,7 @@ const { TemplateService } = requireFromServer('./dist/collaboration-workflows/te
 
 export const REQUIRED_DB_SCENARIOS = Object.freeze([
   'same-Agent concurrent next action has one active lease', 'parallel assigned Agents claim distinct tasks',
+  'parallel Agent writes retry serialization conflicts',
   'scoped idempotent next action and mismatch rejection', 'heartbeat renewal',
   'lease expiry and late rejection', 'maximum execution deadline', 'ordered Todo and Todo failure',
   'Artifact union, external reference, and bounded JSON Schema validation', 'all dependency',
@@ -252,6 +253,52 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         assert.notEqual(claimA.attemptId, claimB.attemptId);
         assert.notEqual(claimA.task.id, claimB.task.id);
 
+        await Promise.all([
+          services.execution.heartbeat({
+            runId: parallel.run.id, attemptId: claimA.attemptId, leaseToken: claimA.leaseToken,
+            idempotencyKey: 'parallel-heartbeat-a',
+          }, parallel.principals[0]),
+          services.execution.heartbeat({
+            runId: parallel.run.id, attemptId: claimB.attemptId, leaseToken: claimB.leaseToken,
+            idempotencyKey: 'parallel-heartbeat-b',
+          }, parallel.principals[1]),
+        ]);
+        await Promise.all([
+          services.execution.updateTodo({
+            runId: parallel.run.id, attemptId: claimA.attemptId, todoId: claimA.task.todos[0].id,
+            leaseToken: claimA.leaseToken, status: 'doing', evidence: [], idempotencyKey: 'parallel-todo-doing-a',
+          }, parallel.principals[0]),
+          services.execution.updateTodo({
+            runId: parallel.run.id, attemptId: claimB.attemptId, todoId: claimB.task.todos[0].id,
+            leaseToken: claimB.leaseToken, status: 'doing', evidence: [], idempotencyKey: 'parallel-todo-doing-b',
+          }, parallel.principals[1]),
+        ]);
+        await Promise.all([
+          services.execution.updateTodo({
+            runId: parallel.run.id, attemptId: claimA.attemptId, todoId: claimA.task.todos[0].id,
+            leaseToken: claimA.leaseToken, status: 'done', evidence: [], idempotencyKey: 'parallel-todo-done-a',
+          }, parallel.principals[0]),
+          services.execution.updateTodo({
+            runId: parallel.run.id, attemptId: claimB.attemptId, todoId: claimB.task.todos[0].id,
+            leaseToken: claimB.leaseToken, status: 'done', evidence: [], idempotencyKey: 'parallel-todo-done-b',
+          }, parallel.principals[1]),
+        ]);
+        const [submittedA, submittedB] = await Promise.all([
+          services.execution.submitResult({
+            runId: parallel.run.id, attemptId: claimA.attemptId, leaseToken: claimA.leaseToken,
+            artifact: { kind: 'markdown', markdown: '# Parallel A', evidence: [] },
+            idempotencyKey: 'parallel-submit-result-a',
+          }, parallel.principals[0]),
+          services.execution.submitResult({
+            runId: parallel.run.id, attemptId: claimB.attemptId, leaseToken: claimB.leaseToken,
+            artifact: { kind: 'markdown', markdown: '# Parallel B', evidence: [] },
+            idempotencyKey: 'parallel-submit-result-b',
+          }, parallel.principals[1]),
+        ]);
+        assert.equal(submittedA.action, 'submitted');
+        assert.equal(submittedB.action, 'submitted');
+        assert.equal(await prisma.collaborationTaskArtifact.count({ where: { runId: parallel.run.id } }), 2);
+
         const all = await createFixture(prisma, {
           taskSpecs: [
             { nodeId: 'up-a', status: 'completed' },
@@ -312,7 +359,7 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
         }), 'running');
 
         cover(
-          'parallel assigned Agents claim distinct tasks', 'all dependency',
+          'parallel assigned Agents claim distinct tasks', 'parallel Agent writes retry serialization conflicts', 'all dependency',
           'any early release with all-upstream completion', 'stale Artifact cannot release or complete',
           'mixed review and ready status precedence',
         );

@@ -15,12 +15,15 @@
 
 # 当前状态
 
-- 已从最新 `master` 提交 `8a42cf6` 建立隔离工作区；13 项 TDD 计划的功能实现已全部完成：共享契约、数据库、五模板、管理 API、运行/审核/恢复、六个 MCP 工具、Space 协作工作台、模板编辑/启动向导、运行看板、真实 PostgreSQL 与 HTTP/MCP E2E 均已落地。仍未 push、发布 npm 或部署生产。
+- 隔离工作区位于分支 `codex/agent-collaboration-workflows`；13 项 TDD 计划、完整 B–F 真实业务验收与隔离清理均已完成。本轮发行候选只纳入真实客户端 Harness、并发加固、回归测试和验收记录；既有 Obsidian 引导工作树改动保持未暂存。仍未 push、发布 npm 或部署生产。
 - Task 13 真实门禁已通过：PostgreSQL 21 个必需场景全部在随机 `collaboration_test_*` schema 中执行且精确清理；真实 API + Worker + Credential + 远程 MCP 完成 owner/editor/viewer、reader/editor/publisher、六个工具、人工审核、恢复、手工改派和完成闭环。
-- 真实并发门禁发现并修复 Prisma `P2010` + PostgreSQL SQLSTATE `40001` 未被识别为可重试领取冲突的问题；修复后同 Agent 与多 Agent 并发领取稳定通过。
+- 真实并发门禁发现并修复 Prisma `P2010` + PostgreSQL SQLSTATE `40001` 从 heartbeat/Todo/submit 泄漏的问题；三条写路径现在透明重试 Serializable 冲突，连续三次冲突转换为受控协作错误，真实 PostgreSQL 双 Agent 并发写回归通过。
 - 协作新增门禁通过：sync-protocol 36/36、隔离 PostgreSQL Schema 2/2、协作服务聚焦套件 57/57、API/Worker 模块图 2/2；任务 9 另通过服务端兼容测试 161/161、MCP 聚焦测试 20/20、前端兼容测试 23/23、Local Sync 全量 746/746，以及 server/client/local-sync 类型检查与构建。Worker 不导入 HTTP Controller/Guard，Redis/Socket 只发布 `spaceId/runId/eventSequence` 刷新提示。
 - `0.5.1` 代码发行提交 `2700bac` 已推送到 GitHub `master`；`@neomei/agentwiki-local-sync@0.5.1` 已发布并成为 `latest`，Sync Protocol 保持 `0.2.0`。
-- 最新本地全量验证通过：Runtime 90/90（47 个数据库/环境门禁跳过）、Server 800/800（3 个环境门禁跳过）、Client 240/240、Sync Protocol 25/25、Local Sync 743/743；全仓 lint、typecheck、生产 build 和 `git diff --check` 均通过。
+- 最新 HEAD 本地全量验证通过：Runtime 95 通过/50 个环境门禁跳过、Server 983 通过/3 跳过、Client 293/293、Sync Protocol 42/42、Local Sync 747/747；真实协作 schema 2/2、事务场景 10/10、API/Worker/Credential/MCP E2E `PASS`。全仓 lint、typecheck、生产 build 和 `git diff --check` 均通过。
+- 真实浏览器验收覆盖主页与主导航、Obsidian 专页、Space 创建、统一 Agent 授权、三角色选择、五个系统协作模板、三步启动向导、运行启动和任务看板；发现并修复 `roleSlotName` 被错误发送到严格 DTO 导致映射页 400 的真实集成缺陷，修复后完整交互通过。
+- Obsidian 插件已确认上架第三方插件市场；专页现在以 Obsidian 第三方插件市场搜索 `AgentWiki Sync` 为第一安装路径和显眼卡片，`obsidian://show-plugin?id=agentwiki-sync` 可直接打开，GitHub Release 降为备用。
+- 真实 Codex CLI `0.147.0` 与 Claude Code `2.1.211` 已完成编码、标书、论文、视频脚本和小说五模板业务矩阵；编码包含并行模块、真实提交/测试、人工驳回与 generation 2 恢复，租约场景包含过期拒绝、Worker 恢复、人工改派与备用 Agent 完成。B–F 全部 `PASS`，两个随机 schema、状态文件和临时仓库均已清理。
 - 独立安全基线审查覆盖 68 个文件；已修复 WebSocket 越权/资源放大、OpenCode 工具注入、限流身份绕过、Local Sync `spaceId` 穿越、Git 导入无边界等发现，并继续修复 Source/Run 与 Memory 的实时授权、重试身份、归档去重和并发竞态。
 - Obsidian 连接现在本地统一到 `/guide/obsidian`：安装、服务器地址、连接码和设备管理同页；旧 `/settings/integrations` 仅重定向，不再保留第二套管理实现。
 - GitHub `master` 已包含 `0.5.1` 代码与发行证据；带注释标签 `v0.5.1` 指向证据提交 `ad198e3`。npm registry 的 `0.5.1` shasum 为 `26cac22f6b156f6c53e5763d212d7e2072956bd1`，公开 CLI 返回 `{"version":"0.5.1"}`。
@@ -69,4 +72,4 @@
 - Git partial clone、树/对象/遍历上限和 LFS/filter 隔离已落地；生产 systemd 与 Docker Worker 的私有 `/tmp` 另有 256MiB tmpfs 硬上限。非生产或自定义运行方式若开放远程 Git，也必须提供等价磁盘配额。
 - 旧 Agent Credential 已按破坏性迁移边界删除，需要通过新的统一连接入口重新接入。
 - 回退 0.5.0 必须成对恢复 `pre-local-sync-0.5.1-20260823-223643` 数据库与应用备份，不能只回退 schema 或只切旧应用目录。
-- 下一步执行 Task 13 完整本地发行门禁和最终安全/一致性复核。真实 Codex/Claude Code/OpenCode 中至少两种客户端验收尚未执行，在此前必须保持 `BLOCKED`，不宣称用户可见功能已完全验收。
+- Task 13 自动化发行门禁、真实浏览器验收和完整 B–F 真实客户端业务验收均已执行；本地发行候选完成集成后，下一步只剩经独立授权的 push、npm 发布与生产备份/预检/部署。

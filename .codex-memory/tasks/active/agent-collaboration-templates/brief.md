@@ -15,6 +15,10 @@
 - 执行链路在事务内重验 `AgentGrant.role`、Agent/空间状态与当前 generation；租约明文不落库/不进事件，修复预算与基础设施重试预算独立。
 - API/Worker 模块图已证明隔离；Worker 只注册恢复所需 provider，Socket 运行房间使用轻量只读鉴权服务，不把 HTTP Guard/Controller 拖入 Worker。
 - 隔离 PostgreSQL 门禁验证了复合跨运行外键、CHECK、部分唯一活跃租约索引和测试 schema 精确清理；Prisma 漂移仍只允许既有 HNSW 索引一项窄例外。
+- 真实浏览器验收已覆盖统一 Agent 授权三角色、五模板、启动向导和运行看板；发现并修复映射请求携带响应专用 `roleSlotName` 导致 400 的前后端契约缺陷。
+- Codex CLI `0.147.0` 与 Claude Code `2.1.211` 已通过隔离的 Local Sync `0.6.0` 网关完成五模板业务矩阵；编码驳回/generation 恢复、租约超时/改派、标书三门、论文来源边界、视频 60 秒对齐、小说连续性与最终清理均有真实事件和 Artifact 证据。
+- 真实并行执行暴露的 Prisma `P2010` / PostgreSQL `40001` 已在 heartbeat、Todo、submit 三条写路径补齐有界重试；单元测试和真实 PostgreSQL 双 Agent 并发写场景均覆盖。
+- 可重复 Harness 会创建随机 schema、隔离 Space/Agent/Credential、五个运行、临时客户端配置与证据仓库；状态文件为 `0600`，退出后精确删除全部资源。
 
 ## 依赖
 
@@ -40,6 +44,5 @@
 
 ## 下一步
 
-1. 跑完整本地发行门禁，复核迁移、安全边界、版本面与工作树。
-2. 真实 Codex/Claude Code/OpenCode 至少两种客户端仍须按 `docs/testing/collaboration-real-agent-acceptance.md` 执行；当前结果是 `BLOCKED`。
-3. 全部本地门禁与真实客户端验收通过后，再单独请求 push/npm/生产授权。
+1. 本地 `master` 对齐已验证的发行候选提交后，复核工作树边界与隔离资源零残留。
+2. push、npm 发布和生产部署继续等待独立授权与发布前备份/预检。
