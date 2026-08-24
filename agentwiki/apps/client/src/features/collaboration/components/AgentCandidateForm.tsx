@@ -125,65 +125,67 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         </button>
       </div>
 
-      {mode === 'existing' ? (
-        <div
-          id={existingPanelId}
-          role="tabpanel"
-          aria-labelledby={existingTabId}
-          className="min-w-0 space-y-3"
-        >
-          {loading ? <p role="status" className="text-sm text-gray-500">{t('common.loading')}</p> : null}
-          {!loading && agents.length === 0 && !loadFailed ? (
-            <p className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">
-              {t('collaboration.agentPreparation.noOwnedAgents')}
-            </p>
-          ) : null}
-          {agents.length > 0 ? (
-            <label className="block text-sm font-medium">
-              {t('collaboration.dashboard.agent')}
-              <select
-                aria-label={t('collaboration.dashboard.agent')}
-                value={selectedAgentId}
-                disabled={busy}
-                onChange={(event) => onSelectedAgentIdChange(event.target.value)}
-                className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
-              >
-                {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-              </select>
-            </label>
-          ) : null}
-        </div>
-      ) : (
-        <div
-          id={createPanelId}
-          role="tabpanel"
-          aria-labelledby={createTabId}
-          className="grid min-w-0 grid-cols-1 gap-4"
-        >
+      <div
+        id={existingPanelId}
+        role="tabpanel"
+        aria-labelledby={existingTabId}
+        hidden={mode !== 'existing'}
+        tabIndex={mode === 'existing' ? 0 : -1}
+        className="min-w-0 space-y-3"
+      >
+        {loading ? <p role="status" className="text-sm text-gray-500">{t('common.loading')}</p> : null}
+        {!loading && agents.length === 0 && !loadFailed ? (
+          <p className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-600">
+            {t('collaboration.agentPreparation.noOwnedAgents')}
+          </p>
+        ) : null}
+        {agents.length > 0 ? (
           <label className="block text-sm font-medium">
-            {t('common.name')}
-            <input
-              aria-label={t('common.name')}
-              required
-              value={name}
-              disabled={busy}
-              onChange={(event) => onNameChange(event.target.value)}
+            {t('collaboration.dashboard.agent')}
+            <select
+              aria-label={t('collaboration.dashboard.agent')}
+              value={selectedAgentId}
+              disabled={busy || mode !== 'existing'}
+              onChange={(event) => onSelectedAgentIdChange(event.target.value)}
               className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
-            />
+            >
+              {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </select>
           </label>
-          <label className="block text-sm font-medium">
-            {t('common.description')}
-            <textarea
-              aria-label={t('common.description')}
-              value={description}
-              disabled={busy}
-              onChange={(event) => onDescriptionChange(event.target.value)}
-              rows={3}
-              className="mt-1 w-full min-w-0 rounded-lg border p-3 text-sm disabled:bg-gray-100"
-            />
-          </label>
-        </div>
-      )}
+        ) : null}
+      </div>
+
+      <div
+        id={createPanelId}
+        role="tabpanel"
+        aria-labelledby={createTabId}
+        hidden={mode !== 'new'}
+        tabIndex={mode === 'new' ? 0 : -1}
+        className="grid min-w-0 grid-cols-1 gap-4"
+      >
+        <label className="block text-sm font-medium">
+          {t('common.name')}
+          <input
+            aria-label={t('common.name')}
+            required
+            value={name}
+            disabled={busy || mode !== 'new'}
+            onChange={(event) => onNameChange(event.target.value)}
+            className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
+          />
+        </label>
+        <label className="block text-sm font-medium">
+          {t('common.description')}
+          <textarea
+            aria-label={t('common.description')}
+            value={description}
+            disabled={busy || mode !== 'new'}
+            onChange={(event) => onDescriptionChange(event.target.value)}
+            rows={3}
+            className="mt-1 w-full min-w-0 rounded-lg border p-3 text-sm disabled:bg-gray-100"
+          />
+        </label>
+      </div>
 
       <label className="block text-sm font-medium">
         {t('collaboration.agentPreparation.role')}
@@ -199,7 +201,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         </select>
       </label>
 
-      {mode === 'existing' && selectedAgent?.status !== 'active' ? (
+      {mode === 'existing' && selectedAgent && selectedAgent.status !== 'active' ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.pausedResume')}
         </p>

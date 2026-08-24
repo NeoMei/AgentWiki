@@ -104,6 +104,16 @@ export const useAgentConnectionLifecycle = ({
       && current.spaceId === snapshot.spaceId;
   }, []);
 
+  const instructionIsCurrentAndUnexpired = useCallback((
+    snapshot: InstructionSnapshot,
+    checkedAt: number,
+  ) => {
+    const expiresAt = Date.parse(snapshot.expiresAt);
+    return instructionIsCurrent(snapshot)
+      && Number.isFinite(expiresAt)
+      && expiresAt > checkedAt;
+  }, [instructionIsCurrent]);
+
   const completeSelection = useCallback(async (
     selection: PreparedSelection,
     lifecycleEpoch: number,
@@ -306,10 +316,8 @@ export const useAgentConnectionLifecycle = ({
   }, [beginBusy, endBusy, loseAuthorization, setWaitingResult, spaceId]);
 
   const runCheck = useCallback(async (snapshot: InstructionSnapshot, manual: boolean) => {
-    if (!instructionIsCurrent(snapshot)) return;
     const checkedAt = Date.now();
-    const expiresAt = Date.parse(snapshot.expiresAt);
-    if (!Number.isFinite(expiresAt) || expiresAt <= checkedAt) {
+    if (!instructionIsCurrentAndUnexpired(snapshot, checkedAt)) {
       if (instructionIsCurrent(snapshot)) setNow(checkedAt);
       return;
     }
@@ -320,7 +328,11 @@ export const useAgentConnectionLifecycle = ({
     if (manual) setErrorKey(null);
     try {
       const detail = await agentPreparationApi.getAgent(snapshot.agentId);
-      if (!instructionIsCurrent(snapshot)) return;
+      const settledAt = Date.now();
+      if (!instructionIsCurrentAndUnexpired(snapshot, settledAt)) {
+        if (instructionIsCurrent(snapshot)) setNow(settledAt);
+        return;
+      }
       setErrorKey((current) => current === checkingErrorKey ? null : current);
       if (hasActiveSpaceCredential(detail, snapshot.spaceId)) {
         await completeSelection({
@@ -330,12 +342,23 @@ export const useAgentConnectionLifecycle = ({
         }, snapshot.lifecycleEpoch, true);
       }
     } catch {
-      if (instructionIsCurrent(snapshot)) setErrorKey(checkingErrorKey);
+      const settledAt = Date.now();
+      if (!instructionIsCurrentAndUnexpired(snapshot, settledAt)) {
+        if (instructionIsCurrent(snapshot)) setNow(settledAt);
+        return;
+      }
+      setErrorKey(checkingErrorKey);
     } finally {
       if (checkLockRef.current?.token === checkToken) checkLockRef.current = null;
       if (busyToken) endBusy(busyToken);
     }
-  }, [beginBusy, completeSelection, endBusy, instructionIsCurrent]);
+  }, [
+    beginBusy,
+    completeSelection,
+    endBusy,
+    instructionIsCurrent,
+    instructionIsCurrentAndUnexpired,
+  ]);
 
   const checkNow = useCallback(async () => {
     const snapshot = instructionRef.current;

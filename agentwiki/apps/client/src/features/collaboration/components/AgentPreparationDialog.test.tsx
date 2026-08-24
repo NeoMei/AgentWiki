@@ -427,27 +427,51 @@ describe('AgentPreparationDialog', () => {
     renderDialog();
     const existingTab = await screen.findByRole('tab', { name: 'Use existing Agent' });
     const createTab = screen.getByRole('tab', { name: 'Create new Agent' });
+    const existingPanelId = existingTab.getAttribute('aria-controls') ?? '';
+    const createPanelId = createTab.getAttribute('aria-controls') ?? '';
+    const existingPanel = document.getElementById(existingPanelId);
+    const createPanel = document.getElementById(createPanelId);
 
     expect(existingTab).toHaveAttribute('tabindex', '0');
     expect(createTab).toHaveAttribute('tabindex', '-1');
-    const existingPanel = document.getElementById(existingTab.getAttribute('aria-controls') ?? '');
     expect(existingPanel).toHaveAttribute('role', 'tabpanel');
     expect(existingPanel).toHaveAttribute('aria-labelledby', existingTab.id);
+    expect(existingPanel).not.toHaveAttribute('hidden');
+    expect(existingPanel).toHaveAttribute('tabindex', '0');
+    expect(createPanel).toHaveAttribute('role', 'tabpanel');
+    expect(createPanel).toHaveAttribute('aria-labelledby', createTab.id);
+    expect(createPanel).toHaveAttribute('hidden');
+    expect(createPanel).toHaveAttribute('tabindex', '-1');
+    expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
 
     fireEvent.keyDown(existingTab, { key: 'ArrowRight' });
     expect(createTab).toHaveFocus();
     expect(createTab).toHaveAttribute('aria-selected', 'true');
-    const createPanel = document.getElementById(createTab.getAttribute('aria-controls') ?? '');
-    expect(createPanel).toHaveAttribute('aria-labelledby', createTab.id);
+    expect(document.getElementById(existingPanelId)).toBe(existingPanel);
+    expect(document.getElementById(createPanelId)).toBe(createPanel);
+    expect(existingPanel).toHaveAttribute('hidden');
+    expect(existingPanel).toHaveAttribute('tabindex', '-1');
+    expect(createPanel).not.toHaveAttribute('hidden');
+    expect(createPanel).toHaveAttribute('tabindex', '0');
+    expect(screen.queryByRole('combobox', { name: 'Agent' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeVisible();
 
     fireEvent.keyDown(createTab, { key: 'Home' });
     expect(existingTab).toHaveFocus();
+    expect(existingPanel).not.toHaveAttribute('hidden');
+    expect(createPanel).toHaveAttribute('hidden');
     fireEvent.keyDown(existingTab, { key: 'End' });
     expect(createTab).toHaveFocus();
+    expect(existingPanel).toHaveAttribute('hidden');
+    expect(createPanel).not.toHaveAttribute('hidden');
     fireEvent.keyDown(createTab, { key: 'ArrowRight' });
     expect(existingTab).toHaveFocus();
     fireEvent.keyDown(existingTab, { key: 'ArrowLeft' });
     expect(createTab).toHaveFocus();
+    expect(existingTab).toHaveAttribute('aria-controls', existingPanelId);
+    expect(createTab).toHaveAttribute('aria-controls', createPanelId);
+    expect(document.getElementById(existingPanelId)).toBe(existingPanel);
+    expect(document.getElementById(createPanelId)).toBe(createPanel);
   });
 
   it('does not close with Escape or the close button during a mutation', async () => {
@@ -530,6 +554,62 @@ describe('AgentPreparationDialog', () => {
     expect(agentPreparationApi.getAgent).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
     expect(screen.queryByText('Waiting for Agent connection')).not.toBeInTheDocument();
+  });
+
+  it('ignores a connected poll response that settles after its instruction expires', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 3_000).toISOString(),
+      }) },
+    }));
+    let resolveDetail!: (detail: OwnedAgentDetail) => void;
+    vi.mocked(agentPreparationApi.getAgent).mockImplementation(() => new Promise((resolve) => {
+      resolveDetail = resolve;
+    }));
+    const onPrepared = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onPrepared });
+    await openWaitingInstructionWithFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(agentPreparationApi.getAgent).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date(startedAt.getTime() + 4_000));
+    await act(async () => { resolveDetail(connectedDetail); });
+
+    expect(onPrepared).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This connection instruction has expired.',
+    );
+    expect(screen.queryByText('Waiting for Agent connection')).not.toBeInTheDocument();
+  });
+
+  it('does not show a connection-check error when an in-flight check rejects after expiry', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 3_000).toISOString(),
+      }) },
+    }));
+    let rejectDetail!: (error: Error) => void;
+    vi.mocked(agentPreparationApi.getAgent).mockImplementation(() => new Promise((_, reject) => {
+      rejectDetail = reject;
+    }));
+    renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Check connection now' }));
+    await flushMicrotasks();
+
+    vi.setSystemTime(new Date(startedAt.getTime() + 4_000));
+    await act(async () => { rejectDetail(new Error('stale check failure')); });
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This connection instruction has expired.',
+    );
+    expect(screen.queryByText('Could not check the Agent connection.')).not.toBeInTheDocument();
   });
 
   it('uses event time to block clipboard writes after expiry', async () => {
@@ -703,11 +783,14 @@ describe('AgentPreparationDialog', () => {
     }));
   });
 
-  it('keeps the original polling deadline when parent callback identities change', async () => {
+  it('keeps the polling deadline and uses only the latest parent callbacks', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-25T01:00:00.000Z'));
     vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
-    const props = defaultProps();
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    const oldOnClose = vi.fn();
+    const oldOnPrepared = vi.fn().mockResolvedValue(undefined);
+    const props = { ...defaultProps(), onClose: oldOnClose, onPrepared: oldOnPrepared };
     const view = render(
       <LanguageProvider>
         <AgentPreparationDialog {...props} />
@@ -716,20 +799,27 @@ describe('AgentPreparationDialog', () => {
     await openWaitingInstructionWithFakeTimers();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     const clearInterval = vi.spyOn(window, 'clearInterval');
+    const newOnClose = vi.fn();
+    const newOnPrepared = vi.fn().mockResolvedValue(undefined);
 
     view.rerender(
       <LanguageProvider>
         <AgentPreparationDialog
           {...props}
-          onClose={vi.fn()}
-          onPrepared={vi.fn().mockResolvedValue(undefined)}
+          onClose={newOnClose}
+          onPrepared={newOnPrepared}
         />
       </LanguageProvider>,
     );
+    await flushMicrotasks();
+    expect(clearInterval).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
 
-    expect(clearInterval).not.toHaveBeenCalled();
     expect(agentPreparationApi.getAgent).toHaveBeenCalledTimes(1);
+    expect(newOnPrepared).toHaveBeenCalledTimes(1);
+    expect(newOnClose).toHaveBeenCalledTimes(1);
+    expect(oldOnPrepared).not.toHaveBeenCalled();
+    expect(oldOnClose).not.toHaveBeenCalled();
   });
 
   it('shows a stable localized error when a manual connection check fails', async () => {
@@ -760,7 +850,46 @@ describe('AgentPreparationDialog', () => {
     expect(screen.queryByText(/raw server activation detail/)).not.toBeInTheDocument();
   });
 
-  it('loads only non-revoked owned Agents and reports load failure safely', async () => {
+  it('filters revoked owned Agents and selects the first available Agent', async () => {
+    const revokedAgent: OwnedAgentSummary = {
+      ...activeAgent,
+      id: 'agent-revoked',
+      name: 'Revoked Writer',
+      revokedAt: '2026-08-25T00:00:00.000Z',
+    };
+    const availableAgent: OwnedAgentSummary = {
+      ...activeAgent,
+      id: 'agent-available',
+      name: 'Available Writer',
+    };
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([revokedAgent, availableAgent]);
+    renderDialog();
+
+    const agentSelect = await screen.findByRole('combobox', { name: 'Agent' });
+    expect(agentSelect).toHaveValue('agent-available');
+    expect(screen.getByRole('option', { name: 'Available Writer' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Revoked Writer' })).not.toBeInTheDocument();
+  });
+
+  it('uses the empty/create state when every owned Agent is revoked', async () => {
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([{
+      ...activeAgent,
+      revokedAt: '2026-08-25T00:00:00.000Z',
+    }]);
+    renderDialog();
+
+    expect(await screen.findByText(
+      'You do not have an available Agent yet. Create one here.',
+    )).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Agent' })).not.toBeInTheDocument();
+    expect(screen.queryByText(
+      'This Agent is paused and will be resumed before authorization.',
+    )).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Create new Agent' }));
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeVisible();
+  });
+
+  it('reports owned Agent load failure safely', async () => {
     vi.mocked(agentPreparationApi.listAgents).mockRejectedValue({
       response: { data: { message: 'raw list detail' } },
     });
