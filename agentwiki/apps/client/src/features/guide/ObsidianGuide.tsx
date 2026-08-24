@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ObsidianConnectionPanel } from './ObsidianConnectionPanel';
 
 const GITHUB_RELEASE_URL = 'https://github.com/NeoMei/agentwiki-sync/releases/latest';
+const OBSIDIAN_PLUGIN_URL = 'obsidian://show-plugin?id=agentwiki-sync';
 const SERVER_URL = 'https://agentwiki.quukk.com/api';
 
 export const ObsidianGuide: React.FC = () => {
@@ -15,16 +16,16 @@ export const ObsidianGuide: React.FC = () => {
 
   const steps = [
     {
-      title: zh ? '社区市场审核中' : 'Community listing under review',
+      title: zh ? '在第三方插件市场安装' : 'Install from Community Plugins',
       body: zh
-        ? '官方上架申请已经提交。审核通过前，在 Obsidian 社区插件中搜索不到 AgentWiki Sync，这是当前预期状态。'
-        : 'The official listing has been submitted. Until approval, AgentWiki Sync is not expected to appear in Community Plugins search.',
+        ? '打开 Obsidian → 设置 → 第三方插件 → 浏览，搜索 AgentWiki Sync，点击安装。'
+        : 'Open Obsidian → Settings → Community plugins → Browse, search for AgentWiki Sync, then install it.',
     },
     {
-      title: zh ? '从 GitHub Release 手动安装' : 'Install manually from GitHub Releases',
+      title: zh ? '启用 AgentWiki Sync' : 'Enable AgentWiki Sync',
       body: zh
-        ? '下载 main.js、manifest.json、styles.css，放入 Vault 的 .obsidian/plugins/agentwiki-sync/，重启 Obsidian 后启用插件。'
-        : 'Download main.js, manifest.json, and styles.css into .obsidian/plugins/agentwiki-sync/ in your vault, restart Obsidian, then enable the plugin.',
+        ? '安装完成后返回第三方插件列表，启用 AgentWiki Sync，然后打开插件设置。'
+        : 'After installation, return to the Community plugins list, enable AgentWiki Sync, and open its settings.',
     },
     {
       title: zh ? '连接你的 AgentWiki' : 'Connect to your AgentWiki',
@@ -51,13 +52,20 @@ export const ObsidianGuide: React.FC = () => {
       </header>
 
       <section className="mt-10 grid gap-4 sm:grid-cols-2" aria-label={zh ? '插件资源' : 'Plugin resources'}>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+        <a
+          href={OBSIDIAN_PLUGIN_URL}
+          aria-label={zh ? '在 Obsidian 中打开' : 'Open in Obsidian'}
+          className="group rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm transition hover:border-purple-400 hover:shadow"
+        >
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
             <Globe size={18} className="text-blue-600" />
           </div>
-          <h2 className="font-semibold leading-6">{zh ? '官方上架申请已提交' : 'Official listing submitted'}</h2>
-          <p className="mt-2 text-sm text-amber-800">{zh ? '审核通过前请使用 GitHub Release 手动安装。' : 'Use the GitHub Release for manual installation until approval.'}</p>
-        </div>
+          <h2 className="font-semibold leading-6">{zh ? '已上架第三方插件市场' : 'Available in Community Plugins'}</h2>
+          <p className="mt-2 text-sm text-purple-800">{zh ? '搜索 AgentWiki Sync 即可安装。' : 'Search for AgentWiki Sync and install it directly.'}</p>
+          <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700">
+            {zh ? '在 Obsidian 中打开' : 'Open in Obsidian'} <ExternalLink size={14} />
+          </span>
+        </a>
         <a
           href={GITHUB_RELEASE_URL}
           aria-label={zh ? '下载最新 Release' : 'Download latest Release'}
@@ -68,7 +76,7 @@ export const ObsidianGuide: React.FC = () => {
           <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100">
             <Download size={18} className="text-gray-700" />
           </div>
-          <h2 className="font-semibold leading-6">{zh ? '最新 GitHub Release' : 'Latest GitHub Release'}</h2>
+          <h2 className="font-semibold leading-6">{zh ? 'GitHub 备用安装' : 'GitHub fallback'}</h2>
           <p className="mt-1 break-all text-xs text-gray-500">github.com/NeoMei/agentwiki-sync/releases/latest</p>
           <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600">
             {zh ? '下载最新 Release' : 'Download latest Release'} <ExternalLink size={14} />

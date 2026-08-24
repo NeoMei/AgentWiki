@@ -18,11 +18,13 @@ describe('ObsidianGuide availability', () => {
     });
   });
 
-  it('states that community review is pending and gives exact manual files', () => {
+  it('leads with the published community-market installation and keeps GitHub as a fallback', () => {
     render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
-    expect(screen.getByText('社区市场审核中')).toBeInTheDocument();
-    expect(screen.getByText(/main\.js.*manifest\.json.*styles\.css/)).toBeInTheDocument();
-    expect(screen.getByText(/\.obsidian\/plugins\/agentwiki-sync\//)).toBeInTheDocument();
+    expect(screen.getByText('在第三方插件市场安装')).toBeInTheDocument();
+    expect(screen.getAllByText(/搜索 AgentWiki Sync/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: '在 Obsidian 中打开' })).toHaveAttribute(
+      'href', 'obsidian://show-plugin?id=agentwiki-sync',
+    );
     expect(screen.getByRole('link', { name: '下载最新 Release' })).toHaveAttribute(
       'href', 'https://github.com/NeoMei/agentwiki-sync/releases/latest',
     );
