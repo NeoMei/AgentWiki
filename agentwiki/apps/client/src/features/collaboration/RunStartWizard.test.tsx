@@ -101,7 +101,11 @@ function confirmSelfReviewIfRequired() {
 
 function NavigationWizard() {
   const navigate = useNavigate();
-  return <><button type="button" onClick={() => navigate('/spaces/space-1/collaboration/templates/template-new/start')}>Open new wizard</button><RunStartWizard /></>;
+  return <>
+    <button type="button" onClick={() => navigate('/spaces/space-1/collaboration/templates/template-new/start')}>Open new wizard</button>
+    <button type="button" onClick={() => navigate('/spaces/space-new/collaboration/templates/template-new/start')}>Open new Space</button>
+    <RunStartWizard />
+  </>;
 }
 
 describe('RunStartWizard', () => {
@@ -250,6 +254,7 @@ describe('RunStartWizard', () => {
     { state: 'absent', refreshed: [ownerMember] },
     { state: 'Reader', refreshed: [ownerMember, { ...preparedEditor, role: 'reader' }] },
     { state: 'paused', refreshed: [ownerMember, { ...preparedEditor, agent: { ...preparedEditor.agent, status: 'paused' } }] },
+    { state: 'revoked', refreshed: [ownerMember, { ...preparedEditor, agent: { ...preparedEditor.agent, revokedAt: '2026-08-25T00:00:00Z' } }] },
   ])('rejects a prepared Agent that is $state in the authoritative member refresh', async ({ refreshed }) => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember])
@@ -345,6 +350,38 @@ describe('RunStartWizard', () => {
     expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
   });
 
+  it('ignores a preparation refresh that settles after changing Spaces', async () => {
+    let resolveOldRefresh!: (members: SpaceMemberSummary[]) => void;
+    const oldRefresh = new Promise<SpaceMemberSummary[]>((resolve) => { resolveOldRefresh = resolve; });
+    vi.mocked(collaborationApi.getTemplate)
+      .mockResolvedValueOnce({ ...template, id: 'template-old', name: 'Old workflow' })
+      .mockResolvedValueOnce({ ...template, id: 'template-new', spaceId: 'space-new', name: 'New Space workflow' });
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember])
+      .mockReturnValueOnce(oldRefresh)
+      .mockResolvedValueOnce([ownerMember]);
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-owner', platformRole: 'user' }));
+    render(<AuthProvider><LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-old/start']}>
+      <Routes><Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<NavigationWizard />} /></Routes>
+    </MemoryRouter></LanguageProvider></AuthProvider>);
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    const oldDialog = getMockedPreparationDialog();
+    const oldCompletion = oldDialog.onPrepared({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open new Space' }));
+    expect(await screen.findByText('New Space workflow')).toBeVisible();
+    await advanceToMapping();
+    await act(async () => {
+      resolveOldRefresh([ownerMember, preparedEditor]);
+      await oldCompletion;
+    });
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+  });
+
   it('reloads authorization and removes every preparation mutation entry after a 403', async () => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember])
@@ -374,6 +411,48 @@ describe('RunStartWizard', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
     expect(screen.getByText('Ask a Space Owner or Admin to prepare an executable Agent.')).toBeVisible();
+  });
+
+  it('converges every binding and pending warning after authorization is lost', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor])
+      .mockResolvedValueOnce([{ type: 'human', userId: 'user-owner', role: 'editor' }, activeEditor]);
+    renderWizard();
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+
+    await loseMockedPreparationAuthorization();
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('');
+    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Map every required role to an executable Agent.')).toBeVisible();
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
+  });
+
+  it('preserves authoritative state while failing closed when authorization refresh rejects', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor])
+      .mockRejectedValueOnce(new Error('offline'));
+    renderWizard();
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+
+    await loseMockedPreparationAuthorization();
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-new');
+    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
   });
 
   it('ignores an authorization-loss refresh that settles after changing templates', async () => {
@@ -466,6 +545,52 @@ describe('RunStartWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'connected' });
     expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+  });
+
+  it('treats a connected Space credential as connected for two slots bound to the same Agent', async () => {
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([ownerMember, preparedEditor]);
+    renderWizard();
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'connected' });
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-new');
+    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { state: 'missing', refreshed: [ownerMember, activeEditor] },
+    { state: 'Reader', refreshed: [ownerMember, activeEditor, { ...preparedEditor, role: 'reader' }] },
+    { state: 'paused', refreshed: [ownerMember, activeEditor, { ...preparedEditor, agent: { ...preparedEditor.agent, status: 'paused' } }] },
+    { state: 'revoked', refreshed: [ownerMember, activeEditor, { ...preparedEditor, agent: { ...preparedEditor.agent, revokedAt: '2026-08-25T00:00:00Z' } }] },
+  ])('converges another required slot when its Agent becomes $state during preparation refresh', async ({ refreshed }) => {
+    const initialMembers = [ownerMember, activeEditor, preparedEditor];
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce(initialMembers)
+      .mockResolvedValueOnce(initialMembers)
+      .mockResolvedValueOnce(refreshed as SpaceMemberSummary[]);
+    renderWizard();
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-editor', agentName: 'Editor Bot', connection: 'connected' });
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('');
+    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Map every required role to an executable Agent.')).toBeVisible();
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
   });
 
   it('keeps an emptied required number empty instead of silently converting it to zero', async () => {

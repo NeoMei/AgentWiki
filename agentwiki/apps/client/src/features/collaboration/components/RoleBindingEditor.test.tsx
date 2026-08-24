@@ -17,6 +17,7 @@ describe('RoleBindingEditor', () => {
     />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    expect(onPrepare).toHaveBeenCalledTimes(1);
     expect(onPrepare).toHaveBeenCalledWith('writer');
   });
 
