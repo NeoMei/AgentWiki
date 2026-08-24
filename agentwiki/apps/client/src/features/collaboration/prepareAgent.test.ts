@@ -242,6 +242,43 @@ describe('prepareAgent', () => {
     expect(api.createInstallation).not.toHaveBeenCalled();
   });
 
+  it('exposes durable granting progress and resumes the same created Agent', async () => {
+    vi.mocked(api.upsertGrant).mockImplementationOnce(async () => {
+      calls.push('grant');
+      throw new Error('grant failed');
+    });
+
+    let failure!: AgentPreparationFailure;
+    try {
+      await prepareAgent({
+        candidate: { kind: 'new', name: 'New Writer', description: '' },
+        spaceId: 'space-1',
+        role: 'editor',
+      }, api);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentPreparationFailure);
+      failure = error as AgentPreparationFailure;
+    }
+
+    expect(failure.progress).toEqual({
+      agent: { id: 'new-1', name: 'New Writer', status: 'active' },
+      resumeFrom: 'granting',
+      role: 'editor',
+      source: 'created',
+      spaceId: 'space-1',
+    });
+
+    const result = await prepareAgent({
+      resume: failure.progress!,
+    }, api);
+
+    expect(result.agentId).toBe('new-1');
+    expect(calls).toEqual(['create', 'grant', 'grant', 'detail', 'instruction']);
+    expect(api.createAgent).toHaveBeenCalledTimes(1);
+    expect(api.upsertGrant).toHaveBeenCalledTimes(2);
+    expect(api.upsertGrant).toHaveBeenNthCalledWith(2, 'new-1', 'space-1', 'editor');
+  });
+
   it('throws a connection-check failure for a new Agent without issuing instructions', async () => {
     vi.mocked(api.getAgent).mockImplementationOnce(async () => {
       calls.push('detail');
@@ -261,6 +298,71 @@ describe('prepareAgent', () => {
     expect(api.upsertGrant).toHaveBeenCalledTimes(1);
     expect(api.getAgent).toHaveBeenCalledTimes(1);
     expect(api.createInstallation).not.toHaveBeenCalled();
+  });
+
+  it('exposes durable connection-check progress without repeating create or Grant', async () => {
+    vi.mocked(api.getAgent).mockImplementationOnce(async () => {
+      calls.push('detail');
+      throw new Error('detail failed');
+    });
+
+    let failure!: AgentPreparationFailure;
+    try {
+      await prepareAgent({
+        candidate: { kind: 'new', name: 'New Writer', description: '' },
+        spaceId: 'space-1',
+        role: 'publisher',
+      }, api);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentPreparationFailure);
+      failure = error as AgentPreparationFailure;
+    }
+
+    expect(failure.progress).toEqual({
+      agent: { id: 'new-1', name: 'New Writer', status: 'active' },
+      resumeFrom: 'checking_connection',
+      role: 'publisher',
+      source: 'created',
+      spaceId: 'space-1',
+    });
+
+    const result = await prepareAgent({
+      resume: failure.progress!,
+    }, api);
+
+    expect(result.agentId).toBe('new-1');
+    expect(calls).toEqual(['create', 'grant', 'detail', 'detail', 'instruction']);
+    expect(api.createAgent).toHaveBeenCalledTimes(1);
+    expect(api.upsertGrant).toHaveBeenCalledTimes(1);
+    expect(api.getAgent).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not expose progress for create failure and permits a fresh create retry', async () => {
+    vi.mocked(api.createAgent).mockImplementationOnce(async () => {
+      calls.push('create');
+      throw new Error('create failed');
+    });
+
+    let failure!: AgentPreparationFailure;
+    try {
+      await prepareAgent({
+        candidate: { kind: 'new', name: 'New Writer', description: '' },
+        spaceId: 'space-1',
+        role: 'editor',
+      }, api);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentPreparationFailure);
+      failure = error as AgentPreparationFailure;
+    }
+
+    expect(failure.progress).toBeUndefined();
+    await prepareAgent({
+      candidate: { kind: 'new', name: 'New Writer', description: '' },
+      spaceId: 'space-1',
+      role: 'editor',
+    }, api);
+
+    expect(api.createAgent).toHaveBeenCalledTimes(2);
   });
 
   it.each([

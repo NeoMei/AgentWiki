@@ -11,6 +11,8 @@ export interface AgentCandidateFormProps {
   description: string;
   loadFailed: boolean;
   loading: boolean;
+  lockedAgent?: { id: string; name: string };
+  lockedAgentWasCreated: boolean;
   mode: AgentCandidateMode;
   name: string;
   onDescriptionChange: (description: string) => void;
@@ -20,6 +22,7 @@ export interface AgentCandidateFormProps {
   onSelectedAgentIdChange: (agentId: string) => void;
   onSubmit: (event: React.FormEvent) => void;
   role: ExecutableAgentRole;
+  retryingPreparation: boolean;
   selectedAgent?: OwnedAgentSummary;
   selectedAgentId: string;
   showPrepare: boolean;
@@ -34,6 +37,8 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
   description,
   loadFailed,
   loading,
+  lockedAgent,
+  lockedAgentWasCreated,
   mode,
   name,
   onDescriptionChange,
@@ -43,6 +48,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
   onSelectedAgentIdChange,
   onSubmit,
   role,
+  retryingPreparation,
   selectedAgent,
   selectedAgentId,
   showPrepare,
@@ -84,11 +90,21 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
 
   return (
     <form onSubmit={onSubmit} className="mt-5 min-w-0 space-y-4">
-      <div
-        role="tablist"
-        aria-label={tabListLabel}
-        className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
-      >
+      {lockedAgent ? (
+        <p className="rounded-lg border bg-gray-50 p-3 text-sm text-gray-700">
+          {t(
+            lockedAgentWasCreated
+              ? 'collaboration.agentPreparation.createdResume'
+              : 'collaboration.agentPreparation.existingResume',
+            { agent: lockedAgent.name },
+          )}
+        </p>
+      ) : <>
+        <div
+          role="tablist"
+          aria-label={tabListLabel}
+          className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"
+        >
         <button
           ref={existingTabRef}
           id={existingTabId}
@@ -123,7 +139,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         >
           {t('collaboration.agentPreparation.create')}
         </button>
-      </div>
+        </div>
 
       <div
         id={existingPanelId}
@@ -153,7 +169,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
             </select>
           </label>
         ) : null}
-      </div>
+        </div>
 
       <div
         id={createPanelId}
@@ -185,14 +201,15 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
             className="mt-1 w-full min-w-0 rounded-lg border p-3 text-sm disabled:bg-gray-100"
           />
         </label>
-      </div>
+        </div>
+      </>}
 
       <label className="block text-sm font-medium">
         {t('collaboration.agentPreparation.role')}
         <select
           aria-label={t('collaboration.agentPreparation.role')}
           value={role}
-          disabled={busy}
+          disabled={busy || Boolean(lockedAgent)}
           onChange={(event) => onRoleChange(event.target.value as ExecutableAgentRole)}
           className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
         >
@@ -201,12 +218,12 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         </select>
       </label>
 
-      {mode === 'existing' && selectedAgent && selectedAgent.status !== 'active' ? (
+      {!lockedAgent && mode === 'existing' && selectedAgent && selectedAgent.status !== 'active' ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.pausedResume')}
         </p>
       ) : null}
-      {mode === 'existing' && currentGrant?.role === 'reader' ? (
+      {!lockedAgent && mode === 'existing' && currentGrant?.role === 'reader' ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.readerUpgrade', { role: roleName })}
         </p>
@@ -218,7 +235,11 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
           disabled={!canSubmit}
           className="min-h-10 w-full rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
-          {busy ? t('common.loading') : t('collaboration.agentPreparation.prepare')}
+          {busy
+            ? t('common.loading')
+            : t(retryingPreparation
+              ? 'collaboration.agentPreparation.retryPrepare'
+              : 'collaboration.agentPreparation.prepare')}
         </button>
       ) : null}
     </form>

@@ -9,6 +9,7 @@ import {
 import {
   AgentPreparationFailure,
   prepareAgent,
+  type AgentPreparationProgress,
   type PreparationStage,
 } from '../prepareAgent';
 import { AgentCandidateForm, type AgentCandidateMode } from './AgentCandidateForm';
@@ -63,6 +64,8 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   const [stage, setStage] = useState<PreparationStage | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [preparationErrorKey, setPreparationErrorKey] = useState<string | null>(null);
+  const [preparationProgress, setPreparationProgress] = useState<AgentPreparationProgress | null>(null);
+  const [createdAgent, setCreatedAgent] = useState<{ id: string; name: string } | null>(null);
   const preparationTokenRef = useRef<symbol | null>(null);
 
   useEffect(() => {
@@ -74,6 +77,8 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     setStage(null);
     setPreparing(false);
     setPreparationErrorKey(null);
+    setPreparationProgress(null);
+    setCreatedAgent(null);
   }, [spaceId, target.id]);
 
   const busy = preparing || connection.busy;
@@ -81,25 +86,30 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (busy || connection.authorizationLost) return;
-    if (mode === 'existing' && !ownedAgents.selectedAgent) return;
-    if (mode === 'new' && !name.trim()) return;
+    if (!preparationProgress && mode === 'existing' && !ownedAgents.selectedAgent) return;
+    if (!preparationProgress && mode === 'new' && !name.trim()) return;
 
     const lifecycleEpoch = ownedAgents.lifecycleRef.current.epoch;
     const preparationToken = Symbol('agent-preparation');
     preparationTokenRef.current = preparationToken;
-    let latestStage: PreparationStage = mode === 'new' ? 'creating' : 'granting';
+    let latestStage: PreparationStage = preparationProgress?.resumeFrom
+      ?? (mode === 'new' ? 'creating' : 'granting');
+    const source = preparationProgress?.source ?? (mode === 'new' ? 'created' : 'existing');
     setPreparing(true);
     setStage(latestStage);
     setPreparationErrorKey(null);
     connection.reset();
     try {
-      const prepared = await prepareAgent({
-        candidate: mode === 'existing'
-          ? { kind: 'existing', agent: ownedAgents.selectedAgent! }
-          : { kind: 'new', name, description },
-        spaceId,
-        role,
-      }, agentPreparationApi, (nextStage) => {
+      const preparationInput = preparationProgress
+        ? { resume: preparationProgress }
+        : {
+          candidate: mode === 'existing'
+            ? { kind: 'existing' as const, agent: ownedAgents.selectedAgent! }
+            : { kind: 'new' as const, name, description },
+          spaceId,
+          role,
+        };
+      const prepared = await prepareAgent(preparationInput, agentPreparationApi, (nextStage) => {
         latestStage = nextStage;
         if (preparationTokenRef.current === preparationToken
           && isCurrentLifecycle(ownedAgents.lifecycleRef, lifecycleEpoch)) {
@@ -108,6 +118,9 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
       });
       if (preparationTokenRef.current !== preparationToken
         || !isCurrentLifecycle(ownedAgents.lifecycleRef, lifecycleEpoch)) return;
+      if (source === 'created') {
+        setCreatedAgent({ id: prepared.agentId, name: prepared.agentName });
+      }
       setStage(null);
       await connection.acceptPrepared(prepared);
     } catch (error) {
@@ -118,6 +131,12 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         return;
       }
       const failedStage = error instanceof AgentPreparationFailure ? error.stage : latestStage;
+      if (error instanceof AgentPreparationFailure && error.progress) {
+        setPreparationProgress(error.progress);
+        if (error.progress.source === 'created') {
+          setCreatedAgent({ id: error.progress.agent.id, name: error.progress.agent.name });
+        }
+      }
       setPreparationErrorKey(safeStageErrorKey(failedStage));
     } finally {
       if (preparationTokenRef.current === preparationToken
@@ -132,6 +151,8 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     connection.reset();
     setStage(null);
     setPreparationErrorKey(null);
+    setPreparationProgress(null);
+    setCreatedAgent(null);
   };
 
   const handleModeChange = (nextMode: AgentCandidateMode) => {
@@ -152,7 +173,11 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
 
   const canSubmit = !busy
     && !connection.authorizationLost
-    && (mode === 'existing' ? Boolean(ownedAgents.selectedAgent) : Boolean(name.trim()));
+    && (preparationProgress
+      ? true
+      : mode === 'existing' ? Boolean(ownedAgents.selectedAgent) : Boolean(name.trim()));
+  const lockedAgent = preparationProgress?.agent ?? createdAgent ?? undefined;
+  const lockedAgentWasCreated = preparationProgress?.source === 'created' || createdAgent !== null;
   const visibleErrorKey = connection.authorizationLost
     ? null
     : preparationErrorKey
@@ -190,6 +215,8 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         description={description}
         loadFailed={ownedAgents.loadFailed}
         loading={ownedAgents.loading}
+        lockedAgent={lockedAgent}
+        lockedAgentWasCreated={lockedAgentWasCreated}
         mode={mode}
         name={name}
         onDescriptionChange={setDescription}
@@ -199,6 +226,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         onSelectedAgentIdChange={handleSelectedAgentChange}
         onSubmit={(event) => void handleSubmit(event)}
         role={role}
+        retryingPreparation={preparationProgress !== null}
         selectedAgent={ownedAgents.selectedAgent}
         selectedAgentId={ownedAgents.selectedAgentId}
         showPrepare={!connection.result && !connection.authorizationLost}

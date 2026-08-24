@@ -632,6 +632,56 @@ describe('AgentPreparationDialog', () => {
     expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
   });
 
+  it('keeps expiry when a clipboard write resolves after the instruction expires', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 1_000).toISOString(),
+      }) },
+    }));
+    let resolveCopy!: () => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementation(() => new Promise<void>((resolve) => {
+      resolveCopy = resolve;
+    }));
+    renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy connection instruction' }));
+    vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
+    await act(async () => { resolveCopy(); });
+
+    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.queryByRole('button', { name: 'Connection instruction copied' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Could not copy the connection instruction.')).not.toBeInTheDocument();
+  });
+
+  it('keeps expiry when a clipboard write rejects after the instruction expires', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 1_000).toISOString(),
+      }) },
+    }));
+    let rejectCopy!: (error: Error) => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementation(() => new Promise<void>((_, reject) => {
+      rejectCopy = reject;
+    }));
+    renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy connection instruction' }));
+    vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
+    await act(async () => { rejectCopy(new Error('clipboard denied')); });
+
+    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.queryByText('Could not copy the connection instruction.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connection instruction copied' })).not.toBeInTheDocument();
+  });
+
   it('lets a regenerated instruction check immediately while the expired generation is in flight', async () => {
     vi.useFakeTimers();
     const startedAt = new Date('2026-08-25T01:00:00.000Z');
@@ -688,6 +738,28 @@ describe('AgentPreparationDialog', () => {
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByText(/raw refresh detail/)).not.toBeInTheDocument();
+  });
+
+  it('fails closed through authorization loss when onPrepared rejects with Axios 403', async () => {
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    const onPrepared = vi.fn().mockRejectedValue({
+      response: { status: 403, data: { message: 'raw parent authorization detail' } },
+    });
+    const onAuthorizationLost = vi.fn().mockRejectedValue(new Error('raw refresh rejection'));
+    renderDialog({ onPrepared, onAuthorizationLost });
+    await openWaitingInstruction();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect later and map now' }));
+
+    await waitFor(() => expect(onAuthorizationLost).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(
+      'Ask a Space Owner or Admin to prepare an executable Agent.',
+    )).toBeVisible();
+    expect(screen.queryByText(
+      'The Agent was prepared, but the Space Agent list could not be refreshed.',
+    )).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw parent authorization detail|raw refresh rejection/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('shows a localized clipboard alert without leaking the instruction', async () => {
@@ -781,6 +853,49 @@ describe('AgentPreparationDialog', () => {
       agentName: 'Writer',
       connection: 'connected',
     }));
+  });
+
+  it('fails closed through authorization loss when a manual connection check returns 403', async () => {
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    vi.mocked(agentPreparationApi.getAgent).mockRejectedValue({
+      response: { status: 403, data: { message: 'raw manual authorization detail' } },
+    });
+    const onAuthorizationLost = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onAuthorizationLost });
+    await openWaitingInstruction();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check connection now' }));
+
+    await waitFor(() => expect(onAuthorizationLost).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(
+      'Ask a Space Owner or Admin to prepare an executable Agent.',
+    )).toBeVisible();
+    expect(screen.queryByText('Could not check the Agent connection.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw manual authorization detail/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check connection now' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry connection instruction' })).not.toBeInTheDocument();
+  });
+
+  it('fails closed through authorization loss when a polling connection check returns 403', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-25T01:00:00.000Z'));
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    vi.mocked(agentPreparationApi.getAgent).mockRejectedValue({
+      response: { status: 403, data: { message: 'raw polling authorization detail' } },
+    });
+    const onAuthorizationLost = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onAuthorizationLost });
+    await openWaitingInstructionWithFakeTimers();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+
+    expect(onAuthorizationLost).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(
+      'Ask a Space Owner or Admin to prepare an executable Agent.',
+    )).toBeVisible();
+    expect(screen.queryByText('Could not check the Agent connection.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw polling authorization detail/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry connection instruction' })).not.toBeInTheDocument();
   });
 
   it('keeps the polling deadline and uses only the latest parent callbacks', async () => {

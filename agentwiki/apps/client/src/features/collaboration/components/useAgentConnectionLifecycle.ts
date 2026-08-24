@@ -114,6 +114,28 @@ export const useAgentConnectionLifecycle = ({
       && expiresAt > checkedAt;
   }, [instructionIsCurrent]);
 
+  const loseAuthorization = useCallback(async () => {
+    const lifecycleEpoch = stableLifecycleRef.current.epoch;
+    if (!isCurrentLifecycle(stableLifecycleRef, lifecycleEpoch)) return;
+    instructionGenerationRef.current += 1;
+    instructionRef.current = null;
+    checkLockRef.current = null;
+    completionLockRef.current = null;
+    completedSelectionRef.current = null;
+    resultRef.current = null;
+    setResultState(null);
+    setAuthorizationLost(true);
+    setErrorKey(null);
+    const busyToken = beginBusy();
+    try {
+      await callbacksRef.current.onAuthorizationLost();
+    } catch {
+      // Keep the safe owner-required state and never expose parent errors.
+    } finally {
+      endBusy(busyToken);
+    }
+  }, [beginBusy, endBusy]);
+
   const completeSelection = useCallback(async (
     selection: PreparedSelection,
     lifecycleEpoch: number,
@@ -161,10 +183,14 @@ export const useAgentConnectionLifecycle = ({
         }
         callbacksRef.current.onClose();
       }
-    } catch {
+    } catch (error) {
       if (isCurrentLifecycle(stableLifecycleRef, lifecycleEpoch)
         && completionLockRef.current?.token === completionToken) {
-        setErrorKey(refreshErrorKey);
+        if (apiResponseStatus(error) === 403) {
+          await loseAuthorization();
+        } else {
+          setErrorKey(refreshErrorKey);
+        }
       }
     } finally {
       if (completionLockRef.current?.token === completionToken) {
@@ -174,29 +200,7 @@ export const useAgentConnectionLifecycle = ({
         endBusy(busyToken);
       }
     }
-  }, [beginBusy, endBusy]);
-
-  const loseAuthorization = useCallback(async () => {
-    const lifecycleEpoch = stableLifecycleRef.current.epoch;
-    if (!isCurrentLifecycle(stableLifecycleRef, lifecycleEpoch)) return;
-    instructionGenerationRef.current += 1;
-    instructionRef.current = null;
-    checkLockRef.current = null;
-    completionLockRef.current = null;
-    completedSelectionRef.current = null;
-    resultRef.current = null;
-    setResultState(null);
-    setAuthorizationLost(true);
-    setErrorKey(null);
-    const busyToken = beginBusy();
-    try {
-      await callbacksRef.current.onAuthorizationLost();
-    } catch {
-      // Keep the safe owner-required state and never expose parent errors.
-    } finally {
-      endBusy(busyToken);
-    }
-  }, [beginBusy, endBusy]);
+  }, [beginBusy, endBusy, loseAuthorization]);
 
   const setWaitingResult = useCallback((
     prepared: PreparedAgent,
@@ -341,10 +345,15 @@ export const useAgentConnectionLifecycle = ({
           connection: 'connected',
         }, snapshot.lifecycleEpoch, true);
       }
-    } catch {
+    } catch (error) {
       const settledAt = Date.now();
+      if (!instructionIsCurrent(snapshot)) return;
+      if (apiResponseStatus(error) === 403) {
+        await loseAuthorization();
+        return;
+      }
       if (!instructionIsCurrentAndUnexpired(snapshot, settledAt)) {
-        if (instructionIsCurrent(snapshot)) setNow(settledAt);
+        setNow(settledAt);
         return;
       }
       setErrorKey(checkingErrorKey);
@@ -358,6 +367,7 @@ export const useAgentConnectionLifecycle = ({
     endBusy,
     instructionIsCurrent,
     instructionIsCurrentAndUnexpired,
+    loseAuthorization,
   ]);
 
   const checkNow = useCallback(async () => {
@@ -376,15 +386,23 @@ export const useAgentConnectionLifecycle = ({
     }
     try {
       await navigator.clipboard.writeText(snapshot.instructions);
-      if (!instructionIsCurrent(snapshot)) return;
+      const settledAt = Date.now();
+      if (!instructionIsCurrentAndUnexpired(snapshot, settledAt)) {
+        if (instructionIsCurrent(snapshot)) setNow(settledAt);
+        return;
+      }
       setCopied(true);
       setErrorKey(null);
     } catch {
-      if (!instructionIsCurrent(snapshot)) return;
+      const settledAt = Date.now();
+      if (!instructionIsCurrentAndUnexpired(snapshot, settledAt)) {
+        if (instructionIsCurrent(snapshot)) setNow(settledAt);
+        return;
+      }
       setCopied(false);
       setErrorKey('collaboration.agentPreparation.copyFailed');
     }
-  }, [instructionIsCurrent]);
+  }, [instructionIsCurrent, instructionIsCurrentAndUnexpired]);
 
   const connectLater = useCallback(async () => {
     const current = resultRef.current;
