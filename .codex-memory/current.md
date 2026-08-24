@@ -14,8 +14,8 @@
 # 当前状态
 
 - Tasks 1–5 已在本地实现向导内创建/恢复、Grant、Local Sync 一次性接入、自动检测、当前 Slot 映射、待接入警告与权限边界。
-- Task 6 本地验收完成：核心 66 个 server + 103 个 client 测试通过；全仓 2,302 个测试通过，53 个既有环境依赖测试跳过；lint/typecheck/build/diff 通过。
-- Browser 真实路径已完成桌面与 390px 验收；Owner/Admin、Editor 无 mutation/ownerRequired、无 SpaceMember 的 platform Super Admin 均通过，关键移动状态 7/7 的 `scrollWidth === 390`，Browser console 0 error/warn。
+- Task 6 本地验收完成：核心 66 个 server + 103 个 client 测试通过；纯测试合同补充提交 `658538c` 上全仓 2,304 个测试通过，53 个既有环境依赖测试跳过；lint/typecheck/build/diff 通过。
+- Browser 真实路径已在 product runtime `e83d153` 完成桌面与 390px 验收；Owner/Admin、Editor 无 mutation/ownerRequired、无 SpaceMember 的 platform Super Admin 均通过，关键移动状态 7/7 的 `scrollWidth === 390`，Browser console 0 error/warn。`658538c` 仅新增测试，未重跑 Browser。
 - 验收中发现 worker 误订阅 API-only Socket.IO relay 的缺陷，已以失败回归测试驱动修复并在真实 worker 验证，修复提交为 `e83d153`。
 - 隔离 schema、4 个用户、3 个 Space、4 个 Agent、进程、Redis 临时键与隔离 HOME/config 已全部清理并二次确认。
 - 本地实现已验证；push、npm 发布和生产发布未获授权，未执行。

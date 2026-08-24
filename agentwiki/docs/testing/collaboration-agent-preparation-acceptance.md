@@ -2,9 +2,10 @@
 
 Local acceptance was completed on 2026-08-25 (Asia/Shanghai) against isolated local services only.
 
-- Tested local commit: `e83d1530aa4d93c5a22104360e0dbef193750a2a` (Browser flow began from clean feature HEAD `5594a171d91f8bb67fbfc6bbec9c878af0df9a04`; the only subsequent product change was the verified worker relay fix in `e83d153`).
+- Browser/runtime product tested commit: `e83d1530aa4d93c5a22104360e0dbef193750a2a` (Browser flow began from clean feature HEAD `5594a171d91f8bb67fbfc6bbec9c878af0df9a04`; the only subsequent product change was the verified worker relay fix in `e83d153`).
+- Final automated gate commit: `658538ced957f683b7e6131d688c5c0a41bb7590`; this follow-up added two contract tests only, then reran the complete automated gates. It did not change product runtime code or rerun Browser acceptance.
 - Focused server/client tests: PASS, server 3 suites / 66 tests and client 5 files / 103 tests; server and client focused typechecks also exited 0.
-- Full lint/typecheck/test/build: PASS, lint 1 scope, typecheck 4 workspaces, 2,302 tests passed and 53 existing environment-dependent tests skipped, build 5 workspaces; `git diff --check` exited 0. The existing Vite chunk-size advisory was the only build warning.
+- Full lint/typecheck/test/build: PASS, lint 1 scope, typecheck 4 workspaces, 2,304 tests passed and 53 existing environment-dependent tests skipped, build 5 workspaces; `git diff --check` exited 0. The existing Vite chunk-size advisory was the only build warning.
 - Real create -> Grant -> installation -> onboard -> auto-detect -> map: PASS, one `Acceptance Writer` Agent was created with Editor access, onboarded with pinned Local Sync `0.6.1` in an isolated HOME, automatically detected without reload, and selected only for the target Planner slot. Local Sync doctor reported 10/10 checks passing.
 - Pending connection warning in mapping and review: PASS, a second Agent was mapped before connection, both warnings remained visible, and Start remained enabled.
 - Owner/Admin, Editor, Super Admin permission cases: PASS, Owner and Admin each completed a real preparation mutation; Editor saw no mutation action plus the Owner/Admin instruction; platform Super Admin completed preparation with 0 `SpaceMember` rows.
@@ -32,7 +33,7 @@ Permission checks used disposable accounts and Spaces in the isolated schema. An
 
 ## Defect found and fixed during acceptance
 
-The first real worker run repeatedly logged `Cannot read properties of null (reading 'in')` while relaying collaboration run hints. Systematic debugging traced this to `CollaborationGateway.onModuleInit()` subscribing inside the headless worker even though only the API owns a Socket.IO server. A regression test first failed with two worker subscriptions, then commit `e83d153` made the worker skip those API-only relay subscriptions. The focused gateway suite passed 20/20 after the change. A rebuilt real worker then received no relay subscription: publishing a valid isolated run hint reported exactly one Redis subscriber (the API), and the worker log remained free of relay errors.
+The first real worker run repeatedly logged `Cannot read properties of null (reading 'in')` while relaying collaboration run hints. Systematic debugging traced this to `CollaborationGateway.onModuleInit()` subscribing inside the headless worker even though only the API owns a Socket.IO server. A regression test first failed with two worker subscriptions, then commit `e83d153` made the worker skip those API-only relay subscriptions. The original focused gateway suite passed 20/20 after the product change. Follow-up commit `658538c` added explicit contracts for unset-role API defaults and worker assist publishing; mutation proof made each new test fail against its targeted wrong implementation, the restored suite passed 22/22, and the complete repository suite then passed 2,304 tests. A rebuilt real worker had already received no relay subscription: publishing a valid isolated run hint reported exactly one Redis subscriber (the API), and the worker log remained free of relay errors. The follow-up did not recreate the schema or services.
 
 ## Cleanup evidence
 

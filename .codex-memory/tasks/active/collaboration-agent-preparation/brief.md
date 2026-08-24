@@ -7,8 +7,8 @@
 ## 当前阶段
 
 - Tasks 1–5 实现已完成，Task 6 全门禁、桌面/390px 真实 Browser、隔离 Local Sync onboard 与权限验收已通过。
-- 实际验收提交基线为 `e83d1530aa4d93c5a22104360e0dbef193750a2a`；全仓 2,302 个测试通过，53 个既有环境依赖测试跳过。
-- 验收中发现 worker 误订阅 Socket.IO relay 的真实缺陷，已按 TDD 修复于 `e83d153`，回归测试 20/20 与真实 worker Redis 订阅证据通过。
+- Browser/runtime product 验收基线为 `e83d1530aa4d93c5a22104360e0dbef193750a2a`；纯测试合同补充后的 final automated gate 基线为 `658538ced957f683b7e6131d688c5c0a41bb7590`，全仓 2,304 个测试通过，53 个既有环境依赖测试跳过。本轮未重跑 Browser。
+- 验收中发现 worker 误订阅 Socket.IO relay 的真实缺陷，已按 TDD 修复于 `e83d153`；`658538c` 又显式锁定 unset role 默认 API 和 worker 仍可 publish assist 的合同，mutation proof 与回归测试 22/22 通过。
 - 隔离 schema、fixtures、Redis 临时键、进程与临时配置/截图已全部清理。
 - 本地实现已验证；push 和生产发布未授权。任务继续保持 active。
 
