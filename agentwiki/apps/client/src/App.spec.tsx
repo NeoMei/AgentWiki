@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { ProtectedRoute } from './App';
@@ -48,5 +48,13 @@ describe('ProtectedRoute', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: 'Template editor mode: create' })).toBeVisible();
+  });
+
+  it('redirects the legacy integrations URL to the Obsidian guide', async () => {
+    window.history.replaceState({}, '', '/settings/integrations');
+
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/guide/obsidian'));
   });
 });
