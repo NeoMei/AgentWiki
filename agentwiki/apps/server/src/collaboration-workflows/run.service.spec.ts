@@ -67,7 +67,7 @@ describe('RunService', () => {
     collaborationTaskDependency: { createMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
     collaborationTaskArtifact: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
-    collaborationReview: { findMany: jest.fn() },
+    collaborationReview: { findFirst: jest.fn(), findMany: jest.fn() },
     collaborationRunEvent: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
     spaceMember: { findMany: jest.fn() },
@@ -98,6 +98,7 @@ describe('RunService', () => {
     tx.collaborationTaskTodo.findMany.mockResolvedValue([]);
     tx.collaborationTaskAttempt.findFirst.mockResolvedValue(null);
     tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
+    tx.collaborationReview.findFirst.mockResolvedValue(null);
     tx.collaborationReview.findMany.mockResolvedValue([]);
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
     tx.spaceMember.findMany.mockResolvedValue([]);
@@ -570,7 +571,7 @@ describe('RunService', () => {
     const reviewRun = {
       ...ready,
       templateSnapshot: {
-        nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Tests pass', 'Evidence is complete'] }],
+        nodes: [{ kind: 'human_review', id: 'review-node', artifactTaskId: 'build', approvalCriteria: ['Tests pass', 'Evidence is complete'] }],
       },
       roleBindings: bindings,
       tasks: [{
@@ -582,11 +583,11 @@ describe('RunService', () => {
     };
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
-    tx.collaborationReview.findMany.mockResolvedValue([{
+    tx.collaborationReview.findFirst.mockResolvedValue({
       id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
       artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: [],
       allowTerminate: true, status: 'pending', createdAt: new Date(),
-    }]);
+    });
 
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
 
@@ -594,10 +595,54 @@ describe('RunService', () => {
     expect(result).not.toHaveProperty('templateSnapshot');
   });
 
+  it('keeps every current Review visible when one node has more than the preview limit of old revisions', async () => {
+    const tasks = ['a', 'b'].map((suffix, ordinal) => ({
+      id: `task-${suffix}`, runId: 'run-1', nodeId: `build-${suffix}`, ordinal, name: `Build ${suffix}`,
+      objective: `Build ${suffix}`, roleSlotId: 'builder', assigneeAgentId: 'agent-b', status: 'submitted',
+      generation: 1, dependencyMode: 'all', skippable: false, nextAttemptAt: null, completedAt: null,
+      createdAt: new Date(), updatedAt: new Date(),
+    }));
+    const reviewRun = {
+      ...ready,
+      templateSnapshot: {
+        nodes: [
+          { kind: 'human_review', id: 'review-a', artifactTaskId: 'build-a', approvalCriteria: ['A'] },
+          { kind: 'human_review', id: 'review-b', artifactTaskId: 'build-b', approvalCriteria: ['B'] },
+        ],
+      },
+      roleBindings: bindings,
+      tasks,
+    };
+    const currentReviews = {
+      'review-a': {
+        id: 'review-a-current', nodeId: 'review-a', revision: 101, generation: 1, sourceTaskId: 'task-a',
+        artifactId: 'artifact-a', revisionTaskId: 'task-a', minimumRole: 'editor', reviewerUserIds: [],
+        allowTerminate: true, status: 'pending', createdAt: new Date(),
+      },
+      'review-b': {
+        id: 'review-b-current', nodeId: 'review-b', revision: 1, generation: 1, sourceTaskId: 'task-b',
+        artifactId: 'artifact-b', revisionTaskId: 'task-b', minimumRole: 'editor', reviewerUserIds: [],
+        allowTerminate: true, status: 'pending', createdAt: new Date(),
+      },
+    } as const;
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
+    tx.collaborationReview.findMany.mockResolvedValue(Array.from({ length: 100 }, (_, index) => ({
+      ...currentReviews['review-a'], id: `review-a-${index + 2}`, revision: index + 2,
+    })).reverse());
+    tx.collaborationReview.findFirst.mockImplementation(async ({ where }: any) => (
+      currentReviews[where.nodeId as keyof typeof currentReviews] ?? null
+    ));
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+
+    expect(result.reviews.map((review: any) => review.id)).toEqual(['review-a-current', 'review-b-current']);
+  });
+
   it('returns an authoritative Owner recovery permission when designated reviewers are no longer live', async () => {
     const reviewRun = {
       ...ready,
-      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Complete'] }] },
+      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', artifactTaskId: 'build', approvalCriteria: ['Complete'] }] },
       roleBindings: bindings,
       tasks: [{
         id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build',
@@ -609,11 +654,11 @@ describe('RunService', () => {
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'owner-1', spaceId: 'space-1' });
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
-    tx.collaborationReview.findMany.mockResolvedValue([{
+    tx.collaborationReview.findFirst.mockResolvedValue({
       id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
       artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: ['locked-reviewer'],
       allowTerminate: true, status: 'pending', createdAt: new Date(),
-    }]);
+    });
     tx.spaceMember.findMany.mockResolvedValue([]);
 
     const result = await service.getHumanRun('space-1', 'run-1', { userId: 'owner-1' });
@@ -627,7 +672,7 @@ describe('RunService', () => {
   it('does not grant an Owner recovery permission while a designated reviewer remains eligible', async () => {
     const reviewRun = {
       ...ready,
-      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Complete'] }] },
+      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', artifactTaskId: 'build', approvalCriteria: ['Complete'] }] },
       roleBindings: bindings,
       tasks: [{
         id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build',
@@ -639,11 +684,11 @@ describe('RunService', () => {
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'owner-1', spaceId: 'space-1' });
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
-    tx.collaborationReview.findMany.mockResolvedValue([{
+    tx.collaborationReview.findFirst.mockResolvedValue({
       id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
       artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: ['active-reviewer'],
       allowTerminate: true, status: 'pending', createdAt: new Date(),
-    }]);
+    });
     tx.spaceMember.findMany.mockResolvedValue([{ userId: 'active-reviewer', role: 'editor' }]);
 
     const result = await service.getHumanRun('space-1', 'run-1', { userId: 'owner-1' });
@@ -654,9 +699,10 @@ describe('RunService', () => {
   it('bounds the main human DTO to current-generation latest task records and newest events', async () => {
     const unsafeRun = {
       ...ready,
+      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review', artifactTaskId: 'build', approvalCriteria: [] }] },
       roleBindings: bindings,
       tasks: [{
-        id: 'task-1', assigneeAgentId: 'agent-a', ordinal: 0, generation: 2,
+        id: 'task-1', nodeId: 'build', assigneeAgentId: 'agent-a', ordinal: 0, generation: 2,
         todos: [
           { id: 'todo-old', taskId: 'task-1', generation: 1, ordinal: 0 },
           { id: 'todo-current', taskId: 'task-1', generation: 2, ordinal: 0, status: 'done', summary: 'private Todo summary', evidence: [{ secret: 'todo evidence' }] },
@@ -685,7 +731,7 @@ describe('RunService', () => {
     tx.collaborationTaskTodo.findMany.mockResolvedValue([unsafeRun.tasks[0].todos[1]]);
     tx.collaborationTaskAttempt.findFirst.mockResolvedValue(unsafeRun.tasks[0].attempts[2]);
     tx.collaborationTaskArtifact.findFirst.mockResolvedValue(unsafeRun.tasks[0].artifacts[2]);
-    tx.collaborationReview.findMany.mockResolvedValue([unsafeRun.reviews[1]]);
+    tx.collaborationReview.findFirst.mockResolvedValue(unsafeRun.reviews[1]);
     tx.collaborationRunEvent.findMany.mockResolvedValue(unsafeRun.events);
 
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);

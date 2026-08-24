@@ -87,3 +87,10 @@
 - Fresh gates: Runtime 95 passed/50 environment-skipped; Server 1003 passed/3 skipped; Client 314/314; Sync Protocol 42/42; Local Sync 748/748; schema 2/2; real transactions 10/10; API/Worker/Credential/MCP E2E `PASS`; clean dual-tarball install and CLI startup `PASS`.
 - Real browser acceptance passed registration, Space and Publisher Agent setup, all five templates, the three-step wizard, self-review confirmation, eight-task dashboard, Todo/review/Artifact/activity views, and a 390px viewport with no horizontal overflow or console error/warning.
 - Implementation is release-ready locally. Push, npm publication, registry verification, and production deployment remain intentionally pending explicit authorization.
+
+## Authorized Release Finalization Recheck (2026-08-24)
+
+- After the user authorized the release chain, three additional task/code/security review rounds found and repaired two worthwhile defects with RED -> GREEN evidence: review-preview starvation across nodes, and stale WebSocket run-room membership after access revocation.
+- Fresh gates now pass at Runtime 95/50 environment-skipped, Server 1005/3 skipped, Client 316/316, Sync Protocol 42/42, Local Sync 748/748, schema 2/2, real transactions 10/10, HTTP/Worker/MCP E2E `PASS`, Prisma validate, lint, typecheck, build, diff check, dependency audit, and clean dual-package installation.
+- Fresh Browser acceptance passed registration, Space/Agent setup, five templates, the coding-template wizard, six role assignments, the eight-task ordered-Todo dashboard, pause/resume, audit history, and the 390px layout. The document width stayed at 390px and the browser console contained no warning/error. Obsidian remains inside the Usage Guide and is absent from Space navigation.
+- All temporary `collaboration_test_*` schemas and local API/frontend processes were removed after acceptance. The third review round found no additional worthwhile defect. npm publication and production deployment are the only remaining active release tasks.

@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [collaboration-release-finalization-2026-08-24](active/collaboration-release-finalization-2026-08-24/brief.md)：协作模板候选正在执行多轮任务、代码、全栈/UI 审查并完成 npm 与生产发布最终收口。
 
 ## 最近完成
 

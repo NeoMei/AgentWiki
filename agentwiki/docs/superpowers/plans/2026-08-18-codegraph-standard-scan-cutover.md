@@ -1,5 +1,7 @@
 # CodeGraph Standard Scan Cutover Implementation Plan
 
+**Status:** Completed and released on 2026-08-20. The unchecked boxes below are a frozen historical execution template, not active work; authoritative completion and release evidence is recorded in `docs/verification/codegraph-standard-scan-cutover.md` and `.codex-memory/tasks/archive/codegraph-local-code-analysis/brief.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace every active Codebase Memory code-scan path with a confirmed, deterministic CodeGraph standard scan that produces AgentWiki-owned snapshots and shareable derived knowledge without coupling the two products' versions.

@@ -106,11 +106,52 @@ describe('CollaborationGateway authentication', () => {
     expect(client.join).toHaveBeenCalledWith('collaboration:run:run-1');
 
     runListener?.(JSON.stringify({ spaceId: 'space-1', runId: 'run-1', eventSequence: 42, secret: 'ignored' }));
+    await new Promise((resolve) => setImmediate(resolve));
     const room = (gateway as any).server.to;
     expect(room).toHaveBeenCalledWith('collaboration:run:run-1');
     const emitted = room('collaboration:run:run-1').emit;
     expect(emitted).toHaveBeenCalledWith('collaborationRunChanged', {
       spaceId: 'space-1', runId: 'run-1', eventSequence: 42,
+    });
+  });
+
+  it('removes sockets that lost workflow access before relaying refresh hints', async () => {
+    let runListener: ((raw: string) => void) | undefined;
+    redis.subscribe.mockImplementation(async (channel: string, listener: (raw: string) => void) => {
+      if (channel === 'agentwiki:collaboration:runs') runListener = listener;
+      return () => undefined;
+    });
+    const allowedSocket = {
+      id: 'socket-allowed',
+      data: { user: { userId: 'user-1', name: 'Alice', authVersion: 0 }, socketAuthVersion: 0 },
+      leave: jest.fn(), disconnect: jest.fn(),
+    } as any;
+    const revokedSocket = {
+      id: 'socket-revoked',
+      data: { user: { userId: 'user-2', name: 'Bob', authVersion: 0 }, socketAuthVersion: 0 },
+      leave: jest.fn(), disconnect: jest.fn(),
+    } as any;
+    auth.validateJwtUser.mockImplementation(async (userId: string) => ({
+      userId, name: userId === 'user-1' ? 'Alice' : 'Bob', authVersion: 0,
+    }));
+    runs.getHumanRun.mockImplementation(async (_spaceId: string, _runId: string, principal: any) => {
+      if (principal.userId === 'user-2') throw new Error('revoked');
+      return { id: 'run-1' };
+    });
+    const emitted = jest.fn();
+    (gateway as any).server = {
+      in: jest.fn().mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([allowedSocket, revokedSocket]) }),
+      to: jest.fn().mockReturnValue({ emit: emitted }),
+    };
+
+    await gateway.onModuleInit();
+    runListener?.(JSON.stringify({ spaceId: 'space-1', runId: 'run-1', eventSequence: 43 }));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(revokedSocket.leave).toHaveBeenCalledWith('collaboration:run:run-1');
+    expect(allowedSocket.leave).not.toHaveBeenCalled();
+    expect(emitted).toHaveBeenCalledWith('collaborationRunChanged', {
+      spaceId: 'space-1', runId: 'run-1', eventSequence: 43,
     });
   });
 

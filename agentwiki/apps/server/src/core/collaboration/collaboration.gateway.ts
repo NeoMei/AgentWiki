@@ -86,9 +86,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           const hint = {
             spaceId: message.spaceId,
             runId: message.runId,
-            eventSequence: message.eventSequence,
+            eventSequence: Number(message.eventSequence),
           };
-          this.server.to(`collaboration:run:${message.runId}`).emit('collaborationRunChanged', hint);
+          void this.relayCollaborationRunHint(hint).catch((error: any) => {
+            this.logger.error(`Failed to relay collaboration run hint: ${error?.message || error}`);
+          });
         } catch {
           /* ignore malformed refresh hints */
         }
@@ -472,6 +474,46 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     } else if (msg.kind === 'error') {
       this.server.to(msg.pageId).emit('assistError', { taskId: msg.taskId, error: msg.error });
     }
+  }
+
+  private async relayCollaborationRunHint(hint: { spaceId: string; runId: string; eventSequence: number }) {
+    const room = `collaboration:run:${hint.runId}`;
+    const sockets = await this.server.in(room).fetchSockets();
+    const socketsByUser = new Map<string, Socket[]>();
+    for (const socket of sockets as unknown as Socket[]) {
+      const previous = socket.data.user as (Principal & { authVersion?: number }) | undefined;
+      if (!previous?.userId) {
+        socket.disconnect(true);
+        continue;
+      }
+      const userSockets = socketsByUser.get(previous.userId) || [];
+      userSockets.push(socket);
+      socketsByUser.set(previous.userId, userSockets);
+    }
+
+    for (const [userId, userSockets] of socketsByUser) {
+      const current = await this.auth.validateJwtUser(userId);
+      const eligibleSockets = userSockets.filter((socket) => {
+        const expired = socket.data.socketExpiresAt !== undefined && Date.now() >= socket.data.socketExpiresAt;
+        const versionChanged = current && socket.data.socketAuthVersion !== undefined &&
+          current.authVersion !== socket.data.socketAuthVersion;
+        if (!current || current.mustChangePassword || expired || versionChanged) {
+          socket.disconnect(true);
+          return false;
+        }
+        socket.data.user = current;
+        return true;
+      });
+      if (!current || eligibleSockets.length === 0) continue;
+
+      try {
+        await this.runs.getHumanRun(hint.spaceId, hint.runId, current);
+      } catch {
+        await Promise.all(eligibleSockets.map((socket) => socket.leave(room)));
+      }
+    }
+
+    this.server.to(room).emit('collaborationRunChanged', hint);
   }
 
   private async hasSocketWriteAccess(client: Socket, pageId: string): Promise<boolean> {

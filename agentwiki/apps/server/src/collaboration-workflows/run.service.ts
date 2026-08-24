@@ -824,6 +824,13 @@ export class RunService {
     if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
     const roleBindings = run.roleBindings;
     const taskGenerations = run.tasks.map((task) => ({ taskId: task.id, generation: task.generation }));
+    const taskByNodeId = new Map(run.tasks.map((task) => [task.nodeId, task]));
+    const reviewNodes = snapshotNodes(run.templateSnapshot)
+      .filter((node) => node.kind === 'human_review');
+    const currentReviewLookups = reviewNodes.flatMap((node) => {
+      const sourceTask = taskByNodeId.get(node.artifactTaskId);
+      return sourceTask ? [{ nodeId: node.id, sourceTaskId: sourceTask.id, generation: sourceTask.generation }] : [];
+    });
     const [todos, latestAttempts, latestArtifacts, reviews, newestEvents] = await Promise.all([
       tx.collaborationTaskTodo.findMany({
         where: { OR: taskGenerations },
@@ -840,12 +847,11 @@ export class RunService {
         orderBy: { version: 'desc' },
         select: HUMAN_ARTIFACT_PREVIEW_SELECT,
       }))),
-      tx.collaborationReview.findMany({
-        where: { OR: taskGenerations.map(({ taskId, generation }) => ({ sourceTaskId: taskId, generation })) },
+      Promise.all(currentReviewLookups.map((lookup) => tx.collaborationReview.findFirst({
+        where: { runId, ...lookup },
         orderBy: { revision: 'desc' },
-        take: 100,
         select: HUMAN_REVIEW_PREVIEW_SELECT,
-      }),
+      }))),
       tx.collaborationRunEvent.findMany({
         where: { runId },
         orderBy: { sequence: 'desc' },
@@ -853,18 +859,7 @@ export class RunService {
         select: HUMAN_EVENT_PREVIEW_SELECT,
       }),
     ]);
-    const reviewNodes = snapshotNodes(run.templateSnapshot)
-      .filter((node) => node.kind === 'human_review');
-    const currentReviews = [
-      ...reviews
-        .reduce((latestByNode, review) => {
-          if (!latestByNode.has(review.nodeId)) {
-            latestByNode.set(review.nodeId, review);
-          }
-          return latestByNode;
-        }, new Map<string, (typeof reviews)[number]>())
-        .values(),
-    ];
+    const currentReviews = reviews.filter((review): review is NonNullable<typeof review> => review !== null);
     const designatedReviewerIds = [...new Set(currentReviews.flatMap((review) =>
       Array.isArray(review.reviewerUserIds) ? review.reviewerUserIds.filter((id): id is string => typeof id === 'string') : []))];
     const eligibleReviewerRoles = reviewerContext && designatedReviewerIds.length
