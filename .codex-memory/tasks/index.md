@@ -4,10 +4,11 @@
 
 ## 活跃任务
 
-- [collaboration-release-finalization-2026-08-24](active/collaboration-release-finalization-2026-08-24/brief.md)：协作模板候选正在执行多轮任务、代码、全栈/UI 审查并完成 npm 与生产发布最终收口。
+- 无。
 
 ## 最近完成
 
+- [collaboration-release-finalization-2026-08-24](archive/collaboration-release-finalization-2026-08-24/brief.md)：协作模板完成多轮任务/代码/全栈/UI 审查、GitHub 与 npm `0.6.1/0.3.0` 发布、生产双备份部署及公网双轮烟测；活跃测试 fixture 与测试 schema 均清零。
 - [agent-collaboration-templates](archive/agent-collaboration-templates/brief.md)：五类协作模板、任务/Todo/依赖/审核/交接组件、六个 MCP 工具与 Space UI 已完成四轮审查和全栈验收；本地候选达到发布标准，GitHub、npm 与生产仍等待独立授权。
 - [comprehensive-security-reliability-audit-2026-08-23](archive/comprehensive-security-reliability-audit-2026-08-23/brief.md)：多轮全仓安全与可靠性审查、Local Sync 0.5.1 npm 发行和生产部署完成；授权 TOCTOU、Run 身份升级、WebSocket、Memory、限流、Git/Local Sync 边界和 Obsidian 单页连接均已上线并验收。
 - [unified-agent-access-roles](archive/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、单一 Grant 权限源、npm 0.5.0/0.2.0、GitHub 与生产发布完成；公网权限烟测 31/31、浏览器入口和三角色界面验收通过。

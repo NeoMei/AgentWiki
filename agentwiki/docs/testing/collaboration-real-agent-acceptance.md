@@ -23,7 +23,7 @@
 
 2026-08-24 13:22–14:50 CST 在 `4289b31dad97949968104f46c54427787a57a852` 基线及本文所在的最终审查提交上，将 Sync Protocol 提升到 `0.3.0`，当时的 Local Sync `0.6.0` 候选精确依赖该版本。所有数据库证据均在最终源码重新构建 `dist` 之后执行：本地双 tarball 空目录安装与 CLI 启动 `PASS`（protocol 42/42、local-sync 748/748）；隔离 schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`，随机 schema 清理后残留为 0。
 
-Sync Protocol `0.3.0` 已发布并完成 registry 哈希反验。首次发布的 Local Sync `0.6.0` 经公开 registry 空目录安装发现 npm tarball 仍保留 `workspace:0.3.0`，因此不得部署；`0.6.1` 候选改为在源清单中精确依赖 `0.3.0`，并把安装门禁从会自动改写 workspace 依赖的 `pnpm pack` 改为与发布产物一致的 `npm pack`。修复后的 `pnpm test:package:local-sync-registry-protocol` 已独立解析 registry 协议包并通过 748/748 测试及空目录安装，`0.6.1` 发布完成前仍不允许生产部署。
+Sync Protocol `0.3.0` 已发布并完成 registry 哈希反验。首次发布的 Local Sync `0.6.0` 经公开 registry 空目录安装发现 npm tarball 仍保留 `workspace:0.3.0`，因此不得部署；`0.6.1` 改为在源清单中精确依赖 `0.3.0`，并把安装门禁从会自动改写 workspace 依赖的 `pnpm pack` 改为与发布产物一致的 `npm pack`。修复后的 `pnpm test:package:local-sync-registry-protocol` 已独立解析 registry 协议包并通过 748/748 测试及空目录安装；`0.6.1` 已发布并部署，`0.6.0` 已弃用。
 
 ## A. 自动化先决证据
 
@@ -90,4 +90,14 @@ Harness 收到 SIGINT 后返回 `{"status":"CLEANED"}`。清理后：
 
 ## 结论
 
-A–F 全部为 `PASS`，本地代码、自动化门禁、真实浏览器既有证据和真实 Codex/Claude 业务验收共同达到“可进入发布操作”的标准。该结论不等于已经发布：push、npm 发布和生产部署仍需独立授权与发布前备份/预检。
+A–F 全部为 `PASS`，本地代码、自动化门禁、真实浏览器既有证据和真实 Codex/Claude 业务验收共同达到发布标准。
+
+## G. 发布后生产验收（2026-08-24）
+
+- 生产只读预检确认旧版本为 AgentWiki/Local Sync `0.5.1`、Sync Protocol `0.2.0`，三个 systemd user service 均 active，本机 API/UI 为 200，应用 `.env` 指向的 PostgreSQL 可连接。
+- 部署前创建并验证 PostgreSQL custom dump 与完整应用树备份；`pg_restore --list`、tar 列表和 SHA-256 全部通过，权限均为 `0600`。
+- 部署后生产为 AgentWiki/Local Sync `0.6.1`、Sync Protocol `0.3.0`；42 条 Prisma migration up to date，API/Worker/Frontend active、`NRestarts=0`，公网 `/api/health` 的 database、redis、auditPersistence 全部为 `ok`。
+- 公网 API/MCP smoke 连续两轮 31/31；UI smoke 最终干净轮为公共路由 5、登录后路由 15、移动路由 6。旧 `/settings/integrations` 明确验证重定向 `/guide/obsidian`，与“Obsidian 只在使用说明内进入”的已确认设计一致。
+- 生产活跃 smoke User/Space/Agent 与 `collaboration_test_*` schema 均为 0；历史行按产品软删除语义保留审计，不做物理删除。
+
+发布链已完成，本地、GitHub、npm 与生产四个表面均有当前证据；截至本轮最终复核，没有剩余值得修复的已知缺陷。

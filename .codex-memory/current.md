@@ -2,14 +2,13 @@
 
 # 当前目标
 
-- 对 Agent 协作模板与组件执行多轮任务、代码、全栈与真实 UI 审查，修复全部值得修复的缺陷。
-- 完成 Sync Protocol `0.3.0`、Local Sync 修订版 `0.6.1` 与生产部署发布链，并核对四个发布面。
+- Agent 协作模板与组件的多轮审查、修复、npm/GitHub 发布和生产部署已经完成；当前无活跃发布任务。
 
 # 范围 / 不做
 
 - 已完成编码、标书、论文、视频脚本和小说五类模板，以及 Agent 任务、顺序 Todo、依赖/并行、人工审核、结果交接/汇总、六个 MCP 工具与 Space UI。
 - 继续复用 `AgentGrant.role` 单一权限事实；Agent 不获得人类审核权限，不引入第二套 Credential scopes 或授权入口。
-- 本地完成不代表 npm 或生产已更新；用户已授权继续完整发布链。
+- 本地、GitHub、npm 与生产必须分别留存证据；本次四个发布面均已完成核验。
 
 # 当前状态
 
@@ -18,8 +17,10 @@
 - 隔离 PostgreSQL schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`；修订后的 npm 产物门禁确认 Local Sync `0.6.1` 精确使用 registry Sync Protocol `0.3.0`，748/748 与空目录安装/CLI 启动均通过。
 - 最新真实浏览器完成注册、Space/Agent 创建与授权、五模板、三步启动、六角色分配、8 任务/Todo 看板、暂停/恢复和历史审计；390px 页面无横向溢出，控制台无 error/warn，Obsidian 仅保留在使用说明。
 - 全部随机 `collaboration_test_*` schema、UI 验收 schema、Harness 状态文件与临时服务均已清理；无测试资源落入 `public`。
-- 本地 `master` 与 GitHub `origin/master` 已对齐到 `cb82c951ebd08baade89883db07afd2601b04144`，其中包含可安装的 `0.6.1` 发布修复与全部回归门禁。
-- npm Sync Protocol `0.3.0` 与 Local Sync `0.6.1` 均已发布并完成 shasum/integrity、公开元数据和空目录安装反验；CLI 返回 `0.6.1`。损坏的 Local Sync `0.6.0` 已标记弃用并明确要求升级。生产仍公告 `0.5.1`。
+- 本地 `master` 与 GitHub `origin/master` 已包含可安装的 `0.6.1` 发布修复、最终验收门禁和生产收口记录；最终哈希以当前 `git HEAD` 为准。
+- npm Sync Protocol `0.3.0` 与 Local Sync `0.6.1` 均已发布并完成 shasum/integrity、公开元数据和空目录安装反验；CLI 返回 `0.6.1`。损坏的 Local Sync `0.6.0` 已标记弃用并明确要求升级。
+- 生产已从 `0.5.1/0.2.0` 升级为 AgentWiki/Local Sync `0.6.1`、Sync Protocol `0.3.0`；42 条迁移全部 applied，API/Worker/Frontend 均 active 且重启计数为 0，公网健康项全部为 `ok`。
+- 发布后公网 API/MCP smoke 连续两轮 31/31；UI smoke 最终连续通过 5 个公共、15 个登录后和 6 个移动路由。验收脚本已把旧 `/settings/integrations` 明确归入 `/guide/obsidian` 兼容重定向；生产活跃 smoke User/Space/Agent 与 `collaboration_test_*` schema 均为 0。
 
 # 稳定约束
 
@@ -37,12 +38,11 @@
 - 最终发行审查计划：`docs/superpowers/plans/2026-08-24-collaboration-release-final-audit.md`
 - 真实客户端与最终门禁：`agentwiki/docs/testing/collaboration-real-agent-acceptance.md`
 - 已归档协作任务：`.codex-memory/tasks/archive/agent-collaboration-templates/`
-- 当前发布收口任务：`.codex-memory/tasks/active/collaboration-release-finalization-2026-08-24/`
+- 已归档发布收口任务：`.codex-memory/tasks/archive/collaboration-release-finalization-2026-08-24/`
 - 既有安全/发布任务：`.codex-memory/tasks/archive/comprehensive-security-reliability-audit-2026-08-23/`
 
 # 风险 / 下一步
 
-- 本地候选此前已达到发布标准；用户现要求再次执行多轮任务、代码、全栈与 UI 审查后完成发布。
-- npm 发布面已收口：Sync Protocol `0.3.0`、Local Sync `0.6.1` 可公开安装，损坏的 `0.6.0` 已弃用。
-- 生产部署前必须做只读主机/数据库/应用预检，并从应用 `.env` 确认目标数据库，创建并验证 PostgreSQL 与应用回滚备份后再迁移、部署和业务烟测。
-- 发布完成后必须分别报告本地 `master`、`origin/master`、npm 与生产四个表面的对齐状态。
+- 发布链已完成，无已知值得修复的缺陷或未完成门禁。
+- 保留回滚证据 `/root/backups/agentwiki/pre-collaboration-061-20260824T205059+0800.*` 与旧应用树 `/root/agentwiki-previous-20260824205509`；旧应用树不能脱离匹配数据库备份单独恢复。
+- 后续只需常规监控；如开启新需求，应创建新的 active task，而不是继续追加本次已归档任务。

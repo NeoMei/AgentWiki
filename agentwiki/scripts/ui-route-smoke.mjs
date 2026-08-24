@@ -107,6 +107,7 @@ export async function runUiRouteSmoke(environment = process.env) {
 
     const legacyRedirects = [
       ['/onboard', '/guide/agent-onboard'],
+      ['/settings/integrations', '/guide/obsidian'],
       ['/docs', '/guide/docs'],
       ['/docs/architecture', '/guide/docs/architecture'],
       ['/docs/features', '/guide/docs/features'],
@@ -138,7 +139,6 @@ export async function runUiRouteSmoke(environment = process.env) {
       ['/agents', /UI Route Agent/],
       [`/agents/${agent.id}`, /UI Route Agent/],
       ['/review', /Review|审核/i],
-      ['/settings/integrations', /Integration|集成/i],
       ['/profile', /Profile|个人/i],
       ['/search?q=ui-route-no-match', /Search|搜索/i],
     ];
