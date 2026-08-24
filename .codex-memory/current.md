@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 修复 Agent 协作运行“映射 Agent”无可选项且无法就地创建/接入的问题，使有权限的用户能在同一向导完成 Agent 准备与映射。
+- Agent 协作运行“映射 Agent”站内准备实现已完成本地全门禁与真实端到端验收；当前保持发布前 active，等待独立授权后才可 push/发布/部署。
 
 # 范围 / 不做
 
@@ -13,10 +13,12 @@
 
 # 当前状态
 
-- 已在生产只读复现：当前 Space 有一个 active Reader Agent 和两个 paused Agent；运行向导只展示 active 且 Grant 为 Editor/Publisher 的 Agent，因此映射列表为空。
-- 根因是既有设计只提供无 Agent 提示，没有在向导内串联创建/恢复、Grant 和 MCP 接入。
-- 用户已选择完整接入方案并确认交互、数据权限、组件错误处理和验收边界。
-- 正式设计已完成书面复核，TDD 实施计划已写入并完成自审；当前等待选择执行方式，尚未修改生产代码。
+- Tasks 1–5 已在本地实现向导内创建/恢复、Grant、Local Sync 一次性接入、自动检测、当前 Slot 映射、待接入警告与权限边界。
+- Task 6 本地验收完成：核心 66 个 server + 103 个 client 测试通过；全仓 2,302 个测试通过，53 个既有环境依赖测试跳过；lint/typecheck/build/diff 通过。
+- Browser 真实路径已完成桌面与 390px 验收；Owner/Admin、Editor 无 mutation/ownerRequired、无 SpaceMember 的 platform Super Admin 均通过，关键移动状态 7/7 的 `scrollWidth === 390`，Browser console 0 error/warn。
+- 验收中发现 worker 误订阅 API-only Socket.IO relay 的缺陷，已以失败回归测试驱动修复并在真实 worker 验证，修复提交为 `e83d153`。
+- 隔离 schema、4 个用户、3 个 Space、4 个 Agent、进程、Redis 临时键与隔离 HOME/config 已全部清理并二次确认。
+- 本地实现已验证；push、npm 发布和生产发布未获授权，未执行。
 - 上一版协作发布基线仍为本地/GitHub/生产 `0.6.1` 与 Sync Protocol `0.3.0`。
 
 # 稳定约束
@@ -32,6 +34,7 @@
 
 - 当前 Agent 准备设计：`agentwiki/docs/superpowers/specs/2026-08-25-collaboration-agent-preparation-design.md`
 - 当前 Agent 准备计划：`agentwiki/docs/superpowers/plans/2026-08-25-collaboration-agent-preparation-plan.md`
+- 本地最终验收：`agentwiki/docs/testing/collaboration-agent-preparation-acceptance.md`
 - 当前活跃任务：`.codex-memory/tasks/active/collaboration-agent-preparation/`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板实施计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
@@ -43,6 +46,5 @@
 
 # 风险 / 下一步
 
-- 需要在计划中严格处理前端多阶段编排的部分成功、权限变化、安装码过期和陈旧响应。
-- 选择 Subagent-Driven 或 Inline Execution 后，按计划逐项执行 RED→GREEN。
-- 生产发布仍需单独授权，并必须重新完成备份、部署和在线验收。
+- 待用户单独授权后，才能 push 当前分支、执行发布或生产部署；本任务因此保持 active。
+- 任何生产发布都需重新完成目标确认、备份、部署门禁和在线 Browser 验收；不得把本地验收当作已发布证据。

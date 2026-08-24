@@ -2,6 +2,9 @@
 
 - 设计：`agentwiki/docs/superpowers/specs/2026-08-25-collaboration-agent-preparation-design.md`
 - 实施计划：`agentwiki/docs/superpowers/plans/2026-08-25-collaboration-agent-preparation-plan.md`
+- 本地最终验收：`agentwiki/docs/testing/collaboration-agent-preparation-acceptance.md`
+- Task 6 执行报告：`.superpowers/sdd/collaboration-agent-preparation-task-6-report.md`
+- worker Socket relay 回归：`agentwiki/apps/server/src/core/collaboration/collaboration.gateway.spec.ts`
 - 原协作设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 原实施计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 启动向导：`agentwiki/apps/client/src/features/collaboration/RunStartWizard.tsx`
