@@ -24,6 +24,7 @@ describe('AgentService grant scope validation', () => {
     prisma.$queryRaw.mockResolvedValue([{ id: 'locked' }]);
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'active' });
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    prisma.user.findFirst.mockResolvedValue({ id: 'owner-1', platformRole: 'user' });
   });
 
   it('allows an owned Agent connection for a platform Super Admin without Space membership', async () => {

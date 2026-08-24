@@ -154,6 +154,14 @@ export class AgentService {
       await this.lockAgentAuthorizationMutationRows(
         tx, input.ownerId, input.agentId, input.spaceId, true,
       );
+      const owner = await tx.user.findFirst({
+        where: {
+          id: input.ownerId,
+          deletedAt: null,
+          lockedAt: null,
+        },
+        select: { id: true, platformRole: true },
+      });
       const agent = await tx.agent.findFirst({
         where: {
           id: input.agentId,
@@ -168,11 +176,13 @@ export class AgentService {
         where: {
           id: input.spaceId,
           deletedAt: null,
-          members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
+          ...(owner?.platformRole === 'super_admin' ? {} : {
+            members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
+          }),
         },
         select: { id: true },
       });
-      if (!agent || !space) {
+      if (!owner || !agent || !space) {
         throw new ForbiddenException('Connection authorization is no longer valid');
       }
 
