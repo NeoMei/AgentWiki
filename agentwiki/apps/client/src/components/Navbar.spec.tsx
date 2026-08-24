@@ -38,6 +38,7 @@ describe('Navbar global destinations', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '个人菜单' }));
     expect(screen.queryAllByRole('link', { name: '使用指南' })).toHaveLength(1);
+    expect(screen.queryByRole('link', { name: '连接 Obsidian' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '关于' })).not.toBeInTheDocument();
   });
 

@@ -27,6 +27,7 @@
 - 协作运行保存不可变模板快照；人工审核只能由人类完成；指定审核人失效时只允许 Owner/Admin 走审计恢复通道。
 - PostgreSQL 协作测试只允许专用 `COLLABORATION_TEST_DATABASE_URL` 与随机 `collaboration_test_*` schema，禁止迁移或清理 `public`。
 - Sync Protocol 独立 semver；发布顺序必须是 protocol `0.3.0` → registry 验证 → local-sync `0.6.0`。
+- Obsidian 连接从“使用指南”内部进入；全局导航与个人菜单不再提供独立“连接 Obsidian”目的地，`/guide` 在 Obsidian 子路由上保持激活。
 
 # 关键索引
 

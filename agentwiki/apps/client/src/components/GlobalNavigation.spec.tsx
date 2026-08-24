@@ -26,22 +26,22 @@ describe('GlobalNavigation', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
   });
 
-  it('shows the Obsidian connection entry with the primary destinations', () => {
+  it('shows one Usage Guide destination without a standalone Obsidian entry', () => {
     renderNavigation('/guide');
 
     expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '首页' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('href', '/guide');
-    expect(screen.getByRole('link', { name: '连接 Obsidian' })).toHaveAttribute('href', '/guide/obsidian');
+    expect(screen.queryByRole('link', { name: '连接 Obsidian' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('marks the Obsidian connection page active without also activating the guide', () => {
+  it('keeps Usage Guide active on the Obsidian guide page', () => {
     renderNavigation('/guide/obsidian');
 
-    expect(screen.getByRole('link', { name: '连接 Obsidian' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: '使用指南' })).not.toHaveAttribute('aria-current');
+    expect(screen.queryByRole('link', { name: '连接 Obsidian' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '使用指南' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('sends signed-in users directly to the workspace', () => {
