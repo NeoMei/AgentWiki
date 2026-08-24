@@ -32,7 +32,7 @@
 - Consumes: React Router `location.pathname` and the existing `/guide` and `/guide/obsidian` routes.
 - Produces: one global `Usage Guide` destination whose active condition is `pathname.startsWith('/guide')`; no standalone global `Connect Obsidian` link.
 
-- [ ] **Step 1: Write failing desktop and mobile navigation tests**
+- [x] **Step 1: Write failing desktop and mobile navigation tests**
 
 Replace the first two `GlobalNavigation` cases with assertions that the standalone destination is absent and the guide remains active on the Obsidian child route:
 
@@ -62,7 +62,7 @@ Extend the existing `Navbar` personal-menu case after opening the menu:
 expect(screen.queryByRole('link', { name: '连接 Obsidian' })).not.toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -73,7 +73,7 @@ pnpm --filter @agentwiki/client test -- src/components/GlobalNavigation.spec.tsx
 
 Expected: FAIL because `GlobalNavigation` and the personal menu still render “连接 Obsidian”, and `/guide/obsidian` does not mark “使用指南” active.
 
-- [ ] **Step 3: Implement the minimal navigation change**
+- [x] **Step 3: Implement the minimal navigation change**
 
 In `GlobalNavigation.tsx`, remove `Gem` from the icon import and replace the two guide-related items with one item:
 
@@ -98,7 +98,7 @@ In `Navbar.tsx`, remove `Gem` from the icon import and delete only this personal
 <Link onClick={() => setMenuOpen(false)} to="/guide/obsidian" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Gem size={16} /> {t('nav.obsidian')}</Link>
 ```
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run:
 
@@ -109,7 +109,7 @@ pnpm --filter @agentwiki/client test -- src/components/GlobalNavigation.spec.tsx
 
 Expected: both files pass; the standalone entry is absent from desktop and personal/mobile navigation, and Usage Guide is active on `/guide/obsidian`.
 
-- [ ] **Step 5: Verify preserved Obsidian access paths**
+- [x] **Step 5: Verify preserved Obsidian access paths**
 
 Run:
 
@@ -120,7 +120,7 @@ pnpm --filter @agentwiki/client test -- src/features/about/UsageGuide.spec.tsx s
 
 Expected: all tests pass, proving the internal Usage Guide link, Obsidian page, safe return path, and route/redirect surface remain available.
 
-- [ ] **Step 6: Run client release gates**
+- [x] **Step 6: Run client release gates**
 
 Run:
 
@@ -134,7 +134,7 @@ git diff --check
 
 Expected: TypeScript succeeds, all client test files pass, the Vite production build succeeds, and `git diff --check` reports no error.
 
-- [ ] **Step 7: Update project state and commit**
+- [x] **Step 7: Update project state and commit**
 
 Update `.codex-memory/current.md` so the stable navigation rule says Obsidian is reached through the Usage Guide rather than a standalone global destination. Then stage only the four component/test files and `current.md`:
 
@@ -150,3 +150,11 @@ git commit -m "fix(navigation): consolidate Obsidian into usage guide"
 ```
 
 Expected: one focused implementation commit; unrelated subprojects, `.codebase-memory`, and other worktrees remain unstaged.
+
+## Final Result
+
+- TDD RED reproduced three expected navigation failures; GREEN passed the full client suite.
+- Final release gates passed: lint, monorepo typecheck, monorepo production build, client 51 files/316 tests, and `git diff --check`.
+- Independent task and whole-branch reviews found no remaining Critical, Important, or Minor issue after adding direct legacy-redirect and Profile-shortcut regression tests.
+- Real in-app browser verification passed on the default desktop viewport and 390×844 mobile viewport: no standalone Obsidian global destination, the Usage Guide stays active, the internal Obsidian entry navigates correctly, horizontal scroll width remains 390/390, and the browser console has no error or warning.
+- Obsidian connection-code and device API actions were not exercised in the browser because this navigation-only local QA did not start the API; their production code was unchanged and their existing automated tests remained green.
