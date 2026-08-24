@@ -78,11 +78,14 @@ export function hasActiveSpaceCredential(
   spaceId: string,
   now = Date.now(),
 ): boolean {
-  return agent.credentials.some((credential) => (
-    credential.authorization.space.id === spaceId
-    && !credential.revokedAt
-    && (!credential.expiresAt || Date.parse(credential.expiresAt) > now)
-  ));
+  return agent.credentials.some((credential) => {
+    if (credential.authorization.space.id !== spaceId) return false;
+    if (credential.revokedAt !== null && credential.revokedAt !== undefined) return false;
+    if (credential.expiresAt === null || credential.expiresAt === undefined) return true;
+
+    const expiresAt = Date.parse(credential.expiresAt);
+    return Number.isFinite(expiresAt) && expiresAt > now;
+  });
 }
 
 export function apiResponseStatus(error: unknown): number | undefined {
