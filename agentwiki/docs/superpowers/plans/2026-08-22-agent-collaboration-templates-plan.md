@@ -67,7 +67,7 @@
 - Consumes: `AgentAccessRole`, `AGENT_ACCESS_ROLE_SCOPES`, and `agentRoleAllowsScope()` from the completed unified-role plan.
 - Produces: `CollaborationTemplateDefinitionSchema`, exact state schemas, `CollaborationArtifactInputSchema`, all six MCP input/output schemas, and the two collaboration scopes.
 
-- [ ] **Step 1: Write failing contract tests for bounds, enums, MCP strictness, and access-role inheritance**
+- [x] **Step 1: Write failing contract tests for bounds, enums, MCP strictness, and access-role inheritance**
 
 ```ts
 // packages/sync-protocol/src/collaboration.spec.ts
@@ -117,7 +117,7 @@ describe("collaboration contract", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -128,7 +128,7 @@ pnpm --filter @neomei/agentwiki-sync-protocol exec vitest run src/collaboration.
 
 Expected: FAIL because `src/collaboration.ts` is absent and role scopes do not contain collaboration permissions.
 
-- [ ] **Step 3: Add the exact shared schemas, bounds, and role scopes**
+- [x] **Step 3: Add the exact shared schemas, bounds, and role scopes**
 
 ```ts
 // packages/sync-protocol/src/collaboration.ts
@@ -210,7 +210,7 @@ export type CollaborationTaskStatus = z.infer<typeof CollaborationTaskStatusSche
 
 After the structural schemas, add `superRefine` checks for unique input/Role Slot/node/Todo/output keys, at least one required Todo, existing role/node/terminal references, terminal nodes with no outgoing edge, Artifact producer reachability, review source edge and ancestor revision target, and illegal `any + required upstream Artifact`. Add strict input-value schemas and parse every MCP output before returning it. In `agent-access-role.ts`, append `collaboration:read` to the reader base and `collaboration:execute` to the editor additions, then export `collaboration.ts` from `index.ts`. Keep the existing sorted-return behavior so role snapshots remain deterministic.
 
-- [ ] **Step 4: Run shared contract gates and verify GREEN**
+- [x] **Step 4: Run shared contract gates and verify GREEN**
 
 Run:
 
@@ -223,7 +223,7 @@ pnpm --filter @neomei/agentwiki-sync-protocol build
 
 Expected: all commands exit 0; the collaboration suite reports 4 passing tests and the updated role suite remains green.
 
-- [ ] **Step 5: Commit the contract**
+- [x] **Step 5: Commit the contract**
 
 ```bash
 git add agentwiki/packages/sync-protocol
@@ -246,7 +246,7 @@ git commit -m "feat(collaboration): define shared workflow contract"
 - Consumes: state names and object names from Task 1.
 - Produces: Prisma delegates for the ten fixed collaboration records and database-enforced uniqueness needed by idempotency, active attempts, Artifact versions, and template seeds.
 
-- [ ] **Step 1: Write a failing real-database schema test**
+- [x] **Step 1: Write a failing real-database schema test**
 
 ```js
 // scripts/collaboration-schema-db.test.mjs
@@ -277,13 +277,13 @@ test('collaboration migration exposes all ten tables and integrity guards', { sk
 
 `withCollaborationTestDatabase()` must parse and validate the dedicated URL, require the database name itself to contain `test`, reject an empty database name and any pre-existing `schema` not matching `^collaboration_test_[a-z0-9_]+$`, create a fresh `collaboration_test_<random>` schema, run `prisma migrate deploy` with a child-process `DATABASE_URL` pointing only at that schema, and in `finally` quote and drop only the exact generated schema. It must never fall back to `DATABASE_URL`, never migrate `public`, and never accept a production-identity bypass flag.
 
-- [ ] **Step 2: Run the schema test and verify RED**
+- [x] **Step 2: Run the schema test and verify RED**
 
 Run: `cd agentwiki && node --test scripts/collaboration-schema-db.test.mjs`
 
 Expected with `COLLABORATION_TEST_DATABASE_URL` configured: FAIL because the collaboration tables do not exist. Without it: one explicit skip, which is not accepted as migration evidence.
 
-- [ ] **Step 3: Add exact Prisma models, enums, relations, and migration constraints**
+- [x] **Step 3: Add exact Prisma models, enums, relations, and migration constraints**
 
 Add Prisma enums for the run/task/Todo/Artifact/review states from Task 1 and these models with the named uniqueness rules:
 
@@ -542,7 +542,7 @@ CHECK (("actorUserId" IS NOT NULL)::int + ("actorAgentId" IS NOT NULL)::int <= 1
 
 The schema test must also attempt invalid cross-run Task/Attempt/Artifact/Review inserts and each CHECK violation, and assert PostgreSQL rejects them. Run the existing Prisma drift command and keep the allowlist in `pgvector-semantic-search-db.test.mjs` exactly `Removed index on columns (embeddingVector)`; collaboration CHECK/partial indexes must not justify accepting any second unexpected drift line.
 
-- [ ] **Step 4: Generate Prisma, apply to an isolated test database, and verify GREEN**
+- [x] **Step 4: Generate Prisma, apply to an isolated test database, and verify GREEN**
 
 Run:
 
@@ -555,7 +555,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: all commands exit 0; schema test passes and Prisma typecheck recognizes all ten delegates.
 
-- [ ] **Step 5: Commit the schema**
+- [x] **Step 5: Commit the schema**
 
 ```bash
 git add agentwiki/apps/server/prisma agentwiki/scripts/collaboration-schema-db.test.mjs agentwiki/scripts/collaboration-test-database.mjs agentwiki/scripts/pgvector-semantic-search-db.test.mjs agentwiki/package.json
@@ -576,7 +576,7 @@ git commit -m "feat(collaboration): persist workflow state"
 - Consumes: `CollaborationTemplateDefinition` and schema from Task 1.
 - Produces: `BUILT_IN_COLLABORATION_TEMPLATES`, `validateCollaborationTemplate(definition): TemplateValidationIssue[]`, and `hashCollaborationTemplate(definition): string`.
 
-- [ ] **Step 1: Write failing graph-validation and built-in contract tests**
+- [x] **Step 1: Write failing graph-validation and built-in contract tests**
 
 ```ts
 // apps/server/src/collaboration-workflows/template-validator.spec.ts
@@ -608,13 +608,13 @@ it("ships five stable immutable seeds that pass schema and graph validation", ()
 });
 ```
 
-- [ ] **Step 2: Run both suites and verify RED**
+- [x] **Step 2: Run both suites and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/template-validator.spec.ts src/collaboration-workflows/built-in-templates.spec.ts`
 
 Expected: FAIL because validator and seed files do not exist.
 
-- [ ] **Step 3: Implement deterministic graph validation and stable hashing**
+- [x] **Step 3: Implement deterministic graph validation and stable hashing**
 
 ```ts
 // apps/server/src/collaboration-workflows/template-validator.ts
@@ -713,7 +713,7 @@ function uniqueIssues(issues: TemplateValidationIssue[]): TemplateValidationIssu
 }
 ```
 
-- [ ] **Step 4: Define all five complete seeds and verify their domain-specific gates**
+- [x] **Step 4: Define all five complete seeds and verify their domain-specific gates**
 
 In `template-definitions.ts`, first parse every literal through `CollaborationTemplateDefinitionSchema`, clone the parsed value, then recursively `deepFreeze` the result. Export seeds with `slug`, bilingual `name`, `seedVersion: 1`, and a complete Task/Review graph. `Object.freeze` on only the outer array is insufficient. Ensure these exact review-gate counts and distinguishing constraints:
 
@@ -746,7 +746,7 @@ Use this exact seed manifest; arrows are dependency edges, comma-separated prede
 
 Each Agent task contains at least one Todo and at least one required Todo. Each upstream Artifact declaration names a reachable producer and marks the input required/optional. Coding requires commit/patch and test evidence; paper citation verification requires source identifiers and marks unverifiable claims; video review checks duration, facts, and brand tone; novel chapter work defaults to sequential continuity dependencies. `export-reference` tasks produce references only and never upload DOCX/PDF/LaTeX. Add validator issues for duplicate keys, dangling role/output/review references, missing review source edge, non-ancestor revision target, required Artifact on an early-release `any` path, and incoming edges that mix `all` and `any` for one target.
 
-- [ ] **Step 5: Run focused and package tests, then commit**
+- [x] **Step 5: Run focused and package tests, then commit**
 
 Run:
 
@@ -781,7 +781,7 @@ git commit -m "feat(collaboration): add validated built-in templates"
 - Consumes: Prisma Template model, built-ins, validator, `CombinedAuthGuard`, `HumanOnlyGuard`, and `AuthorizationService.assertSpaceAccess()`.
 - Produces: `TemplateService.list()`, `get()`, `createSpaceTemplate()`, `copySystemTemplate()`, `validateDefinition()`, `updateSpaceTemplate()`, `archiveSpaceTemplate()`, `seedBuiltIns()`, and the complete `/spaces/:spaceId/collaboration/templates` HTTP surface.
 
-- [ ] **Step 1: Write failing service tests for immutable seeds, copy isolation, optimistic versioning, and permissions**
+- [x] **Step 1: Write failing service tests for immutable seeds, copy isolation, optimistic versioning, and permissions**
 
 ```ts
 it("conditionally applies only a newer system seed without changing copied Space templates", async () => {
@@ -813,13 +813,13 @@ it("rejects editing a system template", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused suite and verify RED**
+- [x] **Step 2: Run the focused suite and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/template.service.spec.ts`
 
 Expected: FAIL because the service is absent.
 
-- [ ] **Step 3: Implement API-only seed startup and transactional template mutations**
+- [x] **Step 3: Implement API-only seed startup and transactional template mutations**
 
 ```ts
 @Injectable()
@@ -894,7 +894,7 @@ COLLABORATION_REVIEW_TERMINATE_DENIED: { status: HttpStatus.FORBIDDEN, message: 
 COLLABORATION_IDEMPOTENCY_MISMATCH: { status: HttpStatus.CONFLICT, message: 'Idempotency key was reused for another collaboration action' },
 ```
 
-- [ ] **Step 4: Add guarded HTTP routes and module wiring**
+- [x] **Step 4: Add guarded HTTP routes and module wiring**
 
 ```ts
 @Controller('spaces/:spaceId/collaboration/templates')
@@ -926,7 +926,7 @@ export class TemplateController {
 
 `CollaborationWorkflowsModule` imports `DatabaseModule`, `AuthorizationModule`, and `ConfigModule`, exports its services for MCP, and is imported by `AppModule`. DTOs use class-validator for names and numeric versions, then the service applies the shared Zod definition schema.
 
-- [ ] **Step 5: Verify service, module graph, and commit**
+- [x] **Step 5: Verify service, module graph, and commit**
 
 Run:
 
@@ -963,7 +963,7 @@ git commit -m "feat(collaboration): add template management API"
 - Consumes: Template service/validator, Prisma models, shared schemas, `Principal`, and role-aware authorization from the prerequisite plan.
 - Produces: `RunEventStore.executeIdempotent()`, `createDraft()`, `updateDraft()`, `validateDraft()`, `startRun()`, `listRuns()`, `getHumanRun()`, `pauseRun()`, `resumeRun()`, `retryTask()`, `reassignTask()`, `skipTask()`, `failRun()`, and `cancelRun()`.
 
-- [ ] **Step 1: Write failing run-expansion and authorization tests**
+- [x] **Step 1: Write failing run-expansion and authorization tests**
 
 ```ts
 it("persists an optimistic draft, validates it to ready, then freezes and expands it on start", async () => {
@@ -1018,13 +1018,13 @@ it("reassigns to a freshly authorized Agent, invalidates the old lease, and keep
 });
 ```
 
-- [ ] **Step 2: Run the suite and verify RED**
+- [x] **Step 2: Run the suite and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/run.service.spec.ts`
 
 Expected: FAIL because run service/controller files are absent.
 
-- [ ] **Step 3: Implement start preflight and immutable normalized expansion**
+- [x] **Step 3: Implement start preflight and immutable normalized expansion**
 
 ```ts
 async startRun(spaceId: string, runId: string, input: StartRunDto, principal: Principal) {
@@ -1057,7 +1057,7 @@ async startRun(spaceId: string, runId: string, input: StartRunDto, principal: Pr
 
 Expose these exact guarded routes: `POST /spaces/:spaceId/collaboration/runs/drafts`, `PUT /spaces/:spaceId/collaboration/runs/:runId/draft`, `POST /spaces/:spaceId/collaboration/runs/:runId/validate`, `POST /spaces/:spaceId/collaboration/runs/:runId/start`, `GET /spaces/:spaceId/collaboration/runs`, `GET /spaces/:spaceId/collaboration/runs/:runId`, `POST /spaces/:spaceId/collaboration/runs/:runId/actions/pause`, `POST /spaces/:spaceId/collaboration/runs/:runId/actions/resume`, `POST /spaces/:spaceId/collaboration/runs/:runId/actions/fail`, `POST /spaces/:spaceId/collaboration/runs/:runId/actions/cancel`, `POST /spaces/:spaceId/collaboration/runs/:runId/tasks/:taskId/retry`, `POST /spaces/:spaceId/collaboration/runs/:runId/tasks/:taskId/reassign`, and `POST /spaces/:spaceId/collaboration/runs/:runId/tasks/:taskId/skip`. DTO and controller tests must assert each literal path.
 
-- [ ] **Step 4: Implement guarded human controls with explicit transition predicates**
+- [x] **Step 4: Implement guarded human controls with explicit transition predicates**
 
 Use `@UseGuards(CombinedAuthGuard, HumanOnlyGuard)` on all run HTTP routes. Apply these exact predicates in a serializable transaction:
 
@@ -1078,7 +1078,7 @@ Every mutation requires a non-empty bounded reason, invalidates active attempts 
 
 Every human mutation DTO for an existing Run also requires an 8-128 character idempotency key. Template and draft writes keep their exact DTOs and optimistic-version rules described above. `RunEventStore.executeIdempotent<T>(tx, { runId, actorKind, actorId, operation, target, key, requestHash }, mutation)` returns a stored response only when all scope fields and the canonical request hash match; reuse with another operation/target/body throws `COLLABORATION_IDEMPOTENCY_MISMATCH`. Otherwise it locks the Run row, increments `eventSequence`, runs the mutation, stores redacted metadata plus the bounded safe receipt, and returns it. System events use `actorKind='system'` and `actorId='system'`. The helper and state change share one serializable transaction.
 
-- [ ] **Step 5: Verify run transitions, HTTP authorization, and commit**
+- [x] **Step 5: Verify run transitions, HTTP authorization, and commit**
 
 Run:
 
@@ -1115,7 +1115,7 @@ git commit -m "feat(collaboration): create and control workflow runs"
 - Consumes: normalized run rows, shared MCP DTOs, role-aware `Principal`, template output contracts, and `RunEventStore.executeIdempotent()`.
 - Produces: `joinRun()`, `nextAction()`, `heartbeat()`, `updateTodo()`, `submitResult()`, `getAgentRun()`, and `validateArtifact()`.
 
-- [ ] **Step 1: Write failing execution tests for identity, claim exclusivity, Todo order, leases, and redacted tokens**
+- [x] **Step 1: Write failing execution tests for identity, claim exclusivity, Todo order, leases, and redacted tokens**
 
 ```ts
 it("joins when authenticated Agent is bound or currently assigned, active, granted, and editor-capable", async () => {
@@ -1150,13 +1150,13 @@ it("returns the original response for a repeated idempotency key", async () => {
 });
 ```
 
-- [ ] **Step 2: Run execution tests and verify RED**
+- [x] **Step 2: Run execution tests and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/execution.service.spec.ts src/collaboration-workflows/artifact-validator.spec.ts`
 
 Expected: FAIL because execution and artifact validation services are absent.
 
-- [ ] **Step 3: Implement conditional claim and lease verification**
+- [x] **Step 3: Implement conditional claim and lease verification**
 
 ```ts
 private async claimReadyTask(tx: Prisma.TransactionClient, runId: string, agentId: string, key: string, requestHash: string) {
@@ -1186,7 +1186,7 @@ Wrap claim, heartbeat, Todo, and submission mutations with `RunEventStore.execut
 
 When `waitSeconds > 0`, `nextAction` performs short queries between abort-aware waits capped at 25 seconds; it never keeps a Prisma transaction or database connection open while waiting. Return `waiting_dependency` with a bounded retry interval when no own task is ready. Return `waiting_human` immediately as `{ action: 'waiting_human', resumeRequired: true, message }` with no retry interval; `paused` and terminal states also return immediately.
 
-- [ ] **Step 4: Implement ordered Todo and bounded Artifact validation**
+- [x] **Step 4: Implement ordered Todo and bounded Artifact validation**
 
 ```ts
 export function normalizeExternalReference(reference: ExternalReference): ExternalReference {
@@ -1224,7 +1224,7 @@ Add direct `"ajv": "8.18.0"` to `apps/server/package.json` and update the lockfi
 
 For a validation failure, first insert a redacted Run Event keyed by the submission idempotency key and save its structured `{ code, path, message }[]` response. Atomically increment `attempt.repairCount`; while it is within `task.repairBudget`, keep the lease active and return `action: repair_result` with those issues. When the budget is exceeded, invalidate the attempt, set the task to `failed`, pause the run with next action `human_recovery`, and preserve all prior Artifact versions. Replaying the same key reads the Run Event response and does not increment `repairCount` twice. Infrastructure retry counters and content-repair counters never share a field.
 
-- [ ] **Step 5: Verify execution boundaries and commit**
+- [x] **Step 5: Verify execution boundaries and commit**
 
 Run:
 
@@ -1257,7 +1257,7 @@ git commit -m "feat(collaboration): execute leased agent tasks"
 - Consumes: submitted/accepted Artifacts, dependency rows, snapshot review nodes, human Principal, and run/task states.
 - Produces: `advanceRun()`, `approveReview()`, `rejectForRevision()`, `terminateAtReview()`, and deterministic `calculateRunStatus()`.
 
-- [ ] **Step 1: Write failing state-progression tests**
+- [x] **Step 1: Write failing state-progression tests**
 
 ```ts
 it("uses any for early release while requiring every non-skipped upstream for final completion", async () => {
@@ -1292,13 +1292,13 @@ it("refuses an Agent principal and a human outside reviewer constraints", async 
 });
 ```
 
-- [ ] **Step 2: Run progression/review tests and verify RED**
+- [x] **Step 2: Run progression/review tests and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/progression.service.spec.ts src/collaboration-workflows/review.service.spec.ts`
 
 Expected: FAIL because both services are absent.
 
-- [ ] **Step 3: Implement one transactional progression algorithm**
+- [x] **Step 3: Implement one transactional progression algorithm**
 
 ```ts
 async advanceRun(tx: Prisma.TransactionClient, runId: string, cause: string): Promise<void> {
@@ -1318,7 +1318,7 @@ async advanceRun(tx: Prisma.TransactionClient, runId: string, cause: string): Pr
 
 `calculateRunStatus` uses this exact priority: preserve explicit `completed | failed | cancelled`; then `paused` for an active pause reason; then `running` when any current-generation task is `ready | claimed | running | retry_wait`; then `waiting_review` when a current-generation pending Review exists; then `completed` only when every required non-skipped task and terminal is satisfied; otherwise throw/record `COLLABORATION_PROGRESS_INVARIANT` and pause rather than inventing a state. `any` only controls readiness; final completion still requires all non-skipped upstream tasks. Exhaustion never silently changes the run to `failed`.
 
-- [ ] **Step 4: Implement human-only review decisions and revision routing**
+- [x] **Step 4: Implement human-only review decisions and revision routing**
 
 Guard review routes with `CombinedAuthGuard, HumanOnlyGuard`. Expose decisions only as `POST /spaces/:spaceId/collaboration/runs/:runId/reviews/:reviewId/decision`; its strict DTO contains `kind`, bounded `reason`, and `idempotencyKey`, never a client-supplied actor ID. In a serializable transaction, re-read Space membership and reviewer constraints, acquire the pending review row with a conditional update, then:
 
@@ -1347,7 +1347,7 @@ switch (decision.kind) {
 
 `computeRevisionSubgraph` first proves that the revision task is the source task or its ancestor, then takes nodes reachable from the revision task that can reach the rejected Review, plus all descendants of that Review; this invalidates the causal branch without resetting unrelated parallel work. The mutation locks the Run, all affected task rows in stable ID order, and the pending Review. It marks the decision Review rejected, increments each affected task generation, supersedes old-generation accepted/pending Artifacts and other affected pending Reviews, preserves all decided Reviews/history, creates fresh Todo rows keyed by the new generation, sets the revision target according to dependencies outside the affected set, and leaves all affected descendants blocked until current-generation prerequisites satisfy. A new source submission creates a Review with source generation and `revision = previous max + 1`. Artifact lookup, dependency release, Review creation, and completion queries always filter current task generation. Record `reviewerUserId`, reason, old/new generations, affected node IDs, Artifact version, and timestamp; never store secrets.
 
-- [ ] **Step 5: Verify review/progression and commit**
+- [x] **Step 5: Verify review/progression and commit**
 
 Run:
 
@@ -1382,7 +1382,7 @@ git commit -m "feat(collaboration): advance dependencies and reviews"
 - Consumes: expired active attempts, retry budgets/timestamps, committed events, `ConfigService`, and `RedisService`.
 - Produces: `RecoveryWorker.tick()`, `CollaborationEventsService.publishRunChanged()`, Redis channel `agentwiki:collaboration:runs`, Socket events `collaborationRunChanged`, and room name `collaboration:run:<runId>`.
 
-- [ ] **Step 1: Write failing recovery and notification tests**
+- [x] **Step 1: Write failing recovery and notification tests**
 
 ```ts
 it("runs only in worker/all roles and expires a lease exactly once", async () => {
@@ -1415,13 +1415,13 @@ it("publishes only a refresh hint after the transaction commits", async () => {
 });
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/collaboration-workflows/recovery.worker.spec.ts src/collaboration-workflows/collaboration-events.service.spec.ts`
 
 Expected: FAIL because worker/event service files are absent.
 
-- [ ] **Step 3: Implement bounded polling, exponential backoff, and single-winner expiry**
+- [x] **Step 3: Implement bounded polling, exponential backoff, and single-winner expiry**
 
 ```ts
 @Injectable()
@@ -1448,7 +1448,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
 
 `recoverAttempt` uses conditional `updateMany` for single-winner expiry and verifies Attempt generation still equals the task generation. `retryBudget` is retries after the initial Attempt, so retry while `attemptNumber <= retryBudget`; pause only after a failed Attempt whose number is greater than the budget. Infrastructure retry delay is `min(300, 2 ** attemptNumber * 5)` seconds; content-repair budget is separate. Before releasing an expired Attempt or due retry, re-read the current assignee's active status, Space Grant, Credential/access-role capability, and `collaboration:execute`; on revoke/downgrade pause with `agent_authorization_changed` and never automatically reassign.
 
-- [ ] **Step 4: Bridge committed refresh events without making Socket state authoritative**
+- [x] **Step 4: Bridge committed refresh events without making Socket state authoritative**
 
 Extend the existing gateway Redis subscription:
 
@@ -1465,7 +1465,7 @@ this.unsubscribeRuns = await this.redis.subscribe(RUN_CHANNEL, (raw) => {
 
 Add authenticated `joinCollaborationRun`/`leaveCollaborationRun` handlers that verify run access through `RunService` before joining. The event contains only IDs and a monotonically increasing event sequence; clients must REST-fetch state after receiving it.
 
-- [ ] **Step 5: Verify Worker/API role separation and commit**
+- [x] **Step 5: Verify Worker/API role separation and commit**
 
 Run:
 
@@ -1528,7 +1528,7 @@ git commit -m "feat(collaboration): recover leases and broadcast updates"
 - Consumes: execution/run services and the six shared input/output schema pairs.
 - Produces: server tools `collaboration_join_run`, `collaboration_next_action`, `collaboration_heartbeat`, `collaboration_update_todo`, `collaboration_submit_result`, `collaboration_get_run`; gateway aliases `wiki_collaboration_*` with direct named inputs.
 
-- [ ] **Step 1: Write failing MCP authorization, shape, and gateway-registration tests**
+- [x] **Step 1: Write failing MCP authorization, shape, and gateway-registration tests**
 
 ```ts
 // apps/server/src/mcp/collaboration-mcp.spec.ts
@@ -1557,7 +1557,7 @@ it("maps discovered collaboration tools to exact direct schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run server and gateway tests and verify RED**
+- [x] **Step 2: Run server and gateway tests and verify RED**
 
 Run:
 
@@ -1569,7 +1569,7 @@ pnpm --filter @neomei/agentwiki-local-sync exec vitest run src/gateway/collabora
 
 Expected: FAIL because collaboration tools and exact gateway schema mapping are absent.
 
-- [ ] **Step 3: Register canonical server tools through the existing audited adapter**
+- [x] **Step 3: Register canonical server tools through the existing audited adapter**
 
 ```ts
 registerTool('collaboration_join_run', {
@@ -1585,7 +1585,7 @@ registerTool('collaboration_next_action', {
 
 Register the other four using their exact shared input schemas and parse each service result through its shared output schema before serializing it. Read calls require `collaboration:read`; claim/heartbeat/Todo/submit require `collaboration:execute`. Continue using `executeMcpCall` so audit records tool name, Agent ID, IP/user-agent, outcome, and argument names only; do not add full argument values.
 
-- [ ] **Step 4: Replace generic `__args` only for the six collaboration aliases**
+- [x] **Step 4: Replace generic `__args` only for the six collaboration aliases**
 
 ```ts
 // packages/local-sync/src/gateway/collaboration-tools.ts
@@ -1610,7 +1610,7 @@ export function exactRemoteToolSchema(name: string): z.ZodRawShape | undefined {
 
 In `createGatewayServer`, if `exactRemoteToolSchema(remote.name)` exists, register it directly and forward `input` unchanged. Preserve generic `{ __args }` for unrelated discovered tools to avoid expanding this feature into a full remote-schema conversion project. Assert the returned names are `wiki_collaboration_join_run` through `wiki_collaboration_get_run`. Before the gate, update the active local-sync and server/client package versions, gateway/CLI runtime constants, `LOCAL_SYNC_VERSION`, server onboarding acceptance, generated instructions, and compatibility tests from `0.5.1` to `0.6.0`; do not force the independently versioned sync-protocol package to `0.6.0`. Run the `rg` commands from the Files list and classify every remaining active `0.5.1` occurrence on those release surfaces as a defect.
 
-- [ ] **Step 5: Verify MCP packages and commit**
+- [x] **Step 5: Verify MCP packages and commit**
 
 Run:
 
@@ -1649,7 +1649,7 @@ git commit -m "feat(collaboration): expose secure MCP execution tools"
 - Consumes: template/run REST APIs, existing API client/auth, `SpaceNav`, `ModalDialog`, Toast, and shared enums.
 - Produces: `/spaces/:id/collaboration` with Template Library, Active Runs, and History tabs; copy flow; distinct navigation copy.
 
-- [ ] **Step 1: Write failing route, navigation, loading, empty, error, and copy tests**
+- [x] **Step 1: Write failing route, navigation, loading, empty, error, and copy tests**
 
 ```tsx
 it("places Collaboration between Runs and Members and keeps ingest Runs distinct", () => {
@@ -1676,13 +1676,13 @@ it.each(["loading", "empty", "error"] as const)("renders the %s state", async (s
 });
 ```
 
-- [ ] **Step 2: Run the focused client test and verify RED**
+- [x] **Step 2: Run the focused client test and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client exec vitest run src/features/collaboration/CollaborationWorkspace.test.tsx`
 
 Expected: FAIL because the route and components are absent.
 
-- [ ] **Step 3: Add a typed API boundary and lazy route**
+- [x] **Step 3: Add a typed API boundary and lazy route**
 
 ```ts
 // apps/client/src/features/collaboration/api.ts
@@ -1701,7 +1701,7 @@ export const collaborationApi = {
 
 In `App.tsx`, lazy-load `CollaborationWorkspace` at `/spaces/:id/collaboration`; do not rename or reuse `RunsPage`. In `SpaceNav.tsx`, add the `Collaboration` item between Runs and Members with a `Workflow` icon.
 
-- [ ] **Step 4: Implement accessible tabs/cards and complete bilingual messages**
+- [x] **Step 4: Implement accessible tabs/cards and complete bilingual messages**
 
 ```tsx
 export function CollaborationWorkspace() {
@@ -1723,7 +1723,7 @@ export function CollaborationWorkspace() {
 
 Add matching Simplified Chinese and English keys for navigation, tabs, all five template names/descriptions, copy modal, loading/empty/error actions, active/history status, and authorization errors. System cards show a read-only badge; Space cards expose edit/archive only for Owner/Admin.
 
-- [ ] **Step 5: Verify client workspace and commit**
+- [x] **Step 5: Verify client workspace and commit**
 
 Run:
 
@@ -1761,7 +1761,7 @@ git commit -m "feat(collaboration): add Space collaboration workspace"
 - Consumes: shared definition schema, template validation endpoint, Space active-Agent endpoint, typed API, existing modal/form primitives, and member permissions.
 - Produces: `/spaces/:id/collaboration/templates/:templateId`, `/spaces/:id/collaboration/templates/:templateId/start`, optimistic save, exact three-step start flow, and one merged instruction per Agent.
 
-- [ ] **Step 1: Write failing editor and wizard behavior tests**
+- [x] **Step 1: Write failing editor and wizard behavior tests**
 
 ```tsx
 it("uses a form directory and shows deterministic graph errors without a canvas", async () => {
@@ -1797,13 +1797,13 @@ it("merges multiple Role Slots into one instruction and warns about self-review"
 });
 ```
 
-- [ ] **Step 2: Run editor/wizard tests and verify RED**
+- [x] **Step 2: Run editor/wizard tests and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client exec vitest run src/features/collaboration/TemplateEditor.test.tsx src/features/collaboration/RunStartWizard.test.tsx`
 
 Expected: FAIL because editor and wizard components are absent.
 
-- [ ] **Step 3: Implement the five-section editor with server validation and version conflicts**
+- [x] **Step 3: Implement the five-section editor with server validation and version conflicts**
 
 ```tsx
 const SECTIONS = ['overview', 'inputs', 'roles', 'flow', 'outputs'] as const;
@@ -1824,7 +1824,7 @@ function save() {
 
 `FlowStepEditor` is an ordered list and detail form for Agent tasks and human review nodes. Todo reordering stays within its parent task. Dependency selectors expose only existing nodes and `all | any`. The issue panel groups exact server codes for missing roles, cycle, no entry, no terminal, unreachable required node, invalid revision target, and invalid output contract. There is no arbitrary expression, command, webhook, loop, script, or free-canvas field.
 
-- [ ] **Step 4: Implement start data, mapping, preflight, and secret-free instructions**
+- [x] **Step 4: Implement start data, mapping, preflight, and secret-free instructions**
 
 ```ts
 export function buildAgentJoinInstructions(run: StartedRun): AgentInstruction[] {
@@ -1840,7 +1840,7 @@ export function buildAgentJoinInstructions(run: StartedRun): AgentInstruction[] 
 
 Step 1 parses every value through the shared typed input-value schema, then creates the persisted draft. Step 2 lists only current-Space active Agents whose access role is editor/publisher, requires every mandatory Role Slot, and updates the draft with `expectedVersion`. Entering Step 3 calls the non-starting validate route to obtain `ready` and the next version; the final button calls start with `expectedVersion` and one UI-generated idempotency key. A 409 preserves local input, reloads authoritative draft/template/Agent state, and offers an explicit retry; refreshing the browser resumes the existing draft instead of silently creating another run.
 
-- [ ] **Step 5: Verify accessibility, bilingual copy, and commit**
+- [x] **Step 5: Verify accessibility, bilingual copy, and commit**
 
 Run:
 
@@ -1878,7 +1878,7 @@ git commit -m "feat(collaboration): configure and start workflow runs"
 - Consumes: full human run REST response, Socket refresh hints, current member identity/role, human run-control/review APIs, and resume-instruction builder.
 - Produces: `/spaces/:id/collaboration/runs/:runId`, desktop three-column layout, mobile ordered single column, review/control dialogs, and authoritative refetch behavior.
 
-- [ ] **Step 1: Write failing dashboard state, permission, realtime, and responsive tests**
+- [x] **Step 1: Write failing dashboard state, permission, realtime, and responsive tests**
 
 ```tsx
 it("shows status with text and icon, ordered Todos, lease time, reviews, artifacts, and timeline", async () => {
@@ -1910,13 +1910,13 @@ it("shows only authorized controls and preserves the mobile content order", () =
 });
 ```
 
-- [ ] **Step 2: Run dashboard tests and verify RED**
+- [x] **Step 2: Run dashboard tests and verify RED**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client exec vitest run src/features/collaboration/RunDashboard.test.tsx`
 
 Expected: FAIL because dashboard and run hook are absent.
 
-- [ ] **Step 3: Implement REST-authoritative state and debounced refresh hints**
+- [x] **Step 3: Implement REST-authoritative state and debounced refresh hints**
 
 ```ts
 export function useCollaborationRun(spaceId: string, runId: string) {
@@ -1934,7 +1934,7 @@ export function useCollaborationRun(spaceId: string, runId: string) {
 
 Never merge event payloads into local workflow state. After any mutation, await the HTTP response and then call `refresh`; keep the last authoritative view visible with an updating indicator.
 
-- [ ] **Step 4: Implement permission-aware human actions and responsive semantic order**
+- [x] **Step 4: Implement permission-aware human actions and responsive semantic order**
 
 ```tsx
 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
@@ -1948,7 +1948,7 @@ Never merge event payloads into local workflow state. After any mutation, await 
 
 Render exactly one instance of each semantic panel. Use CSS grid areas/order to place the same ReviewPanel in the desktop third column and the mobile sequence summary, current task, review, Artifact, activity; do not render hidden duplicate component trees. Buttons follow server policy: starter/Owner/Admin pause-resume-retry-reassign; Owner/Admin skip-fail-cancel; constrained reviewer approve-reject-terminate. Every destructive dialog requires a reason and repeats the target; review rejection requires a valid return task. After review/recovery, show one merged resume instruction per affected Agent with no secret.
 
-- [ ] **Step 5: Verify all dashboard states and commit**
+- [x] **Step 5: Verify all dashboard states and commit**
 
 Run:
 
@@ -1982,7 +1982,7 @@ git commit -m "feat(collaboration): add observable run dashboard"
 - Consumes: complete server/client/protocol/gateway implementation and an isolated PostgreSQL/Redis test environment.
 - Produces: repeatable database evidence, HTTP/MCP smoke, real Codex/Claude Code/OpenCode acceptance checklist, cleanup procedure, and release gate commands.
 
-- [ ] **Step 1: Write failing database concurrency and recovery tests**
+- [x] **Step 1: Write failing database concurrency and recovery tests**
 
 ```js
 import { createRequire } from 'node:module';
@@ -2014,13 +2014,13 @@ test('review rejection supersedes the causal generations and preserves all old r
 
 The file is plain ESM JavaScript: do not use TypeScript-only `as const`, type annotations, or root `import '@prisma/client'`. Wrap fixture execution in `withCollaborationTestDatabase(process.env.COLLABORATION_TEST_DATABASE_URL, ...)` so migration and cleanup use only the generated prefixed schema.
 
-- [ ] **Step 2: Run the database suite and verify RED**
+- [x] **Step 2: Run the database suite and verify RED**
 
 Run: `cd agentwiki && node --test scripts/collaboration-workflows-db.test.mjs`
 
 Expected with `COLLABORATION_TEST_DATABASE_URL` configured: FAIL until all service adapters and fixture helpers are wired. A skipped run is recorded but does not satisfy this task. The suite must pass `node --check scripts/collaboration-workflows-db.test.mjs` before execution.
 
-- [ ] **Step 3: Complete database and HTTP/MCP scenarios with isolated cleanup**
+- [x] **Step 3: Complete database and HTTP/MCP scenarios with isolated cleanup**
 
 The database suite creates a unique prefixed schema and resources under a unique `testRunId`, registers cleanup by exact IDs inside the schema, then lets the shared helper drop only that schema in `finally`. It asserts:
 
@@ -2039,7 +2039,7 @@ const REQUIRED_DB_SCENARIOS = [
 
 `collaboration-workflows-e2e.mjs` boots API and Worker with test-only ports against the generated test schema, creates human Owner/Editor/Viewer and reader/editor/publisher Agents through product APIs, calls the remote MCP endpoint with their actual Credentials, verifies all six input and output schemas, and checks that `reader` reads but cannot execute. It checks persisted draft → validate → start, `join → next → heartbeat/Todo → submit → waiting_human(resumeRequired) → resume → completed`, plus manual reassignment to a previously unbound Agent, then deletes only resources carrying its unique prefix.
 
-- [ ] **Step 4: Add scripts, runtime contract, and real-client acceptance checklist**
+- [x] **Step 4: Add scripts, runtime contract, and real-client acceptance checklist**
 
 Add package scripts:
 
@@ -2060,7 +2060,7 @@ The acceptance document records operator, date/time, server commit, client versi
 
 The document must name results as `PASS`, `FAIL`, or `BLOCKED` with evidence; an unexecuted checklist is not proof of real multi-Agent acceptance.
 
-- [ ] **Step 5: Run the complete local release gate and commit**
+- [x] **Step 5: Run the complete local release gate and commit**
 
 Run:
 
@@ -2095,15 +2095,15 @@ git commit -m "test(collaboration): add workflow acceptance gates"
 
 ## Final Verification and Release Boundary
 
-- [ ] Confirm `git status --short` contains no accidental changes to sibling repositories or to `agentwiki/.codebase-memory/`.
-- [ ] Confirm every collaboration migration is additive and the Prisma drift allowlist has not been broadened.
-- [ ] Run `for file in scripts/collaboration-schema-db.test.mjs scripts/collaboration-test-database.mjs scripts/collaboration-workflows-db.test.mjs scripts/collaboration-workflows-e2e.mjs; do node --check "$file" || exit 1; done` and expect no ESM/TypeScript syntax error; then execute the schema suite to prove package resolution.
-- [ ] Run database gates only with `COLLABORATION_TEST_DATABASE_URL`; verify logs name a `collaboration_test_*` schema and never `public`.
-- [ ] Run `git diff --check` and expect no whitespace errors.
-- [ ] Run `rg -n "review:decide|collaboration_approve|collaboration_reassign|collaboration_cancel" agentwiki/apps/server/src/mcp agentwiki/packages/local-sync/src/gateway` and confirm there is no Agent-callable human-control tool.
-- [ ] Run `rg -n "process\.env|child_process|eval\(|new Function|webhook" agentwiki/apps/server/src/collaboration-workflows agentwiki/apps/client/src/features/collaboration` and confirm user template data is never executed.
-- [ ] Run the Task 13 complete local release gate and preserve fresh command output as evidence.
-- [ ] Run `rg -n "0\\.5\\.1|0\\.6\\.0|LOCAL_SYNC_VERSION|packageVersion" agentwiki/apps/server agentwiki/apps/client agentwiki/packages/local-sync` and confirm every active local-sync/onboarding and server/client package surface is `0.6.0`; sync-protocol keeps independent semver, and historical docs may retain older versions only when explicitly labelled historical.
-- [ ] Execute the real-client acceptance runbook with at least two connected client types before claiming full feature acceptance.
+- [x] Confirm `git status --short` contains no accidental changes to sibling repositories or to `agentwiki/.codebase-memory/`.
+- [x] Confirm every collaboration migration is additive and the Prisma drift allowlist has not been broadened.
+- [x] Run `for file in scripts/collaboration-schema-db.test.mjs scripts/collaboration-test-database.mjs scripts/collaboration-workflows-db.test.mjs scripts/collaboration-workflows-e2e.mjs; do node --check "$file" || exit 1; done` and expect no ESM/TypeScript syntax error; then execute the schema suite to prove package resolution.
+- [x] Run database gates only with `COLLABORATION_TEST_DATABASE_URL`; verify logs name a `collaboration_test_*` schema and never `public`.
+- [x] Run `git diff --check` and expect no whitespace errors.
+- [x] Run `rg -n "review:decide|collaboration_approve|collaboration_reassign|collaboration_cancel" agentwiki/apps/server/src/mcp agentwiki/packages/local-sync/src/gateway` and confirm there is no Agent-callable human-control tool.
+- [x] Run `rg -n "process\.env|child_process|eval\(|new Function|webhook" agentwiki/apps/server/src/collaboration-workflows agentwiki/apps/client/src/features/collaboration` and confirm user template data is never executed.
+- [x] Run the Task 13 complete local release gate and preserve fresh command output as evidence.
+- [x] Run `rg -n "0\\.5\\.1|0\\.6\\.0|LOCAL_SYNC_VERSION|packageVersion" agentwiki/apps/server agentwiki/apps/client agentwiki/packages/local-sync` and confirm every active local-sync/onboarding and server/client package surface is `0.6.0`; sync-protocol keeps independent semver, and historical docs may retain older versions only when explicitly labelled historical.
+- [x] Execute the real-client acceptance runbook with at least two connected client types before claiming full feature acceptance.
 - [ ] Before any production action, obtain explicit user authorization, perform read-only host/database/app preflight, create verified PostgreSQL and application rollback backups, run migration checks, deploy, observe services, verify public health, and run business smoke.
 - [ ] After an authorized release, report alignment separately for local `master`, GitHub `origin/master`, npm packages if any, and production; local test success alone does not imply any of those were updated.

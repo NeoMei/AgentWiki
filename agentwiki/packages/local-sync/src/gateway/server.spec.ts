@@ -80,6 +80,25 @@ describe('gateway server tool registration', () => {
     });
   });
 
+  it('preserves remote MCP error semantics without double encoding the content', async () => {
+    const bridge = onlineBridge(['collaboration_next_action']);
+    vi.mocked(bridge.callGatewayTool).mockResolvedValueOnce({
+      content: [{ type: 'text', text: '{"code":"COLLABORATION_LEASE_EXPIRED"}' }],
+      isError: true,
+    });
+    const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
+    const registered = (server as unknown as {
+      _registeredTools: Record<string, { inputSchema: { parse(input: unknown): unknown }; handler(input: unknown): Promise<unknown> }>;
+    })._registeredTools.wiki_collaboration_next_action;
+
+    const result = await registered.handler(registered.inputSchema.parse({ runId: 'run-1', idempotencyKey: 'next-0001' }));
+
+    expect(result).toEqual({
+      content: [{ type: 'text', text: '{"code":"COLLABORATION_LEASE_EXPIRED"}' }],
+      isError: true,
+    });
+  });
+
   it('does not register any legacy tool name', async () => {
     const { toolNames } = await createGatewayServer({
       handlers: mockHandlers(),

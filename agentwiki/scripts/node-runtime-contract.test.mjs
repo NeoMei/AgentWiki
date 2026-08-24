@@ -552,8 +552,8 @@ test('the local-sync release pins the unified-role sync protocol release', async
   const localSyncPackage = JSON.parse(await read('packages/local-sync/package.json'));
   const rootPackage = JSON.parse(await read('package.json'));
 
-  assert.equal(protocolPackage.version, '0.2.0');
-  assert.equal(localSyncPackage.dependencies[protocolPackage.name], 'workspace:*');
+  assert.equal(protocolPackage.version, '0.3.0');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], 'workspace:0.3.0');
   assert.equal(
     rootPackage.scripts['test:package:local-sync-clean-install'],
     'node scripts/verify-local-sync-clean-install.mjs',
@@ -595,7 +595,7 @@ test('collaboration release surfaces and executable gates stay version-aligned',
     [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
     ['0.6.0', '0.6.0', '0.6.0', '0.6.0'],
   );
-  assert.equal(syncProtocolPackage.version, '0.2.0');
+  assert.equal(syncProtocolPackage.version, '0.3.0');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
   assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.6\.0/u);

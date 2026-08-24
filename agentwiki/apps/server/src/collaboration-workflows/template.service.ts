@@ -8,6 +8,8 @@ import { BusinessException } from '../core/filters/business-error';
 import { BUILT_IN_COLLABORATION_TEMPLATES, type BuiltInCollaborationTemplate } from './template-definitions';
 import { validateCollaborationTemplate } from './template-validator';
 import type { CreateTemplateDto, UpdateTemplateDto } from './template.dto';
+import { withCollaborationSerializableRetry } from './serializable-retry';
+import { reviewerMemberIssues } from './reviewer-members';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const MANAGE_ROLES = ['owner', 'admin'] as const;
@@ -28,19 +30,19 @@ export class TemplateService implements OnModuleInit {
   async seedBuiltIns(): Promise<void> {
     for (const seed of BUILT_IN_COLLABORATION_TEMPLATES) {
       try {
-        await this.prisma.$transaction(async (tx) => {
+        await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
           await this.seedOne(tx, seed);
-        });
+        }));
       } catch (error) {
         if (!isUniqueConflict(error)) throw error;
-        await this.prisma.$transaction(async (tx) => {
+        await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
           const current = await tx.collaborationTemplate.findUnique({
             where: { scopeKey_slug: { scopeKey: 'system', slug: seed.slug } },
           });
           if (current?.system && (current.seedVersion ?? 0) < seed.seedVersion) {
             await this.updateSeed(tx, current.id, seed);
           }
-        });
+        }));
       }
     }
   }
@@ -70,9 +72,10 @@ export class TemplateService implements OnModuleInit {
   }
 
   async createSpaceTemplate(spaceId: string, body: CreateTemplateDto, principal: Principal) {
-    return this.prisma.$transaction(async (tx) => {
+    return withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       await this.assertLiveCanManage(tx, principal, spaceId);
       const definition = this.parseDefinition(body.definition);
+      await this.assertReviewerMembers(tx, spaceId, definition);
       const slug = await this.allocateSlug(tx, spaceId, body.slug || body.name);
       return tx.collaborationTemplate.create({
         data: {
@@ -86,11 +89,11 @@ export class TemplateService implements OnModuleInit {
           createdById: principal.userId,
         },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
   }
 
   async copySystemTemplate(spaceId: string, templateId: string, name: string, principal: Principal) {
-    return this.prisma.$transaction(async (tx) => {
+    return withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       await this.assertLiveCanManage(tx, principal, spaceId);
       const source = await tx.collaborationTemplate.findUnique({ where: { id: templateId } });
       if (!source || !source.system || source.scopeKey !== 'system' || source.spaceId !== null || source.archivedAt) {
@@ -110,12 +113,14 @@ export class TemplateService implements OnModuleInit {
           createdById: principal.userId,
         },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
   }
 
   async validateDefinition(spaceId: string, definition: unknown, principal: Principal) {
     await this.authorization.assertSpaceAccess(principal, spaceId, [...READ_ROLES]);
     const issues = validateCollaborationTemplate(definition);
+    const parsed = CollaborationTemplateDefinitionSchema.safeParse(definition);
+    if (parsed.success) issues.push(...await reviewerMemberIssues(this.prisma, spaceId, parsed.data));
     return { valid: issues.length === 0, issues };
   }
 
@@ -125,9 +130,10 @@ export class TemplateService implements OnModuleInit {
     body: UpdateTemplateDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       await this.assertLiveCanManage(tx, principal, spaceId);
       const definition = this.parseDefinition(body.definition);
+      await this.assertReviewerMembers(tx, spaceId, definition);
       const current = await tx.collaborationTemplate.findUnique({ where: { id: templateId } });
       if (!current || (!current.system && current.spaceId !== spaceId)) {
         throw new BusinessException('COLLABORATION_TEMPLATE_NOT_FOUND');
@@ -144,11 +150,11 @@ export class TemplateService implements OnModuleInit {
       });
       if (result.count !== 1) throw new BusinessException('COLLABORATION_TEMPLATE_VERSION_CONFLICT');
       return tx.collaborationTemplate.findUniqueOrThrow({ where: { id: templateId } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
   }
 
   async archiveSpaceTemplate(spaceId: string, templateId: string, expectedVersion: number, principal: Principal) {
-    return this.prisma.$transaction(async (tx) => {
+    return withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       await this.assertLiveCanManage(tx, principal, spaceId);
       const current = await tx.collaborationTemplate.findUnique({ where: { id: templateId } });
       if (!current || (!current.system && current.spaceId !== spaceId)) {
@@ -161,7 +167,7 @@ export class TemplateService implements OnModuleInit {
       });
       if (result.count !== 1) throw new BusinessException('COLLABORATION_TEMPLATE_VERSION_CONFLICT');
       return tx.collaborationTemplate.findUniqueOrThrow({ where: { id: templateId } });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
   }
 
   private async seedOne(tx: Prisma.TransactionClient, seed: BuiltInCollaborationTemplate): Promise<void> {
@@ -211,6 +217,15 @@ export class TemplateService implements OnModuleInit {
       throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
     }
     return CollaborationTemplateDefinitionSchema.parse(input);
+  }
+
+  private async assertReviewerMembers(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    definition: CollaborationTemplateDefinition,
+  ): Promise<void> {
+    const issues = await reviewerMemberIssues(tx, spaceId, definition);
+    if (issues.length) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
   }
 
   private async assertLiveCanManage(

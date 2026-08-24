@@ -22,6 +22,7 @@ import { ArtifactValidator, type ArtifactOutputContract } from './artifact-valid
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { ProgressionService } from './progression.service';
 import { CollaborationEventsService } from './collaboration-events.service';
+import { isCollaborationSerializationConflict, withCollaborationSerializableRetry } from './serializable-retry';
 
 type Tx = Prisma.TransactionClient;
 type AgentRun = { run: any; agentId: string };
@@ -126,7 +127,7 @@ export class ExecutionService {
 
   async heartbeat(inputRaw: CollaborationHeartbeatInput, principal: Principal) {
     const input = CollaborationHeartbeatInputSchema.parse(inputRaw);
-    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
       const scope = this.agentScope(input.runId, participant.agentId, 'heartbeat', input.attemptId, input.idempotencyKey, {
@@ -159,17 +160,25 @@ export class ExecutionService {
 
   async updateTodo(inputRaw: CollaborationUpdateTodoInput, principal: Principal) {
     const input = CollaborationUpdateTodoInputSchema.parse(inputRaw);
-    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const participant = await this.authorizeParticipant(tx, input.runId, principal);
       this.assertRunMutable(participant.run.status);
-      const scope = this.agentScope(input.runId, participant.agentId, 'update_todo', input.todoId, input.idempotencyKey, {
+      const scope = {
+        ...this.agentScope(input.runId, participant.agentId, 'update_todo', input.todoId, input.idempotencyKey, {
           attemptId: input.attemptId,
           todoId: input.todoId,
           status: input.status,
           summary: input.summary,
           evidence: input.evidence,
           leaseTokenHash: sha256(input.leaseToken),
-        });
+        }),
+        metadata: {
+          todoId: input.todoId,
+          status: input.status,
+          summary: input.summary,
+          evidence: input.evidence,
+        },
+      };
       const replay = await this.events.findReplay<Record<string, unknown>>(tx, scope);
       if (replay) {
         await this.loadLiveAttempt(tx, input, participant.agentId);
@@ -241,7 +250,7 @@ export class ExecutionService {
 
   async submitResult(inputRaw: CollaborationSubmitResultInput, principal: Principal) {
     const input = CollaborationSubmitResultInputSchema.parse(inputRaw);
-    const result = await this.withSerializableRetry(() => this.prisma.$transaction(async (tx) => {
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const access = await this.authorizeAgentRun(tx, input.runId, principal, 'collaboration:execute');
       const scope = this.agentScope(input.runId, access.agentId, 'submit_result', input.attemptId, input.idempotencyKey, {
           attemptId: input.attemptId,
@@ -458,6 +467,11 @@ export class ExecutionService {
       orderBy: { ordinal: 'asc' },
     });
     const taskNode = templateNodes(run.templateSnapshot).find((node) => node.kind === 'agent_task' && node.id === task.nodeId);
+    const inputs = Object.fromEntries(
+      stringArray(taskNode?.inputKeys)
+        .filter((key) => Object.prototype.hasOwnProperty.call(run.inputs ?? {}, key))
+        .map((key) => [key, run.inputs[key]]),
+    );
     const upstreamKeys = new Set(Array.isArray(taskNode?.upstreamArtifacts)
       ? taskNode.upstreamArtifacts.map((artifact: any) => artifact.key)
       : []);
@@ -483,7 +497,7 @@ export class ExecutionService {
       todos: todos.map((todo) => ({
         id: todo.id, ordinal: todo.ordinal, name: todo.name, required: todo.required, status: todo.status,
       })),
-      inputs: run.inputs as Record<string, unknown>,
+      inputs,
       acceptedArtifacts: acceptedArtifacts.map((artifact) => ({
         taskId: artifact.taskId, version: artifact.version, kind: artifact.kind, payload: artifact.payload,
       })),
@@ -655,23 +669,6 @@ export class ExecutionService {
       .digest('hex');
   }
 
-  private async withSerializableRetry<T>(work: () => Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        return await work();
-      } catch (error) {
-        if (!isSerializationConflict(error)) throw error;
-        if (attempt === 2) {
-          throw new BusinessException(
-            'COLLABORATION_PROGRESS_INVARIANT',
-            'Concurrent collaboration updates conflicted repeatedly',
-          );
-        }
-      }
-    }
-    throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Unable to serialize collaboration update');
-  }
-
   private async recordRepairFailure(tx: Tx, run: any, attempt: AttemptWithTask, issues: any[]) {
     const repairCount = attempt.repairCount + 1;
     await tx.collaborationTaskAttempt.update({ where: { id: attempt.id }, data: { repairCount } });
@@ -707,28 +704,12 @@ class RetryableClaimConflict extends Error {}
 function isClaimConflict(error: unknown): boolean {
   return error instanceof RetryableClaimConflict
     || errorCode(error) === 'P2002'
-    || isSerializationConflict(error);
-}
-
-function isSerializationConflict(error: unknown): boolean {
-  const code = errorCode(error);
-  return code === 'P2034'
-    || (code === 'P2010' && rawDatabaseCode(errorMeta(error)) === '40001');
+    || isCollaborationSerializationConflict(error);
 }
 
 function errorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object') return undefined;
   const code = (error as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-function errorMeta(error: unknown): unknown {
-  return error && typeof error === 'object' ? (error as { meta?: unknown }).meta : undefined;
-}
-
-function rawDatabaseCode(meta: unknown): string | undefined {
-  if (!meta || typeof meta !== 'object') return undefined;
-  const code = (meta as { code?: unknown }).code;
   return typeof code === 'string' ? code : undefined;
 }
 

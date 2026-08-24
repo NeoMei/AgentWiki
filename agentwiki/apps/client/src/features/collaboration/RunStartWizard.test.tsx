@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { collaborationApi } from './api';
@@ -27,6 +27,16 @@ function renderWizard() {
   </MemoryRouter></LanguageProvider>);
 }
 
+function confirmSelfReviewIfRequired() {
+  const checkbox = screen.queryByRole('checkbox', { name: /separation risk/u }) as HTMLInputElement | null;
+  if (checkbox && !checkbox.checked) fireEvent.click(checkbox);
+}
+
+function NavigationWizard() {
+  const navigate = useNavigate();
+  return <><button type="button" onClick={() => navigate('/spaces/space-1/collaboration/templates/template-new/start')}>Open new wizard</button><RunStartWizard /></>;
+}
+
 describe('RunStartWizard', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -41,7 +51,9 @@ describe('RunStartWizard', () => {
       roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-editor' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }], updatedAt: '2026-08-24T00:00:00Z',
     });
     vi.mocked(collaborationApi.validateRunDraft).mockResolvedValue({
-      id: 'run-1', name: 'Release 1', status: 'ready', version: 3, inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+      id: 'run-1', name: 'Release 1', status: 'ready', version: 3, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-editor' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
+      updatedAt: '2026-08-24T00:00:00Z',
     });
     vi.mocked(collaborationApi.startRun).mockResolvedValue({
       id: 'run-1', name: 'Release 1', status: 'running', version: 4, inputs: { brief: 'Ship it' }, updatedAt: '2026-08-24T00:00:00Z',
@@ -50,6 +62,57 @@ describe('RunStartWizard', () => {
         { roleSlotId: 'reviewer', roleSlotName: 'Reviewer', agentId: 'agent-editor' },
       ],
     });
+  });
+
+  it('shows a retryable error instead of a permanent spinner when initialization fails', async () => {
+    vi.mocked(collaborationApi.getTemplate)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(template);
+
+    renderWizard();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load the start wizard.');
+    expect(screen.queryByTestId('run-wizard-loading')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: '1. Work input' })).toBeVisible();
+  });
+
+  it('ignores a stale initialization response after navigating to another template', async () => {
+    let resolveOld!: (value: TemplateDetail) => void;
+    const oldRequest = new Promise<TemplateDetail>((resolve) => { resolveOld = resolve; });
+    vi.mocked(collaborationApi.getTemplate)
+      .mockReturnValueOnce(oldRequest)
+      .mockResolvedValueOnce({ ...template, id: 'template-new', name: 'New workflow' });
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-old/start']}>
+      <Routes><Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<NavigationWizard />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open new wizard' }));
+    expect(await screen.findByText('New workflow')).toBeVisible();
+    await act(async () => resolveOld({ ...template, id: 'template-old', name: 'Old workflow' }));
+    expect(screen.queryByText('Old workflow')).not.toBeInTheDocument();
+  });
+
+  it('keeps an emptied required number empty instead of silently converting it to zero', async () => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({
+      ...template,
+      definition: {
+        ...validDefinition,
+        inputs: [{ key: 'duration', label: 'Target duration', required: true, type: 'number' }],
+      },
+    });
+
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Release 1' } });
+    const duration = screen.getByLabelText('Target duration');
+    fireEvent.change(duration, { target: { value: '60' } });
+    fireEvent.change(duration, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(await screen.findByText('Complete every required input.')).toBeVisible();
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
   });
 
   it('enforces the exact three start steps and fresh executable-Agent preflight', async () => {
@@ -82,6 +145,29 @@ describe('RunStartWizard', () => {
     expect(collaborationApi.validateRunDraft).toHaveBeenCalledWith('space-1', 'run-1', 2);
   });
 
+  it('refreshes Agent choices and returns to mapping when authorization changed', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([activeEditor, activeReader])
+      .mockResolvedValueOnce([activeReader]);
+    vi.mocked(collaborationApi.validateRunDraft).mockRejectedValueOnce({
+      response: { status: 409, data: { code: 'COLLABORATION_AGENT_INACTIVE' } },
+    });
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    fireEvent.change(screen.getByLabelText('Run name'), { target: { value: 'Release 1' } });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'Ship it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(await screen.findByText('An assigned Agent is no longer executable. Choose current Agents and try again.')).toBeVisible();
+    expect(screen.getByRole('heading', { name: '2. Map Agents' })).toBeVisible();
+    expect(within(screen.getByLabelText('Writer')).queryByRole('option', { name: 'Editor Bot' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry preserved changes' })).not.toBeInTheDocument();
+  });
+
   it('starts idempotently, merges roles into one secret-free instruction, and warns about self-review', async () => {
     renderWizard();
     await screen.findByRole('heading', { name: '1. Work input' });
@@ -93,6 +179,10 @@ describe('RunStartWizard', () => {
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await screen.findByRole('heading', { name: '3. Review and start' });
+    expect(screen.getByRole('checkbox', { name: /separation risk/u })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    expect(collaborationApi.startRun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /separation risk/u }));
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
 
     expect(await screen.findByText('This Agent fills roles that review each other.')).toBeVisible();
@@ -160,7 +250,7 @@ describe('RunStartWizard', () => {
 
   it('reloads the authoritative version before retrying preserved mapping changes', async () => {
     vi.mocked(collaborationApi.updateRunDraft)
-      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } })
       .mockResolvedValueOnce({
         id: 'run-1', name: 'Release 1', status: 'draft', version: 3, inputs: { brief: 'Ship it' },
         roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-editor' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
@@ -205,7 +295,7 @@ describe('RunStartWizard', () => {
         inputs: { brief: 'Remote brief' }, roleBindings: [], updatedAt: '2026-08-24T00:01:00Z',
       });
     vi.mocked(collaborationApi.updateRunDraft)
-      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } })
       .mockResolvedValueOnce({
         id: 'run-1', name: 'Preserved local edit', status: 'draft', version: 6,
         inputs: { brief: 'Preserved local brief' }, roleBindings: [], updatedAt: '2026-08-24T00:02:00Z',
@@ -240,10 +330,11 @@ describe('RunStartWizard', () => {
       .mockResolvedValueOnce(readyRun)
       .mockResolvedValueOnce({ ...readyRun, version: 4, updatedAt: '2026-08-24T00:01:00Z' });
     vi.mocked(collaborationApi.startRun)
-      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } })
       .mockResolvedValueOnce({ ...readyRun, status: 'running', version: 5 });
     renderWizard();
     await screen.findByRole('heading', { name: '3. Review and start' });
+    confirmSelfReviewIfRequired();
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
 
@@ -254,6 +345,45 @@ describe('RunStartWizard', () => {
       'space-1', 'run-ready',
       { expectedVersion: 4, idempotencyKey: firstStart[2].idempotencyKey },
     ]);
+  });
+
+  it('requires self-review confirmation when a conflict refresh introduces repeated Agent bindings', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    const initialRun = {
+      id: 'run-ready', name: 'Ready release', status: 'ready' as const, version: 3,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', agentId: 'agent-second' },
+      ],
+      updatedAt: '2026-08-24T00:00:00Z',
+    };
+    const latestRun = {
+      ...initialRun,
+      version: 4,
+      roleBindings: [
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+      ],
+      updatedAt: '2026-08-24T00:01:00Z',
+    };
+    vi.mocked(collaborationApi.getRun)
+      .mockResolvedValueOnce(initialRun)
+      .mockResolvedValueOnce(latestRun);
+    vi.mocked(collaborationApi.startRun)
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } });
+
+    renderWizard();
+    await screen.findByRole('heading', { name: '3. Review and start' });
+    expect(screen.queryByRole('checkbox', { name: /separation risk/u })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
+
+    expect(await screen.findByRole('checkbox', { name: /separation risk/u })).toBeVisible();
+    expect(collaborationApi.startRun).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('checkbox', { name: /separation risk/u }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    await waitFor(() => expect(collaborationApi.startRun).toHaveBeenCalledTimes(2));
   });
 
   it('reapplies the complete preserved draft before validating and retrying start', async () => {
@@ -273,13 +403,14 @@ describe('RunStartWizard', () => {
       .mockResolvedValueOnce(readyRun)
       .mockResolvedValueOnce({ ...readyRun, name: 'Remote edit', status: 'draft', version: 4 });
     vi.mocked(collaborationApi.startRun)
-      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } })
       .mockResolvedValueOnce({ ...readyRun, status: 'running', version: 7 });
     vi.mocked(collaborationApi.updateRunDraft).mockResolvedValueOnce(rebasedDraft);
     vi.mocked(collaborationApi.validateRunDraft).mockResolvedValueOnce(revalidated);
 
     renderWizard();
     await screen.findByRole('heading', { name: '3. Review and start' });
+    confirmSelfReviewIfRequired();
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
 
@@ -316,7 +447,7 @@ describe('RunStartWizard', () => {
         id: 'run-1', name: 'Remote', status: 'draft', version: 2,
         inputs: { brief: 'Remote brief' }, roleBindings: [], updatedAt: '2026-08-24T00:01:00Z',
       });
-    vi.mocked(collaborationApi.updateRunDraft).mockRejectedValueOnce({ response: { status: 409 } });
+    vi.mocked(collaborationApi.updateRunDraft).mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } });
     renderWizard();
     await screen.findByRole('heading', { name: '2. Map Agents' });
     fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
@@ -330,7 +461,7 @@ describe('RunStartWizard', () => {
   });
 
   it('clears submitting when preserved mapping retry fails local required validation', async () => {
-    vi.mocked(collaborationApi.updateRunDraft).mockRejectedValueOnce({ response: { status: 409 } });
+    vi.mocked(collaborationApi.updateRunDraft).mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } });
     vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({
       id: 'run-1', name: 'Release 1', status: 'draft', version: 2,
       inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:01:00Z',

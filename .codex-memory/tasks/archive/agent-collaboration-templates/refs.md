@@ -26,4 +26,6 @@
 - 运行看板提交：`bafdb4e`
 - PostgreSQL 并发与 HTTP/MCP 门禁：`agentwiki/scripts/collaboration-workflows-db.test.mjs`、`agentwiki/scripts/collaboration-workflows-e2e.mjs`
 - 真实客户端验收清单：`agentwiki/docs/testing/collaboration-real-agent-acceptance.md`
+- 最终发行审查计划：`docs/superpowers/plans/2026-08-24-collaboration-release-final-audit.md`
+- 最终门禁：Runtime 95 通过/50 环境跳过，Server 1003 通过/3 跳过，Client 314/314，Protocol 42/42，Local Sync 748/748，DB 2/2 + 10/10，HTTP/MCP E2E PASS，双 tarball 空目录安装/CLI PASS，真实 Browser 注册至 8 任务看板及 390px PASS。
 - 标书阶段与人工门参考：`/Users/neomei/.agents/skills/superwriter/SKILL.md`

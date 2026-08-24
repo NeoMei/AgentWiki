@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CollaborationTemplateDefinitionSchema, type CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
-import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
@@ -9,7 +9,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from './api';
 import { FlowStepEditor } from './components/FlowStepEditor';
 import { ValidationIssueList } from './components/ValidationIssueList';
-import type { TemplateDetail, ValidationIssue } from './types';
+import type { SpaceMemberSummary, TemplateDetail, ValidationIssue } from './types';
 
 const SECTIONS = ['overview', 'inputs', 'roles', 'flow', 'outputs'] as const;
 type Section = typeof SECTIONS[number];
@@ -23,6 +23,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
   const creating = mode === 'create';
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [section, setSection] = useState<Section>('overview');
   const [template, setTemplate] = useState<TemplateDetail | null>(creating ? newTemplate(id, t) : null);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -30,21 +32,61 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  const [reviewerState, setReviewerState] = useState<{ spaceId: string; items: SpaceMemberSummary[]; loading: boolean; error: boolean }>({ spaceId: '', items: [], loading: false, error: false });
+  const [validationRetry, setValidationRetry] = useState(0);
+  const loadRequest = useRef(0);
+  const reviewerRequest = useRef(0);
+  const mutationEpoch = useRef(0);
+
+  useEffect(() => {
+    loadRequest.current += 1;
+    mutationEpoch.current += 1;
+    setSection('overview');
+    setTemplate(creating ? newTemplate(id, tRef.current) : null);
+    setIssues([]);
+    setLoading(!creating);
+    setSaving(false);
+    setConflict(false);
+    setToast(null);
+  }, [creating, id, templateId]);
 
   const load = useCallback(async () => {
     if (creating || !id || !templateId) return;
+    const request = ++loadRequest.current;
     setLoading(true);
+    setToast(null);
     try {
       const next = await collaborationApi.getTemplate(id, templateId);
+      if (loadRequest.current !== request) return;
       setTemplate(next);
     } catch {
-      setToast({ kind: 'error', message: t('collaboration.editor.loadFailed') });
+      if (loadRequest.current !== request) return;
+      setToast({ kind: 'error', message: tRef.current('collaboration.editor.loadFailed') });
     } finally {
-      setLoading(false);
+      if (loadRequest.current === request) setLoading(false);
     }
-  }, [creating, id, t, templateId]);
+  }, [creating, id, templateId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadReviewers = useCallback(async () => {
+    if (!id) return;
+    const request = ++reviewerRequest.current;
+    setReviewerState((current) => ({ spaceId: id, items: current.spaceId === id ? current.items : [], loading: true, error: false }));
+    try {
+      const members = await collaborationApi.listMembers(id);
+      if (reviewerRequest.current !== request) return;
+      setReviewerState({ spaceId: id, items: members.filter((member) => member.type === 'human' && !!member.userId), loading: false, error: false });
+    } catch {
+      if (reviewerRequest.current !== request) return;
+      setReviewerState({ spaceId: id, items: [], loading: false, error: true });
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void loadReviewers();
+    return () => { reviewerRequest.current += 1; };
+  }, [loadReviewers]);
 
   useEffect(() => {
     if (!template) return;
@@ -60,7 +102,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
       if (active) setIssues([{ code: 'VALIDATION_UNAVAILABLE', message: t('collaboration.editor.validationUnavailable') }]);
     });
     return () => { active = false; };
-  }, [id, t, template]);
+  }, [id, t, template, validationRetry]);
 
   const updateDefinition = (definition: CollaborationTemplateDefinition) => {
     setTemplate((current) => current ? { ...current, definition } : current);
@@ -68,7 +110,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
 
   const save = async () => {
     if (!template || !template.name.trim()) return;
-    const parsed = CollaborationTemplateDefinitionSchema.safeParse(template.definition);
+    const epoch = mutationEpoch.current;
+    const templateToSave = template;
+    const parsed = CollaborationTemplateDefinitionSchema.safeParse(templateToSave.definition);
     if (!parsed.success) {
       setIssues(parsed.error.issues.map((issue) => ({ code: issue.code, path: issue.path.join('.'), message: issue.message })));
       return;
@@ -76,36 +120,40 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
     setSaving(true);
     try {
       const validation = await collaborationApi.validateTemplate(id, parsed.data);
+      if (mutationEpoch.current !== epoch) return;
       if (!validation.valid) {
         setIssues(validation.issues);
         return;
       }
       const saved = creating
         ? await collaborationApi.createTemplate(id, {
-          name: template.name.trim(), description: template.description.trim(), definition: parsed.data,
+          name: templateToSave.name.trim(), description: templateToSave.description.trim(), definition: parsed.data,
         })
-        : await collaborationApi.updateTemplate(id, template.id, {
-          expectedVersion: template.version,
-          name: template.name.trim(),
-          description: template.description.trim(),
+        : await collaborationApi.updateTemplate(id, templateToSave.id, {
+          expectedVersion: templateToSave.version,
+          name: templateToSave.name.trim(),
+          description: templateToSave.description.trim(),
           definition: parsed.data,
         });
+      if (mutationEpoch.current !== epoch) return;
       setTemplate(saved);
       setIssues([]);
       setToast({ kind: 'success', message: t('collaboration.editor.saved') });
       if (creating) navigate(`/spaces/${id}/collaboration/templates/${saved.id}`, { replace: true });
     } catch (error) {
+      if (mutationEpoch.current !== epoch) return;
       const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code;
       if (code === 'COLLABORATION_TEMPLATE_VERSION_CONFLICT') setConflict(true);
       else setToast({ kind: 'error', message: t('collaboration.editor.saveFailed') });
     } finally {
-      setSaving(false);
+      if (mutationEpoch.current === epoch) setSaving(false);
     }
   };
 
   const sectionLabels = useMemo(() => Object.fromEntries(SECTIONS.map((value) => [value, t(`collaboration.editor.section.${value}`)])) as Record<Section, string>, [t]);
 
-  if (loading || !template) return <div data-testid="template-editor-loading" className="py-14 text-center text-sm text-gray-500">{t('common.loading')}</div>;
+  if (loading) return <div data-testid="template-editor-loading" className="py-14 text-center text-sm text-gray-500">{t('common.loading')}</div>;
+  if (!template) return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center"><p className="text-sm text-red-700">{t('collaboration.editor.loadFailed')}</p><button type="button" onClick={() => void load()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button></div>;
 
   return (
     <div className="mx-auto max-w-6xl min-w-0">
@@ -120,14 +168,17 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
         {SECTIONS.map((value) => <button key={value} type="button" onClick={() => setSection(value)} aria-current={section === value ? 'page' : undefined} className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm ${section === value ? 'border-blue-600 font-medium text-blue-700' : 'border-transparent text-gray-500'}`}>{sectionLabels[value]}</button>)}
       </nav>
 
-      <div className="mt-5 space-y-5">
-        <ValidationIssueList issues={issues} title={t('collaboration.editor.issues')} />
+      <fieldset disabled={saving} className="mt-5 space-y-5 disabled:opacity-70">
+        <ValidationIssueList issues={issues} title={t('collaboration.editor.issues')} t={t} />
+        {issues.some((issue) => issue.code === 'VALIDATION_UNAVAILABLE') ? <button type="button" onClick={() => setValidationRetry((value) => value + 1)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button> : null}
+        {reviewerState.spaceId === id && reviewerState.error ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{t('collaboration.editor.reviewersFailed')}<button type="button" onClick={() => void loadReviewers()} className="ml-2 underline">{t('common.retry')}</button></div> : null}
+        {reviewerState.spaceId === id && reviewerState.loading ? <span className="sr-only" role="status">{t('common.loading')}</span> : null}
         {section === 'overview' ? <OverviewSection template={template} onChange={setTemplate} t={t} /> : null}
         {section === 'inputs' ? <InputsSection definition={template.definition} onChange={updateDefinition} t={t} /> : null}
         {section === 'roles' ? <RolesSection definition={template.definition} onChange={updateDefinition} t={t} /> : null}
-        {section === 'flow' ? <FlowStepEditor definition={template.definition} onChange={updateDefinition} labels={flowLabels(t)} /> : null}
+        {section === 'flow' ? <FlowStepEditor definition={template.definition} onChange={updateDefinition} labels={flowLabels(t)} reviewers={reviewerState.spaceId === id ? reviewerState.items : []} /> : null}
         {section === 'outputs' ? <OutputsSection definition={template.definition} onChange={updateDefinition} t={t} /> : null}
-      </div>
+      </fieldset>
 
       {conflict ? <ModalDialog labelledBy="template-conflict-title" onRequestClose={() => setConflict(false)} className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"><h2 id="template-conflict-title" className="text-lg font-semibold">{t('collaboration.editor.conflictTitle')}</h2><p className="mt-2 text-sm text-gray-600">{t('collaboration.editor.conflictDescription')}</p><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setConflict(false)} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button><button type="button" onClick={() => { setConflict(false); void load(); }} className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm text-white">{t('collaboration.editor.reload')}</button></div></ModalDialog> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
@@ -145,7 +196,7 @@ const InputsSection: React.FC<{ definition: CollaborationTemplateDefinition; onC
     <label className="text-sm font-medium">{t('collaboration.editor.inputKey')}<input value={input.key} onChange={(event) => onChange({ ...definition, inputs: definition.inputs.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item) })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
     <label className="text-sm font-medium">{t('collaboration.editor.inputLabel')}<input value={input.label} onChange={(event) => onChange({ ...definition, inputs: definition.inputs.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) })} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
     <div className="flex items-end gap-2"><label className="mb-2 text-sm"><input type="checkbox" checked={input.required} onChange={(event) => onChange({ ...definition, inputs: definition.inputs.map((item, itemIndex) => itemIndex === index ? { ...item, required: event.target.checked } : item) })} /> {t('collaboration.editor.required')}</label><button type="button" aria-label={`${t('common.delete')} ${input.label}`} onClick={() => onChange({ ...definition, inputs: definition.inputs.filter((_, itemIndex) => itemIndex !== index) })} className="mb-1 rounded-lg border border-red-200 p-2 text-red-700"><Trash2 size={15} /></button></div>
-    <label className="text-sm font-medium sm:col-span-2">{t('common.type')}<select value={input.type} onChange={(event) => onChange({ ...definition, inputs: definition.inputs.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as typeof input.type } : item) })} className="mt-1 h-10 w-full rounded-lg border px-3"><option value="short_text">Short text</option><option value="long_text">Long text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="url">URL</option></select></label>
+    <label className="text-sm font-medium sm:col-span-2">{t('common.type')}<select value={input.type} onChange={(event) => onChange({ ...definition, inputs: definition.inputs.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as typeof input.type } : item) })} className="mt-1 h-10 w-full rounded-lg border px-3"><option value="short_text">{t('collaboration.editor.inputType.short_text')}</option><option value="long_text">{t('collaboration.editor.inputType.long_text')}</option><option value="number">{t('collaboration.editor.inputType.number')}</option><option value="boolean">{t('collaboration.editor.inputType.boolean')}</option><option value="url">{t('collaboration.editor.inputType.url')}</option></select></label>
   </div>)}
   <button type="button" onClick={() => onChange({ ...definition, inputs: [...definition.inputs, { key: `input-${definition.inputs.length + 1}`, label: t('collaboration.editor.newInput'), required: false, type: 'short_text' }] })} className="inline-flex min-h-10 items-center gap-1 rounded-lg border bg-white px-3 text-sm"><Plus size={14} />{t('collaboration.editor.addInput')}</button>
 </section>;
@@ -171,6 +222,6 @@ function newTemplate(spaceId: string, t: (key: string) => string): TemplateDetai
 }
 
 function flowLabels(t: (key: string) => string): Record<string, string> {
-  const keys = ['newTask', 'completeTask', 'newReview', 'acceptanceCriterion', 'agentTask', 'humanReview', 'addTask', 'addReview', 'moveUp', 'moveDown', 'removeStep', 'stepName', 'role', 'objective', 'outputKey', 'outputKind', 'todoName', 'required', 'removeTodo', 'newTodo', 'addTodo', 'artifactTask', 'revisionTask', 'criteria', 'allowTerminate', 'dependencies', 'dependency', 'dependencyMode', 'removeDependency', 'addDependency'];
+  const keys = ['newTask', 'completeTask', 'newReview', 'acceptanceCriterion', 'agentTask', 'humanReview', 'addTask', 'addReview', 'moveUp', 'moveDown', 'removeStep', 'stepName', 'role', 'objective', 'runInputs', 'runInput', 'noRunInputs', 'upstreamArtifacts', 'upstreamArtifact', 'requireUpstreamArtifact', 'outputKey', 'outputKind', 'outputMarkdown', 'outputJson', 'outputExternalReference', 'outputEvidenceSummary', 'todo', 'todoName', 'required', 'removeTodo', 'newTodo', 'addTodo', 'artifactTask', 'revisionTask', 'minimumRole', 'roleEditor', 'roleAdmin', 'roleOwner', 'reviewerUserIds', 'reviewerUserIdsHelp', 'removedReviewer', 'criteria', 'allowTerminate', 'dependencies', 'dependency', 'dependencyMode', 'dependencyAll', 'dependencyAny', 'removeDependency', 'addDependency'];
   return Object.fromEntries(keys.map((key) => [key, t(`collaboration.editor.${key}`)]));
 }

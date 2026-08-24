@@ -17,6 +17,14 @@
 | 证据保存 | 本文中的运行、审核、Artifact 与事件标识；完整命令输出保留在本次 Codex 任务 |
 | 最终结果 | `PASS` — A–F 全部通过；未执行 push、npm 发布或生产部署 |
 
+这组 Run ID 与真实客户端结果属于上表时段和 Sync Protocol `0.2.0` 候选，不能通过修改版本单元格转记为后续发行证据。
+
+## 当前发行候选增量门禁
+
+2026-08-24 13:22–14:50 CST 在 `4289b31dad97949968104f46c54427787a57a852` 基线及本文所在的最终审查提交上，将 Sync Protocol 提升到 `0.3.0`，Local Sync `0.6.0` 精确依赖该版本。所有数据库证据均在最终源码重新构建 `dist` 之后执行：本地双 tarball 空目录安装与 CLI 启动 `PASS`（protocol 42/42、local-sync 748/748）；隔离 schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`，随机 schema 清理后残留为 0。
+
+这是发布前本地候选证据，不替代上表的真实 Codex/Claude 业务运行记录。npm registry 尚未发布 Sync Protocol `0.3.0`，因此发布后 registry 依赖门禁 `pnpm test:package:local-sync-registry-protocol` 仍为 `PENDING`；必须先发布并验证 protocol `0.3.0`，再执行该门禁，最后才允许发布 Local Sync `0.6.0`。未经单独授权，本轮不执行 npm 发布、push 或生产部署。
+
 ## A. 自动化先决证据
 
 | 检查 | 结果 | 证据 |
@@ -24,7 +32,8 @@
 | 隔离 PostgreSQL 场景 | `PASS` | `collaboration-workflows-db.test.mjs` 10/10；新增双 Agent 并发 heartbeat、Todo、submit 的 `40001` 重试场景 |
 | 真实 API + Worker + Credential + MCP | `PASS` | `collaboration-workflows-e2e.mjs` 返回 `status: PASS`；六个执行工具、审核、恢复、改派、终态闭环 |
 | 可重复真实客户端 Harness | `PASS` | `collaboration-real-agent-harness.test.mjs` 4/4；无专用测试 URL 时 fail closed，状态文件 mode `0600`，SIGTERM 删除状态、临时仓库和随机 schema |
-| 完整本地发行门禁 | `PASS` | 全仓 lint、typecheck、build、test 与协作 schema/DB/E2E 全部通过；详见本次任务最终门禁输出 |
+| 完整本地发行门禁 | `PASS` | Runtime 95 通过/50 环境跳过，Server 1003 通过/3 跳过，Client 314/314，Sync Protocol 42/42，Local Sync 748/748；lint、typecheck、build、`git diff --check` 全部通过 |
+| 真实浏览器 UI | `PASS` | 真实注册、Space 创建、Publisher Agent 接入、五模板、三步启动、权威角色映射、自审风险确认、8 个任务/Todo/审核/Artifact/活动看板通过；390px 视口 `scrollWidth=390`，语义区块顺序正确，控制台无 error/warn |
 
 真实客户端运行中曾观察到 Prisma `P2010` / PostgreSQL `40001` 从并行 heartbeat/submit 泄漏。根因是同一 Run 的幂等事件写入使用 Serializable 事务，而只有 `next_action` 有重试。修复后 heartbeat、Todo、submit 均最多重试三次；连续冲突转换为受控 `COLLABORATION_PROGRESS_INVARIANT`，并由单元测试与真实 PostgreSQL 并发测试覆盖。新运行时的 D–E 并行验收未再泄漏原始 Prisma 错误。
 

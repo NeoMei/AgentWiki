@@ -147,9 +147,10 @@ and connection ID, never the API key.
 These versions were tested with isolated temporary HOME directories on 2026-08-15. The
 package uses an exact version in every registered gateway command.
 
-The 0.6.0 package requires `@neomei/agentwiki-sync-protocol@0.2.0`. Release verification
-packs both packages, installs them into an empty directory, and starts the installed
-CLI; the unchanged protocol package must already be available before local-sync is published.
+The 0.6.0 package requires `@neomei/agentwiki-sync-protocol@0.3.0`, which contains the
+collaboration contracts. Release verification first packs both packages and installs them
+into an empty directory. After protocol 0.3.0 is published, the registry-only gate must also
+pass before local-sync 0.6.0 is published.
 
 ## Package contents
 

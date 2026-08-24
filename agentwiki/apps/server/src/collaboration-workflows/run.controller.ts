@@ -73,6 +73,16 @@ export class RunController {
     return this.runs.getHumanRunHistory(spaceId, runId, kind, cursor, limit, req.user as Principal);
   }
 
+  @Get(':runId/artifacts/:artifactId')
+  artifact(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @Param('artifactId') artifactId: string,
+  ) {
+    return this.runs.getHumanArtifact(spaceId, runId, artifactId, req.user as Principal);
+  }
+
   @Post(':runId/actions/pause')
   pause(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('runId') runId: string, @Body() body: RunActionDto) {
     return this.runs.pauseRun(runId, body, req.user as Principal, spaceId);

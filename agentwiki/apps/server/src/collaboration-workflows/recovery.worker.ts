@@ -5,6 +5,7 @@ import { AgentAccessRoleSchema, agentRoleAllowsScope } from '@neomei/agentwiki-s
 import { PrismaService } from '../database/prisma.service';
 import { CollaborationEventsService } from './collaboration-events.service';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
+import { withCollaborationSerializableRetry } from './serializable-retry';
 
 type Tx = Prisma.TransactionClient;
 const BATCH_SIZE = 100;
@@ -65,7 +66,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private async recoverAttempt(attemptId: string): Promise<void> {
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const attempt = await tx.collaborationTaskAttempt.findUnique({
         where: { id: attemptId },
         include: { runTask: { include: { run: true } } },
@@ -141,7 +142,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
         }
         return { runId: attempt.runId, spaceId: attempt.runTask.run.spaceId };
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     if (result) await this.publishCommitted(result.spaceId, result.runId);
   }
 
@@ -153,7 +154,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
       select: { id: true },
     });
     for (const item of tasks) {
-      const result = await this.prisma.$transaction(async (tx) => {
+      const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
         const task = await tx.collaborationRunTask.findUnique({
           where: { id: item.id },
           include: { run: true },
@@ -186,8 +187,14 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
           },
           data: { status: 'ready', nextAttemptAt: null },
         });
+        if (released.count === 1) {
+          await tx.collaborationTaskTodo.updateMany({
+            where: { taskId: task.id, generation: task.generation, status: 'failed' },
+            data: { status: 'pending', summary: null, evidence: Prisma.DbNull },
+          });
+        }
         return released.count === 1 ? { runId: task.runId, spaceId: task.run.spaceId } : null;
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
       if (result) await this.publishCommitted(result.spaceId, result.runId);
     }
   }
@@ -196,7 +203,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
     const grant = await tx.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId } },
       include: {
-        agent: { select: { status: true, revokedAt: true } },
+        agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
         space: { select: { deletedAt: true } },
         credentials: {
           where: {
@@ -212,6 +219,8 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
       grant
       && grant.agent.status === 'active'
       && !grant.agent.revokedAt
+      && !grant.agent.owner.deletedAt
+      && !grant.agent.owner.lockedAt
       && !grant.space.deletedAt
       && grant.credentials?.some((credential) => !credential.revokedAt && (!credential.expiresAt || credential.expiresAt > now))
       && AgentAccessRoleSchema.safeParse(grant.role).success

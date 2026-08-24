@@ -30,6 +30,20 @@ const validDefinition = () => ({
   terminalNodeIds: ['draft'],
 });
 
+const definitionWithReviewer = (reviewerUserIds: string[]) => {
+  const definition = validDefinition();
+  return {
+    ...definition,
+    nodes: [...definition.nodes, {
+      kind: 'human_review', id: 'review', name: 'Review', artifactTaskId: 'draft',
+      minimumRole: 'editor', reviewerUserIds, approvalCriteria: ['Complete'],
+      revisionTaskId: 'draft', allowTerminate: true,
+    }],
+    dependencies: [{ from: 'draft', to: 'review', mode: 'all' }],
+    terminalNodeIds: ['review'],
+  };
+};
+
 const templateRecord = (overrides: Record<string, unknown> = {}) => ({
   id: 'template-1',
   spaceId: 'space-1',
@@ -57,6 +71,7 @@ describe('TemplateService', () => {
   };
   const prisma = {
     collaborationTemplate,
+    spaceMember: { findMany: jest.fn() },
     $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(prisma)),
   } as any;
   const authorization = {
@@ -75,6 +90,7 @@ describe('TemplateService', () => {
     collaborationTemplate.create.mockImplementation(async ({ data }: any) => ({ id: 'created-1', version: 1, ...data }));
     collaborationTemplate.findUniqueOrThrow.mockResolvedValue(templateRecord({ version: 2 }));
     collaborationTemplate.updateMany.mockResolvedValue({ count: 1 });
+    prisma.spaceMember.findMany.mockResolvedValue([]);
     service = new TemplateService(prisma, authorization, config);
   });
 
@@ -134,6 +150,38 @@ describe('TemplateService', () => {
     const copied = collaborationTemplate.create.mock.calls[1][0].data.definition;
     expect(copied).toEqual(sourceDefinition);
     expect(copied).not.toBe(sourceDefinition);
+  });
+
+  it('rejects designated reviewers who are not current Space members', async () => {
+    const definition = definitionWithReviewer(['member-1', 'missing-user']);
+    prisma.spaceMember.findMany.mockResolvedValue([{ userId: 'member-1', role: 'editor' }]);
+
+    const error = await service.createSpaceTemplate('space-1', {
+      name: 'Reviewed', slug: 'reviewed', description: '', definition,
+    }, principal).catch((caught) => caught) as BusinessException;
+    expect(error).toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(error.getResponse()).toMatchObject({
+      details: { issues: [expect.objectContaining({ code: 'REVIEWER_NOT_SPACE_MEMBER', message: 'missing-user' })] },
+    });
+    expect(prisma.spaceMember.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        user: { type: 'human', deletedAt: null, lockedAt: null },
+      }),
+    }));
+    expect(collaborationTemplate.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects designated reviewers below the Review minimum role', async () => {
+    const definition = definitionWithReviewer(['viewer-user']);
+    prisma.spaceMember.findMany.mockResolvedValue([{ userId: 'viewer-user', role: 'viewer' }]);
+
+    const error = await service.createSpaceTemplate('space-1', {
+      name: 'Reviewed', slug: 'reviewed', description: '', definition,
+    }, principal).catch((caught) => caught) as BusinessException;
+    expect(error).toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(error.getResponse()).toMatchObject({
+      details: { issues: [expect.objectContaining({ code: 'REVIEWER_ROLE_TOO_LOW', message: 'viewer-user' })] },
+    });
   });
 
   it('increments version only when expectedVersion matches', async () => {

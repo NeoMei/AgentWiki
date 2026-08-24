@@ -7,9 +7,10 @@ import { ProgressionService } from './progression.service';
 import type { ReviewDecisionDto } from './review.dto';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { CollaborationEventsService } from './collaboration-events.service';
+import { withCollaborationSerializableRetry } from './serializable-retry';
+import { HUMAN_ROLE_ORDER, rolesAtLeast } from './reviewer-members';
 
 type Tx = Prisma.TransactionClient;
-const ROLE_ORDER: SpaceRole[] = ['viewer', 'editor', 'admin', 'owner'];
 
 @Injectable()
 export class ReviewService {
@@ -29,7 +30,7 @@ export class ReviewService {
     principal: Principal,
   ) {
     if (principal.agentId) throw new BusinessException('HUMAN_AUTH_REQUIRED');
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const currentRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
       if (!currentRun || currentRun.spaceId !== spaceId) {
         throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
@@ -50,7 +51,7 @@ export class ReviewService {
         }
         throw error;
       }
-      this.assertReviewer(currentReview, member.role, principal.userId);
+      const reviewerOverride = await this.assertReviewer(tx, spaceId, currentReview, member.role, principal.userId);
       return this.events.executeIdempotent(tx, {
         runId,
         actorKind: 'human',
@@ -60,7 +61,7 @@ export class ReviewService {
         target: reviewId,
         key: input.idempotencyKey,
         requestHash: canonicalRequestHash(input),
-        metadata: { reviewId, kind: input.kind, reason: input.reason },
+        metadata: { reviewId, kind: input.kind, reason: input.reason, reviewerOverride },
       }, async () => {
         const mutationRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
         const current = await tx.collaborationReview.findFirst({ where: { id: reviewId, runId, status: 'pending' } });
@@ -93,12 +94,21 @@ export class ReviewService {
           const sourceReviewByNode = new Map(sourceReviews.map((item) => [item.nodeId, item]));
           const groupApproved = sourceReviewNodeIds.length > 0
             && sourceReviewNodeIds.every((nodeId) => sourceReviewByNode.get(nodeId)?.status === 'approved');
-          if (groupApproved) {
+          const currentArtifact = await tx.collaborationTaskArtifact.findFirst({
+            where: { id: current.artifactId, runId, generation: current.generation },
+            select: { status: true },
+          });
+          if (!currentArtifact || !['pending', 'accepted'].includes(currentArtifact.status)) {
+            throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
+          }
+          if (groupApproved && currentArtifact.status === 'pending') {
             const accepted = await tx.collaborationTaskArtifact.updateMany({
               where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
               data: { status: 'accepted', acceptedAt: decidedAt },
             });
             if (accepted.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');
+          }
+          if (groupApproved) {
             await tx.collaborationRunTask.update({
               where: { id: current.sourceTaskId },
               data: { status: 'completed', completedAt: decidedAt },
@@ -126,20 +136,38 @@ export class ReviewService {
         if (!receipt) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
         return { runId: receipt.id, status: receipt.status, version: receipt.version };
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     await this.notifications.publishCurrentRun(runId);
     return result;
   }
 
-  private assertReviewer(review: { minimumRole: string; reviewerUserIds: unknown }, role: SpaceRole, userId: string): void {
-    const minimum = ROLE_ORDER.indexOf(review.minimumRole as SpaceRole);
-    if (minimum < 0 || ROLE_ORDER.indexOf(role) < minimum) {
+  private async assertReviewer(
+    tx: Tx,
+    spaceId: string,
+    review: { minimumRole: string; reviewerUserIds: unknown },
+    role: SpaceRole,
+    userId: string,
+  ): Promise<boolean> {
+    const minimum = HUMAN_ROLE_ORDER.indexOf(review.minimumRole as SpaceRole);
+    if (minimum < 0 || HUMAN_ROLE_ORDER.indexOf(role) < minimum) {
       throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
     }
     const reviewers = stringArray(review.reviewerUserIds);
     if (reviewers.length && !reviewers.includes(userId)) {
-      throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
+      const eligibleReviewers = await tx.spaceMember.count({
+        where: {
+          spaceId,
+          userId: { in: reviewers },
+          role: { in: rolesAtLeast(review.minimumRole) },
+          user: { type: 'human', deletedAt: null, lockedAt: null },
+        },
+      });
+      if (eligibleReviewers > 0 || !['owner', 'admin'].includes(role)) {
+        throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
+      }
+      return true;
     }
+    return false;
   }
 
   private async rejectForRevision(
@@ -159,6 +187,14 @@ export class ReviewService {
     const affectedNodes = new Set(nodeIds.filter((nodeId) =>
       (hasPath(snapshot.dependencies, revisionNodeId, nodeId) && hasPath(snapshot.dependencies, nodeId, review.nodeId))
       || hasPath(snapshot.dependencies, review.nodeId, nodeId)));
+    const siblingReviewNodeIds = snapshot.nodes
+      .filter((node) => node.kind === 'human_review' && node.artifactTaskId === sourceNodeId)
+      .map((node) => node.id);
+    for (const siblingReviewNodeId of siblingReviewNodeIds) {
+      for (const nodeId of nodeIds) {
+        if (hasPath(snapshot.dependencies, siblingReviewNodeId, nodeId)) affectedNodes.add(nodeId);
+      }
+    }
     const affectedTasks = sourceTask.filter((task) => affectedNodes.has(task.nodeId));
     const affectedTaskIds = affectedTasks.map((task) => task.id).sort();
     if (!affectedTaskIds.includes(review.revisionTaskId) || !affectedTaskIds.includes(review.sourceTaskId)) {
@@ -170,7 +206,7 @@ export class ReviewService {
       data: { status: 'invalidated', failureCode: 'review_revision', finishedAt: new Date() },
     });
     const rejected = await tx.collaborationTaskArtifact.updateMany({
-      where: { id: review.artifactId, runId: run.id, generation: review.generation, status: 'pending' },
+      where: { id: review.artifactId, runId: run.id, generation: review.generation, status: { in: ['pending', 'accepted'] } },
       data: { status: 'rejected' },
     });
     if (rejected.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review Artifact is stale');

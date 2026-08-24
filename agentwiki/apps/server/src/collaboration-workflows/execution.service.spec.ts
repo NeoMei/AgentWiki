@@ -126,6 +126,27 @@ describe('ExecutionService', () => {
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_CANNOT_EXECUTE' });
   });
 
+  it('projects Run inputs to each task inputKeys for both read and execute paths', async () => {
+    const scopedRun = {
+      ...run,
+      inputs: { public: 'visible', secret: 'must-not-cross-role' },
+      templateSnapshot: {
+        ...run.templateSnapshot,
+        nodes: [{
+          kind: 'agent_task', id: 'build', inputKeys: ['public'], upstreamArtifacts: [],
+          output: { key: 'result', kind: 'markdown' },
+        }],
+      },
+    };
+    tx.collaborationRun.findUnique.mockResolvedValue(scopedRun);
+    const read = await service.getAgentRun({ runId: 'run-1' }, agent);
+    const action = await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-scoped-input-1' }, agent);
+
+    expect(read.assignedTasks[0].inputs).toEqual({ public: 'visible' });
+    expect((action as any).task.inputs).toEqual({ public: 'visible' });
+    expect(JSON.stringify({ read, action })).not.toContain('must-not-cross-role');
+  });
+
   it('claims one task, persists only the token hash, and never stores plaintext in the event response', async () => {
     const result = await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-agent-a-1' }, agent);
     expect(result).toMatchObject({ action: 'execute_task', leaseToken: expect.stringMatching(/^[a-f0-9]{64}$/u) });
@@ -325,6 +346,11 @@ describe('ExecutionService', () => {
     expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'retry_wait', nextAttemptAt: expect.any(Date) }),
     }));
+    expect(events.executeIdempotent).toHaveBeenCalledWith(tx, expect.objectContaining({
+      metadata: {
+        todoId: 'todo-1', status: 'failed', summary: 'runner crashed', evidence: [],
+      },
+    }), expect.any(Function));
   });
 });
 

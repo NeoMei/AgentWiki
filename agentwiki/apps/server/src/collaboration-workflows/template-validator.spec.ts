@@ -183,6 +183,68 @@ describe('collaboration template validator', () => {
     expect(validateCollaborationTemplate(definition)).toEqual([]);
   });
 
+  it('rejects an Agent task placed between two Reviews of the same Artifact', () => {
+    const definition = validDefinition({
+      nodes: [
+        task('source', 'source-output'),
+        {
+          kind: 'human_review', id: 'review-a', name: 'Review A', artifactTaskId: 'source',
+          minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['A'], revisionTaskId: 'source', allowTerminate: true,
+        },
+        task('between', 'between-output'),
+        {
+          kind: 'human_review', id: 'review-b', name: 'Review B', artifactTaskId: 'source',
+          minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['B'], revisionTaskId: 'source', allowTerminate: true,
+        },
+        task('finish', 'finish-output'),
+      ],
+      dependencies: [
+        { from: 'source', to: 'review-a', mode: 'all' },
+        { from: 'source', to: 'between', mode: 'all' },
+        { from: 'review-a', to: 'between', mode: 'all' },
+        { from: 'source', to: 'review-b', mode: 'all' },
+        { from: 'between', to: 'review-b', mode: 'all' },
+        { from: 'review-b', to: 'finish', mode: 'all' },
+      ],
+      terminalNodeIds: ['finish'],
+    });
+    expect(CollaborationTemplateDefinitionSchema.safeParse(definition).success).toBe(true);
+    expect(validateCollaborationTemplate(definition)).toContainEqual(expect.objectContaining({
+      code: 'REVIEW_GROUP_DEPENDENCY_DEADLOCK', path: 'nodes.review-b',
+    }));
+  });
+
+  it('rejects a source-dependent Agent task that blocks a later Review of the same Artifact', () => {
+    const definition = validDefinition({
+      nodes: [
+        task('source', 'source-output'),
+        {
+          kind: 'human_review', id: 'review-a', name: 'Review A', artifactTaskId: 'source',
+          minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['A'], revisionTaskId: 'source', allowTerminate: true,
+        },
+        task('between', 'between-output'),
+        {
+          kind: 'human_review', id: 'review-b', name: 'Review B', artifactTaskId: 'source',
+          minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['B'], revisionTaskId: 'source', allowTerminate: true,
+        },
+        task('finish', 'finish-output'),
+      ],
+      dependencies: [
+        { from: 'source', to: 'review-a', mode: 'all' },
+        { from: 'source', to: 'between', mode: 'all' },
+        { from: 'source', to: 'review-b', mode: 'all' },
+        { from: 'between', to: 'review-b', mode: 'all' },
+        { from: 'review-a', to: 'finish', mode: 'all' },
+        { from: 'review-b', to: 'finish', mode: 'all' },
+      ],
+      terminalNodeIds: ['finish'],
+    });
+    expect(CollaborationTemplateDefinitionSchema.safeParse(definition).success).toBe(true);
+    expect(validateCollaborationTemplate(definition)).toContainEqual(expect.objectContaining({
+      code: 'REVIEW_GROUP_DEPENDENCY_DEADLOCK', path: 'nodes.review-b',
+    }));
+  });
+
   it('rejects required Artifact paths that a skippable producer or relay can bypass', () => {
     const skippableProducer = validDefinition({
       nodes: [

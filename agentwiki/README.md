@@ -358,10 +358,12 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
 1. Before replacing application files or running migrations, create and verify a
    PostgreSQL custom-format backup and an application rollback archive.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
-3. Pack `@neomei/agentwiki-sync-protocol@0.2.0` and
+3. Pack `@neomei/agentwiki-sync-protocol@0.3.0` and
    `@neomei/agentwiki-local-sync@0.6.0`, then run
-   `pnpm test:package:local-sync-clean-install`. Confirm the unchanged protocol
-   package is already available, then publish the audited local-sync tarball.
+   `pnpm test:package:local-sync-clean-install`. Publish and verify the audited
+   sync-protocol `0.3.0` tarball first, run
+   `pnpm test:package:local-sync-registry-protocol`, and only then publish the
+   audited local-sync tarball that pins protocol `0.3.0`.
 4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
 5. Configure three systemd services (templates in `deploy/systemd/`):
    - `agentwiki-api.service` — NestJS API server

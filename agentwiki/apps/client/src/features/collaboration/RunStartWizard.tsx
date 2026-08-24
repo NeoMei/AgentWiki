@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CollaborationInputValuesSchema } from '@neomei/agentwiki-sync-protocol';
-import { ArrowLeft, CheckCircle2, Copy } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
@@ -44,6 +44,12 @@ function toAgentInstruction(runId: string, agentId: string, roleSlots: string[])
   };
 }
 
+function hasRepeatedAgentBindings(bindings: RoleBinding[]): boolean {
+  const counts = new Map<string, number>();
+  for (const binding of bindings) counts.set(binding.agentId, (counts.get(binding.agentId) ?? 0) + 1);
+  return [...counts.values()].some((count) => count > 1);
+}
+
 export const RunStartWizard: React.FC = () => {
   const { id = '', templateId = '' } = useParams<{ id: string; templateId: string }>();
   const { t } = useLanguage();
@@ -58,9 +64,30 @@ export const RunStartWizard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [retryAction, setRetryAction] = useState<RetryAction>(null);
+  const [selfReviewAcknowledged, setSelfReviewAcknowledged] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
-  const [idempotencyKey] = useState(() => `start-${safeUuid()}`);
+  const idempotencyKey = useMemo(() => `start-${safeUuid()}`, [id, templateId]);
+  const initializeRequest = useRef(0);
+  const mutationEpoch = useRef(0);
   const storageKey = `agentwiki.collaboration.draft.${id}.${templateId}`;
+
+  useEffect(() => {
+    initializeRequest.current += 1;
+    mutationEpoch.current += 1;
+    setTemplate(null);
+    setAgents([]);
+    setRun(null);
+    setStarted(null);
+    setStep(1);
+    setRunName('');
+    setInputValues({});
+    setBindings([]);
+    setLoading(true);
+    setSubmitting(false);
+    setRetryAction(null);
+    setSelfReviewAcknowledged(false);
+    setToast(null);
+  }, [id, templateId]);
 
   const validatedInputs = () => {
     if (!template || !runName.trim()) return null;
@@ -92,18 +119,22 @@ export const RunStartWizard: React.FC = () => {
 
   const initialize = useCallback(async () => {
     if (!id || !templateId) return;
+    const request = ++initializeRequest.current;
     setLoading(true);
+    setToast(null);
     try {
       const [nextTemplate, members] = await Promise.all([
         collaborationApi.getTemplate(id, templateId),
         collaborationApi.listMembers(id),
       ]);
+      if (initializeRequest.current !== request) return;
       setTemplate(nextTemplate);
       setAgents(members.filter(isExecutableAgent));
       const storedRunId = localStorage.getItem(storageKey);
       if (storedRunId) {
         try {
           const existing = await loadEditableRun(id, storedRunId);
+          if (initializeRequest.current !== request) return;
           setRun(existing);
           setRunName(existing.name);
           setInputValues(existing.inputs ?? {});
@@ -116,9 +147,10 @@ export const RunStartWizard: React.FC = () => {
         }
       }
     } catch {
+      if (initializeRequest.current !== request) return;
       setToast({ kind: 'error', message: t('collaboration.wizard.loadFailed') });
     } finally {
-      setLoading(false);
+      if (initializeRequest.current === request) setLoading(false);
     }
   }, [id, storageKey, t, templateId]);
 
@@ -127,19 +159,21 @@ export const RunStartWizard: React.FC = () => {
   const completeInputs = async (currentRun: CollaborationRun | null = run) => {
     const inputs = validatedInputs();
     if (!inputs) return;
+    const epoch = mutationEpoch.current;
     setSubmitting(true);
     try {
       const draft = currentRun && ['draft', 'ready'].includes(currentRun.status)
         ? await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, name: runName.trim(), inputs })
         : await collaborationApi.createRunDraft(id, { templateId, name: runName.trim(), inputs, roleBindings: [] });
+      if (mutationEpoch.current !== epoch) return;
       setRun(draft);
       localStorage.setItem(storageKey, draft.id);
       setRetryAction(null);
       setStep(2);
     } catch (error) {
-      handleMutationError(error, 'input');
+      await handleMutationError(error, 'input', epoch);
     } finally {
-      setSubmitting(false);
+      if (mutationEpoch.current === epoch) setSubmitting(false);
     }
   };
 
@@ -147,25 +181,38 @@ export const RunStartWizard: React.FC = () => {
     if (!template || !currentRun) return;
     const roleBindings = validatedBindings();
     if (!roleBindings) return;
+    const epoch = mutationEpoch.current;
     setSubmitting(true);
     try {
       const updated = await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, roleBindings });
+      if (mutationEpoch.current !== epoch) return;
       const ready = await collaborationApi.validateRunDraft(id, currentRun.id, updated.version);
+      if (mutationEpoch.current !== epoch) return;
       setRun(ready);
+      setBindings(ready.roleBindings);
       setRetryAction(null);
       setStep(3);
     } catch (error) {
-      handleMutationError(error, 'mapping');
+      await handleMutationError(error, 'mapping', epoch);
     } finally {
-      setSubmitting(false);
+      if (mutationEpoch.current === epoch) setSubmitting(false);
     }
   };
 
   const start = async (currentRun: CollaborationRun | null = run) => {
     if (!currentRun) return;
+    if (hasRepeatedAgentBindings(currentRun.roleBindings) && !selfReviewAcknowledged) {
+      setRun(currentRun);
+      setBindings(currentRun.roleBindings);
+      setStep(3);
+      setToast({ kind: 'error', message: t('collaboration.wizard.selfReviewConfirm') });
+      return;
+    }
+    const epoch = mutationEpoch.current;
     setSubmitting(true);
     try {
       const result = await collaborationApi.startRun(id, currentRun.id, { expectedVersion: currentRun.version, idempotencyKey });
+      if (mutationEpoch.current !== epoch) return;
       const enrichedBindings = result.roleBindings.map((binding) => ({
         ...binding,
         roleSlotName: binding.roleSlotName || template?.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name || binding.roleSlotId,
@@ -174,16 +221,33 @@ export const RunStartWizard: React.FC = () => {
       setRetryAction(null);
       localStorage.removeItem(storageKey);
     } catch (error) {
-      handleMutationError(error, 'start');
+      await handleMutationError(error, 'start', epoch);
     } finally {
-      setSubmitting(false);
+      if (mutationEpoch.current === epoch) setSubmitting(false);
     }
   };
 
-  const handleMutationError = (error: unknown, action: Exclude<RetryAction, null>) => {
-    if ((error as { response?: { status?: number } }).response?.status === 409) {
+  const handleMutationError = async (error: unknown, action: Exclude<RetryAction, null>, epoch = mutationEpoch.current) => {
+    if (mutationEpoch.current !== epoch) return;
+    const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code;
+    if (code === 'COLLABORATION_RUN_VERSION_CONFLICT') {
       setRetryAction(action);
       setToast({ kind: 'error', message: t('collaboration.wizard.conflict') });
+    } else if (code === 'COLLABORATION_AGENT_INACTIVE' || code === 'COLLABORATION_AGENT_CANNOT_EXECUTE') {
+      try {
+        const members = await collaborationApi.listMembers(id);
+        if (mutationEpoch.current !== epoch) return;
+        const executable = members.filter(isExecutableAgent);
+        const executableIds = new Set(executable.map((member) => member.agentId));
+        setAgents(executable);
+        setBindings((current) => current.filter((binding) => executableIds.has(binding.agentId)));
+      } catch {
+        setAgents([]);
+        setBindings([]);
+      }
+      setStep(2);
+      setRetryAction(null);
+      setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
     } else {
       setToast({ kind: 'error', message: t('collaboration.wizard.actionFailed') });
     }
@@ -192,9 +256,11 @@ export const RunStartWizard: React.FC = () => {
   const retry = async () => {
     const action = retryAction;
     if (!action || !run) return;
+    const epoch = mutationEpoch.current;
     setSubmitting(true);
     try {
       const latest = await loadEditableRun(id, run.id);
+      if (mutationEpoch.current !== epoch) return;
       setRun(latest);
       setRetryAction(null);
       if (!['draft', 'ready'].includes(latest.status)) {
@@ -214,21 +280,28 @@ export const RunStartWizard: React.FC = () => {
           inputs,
           roleBindings,
         });
+        if (mutationEpoch.current !== epoch) return;
         const ready = await collaborationApi.validateRunDraft(id, latest.id, updated.version);
+        if (mutationEpoch.current !== epoch) return;
         setRun(ready);
         await start(ready);
       } else await start(latest);
-    } catch {
-      setToast({ kind: 'error', message: t('collaboration.wizard.actionFailed') });
+    } catch (error) {
+      await handleMutationError(error, action, epoch);
     } finally {
-      setSubmitting(false);
+      if (mutationEpoch.current === epoch) setSubmitting(false);
     }
   };
 
   const instructions = useMemo(() => started ? buildAgentJoinInstructions(started) : [], [started]);
   const hasSelfReview = instructions.some((instruction) => instruction.roleSlots.length > 1);
+  const hasPotentialSelfReview = useMemo(
+    () => hasRepeatedAgentBindings(run?.roleBindings ?? bindings),
+    [bindings, run?.roleBindings],
+  );
 
-  if (loading || !template) return <div data-testid="run-wizard-loading" className="py-14 text-center text-sm text-gray-500">{t('common.loading')}</div>;
+  if (loading) return <div data-testid="run-wizard-loading" className="py-14 text-center text-sm text-gray-500">{t('common.loading')}</div>;
+  if (!template) return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center"><p className="text-sm text-red-700">{t('collaboration.wizard.loadFailed')}</p><button type="button" onClick={() => void initialize()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button></div>;
 
   return (
     <div className="mx-auto max-w-4xl min-w-0">
@@ -240,9 +313,11 @@ export const RunStartWizard: React.FC = () => {
       </ol>
 
       <div className="mt-6">
+        <fieldset disabled={submitting} className="disabled:opacity-70">
         {!started && step === 1 ? <InputStep template={template} runName={runName} onRunName={setRunName} values={inputValues} onValues={setInputValues} t={t} /> : null}
-        {!started && step === 2 ? <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step2')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step2Help')}</p><div className="mt-5"><RoleBindingEditor roleSlots={template.definition.roleSlots} agents={agents} bindings={bindings} onChange={setBindings} chooseLabel={t('collaboration.wizard.chooseAgent')} /></div>{!agents.length ? <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.wizard.noAgents')}</p> : null}</section> : null}
-        {!started && step === 3 && run ? <ReviewStep template={template} run={run} bindings={bindings} agents={agents} t={t} /> : null}
+        {!started && step === 2 ? <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step2')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step2Help')}</p><div className="mt-5"><RoleBindingEditor roleSlots={template.definition.roleSlots} agents={agents} bindings={bindings} onChange={(next) => { setBindings(next); setSelfReviewAcknowledged(false); }} chooseLabel={t('collaboration.wizard.chooseAgent')} /></div>{!agents.length ? <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.wizard.noAgents')}</p> : null}</section> : null}
+        {!started && step === 3 && run ? <ReviewStep template={template} run={run} bindings={run.roleBindings} agents={agents} t={t} hasPotentialSelfReview={hasPotentialSelfReview} acknowledged={selfReviewAcknowledged} onAcknowledged={setSelfReviewAcknowledged} /> : null}
+        </fieldset>
         {started ? <StartedStep started={started} instructions={instructions} hasSelfReview={hasSelfReview} onCopy={(text) => void copyInstruction(text, setToast, t)} t={t} spaceId={id} /> : null}
       </div>
 
@@ -254,9 +329,9 @@ export const RunStartWizard: React.FC = () => {
 
 const InputStep: React.FC<{ template: TemplateDetail; runName: string; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: (key: string) => string }> = ({ template, runName, onRunName, values, onValues, t }) => <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step1')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step1Help')}</p><div className="mt-5 space-y-4 rounded-xl border bg-white p-5"><label className="block text-sm font-medium">{t('collaboration.wizard.runName')}<input aria-label={t('collaboration.wizard.runName')} value={runName} onChange={(event) => onRunName(event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>{template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} onChange={(value) => onValues({ ...values, [input.key]: value })} />)}</div></section>;
 
-const InputControl: React.FC<{ input: TemplateDetail['definition']['inputs'][number]; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }> = ({ input, value, onChange }) => <label className="block text-sm font-medium">{input.label}{input.required ? <span className="ml-1 text-red-600">*</span> : null}{input.type === 'long_text' ? <textarea aria-label={input.label} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-28 w-full rounded-lg border p-3" /> : input.type === 'boolean' ? <input aria-label={input.label} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} className="ml-3" /> : <input aria-label={input.label} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' ? Number(event.target.value) : event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3" />}</label>;
+const InputControl: React.FC<{ input: TemplateDetail['definition']['inputs'][number]; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }> = ({ input, value, onChange }) => <label className="block text-sm font-medium">{input.label}{input.required ? <span className="ml-1 text-red-600">*</span> : null}{input.type === 'long_text' ? <textarea aria-label={input.label} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-28 w-full rounded-lg border p-3" /> : input.type === 'boolean' ? <input aria-label={input.label} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} className="ml-3" /> : <input aria-label={input.label} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3" />}</label>;
 
-const ReviewStep: React.FC<{ template: TemplateDetail; run: CollaborationRun; bindings: RoleBinding[]; agents: SpaceMemberSummary[]; t: (key: string) => string }> = ({ template, run, bindings, agents, t }) => <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step3')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step3Help')}</p><dl className="mt-5 divide-y rounded-xl border bg-white"><div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.wizard.runName')}</dt><dd className="mt-1 font-medium">{run.name}</dd></div><div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.templates')}</dt><dd className="mt-1 font-medium">{template.name}</dd></div>{bindings.map((binding) => <div key={binding.roleSlotId} className="p-4"><dt className="text-xs text-gray-500">{template.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name}</dt><dd className="mt-1 font-medium">{agents.find((agent) => agent.agentId === binding.agentId)?.agent?.name}</dd></div>)}</dl></section>;
+const ReviewStep: React.FC<{ template: TemplateDetail; run: CollaborationRun; bindings: RoleBinding[]; agents: SpaceMemberSummary[]; t: (key: string) => string; hasPotentialSelfReview: boolean; acknowledged: boolean; onAcknowledged: (value: boolean) => void }> = ({ template, run, bindings, agents, t, hasPotentialSelfReview, acknowledged, onAcknowledged }) => <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step3')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step3Help')}</p>{hasPotentialSelfReview ? <label className="mt-4 block rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><input type="checkbox" checked={acknowledged} onChange={(event) => onAcknowledged(event.target.checked)} /> <span className="ml-1">{t('collaboration.wizard.selfReviewConfirm')}</span></label> : null}<dl className="mt-5 divide-y rounded-xl border bg-white"><div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.wizard.runName')}</dt><dd className="mt-1 font-medium">{run.name}</dd></div><div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.templates')}</dt><dd className="mt-1 font-medium">{template.name}</dd></div>{bindings.map((binding) => <div key={binding.roleSlotId} className="p-4"><dt className="text-xs text-gray-500">{template.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name}</dt><dd className="mt-1 font-medium">{agents.find((agent) => agent.agentId === binding.agentId)?.agent?.name}</dd></div>)}</dl></section>;
 
 const StartedStep: React.FC<{ started: CollaborationRun; instructions: AgentInstruction[]; hasSelfReview: boolean; onCopy: (text: string) => void; t: (key: string) => string; spaceId: string }> = ({ started, instructions, hasSelfReview, onCopy, t, spaceId }) => <section><div className="flex items-center gap-3"><CheckCircle2 className="text-green-600" /><div><h2 className="text-xl font-semibold">{t('collaboration.wizard.started')}</h2><p className="text-sm text-gray-600">{started.name}</p></div></div>{hasSelfReview ? <p className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.wizard.selfReview')}</p> : null}<div className="mt-5 space-y-4">{instructions.map((instruction) => <article key={instruction.agentId} className="rounded-xl border bg-white p-4"><h3 className="font-medium">{instruction.roleSlots.join(', ')}</h3><p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{instruction.text}</p><button type="button" onClick={() => onCopy(instruction.text)} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm"><Copy size={15} />{t('collaboration.wizard.copyInstruction')}</button></article>)}</div><Link to={`/spaces/${spaceId}/collaboration/runs/${started.id}`} className="mt-6 inline-flex min-h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">{t('collaboration.wizard.openRun')}</Link></section>;
 

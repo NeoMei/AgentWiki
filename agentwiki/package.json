@@ -23,6 +23,7 @@
     "client:dev": "pnpm --filter client dev",
     "test:e2e:onboarding": "node scripts/onboarding-e2e.test.mjs",
     "test:package:local-sync-clean-install": "node scripts/verify-local-sync-clean-install.mjs",
+    "test:package:local-sync-registry-protocol": "AGENTWIKI_PROTOCOL_INSTALL_SOURCE=registry node scripts/verify-local-sync-clean-install.mjs",
     "test:e2e:codegraph-standard-scan": "pnpm --filter @neomei/agentwiki-local-sync build && node --test scripts/codegraph-standard-scan-e2e.test.mjs",
     "backfill:sync-v1": "node scripts/backfill-sync-v1.mjs",
     "migrate:readable-sync-paths": "pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node scripts/migrate-readable-sync-paths.mjs",

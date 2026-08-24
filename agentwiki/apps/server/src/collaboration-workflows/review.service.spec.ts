@@ -37,10 +37,11 @@ describe('ReviewService', () => {
   const tx = {
     collaborationRun: { findUnique: jest.fn(), update: jest.fn() },
     collaborationReview: { findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-    collaborationTaskArtifact: { update: jest.fn(), updateMany: jest.fn() },
+    collaborationTaskArtifact: { findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     collaborationRunTask: { findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn() },
     collaborationTaskTodo: { createMany: jest.fn() },
+    spaceMember: { count: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
   const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
@@ -57,6 +58,8 @@ describe('ReviewService', () => {
     tx.collaborationReview.findMany.mockResolvedValue([{ ...review, status: 'approved' }]);
     tx.collaborationReview.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue({ status: 'pending' });
+    tx.spaceMember.count.mockResolvedValue(1);
     tx.collaborationRunTask.findMany.mockResolvedValue(tasks);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'editor', userId: 'reviewer-1', spaceId: 'space-1' });
@@ -82,6 +85,32 @@ describe('ReviewService', () => {
     expect(events.executeIdempotent).not.toHaveBeenCalled();
   });
 
+  it('allows an owner to recover a Review only when every designated reviewer has left the Space', async () => {
+    tx.collaborationReview.findFirst.mockResolvedValue({ ...review, reviewerUserIds: ['former-reviewer'] });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'reviewer-1', spaceId: 'space-1' });
+    tx.spaceMember.count.mockResolvedValue(0);
+
+    await expect(service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'owner recovery', idempotencyKey: 'approve-owner-recovery-1',
+    }, reviewer)).resolves.toBeDefined();
+    expect(events.executeIdempotent).toHaveBeenCalledWith(tx, expect.objectContaining({
+      metadata: expect.objectContaining({ reviewerOverride: true }),
+    }), expect.any(Function));
+  });
+
+  it('allows an owner to recover when designated reviewers remain members below the minimum role', async () => {
+    tx.collaborationReview.findFirst.mockResolvedValue({ ...review, reviewerUserIds: ['viewer-reviewer'] });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'reviewer-1', spaceId: 'space-1' });
+    tx.spaceMember.count.mockImplementation(async ({ where }: any) => where.role ? 0 : 1);
+
+    await expect(service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'owner role recovery', idempotencyKey: 'approve-owner-role-recovery-1',
+    }, reviewer)).resolves.toBeDefined();
+    expect(tx.spaceMember.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ role: { in: ['editor', 'admin', 'owner'] } }),
+    });
+  });
+
   it('re-reads current reviewer constraints before returning an idempotent replay', async () => {
     tx.collaborationReview.findFirst.mockResolvedValue({ ...review, reviewerUserIds: ['other-user'] });
     events.executeIdempotent.mockResolvedValue({ id: 'run-1', status: 'running' });
@@ -101,7 +130,19 @@ describe('ReviewService', () => {
     expect(progression.advanceRun).toHaveBeenCalled();
   });
 
-  it('keeps a shared source submitted until every matching Review is created and approved', async () => {
+  it('retries a serialization conflict while deciding a Review', async () => {
+    prisma.$transaction
+      .mockRejectedValueOnce({ code: 'P2010', meta: { code: '40001' } })
+      .mockImplementation(async (callback: (value: any) => unknown) => callback(tx));
+
+    await expect(service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'accepted', idempotencyKey: 'approve-serialization-1',
+    }, reviewer)).resolves.toBeDefined();
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a shared Artifact pending until every Review is approved', async () => {
     tx.collaborationRun.findUnique.mockResolvedValue({
       ...run,
       templateSnapshot: {
@@ -119,7 +160,9 @@ describe('ReviewService', () => {
       kind: 'approve', reason: 'first approval', idempotencyKey: 'approve-review-group-1',
     }, reviewer);
 
-    expect(tx.collaborationTaskArtifact.updateMany).not.toHaveBeenCalled();
+    expect(tx.collaborationTaskArtifact.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'accepted' }),
+    }));
     expect(tx.collaborationRunTask.update).not.toHaveBeenCalled();
     expect(progression.advanceRun).toHaveBeenCalled();
   });
@@ -135,6 +178,7 @@ describe('ReviewService', () => {
       },
     });
     tx.collaborationReview.findFirst.mockResolvedValue(siblingReview);
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue({ status: 'pending' });
     tx.collaborationReview.findMany.mockResolvedValue([
       { ...review, status: 'approved' }, { ...siblingReview, status: 'approved' },
     ]);
@@ -144,7 +188,6 @@ describe('ReviewService', () => {
     }, reviewer);
 
     expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'artifact-1', generation: 1, status: 'pending' }),
       data: expect.objectContaining({ status: 'accepted' }),
     }));
     expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -170,6 +213,36 @@ describe('ReviewService', () => {
         runId: 'run-1', sourceTaskId: 'task-polish', generation: 1, id: { not: 'review-1' }, status: 'pending',
       }),
       data: expect.objectContaining({ status: 'superseded' }),
+    }));
+  });
+
+  it('invalidates task branches downstream of every sibling Review when a shared source is rejected', async () => {
+    const branchTask = { id: 'task-branch', runId: 'run-1', nodeId: 'branch', generation: 1, status: 'completed' };
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...run,
+      templateSnapshot: {
+        nodes: [
+          ...snapshot.nodes,
+          { kind: 'human_review', id: 'review-security', artifactTaskId: 'polish', revisionTaskId: 'draft' },
+          { kind: 'agent_task', id: 'branch', todos: [{ id: 'branch', name: 'Branch', required: true }] },
+        ],
+        dependencies: [
+          ...snapshot.dependencies,
+          { from: 'polish', to: 'review-security', mode: 'all' },
+          { from: 'review', to: 'branch', mode: 'all' },
+        ],
+        terminalNodeIds: ['branch', 'publish'],
+      },
+    });
+    tx.collaborationReview.findFirst.mockResolvedValue(siblingReview);
+    tx.collaborationRunTask.findMany.mockResolvedValue([...tasks, branchTask]);
+
+    await service.decide('space-1', 'run-1', 'review-2', {
+      kind: 'reject_for_revision', reason: 'shared source is stale', idempotencyKey: 'reject-shared-review-2',
+    }, reviewer);
+
+    expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'task-branch' }, data: expect.objectContaining({ generation: 2, status: 'blocked' }),
     }));
   });
 

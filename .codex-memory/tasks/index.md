@@ -4,10 +4,11 @@
 
 ## 活跃任务
 
-- [agent-collaboration-templates](active/agent-collaboration-templates/brief.md)：书面 Spec 与 13 个任务的 TDD 实施计划已完成，等待选择执行方式；依赖统一访问角色 0.5.0 先落地。
+- 无。
 
 ## 最近完成
 
+- [agent-collaboration-templates](archive/agent-collaboration-templates/brief.md)：五类协作模板、任务/Todo/依赖/审核/交接组件、六个 MCP 工具与 Space UI 已完成四轮审查和全栈验收；本地候选达到发布标准，GitHub、npm 与生产仍等待独立授权。
 - [comprehensive-security-reliability-audit-2026-08-23](archive/comprehensive-security-reliability-audit-2026-08-23/brief.md)：多轮全仓安全与可靠性审查、Local Sync 0.5.1 npm 发行和生产部署完成；授权 TOCTOU、Run 身份升级、WebSocket、Memory、限流、Git/Local Sync 边界和 Obsidian 单页连接均已上线并验收。
 - [unified-agent-access-roles](archive/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、单一 Grant 权限源、npm 0.5.0/0.2.0、GitHub 与生产发布完成；公网权限烟测 31/31、浏览器入口和三角色界面验收通过。
 - [codegraph-local-code-analysis](archive/codegraph-local-code-analysis/brief.md)：CodeGraph 标准扫描切换、Codebase Memory 移除、三客户端验收和五轮最终审查完成；2026-08-20 已发布 npm 0.4.0、更新 GitHub、完成备份优先的生产部署与公网 smoke。深度分析仍为以后用户显式触发的独立第二阶段。

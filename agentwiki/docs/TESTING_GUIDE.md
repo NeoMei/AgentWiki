@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.5.1
+# AgentWiki 功能测试指南 v0.6.0
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -96,7 +96,7 @@
 | 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | 仅 Space 成员管理流程使用；仅接受 `reader/editor/publisher` |
 | 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
 | 4.10 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.5.1`，生成一次性安装码（10分钟过期） |
+| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.6.0`，生成一次性安装码（10分钟过期） |
 | 4.12 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
 | 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
 | 4.14 | 禁止手工签发 | `POST /agents/:id/credentials` | 路由不存在；Credential 只能由统一连接兑换产生 |
@@ -239,7 +239,24 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 必须在空目录联合安装 sync-protocol 0.2.0 与 local-sync 0.5.1 并启动 CLI；确认未变更的 sync-protocol 0.2.0 已在 registry 可用后，只发布新的 local-sync 0.5.1 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.3.0 与 local-sync 0.6.0 并启动 CLI；先发布 protocol 0.3.0，再运行 `pnpm test:package:local-sync-registry-protocol`，通过后才可发布 local-sync 0.6.0 |
+
+---
+
+### 模块 12A：Agent 协作工作流 `/api/spaces/:spaceId/collaboration`
+
+| 序号 | 功能点 | 测试要点 |
+|------|--------|----------|
+| 12A.1 | 内置模板 | 编码、标书、论文、视频脚本、小说 5 类模板可见；可复制为 Space 模板 |
+| 12A.2 | 模板编辑 | 可配置运行输入、角色、Agent 任务、顺序 Todo、依赖、上游产物交接、人工审核与终点；循环和不可达图禁止保存 |
+| 12A.3 | 三步启动 | 工作输入→Agent 映射→确认启动；只显示当前可执行 Agent；失效授权必须返回重新映射 |
+| 12A.4 | MCP 六工具 | `wiki_collaboration_join_run/next_action/heartbeat/update_todo/submit_result/get_run` 使用精确 Schema；错误保留 `isError:true` |
+| 12A.5 | 顺序 Todo | 无法跳过必需 Todo；失败后自动重试能重置为可执行态；租约过期不能继续写入 |
+| 12A.6 | 产物与输入隔离 | Agent 只收到任务 `inputKeys` 声明的输入；下游只收到当前 generation 已接受的上游 Artifact |
+| 12A.7 | 人工审核 | 审核人能查看完整产物、证据和通过标准；加载失败时审核按钮禁用；通过/驳回/终止权限正确 |
+| 12A.8 | 恢复操作 | 暂停/恢复、失败/取消、重试/改派/跳过都需原因、幂等键和实时权限校验 |
+| 12A.9 | 实时看板 | Socket 仅作刷新提示；路由切换不得被旧请求覆盖；可查看 Todo/Attempt/Review/Artifact/Event 完整分页历史 |
+| 12A.10 | 双 Agent 验收 | 在隔离 `COLLABORATION_TEST_DATABASE_URL` 中运行 Codex + Claude 真客户端，覆盖依赖等待、审核、驳回返工、租约恢复和最终完成；结束后测试 schema 数量为 0 |
 
 ---
 

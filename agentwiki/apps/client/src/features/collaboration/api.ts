@@ -1,6 +1,7 @@
 import api from '../../api/client';
 import type {
   CreateTemplateInput,
+  CollaborationArtifact,
   CollaborationRun,
   CollaborationRunDraftDetails,
   CollaborationHistoryKind,
@@ -51,6 +52,8 @@ export const collaborationApi = {
     (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/start`, input)).data,
   getRun: async (spaceId: string, runId: string): Promise<CollaborationRun> =>
     (await api.get<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}`)).data,
+  getArtifact: async (spaceId: string, runId: string, artifactId: string): Promise<CollaborationArtifact> =>
+    (await api.get<CollaborationArtifact>(`/spaces/${spaceId}/collaboration/runs/${runId}/artifacts/${artifactId}`)).data,
   getRunDraftDetails: async (spaceId: string, runId: string): Promise<CollaborationRunDraftDetails> =>
     (await api.get<CollaborationRunDraftDetails>(`/spaces/${spaceId}/collaboration/runs/${runId}/draft-details`)).data,
   getRunHistory: async <T = unknown>(

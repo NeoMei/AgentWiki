@@ -44,7 +44,7 @@ const draft = {
 const ready = { ...draft, status: 'ready', version: 2 };
 const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'editor', status = 'active') => ({
   id: `grant-${agentId}`, agentId, spaceId: 'space-1', role,
-  agent: { id: agentId, status, revokedAt: null }, space: { deletedAt: null },
+  agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
 });
 
 function projectSelect(value: any, select: Record<string, any>): any {
@@ -70,6 +70,7 @@ describe('RunService', () => {
     collaborationReview: { findMany: jest.fn() },
     collaborationRunEvent: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
+    spaceMember: { findMany: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
   const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
@@ -99,6 +100,7 @@ describe('RunService', () => {
     tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
     tx.collaborationReview.findMany.mockResolvedValue([]);
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
+    tx.spaceMember.findMany.mockResolvedValue([]);
     service = new RunService(prisma, authorization, events, progression, notifications, historyCursors);
   });
 
@@ -197,6 +199,64 @@ describe('RunService', () => {
       .rejects.toMatchObject({ businessCode: code });
   });
 
+  it('rechecks designated reviewer membership before validating a draft', async () => {
+    const reviewedDefinition = {
+      ...definition,
+      nodes: [...definition.nodes.map((node) => node.id === 'build' ? { ...node, skippable: false } : node), {
+        kind: 'human_review', id: 'review', name: 'Review', artifactTaskId: 'build',
+        minimumRole: 'editor', reviewerUserIds: ['removed-reviewer'], approvalCriteria: ['Complete'],
+        revisionTaskId: 'build', allowTerminate: true,
+      }],
+      dependencies: [...definition.dependencies, { from: 'build', to: 'review', mode: 'all' }],
+      terminalNodeIds: ['review'],
+    };
+    tx.collaborationRun.findFirst.mockResolvedValue(draft);
+    tx.collaborationTemplate.findFirst.mockResolvedValue({ ...template, definition: reviewedDefinition });
+
+    const error = await service.validateDraft(
+      'space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal,
+    ).catch((caught) => caught) as BusinessException;
+    expect(error).toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(error.getResponse()).toMatchObject({
+      details: { issues: [expect.objectContaining({ code: 'REVIEWER_NOT_SPACE_MEMBER', message: 'removed-reviewer' })] },
+    });
+  });
+
+  it('rechecks designated reviewer roles before validating a draft', async () => {
+    const reviewedDefinition = {
+      ...definition,
+      nodes: [...definition.nodes.map((node) => node.id === 'build' ? { ...node, skippable: false } : node), {
+        kind: 'human_review', id: 'review', name: 'Review', artifactTaskId: 'build',
+        minimumRole: 'editor', reviewerUserIds: ['viewer-reviewer'], approvalCriteria: ['Complete'],
+        revisionTaskId: 'build', allowTerminate: true,
+      }],
+      dependencies: [...definition.dependencies, { from: 'build', to: 'review', mode: 'all' }],
+      terminalNodeIds: ['review'],
+    };
+    tx.collaborationRun.findFirst.mockResolvedValue(draft);
+    tx.collaborationTemplate.findFirst.mockResolvedValue({ ...template, definition: reviewedDefinition });
+    tx.spaceMember.findMany.mockResolvedValue([{ userId: 'viewer-reviewer', role: 'viewer' }]);
+
+    const error = await service.validateDraft(
+      'space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal,
+    ).catch((caught) => caught) as BusinessException;
+    expect(error).toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(error.getResponse()).toMatchObject({
+      details: { issues: [expect.objectContaining({ code: 'REVIEWER_ROLE_TOO_LOW', message: 'viewer-reviewer' })] },
+    });
+  });
+
+  it.each(['deletedAt', 'lockedAt'] as const)('rejects an Agent whose owner has %s set', async (field) => {
+    tx.collaborationRun.findFirst.mockResolvedValue(draft);
+    tx.agentGrant.findMany.mockResolvedValue([
+      { ...grant('agent-a'), agent: { ...grant('agent-a').agent, owner: { deletedAt: null, lockedAt: null, [field]: new Date() } } },
+      grant('agent-b'),
+    ]);
+
+    await expect(service.validateDraft('space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_INACTIVE' });
+  });
+
   it('allows the starter to pause but only Owner/Admin to skip, fail, or cancel', async () => {
     const running = { ...ready, status: 'running', startedById: 'starter-1' };
     prisma.collaborationRun.findUnique.mockResolvedValue(running);
@@ -205,6 +265,23 @@ describe('RunService', () => {
     await expect(service.pauseRun('run-1', { reason: 'maintenance', idempotencyKey: 'pause-run-1' }, starterPrincipal)).resolves.toBeDefined();
     await expect(service.skipTask('run-1', 'task-1', { reason: 'not needed', idempotencyKey: 'skip-task-1' }, starterPrincipal))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_HUMAN_PERMISSION_DENIED' });
+  });
+
+  it('retries a serialization conflict during a human control mutation', async () => {
+    const running = { ...ready, status: 'running', startedById: 'starter-1' };
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...running, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings,
+    });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'editor', userId: 'starter-1', spaceId: 'space-1' });
+    prisma.$transaction
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockImplementation(async (callback: (value: any) => unknown) => callback(tx));
+
+    await expect(service.pauseRun(
+      'run-1', { reason: 'maintenance', idempotencyKey: 'pause-serialization-1' }, starterPrincipal,
+    )).resolves.toBeDefined();
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
   it('rejects a control replay when the starter was downgraded before the serializable transaction', async () => {
@@ -272,6 +349,10 @@ describe('RunService', () => {
     expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({
       data: { assigneeAgentId: 'agent-new', status: 'ready', nextAttemptAt: null },
     }));
+    expect(events.executeIdempotent).toHaveBeenCalledWith(tx, expect.objectContaining({
+      operation: 'reassign_task', target: 'task-1',
+      metadata: { reason: 'handoff', oldAgentId: 'agent-old', newAgentId: 'agent-new' },
+    }), expect.any(Function));
     expect(tx.collaborationRoleBinding.updateMany).not.toHaveBeenCalled();
   });
 
@@ -483,6 +564,91 @@ describe('RunService', () => {
     expect(serialized).not.toContain('leaseTokenHash');
     expect(serialized).not.toContain('claimIdempotencyKey');
     expect(result.tasks[0].attempts[0]).toMatchObject({ id: 'attempt-1', status: 'running' });
+  });
+
+  it('adds frozen approval criteria to the current Review preview without exposing the template snapshot', async () => {
+    const reviewRun = {
+      ...ready,
+      templateSnapshot: {
+        nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Tests pass', 'Evidence is complete'] }],
+      },
+      roleBindings: bindings,
+      tasks: [{
+        id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build',
+        roleSlotId: 'builder', assigneeAgentId: 'agent-b', status: 'submitted', generation: 1,
+        dependencyMode: 'all', skippable: false, nextAttemptAt: null, completedAt: null,
+        createdAt: new Date(), updatedAt: new Date(),
+      }],
+    };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
+    tx.collaborationReview.findMany.mockResolvedValue([{
+      id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
+      artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: [],
+      allowTerminate: true, status: 'pending', createdAt: new Date(),
+    }]);
+
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+
+    expect(result.reviews[0].approvalCriteria).toEqual(['Tests pass', 'Evidence is complete']);
+    expect(result).not.toHaveProperty('templateSnapshot');
+  });
+
+  it('returns an authoritative Owner recovery permission when designated reviewers are no longer live', async () => {
+    const reviewRun = {
+      ...ready,
+      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Complete'] }] },
+      roleBindings: bindings,
+      tasks: [{
+        id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build',
+        roleSlotId: 'builder', assigneeAgentId: 'agent-b', status: 'submitted', generation: 1,
+        dependencyMode: 'all', skippable: false, nextAttemptAt: null, completedAt: null,
+        createdAt: new Date(), updatedAt: new Date(),
+      }],
+    };
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'owner-1', spaceId: 'space-1' });
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
+    tx.collaborationReview.findMany.mockResolvedValue([{
+      id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
+      artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: ['locked-reviewer'],
+      allowTerminate: true, status: 'pending', createdAt: new Date(),
+    }]);
+    tx.spaceMember.findMany.mockResolvedValue([]);
+
+    const result = await service.getHumanRun('space-1', 'run-1', { userId: 'owner-1' });
+
+    expect(result.reviews[0].canDecide).toBe(true);
+    expect(tx.spaceMember.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ user: { type: 'human', deletedAt: null, lockedAt: null } }),
+    }));
+  });
+
+  it('does not grant an Owner recovery permission while a designated reviewer remains eligible', async () => {
+    const reviewRun = {
+      ...ready,
+      templateSnapshot: { nodes: [{ kind: 'human_review', id: 'review-node', approvalCriteria: ['Complete'] }] },
+      roleBindings: bindings,
+      tasks: [{
+        id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build',
+        roleSlotId: 'builder', assigneeAgentId: 'agent-b', status: 'submitted', generation: 1,
+        dependencyMode: 'all', skippable: false, nextAttemptAt: null, completedAt: null,
+        createdAt: new Date(), updatedAt: new Date(),
+      }],
+    };
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner', userId: 'owner-1', spaceId: 'space-1' });
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(reviewRun, args.select));
+    tx.collaborationReview.findMany.mockResolvedValue([{
+      id: 'review-1', nodeId: 'review-node', revision: 1, generation: 1, sourceTaskId: 'task-1',
+      artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: ['active-reviewer'],
+      allowTerminate: true, status: 'pending', createdAt: new Date(),
+    }]);
+    tx.spaceMember.findMany.mockResolvedValue([{ userId: 'active-reviewer', role: 'editor' }]);
+
+    const result = await service.getHumanRun('space-1', 'run-1', { userId: 'owner-1' });
+
+    expect(result.reviews[0].canDecide).toBe(false);
   });
 
   it('bounds the main human DTO to current-generation latest task records and newest events', async () => {

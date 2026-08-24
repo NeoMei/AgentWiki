@@ -77,7 +77,7 @@ describe('ProgressionService', () => {
     }));
   });
 
-  it('does not release an approved Review node while a sibling Review keeps its source submitted', async () => {
+  it('does not release a task gated by an approved Review while a sibling Review is pending', async () => {
     const tasks = [task('source', 'submitted'), task('downstream', 'blocked')];
     const tx = {
       collaborationRun: {
@@ -118,7 +118,7 @@ describe('ProgressionService', () => {
     }));
   });
 
-  it('creates a chained sibling Review from an individually approved current Review without releasing Tasks', async () => {
+  it('creates a chained sibling Review without releasing Tasks before the review group completes', async () => {
     const tasks = [task('source', 'submitted'), task('downstream', 'blocked')];
     const tx = {
       collaborationRun: {

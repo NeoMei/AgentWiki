@@ -10,21 +10,36 @@ export type CollaborationRunLoadState =
 
 export function useCollaborationRun(spaceId: string, runId: string) {
   const [state, setState] = useState<CollaborationRunLoadState>({ kind: 'loading' });
+  const scope = `${spaceId}:${runId}`;
+  const scopeRef = useRef(scope);
   const currentRef = useRef<CollaborationRun | undefined>();
+  const requestEpoch = useRef(0);
+  if (scopeRef.current !== scope) {
+    scopeRef.current = scope;
+    currentRef.current = undefined;
+    requestEpoch.current += 1;
+  }
 
   const refresh = useCallback(async () => {
     if (!spaceId || !runId) return;
+    const requestedScope = `${spaceId}:${runId}`;
+    const request = ++requestEpoch.current;
     if (currentRef.current) setState({ kind: 'ready', value: currentRef.current, updating: true });
     try {
       const value = await collaborationApi.getRun(spaceId, runId);
+      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return;
       currentRef.current = value;
       setState({ kind: 'ready', value, updating: false });
     } catch (error) {
+      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return;
       setState({ kind: 'error', error, previous: currentRef.current });
     }
   }, [runId, spaceId]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    setState({ kind: 'loading' });
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     if (!spaceId || !runId) return;

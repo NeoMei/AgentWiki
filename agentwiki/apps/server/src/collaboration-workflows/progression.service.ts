@@ -85,10 +85,10 @@ export class ProgressionService {
     );
     const reviewActionableNodeIds = new Set(satisfiedNodeIds);
     for (const review of currentReviews) {
-      const source = taskById.get(review.sourceTaskId);
       if (review.status === 'approved') {
         reviewActionableNodeIds.add(review.nodeId);
-        if (source?.status === 'completed') satisfiedNodeIds.add(review.nodeId);
+        const source = taskById.get(review.sourceTaskId);
+        if (source && ['completed', 'skipped'].includes(source.status)) satisfiedNodeIds.add(review.nodeId);
       }
     }
     return { run, tasks, reviews: currentReviews, satisfiedNodeIds, reviewActionableNodeIds };
@@ -121,7 +121,7 @@ export class ProgressionService {
       const [artifact, revisionTask, prior] = await Promise.all([
         tx.collaborationTaskArtifact.findFirst({
           where: {
-            runId, taskId: sourceTask.id, generation: sourceTask.generation, status: 'pending',
+            runId, taskId: sourceTask.id, generation: sourceTask.generation, status: { in: ['pending', 'accepted'] },
           },
           orderBy: { version: 'desc' },
           select: { id: true },

@@ -176,7 +176,11 @@ describe('RunEventStore', () => {
       agentGrant: {
         findMany: jest.fn().mockResolvedValue([{
           id: 'grant-a', agentId: 'agent-a', spaceId: 'space-a', role: 'editor',
-          agent: { id: 'agent-a', status: 'active', revokedAt: null }, space: { deletedAt: null },
+          agent: {
+            id: 'agent-a', status: 'active', revokedAt: null,
+            owner: { deletedAt: null, lockedAt: null },
+          },
+          space: { deletedAt: null },
         }]),
       },
     } as any;

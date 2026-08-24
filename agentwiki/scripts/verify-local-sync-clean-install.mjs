@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const protocolName = '@neomei/agentwiki-sync-protocol';
 const localSyncName = '@neomei/agentwiki-local-sync';
+const expectedProtocolVersion = '0.3.0';
+const registryProtocol = process.env.AGENTWIKI_PROTOCOL_INSTALL_SOURCE === 'registry';
 
 function pack(packageName, destination) {
   execFileSync('pnpm', ['--filter', packageName, 'pack', '--pack-destination', destination], {
@@ -29,14 +31,16 @@ const npmCache = join(temporaryRoot, 'npm-cache');
 
 try {
   await mkdir(packDirectory, { recursive: true });
-  pack(protocolName, packDirectory);
+  if (!registryProtocol) pack(protocolName, packDirectory);
   pack(localSyncName, packDirectory);
 
-  const protocolTarball = await findTarball(packDirectory, 'neomei-agentwiki-sync-protocol-');
+  const protocolSource = registryProtocol
+    ? `${protocolName}@${expectedProtocolVersion}`
+    : await findTarball(packDirectory, 'neomei-agentwiki-sync-protocol-');
   const localSyncTarball = await findTarball(packDirectory, 'neomei-agentwiki-local-sync-');
   execFileSync('npm', [
     'install', '--prefix', installDirectory, '--ignore-scripts', '--no-audit', '--no-fund',
-    protocolTarball, localSyncTarball,
+    protocolSource, localSyncTarball,
   ], {
     cwd: temporaryRoot,
     env: { ...process.env, npm_config_cache: npmCache },
@@ -49,7 +53,7 @@ try {
   const installedLocalSync = JSON.parse(await readFile(join(
     installDirectory, 'node_modules', '@neomei', 'agentwiki-local-sync', 'package.json',
   ), 'utf8'));
-  assert.equal(installedProtocol.version, '0.2.0');
+  assert.equal(installedProtocol.version, expectedProtocolVersion);
   assert.equal(installedLocalSync.version, '0.6.0');
   assert.equal(installedLocalSync.dependencies[protocolName], installedProtocol.version);
 
@@ -64,6 +68,7 @@ try {
     status: 'passed',
     localSyncVersion: installedLocalSync.version,
     syncProtocolVersion: installedProtocol.version,
+    protocolSource: registryProtocol ? 'registry' : 'local-tarball',
   })}\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

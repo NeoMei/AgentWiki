@@ -1,4 +1,4 @@
-import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
+import type { CollaborationRunStatus as ProtocolCollaborationRunStatus, CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 
 export type HumanSpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 
@@ -7,6 +7,7 @@ export interface SpaceMemberSummary {
   userId?: string;
   agentId?: string;
   role: string;
+  user?: { id: string; name?: string | null; email: string; type?: string };
   agent?: { id: string; name: string; status: string; revokedAt?: string | null };
 }
 
@@ -52,9 +53,7 @@ export interface ValidationResult {
   issues: ValidationIssue[];
 }
 
-export type CollaborationRunStatus =
-  | 'draft' | 'ready' | 'running' | 'waiting_review' | 'paused' | 'retry_wait'
-  | 'completed' | 'failed' | 'cancelled';
+export type CollaborationRunStatus = ProtocolCollaborationRunStatus;
 
 export interface RunSummary {
   id: string;
@@ -165,7 +164,10 @@ export interface CollaborationReview {
   reviewerUserIds: string[];
   allowTerminate: boolean;
   revisionTaskId: string;
+  sourceTaskId?: string;
   artifactId: string;
+  approvalCriteria?: string[];
+  canDecide?: boolean;
   reason?: string | null;
   createdAt: string;
 }

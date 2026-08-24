@@ -212,6 +212,49 @@ export function validateCollaborationTemplate(input: unknown): TemplateValidatio
     }
   }
 
+  const reviewsBySource = new Map<string, Array<Record<string, unknown>>>();
+  for (const node of nodeById.values()) {
+    if (node.kind !== 'human_review' || typeof node.id !== 'string' || typeof node.artifactTaskId !== 'string') continue;
+    const group = reviewsBySource.get(node.artifactTaskId) ?? [];
+    group.push(node);
+    reviewsBySource.set(node.artifactTaskId, group);
+  }
+  for (const [sourceId, reviews] of reviewsBySource) {
+    for (const toReview of reviews) {
+      const toId = toReview.id as string;
+      const blockingTask = agentTasks.find((task) =>
+        typeof task.id === 'string'
+        && task.id !== sourceId
+        && guaranteedPredecessors.get(task.id)?.has(sourceId)
+        && guaranteedPredecessors.get(toId)?.has(task.id));
+      if (blockingTask) {
+        issues.push(issue(
+          'REVIEW_GROUP_DEPENDENCY_DEADLOCK',
+          `nodes.${toId}`,
+          `Review path ${sourceId} -> ${blockingTask.id as string} -> ${toId} cannot complete`,
+        ));
+      }
+    }
+    for (const fromReview of reviews) {
+      for (const toReview of reviews) {
+        if (fromReview === toReview) continue;
+        const fromId = fromReview.id as string;
+        const toId = toReview.id as string;
+        const blockingTask = agentTasks.find((task) =>
+          typeof task.id === 'string'
+          && hasPath(fromId, task.id)
+          && hasPath(task.id, toId));
+        if (blockingTask) {
+          issues.push(issue(
+            'REVIEW_GROUP_DEPENDENCY_DEADLOCK',
+            `nodes.${toId}`,
+            `Review group path ${fromId} -> ${blockingTask.id as string} -> ${toId} cannot complete`,
+          ));
+        }
+      }
+    }
+  }
+
   return uniqueIssues(issues);
 }
 

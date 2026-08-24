@@ -28,3 +28,10 @@
 26. 统一角色已经随 local-sync/onboarding 0.5.1 发布并完成生产验证；协作从该基线开发，完成后把 local-sync、server/client、网关和 onboarding 统一提升到 0.6.0，sync-protocol 保持独立包 semver。
 27. 真实 PostgreSQL 并发下，Prisma `P2010` 且 `meta.code=40001` 与 `P2034` 同属可重试序列化冲突；只在领取的有界三次重试内分类，不扩大为通用无界重试。
 28. 自动化 API/Worker/MCP E2E 与真实 Codex/Claude Code/OpenCode 客户端验收是两个证据层级；后者未执行时必须标记 `BLOCKED`。
+29. 同一 Artifact 的多个人工 Review 必须全部批准才能 accepted 并释放消费者；任一驳回必须失效同源 Review 分支的已消费子图。
+30. 指定审核人必须是当前 Space 人类成员；如果全部指定审核人后续被移除，只允许 Owner/Admin 使用明确记录的恢复通道决策。
+31. 看板历史必须逐页加载，待审 Artifact 必须按 ID 直接授权读取，不允许前端无上限扫描全历史。
+32. 运行、模板和看板的异步请求必须绑定路由 scope 与单调 epoch；同一 scope 的旧响应也不得覆盖新状态。
+33. 审核按钮权限由服务端基于实时人类成员、最低角色、指定审核人与 Owner/Admin 恢复规则计算 `Review.canDecide`；前端不得自行推导或扩大权限。
+34. 启动向导只要一个 Agent 绑定多个角色就必须显式确认自审风险；发生版本冲突刷新时必须以服务器返回的当前运行 `roleBindings` 重新检查，旧表单确认不能绕过。
+35. 本地发行候选只有在四轮审查、完整自动化门禁、真实 PostgreSQL/API/MCP、双 tarball 空目录安装和真实浏览器移动端交互全部通过后才可归档；这不自动授权 push、npm 发布或生产部署。

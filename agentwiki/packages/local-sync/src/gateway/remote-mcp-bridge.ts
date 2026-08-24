@@ -8,6 +8,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamablehttp.js';
+import { CallToolResultSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toRemoteGatewayName, fromRemoteGatewayName } from './manifest.js';
 
 export const REMOTE_HANDSHAKE_DEADLINE_MS = 30_000;
@@ -19,7 +20,7 @@ export interface RemoteToolDescriptor {
 }
 
 export interface BridgeCallResult {
-  content: unknown;
+  content: CallToolResult['content'];
   isError: boolean;
 }
 
@@ -66,9 +67,9 @@ export class RemoteMcpBridge {
   async callTool(remoteName: string, args: Record<string, unknown>): Promise<BridgeCallResult> {
     const client = await this.connect();
     try {
-      const result = await client.callTool({ name: remoteName, arguments: args });
+      const result = CallToolResultSchema.parse(await client.callTool({ name: remoteName, arguments: args }));
       return {
-        content: (result.content as unknown[]) ?? [],
+        content: result.content,
         isError: Boolean(result.isError),
       };
     } finally {

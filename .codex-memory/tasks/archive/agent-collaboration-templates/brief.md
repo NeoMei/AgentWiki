@@ -19,6 +19,8 @@
 - Codex CLI `0.147.0` 与 Claude Code `2.1.211` 已通过隔离的 Local Sync `0.6.0` 网关完成五模板业务矩阵；编码驳回/generation 恢复、租约超时/改派、标书三门、论文来源边界、视频 60 秒对齐、小说连续性与最终清理均有真实事件和 Artifact 证据。
 - 真实并行执行暴露的 Prisma `P2010` / PostgreSQL `40001` 已在 heartbeat、Todo、submit 三条写路径补齐有界重试；单元测试和真实 PostgreSQL 双 Agent 并发写场景均覆盖。
 - 可重复 Harness 会创建随机 schema、隔离 Space/Agent/Credential、五个运行、临时客户端配置与证据仓库；状态文件为 `0600`，退出后精确删除全部资源。
+- 2026-08-24 最终发行审查已完成四轮：修复共享 Artifact 多 Review、Review 链死锁、Todo 失败审计、审核人成员校验/恢复、服务端权威 `Review.canDecide`、版本冲突刷新后的当前运行自审确认、跨路由和并发刷新、增量历史与直接 Artifact 读取等缺陷；最终独立前后端复核均无 Critical/Important 发现。
+- fresh build 后门禁为 Runtime 95 通过/50 环境跳过、Server 1003 通过/3 跳过、Client 314/314、Protocol 42/42、Local Sync 748/748、DB 2/2 + 10/10、HTTP/MCP E2E PASS、双 tarball 空目录安装与 CLI 启动 PASS；真实浏览器完成注册、Space/Publisher Agent、五模板、三步启动、8 任务看板和 390px 零溢出交互，控制台无 error/warn，随机 schema 零残留。
 
 ## 依赖
 
@@ -44,5 +46,5 @@
 
 ## 下一步
 
-1. 本地 `master` 对齐已验证的发行候选提交后，复核工作树边界与隔离资源零残留。
-2. push、npm 发布和生产部署继续等待独立授权与发布前备份/预检。
+1. 本地实施任务已达到归档标准；冻结最终发行候选提交并对齐本地 `master`。
+2. push、Sync Protocol `0.3.0` npm 发布、registry 门禁、Local Sync `0.6.0` npm 发布和生产部署继续等待独立授权与发布前备份/预检。

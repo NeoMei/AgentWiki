@@ -6,17 +6,23 @@
  * execution plane at registration time — the Agent never chooses an MCP server.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { CallToolResultSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { SAFE_SPACE_ID_PATTERN } from '../workspace/layout.js';
 import { formatMcpOutput } from './output.js';
 import { STATIC_TOOLS, staticToolNames, toRemoteGatewayName, isLegacyToolName } from './manifest.js';
-import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
+import type { BridgeCallResult, RemoteMcpBridge } from './remote-mcp-bridge.js';
 import { PublicLocalScanResultSchema, type PublicLocalScanResult } from '../codegraph/contracts.js';
 import { exactRemoteToolSchema } from './collaboration-tools.js';
 
 /** Wrap a result as an MCP text content response. */
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
   return { content: [{ type: 'text', text: formatMcpOutput(result) }] };
+}
+
+function remoteResult(result: BridgeCallResult): CallToolResult {
+  const sanitized = CallToolResultSchema.parse(JSON.parse(formatMcpOutput(result)));
+  return { content: sanitized.content, isError: Boolean(sanitized.isError) };
 }
 
 export interface GatewayHandlers {
@@ -174,7 +180,7 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
               ? input as Record<string, unknown>
               : (input as { __args?: Record<string, unknown> })?.__args ?? {},
           );
-          return text(formatMcpOutput(result));
+          return remoteResult(result);
         },
       );
     }
