@@ -83,6 +83,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     spaceId,
   );
   const existingContextStatus = existingContextView.status;
+  const existingEffectiveAgent = existingContextView.effectiveAgent;
   const existingContextGrantRole = existingContextView.grantRole;
   const existingContextSettled = existingContextView.settled;
 
@@ -121,7 +122,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     if (busy || connection.authorizationLost) return;
     if (!preparationProgress
       && mode === 'existing'
-      && (!ownedAgents.selectedAgent || !existingContextSettled)) return;
+      && (!existingEffectiveAgent || !existingContextSettled)) return;
     if (!preparationProgress && mode === 'new' && !name.trim()) return;
 
     const lifecycleEpoch = ownedAgents.lifecycleRef.current.epoch;
@@ -139,7 +140,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         ? { resume: preparationProgress }
         : {
           candidate: mode === 'existing'
-            ? { kind: 'existing' as const, agent: ownedAgents.selectedAgent! }
+            ? { kind: 'existing' as const, agent: existingEffectiveAgent! }
             : { kind: 'new' as const, name, description },
           spaceId,
           role,
@@ -212,7 +213,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     && (preparationProgress
       ? true
       : mode === 'existing'
-        ? Boolean(ownedAgents.selectedAgent) && existingContextSettled
+        ? Boolean(existingEffectiveAgent) && existingContextSettled
         : Boolean(name.trim()));
   const lockedAgent = preparationProgress?.agent ?? createdAgent ?? undefined;
   const lockedAgentWasCreated = preparationProgress?.source === 'created' || createdAgent !== null;

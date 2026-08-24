@@ -28,6 +28,7 @@ export const executableRoleForGrant = (
 export interface ExistingAgentContextView {
   agentStatus: 'active' | 'paused' | null;
   connection: 'loading' | 'connected' | 'disconnected' | 'unavailable';
+  effectiveAgent: OwnedAgentSummary | undefined;
   grantRole: AgentAccessRole | null | undefined;
   settled: boolean;
   status: 'idle' | 'loading' | 'ready' | 'unavailable';
@@ -42,6 +43,7 @@ export const deriveExistingAgentContext = (
     return {
       agentStatus: null,
       connection: 'loading',
+      effectiveAgent: undefined,
       grantRole: undefined,
       settled: false,
       status: 'idle',
@@ -49,10 +51,11 @@ export const deriveExistingAgentContext = (
   }
 
   const identityMatches = context.agentId === agent.id && context.spaceId === spaceId;
-  if (identityMatches && context.status === 'ready') {
+  if (identityMatches && context.status === 'ready' && context.detail.id === agent.id) {
     return {
       agentStatus: context.detail.status === 'active' ? 'active' : 'paused',
       connection: context.connected ? 'connected' : 'disconnected',
+      effectiveAgent: context.detail,
       grantRole: context.grantRole,
       settled: true,
       status: 'ready',
@@ -62,6 +65,7 @@ export const deriveExistingAgentContext = (
     return {
       agentStatus: agent.status === 'active' ? 'active' : 'paused',
       connection: 'unavailable',
+      effectiveAgent: agent,
       grantRole: agent.grants.find((grant) => grant.spaceId === spaceId)?.role ?? null,
       settled: true,
       status: 'unavailable',
@@ -70,6 +74,7 @@ export const deriveExistingAgentContext = (
   return {
     agentStatus: agent.status === 'active' ? 'active' : 'paused',
     connection: 'loading',
+    effectiveAgent: undefined,
     grantRole: undefined,
     settled: false,
     status: 'loading',

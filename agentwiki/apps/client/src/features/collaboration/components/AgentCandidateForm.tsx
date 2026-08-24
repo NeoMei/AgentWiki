@@ -97,6 +97,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
     selectedAgent,
     spaceId,
   );
+  const effectiveAgentStatus = currentContext.effectiveAgent?.status;
   const roleName = t(`agent.role.${role}.name`);
 
   return (
@@ -236,7 +237,10 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         </select>
       </label>
 
-      {!lockedAgent && mode === 'existing' && selectedAgent && selectedAgent.status !== 'active' ? (
+      {!lockedAgent
+        && mode === 'existing'
+        && effectiveAgentStatus !== undefined
+        && effectiveAgentStatus !== 'active' ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.pausedResume')}
         </p>

@@ -153,6 +153,11 @@ const storedValues = () => Array.from(
   (_, index) => localStorage.getItem(localStorage.key(index) ?? '') ?? '',
 ).join('\n');
 
+const useRealPrepareAgent = async () => {
+  const actual = await vi.importActual<typeof import('../prepareAgent')>('../prepareAgent');
+  vi.mocked(prepareAgent).mockImplementation(actual.prepareAgent);
+};
+
 describe('AgentPreparationDialog', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -255,6 +260,64 @@ describe('AgentPreparationDialog', () => {
       'Current Space roleEditor',
     );
     expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+  });
+
+  it('uses paused ready detail for guidance and activates the selected Agent', async () => {
+    const activeSummary = ownedAgent('agent-status-authority', 'editor', 'active');
+    const pausedDetail: OwnedAgentDetail = {
+      ...ownedAgentDetail(activeSummary),
+      status: 'paused',
+    };
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([activeSummary]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(pausedDetail);
+    vi.mocked(agentPreparationApi.activateAgent).mockResolvedValue({
+      id: activeSummary.id,
+      name: activeSummary.name,
+      status: 'active',
+    });
+    vi.mocked(agentPreparationApi.upsertGrant).mockResolvedValue(undefined);
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    await useRealPrepareAgent();
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    await waitFor(() => expect(
+      within(context).getByText('Status').parentElement,
+    ).toHaveTextContent('StatusPaused'));
+    expect(screen.getByText(
+      'This Agent is paused and will be resumed before authorization.',
+    )).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+
+    await waitFor(() => expect(agentPreparationApi.activateAgent).toHaveBeenCalledWith(
+      activeSummary.id,
+    ));
+  });
+
+  it('uses active ready detail without stale paused guidance or activation', async () => {
+    const pausedSummary = ownedAgent('agent-status-authority', 'editor', 'paused');
+    const activeDetail: OwnedAgentDetail = {
+      ...ownedAgentDetail(pausedSummary),
+      status: 'active',
+    };
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([pausedSummary]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(activeDetail);
+    vi.mocked(agentPreparationApi.upsertGrant).mockResolvedValue(undefined);
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    await useRealPrepareAgent();
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    await waitFor(() => expect(
+      within(context).getByText('Status').parentElement,
+    ).toHaveTextContent('StatusActive'));
+    expect(screen.queryByText(
+      'This Agent is paused and will be resumed before authorization.',
+    )).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+
+    await waitFor(() => expect(agentPreparationApi.upsertGrant).toHaveBeenCalledTimes(1));
+    expect(agentPreparationApi.activateAgent).not.toHaveBeenCalled();
   });
 
   it('defaults an Agent without a current Space Grant to Editor and explains authorization', async () => {
