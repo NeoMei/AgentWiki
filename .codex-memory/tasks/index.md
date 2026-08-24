@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [collaboration-agent-preparation](active/collaboration-agent-preparation/brief.md)：修复协作运行映射步骤无可执行 Agent 时的阻断；设计已确认并写入，等待书面复核后进入实施计划。
 
 ## 最近完成
 

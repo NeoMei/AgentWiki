@@ -2,25 +2,22 @@
 
 # 当前目标
 
-- Agent 协作模板与组件的多轮审查、修复、npm/GitHub 发布和生产部署已经完成；当前无活跃发布任务。
+- 修复 Agent 协作运行“映射 Agent”无可选项且无法就地创建/接入的问题，使有权限的用户能在同一向导完成 Agent 准备与映射。
 
 # 范围 / 不做
 
-- 已完成编码、标书、论文、视频脚本和小说五类模板，以及 Agent 任务、顺序 Todo、依赖/并行、人工审核、结果交接/汇总、六个 MCP 工具与 Space UI。
+- 范围包含已有/新建 Agent、paused 恢复、当前 Space Editor/Publisher 授权、MCP 一次性接入指令、接入检测和当前 Role Slot 自动选择。
+- 不自动启动外部 Agent，不修改协作调度/模板/状态机，不批量映射全部角色。
 - 继续复用 `AgentGrant.role` 单一权限事实；Agent 不获得人类审核权限，不引入第二套 Credential scopes 或授权入口。
-- 本地、GitHub、npm 与生产必须分别留存证据；本次四个发布面均已完成核验。
+- 未经独立授权不推送、不发布 npm、不部署生产。
 
 # 当前状态
 
-- 本轮完成三轮任务/代码/安全复核：修复“单个节点大量旧评审挤掉其他当前评审”与“WebSocket 运行房间不清退已失权成员”两个缺陷，均完成 RED→GREEN；第三轮代码复核未发现新的值得修复项。随后真实 npm 发布验收又发现 `workspace:` 依赖导致 `0.6.0` 无法公开安装，已补充失败契约测试并修复为 `0.6.1`。
-- 最新门禁：Runtime 95 通过/50 环境跳过；Server 1005 通过/3 跳过；Client 316/316；Sync Protocol 42/42；Local Sync 748/748；lint、typecheck、build、`git diff --check`、Prisma validate 全部通过。
-- 隔离 PostgreSQL schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`；修订后的 npm 产物门禁确认 Local Sync `0.6.1` 精确使用 registry Sync Protocol `0.3.0`，748/748 与空目录安装/CLI 启动均通过。
-- 最新真实浏览器完成注册、Space/Agent 创建与授权、五模板、三步启动、六角色分配、8 任务/Todo 看板、暂停/恢复和历史审计；390px 页面无横向溢出，控制台无 error/warn，Obsidian 仅保留在使用说明。
-- 全部随机 `collaboration_test_*` schema、UI 验收 schema、Harness 状态文件与临时服务均已清理；无测试资源落入 `public`。
-- 本地 `master` 与 GitHub `origin/master` 已包含可安装的 `0.6.1` 发布修复、最终验收门禁和生产收口记录；最终哈希以当前 `git HEAD` 为准。
-- npm Sync Protocol `0.3.0` 与 Local Sync `0.6.1` 均已发布并完成 shasum/integrity、公开元数据和空目录安装反验；CLI 返回 `0.6.1`。损坏的 Local Sync `0.6.0` 已标记弃用并明确要求升级。
-- 生产已从 `0.5.1/0.2.0` 升级为 AgentWiki/Local Sync `0.6.1`、Sync Protocol `0.3.0`；42 条迁移全部 applied，API/Worker/Frontend 均 active 且重启计数为 0，公网健康项全部为 `ok`。
-- 发布后公网 API/MCP smoke 连续两轮 31/31；UI smoke 最终连续通过 5 个公共、15 个登录后和 6 个移动路由。验收脚本已把旧 `/settings/integrations` 明确归入 `/guide/obsidian` 兼容重定向；生产活跃 smoke User/Space/Agent 与 `collaboration_test_*` schema 均为 0。
+- 已在生产只读复现：当前 Space 有一个 active Reader Agent 和两个 paused Agent；运行向导只展示 active 且 Grant 为 Editor/Publisher 的 Agent，因此映射列表为空。
+- 根因是既有设计只提供无 Agent 提示，没有在向导内串联创建/恢复、Grant 和 MCP 接入。
+- 用户已选择完整接入方案并确认交互、数据权限、组件错误处理和验收边界。
+- 正式设计已写入；当前等待用户书面复核，尚未进入实施计划或修改生产代码。
+- 上一版协作发布基线仍为本地/GitHub/生产 `0.6.1` 与 Sync Protocol `0.3.0`。
 
 # 稳定约束
 
@@ -33,6 +30,8 @@
 
 # 关键索引
 
+- 当前 Agent 准备设计：`agentwiki/docs/superpowers/specs/2026-08-25-collaboration-agent-preparation-design.md`
+- 当前活跃任务：`.codex-memory/tasks/active/collaboration-agent-preparation/`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板实施计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
 - 最终发行审查计划：`docs/superpowers/plans/2026-08-24-collaboration-release-final-audit.md`
@@ -43,6 +42,6 @@
 
 # 风险 / 下一步
 
-- 发布链已完成，无已知值得修复的缺陷或未完成门禁。
-- 保留回滚证据 `/root/backups/agentwiki/pre-collaboration-061-20260824T205059+0800.*` 与旧应用树 `/root/agentwiki-previous-20260824205509`；旧应用树不能脱离匹配数据库备份单独恢复。
-- 后续只需常规监控；如开启新需求，应创建新的 active task，而不是继续追加本次已归档任务。
+- 需要在计划中严格处理前端多阶段编排的部分成功、权限变化、安装码过期和陈旧响应。
+- 用户复核设计文档后，使用 writing-plans 形成 TDD 实施计划。
+- 生产发布仍需单独授权，并必须重新完成备份、部署和在线验收。
