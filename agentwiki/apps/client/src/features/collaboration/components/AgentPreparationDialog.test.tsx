@@ -224,6 +224,8 @@ describe('AgentPreparationDialog', () => {
       agentName: 'Writer',
       connection: 'connected',
     });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    expect(onPrepared).toHaveBeenCalledTimes(1);
   });
 
   it('does not overlap automatic connection checks', async () => {
@@ -287,12 +289,51 @@ describe('AgentPreparationDialog', () => {
     await openWaitingInstruction();
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect later and map now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect later and map now' }));
 
     await waitFor(() => expect(onPrepared).toHaveBeenCalledWith({
       agentId: 'agent-1',
       agentName: 'Writer',
       connection: 'pending',
     }));
+    expect(onPrepared).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an old target completion unlock or duplicate the new completion', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-25T01:00:00.000Z'));
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    const completionResolvers: Array<() => void> = [];
+    const onPrepared = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+      completionResolvers.push(resolve);
+    }));
+    const props = { ...defaultProps(), onPrepared };
+    const view = render(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} />
+      </LanguageProvider>,
+    );
+    await openWaitingInstructionWithFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect later and map now' }));
+    expect(onPrepared).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} target={{ id: 'reviewer', name: 'Reviewer' }} />
+      </LanguageProvider>,
+    );
+    await flushMicrotasks();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+    await flushMicrotasks();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect later and map now' }));
+    expect(onPrepared).toHaveBeenCalledTimes(2);
+
+    await act(async () => { completionResolvers[0](); });
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(onPrepared).toHaveBeenCalledTimes(2);
+    await act(async () => { completionResolvers[1](); });
+    if (completionResolvers[2]) await act(async () => { completionResolvers[2](); });
   });
 
   it('refreshes parent authorization instead of retrying after an instruction 403', async () => {
@@ -323,6 +364,23 @@ describe('AgentPreparationDialog', () => {
     await waitFor(() => expect(onAuthorizationLost).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(/raw authorization detail/)).not.toBeInTheDocument();
     expect(screen.queryByText('Could not authorize the Agent for this Space.')).not.toBeInTheDocument();
+  });
+
+  it('keeps the safe owner-required state when authorization refresh rejects', async () => {
+    vi.mocked(prepareAgent).mockResolvedValue({
+      agentId: 'agent-1',
+      agentName: 'Writer',
+      role: 'editor',
+      connection: { kind: 'instruction_failed', status: 403 },
+    });
+    const onAuthorizationLost = vi.fn().mockRejectedValue(new Error('raw parent refresh detail'));
+    renderDialog({ onAuthorizationLost });
+    await submitExistingAgent();
+
+    await waitFor(() => expect(onAuthorizationLost).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Ask a Space Owner or Admin to prepare an executable Agent.')).toBeVisible();
+    expect(screen.queryByText(/raw parent refresh detail/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry connection instruction' })).not.toBeInTheDocument();
   });
 
   it('refreshes parent authorization when instruction retry returns 403', async () => {
@@ -365,6 +423,33 @@ describe('AgentPreparationDialog', () => {
     )).toBeVisible();
   });
 
+  it('implements linked roving tabs with Arrow, Home, and End keyboard navigation', async () => {
+    renderDialog();
+    const existingTab = await screen.findByRole('tab', { name: 'Use existing Agent' });
+    const createTab = screen.getByRole('tab', { name: 'Create new Agent' });
+
+    expect(existingTab).toHaveAttribute('tabindex', '0');
+    expect(createTab).toHaveAttribute('tabindex', '-1');
+    const existingPanel = document.getElementById(existingTab.getAttribute('aria-controls') ?? '');
+    expect(existingPanel).toHaveAttribute('role', 'tabpanel');
+    expect(existingPanel).toHaveAttribute('aria-labelledby', existingTab.id);
+
+    fireEvent.keyDown(existingTab, { key: 'ArrowRight' });
+    expect(createTab).toHaveFocus();
+    expect(createTab).toHaveAttribute('aria-selected', 'true');
+    const createPanel = document.getElementById(createTab.getAttribute('aria-controls') ?? '');
+    expect(createPanel).toHaveAttribute('aria-labelledby', createTab.id);
+
+    fireEvent.keyDown(createTab, { key: 'Home' });
+    expect(existingTab).toHaveFocus();
+    fireEvent.keyDown(existingTab, { key: 'End' });
+    expect(createTab).toHaveFocus();
+    fireEvent.keyDown(createTab, { key: 'ArrowRight' });
+    expect(existingTab).toHaveFocus();
+    fireEvent.keyDown(existingTab, { key: 'ArrowLeft' });
+    expect(createTab).toHaveFocus();
+  });
+
   it('does not close with Escape or the close button during a mutation', async () => {
     let resolvePreparation!: (result: PreparedAgent) => void;
     vi.mocked(prepareAgent).mockImplementation(() => new Promise((resolve) => {
@@ -381,6 +466,9 @@ describe('AgentPreparationDialog', () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Use existing Agent' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Use existing Agent' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('tab', { name: 'Create new Agent' })).toBeDisabled();
     await act(async () => { resolvePreparation(waitingResult()); });
   });
 
@@ -423,6 +511,88 @@ describe('AgentPreparationDialog', () => {
     expect(agentPreparationApi.getAgent).not.toHaveBeenCalled();
   });
 
+  it('uses event time to block a stale Check now action after expiry', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 1_000).toISOString(),
+      }) },
+    }));
+    renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+
+    vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
+    fireEvent.click(screen.getByRole('button', { name: 'Check connection now' }));
+    await flushMicrotasks();
+
+    expect(agentPreparationApi.getAgent).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.queryByText('Waiting for Agent connection')).not.toBeInTheDocument();
+  });
+
+  it('uses event time to block clipboard writes after expiry', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 1_000).toISOString(),
+      }) },
+    }));
+    renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+
+    vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy connection instruction' }));
+    await flushMicrotasks();
+
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+  });
+
+  it('lets a regenerated instruction check immediately while the expired generation is in flight', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-25T01:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      connection: { kind: 'waiting', installation: installation({
+        expiresAt: new Date(startedAt.getTime() + 3_000).toISOString(),
+      }) },
+    }));
+    vi.mocked(agentPreparationApi.createInstallation).mockResolvedValue(installation({
+      installationId: 'install-2',
+      code: 'AW-NEW',
+      expiresAt: new Date(startedAt.getTime() + 600_000).toISOString(),
+      instructions: 'onboard --code AW-NEW',
+    }));
+    const detailResolvers: Array<(detail: OwnedAgentDetail) => void> = [];
+    vi.mocked(agentPreparationApi.getAgent).mockImplementation(() => new Promise((resolve) => {
+      detailResolvers.push(resolve);
+    }));
+    const onPrepared = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onPrepared });
+    await openWaitingInstructionWithFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(agentPreparationApi.getAgent).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry connection instruction' }));
+    await flushMicrotasks();
+    fireEvent.click(screen.getByRole('button', { name: 'Check connection now' }));
+    await flushMicrotasks();
+    const immediateCallCount = vi.mocked(agentPreparationApi.getAgent).mock.calls.length;
+
+    await act(async () => { detailResolvers[0](connectedDetail); });
+    if (detailResolvers[1]) {
+      await act(async () => { detailResolvers[1](disconnectedDetail); });
+    }
+    expect(immediateCallCount).toBe(2);
+    expect(onPrepared).not.toHaveBeenCalled();
+    expect(screen.getByText(/AW-NEW/)).toBeVisible();
+  });
+
   it('keeps the dialog open and shows the localized refresh error when onPrepared rejects', async () => {
     vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
     const onPrepared = vi.fn().mockRejectedValue(new Error('raw refresh detail'));
@@ -454,6 +624,69 @@ describe('AgentPreparationDialog', () => {
     expect(alert).not.toHaveTextContent('onboard');
   });
 
+  it('ignores a clipboard success from an old target instruction', async () => {
+    vi.mocked(prepareAgent)
+      .mockResolvedValueOnce(waitingResult())
+      .mockResolvedValueOnce(waitingResult({
+        connection: { kind: 'waiting', installation: installation({
+          installationId: 'install-2',
+          code: 'AW-NEW',
+          instructions: 'onboard --code AW-NEW',
+        }) },
+      }));
+    let resolveCopy!: () => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementation(() => new Promise<void>((resolve) => {
+      resolveCopy = resolve;
+    }));
+    const props = defaultProps();
+    const view = render(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} />
+      </LanguageProvider>,
+    );
+    await openWaitingInstruction();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy connection instruction' }));
+
+    view.rerender(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} target={{ id: 'reviewer', name: 'Reviewer' }} />
+      </LanguageProvider>,
+    );
+    await screen.findByRole('combobox', { name: 'Agent' });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+    await screen.findByText(/AW-NEW/);
+    await act(async () => { resolveCopy(); });
+
+    expect(screen.getByRole('button', { name: 'Copy connection instruction' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Connection instruction copied' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a clipboard rejection after the Space changes', async () => {
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    let rejectCopy!: (error: Error) => void;
+    vi.mocked(navigator.clipboard.writeText).mockImplementation(() => new Promise<void>((_, reject) => {
+      rejectCopy = reject;
+    }));
+    const props = defaultProps();
+    const view = render(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} />
+      </LanguageProvider>,
+    );
+    await openWaitingInstruction();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy connection instruction' }));
+
+    view.rerender(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} spaceId="space-2" />
+      </LanguageProvider>,
+    );
+    await screen.findByRole('combobox', { name: 'Agent' });
+    await act(async () => { rejectCopy(new Error('stale clipboard failure')); });
+
+    expect(screen.queryByText('Could not copy the connection instruction.')).not.toBeInTheDocument();
+  });
+
   it('checks the connection immediately on request', async () => {
     vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
     vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
@@ -468,6 +701,35 @@ describe('AgentPreparationDialog', () => {
       agentName: 'Writer',
       connection: 'connected',
     }));
+  });
+
+  it('keeps the original polling deadline when parent callback identities change', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-25T01:00:00.000Z'));
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult());
+    const props = defaultProps();
+    const view = render(
+      <LanguageProvider>
+        <AgentPreparationDialog {...props} />
+      </LanguageProvider>,
+    );
+    await openWaitingInstructionWithFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    const clearInterval = vi.spyOn(window, 'clearInterval');
+
+    view.rerender(
+      <LanguageProvider>
+        <AgentPreparationDialog
+          {...props}
+          onClose={vi.fn()}
+          onPrepared={vi.fn().mockResolvedValue(undefined)}
+        />
+      </LanguageProvider>,
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(clearInterval).not.toHaveBeenCalled();
+    expect(agentPreparationApi.getAgent).toHaveBeenCalledTimes(1);
   });
 
   it('shows a stable localized error when a manual connection check fails', async () => {
