@@ -16,7 +16,7 @@
 - 已在生产只读复现：当前 Space 有一个 active Reader Agent 和两个 paused Agent；运行向导只展示 active 且 Grant 为 Editor/Publisher 的 Agent，因此映射列表为空。
 - 根因是既有设计只提供无 Agent 提示，没有在向导内串联创建/恢复、Grant 和 MCP 接入。
 - 用户已选择完整接入方案并确认交互、数据权限、组件错误处理和验收边界。
-- 正式设计已写入；当前等待用户书面复核，尚未进入实施计划或修改生产代码。
+- 正式设计已完成书面复核，TDD 实施计划已写入并完成自审；当前等待选择执行方式，尚未修改生产代码。
 - 上一版协作发布基线仍为本地/GitHub/生产 `0.6.1` 与 Sync Protocol `0.3.0`。
 
 # 稳定约束
@@ -31,6 +31,7 @@
 # 关键索引
 
 - 当前 Agent 准备设计：`agentwiki/docs/superpowers/specs/2026-08-25-collaboration-agent-preparation-design.md`
+- 当前 Agent 准备计划：`agentwiki/docs/superpowers/plans/2026-08-25-collaboration-agent-preparation-plan.md`
 - 当前活跃任务：`.codex-memory/tasks/active/collaboration-agent-preparation/`
 - 协作模板设计：`agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`
 - 协作模板实施计划：`agentwiki/docs/superpowers/plans/2026-08-22-agent-collaboration-templates-plan.md`
@@ -43,5 +44,5 @@
 # 风险 / 下一步
 
 - 需要在计划中严格处理前端多阶段编排的部分成功、权限变化、安装码过期和陈旧响应。
-- 用户复核设计文档后，使用 writing-plans 形成 TDD 实施计划。
+- 选择 Subagent-Driven 或 Inline Execution 后，按计划逐项执行 RED→GREEN。
 - 生产发布仍需单独授权，并必须重新完成备份、部署和在线验收。
