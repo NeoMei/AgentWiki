@@ -111,6 +111,23 @@ describe('prepareAgent', () => {
     expect(api.createInstallation).toHaveBeenCalledWith('new-1', 'space-1', 'editor');
   });
 
+  it('preserves a selected publisher role through the successful preparation chain', async () => {
+    const result = await prepareAgent({
+      candidate: { kind: 'new', name: 'Publisher', description: 'Publishes pages' },
+      spaceId: 'space-1',
+      role: 'publisher',
+      now: Date.parse('2030-01-01T00:00:00.000Z'),
+    }, api);
+
+    expect(result.role).toBe('publisher');
+    expect(api.upsertGrant).toHaveBeenCalledTimes(1);
+    expect(api.upsertGrant).toHaveBeenCalledWith('new-1', 'space-1', 'publisher');
+    expect(api.getAgent).toHaveBeenCalledTimes(1);
+    expect(api.getAgent).toHaveBeenCalledWith('new-1');
+    expect(api.createInstallation).toHaveBeenCalledTimes(1);
+    expect(api.createInstallation).toHaveBeenCalledWith('new-1', 'space-1', 'publisher');
+  });
+
   it('reuses an active target-Space credential without issuing another instruction', async () => {
     vi.mocked(api.getAgent).mockImplementationOnce(async (id) => {
       calls.push('detail');
