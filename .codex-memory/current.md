@@ -13,13 +13,13 @@
 
 # 当前状态
 
-- 本轮又完成三轮任务/代码/安全复核：修复“单个节点大量旧评审挤掉其他当前评审”与“WebSocket 运行房间不清退已失权成员”两个缺陷，均完成 RED→GREEN；第三轮未发现新的值得修复项。
+- 本轮完成三轮任务/代码/安全复核：修复“单个节点大量旧评审挤掉其他当前评审”与“WebSocket 运行房间不清退已失权成员”两个缺陷，均完成 RED→GREEN；第三轮代码复核未发现新的值得修复项。随后真实 npm 发布验收又发现 `workspace:` 依赖导致 `0.6.0` 无法公开安装，已补充失败契约测试并修复为 `0.6.1`。
 - 最新门禁：Runtime 95 通过/50 环境跳过；Server 1005 通过/3 跳过；Client 316/316；Sync Protocol 42/42；Local Sync 748/748；lint、typecheck、build、`git diff --check`、Prisma validate 全部通过。
 - 隔离 PostgreSQL schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`；修订后的 npm 产物门禁确认 Local Sync `0.6.1` 精确使用 registry Sync Protocol `0.3.0`，748/748 与空目录安装/CLI 启动均通过。
 - 最新真实浏览器完成注册、Space/Agent 创建与授权、五模板、三步启动、六角色分配、8 任务/Todo 看板、暂停/恢复和历史审计；390px 页面无横向溢出，控制台无 error/warn，Obsidian 仅保留在使用说明。
 - 全部随机 `collaboration_test_*` schema、UI 验收 schema、Harness 状态文件与临时服务均已清理；无测试资源落入 `public`。
-- 本地 `master` 与 GitHub `origin/master` 的已提交基线对齐到 `1b94700efbc27ffb8e8f3499e9a2585657cd3d5e`；`0.6.1` 修订候选仍待提交推送。
-- npm Sync Protocol `0.3.0` 已发布并完成 shasum/integrity 反验。Local Sync `0.6.0` 的公开包因残留 `workspace:0.3.0` 无法由 npm 安装，禁止部署；修订版 `0.6.1` 已修复并通过与 `npm publish` 等价的打包/registry 安装门禁，待发布并弃用 `0.6.0`。生产仍公告 `0.5.1`。
+- 本地 `master` 与 GitHub `origin/master` 已对齐到 `cb82c951ebd08baade89883db07afd2601b04144`，其中包含可安装的 `0.6.1` 发布修复与全部回归门禁。
+- npm Sync Protocol `0.3.0` 与 Local Sync `0.6.1` 均已发布并完成 shasum/integrity、公开元数据和空目录安装反验；CLI 返回 `0.6.1`。损坏的 Local Sync `0.6.0` 已标记弃用并明确要求升级。生产仍公告 `0.5.1`。
 
 # 稳定约束
 
@@ -43,6 +43,6 @@
 # 风险 / 下一步
 
 - 本地候选此前已达到发布标准；用户现要求再次执行多轮任务、代码、全栈与 UI 审查后完成发布。
-- npm 当前已发布 Sync Protocol `0.3.0`；Local Sync `0.6.1` 发布与 `0.6.0` 弃用仍待完成。
+- npm 发布面已收口：Sync Protocol `0.3.0`、Local Sync `0.6.1` 可公开安装，损坏的 `0.6.0` 已弃用。
 - 生产部署前必须做只读主机/数据库/应用预检，并从应用 `.env` 确认目标数据库，创建并验证 PostgreSQL 与应用回滚备份后再迁移、部署和业务烟测。
 - 发布完成后必须分别报告本地 `master`、`origin/master`、npm 与生产四个表面的对齐状态。
