@@ -487,7 +487,7 @@ describe('RunStartWizard', () => {
     expect(screen.getByRole('button', { name: 'Prepare Agent for Writer' })).toBeVisible();
   });
 
-  it('keeps a per-Role-Slot pending warning in mapping and review without blocking Start', async () => {
+  it('keeps one polite Agent pending warning in mapping and review without blocking Start', async () => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember, activeEditor])
       .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor]);
@@ -504,17 +504,25 @@ describe('RunStartWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
 
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    const mappingStatus = screen.getByRole('status');
+    expect(mappingStatus).toHaveAttribute('aria-live', 'polite');
+    expect(within(mappingStatus).getAllByText(
+      'New Writer is mapped but has not connected to this Space yet.',
+    )).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await screen.findByRole('heading', { name: '3. Review and start' });
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    const reviewStatus = screen.getByRole('status');
+    expect(reviewStatus).toHaveAttribute('aria-live', 'polite');
+    expect(within(reviewStatus).getAllByText(
+      'New Writer is mapped but has not connected to this Space yet.',
+    )).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     await waitFor(() => expect(collaborationApi.startRun).toHaveBeenCalledTimes(1));
   });
 
-  it('cleans a pending warning when its binding changes, even if the same Agent is used in another slot', async () => {
+  it('keeps pending truth until the final binding for that Agent is removed', async () => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember, activeEditor])
       .mockResolvedValueOnce([ownerMember, activeEditor, preparedEditor]);
@@ -526,8 +534,11 @@ describe('RunStartWizard', () => {
 
     expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: '' } });
+    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: '' } });
+    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
     expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
   });
@@ -555,7 +566,7 @@ describe('RunStartWizard', () => {
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
-    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(2);
+    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'connected' });

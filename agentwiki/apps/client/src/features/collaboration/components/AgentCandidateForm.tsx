@@ -1,6 +1,8 @@
 import React, { useId, useRef } from 'react';
 import { useLanguage } from '../../../context/LanguageContext';
 import type { ExecutableAgentRole, OwnedAgentSummary } from '../agentPreparationApi';
+import { ExistingAgentContextPanel } from './ExistingAgentContextPanel';
+import type { ExistingAgentContextState } from './useExistingAgentContext';
 
 export type AgentCandidateMode = 'existing' | 'new';
 
@@ -9,6 +11,7 @@ export interface AgentCandidateFormProps {
   busy: boolean;
   canSubmit: boolean;
   description: string;
+  existingAgentContext: ExistingAgentContextState;
   loadFailed: boolean;
   loading: boolean;
   lockedAgent?: { id: string; name: string };
@@ -35,6 +38,7 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
   busy,
   canSubmit,
   description,
+  existingAgentContext,
   loadFailed,
   loading,
   lockedAgent,
@@ -85,7 +89,13 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
     selectTab(nextMode);
   };
 
-  const currentGrant = selectedAgent?.grants.find((grant) => grant.spaceId === spaceId);
+  const currentDetail = existingAgentContext.status === 'ready'
+    && existingAgentContext.agentId === selectedAgent?.id
+    && existingAgentContext.spaceId === spaceId
+      ? existingAgentContext.detail
+      : null;
+  const currentGrant = currentDetail?.grants.find((grant) => grant.spaceId === spaceId)
+    ?? selectedAgent?.grants.find((grant) => grant.spaceId === spaceId);
   const roleName = t(`agent.role.${role}.name`);
 
   return (
@@ -169,6 +179,13 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
             </select>
           </label>
         ) : null}
+        {selectedAgent ? (
+          <ExistingAgentContextPanel
+            agent={selectedAgent}
+            context={existingAgentContext}
+            spaceId={spaceId}
+          />
+        ) : null}
         </div>
 
       <div
@@ -226,6 +243,11 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
       {!lockedAgent && mode === 'existing' && currentGrant?.role === 'reader' ? (
         <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.readerUpgrade', { role: roleName })}
+        </p>
+      ) : null}
+      {!lockedAgent && mode === 'existing' && selectedAgent && !currentGrant ? (
+        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+          {t('collaboration.agentPreparation.noGrantAuthorization', { role: roleName })}
         </p>
       ) : null}
 

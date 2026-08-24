@@ -34,11 +34,11 @@ interface PreparedConnection {
   connection: 'connected' | 'pending';
 }
 
-type PreparedConnections = Record<string, PreparedConnection>;
+type PreparedConnectionsByAgent = Record<string, PreparedConnection>;
 
 interface MappingState {
   bindings: RoleBinding[];
-  preparedConnections: PreparedConnections;
+  preparedConnections: PreparedConnectionsByAgent;
 }
 
 interface PreparedMappingTarget {
@@ -540,7 +540,7 @@ const ReviewStep: React.FC<{
   run: CollaborationRun;
   bindings: RoleBinding[];
   agents: SpaceMemberSummary[];
-  preparedConnections: PreparedConnections;
+  preparedConnections: PreparedConnectionsByAgent;
   t: Translate;
   hasPotentialSelfReview: boolean;
   acknowledged: boolean;
@@ -561,24 +561,23 @@ const ReviewStep: React.FC<{
 
 const PendingConnectionWarnings: React.FC<{
   bindings: RoleBinding[];
-  preparedConnections: PreparedConnections;
+  preparedConnections: PreparedConnectionsByAgent;
   t: Translate;
 }> = ({ bindings, preparedConnections, t }) => {
-  const pending = bindings.flatMap((binding) => {
-    const connection = preparedConnections[binding.roleSlotId];
-    return connection?.connection === 'pending' && connection.agentId === binding.agentId
-      ? [{ roleSlotId: binding.roleSlotId, agentName: connection.agentName }]
-      : [];
-  });
-  return pending.length ? (
-    <ul className="mt-4 space-y-2">
+  const boundAgentIds = new Set(bindings.map((binding) => binding.agentId));
+  const pending = Object.values(preparedConnections).filter((connection) =>
+    connection.connection === 'pending' && boundAgentIds.has(connection.agentId));
+  return (
+    <div role="status" aria-live="polite" className={pending.length ? 'mt-4' : undefined}>
+      {pending.length ? <ul className="space-y-2">
       {pending.map((connection) => (
-        <li key={connection.roleSlotId} className="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <li key={connection.agentId} className="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           {t('collaboration.agentPreparation.pending', { agent: connection.agentName })}
         </li>
       ))}
-    </ul>
-  ) : null;
+      </ul> : null}
+    </div>
+  );
 };
 
 const StartedStep: React.FC<{ started: CollaborationRun; instructions: AgentInstruction[]; hasSelfReview: boolean; onCopy: (text: string) => void; t: Translate; spaceId: string }> = ({ started, instructions, hasSelfReview, onCopy, t, spaceId }) => <section><div className="flex items-center gap-3"><CheckCircle2 className="text-green-600" /><div><h2 className="text-xl font-semibold">{t('collaboration.wizard.started')}</h2><p className="text-sm text-gray-600">{started.name}</p></div></div>{hasSelfReview ? <p className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.wizard.selfReview')}</p> : null}<div className="mt-5 space-y-4">{instructions.map((instruction) => <article key={instruction.agentId} className="rounded-xl border bg-white p-4"><h3 className="font-medium">{instruction.roleSlots.join(', ')}</h3><p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{instruction.text}</p><button type="button" onClick={() => onCopy(instruction.text)} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm"><Copy size={15} />{t('collaboration.wizard.copyInstruction')}</button></article>)}</div><Link to={`/spaces/${spaceId}/collaboration/runs/${started.id}`} className="mt-6 inline-flex min-h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">{t('collaboration.wizard.openRun')}</Link></section>;
@@ -616,15 +615,9 @@ function convergeAuthoritativeMapping(
     });
   }
 
-  let preparedConnections = { ...current.preparedConnections };
-  if (preparedTarget?.connection === 'connected') {
-    preparedConnections = Object.fromEntries(Object.entries(preparedConnections).map(([roleSlotId, connection]) => [
-      roleSlotId,
-      connection.agentId === preparedTarget.agentId ? { ...connection, connection: 'connected' as const } : connection,
-    ]));
-  }
+  const preparedConnections = { ...current.preparedConnections };
   if (preparedTarget) {
-    preparedConnections[preparedTarget.roleSlotId] = {
+    preparedConnections[preparedTarget.agentId] = {
       agentId: preparedTarget.agentId,
       agentName: preparedTarget.agentName,
       connection: preparedTarget.connection,
@@ -638,13 +631,14 @@ function convergeAuthoritativeMapping(
 }
 
 function prunePreparedConnections(
-  current: PreparedConnections,
+  current: PreparedConnectionsByAgent,
   bindings: RoleBinding[],
   executableAgentIds?: ReadonlySet<string>,
-): PreparedConnections {
-  const bindingsByRoleSlot = new Map(bindings.map((binding) => [binding.roleSlotId, binding.agentId]));
-  return Object.fromEntries(Object.entries(current).filter(([roleSlotId, connection]) =>
-    bindingsByRoleSlot.get(roleSlotId) === connection.agentId
+): PreparedConnectionsByAgent {
+  const boundAgentIds = new Set(bindings.map((binding) => binding.agentId));
+  return Object.fromEntries(Object.entries(current).filter(([agentId, connection]) =>
+    agentId === connection.agentId
+      && boundAgentIds.has(connection.agentId)
       && (!executableAgentIds || executableAgentIds.has(connection.agentId))));
 }
 

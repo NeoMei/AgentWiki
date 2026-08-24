@@ -1,8 +1,9 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../../context/LanguageContext';
 import {
   agentPreparationApi,
+  existingAgentContextApi,
   type OwnedAgentDetail,
   type OwnedAgentSummary,
 } from '../agentPreparationApi';
@@ -25,6 +26,7 @@ vi.mock('../agentPreparationApi', async (importOriginal) => {
       upsertGrant: vi.fn(),
       createInstallation: vi.fn(),
     },
+    existingAgentContextApi: { getAgent: vi.fn() },
   };
 });
 
@@ -60,6 +62,27 @@ const connectedDetail: OwnedAgentDetail = {
     authorization: { role: 'editor', space },
   }],
 };
+
+const ownedAgent = (
+  id: string,
+  role?: 'reader' | 'editor' | 'publisher',
+  status = 'active',
+): OwnedAgentSummary => ({
+  id,
+  name: `${id} name`,
+  description: '',
+  status,
+  revokedAt: null,
+  grants: role ? [{ id: `grant-${id}`, spaceId: space.id, role, space }] : [],
+});
+
+const ownedAgentDetail = (
+  agent: OwnedAgentSummary,
+  connected = false,
+): OwnedAgentDetail => ({
+  ...agent,
+  credentials: connected ? connectedDetail.credentials : [],
+});
 
 const installation = (overrides: Partial<{
   installationId: string;
@@ -137,6 +160,7 @@ describe('AgentPreparationDialog', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     vi.mocked(agentPreparationApi.listAgents).mockReset().mockResolvedValue([activeAgent]);
     vi.mocked(agentPreparationApi.getAgent).mockReset().mockResolvedValue(disconnectedDetail);
+    vi.mocked(existingAgentContextApi.getAgent).mockReset().mockResolvedValue(disconnectedDetail);
     vi.mocked(agentPreparationApi.createAgent).mockReset();
     vi.mocked(agentPreparationApi.activateAgent).mockReset();
     vi.mocked(agentPreparationApi.upsertGrant).mockReset();
@@ -154,6 +178,191 @@ describe('AgentPreparationDialog', () => {
       vi.clearAllTimers();
       vi.useRealTimers();
     }
+  });
+
+  it('loads an existing active Publisher context and initializes Publisher', async () => {
+    const publisher = ownedAgent('agent-publisher', 'publisher');
+    let resolveDetail!: (detail: OwnedAgentDetail) => void;
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([publisher]);
+    vi.mocked(existingAgentContextApi.getAgent).mockImplementation(() => new Promise((resolve) => {
+      resolveDetail = resolve;
+    }));
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    expect(within(context).getByText('Connection').parentElement).toHaveTextContent(
+      'ConnectionChecking connection…',
+    );
+    expect(screen.getByRole('button', { name: 'Prepare Agent' })).toBeDisabled();
+
+    await act(async () => { resolveDetail(ownedAgentDetail(publisher, true)); });
+
+    expect(within(context).getByText('Status').parentElement).toHaveTextContent('StatusActive');
+    expect(within(context).getByText('Current Space role').parentElement).toHaveTextContent(
+      'Current Space rolePublisher',
+    );
+    expect(within(context).getByText('Connection').parentElement).toHaveTextContent(
+      'ConnectionConnected',
+    );
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('publisher');
+    expect(screen.getByRole('button', { name: 'Prepare Agent' })).toBeEnabled();
+  });
+
+  it('shows a paused Editor as disconnected and initializes Editor', async () => {
+    const editor = ownedAgent('agent-editor', 'editor', 'paused');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([editor]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(ownedAgentDetail(editor));
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    await waitFor(() => expect(
+      within(context).getByText('Connection').parentElement,
+    ).toHaveTextContent('ConnectionNot connected'));
+    expect(within(context).getByText('Status').parentElement).toHaveTextContent('StatusPaused');
+    expect(within(context).getByText('Current Space role').parentElement).toHaveTextContent(
+      'Current Space roleEditor',
+    );
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+  });
+
+  it('defaults an Agent without a current Space Grant to Editor and explains authorization', async () => {
+    const ungranted = ownedAgent('agent-ungranted');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([ungranted]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(ownedAgentDetail(ungranted));
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    await waitFor(() => expect(
+      within(context).getByText('Current Space role').parentElement,
+    ).toHaveTextContent('Current Space roleNone'));
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+    expect(screen.getByText(
+      'This Agent is not authorized for this Space and will be authorized as Editor.',
+    )).toBeVisible();
+  });
+
+  it('shows unavailable detail safely without exposing a raw error', async () => {
+    const publisher = ownedAgent('agent-publisher', 'publisher');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([publisher]);
+    vi.mocked(existingAgentContextApi.getAgent).mockRejectedValue(new Error('raw detail failure'));
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: 'Current Agent context' });
+    await waitFor(() => expect(
+      within(context).getByText('Connection').parentElement,
+    ).toHaveTextContent('ConnectionUnavailable'));
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('publisher');
+    expect(screen.queryByText(/raw detail failure/u)).not.toBeInTheDocument();
+  });
+
+  it('localizes existing Agent context and authorization copy in Simplified Chinese', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    const ungranted = ownedAgent('agent-ungranted');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([ungranted]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(ownedAgentDetail(ungranted));
+    renderDialog();
+
+    const context = await screen.findByRole('region', { name: '当前 Agent 上下文' });
+    await waitFor(() => expect(
+      within(context).getByText('接入状态').parentElement,
+    ).toHaveTextContent('接入状态未接入'));
+    expect(within(context).getByText('当前 Space 角色').parentElement).toHaveTextContent(
+      '当前 Space 角色无',
+    );
+    expect(screen.getByText(
+      '此 Agent 尚未授权当前 Space，将授权为 Editor。',
+    )).toBeVisible();
+  });
+
+  it('ignores an old selected-Agent detail response', async () => {
+    const publisher = ownedAgent('agent-publisher', 'publisher');
+    const editor = ownedAgent('agent-editor', 'editor');
+    const resolvers = new Map<string, (detail: OwnedAgentDetail) => void>();
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([publisher, editor]);
+    vi.mocked(existingAgentContextApi.getAgent).mockImplementation((agentId) => new Promise((resolve) => {
+      resolvers.set(agentId, resolve);
+    }));
+    renderDialog();
+    const select = await screen.findByRole('combobox', { name: 'Agent' });
+    fireEvent.change(select, { target: { value: editor.id } });
+
+    await act(async () => { resolvers.get(editor.id)?.(ownedAgentDetail(editor)); });
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+    await act(async () => { resolvers.get(publisher.id)?.(ownedAgentDetail(publisher, true)); });
+
+    const context = screen.getByRole('region', { name: 'Current Agent context' });
+    expect(within(context).getByText('Current Space role').parentElement).toHaveTextContent(
+      'Current Space roleEditor',
+    );
+    expect(within(context).getByText('Connection').parentElement).toHaveTextContent(
+      'ConnectionNot connected',
+    );
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+  });
+
+  it('ignores an old Space detail response', async () => {
+    const agent = ownedAgent('agent-1', 'editor');
+    const otherSpace = { id: 'space-2', name: 'Other Space' };
+    const publisherDetail: OwnedAgentDetail = {
+      ...agent,
+      grants: [{ id: 'grant-other', spaceId: otherSpace.id, role: 'publisher', space: otherSpace }],
+      credentials: [],
+    };
+    const requests: Array<(detail: OwnedAgentDetail) => void> = [];
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([agent]);
+    vi.mocked(existingAgentContextApi.getAgent).mockImplementation(() => new Promise((resolve) => {
+      requests.push(resolve);
+    }));
+    const props = defaultProps();
+    const view = render(
+      <LanguageProvider><AgentPreparationDialog {...props} /></LanguageProvider>,
+    );
+    await screen.findByRole('combobox', { name: 'Agent' });
+
+    view.rerender(
+      <LanguageProvider><AgentPreparationDialog {...props} spaceId={otherSpace.id} /></LanguageProvider>,
+    );
+    await waitFor(() => expect(agentPreparationApi.listAgents).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(requests.length).toBeGreaterThanOrEqual(2));
+    const currentSpaceRequest = requests[requests.length - 1];
+    if (!currentSpaceRequest) throw new Error('Expected current Space detail request');
+    await act(async () => { currentSpaceRequest(publisherDetail); });
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: 'Execution role' }),
+    ).toHaveValue('publisher'));
+    await act(async () => { requests[0](ownedAgentDetail(agent)); });
+    expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('publisher');
+  });
+
+  it('does not let the detail effect replace durable retry role or Agent', async () => {
+    const publisher = ownedAgent('agent-publisher', 'publisher');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([publisher]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(
+      ownedAgentDetail(publisher, true),
+    );
+    vi.mocked(prepareAgent).mockRejectedValue(new AgentPreparationFailure(
+      'granting',
+      new Error('grant failed'),
+      {
+        agent: publisher,
+        resumeFrom: 'granting',
+        role: 'editor',
+        source: 'existing',
+        spaceId: space.id,
+      },
+    ));
+    renderDialog();
+    const role = screen.getByRole('combobox', { name: 'Execution role' });
+    await waitFor(() => expect(role).toHaveValue('publisher'));
+    fireEvent.change(role, { target: { value: 'editor' } });
+    await submitExistingAgent();
+    expect(await screen.findByText(
+      'Retry is locked to Agent “agent-publisher name” so completed steps are not repeated.',
+    )).toBeVisible();
+
+    expect(role).toHaveValue('editor');
+    expect(role).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: 'Agent' })).not.toBeInTheDocument();
   });
 
   it('creates and grants an Agent, then shows the one-time instruction only in component state', async () => {
@@ -405,6 +614,7 @@ describe('AgentPreparationDialog', () => {
 
   it('explains paused resume and exact Reader upgrade while defaulting to Editor', async () => {
     vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([pausedReader]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(ownedAgentDetail(pausedReader));
     renderDialog();
 
     expect(await screen.findByText(

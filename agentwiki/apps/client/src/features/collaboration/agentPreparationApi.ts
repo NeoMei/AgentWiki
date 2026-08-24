@@ -73,6 +73,10 @@ export const agentPreparationApi: AgentPreparationApi = {
   ).data,
 };
 
+export const existingAgentContextApi = {
+  getAgent: agentPreparationApi.getAgent,
+};
+
 export function hasActiveSpaceCredential(
   agent: Pick<OwnedAgentDetail, 'credentials'>,
   spaceId: string,

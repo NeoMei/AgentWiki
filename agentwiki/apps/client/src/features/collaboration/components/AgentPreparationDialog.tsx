@@ -16,6 +16,10 @@ import { AgentCandidateForm, type AgentCandidateMode } from './AgentCandidateFor
 import { ConnectionInstructionPanel } from './ConnectionInstructionPanel';
 import { useAgentConnectionLifecycle } from './useAgentConnectionLifecycle';
 import { isCurrentLifecycle, useOwnedAgents } from './useOwnedAgents';
+import {
+  executableRoleForGrant,
+  useExistingAgentContext,
+} from './useExistingAgentContext';
 
 export interface PreparedAgentSelection {
   agentId: string;
@@ -67,6 +71,24 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   const [preparationProgress, setPreparationProgress] = useState<AgentPreparationProgress | null>(null);
   const [createdAgent, setCreatedAgent] = useState<{ id: string; name: string } | null>(null);
   const preparationTokenRef = useRef<symbol | null>(null);
+  const existingAgentContext = useExistingAgentContext({
+    agentId: ownedAgents.selectedAgentId,
+    enabled: mode === 'existing' && preparationProgress === null && createdAgent === null,
+    spaceId,
+  });
+  const existingContextStatus = existingAgentContext.status;
+  const existingContextAgentId = existingAgentContext.agentId;
+  const existingContextSpaceId = existingAgentContext.spaceId;
+  const selectedSummaryGrantRole = ownedAgents.selectedAgent?.grants.find(
+    (grant) => grant.spaceId === spaceId,
+  )?.role ?? null;
+  const existingContextGrantRole = existingContextStatus === 'ready'
+    ? existingAgentContext.grantRole
+    : existingContextStatus === 'unavailable' ? selectedSummaryGrantRole : null;
+  const existingContextSettled = (existingContextStatus === 'ready'
+      || existingContextStatus === 'unavailable')
+    && existingContextAgentId === ownedAgents.selectedAgentId
+    && existingContextSpaceId === spaceId;
 
   useEffect(() => {
     preparationTokenRef.current = null;
@@ -81,12 +103,34 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     setCreatedAgent(null);
   }, [spaceId, target.id]);
 
+  useEffect(() => {
+    if (mode !== 'existing'
+      || preparationProgress !== null
+      || createdAgent !== null
+      || (existingContextStatus !== 'ready' && existingContextStatus !== 'unavailable')
+      || existingContextAgentId !== ownedAgents.selectedAgentId
+      || existingContextSpaceId !== spaceId) return;
+    setRole(executableRoleForGrant(existingContextGrantRole));
+  }, [
+    createdAgent,
+    existingContextAgentId,
+    existingContextGrantRole,
+    existingContextSpaceId,
+    existingContextStatus,
+    mode,
+    ownedAgents.selectedAgentId,
+    preparationProgress,
+    spaceId,
+  ]);
+
   const busy = preparing || connection.busy;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (busy || connection.authorizationLost) return;
-    if (!preparationProgress && mode === 'existing' && !ownedAgents.selectedAgent) return;
+    if (!preparationProgress
+      && mode === 'existing'
+      && (!ownedAgents.selectedAgent || !existingContextSettled)) return;
     if (!preparationProgress && mode === 'new' && !name.trim()) return;
 
     const lifecycleEpoch = ownedAgents.lifecycleRef.current.epoch;
@@ -175,7 +219,9 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     && !connection.authorizationLost
     && (preparationProgress
       ? true
-      : mode === 'existing' ? Boolean(ownedAgents.selectedAgent) : Boolean(name.trim()));
+      : mode === 'existing'
+        ? Boolean(ownedAgents.selectedAgent) && existingContextSettled
+        : Boolean(name.trim()));
   const lockedAgent = preparationProgress?.agent ?? createdAgent ?? undefined;
   const lockedAgentWasCreated = preparationProgress?.source === 'created' || createdAgent !== null;
   const visibleErrorKey = connection.authorizationLost
@@ -213,6 +259,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         busy={busy}
         canSubmit={canSubmit}
         description={description}
+        existingAgentContext={existingAgentContext}
         loadFailed={ownedAgents.loadFailed}
         loading={ownedAgents.loading}
         lockedAgent={lockedAgent}
