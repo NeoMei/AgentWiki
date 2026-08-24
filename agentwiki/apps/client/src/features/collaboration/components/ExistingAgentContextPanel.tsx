@@ -1,7 +1,10 @@
 import React from 'react';
 import { useLanguage } from '../../../context/LanguageContext';
 import type { OwnedAgentSummary } from '../agentPreparationApi';
-import type { ExistingAgentContextState } from './useExistingAgentContext';
+import {
+  deriveExistingAgentContext,
+  type ExistingAgentContextState,
+} from './useExistingAgentContext';
 
 export const ExistingAgentContextPanel: React.FC<{
   agent: OwnedAgentSummary;
@@ -9,18 +12,10 @@ export const ExistingAgentContextPanel: React.FC<{
   spaceId: string;
 }> = ({ agent, context, spaceId }) => {
   const { t } = useLanguage();
-  const currentDetail = context.status === 'ready'
-    && context.agentId === agent.id
-    && context.spaceId === spaceId
-      ? context.detail
-      : null;
-  const grantRole = currentDetail?.grants.find((grant) => grant.spaceId === spaceId)?.role
-    ?? agent.grants.find((grant) => grant.spaceId === spaceId)?.role
-    ?? null;
-  const connectionKey = context.status === 'ready'
-    ? context.connected ? 'connected' : 'disconnected'
-    : context.status === 'unavailable' ? 'unavailable' : 'loading';
-  const agentStatus = (currentDetail?.status ?? agent.status) === 'active' ? 'active' : 'paused';
+  const current = deriveExistingAgentContext(context, agent, spaceId);
+  const roleText = current.grantRole === undefined
+    ? t('common.loading')
+    : current.grantRole ? t(`agent.role.${current.grantRole}.name`) : t('common.none');
 
   return (
     <section
@@ -35,7 +30,7 @@ export const ExistingAgentContextPanel: React.FC<{
         <div>
           <dt className="text-gray-500">{t('common.status')}</dt>
           <dd className="mt-1 font-medium text-gray-900">
-            {t(`collaboration.agentPreparation.context.status.${agentStatus}`)}
+            {t(`collaboration.agentPreparation.context.status.${current.agentStatus}`)}
           </dd>
         </div>
         <div>
@@ -43,7 +38,7 @@ export const ExistingAgentContextPanel: React.FC<{
             {t('collaboration.agentPreparation.context.spaceRole')}
           </dt>
           <dd className="mt-1 font-medium text-gray-900">
-            {grantRole ? t(`agent.role.${grantRole}.name`) : t('common.none')}
+            {roleText}
           </dd>
         </div>
         <div>
@@ -51,7 +46,7 @@ export const ExistingAgentContextPanel: React.FC<{
             {t('collaboration.agentPreparation.context.connection')}
           </dt>
           <dd className="mt-1 font-medium text-gray-900">
-            {t(`collaboration.agentPreparation.context.connection.${connectionKey}`)}
+            {t(`collaboration.agentPreparation.context.connection.${current.connection}`)}
           </dd>
         </div>
       </dl>

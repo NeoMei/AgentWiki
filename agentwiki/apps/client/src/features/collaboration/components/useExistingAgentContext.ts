@@ -5,6 +5,7 @@ import {
   hasActiveSpaceCredential,
   type ExecutableAgentRole,
   type OwnedAgentDetail,
+  type OwnedAgentSummary,
 } from '../agentPreparationApi';
 
 export type ExistingAgentContextState =
@@ -23,6 +24,57 @@ export type ExistingAgentContextState =
 export const executableRoleForGrant = (
   role: AgentAccessRole | null | undefined,
 ): ExecutableAgentRole => role === 'publisher' ? 'publisher' : 'editor';
+
+export interface ExistingAgentContextView {
+  agentStatus: 'active' | 'paused' | null;
+  connection: 'loading' | 'connected' | 'disconnected' | 'unavailable';
+  grantRole: AgentAccessRole | null | undefined;
+  settled: boolean;
+  status: 'idle' | 'loading' | 'ready' | 'unavailable';
+}
+
+export const deriveExistingAgentContext = (
+  context: ExistingAgentContextState,
+  agent: OwnedAgentSummary | undefined,
+  spaceId: string,
+): ExistingAgentContextView => {
+  if (!agent) {
+    return {
+      agentStatus: null,
+      connection: 'loading',
+      grantRole: undefined,
+      settled: false,
+      status: 'idle',
+    };
+  }
+
+  const identityMatches = context.agentId === agent.id && context.spaceId === spaceId;
+  if (identityMatches && context.status === 'ready') {
+    return {
+      agentStatus: context.detail.status === 'active' ? 'active' : 'paused',
+      connection: context.connected ? 'connected' : 'disconnected',
+      grantRole: context.grantRole,
+      settled: true,
+      status: 'ready',
+    };
+  }
+  if (identityMatches && context.status === 'unavailable') {
+    return {
+      agentStatus: agent.status === 'active' ? 'active' : 'paused',
+      connection: 'unavailable',
+      grantRole: agent.grants.find((grant) => grant.spaceId === spaceId)?.role ?? null,
+      settled: true,
+      status: 'unavailable',
+    };
+  }
+  return {
+    agentStatus: agent.status === 'active' ? 'active' : 'paused',
+    connection: 'loading',
+    grantRole: undefined,
+    settled: false,
+    status: 'loading',
+  };
+};
 
 export const useExistingAgentContext = ({
   agentId,

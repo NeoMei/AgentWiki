@@ -17,6 +17,7 @@ import { ConnectionInstructionPanel } from './ConnectionInstructionPanel';
 import { useAgentConnectionLifecycle } from './useAgentConnectionLifecycle';
 import { isCurrentLifecycle, useOwnedAgents } from './useOwnedAgents';
 import {
+  deriveExistingAgentContext,
   executableRoleForGrant,
   useExistingAgentContext,
 } from './useExistingAgentContext';
@@ -76,19 +77,14 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     enabled: mode === 'existing' && preparationProgress === null && createdAgent === null,
     spaceId,
   });
-  const existingContextStatus = existingAgentContext.status;
-  const existingContextAgentId = existingAgentContext.agentId;
-  const existingContextSpaceId = existingAgentContext.spaceId;
-  const selectedSummaryGrantRole = ownedAgents.selectedAgent?.grants.find(
-    (grant) => grant.spaceId === spaceId,
-  )?.role ?? null;
-  const existingContextGrantRole = existingContextStatus === 'ready'
-    ? existingAgentContext.grantRole
-    : existingContextStatus === 'unavailable' ? selectedSummaryGrantRole : null;
-  const existingContextSettled = (existingContextStatus === 'ready'
-      || existingContextStatus === 'unavailable')
-    && existingContextAgentId === ownedAgents.selectedAgentId
-    && existingContextSpaceId === spaceId;
+  const existingContextView = deriveExistingAgentContext(
+    existingAgentContext,
+    ownedAgents.selectedAgent,
+    spaceId,
+  );
+  const existingContextStatus = existingContextView.status;
+  const existingContextGrantRole = existingContextView.grantRole;
+  const existingContextSettled = existingContextView.settled;
 
   useEffect(() => {
     preparationTokenRef.current = null;
@@ -108,19 +104,14 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
       || preparationProgress !== null
       || createdAgent !== null
       || (existingContextStatus !== 'ready' && existingContextStatus !== 'unavailable')
-      || existingContextAgentId !== ownedAgents.selectedAgentId
-      || existingContextSpaceId !== spaceId) return;
+    ) return;
     setRole(executableRoleForGrant(existingContextGrantRole));
   }, [
     createdAgent,
-    existingContextAgentId,
     existingContextGrantRole,
-    existingContextSpaceId,
     existingContextStatus,
     mode,
-    ownedAgents.selectedAgentId,
     preparationProgress,
-    spaceId,
   ]);
 
   const busy = preparing || connection.busy;
@@ -202,6 +193,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   const handleModeChange = (nextMode: AgentCandidateMode) => {
     if (busy || nextMode === mode) return;
     setMode(nextMode);
+    if (nextMode === 'new') setRole('editor');
     resetCandidateResult();
   };
 

@@ -208,6 +208,38 @@ describe('AgentPreparationDialog', () => {
     expect(screen.getByRole('button', { name: 'Prepare Agent' })).toBeEnabled();
   });
 
+  it('resets Publisher to Editor for a new Agent and restores the existing Grant on return', async () => {
+    const publisher = ownedAgent('agent-publisher', 'publisher');
+    vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([publisher]);
+    vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(
+      ownedAgentDetail(publisher),
+    );
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({
+      agentId: 'agent-new',
+      agentName: 'New Agent',
+    }));
+    renderDialog();
+
+    const role = screen.getByRole('combobox', { name: 'Execution role' });
+    await waitFor(() => expect(role).toHaveValue('publisher'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Create new Agent' }));
+    expect(role).toHaveValue('editor');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Use existing Agent' }));
+    await waitFor(() => expect(role).toHaveValue('publisher'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Create new Agent' }));
+    expect(role).toHaveValue('editor');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New Agent' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+
+    await screen.findByText(/onboard --code AW-CODE/);
+    expect(prepareAgent).toHaveBeenCalledWith({
+      candidate: { kind: 'new', name: 'New Agent', description: '' },
+      spaceId: 'space-1',
+      role: 'editor',
+    }, agentPreparationApi, expect.any(Function));
+  });
+
   it('shows a paused Editor as disconnected and initializes Editor', async () => {
     const editor = ownedAgent('agent-editor', 'editor', 'paused');
     vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([editor]);
@@ -240,6 +272,29 @@ describe('AgentPreparationDialog', () => {
       'This Agent is not authorized for this Space and will be authorized as Editor.',
     )).toBeVisible();
   });
+
+  it.each(['publisher', 'reader'] as const)(
+    'treats ready detail without a Grant as authoritative over a stale %s summary',
+    async (staleRole) => {
+      const staleSummary = ownedAgent(`agent-stale-${staleRole}`, staleRole);
+      vi.mocked(agentPreparationApi.listAgents).mockResolvedValue([staleSummary]);
+      vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue({
+        ...ownedAgentDetail(staleSummary),
+        grants: [],
+      });
+      renderDialog();
+
+      const context = await screen.findByRole('region', { name: 'Current Agent context' });
+      await waitFor(() => expect(
+        within(context).getByText('Current Space role').parentElement,
+      ).toHaveTextContent('Current Space roleNone'));
+      expect(screen.getByRole('combobox', { name: 'Execution role' })).toHaveValue('editor');
+      expect(screen.getByText(
+        'This Agent is not authorized for this Space and will be authorized as Editor.',
+      )).toBeVisible();
+      expect(screen.queryByText(/currently Reader/u)).not.toBeInTheDocument();
+    },
+  );
 
   it('shows unavailable detail safely without exposing a raw error', async () => {
     const publisher = ownedAgent('agent-publisher', 'publisher');
