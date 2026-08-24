@@ -91,6 +91,21 @@ describe('CollaborationGateway authentication', () => {
     expect(runUnsub).toHaveBeenCalled();
   });
 
+  it('defaults to API relay subscriptions when PROCESS_ROLE is unset', async () => {
+    const previousRole = process.env.PROCESS_ROLE;
+    delete process.env.PROCESS_ROLE;
+    try {
+      await gateway.onModuleInit();
+
+      expect(redis.subscribe).toHaveBeenCalledWith('agentwiki:collab:assist', expect.any(Function));
+      expect(redis.subscribe).toHaveBeenCalledWith('agentwiki:collaboration:runs', expect.any(Function));
+    } finally {
+      await gateway.onModuleDestroy();
+      if (previousRole === undefined) delete process.env.PROCESS_ROLE;
+      else process.env.PROCESS_ROLE = previousRole;
+    }
+  });
+
   it('does not subscribe to socket relay channels in a worker process', async () => {
     process.env.PROCESS_ROLE = 'worker';
     (gateway as any).server = null;
@@ -98,6 +113,27 @@ describe('CollaborationGateway authentication', () => {
     await gateway.onModuleInit();
 
     expect(redis.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('publishes assist events from a worker without subscribing to relay channels', async () => {
+    process.env.PROCESS_ROLE = 'worker';
+    (gateway as any).server = null;
+
+    await gateway.onModuleInit();
+    gateway.emitAssistStream('page-1', 'task-1', 'chunk-1');
+    gateway.emitAssistComplete('page-1', 'task-1');
+    gateway.emitAssistError('page-1', 'task-1', 'failed');
+
+    expect(redis.subscribe).not.toHaveBeenCalled();
+    expect(redis.publish).toHaveBeenNthCalledWith(1, 'agentwiki:collab:assist', JSON.stringify({
+      kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'chunk-1',
+    }));
+    expect(redis.publish).toHaveBeenNthCalledWith(2, 'agentwiki:collab:assist', JSON.stringify({
+      kind: 'complete', pageId: 'page-1', taskId: 'task-1',
+    }));
+    expect(redis.publish).toHaveBeenNthCalledWith(3, 'agentwiki:collab:assist', JSON.stringify({
+      kind: 'error', pageId: 'page-1', taskId: 'task-1', error: 'failed',
+    }));
   });
 
   it('joins an authorized workflow room and relays refresh hints only', async () => {
