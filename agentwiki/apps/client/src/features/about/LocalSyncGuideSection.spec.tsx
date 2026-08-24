@@ -11,8 +11,8 @@ describe('LocalSyncGuideSection', () => {
 
     expect(screen.getByRole('heading', { name: '从本地知识创建 Wiki' })).toBeInTheDocument();
     expect(screen.getByText('@neomei/agentwiki-local-sync')).toBeInTheDocument();
-    expect(screen.getByText('版本 0.6.0')).toBeInTheDocument();
-    expect(LOCAL_SYNC_PACKAGE_URL).toBe('https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.6.0');
+    expect(screen.getByText('版本 0.6.1')).toBeInTheDocument();
+    expect(LOCAL_SYNC_PACKAGE_URL).toBe('https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.6.1');
     expect(screen.getByText(/已验证自动配置 Codex、Claude Code、OpenCode/)).toBeInTheDocument();
     expect(screen.getByText(/只安装一个名为 agentwiki 的 stdio MCP 网关/)).toBeInTheDocument();
     expect(screen.getByText(/安装只建立连接，不会自动扫描或上传/)).toBeInTheDocument();

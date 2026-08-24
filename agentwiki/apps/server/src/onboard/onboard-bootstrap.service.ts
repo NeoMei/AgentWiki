@@ -737,7 +737,7 @@ export class OnboardBootstrapService {
     if (
       suppliedPlanHash !== canonicalPlanHash
       || plan.packageVersion !== context.packageVersion
-      || context.packageVersion !== '0.6.0'
+      || context.packageVersion !== '0.6.1'
       || context.purpose !== 'full-onboarding'
       || capabilities.length !== REQUIRED_CAPABILITIES.length
       || capabilities.some((capability, index) => capability !== REQUIRED_CAPABILITIES[index])

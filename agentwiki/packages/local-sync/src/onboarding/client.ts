@@ -20,7 +20,7 @@ export type ClientType = 'codex' | 'claude' | 'opencode';
 
 export interface StartParams {
   serverBaseUrl: string;
-  packageVersion: '0.6.0';
+  packageVersion: '0.6.1';
   clientType: ClientType;
   fetchImpl?: typeof fetch;
   deadlineMs?: number;
@@ -56,7 +56,7 @@ export interface ServerPlan {
   space: ServerPlanSpace | ServerPlanExistingSpace;
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.6.0';
+  packageVersion: '0.6.1';
 }
 
 export interface BootstrapParams {

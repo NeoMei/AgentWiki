@@ -32,8 +32,8 @@ describe('OnboardPage 0.6 onboarding guide', () => {
     const { container } = renderPage('zh-CN');
 
     expect(screen.getByText(COMMAND)).toBeInTheDocument();
-    expect(LOCAL_SYNC_VERSION).toBe('0.6.0');
-    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.6\.0/g)).toHaveLength(1);
+    expect(LOCAL_SYNC_VERSION).toBe('0.6.1');
+    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.6\.1/g)).toHaveLength(1);
     expect(screen.getByText('AgentWiki 0.5')).toBeInTheDocument();
     expect(container).not.toHaveTextContent('AgentWiki 0.3');
     expect(screen.getByText(/在浏览器中登录或注册并授权/)).toBeInTheDocument();

@@ -287,7 +287,7 @@ importers:
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)
       '@neomei/agentwiki-sync-protocol':
-        specifier: workspace:0.3.0
+        specifier: 0.3.0
         version: link:../sync-protocol
       zod:
         specifier: ^3.25.76

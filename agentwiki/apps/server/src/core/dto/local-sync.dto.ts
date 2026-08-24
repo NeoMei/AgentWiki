@@ -19,8 +19,8 @@ export class CreateLocalSyncInstallationDto {
   role: AgentAccessRole;
 
   @IsString()
-  @Matches(/^0\.6\.0$/)
-  pluginVersion: '0.6.0';
+  @Matches(/^0\.6\.1$/)
+  pluginVersion: '0.6.1';
 }
 
 export class ExchangeLocalSyncInstallationDto {

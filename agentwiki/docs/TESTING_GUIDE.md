@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.6.0
+# AgentWiki 功能测试指南 v0.6.1
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -96,7 +96,7 @@
 | 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | 仅 Space 成员管理流程使用；仅接受 `reader/editor/publisher` |
 | 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
 | 4.10 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.6.0`，生成一次性安装码（10分钟过期） |
+| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.6.1`，生成一次性安装码（10分钟过期） |
 | 4.12 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
 | 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
 | 4.14 | 禁止手工签发 | `POST /agents/:id/credentials` | 路由不存在；Credential 只能由统一连接兑换产生 |
@@ -239,7 +239,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.3.0 与 local-sync 0.6.0 并启动 CLI；先发布 protocol 0.3.0，再运行 `pnpm test:package:local-sync-registry-protocol`，通过后才可发布 local-sync 0.6.0 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.3.0 与 local-sync 0.6.1 并启动 CLI；先发布 protocol 0.3.0，再运行 `pnpm test:package:local-sync-registry-protocol`，通过后才可发布 local-sync 0.6.1 |
 
 ---
 

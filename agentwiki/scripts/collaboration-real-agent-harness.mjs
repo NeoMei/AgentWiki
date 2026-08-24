@@ -97,7 +97,7 @@ function acceptanceEnvironment(databaseUrl, apiUrl, port) {
     JWT_SECRET: `real-client-jwt-${randomUUID()}-${randomUUID()}`,
     AGENTWIKI_SERVER_PEPPER: `real-client-pepper-${randomUUID()}`,
     AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-    LOCAL_SYNC_PACKAGE_VERSION: '0.6.0',
+    LOCAL_SYNC_PACKAGE_VERSION: '0.6.1',
     PUBLIC_API_URL: apiUrl,
     MCP_ALLOWED_HOSTS: '127.0.0.1,localhost',
     CORS_ORIGINS: `http://127.0.0.1:${port}`,
@@ -157,7 +157,7 @@ async function createConnectedAgent(apiUrl, token, spaceId, name) {
   const installation = await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
     method: 'POST',
     token,
-    body: { spaceId, role: 'publisher', pluginVersion: '0.6.0' },
+    body: { spaceId, role: 'publisher', pluginVersion: '0.6.1' },
   });
   const exchange = await request(apiUrl, '/integrations/local-sync/exchange', {
     method: 'POST',
@@ -238,7 +238,7 @@ async function prepareClientHome(resourceRoot, client, apiUrl, agent) {
         serverUrl: apiUrl,
         agentId: agent.id,
         credentialId,
-        pluginVersion: '0.6.0',
+        pluginVersion: '0.6.1',
         client: client === 'alternate' ? 'claude' : client,
         mcpName: 'agentwiki',
       },

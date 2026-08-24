@@ -2,7 +2,7 @@
 
 ## 证据边界
 
-本文档验收 AgentWiki `0.6.0` 协作工作流。自动化 PostgreSQL 与 HTTP/MCP E2E 证明服务端、Worker、数据库、Credential 与 MCP SDK 闭环；B–E 另由真实 Codex CLI 与 Claude Code 通过隔离 Local Sync 网关执行。所有测试资源只进入随机 `collaboration_test_*` schema，不连接生产。
+本文档验收 AgentWiki `0.6` 协作工作流；发布修订版为 `0.6.1`，相对真实客户端验收候选只修复 npm 依赖清单和版本联动。自动化 PostgreSQL 与 HTTP/MCP E2E 证明服务端、Worker、数据库、Credential 与 MCP SDK 闭环；B–E 另由真实 Codex CLI 与 Claude Code 通过隔离 Local Sync 网关执行。所有测试资源只进入随机 `collaboration_test_*` schema，不连接生产。
 
 ## 本次验收记录
 
@@ -11,7 +11,7 @@
 | 操作人 | Codex 本地验收 |
 | 开始/结束时间及时区 | 2026-08-24 01:56–12:16 CST |
 | 服务端基线 | `3eab1eb17425d8d4bc0993be0fb0cb20f63dc3fb` + 本验收文档所在发行候选提交的加固 |
-| AgentWiki / Local Sync / Sync Protocol | `0.6.0` / `0.6.0` / `0.2.0` |
+| AgentWiki / Local Sync / Sync Protocol | `0.6.0` / `0.6.0` / `0.2.0`（真实客户端运行时）；最终发布候选为 `0.6.1` / `0.6.1` / `0.3.0` |
 | 真实客户端 | Codex CLI `0.147.0`；Claude Code `2.1.211` |
 | 隔离 Space | `cmt6m7cun000ctaw2qn0dq0a1`、`cmt6ngb6d000cjmo6yyq2tekx`，均随 schema 清理 |
 | 证据保存 | 本文中的运行、审核、Artifact 与事件标识；完整命令输出保留在本次 Codex 任务 |
@@ -21,9 +21,9 @@
 
 ## 当前发行候选增量门禁
 
-2026-08-24 13:22–14:50 CST 在 `4289b31dad97949968104f46c54427787a57a852` 基线及本文所在的最终审查提交上，将 Sync Protocol 提升到 `0.3.0`，Local Sync `0.6.0` 精确依赖该版本。所有数据库证据均在最终源码重新构建 `dist` 之后执行：本地双 tarball 空目录安装与 CLI 启动 `PASS`（protocol 42/42、local-sync 748/748）；隔离 schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`，随机 schema 清理后残留为 0。
+2026-08-24 13:22–14:50 CST 在 `4289b31dad97949968104f46c54427787a57a852` 基线及本文所在的最终审查提交上，将 Sync Protocol 提升到 `0.3.0`，当时的 Local Sync `0.6.0` 候选精确依赖该版本。所有数据库证据均在最终源码重新构建 `dist` 之后执行：本地双 tarball 空目录安装与 CLI 启动 `PASS`（protocol 42/42、local-sync 748/748）；隔离 schema 2/2、真实事务 10/10、API/Worker/Credential/MCP E2E `PASS`，随机 schema 清理后残留为 0。
 
-这是发布前本地候选证据，不替代上表的真实 Codex/Claude 业务运行记录。npm registry 尚未发布 Sync Protocol `0.3.0`，因此发布后 registry 依赖门禁 `pnpm test:package:local-sync-registry-protocol` 仍为 `PENDING`；必须先发布并验证 protocol `0.3.0`，再执行该门禁，最后才允许发布 Local Sync `0.6.0`。未经单独授权，本轮不执行 npm 发布、push 或生产部署。
+Sync Protocol `0.3.0` 已发布并完成 registry 哈希反验。首次发布的 Local Sync `0.6.0` 经公开 registry 空目录安装发现 npm tarball 仍保留 `workspace:0.3.0`，因此不得部署；`0.6.1` 候选改为在源清单中精确依赖 `0.3.0`，并把安装门禁从会自动改写 workspace 依赖的 `pnpm pack` 改为与发布产物一致的 `npm pack`。修复后的 `pnpm test:package:local-sync-registry-protocol` 已独立解析 registry 协议包并通过 748/748 测试及空目录安装，`0.6.1` 发布完成前仍不允许生产部署。
 
 ## A. 自动化先决证据
 

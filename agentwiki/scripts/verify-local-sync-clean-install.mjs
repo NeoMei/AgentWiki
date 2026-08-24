@@ -8,12 +8,15 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const protocolName = '@neomei/agentwiki-sync-protocol';
 const localSyncName = '@neomei/agentwiki-local-sync';
-const expectedProtocolVersion = '0.3.0';
+const protocolManifest = JSON.parse(await readFile(join(root, 'packages', 'sync-protocol', 'package.json'), 'utf8'));
+const localSyncManifest = JSON.parse(await readFile(join(root, 'packages', 'local-sync', 'package.json'), 'utf8'));
+const expectedProtocolVersion = protocolManifest.version;
+const expectedLocalSyncVersion = localSyncManifest.version;
 const registryProtocol = process.env.AGENTWIKI_PROTOCOL_INSTALL_SOURCE === 'registry';
 
-function pack(packageName, destination) {
-  execFileSync('pnpm', ['--filter', packageName, 'pack', '--pack-destination', destination], {
-    cwd: root,
+function pack(packageDirectory, destination) {
+  execFileSync('npm', ['pack', '--pack-destination', destination], {
+    cwd: join(root, packageDirectory),
     stdio: 'inherit',
   });
 }
@@ -31,16 +34,19 @@ const npmCache = join(temporaryRoot, 'npm-cache');
 
 try {
   await mkdir(packDirectory, { recursive: true });
-  if (!registryProtocol) pack(protocolName, packDirectory);
-  pack(localSyncName, packDirectory);
+  if (!registryProtocol) pack(join('packages', 'sync-protocol'), packDirectory);
+  pack(join('packages', 'local-sync'), packDirectory);
 
   const protocolSource = registryProtocol
     ? `${protocolName}@${expectedProtocolVersion}`
     : await findTarball(packDirectory, 'neomei-agentwiki-sync-protocol-');
   const localSyncTarball = await findTarball(packDirectory, 'neomei-agentwiki-local-sync-');
+  const installSources = registryProtocol
+    ? [localSyncTarball]
+    : [protocolSource, localSyncTarball];
   execFileSync('npm', [
     'install', '--prefix', installDirectory, '--ignore-scripts', '--no-audit', '--no-fund',
-    protocolSource, localSyncTarball,
+    ...installSources,
   ], {
     cwd: temporaryRoot,
     env: { ...process.env, npm_config_cache: npmCache },
@@ -54,7 +60,7 @@ try {
     installDirectory, 'node_modules', '@neomei', 'agentwiki-local-sync', 'package.json',
   ), 'utf8'));
   assert.equal(installedProtocol.version, expectedProtocolVersion);
-  assert.equal(installedLocalSync.version, '0.6.0');
+  assert.equal(installedLocalSync.version, expectedLocalSyncVersion);
   assert.equal(installedLocalSync.dependencies[protocolName], installedProtocol.version);
 
   const cli = spawnSync(process.execPath, [

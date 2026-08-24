@@ -9,7 +9,7 @@ vi.mock('../../api/client', () => ({
   default: { post: vi.fn() },
 }));
 
-const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.6.0 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
+const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.6.1 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
 
 const renderCard = ({
   agentId = 'agent-1',
@@ -31,7 +31,7 @@ const renderCard = ({
 
 const generate = async () => {
   fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
-  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.6\.0/);
+  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.6\.1/);
 };
 
 describe('LocalSyncInstallCard', () => {
@@ -62,7 +62,7 @@ describe('LocalSyncInstallCard', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/agents/agent-1/local-sync-installations',
-      { pluginVersion: '0.6.0', spaceId: 'space-1', role: 'editor' },
+      { pluginVersion: '0.6.1', spaceId: 'space-1', role: 'editor' },
     ));
   });
 
@@ -274,7 +274,7 @@ describe('LocalSyncInstallCard', () => {
     fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/agents/agent-1/local-sync-installations',
-      { pluginVersion: '0.6.0', spaceId: 'space-2', role: 'reader' },
+      { pluginVersion: '0.6.1', spaceId: 'space-2', role: 'reader' },
     ));
   });
 });

@@ -1,6 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+linkWorkspacePackages: true
 overrides:
   '@hono/node-server': '2.1.0'
   ajv@>=7.0.0-alpha.0 <8.18.0: '8.18.0'

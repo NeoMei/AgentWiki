@@ -122,7 +122,7 @@ function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
   };
   const detached = process.platform !== 'win32';
   if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, detached });
-  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.6.0', ...args], {
+  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.6.1', ...args], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType }, detached,
   });
 }

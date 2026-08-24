@@ -35,7 +35,7 @@ interface ExchangeReceipt {
   grantId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: '0.6.0';
+  pluginVersion: '0.6.1';
   expiresAt: string;
 }
 
@@ -46,7 +46,7 @@ export interface InstallationExchangeResult {
   credentialId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: '0.6.0';
+  pluginVersion: '0.6.1';
   scopes: string[];
 }
 
@@ -311,7 +311,7 @@ export class LocalSyncInstallationService {
         || typeof value.grantId !== 'string'
         || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.serverUrl !== 'string'
-        || value.pluginVersion !== '0.6.0'
+        || value.pluginVersion !== '0.6.1'
         || typeof value.expiresAt !== 'string'
       ) {
         throw new Error('invalid exchange receipt');
@@ -369,8 +369,8 @@ export class LocalSyncInstallationService {
     }
   }
 
-  private assertExactProtocolVersion(pluginVersion: string): asserts pluginVersion is '0.6.0' {
-    if (pluginVersion !== '0.6.0') {
+  private assertExactProtocolVersion(pluginVersion: string): asserts pluginVersion is '0.6.1' {
+    if (pluginVersion !== '0.6.1') {
       throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
     }
   }
