@@ -42,6 +42,65 @@ describe('AgentService grant scope validation', () => {
     });
   });
 
+  it('does not bypass Agent ownership for a platform Super Admin', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-2', revokedAt: null, grants: [], credentials: [], status: 'active',
+    });
+
+    await expect(service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-1', true,
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prisma.space.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['paused', {
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'paused',
+    }, BadRequestException],
+    ['revoked', {
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: new Date('2030-01-01T00:00:00.000Z'),
+      grants: [], credentials: [], status: 'revoked',
+    }, NotFoundException],
+  ])('does not allow a %s Agent connection for a platform Super Admin', async (_status, agent, errorType) => {
+    prisma.agent.findUnique.mockResolvedValue(agent);
+
+    await expect(service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-1', true,
+    )).rejects.toBeInstanceOf(errorType);
+
+    expect(prisma.space.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass a missing Space for a platform Super Admin', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
+    });
+    prisma.space.findFirst.mockResolvedValue(null);
+
+    await expect(service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-missing', true,
+    )).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('does not bypass a deleted Space for a platform Super Admin', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
+    });
+    prisma.space.findFirst.mockImplementation(async ({ where }: any) => (
+      where.deletedAt === null ? null : { id: 'space-deleted' }
+    ));
+
+    await expect(service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-deleted', true,
+    )).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prisma.space.findFirst).toHaveBeenCalledWith({
+      where: { id: 'space-deleted', deletedAt: null },
+      select: { id: true },
+    });
+  });
+
   it('reports a credential as an identity bound to one authorization record', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [],
