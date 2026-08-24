@@ -17,6 +17,7 @@ describe('CollaborationGateway authentication', () => {
     auth.validateJwtUser.mockResolvedValue({ userId: 'user-1', name: 'Alice', authVersion: 0 });
     authorization.assertPageAccess.mockResolvedValue({ id: 'page-1', spaceId: 'space-1' });
     runs.getHumanRun.mockResolvedValue({ id: 'run-1' });
+    process.env.PROCESS_ROLE = 'api';
     (gateway as any).activeUsers.clear();
     (gateway as any).collaborationRates.clear();
     (gateway as any).userSockets.clear();
@@ -88,6 +89,15 @@ describe('CollaborationGateway authentication', () => {
     await gateway.onModuleDestroy();
     expect(assistUnsub).toHaveBeenCalled();
     expect(runUnsub).toHaveBeenCalled();
+  });
+
+  it('does not subscribe to socket relay channels in a worker process', async () => {
+    process.env.PROCESS_ROLE = 'worker';
+    (gateway as any).server = null;
+
+    await gateway.onModuleInit();
+
+    expect(redis.subscribe).not.toHaveBeenCalled();
   });
 
   it('joins an authorized workflow room and relays refresh hints only', async () => {

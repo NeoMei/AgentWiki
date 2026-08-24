@@ -59,10 +59,10 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   ) {}
 
   async onModuleInit() {
-    // Worker and API are separate processes. Assist tasks run in the worker,
-    // whose socket.io server has no connected clients. Bridge streaming events
-    // over Redis so the API process (which owns the client sockets) can relay
-    // them into the page rooms.
+    if (String(process.env.PROCESS_ROLE || 'api').toLowerCase() === 'worker') return;
+    // Worker and API are separate processes. Assist tasks publish from the
+    // worker; only the API process owns client sockets and subscribes here to
+    // relay Redis events into the page rooms.
     try {
       this.unsubscribeRedis = await this.redis.subscribe(ASSIST_CHANNEL, (raw) => {
         try {
