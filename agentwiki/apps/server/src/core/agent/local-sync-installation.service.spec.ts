@@ -111,7 +111,18 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('does not scan or sync');
     expect(result.instructions).not.toContain('agk_');
     expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1',
+      'owner-1', 'agent-1', 'space-1', false,
+    );
+  });
+
+  it('passes the trusted Super Admin flag to the Agent authorization check', async () => {
+    await service.create(
+      'owner-1', 'agent-1', 'space-1', 'editor', '0.6.1',
+      'https://wiki.test/api', true,
+    );
+
+    expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
+      'owner-1', 'agent-1', 'space-1', true,
     );
   });
 

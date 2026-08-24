@@ -63,6 +63,23 @@ describe('LocalSyncInstallationController', () => {
       'editor',
       '0.6.1',
       'https://wiki.test/api',
+      false,
+    );
+  });
+
+  it('forwards platform Super Admin status when creating an installation', async () => {
+    config.get.mockImplementation((key: string) => (
+      key === 'PUBLIC_API_URL' ? 'https://wiki.test/api' : 'production'
+    ));
+    const request = { user: { userId: 'owner-1', platformRole: 'super_admin' } } as any;
+
+    await controller.create(request, 'agent-1', {
+      spaceId: 'space-1', role: 'editor', pluginVersion: '0.6.1',
+    });
+
+    expect(installations.create).toHaveBeenCalledWith(
+      'owner-1', 'agent-1', 'space-1', 'editor', '0.6.1',
+      'https://wiki.test/api', true,
     );
   });
 
@@ -89,6 +106,7 @@ describe('LocalSyncInstallationController', () => {
       'reader',
       '0.6.1',
       'http://localhost:3000/api',
+      false,
     );
   });
 

@@ -112,14 +112,21 @@ export class AgentService {
     return { success: true };
   }
 
-  async assertCanIssueConnection(ownerId: string, agentId: string, spaceId: string): Promise<void> {
+  async assertCanIssueConnection(
+    ownerId: string,
+    agentId: string,
+    spaceId: string,
+    isSuperAdmin = false,
+  ): Promise<void> {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
     const space = await this.prisma.space.findFirst({
       where: {
         id: spaceId,
         deletedAt: null,
-        members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
+        ...(!isSuperAdmin ? {
+          members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
+        } : {}),
       },
       select: { id: true },
     });

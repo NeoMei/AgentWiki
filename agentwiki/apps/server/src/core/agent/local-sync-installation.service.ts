@@ -107,6 +107,7 @@ export class LocalSyncInstallationService {
     role: AgentAccessRole,
     pluginVersion: string,
     serverUrl: string,
+    isSuperAdmin = false,
   ): Promise<{
     installationId: string;
     code: string;
@@ -117,7 +118,7 @@ export class LocalSyncInstallationService {
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
-    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId);
+    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin);
     const expiresAt = new Date(Date.now() + INSTALLATION_TTL_SECONDS * 1_000).toISOString();
 
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {

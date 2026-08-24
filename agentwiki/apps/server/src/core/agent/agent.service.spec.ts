@@ -26,6 +26,22 @@ describe('AgentService grant scope validation', () => {
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
   });
 
+  it('allows an owned Agent connection for a platform Super Admin without Space membership', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
+    });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+
+    await expect(service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-1', true,
+    )).resolves.toBeUndefined();
+
+    expect(prisma.space.findFirst).toHaveBeenCalledWith({
+      where: { id: 'space-1', deletedAt: null },
+      select: { id: true },
+    });
+  });
+
   it('reports a credential as an identity bound to one authorization record', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [],

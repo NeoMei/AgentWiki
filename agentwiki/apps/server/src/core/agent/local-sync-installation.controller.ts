@@ -34,13 +34,15 @@ export class LocalSyncInstallationController {
     @Param('agentId') agentId: string,
     @Body() dto: CreateLocalSyncInstallationDto,
   ) {
+    const principal = req.user as { userId: string; platformRole?: string };
     return this.installations.create(
-      (req.user as { userId: string }).userId,
+      principal.userId,
       agentId,
       dto.spaceId,
       dto.role,
       dto.pluginVersion,
       this.publicApiUrl(req),
+      principal.platformRole === 'super_admin',
     );
   }
 
