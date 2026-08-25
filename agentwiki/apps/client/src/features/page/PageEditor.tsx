@@ -10,6 +10,7 @@ import { IconButton } from '../../components/IconButton';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
+import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { AgentAssistPanel } from './AgentAssistPanel';
 import 'highlight.js/styles/github.css';
 
@@ -32,6 +33,15 @@ interface RemotePageUpdate {
   page: Page;
   revision: string;
 }
+
+interface TemplateDialogSnapshot {
+  spaceId: string;
+  pageId: string;
+  pageTitle: string;
+  pageUpdatedAt: string;
+}
+
+const PAGE_TITLE_LIMIT = 200;
 
 const pageRevision = (page: Page) => JSON.stringify([
   page.updatedAt,
@@ -79,7 +89,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number } | null>(null);
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -158,7 +168,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   useEffect(() => {
     setMoreActionsOpen(false);
     setMoreActionsPosition(null);
-    setTemplateDialogOpen(false);
+    setTemplateDialogSnapshot(null);
     setTemplateCapability(null);
     if (!page?.spaceId || !page.id || page.format !== 'markdown' || !templateCapabilityIdentity) return;
 
@@ -379,7 +389,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [id, updateDirty]);
 
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value);
+    setTitle(truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT));
     editRevisionRef.current += 1;
     updateDirty(true);
   }, [updateDirty]);
@@ -551,8 +561,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                       }
                     }}
                     onClick={() => {
+                      const snapshot = pageRef.current;
+                      if (!snapshot) return;
                       setMoreActionsOpen(false);
-                      setTemplateDialogOpen(true);
+                      setTemplateDialogSnapshot({
+                        spaceId: snapshot.spaceId,
+                        pageId: snapshot.id,
+                        pageTitle: snapshot.title,
+                        pageUpdatedAt: snapshot.updatedAt,
+                      });
                     }}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -589,8 +606,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       </div>
 
       {saveStatus && (
-        <div className={`mb-2 p-2 rounded-md text-sm text-center ${saveStatus.kind === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-          {saveStatus.text}
+        <div
+          role={saveStatus.kind === 'error' ? 'alert' : 'status'}
+          aria-live={saveStatus.kind === 'error' ? 'assertive' : 'polite'}
+          className={`mb-2 p-2 rounded-md text-sm text-center ${saveStatus.kind === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}
+        >
+          <span>{saveStatus.text}</span>
         </div>
       )}
 
@@ -624,16 +645,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         ) : null}
       </div>
 
-      {templateDialogOpen && canManageTemplates && page.format === 'markdown' ? (
+      {templateDialogSnapshot && canManageTemplates && page.format === 'markdown' ? (
         <SavePageAsTemplateDialog
-          spaceId={page.spaceId}
-          pageId={page.id}
-          pageTitle={page.title}
-          pageUpdatedAt={page.updatedAt}
+          spaceId={templateDialogSnapshot.spaceId}
+          pageId={templateDialogSnapshot.pageId}
+          pageTitle={templateDialogSnapshot.pageTitle}
+          pageUpdatedAt={templateDialogSnapshot.pageUpdatedAt}
           returnFocusTo={moreActionsButtonRef.current}
-          onClose={() => setTemplateDialogOpen(false)}
+          onClose={() => setTemplateDialogSnapshot(null)}
           onSaved={() => {
-            setTemplateDialogOpen(false);
+            setTemplateDialogSnapshot(null);
             setSaveStatus({ kind: 'success', text: t('pageTemplate.created') });
           }}
         />

@@ -17,8 +17,13 @@ const pageTemplateZhCN = {
   'pageTemplate.step.choose': '选择模板',
   'pageTemplate.step.details': '填写页面信息',
   'pageTemplate.selected': '已选择',
+  'pageTemplate.scope.blank': '空白',
   'pageTemplate.scope.system': '系统',
   'pageTemplate.scope.space': 'Space',
+  'pageTemplate.version.blank': '空白入口 · 无模板版本',
+  'pageTemplate.version.number': '模板版本 v{version}',
+  'pageTemplate.emptyCatalog': '这个 Space 还没有可用的页面模板。',
+  'pageTemplate.emptySearch': '没有符合当前搜索或筛选条件的模板。',
   'pageTemplate.loadFailed': '模板加载失败，仍可创建空白页面',
   'pageTemplate.createFailed': '创建模板失败',
   'pageTemplate.updateMetadataFailed': '模板信息更新失败',
@@ -77,8 +82,13 @@ const pageTemplateEn = {
   'pageTemplate.step.choose': 'Choose a template',
   'pageTemplate.step.details': 'Page details',
   'pageTemplate.selected': 'Selected',
+  'pageTemplate.scope.blank': 'Blank',
   'pageTemplate.scope.system': 'System',
   'pageTemplate.scope.space': 'Space',
+  'pageTemplate.version.blank': 'Blank entry · No template version',
+  'pageTemplate.version.number': 'Template version v{version}',
+  'pageTemplate.emptyCatalog': 'No page templates are available in this Space yet.',
+  'pageTemplate.emptySearch': 'No templates match the current search or filters.',
   'pageTemplate.loadFailed': 'Templates could not be loaded. You can still create a blank page.',
   'pageTemplate.createFailed': 'Could not create the template',
   'pageTemplate.updateMetadataFailed': 'Could not update the template details',
@@ -138,9 +148,9 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
-  it('contains exactly 57 contract keys per locale', () => {
-    expect(Object.keys(pageTemplateZhCN)).toHaveLength(57);
-    expect(Object.keys(pageTemplateEn)).toHaveLength(57);
+  it('contains exactly 62 contract keys per locale', () => {
+    expect(Object.keys(pageTemplateZhCN)).toHaveLength(62);
+    expect(Object.keys(pageTemplateEn)).toHaveLength(62);
     expect(Object.keys(pageTemplateZhCN)).toEqual(Object.keys(pageTemplateEn));
   });
 

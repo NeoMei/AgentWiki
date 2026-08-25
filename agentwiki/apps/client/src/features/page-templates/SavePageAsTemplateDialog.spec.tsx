@@ -226,4 +226,19 @@ describe('SavePageAsTemplateDialog', () => {
     await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledTimes(1));
     expect(mocks.createPageTemplate.mock.calls[0][1].name).toBe(`a${selector.repeat(80)}`);
   });
+
+  it('uses validator length rather than UTF-16 maxLength for the 240-character description', async () => {
+    mocks.createPageTemplate.mockResolvedValue(templateDetail);
+    renderDialog();
+    const description = screen.getByLabelText('模板说明');
+
+    fireEvent.change(description, { target: { value: '😀'.repeat(241) } });
+
+    expect(description).not.toHaveAttribute('maxlength');
+    expect(description).toHaveValue('😀'.repeat(240));
+    fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+    await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledWith(
+      'space-1', expect.objectContaining({ description: '😀'.repeat(240) }),
+    ));
+  });
 });

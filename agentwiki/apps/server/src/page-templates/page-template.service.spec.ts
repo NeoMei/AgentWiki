@@ -430,7 +430,6 @@ describe('PageTemplateService', () => {
     });
     pageTemplate.findUnique
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(created);
     pageTemplate.create.mockResolvedValue(created);
     pageTemplateVersion.findUnique.mockResolvedValue({
@@ -501,6 +500,45 @@ describe('PageTemplateService', () => {
 
     await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
       .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_NAME_CONFLICT' });
+  });
+
+  it('allocates a deterministic stable key after more than 100 archived collisions in one read', async () => {
+    const occupiedStableKeys = [
+      'team-weekly',
+      ...Array.from({ length: 100 }, (_, index) => `team-weekly-${index + 2}`),
+    ];
+    let createdRecord: any;
+    pageTemplate.findMany.mockResolvedValue(occupiedStableKeys.map((stableKey) => ({ stableKey })));
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.spaceId_nameKey) return null;
+      if (where.scopeKey_stableKey) return { id: `occupied-${where.scopeKey_stableKey.stableKey}` };
+      if (where.id === 'created-team-weekly-102') return createdRecord;
+      return null;
+    });
+    pageTemplate.create.mockImplementation(async ({ data }: any) => {
+      createdRecord = {
+        id: `created-${data.stableKey}`,
+        ...data,
+        archivedAt: null,
+        updatedAt: new Date(templateTimestamp),
+      };
+      return createdRecord;
+    });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'created-team-weekly-102', version: 1,
+      contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
+    });
+
+    await service.createSpaceTemplate('space-1', validCreateBody, principal);
+
+    expect(pageTemplate.findMany).toHaveBeenCalledWith({
+      where: { scopeKey: 'space-1' },
+      select: { stableKey: true },
+    });
+    expect(pageTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ stableKey: 'team-weekly-102' }),
+    }));
+    expect('team-weekly-102').toHaveLength(15);
   });
 
   it('updates metadata only at the exact expected timestamp and source locale', async () => {
@@ -858,7 +896,7 @@ describe('PageTemplateService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
     expect(pageTemplate.count).toHaveBeenCalledTimes(2);
-    expect(pageTemplate.findUnique).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.findUnique).toHaveBeenCalledTimes(1);
     expect(pageTemplate.create).toHaveBeenCalledTimes(1);
   });
 
@@ -901,22 +939,17 @@ describe('PageTemplateService', () => {
       updatedAt: new Date(templateTimestamp),
     });
     let nameLookups = 0;
-    let baseStableKeyLookups = 0;
     pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
       if (where.spaceId_nameKey) {
         nameLookups += 1;
         return null;
       }
-      if (where.scopeKey_stableKey) {
-        if (where.scopeKey_stableKey.stableKey === 'team-weekly') {
-          baseStableKeyLookups += 1;
-          return baseStableKeyLookups === 1 ? null : { id: 'occupied-stable-key' };
-        }
-        return null;
-      }
       if (where.id === 'template-1') return created;
       return null;
     });
+    pageTemplate.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ stableKey: 'team-weekly' }]);
     pageTemplate.create
       .mockRejectedValueOnce(stableKeyConflict)
       .mockResolvedValueOnce(created);

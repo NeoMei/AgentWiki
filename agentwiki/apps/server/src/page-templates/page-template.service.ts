@@ -529,15 +529,16 @@ export class PageTemplateService implements OnModuleInit {
       .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
       .replace(/^-+|-+$/gu, '')
       .slice(0, 64) || 'template';
-    for (let suffix = 1; suffix <= 100; suffix += 1) {
-      const stableKey = suffix === 1 ? base : `${base.slice(0, 60)}-${suffix}`;
-      const used = await tx.pageTemplate.findUnique({
-        where: { scopeKey_stableKey: { scopeKey: spaceId, stableKey } },
-        select: { id: true },
-      });
-      if (!used) return stableKey;
+    const occupied = new Set((await tx.pageTemplate.findMany({
+      where: { scopeKey: spaceId },
+      select: { stableKey: true },
+    })).map(({ stableKey }) => stableKey));
+    if (!occupied.has(base)) return base;
+    for (let suffix = 2; ; suffix += 1) {
+      const suffixText = `-${suffix}`;
+      const stableKey = `${base.slice(0, 64 - suffixText.length)}${suffixText}`;
+      if (!occupied.has(stableKey)) return stableKey;
     }
-    throw new BusinessException('PAGE_TEMPLATE_NAME_CONFLICT');
   }
 
   private async getManagedRecord(

@@ -93,6 +93,28 @@ describe('PageTemplateManager', () => {
     await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2));
   });
 
+  it('keeps every metadata field within validator.js Unicode limits before submit', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.updatePageTemplate.mockResolvedValue(spaceTemplate);
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.change(screen.getByLabelText('模板名称'), { target: { value: '😀'.repeat(81) } });
+    fireEvent.change(screen.getByLabelText('模板说明'), { target: { value: '😀'.repeat(241) } });
+    fireEvent.change(screen.getByLabelText('默认页面标题'), { target: { value: '😀'.repeat(201) } });
+
+    expect(screen.getByLabelText('模板名称')).toHaveValue('😀'.repeat(80));
+    expect(screen.getByLabelText('模板说明')).toHaveValue('😀'.repeat(240));
+    expect(screen.getByLabelText('默认页面标题')).toHaveValue('😀'.repeat(200));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(mocks.updatePageTemplate).toHaveBeenCalledWith(
+      'space-1', 'space-1-template', expect.objectContaining({
+        name: '😀'.repeat(80), description: '😀'.repeat(240),
+        defaultTitle: '😀'.repeat(200),
+      }),
+    ));
+  });
+
   it('allows maximum-length unbroken template names to wrap in both management dialog headings', async () => {
     const longName = 'L'.repeat(80);
     mocks.listPageTemplates.mockResolvedValue({
@@ -243,6 +265,41 @@ describe('PageTemplateManager', () => {
     expect(archive).toBeDisabled();
 
     await act(async () => resolveArchive({ ...spaceTemplate, archivedAt: '2026-08-25T13:00:00.000Z' }));
+  });
+
+  it('blocks metadata and version actions on the same template while archive is pending', async () => {
+    let resolveArchive!: (value: PageTemplateSummary) => void;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.archivePageTemplate.mockImplementation(() => new Promise((resolve) => { resolveArchive = resolve; }));
+    renderManager();
+
+    const archive = await screen.findByRole('button', { name: /归档 团队周报/ });
+    const metadata = screen.getByRole('button', { name: /编辑 团队周报/ });
+    const version = screen.getByRole('button', { name: /更新内容 团队周报/ });
+    fireEvent.click(archive);
+
+    expect(archive).toBeDisabled();
+    expect(metadata).toBeDisabled();
+    expect(version).toBeDisabled();
+    fireEvent.click(metadata);
+    fireEvent.click(version);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => resolveArchive({ ...spaceTemplate, archivedAt: '2026-08-25T13:00:00.000Z' }));
+  });
+
+  it('distinguishes an empty catalog from a search with zero results', async () => {
+    const emptyCatalog = { ...ownerCatalog, system: [], space: [], totalSpace: 0 };
+    mocks.listPageTemplates
+      .mockResolvedValueOnce(emptyCatalog)
+      .mockResolvedValueOnce(emptyCatalog);
+    renderManager();
+
+    expect(await screen.findByText('这个 Space 还没有可用的页面模板。')).toBeVisible();
+    fireEvent.change(screen.getByLabelText('搜索模板'), { target: { value: 'missing' } });
+    expect(await screen.findByText('没有符合当前搜索或筛选条件的模板。')).toBeVisible();
+    expect(screen.queryByText('这个 Space 还没有可用的页面模板。')).not.toBeInTheDocument();
   });
 
   it('uses the same synchronous lock and disabled state for a deferred restore', async () => {

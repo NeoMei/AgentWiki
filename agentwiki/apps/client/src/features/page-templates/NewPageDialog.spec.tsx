@@ -226,13 +226,40 @@ describe('NewPageDialog', () => {
     const space = screen.getByRole('button', { name: /团队周报/ });
 
     expect(within(blank).getByText('已选择')).toBeVisible();
-    expect(within(blank).getByText('系统')).toBeVisible();
+    expect(within(blank).getByText('空白')).toBeVisible();
     expect(within(system).getByText('系统')).toBeVisible();
     expect(within(space).getByText('Space')).toBeVisible();
 
     fireEvent.click(space);
     expect(within(space).getByText('已选择')).toBeVisible();
     expect(within(blank).queryByText('已选择')).not.toBeInTheDocument();
+  });
+
+  it('shows a localized non-version summary for blank and vN for a selected template', async () => {
+    mocks.listPageTemplates.mockResolvedValue(catalog);
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    expect(screen.getByText('空白入口 · 无模板版本')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+    fireEvent.click(screen.getByRole('button', { name: /^周报(?:\s|$)/u }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    expect(screen.getByText('模板版本 v1')).toBeVisible();
+  });
+
+  it('truncates a 201-character Unicode page title to the server-valid 200 boundary', async () => {
+    mocks.listPageTemplates.mockResolvedValue(catalog);
+    mocks.api.post.mockResolvedValue({ data: { id: 'page-new' } });
+    renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '😀'.repeat(201) } });
+
+    expect(screen.getByLabelText('标题')).toHaveValue('😀'.repeat(200));
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith(
+      '/pages', expect.objectContaining({ title: '😀'.repeat(200) }),
+    ));
   });
 
   it('ignores a stale catalog response after the Space changes', async () => {

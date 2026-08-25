@@ -7,6 +7,7 @@ import { SpaceRevisionWriterService } from '../sync/space-revision-writer.servic
 import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
+import { AuthorizationService, type Principal } from '../authorization/authorization.service';
 
 const mockPrisma = {
   space: {
@@ -59,6 +60,12 @@ const mockTemplates = {
   resolveVersion: jest.fn(),
 };
 
+const mockAuthorization = {
+  assertLiveHumanSpaceAccess: jest.fn(),
+};
+
+const humanPrincipal: Principal = { userId: 'user-1', platformRole: 'user' };
+
 describe('PageService', () => {
   let service: PageService;
 
@@ -79,6 +86,7 @@ describe('PageService', () => {
         { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
         { provide: PageTemplateService, useValue: mockTemplates },
+        { provide: AuthorizationService, useValue: mockAuthorization },
       ],
     }).compile();
 
@@ -94,7 +102,7 @@ describe('PageService', () => {
       const dto = { title: 'Test', spaceId: 'space-1' };
       mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
       mockPrisma.page.create.mockResolvedValue({ id: '1', ...dto });
-      const result = await service.create(dto as any, 'user-1');
+      const result = await service.create(dto as any, humanPrincipal);
       expect(result.id).toBe('1');
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
       expect(mockSearch.indexPage.mock.invocationCallOrder[0])
@@ -118,7 +126,7 @@ describe('PageService', () => {
         spaceId: 'space-1',
         title: '吃饭睡觉',
         content: '# 吃饭睡觉',
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
@@ -152,7 +160,7 @@ describe('PageService', () => {
         id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Blank', content: '', format: 'markdown',
       });
 
-      await service.create({ title: 'Blank', spaceId: 'space-1' }, 'user-1');
+      await service.create({ title: 'Blank', spaceId: 'space-1' }, humanPrincipal);
 
       expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
       expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -171,7 +179,7 @@ describe('PageService', () => {
 
       await service.create({
         title: 'Structured', spaceId: 'space-1', content: '{}', format: 'json',
-      }, 'user-1');
+      }, humanPrincipal);
 
       expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
       expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -194,7 +202,7 @@ describe('PageService', () => {
 
       await expect(service.create({
         title: 'Invalid', spaceId: 'space-1', ...templateFields,
-      } as any, 'user-1')).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+      } as any, humanPrincipal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
 
       expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
@@ -211,7 +219,7 @@ describe('PageService', () => {
       await expect(service.create({
         title: 'Missing version', spaceId: 'space-1', templateId: 'template-1',
         templateVersion: 2, templateLocale: 'en',
-      }, 'user-1')).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_NOT_FOUND' });
+      }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_NOT_FOUND' });
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
       expect(mockPrisma.page.create).not.toHaveBeenCalled();
@@ -231,7 +239,7 @@ describe('PageService', () => {
       const result = await service.create({
         title: '周报', spaceId: 'space-1', templateId: 'template-1',
         templateVersion: 2, templateLocale: 'zh-CN',
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockTemplates.resolveVersion).toHaveBeenCalledWith(expect.anything(), {
         spaceId: 'space-1', templateId: 'template-1', version: 2, locale: 'zh-CN',
@@ -257,6 +265,45 @@ describe('PageService', () => {
       expect(mockTemplates.resolveVersion.mock.invocationCallOrder[0]).toBeLessThan(
         mockSyncPaths.allocate.mock.invocationCallOrder[0],
       );
+    });
+
+    it('rechecks live human authorization after taking the Space lock and before page work', async () => {
+      const principal: Principal = { userId: 'admin-1', platformRole: 'super_admin' };
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Authorized', content: '',
+      });
+      mockAuthorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
+
+      await service.create({ title: 'Authorized', spaceId: 'space-1' }, principal);
+
+      expect(mockAuthorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+        mockPrisma, principal, 'space-1', ['owner', 'editor'],
+      );
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
+      );
+      expect(mockAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSyncPaths.allocate.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ authorId: 'admin-1', lastModifiedByUserId: 'admin-1' }),
+      }));
+    });
+
+    it('does no page work when live authorization is revoked inside the locked transaction', async () => {
+      const revoked = new Error('authorization revoked');
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
+
+      await expect(service.create(
+        { title: 'Rejected', spaceId: 'space-1' }, humanPrincipal,
+      )).rejects.toBe(revoked);
+
+      expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+      expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
+      expect(mockPrisma.page.create).not.toHaveBeenCalled();
+      expect(mockRevisionWriter.advance).not.toHaveBeenCalled();
     });
   });
 
@@ -1074,6 +1121,7 @@ describe('page ordering', () => {
         { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
         { provide: PageTemplateService, useValue: mockTemplates },
+        { provide: AuthorizationService, useValue: mockAuthorization },
       ],
     }).compile();
     service = module.get<PageService>(PageService);
@@ -1295,6 +1343,7 @@ describe('page ordering', () => {
       { allocate: jest.fn() } as any,
       { enqueue: jest.fn() } as any,
       mockTemplates as any,
+      mockAuthorization as any,
     );
     jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
 

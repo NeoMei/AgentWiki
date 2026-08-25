@@ -4,34 +4,12 @@ import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
 import { createPageTemplate } from './pageTemplateApi';
 import type { PageTemplateCategory, PageTemplateDetail } from './pageTemplateTypes';
+import { truncateValidatorLength } from './validatorLength';
 
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
 const TEMPLATE_NAME_LIMIT = 80;
+const TEMPLATE_DESCRIPTION_LIMIT = 240;
 const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
-
-// Match validator.js isLength: surrogate pairs count as one, and a variation
-// selector is discounted only when it follows a non-selector UTF-16 code unit.
-const truncateValidatorLength = (value: string, maxLength: number) => {
-  let result = '';
-  let offset = 0;
-  let length = 0;
-  while (offset < value.length && length < maxLength) {
-    let end = offset + 1;
-    const first = value.charCodeAt(offset);
-    if (first >= 0xd800 && first <= 0xdbff && end < value.length) {
-      const second = value.charCodeAt(end);
-      if (second >= 0xdc00 && second <= 0xdfff) end += 1;
-    }
-    if (first !== 0xfe0e && first !== 0xfe0f && end < value.length) {
-      const next = value.charCodeAt(end);
-      if (next === 0xfe0e || next === 0xfe0f) end += 1;
-    }
-    result += value.slice(offset, end);
-    offset = end;
-    length += 1;
-  }
-  return result;
-};
 
 export interface SavePageAsTemplateDialogProps {
   spaceId: string;
@@ -82,7 +60,7 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
     try {
       const result = await createPageTemplate(spaceId, {
         name,
-        description: draft.description.trim() || undefined,
+        description: truncateValidatorLength(draft.description.trim(), TEMPLATE_DESCRIPTION_LIMIT) || undefined,
         category: draft.category,
         defaultTitle,
         locale: language,
@@ -135,9 +113,11 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
           <span>{t('pageTemplate.description')}</span>
           <textarea
             id="page-template-description"
-            maxLength={240}
             value={draft.description}
-            onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({
+              ...value,
+              description: truncateValidatorLength(event.target.value, TEMPLATE_DESCRIPTION_LIMIT),
+            }))}
             className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>

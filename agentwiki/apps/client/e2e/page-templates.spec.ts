@@ -54,6 +54,15 @@ let owner: AuthAccount | undefined;
 let admin: AuthAccount | undefined;
 let editor: AuthAccount | undefined;
 let viewer: AuthAccount | undefined;
+let consoleIssues: string[] = [];
+
+const watchConsole = (page: Page) => {
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      consoleIssues.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+};
 
 const json = async <T,>(response: APIResponse, operation: string): Promise<T> => {
   const body = await response.text();
@@ -92,6 +101,7 @@ const newAuthenticatedPage = async (
 ) => {
   const context = await browser.newContext();
   const page = await context.newPage();
+  watchConsole(page);
   await authenticate(page, account, language);
   return { context, page };
 };
@@ -130,6 +140,15 @@ const customTemplateArticle = (page: Page) => page.getByRole('article').filter({
 });
 
 test.describe.serial('page template library', () => {
+  test.beforeEach(async ({ page }) => {
+    consoleIssues = [];
+    watchConsole(page);
+  });
+
+  test.afterEach(() => {
+    expect(consoleIssues).toEqual([]);
+  });
+
   test.beforeAll(async () => {
     await mkdir(artifacts, { recursive: true });
     api = await playwrightRequest.newContext({
@@ -197,10 +216,6 @@ test.describe.serial('page template library', () => {
   });
 
   test('Owner saves a page as a Space template and creates version-1 content from it', async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on('console', (message) => {
-      if (message.type() === 'error') consoleErrors.push(message.text());
-    });
     await authenticate(page, owner!, 'zh-CN');
     await page.goto(`/pages/${sourcePageId}/edit`);
     await page.getByRole('button', { name: '更多页面操作' }).click();
@@ -222,7 +237,7 @@ test.describe.serial('page template library', () => {
     firstCreatedPageId = new URL(page.url()).pathname.split('/').at(-2)!;
     await expectRenderedHeading(page, 'Shared section', 'zh-CN');
     await page.screenshot({ path: path.join(artifacts, 'custom-template-created.png'), fullPage: true });
-    expect(consoleErrors).toEqual([]);
+    await expectNoDocumentOverflow(page);
   });
 
   test('A new template version never mutates pages created from version 1', async ({ page }) => {
@@ -273,6 +288,7 @@ test.describe.serial('page template library', () => {
     expect(firstPage.sourceTemplateVersion).toBe(1);
     expect(secondPage.sourceTemplateVersion).toBe(2);
     expect(firstPage.sourceTemplateId).toBe(secondPage.sourceTemplateId);
+    await expectNoDocumentOverflow(page);
   });
 
   test('Owner archives and restores the Space template from settings', async ({ page }) => {
@@ -292,6 +308,7 @@ test.describe.serial('page template library', () => {
     await archivedArticle.getByRole('button', { name: `恢复 ${customTemplateName}` }).click();
     await expect(customTemplateArticle(page).getByRole('button', { name: `归档 ${customTemplateName}` })).toBeVisible();
     await expect(page.getByLabel('搜索模板')).toBeFocused();
+    await expectNoDocumentOverflow(page);
   });
 
   test('Editor can use but cannot manage; Viewer cannot create', async ({ browser }) => {
@@ -317,6 +334,7 @@ test.describe.serial('page template library', () => {
       const editorArticle = customTemplateArticle(editorSession.page);
       await expect(editorArticle).toBeVisible();
       await expect(editorArticle.getByRole('button')).toHaveCount(0);
+      await expectNoDocumentOverflow(editorSession.page);
     } finally {
       await editorSession.context.close();
     }
@@ -329,6 +347,7 @@ test.describe.serial('page template library', () => {
         exact: true,
       })).toBeVisible();
       await expect(viewerSession.page.getByRole('button', { name: 'New page', exact: true })).toHaveCount(0);
+      await expectNoDocumentOverflow(viewerSession.page);
     } finally {
       await viewerSession.context.close();
     }
@@ -354,6 +373,7 @@ test.describe.serial('page template library', () => {
       await expect(adminArticle.getByRole('button', {
         name: new RegExp(`^Edit ${customTemplateName}$`, 'u'),
       })).toBeVisible();
+      await expectNoDocumentOverflow(adminSession.page);
       await expect(adminArticle.getByRole('button', {
         name: new RegExp(`^Update content from page ${customTemplateName}$`, 'u'),
       })).toBeVisible();
@@ -385,6 +405,7 @@ test.describe.serial('page template library', () => {
         }).click();
         await session.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
         await expectRenderedHeading(session.page, scenario.heading, scenario.locale);
+        await expectNoDocumentOverflow(session.page);
       } finally {
         await session.context.close();
       }
@@ -413,13 +434,10 @@ test.describe.serial('page template library', () => {
       sourceTemplateVersion: null,
       sourceTemplateLocale: null,
     });
+    await expectNoDocumentOverflow(page);
   });
 
   test('390px NewPageDialog, manager, and PageEditor More menu stay in the viewport and restore focus', async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on('console', (message) => {
-      if (message.type() === 'error') consoleErrors.push(message.text());
-    });
     await authenticate(page, owner!, 'en');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/spaces/${spaceId}`);
@@ -504,6 +522,6 @@ test.describe.serial('page template library', () => {
     await page.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
     await expect(more).toBeFocused();
-    expect(consoleErrors).toEqual([]);
+    await expectNoDocumentOverflow(page);
   });
 });

@@ -8,6 +8,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { interpolateDefaultPageTitle } from './defaultPageTitle';
 import { listPageTemplates } from './pageTemplateApi';
 import type { PageTemplateListResponse, PageTemplateSummary } from './pageTemplateTypes';
+import { truncateValidatorLength } from './validatorLength';
 
 export interface NewPageDialogProps {
   spaceId: string;
@@ -26,6 +27,7 @@ type CatalogLoadState =
   | { generation: number; status: 'error' };
 
 const FILTERS: TemplateFilter[] = ['all', 'system', 'space'];
+const PAGE_TITLE_LIMIT = 200;
 
 export const NewPageDialog: React.FC<NewPageDialogProps> = ({
   spaceId,
@@ -108,17 +110,17 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
 
   const choose = (template: PageTemplateSummary | null) => {
     setSelected(template);
-    setTitle(template
+    setTitle(truncateValidatorLength(template
       ? template.scope === 'system'
         ? interpolateDefaultPageTitle(template.defaultTitle, now)
         : template.defaultTitle
-      : '');
+      : '', PAGE_TITLE_LIMIT));
     setCreateError(null);
   };
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    const normalizedTitle = title.trim();
+    const normalizedTitle = truncateValidatorLength(title.trim(), PAGE_TITLE_LIMIT);
     if (!normalizedTitle || creating) return;
     setCreating(true);
     setCreateError(null);
@@ -209,9 +211,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             <TemplateButton
               name={t('pageTemplate.blank.name')}
               description={t('pageTemplate.blank.description')}
-              scopeLabel={t('pageTemplate.scope.system')}
+              scopeLabel={t('pageTemplate.scope.blank')}
               selectedLabel={t('pageTemplate.selected')}
               selected={selected === null}
+              foundation
               onClick={() => choose(null)}
             />
             {visibleTemplates.map((template) => (
@@ -261,6 +264,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             <p className="mt-1 break-words text-sm text-gray-600">
               {selected?.description ?? t('pageTemplate.blank.description')}
             </p>
+            <p className="mt-2 text-xs font-medium text-gray-500">
+              {selected
+                ? t('pageTemplate.version.number', { version: selected.currentVersion })
+                : t('pageTemplate.version.blank')}
+            </p>
           </div>
 
           <label className="mt-4 block text-sm font-medium text-gray-800">
@@ -271,7 +279,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
               type="text"
               required
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => setTitle(truncateValidatorLength(event.target.value, PAGE_TITLE_LIMIT))}
               placeholder={t('page.titlePlaceholder')}
               className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -336,18 +344,23 @@ interface TemplateButtonProps {
   scopeLabel: string;
   selectedLabel: string;
   selected: boolean;
+  foundation?: boolean;
   onClick: () => void;
 }
 
 const TemplateButton: React.FC<TemplateButtonProps> = ({
-  name, description, category, scopeLabel, selectedLabel, selected, onClick,
+  name, description, category, scopeLabel, selectedLabel, selected, foundation = false, onClick,
 }) => (
   <button
     type="button"
     aria-pressed={selected}
     onClick={onClick}
     className={`min-w-0 rounded-xl border p-4 text-left transition ${
-      selected ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-gray-200 hover:border-blue-300'
+      selected
+        ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600'
+        : foundation
+          ? 'border-dashed border-slate-300 bg-slate-50 hover:border-blue-300'
+          : 'border-gray-200 hover:border-blue-300'
     }`}
   >
     <span className="flex flex-wrap items-start justify-between gap-2">

@@ -255,8 +255,9 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText(/Page changed after this editor loaded it/)).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const saveFailure = await screen.findByText(/Page changed after this editor loaded it/);
+    expect(saveFailure.parentElement).toHaveAttribute('role', 'alert');
+    expect(await screen.findByText(/newer remote version is available/i)).toBeInTheDocument();
     expect(title).toHaveValue('Local title');
     expect(contentEditorValue()).toBe('Local content');
     expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
@@ -527,7 +528,9 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
 
-    expect(await screen.findByText('Template created')).toBeInTheDocument();
+    const templateCreated = await screen.findByText('Template created');
+    expect(templateCreated.parentElement).toHaveAttribute('role', 'status');
+    expect(templateCreated.parentElement).toHaveAttribute('aria-live', 'polite');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(title).toHaveValue('Original title');
     expect(contentEditorValue()).toBe('Original content');
@@ -538,5 +541,43 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
       title: 'After template', content: 'Original content', expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
     }));
+  });
+
+  it('freezes the page identity, title, and stale-write token when the template dialog opens', async () => {
+    queuePages(
+      { data: page() },
+      { data: page({ title: 'Remote B', updatedAt: '2026-07-27T08:05:00.000Z' }) },
+    );
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    templateMocks.createPageTemplate.mockResolvedValue(createdTemplate);
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
+    expect(screen.getByLabelText('Template name')).toHaveValue('Original title');
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Remote B')).toBeInTheDocument();
+    expect(screen.getByLabelText('Template name')).toHaveValue('Original title');
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+
+    await waitFor(() => expect(templateMocks.createPageTemplate).toHaveBeenCalledWith(
+      'space-1', expect.objectContaining({
+        sourcePageId: 'page-1',
+        name: 'Original title',
+        expectedSourceUpdatedAt: '2026-07-27T08:00:00.000Z',
+      }),
+    ));
+  });
+
+  it('keeps edited page titles within the server-valid 200 Unicode boundary', async () => {
+    queuePages({ data: page() });
+    renderEditor();
+    const title = await screen.findByDisplayValue('Original title');
+
+    fireEvent.change(title, { target: { value: '😀'.repeat(201) } });
+
+    expect(title).toHaveValue('😀'.repeat(200));
   });
 });

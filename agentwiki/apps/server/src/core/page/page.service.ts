@@ -12,6 +12,7 @@ import {
 import { randomUUID } from 'crypto';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
+import { AuthorizationService, type Principal } from '../authorization/authorization.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -63,6 +64,7 @@ export class PageService {
     private readonly syncPaths: ReadableSyncPathService,
     private readonly graphMaintenance: GraphMaintenance,
     private readonly pageTemplates: PageTemplateService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   private slugify(text: string): string {
@@ -81,16 +83,20 @@ export class PageService {
     await this.revisionWriter.advance(tx, spaceId, changes, origin);
   }
 
-  async create(data: CreatePageDto, userId: string) {
+  async create(data: CreatePageDto, principal: Principal) {
     const space = await this.prisma.space.findUnique({
       where: { id: data.spaceId, deletedAt: null },
     });
     if (!space) throw new NotFoundException('Space not found');
-    await this.assertValidParent(data.spaceId, data.parentId);
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
+    const userId = principal.userId;
     const page = await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, data.spaceId, ['owner', 'editor'],
+      );
+      await this.assertValidParent(data.spaceId, data.parentId, undefined, lockedTx);
       const hasTemplateFields = data.templateId !== undefined
         || data.templateVersion !== undefined
         || data.templateLocale !== undefined;

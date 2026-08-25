@@ -42,7 +42,7 @@ export class PageController {
       });
     }
     this.logger.log('Creating page: ' + dto.title + ' by user ' + user.userId);
-    return this.pageService.create(dto, user.userId);
+    return this.pageService.create(dto, user);
   }
 
   @Get()

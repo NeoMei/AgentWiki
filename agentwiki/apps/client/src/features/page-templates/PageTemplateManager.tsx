@@ -17,6 +17,7 @@ import type {
   PageTemplateListResponse,
   PageTemplateSummary,
 } from './pageTemplateTypes';
+import { truncateValidatorLength } from './validatorLength';
 
 type PendingDialog =
   | { type: 'metadata'; template: PageTemplateSummary }
@@ -40,6 +41,9 @@ const EMPTY_TEMPLATES: PageTemplateListResponse = {
 };
 
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
+const TEMPLATE_NAME_LIMIT = 80;
+const TEMPLATE_DESCRIPTION_LIMIT = 240;
+const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -185,17 +189,19 @@ export const PageTemplateManager: React.FC = () => {
   }, [id, pendingDialog, t]);
 
   const openMetadata = (template: PageTemplateSummary) => {
-    if (!visibleTemplates.capabilities.canManage) return;
-    setMetadataName(template.name);
-    setMetadataDescription(template.description);
+    const operationKey = `${id ?? ''}\u0000${template.id}`;
+    if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
+    setMetadataName(truncateValidatorLength(template.name, TEMPLATE_NAME_LIMIT));
+    setMetadataDescription(truncateValidatorLength(template.description, TEMPLATE_DESCRIPTION_LIMIT));
     setMetadataCategory(template.category);
-    setMetadataDefaultTitle(template.defaultTitle);
+    setMetadataDefaultTitle(truncateValidatorLength(template.defaultTitle, TEMPLATE_DEFAULT_TITLE_LIMIT));
     setDialogError(null);
     setPendingDialog({ type: 'metadata', template });
   };
 
   const openVersion = (template: PageTemplateSummary) => {
-    if (!visibleTemplates.capabilities.canManage) return;
+    const operationKey = `${id ?? ''}\u0000${template.id}`;
+    if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
     setDialogError(null);
     setPendingDialog({ type: 'version', template });
   };
@@ -210,14 +216,18 @@ export const PageTemplateManager: React.FC = () => {
     const operationIdentity = identityRef.current;
     const operationSpaceId = id;
     const template = pendingDialog.template;
+    const name = truncateValidatorLength(metadataName.trim(), TEMPLATE_NAME_LIMIT);
+    const description = truncateValidatorLength(metadataDescription.trim(), TEMPLATE_DESCRIPTION_LIMIT);
+    const defaultTitle = truncateValidatorLength(metadataDefaultTitle.trim(), TEMPLATE_DEFAULT_TITLE_LIMIT);
+    if (!name || !defaultTitle) return;
     setSubmitting(true);
     setDialogError(null);
     try {
       await updatePageTemplate(id, template.id, {
-        name: metadataName.trim(),
-        description: metadataDescription.trim() || undefined,
+        name,
+        description: description || undefined,
         category: metadataCategory,
-        defaultTitle: metadataDefaultTitle.trim(),
+        defaultTitle,
         expectedUpdatedAt: template.updatedAt,
       });
       if (spaceIdRef.current !== operationSpaceId) return;
@@ -298,7 +308,9 @@ export const PageTemplateManager: React.FC = () => {
     }
   };
 
-  const renderTemplate = (template: PageTemplateSummary, mutable: boolean) => (
+  const renderTemplate = (template: PageTemplateSummary, mutable: boolean) => {
+    const archivePending = pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`);
+    return (
     <article key={template.id} className="rounded-[14px] border bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 break-words">
@@ -312,18 +324,18 @@ export const PageTemplateManager: React.FC = () => {
           <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
             {!template.archivedAt ? (
               <>
-                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => openMetadata(template)}>
+                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openMetadata(template)}>
                   {t('common.edit')} {template.name}
                 </button>
-                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => openVersion(template)}>
+                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openVersion(template)}>
                   {t('pageTemplate.updateFromPage')} {template.name}
                 </button>
-                <button type="button" disabled={pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`)} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
+                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
                 </button>
               </>
             ) : (
-              <button type="button" disabled={pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`)} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
+              <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
                 {t('pageTemplate.restore')} {template.name}
               </button>
             )}
@@ -331,7 +343,8 @@ export const PageTemplateManager: React.FC = () => {
         ) : null}
       </div>
     </article>
-  );
+    );
+  };
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -386,6 +399,13 @@ export const PageTemplateManager: React.FC = () => {
         </div>
       ) : null}
       {loading ? <p className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : null}
+      {!loading && !error && visibleTemplates.system.length === 0 && visibleTemplates.space.length === 0 ? (
+        <p role="status" className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+          {search.trim() || category || showArchived
+            ? t('pageTemplate.emptySearch')
+            : t('pageTemplate.emptyCatalog')}
+        </p>
+      ) : null}
 
       <section className="mt-6" aria-labelledby="system-templates-heading">
         <h2 id="system-templates-heading" className="text-xl font-semibold">{t('pageTemplate.filter.system')}</h2>
@@ -420,11 +440,11 @@ export const PageTemplateManager: React.FC = () => {
           <form className="mt-5 space-y-4" onSubmit={submitMetadata}>
             <label className="block text-sm font-medium">
               {t('pageTemplate.name')}
-              <input data-modal-autofocus className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" value={metadataName} onChange={(event) => setMetadataName(event.target.value)} required />
+              <input data-modal-autofocus className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" value={metadataName} onChange={(event) => setMetadataName(truncateValidatorLength(event.target.value, TEMPLATE_NAME_LIMIT))} required />
             </label>
             <label className="block text-sm font-medium">
               {t('pageTemplate.description')}
-              <textarea className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" rows={3} value={metadataDescription} onChange={(event) => setMetadataDescription(event.target.value)} />
+              <textarea className="mt-1 w-full rounded-lg border px-3 py-2 font-normal" rows={3} value={metadataDescription} onChange={(event) => setMetadataDescription(truncateValidatorLength(event.target.value, TEMPLATE_DESCRIPTION_LIMIT))} />
             </label>
             <label className="block text-sm font-medium">
               {t('pageTemplate.category')}
@@ -434,7 +454,7 @@ export const PageTemplateManager: React.FC = () => {
             </label>
             <label className="block text-sm font-medium">
               {t('pageTemplate.defaultTitle')}
-              <input className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" value={metadataDefaultTitle} onChange={(event) => setMetadataDefaultTitle(event.target.value)} required />
+              <input className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" value={metadataDefaultTitle} onChange={(event) => setMetadataDefaultTitle(truncateValidatorLength(event.target.value, TEMPLATE_DEFAULT_TITLE_LIMIT))} required />
             </label>
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
+import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -65,7 +66,10 @@ const PAGE_SELECT = {
 
 @Injectable()
 export class SpaceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
+  ) {}
 
   private slugify(text: string): string {
     return text
@@ -295,6 +299,12 @@ export class SpaceService {
     await this.findOne(id);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.revisionWriter.lockSpace(tx, id);
+      const liveSpace = await tx.space.findUnique({
+        where: { id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!liveSpace) throw new NotFoundException('Space not found');
       await tx.assistTask.updateMany({
         where: { spaceId: id, status: { in: ['queued', 'running'] } },
         data: {
@@ -313,7 +323,7 @@ export class SpaceService {
         data: { deletedAt: new Date() },
       });
       return tx.space.update({
-        where: { id },
+        where: { id, deletedAt: null },
         data: { deletedAt: new Date() },
       });
     });

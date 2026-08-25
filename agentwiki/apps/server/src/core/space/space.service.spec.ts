@@ -1,6 +1,11 @@
 import { SpaceService } from './space.service';
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
+import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
+
+const revisionWriter = {
+  lockSpace: jest.fn(async (tx: unknown) => tx),
+} as unknown as SpaceRevisionWriterService;
 
 describe('SpaceService.findAll pagination', () => {
   const prisma = {
@@ -10,7 +15,7 @@ describe('SpaceService.findAll pagination', () => {
     },
     $transaction: jest.fn(),
   } as any;
-  const service = new SpaceService(prisma);
+  const service = new SpaceService(prisma, revisionWriter);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -172,7 +177,7 @@ describe('SpaceService.create ownership', () => {
       create: jest.fn(),
     },
   } as any;
-  const service = new SpaceService(prisma);
+  const service = new SpaceService(prisma, revisionWriter);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -200,7 +205,7 @@ describe('SpaceService.listMembers includes agents', () => {
     spaceMember: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn() },
   } as any;
-  const service = new SpaceService(prisma);
+  const service = new SpaceService(prisma, revisionWriter);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -304,7 +309,7 @@ describe('admin role and member management', () => {
     agentGrant: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   } as any;
-  const service = new SpaceService(prisma);
+  const service = new SpaceService(prisma, revisionWriter);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -387,15 +392,23 @@ describe('SpaceService.remove', () => {
     assistTask: { updateMany: jest.fn() },
     pageSearchDocument: { deleteMany: jest.fn() },
     page: { updateMany: jest.fn() },
-    space: { update: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+    space: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'space-1' }),
+      update: jest.fn().mockResolvedValue({ id: 'space-1' }),
+    },
   };
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   } as any;
-  const service = new SpaceService(prisma);
+  const service = new SpaceService(prisma, revisionWriter);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (revisionWriter.lockSpace as jest.Mock).mockImplementation(async (transaction: unknown) => transaction);
+    tx.space.findUnique.mockResolvedValue({ id: 'space-1' });
+    tx.space.update.mockResolvedValue({ id: 'space-1' });
+  });
 
   it('fails queued and running assistant tasks before soft-deleting the space', async () => {
     await service.remove('space-1');
@@ -409,6 +422,24 @@ describe('SpaceService.remove', () => {
         leaseOwner: null,
         leaseExpiresAt: null,
       }),
+    });
+  });
+
+  it('takes the shared Space lock before soft-deleting live pages and the Space', async () => {
+    tx.space.update.mockResolvedValue({ id: 'space-1', deletedAt: new Date() });
+
+    await service.remove('space-1');
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect((revisionWriter.lockSpace as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      tx.page.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { spaceId: 'space-1', deletedAt: null },
+    }));
+    expect(tx.space.update).toHaveBeenCalledWith({
+      where: { id: 'space-1', deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
     });
   });
 });
