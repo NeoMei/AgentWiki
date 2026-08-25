@@ -56,7 +56,9 @@ describe('PageTemplateService', () => {
   let service: PageTemplateService;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(prisma));
+    prisma.$queryRaw.mockResolvedValue([]);
     config.get.mockReturnValue('api');
     pageTemplate.create.mockImplementation(async ({ data }: any) => ({ id: `created-${data.stableKey}`, ...data }));
     pageTemplate.updateMany.mockResolvedValue({ count: 1 });
@@ -72,6 +74,9 @@ describe('PageTemplateService', () => {
     await service.seedBuiltIns();
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function), { isolationLevel: 'Serializable' },
+    );
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(pageTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ scope: 'system', scopeKey: 'system', currentVersion: 1 }),
@@ -87,6 +92,7 @@ describe('PageTemplateService', () => {
 
     await service.seedOne({ ...BUILT_IN_PAGE_TEMPLATES[0], seedVersion: 2 } as any);
 
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ templateId: 'system-1', version: 2 }),
     }));
@@ -94,6 +100,68 @@ describe('PageTemplateService', () => {
       where: { id: 'system-1', scope: 'system', currentVersion: 1 },
       data: expect.objectContaining({ currentVersion: 2 }),
     }));
+  });
+
+  it('runs standalone seedOne writes on one transaction client', async () => {
+    const transactionFailure = new Error('version insert failed');
+    const tx = {
+      pageTemplate: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'created-in-transaction' }),
+      },
+      pageTemplateVersion: {
+        create: jest.fn().mockRejectedValue(transactionFailure),
+      },
+    };
+    prisma.$transaction.mockImplementationOnce(async (callback: (client: unknown) => unknown) => callback(tx));
+
+    await expect(service.seedOne(BUILT_IN_PAGE_TEMPLATES[0])).rejects.toBe(transactionFailure);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.pageTemplate.create).toHaveBeenCalledTimes(1);
+    expect(tx.pageTemplateVersion.create).toHaveBeenCalledTimes(1);
+    expect(pageTemplate.create).not.toHaveBeenCalled();
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['P2034', 'P2002'])('retries seed transactions after Prisma %s', async (code) => {
+    const retryable = Object.assign(new Error(`Prisma ${code}`), { code });
+    pageTemplate.findUnique.mockResolvedValue({ id: 'system-1', scope: 'system', currentVersion: 1 });
+    prisma.$transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) => {
+      await callback(prisma);
+      throw retryable;
+    });
+
+    await service.seedBuiltIns();
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries seed transactions after an identifiable SQLSTATE 40001', async () => {
+    const retryable = new Error('transaction aborted with SQLSTATE 40001 serialization_failure');
+    pageTemplate.findUnique.mockResolvedValue({ id: 'system-1', scope: 'system', currentVersion: 1 });
+    prisma.$transaction.mockRejectedValueOnce(retryable);
+
+    await service.seedBuiltIns();
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops after the bounded seed transaction retry budget is exhausted', async () => {
+    const retryable = Object.assign(new Error('serialization conflict'), { code: 'P2034' });
+    prisma.$transaction.mockRejectedValue(retryable);
+
+    await expect(service.seedBuiltIns()).rejects.toBe(retryable);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry non-retryable seed transaction failures', async () => {
+    const failure = new Error('configuration failure');
+    prisma.$transaction.mockRejectedValue(failure);
+
+    await expect(service.seedBuiltIns()).rejects.toBe(failure);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it('seeds only in API and all process roles', async () => {
@@ -185,6 +253,6 @@ describe('PageTemplateService', () => {
 
     await expect(service.resolveVersion(prisma, {
       spaceId: 'space-1', templateId: 'system-1', version: 1, locale: 'en',
-    })).rejects.toThrow();
+    })).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
   });
 });

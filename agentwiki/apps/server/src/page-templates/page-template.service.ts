@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PageTemplate, Prisma } from '@prisma/client';
+import { ZodError } from 'zod';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
@@ -13,6 +14,20 @@ import {
   PageTemplateLocaleSchema,
   templateContentHash,
 } from './page-template.types';
+
+const SEED_TRANSACTION_MAX_ATTEMPTS = 3;
+
+function isRetryableSeedTransactionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as Record<string, unknown>;
+  const nested = [record, record.meta, record.cause]
+    .filter((value): value is Record<string, unknown> => value !== null && typeof value === 'object');
+  const codes = nested.flatMap((value) => [value.code, value.sqlState, value.sqlstate])
+    .filter((value): value is string => typeof value === 'string');
+  if (codes.some((code) => ['P2034', 'P2002', '40001'].includes(code))) return true;
+  const messages = nested.map((value) => value.message).filter((value): value is string => typeof value === 'string');
+  return messages.some((message) => /\bSQLSTATE\s*[:=]?\s*40001\b|\bserialization_failure\b/iu.test(message));
+}
 
 @Injectable()
 export class PageTemplateService implements OnModuleInit {
@@ -29,14 +44,25 @@ export class PageTemplateService implements OnModuleInit {
   }
 
   async seedBuiltIns(): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('agentwiki:page-template-seeds'))`;
-      for (const seed of BUILT_IN_PAGE_TEMPLATES) await this.seedOne(seed, tx);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    for (let attempt = 1; attempt <= SEED_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('agentwiki:page-template-seeds'))`;
+          for (const seed of BUILT_IN_PAGE_TEMPLATES) await this.seedOne(seed, tx);
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return;
+      } catch (error) {
+        if (attempt === SEED_TRANSACTION_MAX_ATTEMPTS || !isRetryableSeedTransactionError(error)) throw error;
+      }
+    }
   }
 
   async seedOne(seed: BuiltInPageTemplate, transaction?: Prisma.TransactionClient): Promise<void> {
-    const tx = transaction ?? this.prisma;
+    if (!transaction) {
+      await this.prisma.$transaction((tx) => this.seedOne(seed, tx));
+      return;
+    }
+    const tx = transaction;
     const current = await tx.pageTemplate.findUnique({
       where: { scopeKey_stableKey: { scopeKey: 'system', stableKey: seed.stableKey } },
     });
@@ -97,16 +123,20 @@ export class PageTemplateService implements OnModuleInit {
       }),
       this.prisma.pageTemplate.count({ where: spaceWhere }),
     ]);
-    const systemSummaries = system.map((row) => this.summary(row, query.locale));
-    const normalizedQuery = query.q?.trim().toLocaleLowerCase(query.locale);
-    return {
-      system: normalizedQuery
-        ? systemSummaries.filter((row) => row.name.toLocaleLowerCase(query.locale).includes(normalizedQuery))
-        : systemSummaries,
-      space: space.map((row) => this.summary(row, query.locale)),
-      totalSpace, skip: query.skip, take: query.take,
-      capabilities: { canManage },
-    };
+    try {
+      const systemSummaries = system.map((row) => this.summary(row, query.locale));
+      const normalizedQuery = query.q?.trim().toLocaleLowerCase(query.locale);
+      return {
+        system: normalizedQuery
+          ? systemSummaries.filter((row) => row.name.toLocaleLowerCase(query.locale).includes(normalizedQuery))
+          : systemSummaries,
+        space: space.map((row) => this.summary(row, query.locale)),
+        totalSpace, skip: query.skip, take: query.take,
+        capabilities: { canManage },
+      };
+    } catch (error) {
+      this.rethrowInvalidTemplateJson(error);
+    }
   }
 
   async resolveVersion(tx: Prisma.TransactionClient, input: {
@@ -123,14 +153,18 @@ export class PageTemplateService implements OnModuleInit {
     if (template.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
     const version = template.versions[0];
     if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
-    const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
-    const locale = template.scope === 'system' ? input.locale : fallback;
-    return {
-      content: localizedValue(version.contentI18n, input.locale, fallback),
-      templateId: template.id,
-      version: version.version,
-      locale,
-    };
+    try {
+      const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
+      const locale = template.scope === 'system' ? input.locale : fallback;
+      return {
+        content: localizedValue(version.contentI18n, input.locale, fallback),
+        templateId: template.id,
+        version: version.version,
+        locale,
+      };
+    } catch (error) {
+      this.rethrowInvalidTemplateJson(error);
+    }
   }
 
   async get(spaceId: string, templateId: string, locale: PageTemplateLocale, principal: Principal) {
@@ -147,15 +181,24 @@ export class PageTemplateService implements OnModuleInit {
         where: { templateId_version: { templateId: template.id, version: template.currentVersion } },
       });
       if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
-      const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
-      const contentLocale = template.scope === 'system' ? locale : fallback;
-      return {
-        ...this.summary(template, locale),
-        content: localizedValue(version.contentI18n, locale, fallback),
-        contentLocale,
-        sourcePageId: version.sourcePageId,
-      };
+      try {
+        const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
+        const contentLocale = template.scope === 'system' ? locale : fallback;
+        return {
+          ...this.summary(template, locale),
+          content: localizedValue(version.contentI18n, locale, fallback),
+          contentLocale,
+          sourcePageId: version.sourcePageId,
+        };
+      } catch (error) {
+        this.rethrowInvalidTemplateJson(error);
+      }
     });
+  }
+
+  private rethrowInvalidTemplateJson(error: unknown): never {
+    if (error instanceof ZodError) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    throw error;
   }
 
   private summary(template: PageTemplate, locale: PageTemplateLocale) {

@@ -1,5 +1,7 @@
-import { Type } from 'class-transformer';
+import { PageTemplateCategory } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsEnum,
   IsIn,
   IsInt,
   IsISO8601,
@@ -9,42 +11,45 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+
+const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
 
 export class PageTemplateListQueryDto {
   @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
   @IsOptional() @IsIn(['all', 'system', 'space']) scope?: 'all' | 'system' | 'space';
   @IsOptional() @IsIn(['active', 'archived', 'all']) archived?: 'active' | 'archived' | 'all';
-  @IsOptional() @IsIn(['planning', 'reporting', 'knowledge', 'other']) category?: 'planning' | 'reporting' | 'knowledge' | 'other';
+  @IsOptional() @IsEnum(PageTemplateCategory) category?: PageTemplateCategory;
   @IsOptional() @IsString() @MaxLength(80) q?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) skip = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
 }
 
 export class CreatePageTemplateDto {
-  @IsString() @MinLength(1) @MaxLength(80) name!: string;
-  @IsOptional() @IsString() @MaxLength(240) description?: string;
-  @IsIn(['planning', 'reporting', 'knowledge', 'other']) category!: 'planning' | 'reporting' | 'knowledge' | 'other';
-  @IsString() @MinLength(1) @MaxLength(200) defaultTitle!: string;
-  @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
-  @IsString() @MaxLength(100) sourcePageId!: string;
-  @IsISO8601({ strict: true }) expectedSourceUpdatedAt!: string;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(80) name!: string;
+  @PreserveRawInput() @ValidateIf((_object, value) => value !== undefined) @IsString() @MaxLength(240) description?: string;
+  @PreserveRawInput() @IsEnum(PageTemplateCategory) category!: PageTemplateCategory;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(200) defaultTitle!: string;
+  @PreserveRawInput() @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
+  @PreserveRawInput() @IsString() @MaxLength(100) sourcePageId!: string;
+  @PreserveRawInput() @IsISO8601({ strict: true }) expectedSourceUpdatedAt!: string;
 }
 
 export class UpdatePageTemplateDto {
-  @IsString() @MinLength(1) @MaxLength(80) name!: string;
-  @IsOptional() @IsString() @MaxLength(240) description?: string;
-  @IsIn(['planning', 'reporting', 'knowledge', 'other']) category!: 'planning' | 'reporting' | 'knowledge' | 'other';
-  @IsString() @MinLength(1) @MaxLength(200) defaultTitle!: string;
-  @IsISO8601({ strict: true }) expectedUpdatedAt!: string;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(80) name!: string;
+  @PreserveRawInput() @ValidateIf((_object, value) => value !== undefined) @IsString() @MaxLength(240) description?: string;
+  @PreserveRawInput() @IsEnum(PageTemplateCategory) category!: PageTemplateCategory;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(200) defaultTitle!: string;
+  @PreserveRawInput() @IsISO8601({ strict: true }) expectedUpdatedAt!: string;
 }
 
 export class CreatePageTemplateVersionDto {
-  @IsString() @MaxLength(100) sourcePageId!: string;
-  @IsISO8601({ strict: true }) expectedSourceUpdatedAt!: string;
-  @IsInt() @Min(1) @Max(2_147_483_647) expectedCurrentVersion!: number;
+  @PreserveRawInput() @IsString() @MaxLength(100) sourcePageId!: string;
+  @PreserveRawInput() @IsISO8601({ strict: true }) expectedSourceUpdatedAt!: string;
+  @PreserveRawInput() @IsInt() @Min(1) @Max(2_147_483_647) expectedCurrentVersion!: number;
 }
 
 export class PageTemplateStateDto {
-  @IsISO8601({ strict: true }) expectedUpdatedAt!: string;
+  @PreserveRawInput() @IsISO8601({ strict: true }) expectedUpdatedAt!: string;
 }
