@@ -56,7 +56,7 @@
 - Consumes: authenticated principal `{ userId: string; platformRole?: string }` and existing Agent ownership check.
 - Produces: `assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin?: boolean)` and `LocalSyncInstallationService.create(..., serverUrl, isSuperAdmin?: boolean)`; default `false` preserves every existing caller.
 
-- [ ] **Step 1: Add failing service and controller contract tests**
+- [x] **Step 1: Add failing service and controller contract tests**
 
 Add these assertions before changing production signatures:
 
@@ -109,7 +109,7 @@ it('passes the trusted Super Admin flag to the Agent authorization check', async
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -122,7 +122,7 @@ pnpm --filter @agentwiki/server exec jest --runInBand \
 
 Expected: FAIL because the fourth/seventh boolean parameters are absent and Super Admin still receives a membership-filtered Space query.
 
-- [ ] **Step 3: Implement the minimal permission alignment**
+- [x] **Step 3: Implement the minimal permission alignment**
 
 Change the Agent check to:
 
@@ -170,13 +170,13 @@ Extend `LocalSyncInstallationService.create` with `isSuperAdmin = false` and cal
 await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin);
 ```
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run the Step 2 command again.
 
 Expected: all three suites PASS; ordinary human tests still prove membership enforcement, and Super Admin bypass applies only to Space membership, never Agent ownership.
 
-- [ ] **Step 5: Commit the server contract**
+- [x] **Step 5: Commit the server contract**
 
 ```bash
 git add apps/server/src/core/agent/agent.service.ts \
@@ -200,7 +200,7 @@ git commit -m "fix(agent): align installation access for super admins"
 - Consumes: existing Axios client and `AgentAccessRole`.
 - Produces: `AgentIdentity`, `OwnedAgentSummary`, `OwnedAgentDetail`, `AgentInstallation`, `AgentPreparationApi`, `agentPreparationApi`, `apiResponseStatus(error)`, and `hasActiveSpaceCredential(agent, spaceId, now?)`.
 
-- [ ] **Step 1: Write the failing adapter and predicate tests**
+- [x] **Step 1: Write the failing adapter and predicate tests**
 
 ```ts
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -256,7 +256,7 @@ describe('agentPreparationApi', () => {
 });
 ```
 
-- [ ] **Step 2: Run the new test and verify RED**
+- [x] **Step 2: Run the new test and verify RED**
 
 Run:
 
@@ -267,7 +267,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement the typed adapter**
+- [x] **Step 3: Implement the typed adapter**
 
 Define exact public types and methods:
 
@@ -340,13 +340,13 @@ export function apiResponseStatus(error: unknown): number | undefined {
 }
 ```
 
-- [ ] **Step 4: Run the test and verify GREEN**
+- [x] **Step 4: Run the test and verify GREEN**
 
 Run the Step 2 command again.
 
 Expected: both tests PASS and TypeScript reports no `any` in the new adapter.
 
-- [ ] **Step 5: Commit the typed boundary**
+- [x] **Step 5: Commit the typed boundary**
 
 ```bash
 git add apps/client/src/features/collaboration/agentPreparationApi.ts \
@@ -366,7 +366,7 @@ git commit -m "feat(collaboration): add typed Agent preparation API"
 - Consumes: `AgentIdentity`, `AgentPreparationApi`, `OwnedAgentSummary`, `ExecutableAgentRole`, `apiResponseStatus`, and `hasActiveSpaceCredential` from Task 2.
 - Produces: `AgentCandidate`, `PreparationStage`, `PreparedAgent`, `AgentPreparationFailure`, and `prepareAgent(input, api, onStage?)`.
 
-- [ ] **Step 1: Write failing orchestration tests for existing, new, connected, and partial-success paths**
+- [x] **Step 1: Write failing orchestration tests for existing, new, connected, and partial-success paths**
 
 Use one typed fake and assert call order:
 
@@ -429,7 +429,7 @@ it('returns durable partial success when instruction issuance fails', async () =
 });
 ```
 
-- [ ] **Step 2: Run the orchestrator test and verify RED**
+- [x] **Step 2: Run the orchestrator test and verify RED**
 
 Run:
 
@@ -440,7 +440,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: FAIL because `prepareAgent.ts` does not exist.
 
-- [ ] **Step 3: Implement the orchestration result as a strict union**
+- [x] **Step 3: Implement the orchestration result as a strict union**
 
 Use these exact result contracts:
 
@@ -518,7 +518,7 @@ export async function prepareAgent(
 }
 ```
 
-- [ ] **Step 4: Run Task 2 and Task 3 tests and verify GREEN**
+- [x] **Step 4: Run Task 2 and Task 3 tests and verify GREEN**
 
 Run:
 
@@ -530,7 +530,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: all tests PASS, including exactly-once creation after instruction failure.
 
-- [ ] **Step 5: Commit the orchestration unit**
+- [x] **Step 5: Commit the orchestration unit**
 
 ```bash
 git add apps/client/src/features/collaboration/prepareAgent.ts \
@@ -551,7 +551,7 @@ git commit -m "feat(collaboration): orchestrate Agent preparation stages"
 - Consumes: Task 2 API, Task 3 orchestrator, `ModalDialog`, `ExecutableAgentRole`, target `{ id, name }`.
 - Produces: `PreparedAgentSelection` and `AgentPreparationDialog` with `onPrepared(result: PreparedAgentSelection): Promise<void>` plus `onAuthorizationLost(): Promise<void>`.
 
-- [ ] **Step 1: Write failing dialog tests for the full UI lifecycle**
+- [x] **Step 1: Write failing dialog tests for the full UI lifecycle**
 
 Mock `agentPreparationApi` and the orchestrator module. Cover at least these concrete cases:
 
@@ -642,7 +642,7 @@ it('refreshes parent authorization instead of retrying after a 403', async () =>
 
 Also assert that a paused existing Agent displays the status change, Reader displays the exact upgrade notice, Editor is the default role, Publisher is selectable, Escape cannot close during a mutation, expired instructions expose regeneration, a rejected `onPrepared` keeps the dialog open with the localized refresh error, clipboard failure creates an alert without leaking the instruction into the error text, and `localStorage` never contains the instruction or code.
 
-- [ ] **Step 2: Run the dialog test and verify RED**
+- [x] **Step 2: Run the dialog test and verify RED**
 
 Run:
 
@@ -653,7 +653,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: FAIL because the dialog and its message keys do not exist.
 
-- [ ] **Step 3: Add exact bilingual message keys**
+- [x] **Step 3: Add exact bilingual message keys**
 
 Add these keys to both language maps with the shown meanings:
 
@@ -713,7 +713,7 @@ Add these keys to both language maps with the shown meanings:
 'collaboration.agentPreparation.error.checking_connection': '无法检查 Agent 接入状态。',
 ```
 
-- [ ] **Step 4: Implement the dialog state machine and bounded polling**
+- [x] **Step 4: Implement the dialog state machine and bounded polling**
 
 Export the callback type from the component:
 
@@ -753,7 +753,7 @@ useEffect(() => {
 
 For instruction retry, call only `agentPreparationApi.createInstallation(result.agentId, spaceId, result.role)` and replace `result.connection`; never call `prepareAgent` again. Convert `AgentPreparationFailure.stage` to `collaboration.agentPreparation.error.${stage}` and never render raw Axios/server text. If either an `AgentPreparationFailure.cause` or an instruction/retry error has `apiResponseStatus(error) === 403`, await `onAuthorizationLost()` instead of exposing another retry.
 
-- [ ] **Step 5: Run dialog and lower-level tests and verify GREEN**
+- [x] **Step 5: Run dialog and lower-level tests and verify GREEN**
 
 Run:
 
@@ -766,7 +766,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: all suites PASS with no unhandled timer or React `act` warnings.
 
-- [ ] **Step 6: Commit the dialog**
+- [x] **Step 6: Commit the dialog**
 
 ```bash
 git add apps/client/src/features/collaboration/components/AgentPreparationDialog.tsx \
@@ -790,7 +790,7 @@ git commit -m "feat(collaboration): prepare and connect Agents in wizard"
 - Consumes: `AgentPreparationDialog`, `PreparedAgentSelection`, and `SpaceMemberSummary`.
 - Produces: `onPrepare(roleSlotId)` from the editor; wizard-owned `preparedConnections: Record<string, 'connected' | 'pending'>`; authoritative `onPrepared` refresh-and-map behavior.
 
-- [ ] **Step 1: Write the failing pure Role Slot action test**
+- [x] **Step 1: Write the failing pure Role Slot action test**
 
 ```tsx
 it('reports the exact Role Slot when Prepare Agent is chosen', () => {
@@ -810,7 +810,7 @@ it('reports the exact Role Slot when Prepare Agent is chosen', () => {
 });
 ```
 
-- [ ] **Step 2: Write failing wizard integration tests**
+- [x] **Step 2: Write failing wizard integration tests**
 
 Wrap the test wizard in `AuthProvider`, seed `localStorage.user`, and include one human member in the default fixture. Add these behaviors:
 
@@ -864,7 +864,7 @@ it('keeps a pending-connection warning in mapping and review', async () => {
 
 Retain and extend the existing stale-template test so a preparation callback from the old template cannot mutate the new template's bindings.
 
-- [ ] **Step 3: Run focused mapping tests and verify RED**
+- [x] **Step 3: Run focused mapping tests and verify RED**
 
 Run:
 
@@ -876,7 +876,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: FAIL because preparation callbacks, permission derivation, dialog ownership, and warnings are absent.
 
-- [ ] **Step 4: Refactor RoleBindingEditor into valid contextual controls**
+- [x] **Step 4: Refactor RoleBindingEditor into valid contextual controls**
 
 Replace the outer wrapping `<label>` with a `<div>` plus an explicit `htmlFor`, then add the optional action:
 
@@ -903,7 +903,7 @@ return <div key={slot.id} className="rounded-xl border bg-white p-4">
 </div>;
 ```
 
-- [ ] **Step 5: Add wizard-owned permission, target, refresh, and warning state**
+- [x] **Step 5: Add wizard-owned permission, target, refresh, and warning state**
 
 Add `useAuth`, preserve the full `members` response, and derive permission exactly:
 
@@ -949,7 +949,7 @@ const handlePreparationAuthorizationLost = async () => {
 
 The empty-state main button targets `template.definition.roleSlots.find(slot => slot.required && !bindings.some(binding => binding.roleSlotId === slot.id))`. Render pending warnings in both Step 2 and `ReviewStep`; do not disable Start solely because the connection is pending.
 
-- [ ] **Step 6: Add exact integration message keys**
+- [x] **Step 6: Add exact integration message keys**
 
 ```ts
 // English
@@ -965,7 +965,7 @@ The empty-state main button targets `template.definition.roleSlots.find(slot => 
 'collaboration.agentPreparation.pending': '{agent} 已完成映射，但尚未接入当前 Space。',
 ```
 
-- [ ] **Step 7: Run focused client tests and verify GREEN**
+- [x] **Step 7: Run focused client tests and verify GREEN**
 
 Run:
 
@@ -980,7 +980,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: all focused suites PASS, existing three-step and self-review tests remain GREEN, and output contains no React warnings.
 
-- [ ] **Step 8: Commit the wizard integration**
+- [x] **Step 8: Commit the wizard integration**
 
 ```bash
 git add apps/client/src/features/collaboration/components/RoleBindingEditor.tsx \
@@ -1005,7 +1005,7 @@ git commit -m "feat(collaboration): prepare Agents from role mapping"
 - Consumes: completed Tasks 1-5 and existing isolated collaboration test infrastructure.
 - Produces: reproducible gate results and real UI/MCP evidence; no production mutation.
 
-- [ ] **Step 1: Run static and focused gates from a clean intended diff**
+- [x] **Step 1: Run static and focused gates from a clean intended diff**
 
 Run:
 
@@ -1027,7 +1027,7 @@ pnpm --filter @agentwiki/client exec vitest run \
 
 Expected: every command exits 0 with no warnings worth fixing.
 
-- [ ] **Step 2: Run complete repository gates**
+- [x] **Step 2: Run complete repository gates**
 
 Run:
 
@@ -1041,13 +1041,13 @@ git diff --check
 
 Expected: all repository suites pass; only documented environment-dependent skips remain, and no new skip is introduced.
 
-- [ ] **Step 3: Start isolated local services and create disposable acceptance data**
+- [x] **Step 3: Start isolated local services and create disposable acceptance data**
 
 Use the repository's existing collaboration-test environment and a random `collaboration_test_*` PostgreSQL schema through `COLLABORATION_TEST_DATABASE_URL`; never point Prisma migration or cleanup at `public`. Start the API, worker, and client on unused local ports. Register a disposable human, create one Space, and preserve its IDs in an ephemeral acceptance note, not in source.
 
 Expected: API health is `ok`, worker has zero restart loop, and the browser can sign in to the disposable account.
 
-- [ ] **Step 4: Exercise the real browser flow at desktop width**
+- [x] **Step 4: Exercise the real browser flow at desktop width**
 
 In the local UI:
 
@@ -1062,13 +1062,13 @@ In the local UI:
 
 Expected: every authoritative state transition is visible, no raw credential appears outside the intended instruction panel, and the browser console contains no error/warn worth fixing.
 
-- [ ] **Step 5: Repeat responsive and permission acceptance**
+- [x] **Step 5: Repeat responsive and permission acceptance**
 
 At a 390px viewport, repeat empty state, dialog, long instruction, copy, retry, and pending-warning screens. Assert `document.documentElement.scrollWidth === 390` at each screen. Then sign in as a disposable Space Editor and confirm the wizard shows the Owner/Admin instruction with no Grant mutation button. Finally verify the Super Admin preparation path in the isolated environment.
 
 Expected: no horizontal overflow, clipped buttons, inaccessible dialog content, or permission-confused action.
 
-- [ ] **Step 6: Clean every disposable resource and write evidence**
+- [x] **Step 6: Clean every disposable resource and write evidence**
 
 Stop local services, remove only the validated random test schema and temporary Local Sync configuration directory, and confirm no `collaboration_test_*` data or process remains. Read the tested SHA with `git rev-parse HEAD`, then write `docs/testing/collaboration-agent-preparation-acceptance.md` with the actual SHA and observed numerical counts. The final document must contain these fields:
 
@@ -1089,7 +1089,7 @@ Stop local services, remove only the validated random test schema and temporary 
 
 Record the SHA and numerical counts on the same lines when writing the evidence; do not copy example markers into the finished document.
 
-- [ ] **Step 7: Update project memory and commit acceptance evidence**
+- [x] **Step 7: Update project memory and commit acceptance evidence**
 
 Keep the task active after local acceptance because external release is explicitly outside the current scope. Record “local implementation verified; push and production release not authorized” in the brief, and update `current.md` by replacement, not by appending a timeline.
 

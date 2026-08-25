@@ -2,6 +2,17 @@
 
 Local acceptance was completed on 2026-08-25 (Asia/Shanghai) against isolated local services only.
 
+## Fresh release audit rerun (2026-08-25)
+
+- Task closure was checked again against the active brief, frozen design, implementation plan, and acceptance criteria. Tasks 1–6 remain complete; the only open item is an externally authorized push/release/deployment, which is outside this local audit.
+- A fixed-range Codex Security diff scan reviewed all 36 changed executable source/test items in `4e02de11..a744b201`: 36/36 closed, 0 reportable findings, 0 deferred candidates. The generated report is stored outside the repository in the Codex Security scan artifacts.
+- Fresh full gates passed again: lint, four workspace typechecks, five workspace builds, and `git diff --check` exited 0; 2,358 tests passed, 54 explicitly environment-gated tests skipped, and 0 failed. The only build advisory remained Vite's existing large-chunk suggestion.
+- A final focused rerun exposed two test-fixture defects rather than a product defect: two real-`prepareAgent` cases omitted the mocked installation response, and the shared connected credential expired at a fixed wall-clock time. The fixtures now provide a real installation shape and use the contract-supported non-expiring credential. The affected file passed 52/52, the collaboration client focus passed 145/145, the collaboration server focus passed 117/117, and the complete 2,358/54/0 gate passed again with no unhandled errors.
+- Fresh isolated PostgreSQL execution passed without skips: collaboration schema/migration 2/2, workflow transaction scenarios 10/10, and concurrent Agent-create idempotency plus audit rollback 1/1. Cleanup left 0 `collaboration_test_*` schemas and 0 `local-sync:*` Redis keys.
+- Fresh Browser execution used a new disposable user, Space, Agent, Grant, draft, and Run. It covered empty mapping, `准备第一个 Agent`, inline create, Editor Grant, one-time instruction, copy, Connect later, automatic current-slot mapping, repeated-role separation acknowledgement, successful Run start, and the live Run dashboard.
+- Desktop focus returned to the Step 2 `H2` when the first preparation opener disappeared. At 390×844, the document stayed `390 == scrollWidth`, the dialog stayed `358 == scrollWidth`, the instruction panel stayed `290 == scrollWidth`, and every action remained reachable. Browser console error/warn and framework overlay counts were 0.
+- Cleanup closed the Browser tab, reset the viewport, stopped API and both Vite processes, removed only the validated random test schema and generated Local Sync keys, and confirmed ports 3000/5173/5174 were free. No production-code change was required by this rerun; only the two deterministic test-fixture repairs above were added.
+
 ## Final remediation acceptance
 
 This section supersedes the earlier commit and test counts below while retaining them as historical acceptance evidence.

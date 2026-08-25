@@ -58,7 +58,7 @@ const connectedDetail: OwnedAgentDetail = {
   credentials: [{
     id: 'credential-1',
     revokedAt: null,
-    expiresAt: new Date('2026-08-25T02:00:00.000Z').toISOString(),
+    expiresAt: null,
     authorization: { role: 'editor', space },
   }],
 };
@@ -282,6 +282,7 @@ describe('AgentPreparationDialog', () => {
     });
     vi.mocked(agentPreparationApi.upsertGrant).mockResolvedValue(undefined);
     vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    vi.mocked(agentPreparationApi.createInstallation).mockResolvedValue(installation());
     await useRealPrepareAgent();
     renderDialog();
 
@@ -309,6 +310,7 @@ describe('AgentPreparationDialog', () => {
     vi.mocked(existingAgentContextApi.getAgent).mockResolvedValue(activeDetail);
     vi.mocked(agentPreparationApi.upsertGrant).mockResolvedValue(undefined);
     vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    vi.mocked(agentPreparationApi.createInstallation).mockResolvedValue(installation());
     await useRealPrepareAgent();
     renderDialog();
 

@@ -21,6 +21,7 @@
 - 桌面与 390×844 Browser 验收通过：空状态创建/授权/Connect later、外部 connected 自动清除、直接选择 pending、真实 403 后跨 4.7 秒轮询持续 Owner/Admin 指引、焦点 fallback、无横向溢出；console error/warn 均为 0。曾观察到的提示消失由 Vite HMR 精确解释，稳定重验未复现，不计产品缺陷。
 - 最终清理零残留：Browser 测试页关闭，API/Vite 停止，3000/5173 无监听，四类 Redis 临时键为 0，全部 `collaboration_test_*` schema 为 0，临时 health 文件不存在。
 - 独立最终代码审查结论为 Critical 0 / Important 0 / Minor 0。
+- 2026-08-25 再次执行发布级复审：固定范围安全审查 36/36、0 finding/0 deferred；隔离 DB 2/2 + 10/10 + 1/1；新的真实 Browser 从空 Agent 映射一直启动到 Run 看板，桌面/390px/console/清理均通过。末轮聚焦测试发现并修复 2 个测试 fixture 问题（缺失安装响应 mock、固定时刻凭证过期），生产代码未改；52/52、前端聚焦 145/145、服务端聚焦 117/117 后再次全仓门禁 2,358 passed / 54 skipped / 0 failed。
 - 本地实现已验证；push、npm 发布和生产发布未获授权，未执行。
 - 上一版协作发布基线仍为本地/GitHub/生产 `0.6.1` 与 Sync Protocol `0.3.0`。
 

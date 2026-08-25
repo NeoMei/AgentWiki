@@ -10,6 +10,7 @@
 - 全仓最终门禁为 2,358 passed / 54 skipped / 0 failed；lint、typecheck、build、diff-check 均通过。隔离 PostgreSQL migration 2/2、workflow 10/10、并发幂等与审计回滚 1/1。
 - 桌面与 390×844 真实 Browser 已覆盖空状态准备、创建/授权、Connect later、外部 connected 收敛、直接 pending、真实 403 跨轮询指引、fallback 焦点与无溢出；console error/warn 0。独立复审为 0C/0I/0M。
 - Browser 页、API/Vite、Redis 临时键、随机 PostgreSQL schema 与临时 health 文件均已清理，复核为零残留。
+- 2026-08-25 新一轮发布审查再次得到同一结论：安全 diff 36/36 且 0 finding，隔离 DB 2/2 + 10/10 + 1/1，真实 Browser 从空映射启动到 Run 看板并通过 390px/console/清理检查。末轮修复 2 个测试 fixture 问题（缺失安装响应 mock、固定时刻凭证过期），无需产品代码修订；52/52、前端聚焦 145/145、服务端聚焦 117/117 后完整门禁再次为 2,358/54/0。
 - 本地实现已达到发布候选标准；push、npm 发布和生产部署未授权，任务继续保持 active。
 
 ## 完成标准
