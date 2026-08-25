@@ -2,6 +2,18 @@
 
 Local acceptance was completed on 2026-08-25 (Asia/Shanghai) against isolated local services only.
 
+## Current-HEAD release-grade rerun (2026-08-25)
+
+- Task closure was reconciled for a further pass against the active brief, frozen design, 36/36 checked implementation-plan items, and acceptance criteria. No unfinished local implementation task remains; push, npm publication, and production deployment remain separately authorized external work.
+- Fresh full repository gates on `82b6a61d24f9c2f1b961d9058691e3ceefbcf8b4` passed: lint, four workspace typechecks, five workspace builds, and diff whitespace checks exited 0; 2,358 tests passed, 54 documented environment-gated tests skipped, and 0 failed. The existing Vite large-chunk advisory was the only build advisory.
+- Fresh isolated PostgreSQL execution passed without skips: collaboration schema/migration and workflow scenarios passed 12/12, and concurrent Agent-create idempotency plus audit rollback passed 1/1.
+- A sealed fixed-range Codex Security scan reviewed the exact `013a0ca8706f3cd32532addc73df682bbdae4d6e..82b6a61d24f9c2f1b961d9058691e3ceefbcf8b4` diff. Its 36/36 review items and nine security surfaces closed with 0 candidates, 0 deferred items, and 0 findings. The reusable threat model and sealed report remain in the external Codex Security artifact bundle, not the repository.
+- Fresh Browser acceptance used an isolated user, Space, Agent, Publisher Grant, draft, and Run. It proved empty mapping recovery via `准备第一个 Agent`, inline Agent create/enable/authorize, one-time instruction copy, Connect later, current-slot auto-selection, all six Role Slot mappings, separation-risk acknowledgement, successful start, and the live Run dashboard with task, Todo, dependency, review, artifact, and activity sections.
+- The unacknowledged Start action remained on Step 3 and displayed the separation-risk prompt without calling Start; after acknowledgement it started exactly once. The enabled button is therefore an intentional validation-on-action interaction already covered by the automated contract, not a defect.
+- At 390×844, both the Run dashboard and Agent preparation dialog stayed at `document.scrollWidth === innerWidth === 390`; all actions remained reachable. Closing the dialog restored focus to its preparation trigger, Browser console error/warn was empty, and no framework overlay appeared.
+- Two setup-only failures were diagnosed rather than hidden: the API correctly failed closed without `AGENTWIKI_SERVER_PEPPER`, and an obsolete test script token field caused a deliberate 401. Supplying the documented test-only configuration and using `access_token` resolved them without production-code changes. A Vite development WebSocket `EPIPE` coincided with browser navigation/closure; the Browser console stayed clean and the completed application flow was unaffected.
+- Cleanup closed the agent-created Browser tab, reset the viewport, stopped API/Vite, deleted the one exact Local Sync installation key and the exact random test schema, and confirmed 0 `local-sync:*` keys and 0 `collaboration_test_*` schemas. No product or test source change was required by this rerun.
+
 ## Fresh release audit rerun (2026-08-25)
 
 - Task closure was checked again against the active brief, frozen design, implementation plan, and acceptance criteria. Tasks 1–6 remain complete; the only open item is an externally authorized push/release/deployment, which is outside this local audit.

@@ -11,6 +11,7 @@
 - 桌面与 390×844 真实 Browser 已覆盖空状态准备、创建/授权、Connect later、外部 connected 收敛、直接 pending、真实 403 跨轮询指引、fallback 焦点与无溢出；console error/warn 0。独立复审为 0C/0I/0M。
 - Browser 页、API/Vite、Redis 临时键、随机 PostgreSQL schema 与临时 health 文件均已清理，复核为零残留。
 - 2026-08-25 新一轮发布审查再次得到同一结论：安全 diff 36/36 且 0 finding，隔离 DB 2/2 + 10/10 + 1/1，真实 Browser 从空映射启动到 Run 看板并通过 390px/console/清理检查。末轮修复 2 个测试 fixture 问题（缺失安装响应 mock、固定时刻凭证过期），无需产品代码修订；52/52、前端聚焦 145/145、服务端聚焦 117/117 后完整门禁再次为 2,358/54/0。
+- 当前 HEAD `82b6a61d` 再次完成相同范围的发布级复核：计划 36/36、全量门禁 2,358/54/0、隔离 DB 12/12 + 1/1、封存安全审查 36/36 与 9 个风险面且 0 candidate/0 deferred/0 finding。真实 Browser 从空映射完成站内创建、Publisher 授权、Connect later、六角色映射、职责分离门禁、启动和 Run 看板；桌面/390px、焦点、console 与零残留清理均通过。测试环境启动门禁和脚本旧 token 字段经系统化定位后只修正运行配置，无产品或测试源码改动。
 - 本地实现已达到发布候选标准；push、npm 发布和生产部署未授权，任务继续保持 active。
 
 ## 完成标准
