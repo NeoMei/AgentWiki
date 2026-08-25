@@ -6,25 +6,26 @@ import { ModalDialog } from './ModalDialog';
 const DetachedOpenerHarness: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [showOpener, setShowOpener] = useState(true);
+  const [fallbackVersion, setFallbackVersion] = useState(0);
   const fallbackRef = useRef<HTMLHeadingElement>(null);
 
+  const closeAfterReplacingFallback = () => {
+    setFallbackVersion((current) => current + 1);
+    setShowOpener(false);
+    setOpen(false);
+  };
+
   return <>
-    <h2 ref={fallbackRef} tabIndex={-1}>Mapping</h2>
+    <h2 key={fallbackVersion} ref={fallbackRef} tabIndex={-1}>Mapping</h2>
     {showOpener ? <button type="button" onClick={() => setOpen(true)}>Prepare first Agent</button> : null}
     {open ? (
       <ModalDialog
         labelledBy="dialog-title"
         fallbackFocusRef={fallbackRef}
-        onRequestClose={() => {
-          setShowOpener(false);
-          setOpen(false);
-        }}
+        onRequestClose={closeAfterReplacingFallback}
       >
         <h3 id="dialog-title">Prepare Agent</h3>
-        <button type="button" onClick={() => {
-          setShowOpener(false);
-          setOpen(false);
-        }}>Complete preparation</button>
+        <button type="button" onClick={closeAfterReplacingFallback}>Complete preparation</button>
       </ModalDialog>
     ) : null}
   </>;
