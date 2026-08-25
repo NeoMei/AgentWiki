@@ -19,7 +19,7 @@ The final review commits added a serialized SHA-256 lock and edge coverage for t
 - Added a stable manager search fallback target. Metadata/version dialogs pass `fallbackFocusRef`; archive/restore explicitly restore focus after their trigger is removed. Unit assertions use `toHaveFocus`, while Playwright acceptance uses `toBeFocused()` for all four success paths.
 - Added a synchronous archive/restore ref lock plus pending disabled state, 200/201 Unicode default-title coverage, visible localized Selected state, localized System/Space labels, and action-specific bilingual unknown-error fallbacks.
 - `PageTemplateSummary` is now a scope-discriminated union (`system => sourceLocale: null`, `space => sourceLocale: locale`); catalog adapters reject malformed runtime pairs and fixtures match the wire contract.
-- The previous disposable browser result remains 7/7 evidence for the earlier candidate. The newly added Admin/focus assertions are source-level acceptance coverage until a new disposable browser stack is run; this record does not relabel them as executed evidence.
+- The previous disposable browser result remains 7/7 evidence for the earlier candidate. A fresh disposable stack at `2878e59` subsequently executed the expanded suite 8/8, including the new Human Admin and four focus-restoration assertions.
 
 Fresh focused verification for this remediation:
 
@@ -28,7 +28,7 @@ Fresh focused verification for this remediation:
 | `node --test scripts/page-template-schema.test.mjs` | 8 passed, 0 failed |
 | focused page-template/authorization/page Jest gate | 7 suites, 196 passed, 0 failed |
 | focused page-template/Space/PageEditor Vitest gate | 10 files, 235 passed, 0 failed |
-| `playwright test e2e/page-templates.spec.ts --list` | 8 scenarios discovered, including Human Admin; discovery only, not a browser execution claim |
+| `playwright test e2e/page-templates.spec.ts` | 8 scenarios passed in real Chrome, including Human Admin and four manager focus-restoration paths; 13.9 s Playwright / 14.42 s wall |
 | `pnpm typecheck` | exit 0 |
 | `pnpm lint` | exit 0 |
 | `git diff --check` | exit 0 |
@@ -60,6 +60,21 @@ The first disposable attempt failed before schema creation because its orchestra
 
 ## Real browser gate
 
+The final browser gate ran at `2878e59e04273589f58aef271ef2077b4f9b897f` on a new disposable stack: PostgreSQL at `127.0.0.1:59611` with database `agentwiki_page_template_task13_admin_e2e` and schema `page_template_e2e_2878e59_59611`, Redis at `127.0.0.1:59612`, API at 3000, and Vite at 5173. Health reported `status`, `database`, `redis`, and `auditPersistence` all `ok`.
+
+```text
+pnpm --filter @agentwiki/client exec playwright test e2e/page-templates.spec.ts
+8 passed, 0 failed, 0 skipped; 1 worker
+Playwright duration: 13.9 s
+wall time: 14.42 s
+```
+
+The executed scenarios covered Owner save/use and immutable versioning; archive/restore; Editor use without management; Viewer without create; Human Admin create and management access; Chinese/English system Markdown; blank child provenance; and the 390 x 844 layout/focus path. Metadata save, version creation, archive, and restore each returned focus to the template search field. The two scenarios that installed console-error collectors observed zero errors; the other six did not claim a console count.
+
+`afterAll` asserted successful DELETE responses for the Space and all four users. SQL confirmed zero active matching Spaces and users after soft deletion. API logs recorded one Space and four user deletions. Ports 3000, 5173, 59611, and 59612 were released, and the evidence bundle was moved to `/Users/neomei/.Trash/agentwiki-task13-admin-e2e.xiaraU-1787681200`.
+
+### Earlier 7/7 browser evidence
+
 The real browser run used the fresh cluster above, a new Redis 8.8 instance on loopback port 59502, the local API on 3000, and Vite on 5173. All four health fields were `ok` before Playwright. The API database received all 43 migrations.
 
 ```text
@@ -88,7 +103,7 @@ Screenshots from the passing run were moved with the disposable evidence to Tras
 - `/Users/neomei/.Trash/agentwiki-task13-final4.CO5j8h-1787679963/tmp/agentwiki-page-template-qa/1787679948956-37e488c1febf2/template-manager-mobile.png`
 - `/Users/neomei/.Trash/agentwiki-task13-final4.CO5j8h-1787679963/tmp/agentwiki-page-template-qa/1787679948956-37e488c1febf2/page-editor-more-mobile.png`
 
-The suite's `afterAll` assertion confirmed successful cleanup HTTP responses for the Space and three users. Those endpoints soft-delete records; therefore physical row counts remain by design. The API, Vite, Redis, and PostgreSQL processes were stopped, ports 3000, 5173, 59501, and 59502 were free, and the complete disposable directory was moved to Trash.
+The earlier suite's `afterAll` assertion confirmed successful cleanup HTTP responses for the Space and three users. Those endpoints soft-delete records; therefore physical row counts remain by design. The API, Vite, Redis, and PostgreSQL processes were stopped, ports 3000, 5173, 59501, and 59502 were free, and the complete disposable directory was moved to Trash.
 
 The first long-name browser run reproduced horizontal overflow (`scrollWidth` 763 at a 390px viewport). Adding `overflow-wrap:anywhere` alone did not change flex min-content sizing and reproduced the same failure on a second new stack. The minimal final fix added deterministic `word-break: break-all` and a full-width mobile action container; the completely new final stack then passed 7/7. Both failed stacks were stopped, port-checked, and moved to Trash before the final run.
 
@@ -96,12 +111,12 @@ The first long-name browser run reproduced horizontal overflow (`scrollWidth` 76
 
 | Command | Observed result | Wall time |
 | --- | --- | --- |
-| `pnpm test:runtime` | 155 tests: 104 passed, 51 skipped, 0 failed; 2 suites | 5.19 s |
-| `pnpm --filter @agentwiki/server test` | 90 suites: 88 passed, 2 skipped; 1,188 tests: 1,184 passed, 4 skipped, 0 failed | 12.48 s |
-| `pnpm --filter @agentwiki/client test` | 66 files and 652 tests passed, 0 skipped | 15.67 s |
-| `pnpm typecheck` | exit 0 | 13.28 s |
-| `pnpm lint` | exit 0 | 4.51 s |
-| `pnpm build` | exit 0 | 21.09 s |
+| `pnpm test:runtime` | 155 tests: 104 passed, 51 skipped, 0 failed; 2 suites | 6.01 s |
+| `pnpm --filter @agentwiki/server test` | 90 suites: 88 passed, 2 skipped; 1,190 tests: 1,186 passed, 4 skipped, 0 failed | 14.92 s |
+| `pnpm --filter @agentwiki/client test` | 66 files and 674 tests passed, 0 skipped | 9.68 s |
+| `pnpm typecheck` | exit 0 | not recorded separately |
+| `pnpm lint` | exit 0 | not recorded separately |
+| `pnpm build` | exit 0 | not recorded separately |
 
 The production build emitted the existing non-blocking Vite warning for chunks over 500 kB; every workspace build completed.
 
@@ -121,6 +136,6 @@ The production build emitted the existing non-blocking Vite warning for chunks o
 
 - The existing Vite chunk-size warning remains a performance follow-up, not a correctness failure.
 - This is local acceptance only. No GitHub push, npm publish, production migration, or deployment was authorized or performed.
-- Live `origin/master` remained `62ba721f74660e61a3fd431dc95b7e351ca2a902`; the local branch was 32 commits ahead and 0 behind before this evidence commit.
+- Live `origin/master` remained `62ba721f74660e61a3fd431dc95b7e351ca2a902`; the local branch was 34 commits ahead and 0 behind before this evidence update.
 - Workspace package versions remain root/server/client/local-sync `0.6.1` and sync-protocol `0.3.0`. Public npm `latest` remained Local Sync `0.6.1` and Sync Protocol `0.3.0`; the package diff contains no version change.
 - A read-only public check returned HTTP 200 with all health fields `ok`. `GET /api/spaces/task13-readonly-probe/page-templates?locale=en` returned the route-not-installed 404, consistent with this feature not being deployed.
