@@ -8,6 +8,9 @@ import { SpaceSettings } from './SpaceSettings';
 const api = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
 vi.mock('../../api/client', () => ({ default: api }));
 vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigation</div> }));
+vi.mock('../page-templates/PageTemplateSettingsCard', () => ({
+  PageTemplateSettingsCard: ({ spaceId }: { spaceId: string }) => <section>Template settings {spaceId}</section>,
+}));
 
 const graphSettings = {
   wikilinkEnabled: true,
@@ -54,6 +57,15 @@ describe('SpaceSettings auto graph card', () => {
       }
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
+  });
+
+  it('renders the template card independently after the graph settings card', async () => {
+    renderSettings();
+
+    expect(await screen.findByText('Template settings space-1')).toBeInTheDocument();
+    const graph = screen.getByRole('heading', { name: '知识图谱自动生成' }).closest('section');
+    const templates = screen.getByText('Template settings space-1').closest('section');
+    expect(graph?.nextElementSibling).toBe(templates);
   });
 
   it('patches graph settings and runs a manual refresh', async () => {

@@ -37,6 +37,8 @@ const CollaborationWorkspace = lazy(() => import('./features/collaboration/Colla
 const TemplateEditor = lazy(() => import('./features/collaboration/TemplateEditor').then((module) => ({ default: module.TemplateEditor })));
 const RunStartWizard = lazy(() => import('./features/collaboration/RunStartWizard').then((module) => ({ default: module.RunStartWizard })));
 const RunDashboard = lazy(() => import('./features/collaboration/RunDashboard').then((module) => ({ default: module.RunDashboard })));
+const PageTemplateManager = lazy(() => import('./features/page-templates/PageTemplateManager')
+  .then((module) => ({ default: module.PageTemplateManager })));
 
 const RouteLoading: React.FC = () => {
   const { t } = useLanguage();
@@ -61,6 +63,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:spaceId/graph" element={<Suspense fallback={<RouteLoading />}><KnowledgeGraph /></Suspense>} />
         <Route path="/spaces/:id/members" element={<SpaceMembers />} />
         <Route path="/spaces/:id/settings" element={<SpaceSettings />} />
+        <Route path="/spaces/:id/settings/page-templates" element={<Suspense fallback={<RouteLoading />}><PageTemplateManager /></Suspense>} />
         <Route path="/spaces/:id/docs" element={<Navigate to="../sources" relative="path" replace />} />
         <Route path="/change-password" element={<ForcePasswordChange />} />
         <Route path="/profile" element={<Profile />} />

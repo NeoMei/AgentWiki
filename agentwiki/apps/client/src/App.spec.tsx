@@ -17,6 +17,10 @@ vi.mock('./features/collaboration/TemplateEditor', () => ({
   TemplateEditor: ({ mode }: { mode: string }) => <h1>Template editor mode: {mode}</h1>,
 }));
 
+vi.mock('./features/page-templates/PageTemplateManager', () => ({
+  PageTemplateManager: () => <h1>Space 页面模板</h1>,
+}));
+
 const LocationProbe = () => {
   const location = useLocation();
   return <p>{location.pathname + location.search + location.hash}</p>;
@@ -48,6 +52,15 @@ describe('ProtectedRoute', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: 'Template editor mode: create' })).toBeVisible();
+  });
+
+  it('routes the settings page to PageTemplateManager', async () => {
+    authState.token = 'signed-in';
+    window.history.replaceState({}, '', '/spaces/space-1/settings/page-templates');
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Space 页面模板' })).toBeInTheDocument();
   });
 
   it('redirects the legacy integrations URL to the Obsidian guide', async () => {

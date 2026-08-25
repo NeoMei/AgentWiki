@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../api/client';
 import { SpaceNav } from '../../components/SpaceNav';
+import { PageTemplateSettingsCard } from '../page-templates/PageTemplateSettingsCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -275,6 +276,7 @@ export const SpaceSettings: React.FC = () => {
         </div>
       </form>
       {id ? <AutoGraphCard key={id} spaceId={id} canManage={canManageGraph} /> : null}
+      {id ? <PageTemplateSettingsCard key={`page-templates-${id}`} spaceId={id} /> : null}
     </div>
   );
 };
