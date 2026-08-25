@@ -296,8 +296,12 @@ test.describe.serial('page template library', () => {
       const newPage = editorSession.page.getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
+      const customTemplate = editorSession.page.getByRole('button', {
+        name: new RegExp(customTemplateName, 'u'),
+      });
+      await expect(customTemplate).toBeVisible();
       await expect(editorSession.page.getByRole('link', { name: 'Manage templates' })).toHaveCount(0);
-      await editorSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
+      await customTemplate.click();
       await editorSession.page.getByRole('button', { name: 'Next', exact: true }).click();
       await editorSession.page.getByLabel('Title').fill('Editor custom-template page');
       await editorSession.page.getByRole('button', { name: 'Create', exact: true }).click();
@@ -315,6 +319,10 @@ test.describe.serial('page template library', () => {
     const viewerSession = await newAuthenticatedPage(browser, viewer!, 'en');
     try {
       await viewerSession.page.goto(`/spaces/${spaceId}`);
+      await expect(viewerSession.page.getByRole('heading', {
+        name: spaceName,
+        exact: true,
+      })).toBeVisible();
       await expect(viewerSession.page.getByRole('button', { name: 'New page', exact: true })).toHaveCount(0);
     } finally {
       await viewerSession.context.close();

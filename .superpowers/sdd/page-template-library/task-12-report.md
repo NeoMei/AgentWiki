@@ -124,6 +124,69 @@ showed removal of the Space and all three run-scoped users. API, frontend, Redis
 were stopped; ports 3000, 5173, 55433, and 56380 had no listeners afterward. The disposable
 cluster, screenshots, and generated Playwright results were moved to the system Trash.
 
+## Independent review remediation: synchronized role assertions
+
+Review date: 2026-08-26
+
+The independent review correctly identified two negative assertions that could pass against an
+unloaded UI:
+
+- The Editor test checked that `Manage templates` had count zero immediately after opening the
+  dialog. It now first waits for the unique run-scoped custom-template card to be visible, proving
+  the catalog has loaded, and only then checks that the management link is absent. The later
+  manager-page assertion that the Editor's custom-template article has no mutation buttons remains
+  unchanged.
+- The Viewer test checked `New page` count zero immediately after `goto`. It now first waits for the
+  exact unique Space heading (`Page Template QA <runId>`) to be visible. SpaceView derives that
+  heading and the create permission from the same resolved Space response and React render, so the
+  subsequent absence assertion cannot pass against the loading shell.
+
+### Fault-injection RED
+
+After writing the synchronization assertions, a temporary, uncommitted mutation authenticated the
+nominal Viewer session as the owner and delayed its Space API response by one second. With the old
+ordering, the immediate zero-count assertion could observe the loading shell before the delayed
+response. With the new ordering, the test waited for the exact Space heading and then failed for
+the intended reason:
+
+```text
+Locator: getByRole('button', { name: 'New page', exact: true })
+Expected: 0
+Received: 1
+Timeout: 8000ms
+```
+
+The fault injection was then removed with `apply_patch`; neither the owner substitution nor the
+route delay is present in the committed test.
+
+### Fresh isolated GREEN
+
+- Created another new Homebrew PostgreSQL 16 cluster and only the disposable
+  `agentwiki_page_template_role_e2e` database on `127.0.0.1:55434`; applied all 43 migrations.
+- Started a new dedicated Redis on `127.0.0.1:56381`, a test-only API on port 3000, and Vite on
+  `127.0.0.1:5173`. Health again reported all four checks `ok` before browser execution.
+- Ran the complete serial suite after removing the fault injection:
+
+```text
+pnpm --filter @agentwiki/client exec playwright test e2e/page-templates.spec.ts
+# 7 passed in 9.3s, 1 worker
+```
+
+The passing run included the existing `afterAll` cleanup-response assertion. The API log recorded
+removal of the run-scoped Space and all three users. API, Vite, Redis, and PostgreSQL were stopped;
+ports 3000, 5173, 55434, and 56381 had no listeners afterward. The fresh cluster, screenshots,
+trace/results, and fault-injection artifacts were moved to the system Trash. No existing or remote
+database was connected.
+
+Focused post-GREEN checks:
+
+```text
+pnpm --filter @agentwiki/client exec tsc --noEmit
+pnpm --filter @agentwiki/client exec eslint e2e/page-templates.spec.ts
+git diff --check
+# all exit 0
+```
+
 ## Final verification
 
 ```text
