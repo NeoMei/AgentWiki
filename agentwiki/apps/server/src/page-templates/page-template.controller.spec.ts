@@ -11,6 +11,7 @@ import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { BusinessException } from '../core/filters/business-error';
 import { PageTemplateController } from './page-template.controller';
+import { PageTemplateService } from './page-template.service';
 
 type RouteArgument = {
   type: RouteParamtypes;
@@ -109,6 +110,30 @@ describe('PageTemplateController', () => {
     await controller.list(request, 'space-1', query);
 
     expect(service.list).toHaveBeenCalledWith('space-1', query, request.user);
+  });
+
+  it('denies archived catalog enumeration through the real controller-service path', async () => {
+    const query = {
+      locale: 'en', scope: 'all', archived: 'all', skip: 0, take: 100,
+    } as const;
+    const pageTemplate = {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    };
+    const realService = new PageTemplateService(
+      { pageTemplate } as any,
+      { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any,
+      { get: jest.fn() } as any,
+    );
+    const realController = new PageTemplateController(realService);
+
+    await expect(realController.list(request, 'space-1', query)).rejects.toMatchObject({
+      businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED',
+      statusCode: 403,
+    });
+
+    expect(pageTemplate.findMany).not.toHaveBeenCalled();
+    expect(pageTemplate.count).not.toHaveBeenCalled();
   });
 
   it('passes the requested locale to the detail service', async () => {

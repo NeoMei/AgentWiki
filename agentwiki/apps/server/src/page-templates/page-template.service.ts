@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PageTemplate, Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { ZodError } from 'zod';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
@@ -154,6 +155,9 @@ export class PageTemplateService implements OnModuleInit {
       principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
     );
     const canManage = !principal.agentId && ['owner', 'admin'].includes(member.role);
+    if (!canManage && query.archived && query.archived !== 'active') {
+      throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
+    }
     const system = query.scope === 'space' ? [] : await this.prisma.pageTemplate.findMany({
       where: { scope: 'system', archivedAt: null, ...(query.category ? { category: query.category } : {}) },
       orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
@@ -529,16 +533,22 @@ export class PageTemplateService implements OnModuleInit {
       .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
       .replace(/^-+|-+$/gu, '')
       .slice(0, 64) || 'template';
+    const compatibleStableKeys = [
+      base,
+      ...Array.from({ length: 99 }, (_, index) => {
+        const suffix = `-${index + 2}`;
+        return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+      }),
+    ];
     const occupied = new Set((await tx.pageTemplate.findMany({
-      where: { scopeKey: spaceId },
+      where: { scopeKey: spaceId, stableKey: { in: compatibleStableKeys } },
       select: { stableKey: true },
+      take: compatibleStableKeys.length,
     })).map(({ stableKey }) => stableKey));
-    if (!occupied.has(base)) return base;
-    for (let suffix = 2; ; suffix += 1) {
-      const suffixText = `-${suffix}`;
-      const stableKey = `${base.slice(0, 64 - suffixText.length)}${suffixText}`;
-      if (!occupied.has(stableKey)) return stableKey;
-    }
+    const compatible = compatibleStableKeys.find((stableKey) => !occupied.has(stableKey));
+    if (compatible) return compatible;
+    const entropy = randomUUID().replaceAll('-', '');
+    return `${base.slice(0, 64 - entropy.length - 1)}-${entropy}`;
   }
 
   private async getManagedRecord(

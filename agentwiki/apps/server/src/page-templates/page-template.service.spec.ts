@@ -260,6 +260,36 @@ describe('PageTemplateService', () => {
     );
   });
 
+  it.each([
+    ['editor', 'archived'],
+    ['viewer', 'all'],
+  ] as const)('denies %s archived=%s catalog enumeration before template queries', async (role, archived) => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role });
+
+    await expect(service.list('space-1', {
+      locale: 'en', scope: 'all', archived, skip: 0, take: 100,
+    }, principal)).rejects.toMatchObject({
+      businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED',
+      statusCode: 403,
+    });
+
+    expect(pageTemplate.findMany).not.toHaveBeenCalled();
+    expect(pageTemplate.count).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'admin'] as const)('allows %s to list archived templates', async (role) => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role });
+    pageTemplate.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await expect(service.list('space-1', {
+      locale: 'en', scope: 'all', archived: 'archived', skip: 0, take: 100,
+    }, principal)).resolves.toMatchObject({ capabilities: { canManage: true } });
+
+    expect(pageTemplate.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ archivedAt: { not: null } }),
+    }));
+  });
+
   it('get returns existing requested system content with its requested locale', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     pageTemplate.findFirst.mockResolvedValue(systemRecord);
@@ -502,17 +532,16 @@ describe('PageTemplateService', () => {
       .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_NAME_CONFLICT' });
   });
 
-  it('allocates a deterministic stable key after more than 100 archived collisions in one read', async () => {
-    const occupiedStableKeys = [
+  it('uses one bounded candidate read and a fallback after all 100 compatible keys are occupied', async () => {
+    const compatibleStableKeys = [
       'team-weekly',
-      ...Array.from({ length: 100 }, (_, index) => `team-weekly-${index + 2}`),
+      ...Array.from({ length: 99 }, (_, index) => `team-weekly-${index + 2}`),
     ];
     let createdRecord: any;
-    pageTemplate.findMany.mockResolvedValue(occupiedStableKeys.map((stableKey) => ({ stableKey })));
+    pageTemplate.findMany.mockResolvedValue(compatibleStableKeys.map((stableKey) => ({ stableKey })));
     pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
       if (where.spaceId_nameKey) return null;
-      if (where.scopeKey_stableKey) return { id: `occupied-${where.scopeKey_stableKey.stableKey}` };
-      if (where.id === 'created-team-weekly-102') return createdRecord;
+      if (where.id === createdRecord?.id) return createdRecord;
       return null;
     });
     pageTemplate.create.mockImplementation(async ({ data }: any) => {
@@ -525,20 +554,78 @@ describe('PageTemplateService', () => {
       return createdRecord;
     });
     pageTemplateVersion.findUnique.mockResolvedValue({
-      templateId: 'created-team-weekly-102', version: 1,
+      templateId: 'created-fallback', version: 1,
       contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
     });
 
     await service.createSpaceTemplate('space-1', validCreateBody, principal);
 
     expect(pageTemplate.findMany).toHaveBeenCalledWith({
-      where: { scopeKey: 'space-1' },
+      where: {
+        scopeKey: 'space-1',
+        stableKey: { in: compatibleStableKeys },
+      },
       select: { stableKey: true },
+      take: 100,
     });
-    expect(pageTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ stableKey: 'team-weekly-102' }),
-    }));
-    expect('team-weekly-102').toHaveLength(15);
+    const stableKey = pageTemplate.create.mock.calls[0][0].data.stableKey;
+    expect(stableKey).toMatch(/^team-weekly-[0-9a-f]{32}$/u);
+    expect(stableKey.length).toBeLessThanOrEqual(64);
+  });
+
+  it('keeps a 64-character base bounded and changes its high-entropy fallback on P2002 retry', async () => {
+    const stableKeyConflict = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test',
+        meta: { target: 'PageTemplate_scopeKey_stableKey_key' },
+      },
+    );
+    const base = 'a'.repeat(64);
+    const compatibleStableKeys = [
+      base,
+      ...Array.from({ length: 99 }, (_, index) => {
+        const suffix = `-${index + 2}`;
+        return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+      }),
+    ];
+    let createdRecord: any;
+    pageTemplate.findMany.mockResolvedValue(compatibleStableKeys.map((stableKey) => ({ stableKey })));
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.spaceId_nameKey) return null;
+      if (where.id === createdRecord?.id) return createdRecord;
+      return null;
+    });
+    pageTemplate.create
+      .mockRejectedValueOnce(stableKeyConflict)
+      .mockImplementationOnce(async ({ data }: any) => {
+        createdRecord = {
+          id: 'created-fallback', ...data, archivedAt: null,
+          updatedAt: new Date(templateTimestamp),
+        };
+        return createdRecord;
+      });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'created-fallback', version: 1,
+      contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
+    });
+
+    await service.createSpaceTemplate('space-1', {
+      ...validCreateBody, name: base,
+    }, principal);
+
+    const attemptedKeys = pageTemplate.create.mock.calls.map(([input]) => input.data.stableKey);
+    expect(attemptedKeys).toHaveLength(2);
+    expect(attemptedKeys[0]).not.toBe(attemptedKeys[1]);
+    for (const stableKey of attemptedKeys) {
+      expect(stableKey).toHaveLength(64);
+      expect(stableKey).toMatch(/-[0-9a-f]{32}$/u);
+    }
+    expect(pageTemplate.findMany).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.findMany).toHaveBeenNthCalledWith(1, {
+      where: { scopeKey: 'space-1', stableKey: { in: compatibleStableKeys } },
+      select: { stableKey: true },
+      take: 100,
+    });
   });
 
   it('updates metadata only at the exact expected timestamp and source locale', async () => {
