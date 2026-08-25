@@ -7,7 +7,9 @@ const revisionWriter = {
   lockSpace: jest.fn(async (tx: unknown) => tx),
 } as unknown as SpaceRevisionWriterService;
 const authorization = {
-  assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+  assertLiveHumanSpaceAccess: jest.fn(async (_tx: unknown, principal: { userId: string }, spaceId: string) => ({
+    role: 'owner', userId: principal.userId, spaceId,
+  })),
 } as any;
 const ownerPrincipal = { userId: 'owner-1' } as any;
 
@@ -339,20 +341,23 @@ describe('admin role and member management', () => {
 
   it('rejects an admin changing another owner or granting owner', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValueOnce({
+      role: 'admin', userId: 'admin-1', spaceId: 'space-1',
+    });
     await expect(
-      service.updateMemberRoleAs('space-1', 'u1', 'editor', 'admin'),
+      service.updateMemberRoleAs('space-1', 'u1', 'editor', { userId: 'admin-1' }),
     ).rejects.toThrow();
   });
 
-  it('checks and updates the last owner in one serializable transaction', async () => {
+  it('uses ReadCommitted after the Space lock so owner updates see post-wait state', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
     prisma.spaceMember.count.mockResolvedValue(2);
     prisma.spaceMember.update.mockResolvedValue({ id: 'm1', role: 'editor' });
 
-    await service.updateMemberRoleAs('space-1', 'u1', 'editor', 'owner');
+    await service.updateMemberRoleAs('space-1', 'u1', 'editor', { userId: 'u1' });
 
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
     });
     expect(prisma.spaceMember.count).toHaveBeenCalledWith({ where: { spaceId: 'space-1', role: 'owner' } });
     expect(prisma.spaceMember.update).toHaveBeenCalled();
@@ -364,7 +369,7 @@ describe('admin role and member management', () => {
       .mockResolvedValueOnce({ id: 'm2', userId: 'u2', role: 'owner' });
     prisma.spaceMember.updateMany.mockResolvedValue({ count: 1 });
 
-    await service.updateMemberRoleAs('space-1', 'u2', 'owner', 'owner', 'u1');
+    await service.updateMemberRoleAs('space-1', 'u2', 'owner', { userId: 'u1' });
 
     expect(prisma.spaceMember.update).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: { userId_spaceId: { userId: 'u2', spaceId: 'space-1' } },
@@ -376,18 +381,37 @@ describe('admin role and member management', () => {
     }));
   });
 
-  it('checks and removes an owner in one serializable transaction', async () => {
+  it('uses ReadCommitted after the Space lock so owner removal sees post-wait state', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm1', role: 'owner' });
     prisma.spaceMember.count.mockResolvedValue(2);
     prisma.spaceMember.delete.mockResolvedValue({ id: 'm1', role: 'owner' });
 
-    await service.removeMemberAs('space-1', 'u1', 'owner');
+    await service.removeMemberAs('space-1', 'u1', { userId: 'u1' });
 
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
     });
     expect(prisma.spaceMember.count).toHaveBeenCalledWith({ where: { spaceId: 'space-1', role: 'owner' } });
     expect(prisma.spaceMember.delete).toHaveBeenCalled();
+  });
+
+  it('locks and live-reauthorizes the caller before removing an owner', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ id: 'm2', userId: 'u2', role: 'owner' });
+    prisma.spaceMember.count.mockResolvedValue(2);
+    prisma.spaceMember.delete.mockResolvedValue({ id: 'm2', userId: 'u2', role: 'owner' });
+
+    await (service.removeMemberAs as any)('space-1', 'u2', ownerPrincipal);
+
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, ownerPrincipal, 'space-1', ['owner', 'admin'],
+    );
+    expect((revisionWriter.lockSpace as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
+    );
+    expect(authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.spaceMember.findUnique.mock.invocationCallOrder[0],
+    );
   });
 });
 
@@ -434,6 +458,9 @@ describe('SpaceService.remove', () => {
 
     await service.remove('space-1', ownerPrincipal);
 
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+    });
     expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
     expect((revisionWriter.lockSpace as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
       tx.page.updateMany.mock.invocationCallOrder[0],

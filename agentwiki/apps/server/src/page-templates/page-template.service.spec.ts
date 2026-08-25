@@ -1023,6 +1023,10 @@ describe('PageTemplateService', () => {
     }
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(5);
     expect(revisionWriter.lockSpace).toHaveBeenCalledTimes(5);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+    for (const call of prisma.$transaction.mock.calls as any[][]) {
+      expect(call[1]).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    }
     revisionWriter.lockSpace.mock.invocationCallOrder.forEach((lockOrder: number, index: number) => {
       expect(lockOrder).toBeLessThan(
         authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[index],

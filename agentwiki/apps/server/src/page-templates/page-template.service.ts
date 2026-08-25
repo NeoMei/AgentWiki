@@ -481,7 +481,10 @@ export class PageTemplateService implements OnModuleInit {
           const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
           return operation(lockedTx);
         }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          // The Space advisory lock serializes these mutations. ReadCommitted
+          // ensures authorization and state reads after a wait see the writer
+          // that just released the lock instead of a pre-wait MVCC snapshot.
+          isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
         });
       } catch (error) {
         const uniqueConflict = pageTemplateUniqueConflict(error);

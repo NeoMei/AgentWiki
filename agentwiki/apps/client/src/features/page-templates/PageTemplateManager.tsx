@@ -39,6 +39,7 @@ const TEMPLATE_NAME_LIMIT = 80;
 const TEMPLATE_DESCRIPTION_LIMIT = 240;
 const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
 const TEMPLATE_SEARCH_LIMIT = 80;
+const SOURCE_PAGE_TAKE = 100;
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -60,10 +61,13 @@ export const PageTemplateManager: React.FC = () => {
   const [metadataDefaultTitle, setMetadataDefaultTitle] = useState('');
   const [sourcePages, setSourcePages] = useState<PageTemplateSourcePage[]>([]);
   const [sourcePagesLoading, setSourcePagesLoading] = useState(false);
+  const [sourcePageSkip, setSourcePageSkip] = useState(0);
+  const [sourcePageTotal, setSourcePageTotal] = useState(0);
   const [sourcePageId, setSourcePageId] = useState('');
   const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
   const requestIdRef = useRef(0);
   const sourceRequestIdRef = useRef(0);
+  const sourceDialogSpaceIdRef = useRef<string | null>(null);
   const templatesRef = useRef(EMPTY_TEMPLATES);
   const spaceIdRef = useRef(id);
   const archiveOperationRef = useRef(new Set<string>());
@@ -127,9 +131,34 @@ export const PageTemplateManager: React.FC = () => {
   const latestLoadRef = useRef(load);
   latestLoadRef.current = load;
 
+  const loadSourcePage = useCallback(async (skip: number) => {
+    if (!id) return;
+    const requestId = ++sourceRequestIdRef.current;
+    setSourcePagesLoading(true);
+    setDialogError(null);
+    try {
+      const response = await listPageTemplateSourcePages(id, {
+        skip,
+        take: SOURCE_PAGE_TAKE,
+      });
+      if (requestId !== sourceRequestIdRef.current) return;
+      setSourcePages(response.data.slice(0, SOURCE_PAGE_TAKE));
+      setSourcePageSkip(response.skip);
+      setSourcePageTotal(response.total);
+      setSourcePageId('');
+    } catch (caught) {
+      if (requestId === sourceRequestIdRef.current) {
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.loadFailed'));
+      }
+    } finally {
+      if (requestId === sourceRequestIdRef.current) setSourcePagesLoading(false);
+    }
+  }, [id, t]);
+
   useEffect(() => {
     requestIdRef.current += 1;
     sourceRequestIdRef.current += 1;
+    sourceDialogSpaceIdRef.current = null;
     templatesRef.current = EMPTY_TEMPLATES;
     setTemplatesState(EMPTY_TEMPLATES);
     setTemplatesIdentity(null);
@@ -144,44 +173,17 @@ export const PageTemplateManager: React.FC = () => {
   }, [visibleTemplates.capabilities.canManage]);
 
   useEffect(() => {
-    if (pendingDialog?.type !== 'version' || !id) return;
-    const requestId = ++sourceRequestIdRef.current;
+    if (pendingDialog?.type !== 'version' || !id || sourceDialogSpaceIdRef.current !== id) return;
     setSourcePages([]);
+    setSourcePageSkip(0);
+    setSourcePageTotal(0);
     setSourcePageId('');
-    setSourcePagesLoading(true);
     setDialogError(null);
-    void (async () => {
-      try {
-        const markdownPages: PageTemplateSourcePage[] = [];
-        const seen = new Set<string>();
-        let skip = 0;
-        while (true) {
-          const response = await listPageTemplateSourcePages(id, { skip, take: 100 });
-          if (requestId !== sourceRequestIdRef.current) return;
-          const batch = response.data;
-          for (const page of batch) {
-            if (page.format === 'markdown' && !seen.has(page.id)) {
-              seen.add(page.id);
-              markdownPages.push(page);
-            }
-          }
-          const total = response.total;
-          skip += batch.length;
-          if (!batch.length || skip >= total) break;
-        }
-        if (requestId === sourceRequestIdRef.current) setSourcePages(markdownPages);
-      } catch (caught) {
-        if (requestId === sourceRequestIdRef.current) {
-          setDialogError(apiErrorMessage(caught, t, 'pageTemplate.loadFailed'));
-        }
-      } finally {
-        if (requestId === sourceRequestIdRef.current) setSourcePagesLoading(false);
-      }
-    })();
+    void loadSourcePage(0);
     return () => {
-      if (sourceRequestIdRef.current === requestId) sourceRequestIdRef.current += 1;
+      sourceRequestIdRef.current += 1;
     };
-  }, [id, pendingDialog, t]);
+  }, [id, loadSourcePage, pendingDialog]);
 
   const openMetadata = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
@@ -190,6 +192,7 @@ export const PageTemplateManager: React.FC = () => {
     setMetadataDescription(truncateValidatorLength(template.description, TEMPLATE_DESCRIPTION_LIMIT));
     setMetadataCategory(template.category);
     setMetadataDefaultTitle(truncateValidatorLength(template.defaultTitle, TEMPLATE_DEFAULT_TITLE_LIMIT));
+    sourceDialogSpaceIdRef.current = null;
     setDialogError(null);
     setPendingDialog({ type: 'metadata', template });
   };
@@ -197,12 +200,16 @@ export const PageTemplateManager: React.FC = () => {
   const openVersion = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
     if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
+    sourceDialogSpaceIdRef.current = id ?? null;
     setDialogError(null);
     setPendingDialog({ type: 'version', template });
   };
 
   const closeDialog = () => {
-    if (!submitting) setPendingDialog(null);
+    if (!submitting) {
+      sourceDialogSpaceIdRef.current = null;
+      setPendingDialog(null);
+    }
   };
 
   const submitMetadata = async (event: React.FormEvent) => {
@@ -481,6 +488,20 @@ export const PageTemplateManager: React.FC = () => {
                 {sourcePages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
               </select>
             </label>
+            <div className="flex justify-between gap-2">
+              <button
+                type="button"
+                disabled={sourcePagesLoading || submitting || sourcePageSkip === 0}
+                onClick={() => void loadSourcePage(Math.max(0, sourcePageSkip - SOURCE_PAGE_TAKE))}
+                className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
+              >{t('common.prev')}</button>
+              <button
+                type="button"
+                disabled={sourcePagesLoading || submitting || sourcePageSkip + sourcePages.length >= sourcePageTotal}
+                onClick={() => void loadSourcePage(sourcePageSkip + SOURCE_PAGE_TAKE)}
+                className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
+              >{t('common.next')}</button>
+            </div>
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
               <button type="button" disabled={submitting} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>

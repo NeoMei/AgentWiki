@@ -121,6 +121,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
+    setTemplateDialogSnapshot(null);
     setContent(nextContent);
     contentRef.current = nextContent;
     editRevisionRef.current += 1;

@@ -331,7 +331,7 @@ export class SpaceService {
         where: { id, deletedAt: null },
         data: { deletedAt: new Date() },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
   // ---- Member management ----
 
@@ -403,38 +403,39 @@ export class SpaceService {
   }
 
   async updateMemberRole(spaceId: string, userId: string, role: 'owner' | 'editor' | 'viewer') {
-    return this.updateMemberRoleAs(spaceId, userId, role, 'owner', userId);
+    return this.updateMemberRoleAs(spaceId, userId, role, { userId });
   }
 
   async updateMemberRoleAs(
     spaceId: string,
     userId: string,
     role: string,
-    callerRole: string,
-    callerUserId?: string,
+    principal: Principal,
   ) {
-    await this.findOne(spaceId);
-
     return this.prisma.$transaction(async (tx) => {
-      const member = await tx.spaceMember.findUnique({
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      const caller = await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'admin'],
+      );
+      const member = await lockedTx.spaceMember.findUnique({
         where: { userId_spaceId: { userId, spaceId } },
       });
       if (!member) throw new NotFoundException('Member not found');
       // Admins manage non-owner members only and can never touch the owner role.
-      if (callerRole !== 'owner' && (member.role === 'owner' || role === 'owner')) {
+      if (caller.role !== 'owner' && (member.role === 'owner' || role === 'owner')) {
         throw new ForbiddenException('Only an owner can manage the owner role');
       }
       if (role === 'owner' && member.role !== 'owner') {
-        if (!callerUserId || callerUserId === userId) {
+        if (caller.userId === userId) {
           throw new ForbiddenException('Ownership transfer requires the acting owner');
         }
-        const promoted = await tx.spaceMember.update({
+        const promoted = await lockedTx.spaceMember.update({
           where: { userId_spaceId: { userId, spaceId } },
           data: { role: 'owner' },
           select: MEMBER_SELECT,
         });
-        const demoted = await tx.spaceMember.updateMany({
-          where: { userId: callerUserId, spaceId, role: 'owner' },
+        const demoted = await lockedTx.spaceMember.updateMany({
+          where: { userId: caller.userId, spaceId, role: 'owner' },
           data: { role: 'admin' },
         });
         if (demoted.count !== 1) {
@@ -443,46 +444,48 @@ export class SpaceService {
         return promoted;
       }
       if (member.role === 'owner' && role !== 'owner') {
-        const owners = await tx.spaceMember.count({ where: { spaceId, role: 'owner' } });
+        const owners = await lockedTx.spaceMember.count({ where: { spaceId, role: 'owner' } });
         if (owners <= 1) {
           throw new BadRequestException('Cannot remove the last owner; assign another owner first');
         }
       }
 
-      return tx.spaceMember.update({
+      return lockedTx.spaceMember.update({
         where: { userId_spaceId: { userId, spaceId } },
         data: { role },
         select: MEMBER_SELECT,
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async removeMember(spaceId: string, userId: string) {
-    return this.removeMemberAs(spaceId, userId, 'owner');
+    return this.removeMemberAs(spaceId, userId, { userId });
   }
 
-  async removeMemberAs(spaceId: string, userId: string, callerRole: string) {
-    await this.findOne(spaceId);
-
+  async removeMemberAs(spaceId: string, userId: string, principal: Principal) {
     return this.prisma.$transaction(async (tx) => {
-      const member = await tx.spaceMember.findUnique({
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      const caller = await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'admin'],
+      );
+      const member = await lockedTx.spaceMember.findUnique({
         where: { userId_spaceId: { userId, spaceId } },
       });
       if (!member) throw new NotFoundException('Member not found');
-      if (callerRole !== 'owner' && member.role === 'owner') {
+      if (caller.role !== 'owner' && member.role === 'owner') {
         throw new ForbiddenException('Only an owner can remove an owner');
       }
       if (member.role === 'owner') {
-        const owners = await tx.spaceMember.count({ where: { spaceId, role: 'owner' } });
+        const owners = await lockedTx.spaceMember.count({ where: { spaceId, role: 'owner' } });
         if (owners <= 1) {
           throw new BadRequestException('Cannot remove the last owner');
         }
       }
 
-      return tx.spaceMember.delete({
+      return lockedTx.spaceMember.delete({
         where: { userId_spaceId: { userId, spaceId } },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
 }

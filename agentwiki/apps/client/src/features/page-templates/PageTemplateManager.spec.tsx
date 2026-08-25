@@ -178,29 +178,28 @@ describe('PageTemplateManager', () => {
     ));
   });
 
-  it('loads every source page batch and offers only Markdown pages', async () => {
+  it('loads only the first bounded source page and renders at most 100 source choices', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
-      id: `page-${index}`, title: `Page ${index}`, format: index === 0 ? 'docx' : 'markdown',
+      id: `page-${index}`, title: `Page ${index}`, format: 'markdown' as const,
       updatedAt: `2026-08-25T12:${String(index % 60).padStart(2, '0')}:00.000Z`,
     }));
-    mocks.listPageTemplateSourcePages
-      .mockResolvedValueOnce({ data: firstPage, total: 101, skip: 0, take: 100 })
-      .mockResolvedValueOnce({ data: [{
-        id: 'page-last', title: 'Last Markdown', format: 'markdown', updatedAt: '2026-08-25T13:00:00.000Z',
-      }], total: 101, skip: 100, take: 100 });
+    mocks.listPageTemplateSourcePages.mockResolvedValue({
+      data: firstPage, total: 101, skip: 0, take: 100,
+    });
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
     const source = await screen.findByLabelText('源页面');
 
     expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(1, 'space-1', { skip: 0, take: 100 });
-    expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(2, 'space-1', { skip: 100, take: 100 });
-    expect(source.querySelector('option[value="page-0"]')).not.toBeInTheDocument();
-    expect(source.querySelector('option[value="page-last"]')).toHaveTextContent('Last Markdown');
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenCalledTimes(1);
+    expect(source.querySelectorAll('option[value^="page-"]')).toHaveLength(100);
+    expect(screen.getByRole('button', { name: '上一页' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '下一页' })).toBeEnabled();
   });
 
-  it('loads source summaries through the bounded template-source API without page bodies', async () => {
+  it('replaces source choices on Next and returns to the first page on Previous', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       id: `page-${index}`, title: `Page ${index}`, format: 'markdown' as const,
@@ -211,20 +210,105 @@ describe('PageTemplateManager', () => {
       .mockResolvedValueOnce({ data: [{
         id: 'page-last', title: 'Last Markdown', format: 'markdown',
         updatedAt: '2026-08-25T13:00:00.000Z',
-      }], total: 101, skip: 100, take: 100 });
+      }], total: 101, skip: 100, take: 100 })
+      .mockResolvedValueOnce({ data: firstPage, total: 101, skip: 0, take: 100 });
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
     const source = await screen.findByLabelText('源页面');
+    await screen.findByRole('option', { name: 'Page 0' });
+    fireEvent.change(source, { target: { value: 'page-0' } });
 
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
-      1, 'space-1', { skip: 0, take: 100 },
-    ));
-    expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
       2, 'space-1', { skip: 100, take: 100 },
+    ));
+    expect(await screen.findByRole('option', { name: 'Last Markdown' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Page 0' })).not.toBeInTheDocument();
+    expect(source).toHaveValue('');
+
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    await waitFor(() => expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
+      3, 'space-1', { skip: 0, take: 100 },
+    ));
+    expect(await screen.findByRole('option', { name: 'Page 0' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Last Markdown' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the current source page and selection when a pagination request fails', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    const firstPage = [{
+      id: 'page-0', title: 'Page 0', format: 'markdown' as const,
+      updatedAt: '2026-08-25T12:00:00.000Z',
+    }];
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: firstPage, total: 101, skip: 0, take: 100 })
+      .mockRejectedValueOnce(new Error('offline'));
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    const source = await screen.findByLabelText('源页面');
+    await screen.findByRole('option', { name: 'Page 0' });
+    fireEvent.change(source, { target: { value: 'page-0' } });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络连接失败，请稍后重试');
+    expect(screen.getByRole('option', { name: 'Page 0' })).toBeInTheDocument();
+    expect(source).toHaveValue('page-0');
+  });
+
+  it('ignores a late source page after the version dialog closes and reopens', async () => {
+    let resolveNext!: (value: {
+      data: Array<{ id: string; title: string; format: 'markdown'; updatedAt: string }>;
+      total: number; skip: number; take: number;
+    }) => void;
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: [{
+        id: 'page-0', title: 'Page 0', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+      }], total: 101, skip: 0, take: 100 })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve; }))
+      .mockResolvedValueOnce({ data: [{
+        id: 'page-fresh', title: 'Fresh page', format: 'markdown', updatedAt: '2026-08-25T14:00:00.000Z',
+      }], total: 1, skip: 0, take: 100 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    await screen.findByRole('option', { name: 'Page 0' });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await act(async () => resolveNext({ data: [{
+      id: 'page-stale', title: 'Stale page', format: 'markdown', updatedAt: '2026-08-25T13:00:00.000Z',
+    }], total: 101, skip: 100, take: 100 }));
+
+    fireEvent.click(screen.getByRole('button', { name: /更新内容 团队周报/ }));
+    expect(await screen.findByRole('option', { name: 'Fresh page' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Stale page' })).not.toBeInTheDocument();
+  });
+
+  it('closes the source picker on route change without requesting the new Space', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
+      id: 'page-0', title: 'Page 0', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1, skip: 0, take: 100 });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/spaces/space-1/settings/page-templates']}>
+          <SpaceSwitch />
+          <Routes><Route path="/spaces/:id/settings/page-templates" element={<PageTemplateManager />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
     );
-    expect(source.querySelector('option[value="page-last"]')).toHaveTextContent('Last Markdown');
-    expect(mocks.api.get).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    await screen.findByRole('option', { name: 'Page 0' });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenCalledTimes(1);
+    expect(mocks.listPageTemplateSourcePages).not.toHaveBeenCalledWith(
+      'space-2', expect.anything(),
+    );
   });
 
   it('archives and restores with confirmation and exact updatedAt', async () => {

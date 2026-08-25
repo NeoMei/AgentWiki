@@ -66,33 +66,58 @@ describe('SpaceController.findAll', () => {
 });
 
 describe('SpaceController.remove live ownership', () => {
-  it('rejects an old owner demoted after the controller precheck while DELETE waits for the Space lock', async () => {
+  const createConcurrentHarness = (pauseAt: 'space-read' | 'member-read') => {
     const principal = { userId: 'owner-1', type: 'human' };
     const roles: Record<string, string> = { 'owner-1': 'owner', 'owner-2': 'admin' };
-    let reportWaiting!: () => void;
-    let releaseLock!: () => void;
-    const waitingForLock = new Promise<void>((resolve) => { reportWaiting = resolve; });
-    const lockMayProceed = new Promise<void>((resolve) => { releaseLock = resolve; });
+    let deleted = false;
+    let reportPaused!: () => void;
+    let resumePaused!: () => void;
+    const mutationPaused = new Promise<void>((resolve) => { reportPaused = resolve; });
+    const mutationMayProceed = new Promise<void>((resolve) => { resumePaused = resolve; });
+    let pauseConsumed = false;
+    const pauseMutation = async (location: typeof pauseAt) => {
+      if (pauseConsumed || location !== pauseAt) return;
+      pauseConsumed = true;
+      reportPaused();
+      await mutationMayProceed;
+    };
     const authorization = {
-      assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
-      assertLiveHumanSpaceAccess: jest.fn(async () => {
-        if (roles[principal.userId] !== 'owner') throw new BusinessException('SPACE_ACCESS_DENIED');
-        return { role: roles[principal.userId] };
+      assertSpaceAccess: jest.fn(async (actor: typeof principal, _spaceId: string, allowed: string[]) => {
+        const role = roles[actor.userId];
+        if (deleted || !allowed.includes(role)) throw new BusinessException('SPACE_ACCESS_DENIED');
+        return { role };
+      }),
+      assertLiveHumanSpaceAccess: jest.fn(async (
+        _tx: unknown, actor: typeof principal, _spaceId: string, allowed: string[],
+      ) => {
+        const role = roles[actor.userId];
+        if (deleted || !allowed.includes(role)) throw new BusinessException('SPACE_ACCESS_DENIED');
+        return { role, userId: actor.userId, spaceId: 'space-1' };
       }),
     } as any;
-    const tx = {
+    const makeTx = () => ({
       assistTask: { updateMany: jest.fn() },
       pageSearchDocument: { deleteMany: jest.fn() },
       page: { updateMany: jest.fn() },
       space: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'space-1' }),
-        update: jest.fn().mockResolvedValue({ id: 'space-1' }),
+        findUnique: jest.fn(async () => {
+          await pauseMutation('space-read');
+          return deleted ? null : { id: 'space-1' };
+        }),
+        update: jest.fn(async () => {
+          if (deleted) throw new Error('Space already deleted');
+          deleted = true;
+          return { id: 'space-1', deletedAt: new Date() };
+        }),
       },
       spaceMember: {
         findUnique: jest.fn(async ({ where }: any) => {
+          await pauseMutation('member-read');
           const userId = where.userId_spaceId.userId as string;
-          return { id: `member-${userId}`, userId, spaceId: 'space-1', role: roles[userId] };
+          const role = roles[userId];
+          return role ? { id: `member-${userId}`, userId, spaceId: 'space-1', role } : null;
         }),
+        count: jest.fn(async () => Object.values(roles).filter((role) => role === 'owner').length),
         update: jest.fn(async ({ where, data }: any) => {
           const userId = where.userId_spaceId.userId as string;
           roles[userId] = data.role;
@@ -103,36 +128,102 @@ describe('SpaceController.remove live ownership', () => {
           roles[where.userId] = data.role;
           return { count: 1 };
         }),
+        delete: jest.fn(async ({ where }: any) => {
+          const userId = where.userId_spaceId.userId as string;
+          const role = roles[userId];
+          delete roles[userId];
+          return { id: `member-${userId}`, userId, spaceId: 'space-1', role };
+        }),
       },
-    };
-    const prisma = {
-      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
-      $transaction: jest.fn(async (operation: (transaction: typeof tx) => Promise<unknown>) => operation(tx)),
-    } as any;
+    });
+    const unlockByTransaction = new Map<object, () => void>();
+    let lockTail = Promise.resolve();
     const revisionWriter = {
-      lockSpace: jest.fn(async (transaction: typeof tx) => {
-        reportWaiting();
-        await lockMayProceed;
+      lockSpace: jest.fn(async (transaction: object) => {
+        const previous = lockTail;
+        let unlock!: () => void;
+        lockTail = new Promise<void>((resolve) => { unlock = resolve; });
+        await previous;
+        unlockByTransaction.set(transaction, unlock);
         return transaction;
+      }),
+    } as any;
+    const prisma = {
+      space: { findUnique: jest.fn(async () => deleted ? null : { id: 'space-1', deletedAt: null }) },
+      $transaction: jest.fn(async (operation: (transaction: ReturnType<typeof makeTx>) => Promise<unknown>) => {
+        const transaction = makeTx();
+        try {
+          return await operation(transaction);
+        } finally {
+          unlockByTransaction.get(transaction)?.();
+        }
       }),
     } as any;
     const spaces = new (SpaceService as any)(prisma, revisionWriter, authorization) as SpaceService;
     const controller = new SpaceController(spaces, authorization);
+    return {
+      authorization,
+      controller,
+      mutationPaused,
+      principal,
+      resumeMutation: resumePaused,
+      revisionWriter,
+      roles,
+      spaceDeleted: () => deleted,
+    };
+  };
 
-    const deletion = controller.remove('space-1', { user: principal } as any);
-    await waitingForLock;
-    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(principal, 'space-1', ['owner']);
+  it('serializes owner transfer behind DELETE and rejects the transfer after deletion commits', async () => {
+    const harness = createConcurrentHarness('space-read');
+    const deletion = harness.controller.remove('space-1', { user: harness.principal } as any);
+    await harness.mutationPaused;
+    expect(harness.authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(1);
 
-    await spaces.updateMemberRoleAs('space-1', 'owner-2', 'owner', 'owner', 'owner-1');
-    expect(roles).toEqual({ 'owner-1': 'admin', 'owner-2': 'owner' });
-    releaseLock();
+    let transferSettled = false;
+    const transfer = harness.controller.updateMemberRole(
+      'space-1', 'owner-2', { role: 'owner' } as any, { user: harness.principal } as any,
+    ).finally(() => { transferSettled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const lockCallsBeforeRelease = harness.revisionWriter.lockSpace.mock.calls.length;
+    const settledBeforeRelease = transferSettled;
+    harness.resumeMutation();
 
-    await expect(deletion).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
-    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
-      tx, principal, 'space-1', ['owner'],
-    );
-    expect(tx.page.updateMany).not.toHaveBeenCalled();
-    expect(tx.space.update).not.toHaveBeenCalled();
+    const [deletionResult, transferResult] = await Promise.allSettled([deletion, transfer]);
+
+    expect(lockCallsBeforeRelease).toBe(2);
+    expect(settledBeforeRelease).toBe(false);
+    expect(deletionResult.status).toBe('fulfilled');
+    expect(transferResult).toMatchObject({
+      status: 'rejected', reason: { businessCode: 'SPACE_ACCESS_DENIED' },
+    });
+    expect(harness.spaceDeleted()).toBe(true);
+    expect(harness.roles).toEqual({ 'owner-1': 'owner', 'owner-2': 'admin' });
+  });
+
+  it('lets an owner transfer commit first and rejects the queued DELETE on live reauthorization', async () => {
+    const harness = createConcurrentHarness('member-read');
+    let transferSettled = false;
+    const transfer = harness.controller.updateMemberRole(
+      'space-1', 'owner-2', { role: 'owner' } as any, { user: harness.principal } as any,
+    ).finally(() => { transferSettled = true; });
+    await harness.mutationPaused;
+    expect(harness.authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(1);
+
+    const deletion = harness.controller.remove('space-1', { user: harness.principal } as any);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const lockCallsBeforeRelease = harness.revisionWriter.lockSpace.mock.calls.length;
+    const transferSettledBeforeRelease = transferSettled;
+    harness.resumeMutation();
+    const [transferResult, deletionResult] = await Promise.allSettled([transfer, deletion]);
+
+    expect(lockCallsBeforeRelease).toBe(2);
+    expect(transferSettledBeforeRelease).toBe(false);
+    expect(transferResult.status).toBe('fulfilled');
+    expect(deletionResult).toMatchObject({
+      status: 'rejected', reason: { businessCode: 'SPACE_ACCESS_DENIED' },
+    });
+    expect(harness.spaceDeleted()).toBe(false);
+    expect(harness.roles).toEqual({ 'owner-1': 'admin', 'owner-2': 'owner' });
   });
 });
 

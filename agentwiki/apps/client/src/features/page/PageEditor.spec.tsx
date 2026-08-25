@@ -396,6 +396,33 @@ describe('PageEditor remote update safety', () => {
     ));
   });
 
+  it('invalidates an open template snapshot when collaboration content becomes an unsaved draft', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    templateMocks.createPageTemplate.mockResolvedValue(createdTemplate);
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
+    const staleSubmit = screen.getByRole('button', { name: 'Save template' });
+
+    await act(async () => socketMock.handlers.get('contentUpdated')?.({
+      content: 'Remote live content',
+      userId: 'remote-socket',
+      version: 10,
+    }));
+
+    expect(contentEditorValue()).toBe('Remote live content');
+    expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
+    fireEvent.click(staleSubmit);
+    expect(screen.queryByRole('dialog', { name: 'Save as Space template' })).not.toBeInTheDocument();
+    expect(templateMocks.createPageTemplate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More page actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toBeDisabled();
+  });
+
   it('does not request or show template actions for non-Markdown pages', async () => {
     queuePages({ data: page({ format: 'html' }) });
     renderEditor();
