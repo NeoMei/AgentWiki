@@ -36,7 +36,8 @@
     "test:e2e:sync-v1-http": "node --test scripts/sync-v1-http-e2e.test.mjs",
     "test:e2e:collaboration-schema-db": "node --test scripts/collaboration-schema-db.test.mjs",
     "test:e2e:collaboration-db": "node --test scripts/collaboration-workflows-db.test.mjs",
-    "test:e2e:collaboration": "node scripts/collaboration-workflows-e2e.mjs"
+    "test:e2e:collaboration": "node scripts/collaboration-workflows-e2e.mjs",
+    "test:e2e:page-template-db": "node --test scripts/page-template-schema-db.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
