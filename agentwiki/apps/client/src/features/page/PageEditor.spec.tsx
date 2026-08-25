@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
+import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
+
+const templateMocks = vi.hoisted(() => ({
+  listPageTemplates: vi.fn(),
+  createPageTemplate: vi.fn(),
+}));
 
 const socketMock = vi.hoisted(() => {
   const handlers = new Map<string, (...args: any[]) => void>();
@@ -26,6 +32,10 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }),
 }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
+vi.mock('../page-templates/pageTemplateApi', () => ({
+  listPageTemplates: templateMocks.listPageTemplates,
+  createPageTemplate: templateMocks.createPageTemplate,
+}));
 
 // Per-test queue of page-detail responses. The wiki-link space index fetch is
 // answered separately so it never consumes this queue.
@@ -53,6 +63,18 @@ const page = (overrides: Record<string, unknown> = {}) => ({
   updatedAt: '2026-07-27T08:00:00.000Z',
   ...overrides,
 });
+
+const catalog = (canManage = true): PageTemplateListResponse => ({
+  system: [], space: [], totalSpace: 0, skip: 0, take: 1,
+  capabilities: { canManage },
+});
+
+const createdTemplate = {
+  id: 'template-1', scope: 'space' as const, stableKey: 'original-title', category: 'other' as const,
+  name: 'Original title', description: '', defaultTitle: 'Original title', sourceLocale: 'en' as const,
+  currentVersion: 1, archivedAt: null, updatedAt: '2026-08-25T10:01:00.000Z',
+  content: 'Original content', contentLocale: 'en' as const, sourcePageId: 'page-1',
+};
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -92,6 +114,9 @@ describe('PageEditor remote update safety', () => {
     socketMock.socket.disconnect.mockClear();
     vi.mocked(api.get).mockReset();
     vi.mocked(api.patch).mockReset();
+    templateMocks.listPageTemplates.mockReset();
+    templateMocks.createPageTemplate.mockReset();
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
     pageQueue = [];
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (typeof url === 'string' && url.includes('spaceId=')) {
@@ -289,5 +314,178 @@ describe('PageEditor remote update safety', () => {
     await act(async () => oldPage.resolve({ data: page({ title: 'Late old page' }) } as any));
     expect(screen.queryByDisplayValue('Late old page')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('Second page')).toBeInTheDocument();
+  });
+
+  it('shows Save as Space template only with server management capability', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(templateMocks.listPageTemplates).toHaveBeenCalledWith('space-1', {
+      locale: 'en', scope: 'space', take: 1,
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'More page actions' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toBeEnabled();
+  });
+
+  it('requires saving dirty content before opening the template dialog', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+
+    const title = await screen.findByDisplayValue('Original title');
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+    fireEvent.change(title, { target: { value: 'Dirty' } });
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toBeDisabled();
+    const reason = screen.getByText('Save the page before creating a template.');
+    expect(reason).toHaveAttribute('id', 'save-page-template-blocked-reason');
+    expect(trigger).toHaveAttribute('aria-describedby', 'save-page-template-blocked-reason');
+    expect(screen.queryByRole('dialog', { name: 'Save as Space template' })).not.toBeInTheDocument();
+  });
+
+  it('does not request or show template actions for non-Markdown pages', async () => {
+    queuePages({ data: page({ format: 'html' }) });
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'More page actions' })).not.toBeInTheDocument();
+    expect(templateMocks.listPageTemplates).not.toHaveBeenCalled();
+  });
+
+  it('hides template actions when the server capability request fails', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockRejectedValue(new Error('offline'));
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(templateMocks.listPageTemplates).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('button', { name: 'More page actions' })).not.toBeInTheDocument();
+  });
+
+  it('closes the More menu on Escape and outside click and returns focus on Escape', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
+  });
+
+  it('left-aligns the More menu on mobile and restores right alignment at larger breakpoints', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+
+    expect(screen.getByRole('menu')).toHaveClass('left-0', 'sm:left-auto', 'sm:right-0');
+  });
+
+  it('ignores stale capability responses after a page route switch', async () => {
+    const staleCapability = deferred<PageTemplateListResponse>();
+    templateMocks.listPageTemplates
+      .mockImplementationOnce(() => staleCapability.promise)
+      .mockResolvedValueOnce(catalog(false));
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page() } as any);
+      return Promise.resolve({ data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) } as any);
+    });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    await screen.findByDisplayValue('Original title');
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    await screen.findByDisplayValue('Second page');
+    await act(async () => staleCapability.resolve(catalog(true)));
+
+    expect(screen.queryByRole('button', { name: 'More page actions' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a stale capability response after the language identity changes', async () => {
+    const staleCapability = deferred<PageTemplateListResponse>();
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates
+      .mockImplementationOnce(() => staleCapability.promise)
+      .mockResolvedValueOnce(catalog(false));
+    renderEditor(true);
+
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(templateMocks.listPageTemplates).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    await waitFor(() => expect(templateMocks.listPageTemplates).toHaveBeenCalledTimes(2));
+    await act(async () => staleCapability.resolve(catalog(true)));
+
+    expect(screen.queryByRole('button', { name: 'More page actions' })).not.toBeInTheDocument();
+  });
+
+  it('closes an old template dialog on route switch', async () => {
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page() } as any);
+      return Promise.resolve({ data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) } as any);
+    });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    await screen.findByDisplayValue('Original title');
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
+    expect(screen.getByRole('dialog', { name: 'Save as Space template' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Save as Space template' })).not.toBeInTheDocument();
+  });
+
+  it('reports template success without changing editor content, dirty state, or persisted timestamp', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    templateMocks.createPageTemplate.mockResolvedValue(createdTemplate);
+    vi.mocked(api.patch).mockResolvedValue({ data: page({ title: 'After template', updatedAt: '2026-08-25T10:02:00.000Z' }) } as any);
+    renderEditor();
+
+    const title = await screen.findByDisplayValue('Original title');
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+
+    expect(await screen.findByText('Template created')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(title).toHaveValue('Original title');
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    fireEvent.change(title, { target: { value: 'After template' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
+      title: 'After template', content: 'Original content', expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
+    }));
   });
 });

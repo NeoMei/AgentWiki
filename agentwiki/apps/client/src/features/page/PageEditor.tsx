@@ -5,9 +5,11 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
-import { Save, ArrowLeft, History, Users, Bot } from 'lucide-react';
+import { Save, ArrowLeft, History, Users, Bot, Ellipsis } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
+import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
+import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { AgentAssistPanel } from './AgentAssistPanel';
 import 'highlight.js/styles/github.css';
 
@@ -41,7 +43,7 @@ const pageRevision = (page: Page) => JSON.stringify([
 export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<MarkdownWorkspaceHandle | null> }> = ({ workspaceRef } = {}) => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
   const tRef = useRef(t);
@@ -56,6 +58,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const requestControllersRef = useRef(new Set<AbortController>());
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const moreActionsRef = useRef<HTMLDivElement>(null);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const saveAsTemplateItemRef = useRef<HTMLButtonElement>(null);
 
   const [page, setPage] = useState<Page | null>(null);
   const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
@@ -70,6 +75,17 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [mode, setMode] = useState<MarkdownMode>('edit');
   const [assistOpen, setAssistOpen] = useState(false);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
+  const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+
+  const templateCapabilityIdentity = page
+    ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
+    : null;
+  const canManageTemplates = templateCapabilityIdentity !== null
+    && templateCapability?.identity === templateCapabilityIdentity
+    && templateCapability.canManage;
+  const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
 
   activePageIdRef.current = id;
 
@@ -136,6 +152,46 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       .then((res) => setSpacePages(res.data?.data || res.data?.items || []))
       .catch(() => setSpacePages([]));
   }, [page?.spaceId]);
+
+  useEffect(() => {
+    setMoreActionsOpen(false);
+    setTemplateDialogOpen(false);
+    setTemplateCapability(null);
+    if (!page?.spaceId || !page.id || page.format !== 'markdown' || !templateCapabilityIdentity) return;
+
+    let active = true;
+    const requestIdentity = templateCapabilityIdentity;
+    void listPageTemplates(page.spaceId, { locale: language, scope: 'space', take: 1 })
+      .then((result) => {
+        if (active) setTemplateCapability({ identity: requestIdentity, canManage: result.capabilities.canManage });
+      })
+      .catch(() => {
+        if (active) setTemplateCapability({ identity: requestIdentity, canManage: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [language, page?.format, page?.id, page?.spaceId, templateCapabilityIdentity]);
+
+  useEffect(() => {
+    if (!moreActionsOpen) return;
+    if (!templateCreationBlocked) saveAsTemplateItemRef.current?.focus();
+    const closeFromOutside = (event: PointerEvent) => {
+      if (!moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
+    };
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setMoreActionsOpen(false);
+      moreActionsButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', closeFromOutside);
+    document.addEventListener('keydown', closeFromEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside);
+      document.removeEventListener('keydown', closeFromEscape);
+    };
+  }, [moreActionsOpen, templateCreationBlocked]);
 
   useEffect(() => {
     tRef.current = t;
@@ -411,6 +467,60 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           <button onClick={() => guardNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={18} />
           </button>
+          {canManageTemplates && page.format === 'markdown' ? (
+            <div ref={moreActionsRef} className="relative">
+              <button
+                ref={moreActionsButtonRef}
+                type="button"
+                aria-label={language === 'zh-CN' ? '更多页面操作' : 'More page actions'}
+                title={language === 'zh-CN' ? '更多页面操作' : 'More page actions'}
+                aria-haspopup="menu"
+                aria-expanded={moreActionsOpen}
+                aria-describedby={moreActionsOpen && templateCreationBlocked ? 'save-page-template-blocked-reason' : undefined}
+                onClick={() => setMoreActionsOpen((open) => !open)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                  event.preventDefault();
+                  setMoreActionsOpen(true);
+                }}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <Ellipsis size={18} />
+              </button>
+              {moreActionsOpen ? (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-10 z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-1 shadow-lg sm:left-auto sm:right-0"
+                >
+                  <button
+                    ref={saveAsTemplateItemRef}
+                    type="button"
+                    role="menuitem"
+                    disabled={templateCreationBlocked}
+                    aria-describedby={templateCreationBlocked ? 'save-page-template-blocked-reason' : undefined}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        event.currentTarget.focus();
+                      }
+                    }}
+                    onClick={() => {
+                      setMoreActionsOpen(false);
+                      setTemplateDialogOpen(true);
+                    }}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('pageTemplate.saveAs')}
+                  </button>
+                  {templateCreationBlocked ? (
+                    <p id="save-page-template-blocked-reason" className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500">
+                      {t('pageTemplate.savePageFirst')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <IconButton
             label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
@@ -467,6 +577,21 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           />
         ) : null}
       </div>
+
+      {templateDialogOpen && canManageTemplates && page.format === 'markdown' ? (
+        <SavePageAsTemplateDialog
+          spaceId={page.spaceId}
+          pageId={page.id}
+          pageTitle={page.title}
+          pageUpdatedAt={page.updatedAt}
+          returnFocusTo={moreActionsButtonRef.current}
+          onClose={() => setTemplateDialogOpen(false)}
+          onSaved={() => {
+            setTemplateDialogOpen(false);
+            setSaveStatus({ kind: 'success', text: t('pageTemplate.created') });
+          }}
+        />
+      ) : null}
     </div>
   );
 };
