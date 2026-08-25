@@ -6,6 +6,7 @@ import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
+import { PageTemplateService } from '../../page-templates/page-template.service';
 
 const mockPrisma = {
   space: {
@@ -54,6 +55,10 @@ const mockGraphMaintenance = {
   enqueue: jest.fn(),
 };
 
+const mockTemplates = {
+  resolveVersion: jest.fn(),
+};
+
 describe('PageService', () => {
   let service: PageService;
 
@@ -73,6 +78,7 @@ describe('PageService', () => {
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
         { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
+        { provide: PageTemplateService, useValue: mockTemplates },
       ],
     }).compile();
 
@@ -137,6 +143,47 @@ describe('PageService', () => {
       );
       expect(mockSyncPaths.allocate.mock.invocationCallOrder[0]).toBeLessThan(
         mockPrisma.page.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('copies the exact resolved version and stores provenance in the existing transaction', async () => {
+      mockTemplates.resolveVersion.mockResolvedValue({
+        content: '# Weekly v2', templateId: 'template-1', version: 2, locale: 'en',
+      });
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: '周报', content: '# Weekly v2',
+        sourceTemplateId: 'template-1', sourceTemplateVersion: 2, sourceTemplateLocale: 'en',
+      });
+
+      const result = await service.create({
+        title: '周报', spaceId: 'space-1', templateId: 'template-1',
+        templateVersion: 2, templateLocale: 'zh-CN',
+      } as any, 'user-1');
+
+      expect(mockTemplates.resolveVersion).toHaveBeenCalledWith(expect.anything(), {
+        spaceId: 'space-1', templateId: 'template-1', version: 2, locale: 'zh-CN',
+      });
+      expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          content: '# Weekly v2', format: 'markdown',
+          sourceTemplateId: 'template-1', sourceTemplateVersion: 2, sourceTemplateLocale: 'en',
+        }),
+        select: expect.objectContaining({
+          sourceTemplateId: true, sourceTemplateVersion: true, sourceTemplateLocale: true,
+        }),
+      }));
+      expect(mockRevisionWriter.advance).toHaveBeenCalledWith(
+        expect.anything(), 'space-1', [expect.objectContaining({ body: '# Weekly v2' })], expect.anything(),
+      );
+      expect(result).toMatchObject({
+        sourceTemplateId: 'template-1', sourceTemplateVersion: 2, sourceTemplateLocale: 'en',
+      });
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockTemplates.resolveVersion.mock.invocationCallOrder[0],
+      );
+      expect(mockTemplates.resolveVersion.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSyncPaths.allocate.mock.invocationCallOrder[0],
       );
     });
   });
@@ -954,6 +1001,7 @@ describe('page ordering', () => {
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
         { provide: ReadableSyncPathService, useValue: mockSyncPaths },
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
+        { provide: PageTemplateService, useValue: mockTemplates },
       ],
     }).compile();
     service = module.get<PageService>(PageService);
@@ -1174,6 +1222,7 @@ describe('page ordering', () => {
       localRevisionWriter as any,
       { allocate: jest.fn() } as any,
       { enqueue: jest.fn() } as any,
+      mockTemplates as any,
     );
     jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
 

@@ -1,5 +1,6 @@
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsPageTemplateCreateShape } from './page-template-create.validator';
 
 export class CreatePageDto {
   @IsString()
@@ -19,7 +20,23 @@ export class CreatePageDto {
 
   @IsString()
   @MaxLength(100)
+  @IsPageTemplateCreateShape()
   spaceId: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  templateId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  templateVersion?: number;
+
+  @IsOptional()
+  @IsIn(['zh-CN', 'en'])
+  templateLocale?: 'zh-CN' | 'en';
 
   @IsOptional()
   @IsString()

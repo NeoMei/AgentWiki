@@ -17,6 +17,25 @@ describe('Agent write review boundary', () => {
     expect(pages.create).not.toHaveBeenCalled();
   });
 
+  it('rejects Agent template fields before opening a ChangeSet', async () => {
+    const pages = { create: jest.fn() } as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any;
+    const review = { propose: jest.fn() } as any;
+    const controller = new PageController(pages, authorization, review);
+
+    await expect(controller.create({
+      title: 'Forged', spaceId: 'space-1', templateId: 'template-1',
+      templateVersion: 1, templateLocale: 'en',
+    } as any, { user: { userId: 'owner-1', agentId: 'agent-1' } } as any))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_AGENT_UNSUPPORTED' });
+
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
+      expect.anything(), 'space-1', ['owner', 'editor'], 'pages:write',
+    );
+    expect(review.propose).not.toHaveBeenCalled();
+    expect(pages.create).not.toHaveBeenCalled();
+  });
+
   it('turns Agent REST page updates into reversible candidate changes', async () => {
     const updatedAt = new Date('2026-07-15T00:00:00.000Z');
     const pages = { update: jest.fn(), findOne: jest.fn().mockResolvedValue({ updatedAt }) } as any;

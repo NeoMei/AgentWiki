@@ -11,6 +11,7 @@ import {
 } from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
+import { PageTemplateService } from '../../page-templates/page-template.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -41,6 +42,9 @@ const PAGE_PUBLIC_FIELDS = {
   sourceId: true,
   sourceVersionId: true,
   sourcePath: true,
+  sourceTemplateId: true,
+  sourceTemplateVersion: true,
+  sourceTemplateLocale: true,
 };
 
 const AUTHOR_SELECT = {
@@ -58,6 +62,7 @@ export class PageService {
     private readonly revisionWriter: SpaceRevisionWriterService,
     private readonly syncPaths: ReadableSyncPathService,
     private readonly graphMaintenance: GraphMaintenance,
+    private readonly pageTemplates: PageTemplateService,
   ) {}
 
   private slugify(text: string): string {
@@ -86,6 +91,13 @@ export class PageService {
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
+      const template = data.templateId ? await this.pageTemplates.resolveVersion(lockedTx, {
+        spaceId: data.spaceId,
+        templateId: data.templateId,
+        version: data.templateVersion!,
+        locale: data.templateLocale!,
+      }) : null;
+      const initialContent = template?.content ?? data.content ?? '';
       const knowledgeKey = randomUUID();
       const allocatedPath = await this.syncPaths.allocate(lockedTx, {
         spaceId: data.spaceId,
@@ -97,8 +109,11 @@ export class PageService {
           knowledgeKey,
           title: data.title,
           slug,
-          content: data.content ?? '',
-          format: data.format ?? 'markdown',
+          content: initialContent,
+          format: template ? 'markdown' : (data.format ?? 'markdown'),
+          sourceTemplateId: template?.templateId,
+          sourceTemplateVersion: template?.version,
+          sourceTemplateLocale: template?.locale,
           spaceId: data.spaceId,
           authorId: userId,
           parentId: data.parentId,
@@ -118,7 +133,7 @@ export class PageService {
         pageId: created.knowledgeKey,
         path: allocatedPath.path,
         title: data.title,
-        body: data.content ?? '',
+        body: initialContent,
       }], { origin: 'web_editor', createdByUserId: userId });
       // Lexical and vector indexing are owned by SearchService.indexPage,
       // called after the transaction commits. Writing the search document here

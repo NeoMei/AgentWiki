@@ -6,6 +6,7 @@ import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { ReviewService } from '../../review/review.service';
 import { parseLimit, parseOffset } from '../utils/pagination';
+import { BusinessException } from '../filters/business-error';
 
 @Controller('pages')
 @UseGuards(CombinedAuthGuard)
@@ -22,6 +23,13 @@ export class PageController {
   async create(@Body() dto: CreatePageDto, @Req() req: Request) {
     const user = req.user as any;
     await this.authorization.assertSpaceAccess(user, dto.spaceId, ['owner', 'editor'], 'pages:write');
+    if (user.agentId && (
+      dto.templateId !== undefined
+      || dto.templateVersion !== undefined
+      || dto.templateLocale !== undefined
+    )) {
+      throw new BusinessException('PAGE_TEMPLATE_AGENT_UNSUPPORTED');
+    }
     if (user.agentId) {
       return this.review.propose(user, dto.spaceId, `Proposed page: ${dto.title}`, {
         type: 'create_page', payload: {
