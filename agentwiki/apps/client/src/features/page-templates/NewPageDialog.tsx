@@ -20,9 +20,26 @@ export interface NewPageDialogProps {
 
 type TemplateFilter = 'all' | 'system' | 'space';
 
+type CatalogLoadState =
+  | { generation: number; status: 'loading' }
+  | { generation: number; status: 'success'; value: PageTemplateListResponse }
+  | { generation: number; status: 'error' };
+
 const FILTERS: TemplateFilter[] = ['all', 'system', 'space'];
 
 export const NewPageDialog: React.FC<NewPageDialogProps> = ({
+  spaceId,
+  ...props
+}) => {
+  const { language } = useLanguage();
+  return <NewPageDialogSession
+    key={JSON.stringify([spaceId, language])}
+    spaceId={spaceId}
+    {...props}
+  />;
+};
+
+const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   spaceId,
   parentOptions,
   returnFocusTo,
@@ -32,33 +49,34 @@ export const NewPageDialog: React.FC<NewPageDialogProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const [step, setStep] = useState<1 | 2>(1);
-  const [catalog, setCatalog] = useState<PageTemplateListResponse | null>(null);
   const [selected, setSelected] = useState<PageTemplateSummary | null>(null);
   const [filter, setFilter] = useState<TemplateFilter>('all');
   const [title, setTitle] = useState('');
   const [parentId, setParentId] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [catalogState, setCatalogState] = useState<CatalogLoadState>({
+    generation: 0,
+    status: 'loading',
+  });
+
+  const currentCatalogState: CatalogLoadState = catalogState.generation === reloadKey
+    ? catalogState
+    : { generation: reloadKey, status: 'loading' };
+  const catalog = currentCatalogState.status === 'success' ? currentCatalogState.value : null;
+  const catalogError = currentCatalogState.status === 'error';
+  const loading = currentCatalogState.status === 'loading';
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setCatalogError(false);
+    setCatalogState({ generation: reloadKey, status: 'loading' });
     void listPageTemplates(spaceId, { locale: language })
       .then((result) => {
-        if (active) setCatalog(result);
+        if (active) setCatalogState({ generation: reloadKey, status: 'success', value: result });
       })
       .catch(() => {
-        if (active) {
-          setCatalog(null);
-          setCatalogError(true);
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
+        if (active) setCatalogState({ generation: reloadKey, status: 'error' });
       });
     return () => {
       active = false;

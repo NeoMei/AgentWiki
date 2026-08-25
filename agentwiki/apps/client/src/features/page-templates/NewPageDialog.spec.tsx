@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LanguageProvider } from '../../context/LanguageContext';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
 import type { PageTemplateListResponse, PageTemplateSummary } from './pageTemplateTypes';
 import { NewPageDialog } from './NewPageDialog';
 
@@ -92,6 +92,24 @@ const DeferredCatalogHarness: React.FC = () => {
     />
   </MemoryRouter></LanguageProvider>;
 };
+
+const LanguageIdentityControls: React.FC = () => {
+  const { setLanguage } = useLanguage();
+  return <button type="button" onClick={() => setLanguage('en')}>Switch language</button>;
+};
+
+const LanguageIdentityHarness: React.FC = () => (
+  <LanguageProvider><MemoryRouter>
+    <LanguageIdentityControls />
+    <NewPageDialog
+      spaceId="space-1"
+      parentOptions={parentOptions}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+      now={new Date(2026, 7, 25, 12)}
+    />
+  </MemoryRouter></LanguageProvider>
+);
 
 const OpenerHarness: React.FC = () => {
   const [open, setOpen] = useState(false);
@@ -216,23 +234,110 @@ describe('NewPageDialog', () => {
     expect(screen.getByRole('button', { name: /新模板/ })).toBeInTheDocument();
   });
 
+  it('invalidates the completed catalog and form immediately when the Space identity changes', async () => {
+    let rejectNew!: (reason: unknown) => void;
+    mocks.listPageTemplates.mockImplementation((spaceId: string) => spaceId === 'space-old'
+      ? Promise.resolve(catalog)
+      : new Promise((_resolve, reject) => { rejectNew = reject; }));
+    render(<DeferredCatalogHarness />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /团队周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Old Space title' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+
+    expect(screen.getByText('选择模板')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /空白页面/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: /团队周报/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '管理模板' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('标题')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建' })).not.toBeInTheDocument();
+    expect(mocks.api.post).not.toHaveBeenCalled();
+
+    await act(async () => { rejectNew(new Error('offline')); });
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板加载失败');
+    expect(screen.getByRole('button', { name: /空白页面/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('invalidates the completed catalog and form immediately when the language identity changes', async () => {
+    let resolveEnglish!: (value: PageTemplateListResponse) => void;
+    mocks.listPageTemplates.mockImplementation((_spaceId: string, options: { locale: string }) =>
+      options.locale === 'zh-CN'
+        ? Promise.resolve(catalog)
+        : new Promise((resolve) => { resolveEnglish = resolve; }));
+    render(<LanguageIdentityHarness />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /团队周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Old language title' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+
+    expect(screen.getByText('Choose a template')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Blank page/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: /团队周报/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Manage templates' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+
+    act(() => resolveEnglish({
+      ...catalog,
+      system: [{ ...systemTasks, id: 'english-template', name: 'English task list' }],
+      space: [],
+      capabilities: { canManage: false },
+    }));
+    expect(await screen.findByRole('button', { name: /English task list/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Manage templates' })).not.toBeInTheDocument();
+  });
+
+  it('preserves blank-page form input across a retry generation', async () => {
+    mocks.listPageTemplates.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(catalog);
+    renderDialog();
+
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Keep this title' } });
+    fireEvent.change(screen.getByLabelText('父页面（可选）'), { target: { value: 'parent-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    await screen.findByRole('button', { name: /任务清单/ });
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(screen.getByLabelText('标题')).toHaveValue('Keep this title');
+    expect(screen.getByLabelText('父页面（可选）')).toHaveValue('parent-1');
+  });
+
   it('prevents duplicate create and closing while the request is pending', async () => {
     let resolveCreate!: (value: { data: { id: string } }) => void;
     mocks.listPageTemplates.mockResolvedValue(catalog);
     mocks.api.post.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve; }));
-    const { onClose } = renderDialog();
+    const { onClose, onCreated } = renderDialog();
 
     fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Pending page' } });
     const form = screen.getByLabelText('标题').closest('form')!;
     fireEvent.submit(form);
     fireEvent.submit(form);
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    const dialog = screen.getByRole('dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    const close = screen.getByRole('button', { name: '关闭' });
+    const cancel = screen.getByRole('button', { name: '取消' });
+    const back = screen.getByRole('button', { name: '上一步' });
+    expect(close).toBeDisabled();
+    expect(cancel).toBeDisabled();
+    expect(back).toBeDisabled();
+    fireEvent.click(close);
+    fireEvent.click(cancel);
+    fireEvent.click(back);
+    fireEvent.click(dialog.parentElement!);
 
     expect(mocks.api.post).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '创建中…' })).toBeDisabled();
+    expect(screen.getByLabelText('标题')).toHaveValue('Pending page');
     resolveCreate({ data: { id: 'page-new' } });
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('page-new'));
   });
 
   it('returns focus to the opener on Escape and keeps the dialog mobile-safe', async () => {

@@ -124,6 +124,8 @@ export const SpaceView: React.FC = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const requestSequenceRef = useRef(0);
+  const fetchedRouteIdRef = useRef<string | undefined>(undefined);
 
   const [space, setSpace] = useState<Space | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -132,28 +134,50 @@ export const SpaceView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
 
-  const fetchData = useCallback(async () => {
-    if (!id) return;
+  const fetchData = useCallback(async (resetForRoute = false) => {
+    const requestSequence = ++requestSequenceRef.current;
+    setRequestSpaceId(id);
+    if (resetForRoute) {
+      setLoading(true);
+      setError(null);
+      setActionError(null);
+      setSpace(null);
+      setPages([]);
+      setPageTree([]);
+    }
+    if (!id) {
+      if (requestSequenceRef.current === requestSequence) setLoading(false);
+      return;
+    }
     try {
       const [spaceRes, pagesRes] = await Promise.all([
         api.get(`/spaces/${id}`),
         api.get(`/pages/hierarchy/${id}`),
       ]);
+      if (requestSequenceRef.current !== requestSequence) return;
       setSpace(spaceRes.data);
       const tree: PageTreeNode[] = Array.isArray(pagesRes.data) ? pagesRes.data : pagesRes.data.data || [];
       setPageTree(tree);
       setPages(flattenTree(tree));
     } catch (err: any) {
+      if (requestSequenceRef.current !== requestSequence) return;
       setError(err.response?.data?.message || t('page.loadSpaceFailed'));
     } finally {
-      setLoading(false);
+      if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
   }, [id, t]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    const routeChanged = fetchedRouteIdRef.current !== id;
+    fetchedRouteIdRef.current = id;
+    if (routeChanged) setShowCreate(false);
+    void fetchData(routeChanged);
+    return () => {
+      requestSequenceRef.current += 1;
+    };
+  }, [fetchData, id]);
 
   const handleDeletePage = async (pageId: string, pageTitle: string) => {
     if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
@@ -178,23 +202,25 @@ export const SpaceView: React.FC = () => {
     } catch (err: any) {
       setActionError(err.response?.data?.message || t('page.loadSpaceFailed'));
       // Rollback: refetch from server to restore correct state
-      fetchData();
+      void fetchData();
     }
   };
 
-  if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
+  if (requestSpaceId !== id || loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
     <div className="text-center py-8">
       <p className="text-red-500 mb-2">{error}</p>
       <Link to="/" className="text-blue-600 hover:underline">{t('search.back')}</Link>
     </div>
   );
-  if (!space) return <div className="text-center py-8 text-gray-500">{t('page.spaceNotFound')}</div>;
+  if (!space || space.id !== id) return <div className="text-center py-8 text-gray-500">{t('page.spaceNotFound')}</div>;
 
   const currentRole = space.members.find((member) => member.userId === user?.id)?.role;
-  const canCreatePages = user?.platformRole === 'super_admin'
-    || currentRole === 'owner'
-    || currentRole === 'editor';
+  const canCreatePages = space.id === id && (
+    user?.platformRole === 'super_admin'
+      || currentRole === 'owner'
+      || currentRole === 'editor'
+  );
 
   return (
     <div>

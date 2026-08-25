@@ -109,3 +109,72 @@ git diff --check
 ## Concerns
 
 - None identified within Task 8 scope.
+
+---
+
+## Review fix: catalog and route identity isolation
+
+Review fix date: 2026-08-25
+
+Review-fix starting commit: `354c1ec484088111cb677f75e473319ad3eed204`
+
+### Root cause
+
+- The dialog kept catalog, selected template, step, title, parent, and create error as untagged state. The catalog effect's `active` guard stopped unfinished old requests, but a completed old catalog and form remained renderable after `spaceId` or language changed.
+- Retry generations also shared an untagged catalog value, so a render between incrementing the generation and the next effect could still expose the prior generation.
+- `SpaceView` kept `loading`, Space, pages, and membership authorization as separate untagged state. Route changes therefore rendered the previous Space while the new request was pending, and a late old response could overwrite the new route.
+
+### TDD RED
+
+The review tests were added before production changes and use controlled deferred promises.
+
+```bash
+cd agentwiki
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/NewPageDialog.spec.tsx \
+  src/features/space/SpaceView.spec.tsx
+```
+
+Observed RED: 2 files failed, 5 tests failed.
+
+- Completed Space and language catalogs remained on step 2 with the old Space template ID and edited title.
+- Owner A's create trigger remained visible while Viewer B was unresolved.
+- An already open A dialog survived the route change to B.
+- A late Owner A response replaced the completed Viewer B response and restored A's create permission on the B URL.
+
+### Remediation
+
+- `NewPageDialog` now keys its stateful session by `(spaceId, language)`. Those identity changes synchronously remount a blank step-1 session, clearing catalog/capability, selection, title, parent, and create error before a new request resolves.
+- Catalog load state is tagged with `reloadKey`. Only the current generation can render loading, success, error, catalog cards, or `canManage`; the existing effect cleanup still blocks unfinished old responses.
+- Retry is deliberately not part of the form-session key. A user who entered a blank-page title and parent, returned to step 1, and retried a failed catalog keeps that input after the current generation loads.
+- `SpaceView` now tags fetch state with the requested route ID and a monotonically increasing request sequence. Route changes immediately show loading, clear the old Space/tree/action state, close the old dialog, and invalidate previous requests.
+- Membership authorization additionally requires the resolved `space.id` to equal the live route `id`. Owner/Editor/Super Admin permissions cannot be borrowed from the previous route.
+- The reorder rollback still calls the same `fetchData()` path without route-resetting tree state; page flattening, move calculation, delete behavior, and created-page navigation were not changed.
+- Pending creation coverage now directly verifies that close, cancel, back, Escape, backdrop close, and duplicate submit remain locked until the POST settles.
+
+### Review-fix GREEN and final verification
+
+Focused Task 8 gate:
+
+```text
+Test Files  4 passed (4)
+Tests       28 passed (28)
+```
+
+Fresh brief/full-client command (the package script runs the complete client suite):
+
+```text
+Test Files  63 passed (63)
+Tests       602 passed (602)
+```
+
+Additional gates:
+
+- Client `tsc --noEmit`: exit 0.
+- Client ESLint: exit 0.
+- `git diff --check`: exit 0.
+
+### 390px browser verification boundary
+
+- Component structure and class-level mobile constraints remain covered here (`w-full`, viewport-bounded height, one-column cards below `sm`, wrapping actions, and no oversized fixed width).
+- A real browser run at exactly 390px is intentionally deferred to Task 12 as requested. This Task 8 review fix does not claim browser-rendered 390px evidence.
