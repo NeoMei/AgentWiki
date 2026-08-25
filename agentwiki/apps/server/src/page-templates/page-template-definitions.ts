@@ -1,9 +1,19 @@
+import { PageTemplateCategory } from '@prisma/client';
 import { z } from 'zod';
 import { deepFreeze, LocalizedValueSchema, systemLocalizedValue } from './page-template.types';
 
+const BUILT_IN_PAGE_TEMPLATE_CATEGORY_VALUES = [
+  PageTemplateCategory.planning,
+  PageTemplateCategory.reporting,
+  PageTemplateCategory.knowledge,
+] as const satisfies readonly PageTemplateCategory[];
+
+export const BuiltInPageTemplateCategorySchema = z.enum(BUILT_IN_PAGE_TEMPLATE_CATEGORY_VALUES);
+export type BuiltInPageTemplateCategory = z.infer<typeof BuiltInPageTemplateCategorySchema>;
+
 const SeedSchema = z.object({
   stableKey: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
-  category: z.enum(['planning', 'reporting', 'knowledge']),
+  category: BuiltInPageTemplateCategorySchema,
   displayOrder: z.number().int().min(1),
   seedVersion: z.number().int().min(1),
   name: LocalizedValueSchema,
@@ -14,7 +24,7 @@ const SeedSchema = z.object({
 
 export type BuiltInPageTemplate = Readonly<{
   stableKey: string;
-  category: 'planning' | 'reporting' | 'knowledge';
+  category: BuiltInPageTemplateCategory;
   displayOrder: number;
   seedVersion: number;
   name: Readonly<{ 'zh-CN': string; en: string }>;
@@ -36,7 +46,7 @@ const defineSeed = (input: unknown): BuiltInPageTemplate => {
 
 export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
   defineSeed({
-    stableKey: 'task-list', category: 'planning', displayOrder: 1, seedVersion: 1,
+    stableKey: 'task-list', category: PageTemplateCategory.planning, displayOrder: 1, seedVersion: 1,
     name: { 'zh-CN': '任务清单', en: 'Task list' },
     description: { 'zh-CN': '按优先级组织待办、阻塞与已完成事项', en: 'Organize priorities, open tasks, blockers, and completed work' },
     defaultTitle: { 'zh-CN': '任务清单', en: 'Task list' },
@@ -46,7 +56,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'project-management', category: 'planning', displayOrder: 2, seedVersion: 1,
+    stableKey: 'project-management', category: PageTemplateCategory.planning, displayOrder: 2, seedVersion: 1,
     name: { 'zh-CN': '项目管理', en: 'Project management' },
     description: { 'zh-CN': '汇总项目目标、里程碑、任务、风险与决策', en: 'Track goals, milestones, tasks, risks, and decisions' },
     defaultTitle: { 'zh-CN': '项目名称', en: 'Project name' },
@@ -56,7 +66,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'daily-report', category: 'reporting', displayOrder: 3, seedVersion: 1,
+    stableKey: 'daily-report', category: PageTemplateCategory.reporting, displayOrder: 3, seedVersion: 1,
     name: { 'zh-CN': '日报', en: 'Daily report' },
     description: { 'zh-CN': '记录当天成果、阻塞与明日计划', en: 'Record daily outcomes, blockers, and tomorrow plan' },
     defaultTitle: { 'zh-CN': '日报 {date}', en: 'Daily report {date}' },
@@ -66,7 +76,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'weekly-report', category: 'reporting', displayOrder: 4, seedVersion: 1,
+    stableKey: 'weekly-report', category: PageTemplateCategory.reporting, displayOrder: 4, seedVersion: 1,
     name: { 'zh-CN': '周报', en: 'Weekly report' },
     description: { 'zh-CN': '汇总本周进展、成果、风险和下周计划', en: 'Summarize progress, outcomes, risks, and next-week plans' },
     defaultTitle: { 'zh-CN': '周报 {year}年第{week}周', en: 'Weekly report {year}-W{week}' },
@@ -76,7 +86,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'meeting-notes', category: 'reporting', displayOrder: 5, seedVersion: 1,
+    stableKey: 'meeting-notes', category: PageTemplateCategory.reporting, displayOrder: 5, seedVersion: 1,
     name: { 'zh-CN': '会议纪要', en: 'Meeting notes' },
     description: { 'zh-CN': '沉淀议程、讨论、决定与行动项', en: 'Capture agenda, discussion, decisions, and action items' },
     defaultTitle: { 'zh-CN': '会议纪要 {date}', en: 'Meeting notes {date}' },
@@ -86,7 +96,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'decision-record', category: 'knowledge', displayOrder: 6, seedVersion: 1,
+    stableKey: 'decision-record', category: PageTemplateCategory.knowledge, displayOrder: 6, seedVersion: 1,
     name: { 'zh-CN': '决策记录', en: 'Decision record' },
     description: { 'zh-CN': '记录背景、备选方案、最终决定与影响', en: 'Record context, options, the final decision, and impact' },
     defaultTitle: { 'zh-CN': '决策：主题', en: 'Decision: topic' },
@@ -96,7 +106,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
     },
   }),
   defineSeed({
-    stableKey: 'retrospective', category: 'knowledge', displayOrder: 7, seedVersion: 1,
+    stableKey: 'retrospective', category: PageTemplateCategory.knowledge, displayOrder: 7, seedVersion: 1,
     name: { 'zh-CN': '复盘总结', en: 'Retrospective' },
     description: { 'zh-CN': '比较目标与结果，把经验转成后续行动', en: 'Compare goals and outcomes, then turn learning into actions' },
     defaultTitle: { 'zh-CN': '复盘：主题', en: 'Retrospective: topic' },
