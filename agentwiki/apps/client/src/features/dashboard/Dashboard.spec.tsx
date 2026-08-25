@@ -597,7 +597,7 @@ describe('Dashboard Space pagination and creation', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
 
     expect(screen.queryByRole('dialog', { name: '创建新空间' })).not.toBeInTheDocument();
-    expect(opener).toHaveFocus();
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 
   it('wraps reverse Tab focus inside the modal', async () => {
