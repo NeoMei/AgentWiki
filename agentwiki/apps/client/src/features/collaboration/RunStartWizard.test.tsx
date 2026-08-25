@@ -813,6 +813,10 @@ describe('RunStartWizard', () => {
     expect(screen.queryByText(
       'Editor Bot is mapped but has not connected to this Space yet.',
     )).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Ask a Space Owner or Admin to prepare an executable Agent.',
+    );
+    expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
     await act(async () => {
       resolveOldRefresh([ownerMember, pendingActiveEditor]);
       await oldCompletion;
