@@ -20,6 +20,23 @@ test('page-template database URLs fail closed', () => {
     () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=public'),
     /schema/iu,
   );
+  assert.throws(
+    () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema='),
+    /schema/iu,
+  );
+  for (const repeatedSchema of [
+    'schema=page_template_test_one&schema=page_template_test_two',
+    'schema=page_template_test_safe&schema=public',
+    'schema=public&schema=page_template_test_safe',
+    'schema=&schema=page_template_test_safe',
+  ]) {
+    assert.throws(
+      () => validatePageTemplateTestDatabaseUrl(
+        `postgresql://localhost/agentwiki_test?${repeatedSchema}`,
+      ),
+      /schema/iu,
+    );
+  }
   assert.doesNotThrow(
     () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki_test'),
   );
@@ -103,7 +120,7 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
           updatedById: userId,
         },
       });
-      await prisma.pageTemplateVersion.create({
+      const versionOne = await prisma.pageTemplateVersion.create({
         data: {
           templateId: template.id,
           version: 1,
@@ -121,6 +138,71 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
           sourceTemplateLocale: 'en',
         },
       });
+
+      await assert.rejects(
+        prisma.pageTemplate.update({
+          where: { id: template.id },
+          data: { currentVersion: 0 },
+        }),
+        /check|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.pageTemplateVersion.create({
+          data: {
+            templateId: template.id,
+            version: 0,
+            contentI18n: { en: '# Invalid version' },
+            contentHash: '0'.repeat(64),
+          },
+        }),
+        /check|constraint/iu,
+      );
+
+      const immutableVersionMutations = [
+        ['id', { id: `mutated_version_${suffix}` }],
+        ['contentHash', { contentHash: 'd'.repeat(64) }],
+        ['contentI18n', { contentI18n: { en: '# Mutated' } }],
+        ['version', { version: 9 }],
+        ['templateId', { templateId: `missing_template_${suffix}` }],
+        ['createdAt', { createdAt: new Date('2026-01-01T00:00:00.000Z') }],
+      ];
+      for (const [field, data] of immutableVersionMutations) {
+        await assert.rejects(
+          prisma.pageTemplateVersion.update({
+            where: { id: versionOne.id },
+            data,
+          }),
+          /immutable|constraint/iu,
+          `PageTemplateVersion ${field} update must be rejected`,
+        );
+      }
+
+      const clearedSource = await prisma.pageTemplateVersion.update({
+        where: { id: versionOne.id },
+        data: { sourcePageId: null },
+        select: { sourcePageId: true },
+      });
+      assert.equal(clearedSource.sourcePageId, null);
+      await assert.rejects(
+        prisma.pageTemplateVersion.update({
+          where: { id: versionOne.id },
+          data: { sourcePageId },
+        }),
+        /may only be cleared|constraint/iu,
+      );
+      const clearedCreator = await prisma.pageTemplateVersion.update({
+        where: { id: versionOne.id },
+        data: { createdById: null },
+        select: { createdById: true },
+      });
+      assert.equal(clearedCreator.createdById, null);
+      await assert.rejects(
+        prisma.pageTemplateVersion.update({
+          where: { id: versionOne.id },
+          data: { createdById: userId },
+        }),
+        /may only be cleared|constraint/iu,
+      );
 
       await assert.rejects(
         prisma.$executeRawUnsafe(

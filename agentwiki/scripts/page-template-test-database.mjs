@@ -21,8 +21,12 @@ export function validatePageTemplateTestDatabaseUrl(value) {
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL database name must contain test');
   }
-  const schema = parsed.searchParams.get('schema');
-  if (schema && !SAFE_SCHEMA.test(schema)) {
+  const schemas = parsed.searchParams.getAll('schema');
+  if (schemas.length > 1) {
+    throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL schema must appear at most once');
+  }
+  const schema = schemas[0];
+  if (schema !== undefined && !SAFE_SCHEMA.test(schema)) {
     throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL schema must use page_template_test_ prefix');
   }
   return parsed;

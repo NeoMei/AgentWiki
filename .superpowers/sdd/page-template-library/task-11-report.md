@@ -84,22 +84,92 @@ git diff --check
 
 ## Dedicated PostgreSQL gate status
 
-No `PAGE_TEMPLATE_TEST_DATABASE_URL` was configured in this task environment. Per the fail-closed
-brief, no fallback URL was discovered or derived, and neither the real migration/constraint test
-nor the concurrency/no-orphan assertion was executed. Consequently, actual random-schema creation,
-migration compatibility, constraint behavior, concurrency behavior, and post-test schema cleanup
-remain pending a run where the caller explicitly exports a dedicated test database URL.
+The original Task 11 environment had no dedicated URL, so its database case correctly skipped.
+The controller subsequently closed that limitation with a new disposable PostgreSQL instance:
 
-Required follow-up command:
+- Homebrew `initdb` created a fresh cluster under `/tmp/agentwiki-page-template-pg.*`.
+- PostgreSQL listened on a randomly selected free port.
+- The controller created only the `agentwiki_page_template_test` database and exported only
+  `PAGE_TEMPLATE_TEST_DATABASE_URL` for the gate; it did not connect to any existing database.
+- `pnpm test:e2e:page-template-db` reported `2 pass, 0 fail, 0 skipped`.
+- The migration/integrity case completed in `900.983ms`; total suite duration was `942ms`.
+- The temporary cluster was stopped after the gate and moved to the system Trash.
+
+Executed gate:
 
 ```text
 cd agentwiki
 test -n "$PAGE_TEMPLATE_TEST_DATABASE_URL"
 pnpm test:e2e:page-template-db
+# 2 passed, 0 failed, 0 skipped
 ```
 
-Expected dedicated-environment result: `2 pass, 0 fail, 0 skipped`, followed by a read-only schema
-inventory check confirming no generated `page_template_test_*` schema remains.
+The previously pending real migration, constraint, concurrency/no-orphan, and cleanup-path evidence
+for commit `c34bb8e` is therefore closed. The review remediation below expands the integration case;
+those newly added assertions require the controller's next disposable-cluster rerun.
+
+### Random-schema and `finally` cleanup evidence
+
+- The passing database case asserted that the generated name matched
+  `^page_template_test_[a-z0-9_]+$` and was not `public` before opening its scoped Prisma client.
+- `withPageTemplateTestDatabase()` creates that random schema, awaits the test callback, then awaits
+  `DROP SCHEMA <exact-safe-identifier> CASCADE` inside `finally` before disconnecting.
+- The Node test itself awaits the whole wrapper. Therefore its reported pass proves the callback,
+  awaited `finally` drop, and disconnect all returned without throwing; a drop failure would have
+  failed the case rather than producing `2 pass`.
+- The supplied evidence did not include a separate post-drop `pg_namespace` inventory query. This
+  report does not claim one. Residual state was additionally eliminated when the entire disposable
+  cluster was stopped and moved to Trash.
+
+## Review remediation: duplicate URL parameters and database behavior
+
+Review date: 2026-08-26
+
+- URL validation now uses `searchParams.getAll('schema')` and rejects every repeated `schema`
+  parameter, including two safe values, safe plus `public`, `public` plus safe, and an empty value
+  plus a safe value. A single empty value is also rejected. No schema and exactly one safe
+  `page_template_test_*` value remain accepted.
+- The database case now proves `PageTemplate.currentVersion = 0` and
+  `PageTemplateVersion.version = 0` are rejected by their CHECK constraints.
+- The immutable-version trigger is exercised against `id`, `contentHash`, `contentI18n`, `version`,
+  `templateId`, and `createdAt` mutations.
+- Both provenance exceptions are exercised: non-null `sourcePageId` and `createdById` may each be
+  cleared to null, while restoring either value is rejected. The created page continues to
+  reference version 1, so the subsequent compound-FK deletion assertion remains intact.
+
+### Remediation TDD evidence
+
+RED command:
+
+```text
+cd agentwiki
+env -u PAGE_TEMPLATE_TEST_DATABASE_URL node --test scripts/page-template-schema-db.test.mjs
+```
+
+Observed: URL safety failed with `Missing expected exception` on the first repeated safe-schema
+case; the database case remained explicitly skipped. This isolated the `get('schema')` ambiguity.
+
+GREEN and static verification:
+
+```text
+cd agentwiki
+env -u PAGE_TEMPLATE_TEST_DATABASE_URL pnpm test:e2e:page-template-db
+# 1 passed, 0 failed, 1 explicitly skipped
+
+node --test scripts/page-template-schema.test.mjs
+# 8 passed, 0 failed
+
+pnpm --filter @agentwiki/server typecheck
+# exit 0: tsc --noEmit --incremental false
+
+node --check scripts/page-template-test-database.mjs
+node --check scripts/page-template-schema-db.test.mjs
+# both exit 0
+```
+
+No PostgreSQL URL was used for this remediation pass. The new CHECK/trigger/provenance assertions
+are intentionally pending the controller's fresh temporary-cluster gate; the earlier `2 pass`
+result predates these added assertions and is not presented as evidence for them.
 
 ## Files
 
@@ -112,5 +182,6 @@ inventory check confirming no generated `page_template_test_*` schema remains.
 
 - Work stayed in the requested worktree and on `codex/page-template-library`.
 - No existing migration or product service code was changed.
-- No PostgreSQL connection was attempted because the only authorized URL was absent.
+- The original subtask attempted no PostgreSQL connection because the only authorized URL was
+  absent; the subsequent gate used only the newly initialized disposable cluster described above.
 - No push, publish, deployment, worktree creation, or branch creation was performed.
