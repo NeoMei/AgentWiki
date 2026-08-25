@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { FileText, Plus, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { PageTree, PageTreeNode } from '../../components/PageTree';
+import { NewPageDialog } from '../page-templates/NewPageDialog';
 
 // Compute the new parent/sortOrder for every page after a drag move.
 export const applyMove = (
@@ -104,16 +106,24 @@ const removeFromTree = (nodes: PageTreeNode[], id: string): PageTreeNode[] =>
     .filter((node) => node.id !== id)
     .map((node) => (node.children?.length ? { ...node, children: removeFromTree(node.children, id) } : node));
 
+interface SpaceMemberSummary {
+  userId: string;
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
+}
+
 interface Space {
   id: string;
   name: string;
   description?: string;
+  members: SpaceMemberSummary[];
 }
 
 export const SpaceView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   const [space, setSpace] = useState<Space | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -122,9 +132,6 @@ export const SpaceView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newPageTitle, setNewPageTitle] = useState('');
-  const [newPageParent, setNewPageParent] = useState('');
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -147,23 +154,6 @@ export const SpaceView: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  const handleCreatePage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPageTitle.trim() || !id) return;
-    setCreating(true);
-    try {
-      const res = await api.post('/pages', { title: newPageTitle, spaceId: id, parentId: newPageParent || undefined });
-      setNewPageTitle('');
-      setNewPageParent('');
-      setShowCreate(false);
-      navigate(`/pages/${res.data.id}/edit`);
-    } catch (err: any) {
-      setActionError(err.response?.data?.message || t('page.createFailed'));
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const handleDeletePage = async (pageId: string, pageTitle: string) => {
     if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
@@ -201,6 +191,11 @@ export const SpaceView: React.FC = () => {
   );
   if (!space) return <div className="text-center py-8 text-gray-500">{t('page.spaceNotFound')}</div>;
 
+  const currentRole = space.members.find((member) => member.userId === user?.id)?.role;
+  const canCreatePages = user?.platformRole === 'super_admin'
+    || currentRole === 'owner'
+    || currentRole === 'editor';
+
   return (
     <div>
       {actionError && (
@@ -229,13 +224,17 @@ export const SpaceView: React.FC = () => {
 
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">{t('space.pages')} ({pages.length})</h2>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          <Plus size={18} />
-          {t('page.new')}
-        </button>
+        {canCreatePages ? (
+          <button
+            ref={createPageOpenerRef}
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
+          >
+            <Plus size={18} />
+            {t('page.new')}
+          </button>
+        ) : null}
       </div>
 
       {pages.length === 0 ? (
@@ -257,53 +256,18 @@ export const SpaceView: React.FC = () => {
         </div>
       )}
 
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCreate(false)}>
-          <div className="bg-white rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">{t('page.createTitle')}</h2>
-              <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleCreatePage} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('common.title')} *</label>
-                <input
-                  type="text"
-                  value={newPageTitle}
-                  onChange={e => setNewPageTitle(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={t('page.titlePlaceholder')}
-                  required
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('page.parent')}</label>
-                <select
-                  value={newPageParent}
-                  onChange={e => setNewPageParent(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">{t('page.noParent')}</option>
-                  {pages.map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md">
-                  {t('common.cancel')}
-                </button>
-                <button type="submit" disabled={creating || !newPageTitle.trim()} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
-                  {creating ? t('common.creating') : t('common.create')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {showCreate && canCreatePages && id ? (
+        <NewPageDialog
+          spaceId={id}
+          parentOptions={pages.map(({ id: pageId, title }) => ({ id: pageId, title }))}
+          returnFocusTo={createPageOpenerRef.current}
+          onClose={() => setShowCreate(false)}
+          onCreated={(pageId) => {
+            setShowCreate(false);
+            navigate(`/pages/${pageId}/edit`);
+          }}
+        />
+      ) : null}
     </div>
   );
 };

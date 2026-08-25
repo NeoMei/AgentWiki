@@ -21,6 +21,7 @@ const pageTemplateZhCN = {
   'pageTemplate.createFailed': '创建模板失败',
   'pageTemplate.retry': '重试',
   'pageTemplate.back': '上一步',
+  'pageTemplate.next': '下一步',
   'pageTemplate.manage': '管理模板',
   'pageTemplate.settingsTitle': 'Space 页面模板',
   'pageTemplate.settingsDescription': '管理团队可复用的页面结构',
@@ -74,6 +75,7 @@ const pageTemplateEn = {
   'pageTemplate.createFailed': 'Could not create the template',
   'pageTemplate.retry': 'Retry',
   'pageTemplate.back': 'Back',
+  'pageTemplate.next': 'Next',
   'pageTemplate.manage': 'Manage templates',
   'pageTemplate.settingsTitle': 'Space page templates',
   'pageTemplate.settingsDescription': 'Manage reusable page structures for your team',
@@ -124,9 +126,9 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
-  it('contains exactly 50 contract keys per locale', () => {
-    expect(Object.keys(pageTemplateZhCN)).toHaveLength(50);
-    expect(Object.keys(pageTemplateEn)).toHaveLength(50);
+  it('contains exactly 51 contract keys per locale', () => {
+    expect(Object.keys(pageTemplateZhCN)).toHaveLength(51);
+    expect(Object.keys(pageTemplateEn)).toHaveLength(51);
     expect(Object.keys(pageTemplateZhCN)).toEqual(Object.keys(pageTemplateEn));
   });
 
