@@ -214,3 +214,12 @@ Client tsc --noEmit: exit 0
 Client ESLint: exit 0 with no warnings
 git diff --check: exit 0
 ```
+
+## Task 13 deferred cross-Space completion coverage
+
+- Added a deferred archive test that starts in Space 1, navigates to a fully loaded Space 2, and
+  only then resolves the Space-1 mutation.
+- The completion neither invalidates Space 2 nor starts a third catalog request; the Space-2
+  template and controls remain authoritative.
+- Fault injection removed the `spaceIdRef.current === operationSpaceId` completion gate. The new
+  test failed with three list requests instead of two, then passed after the gate was restored.

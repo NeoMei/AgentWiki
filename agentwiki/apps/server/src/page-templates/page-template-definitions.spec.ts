@@ -4,9 +4,11 @@ import {
   BuiltInPageTemplateCategorySchema,
 } from './page-template-definitions';
 import {
+  LocalizedValueSchema,
   localizedValue,
   normalizeTemplateName,
   resolveLocalizedValue,
+  systemLocalizedValue,
   templateContentHash,
 } from './page-template.types';
 
@@ -29,6 +31,9 @@ describe('built-in page templates', () => {
         expect(Object.isFrozen(localized)).toBe(true);
       }
     }
+    expect(templateContentHash(JSON.stringify(BUILT_IN_PAGE_TEMPLATES))).toBe(
+      'f183f3a46cbf3d73f31f910899c0a26a0ee3627d254444a80343019760d9d9a9',
+    );
   });
 
   it('derives built-in categories from Prisma while excluding other', () => {
@@ -52,9 +57,28 @@ describe('built-in page templates', () => {
 
   it('normalizes names, localizes with an explicit fallback, and hashes deterministically', () => {
     expect(normalizeTemplateName('  Weekly   REPORT  ')).toBe('weekly report');
+    expect(normalizeTemplateName('\uff37\uff45\uff45\uff4b\uff4c\uff59\u00a0\n\tREPORT')).toBe('weekly report');
     expect(localizedValue({ en: 'English' }, 'zh-CN', 'en')).toBe('English');
+    expect(localizedValue({ 'zh-CN': '中文' }, 'en', 'zh-CN')).toBe('中文');
+    expect(localizedValue({ 'zh-CN': '中文' }, 'en', 'en')).toBe('中文');
     expect(templateContentHash('# Same')).toBe(templateContentHash('# Same'));
     expect(templateContentHash('# Same')).not.toBe(templateContentHash('# Different'));
+    expect(templateContentHash('中文')).toBe(
+      '72726d8818f693066ceb69afa364218b692e62ea92b385782363780f47529c21',
+    );
+    expect(templateContentHash('# Same\n')).not.toBe(templateContentHash('# Same'));
+  });
+
+  it('rejects malformed localized helper inputs at every boundary', () => {
+    expect(LocalizedValueSchema.safeParse({}).success).toBe(false);
+    expect(LocalizedValueSchema.safeParse({ en: 'English', fr: 'Français' }).success).toBe(false);
+    expect(LocalizedValueSchema.safeParse({ en: 'x'.repeat(200_001) }).success).toBe(false);
+    expect(() => systemLocalizedValue({ en: 'English' })).toThrow(
+      'System page templates require zh-CN and en',
+    );
+    expect(systemLocalizedValue({ 'zh-CN': '中文', en: 'English' })).toEqual({
+      'zh-CN': '中文', en: 'English',
+    });
   });
 
   it('returns the requested system value with its actual locale', () => {

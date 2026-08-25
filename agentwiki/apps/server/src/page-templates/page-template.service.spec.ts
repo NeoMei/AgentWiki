@@ -179,8 +179,23 @@ describe('PageTemplateService', () => {
     expect(pageTemplateVersion.create).not.toHaveBeenCalled();
   });
 
-  it.each(['P2034', 'P2002'])('retries seed transactions after Prisma %s', async (code) => {
-    const retryable = Object.assign(new Error(`Prisma ${code}`), { code });
+  it.each([
+    ['P2034', new Prisma.PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+    )],
+    ['P2002', new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', { code: 'P2002', clientVersion: 'test' },
+    )],
+    ['P2010 SQLSTATE 40001', new Prisma.PrismaClientKnownRequestError(
+      'Raw query failed', { code: 'P2010', clientVersion: 'test', meta: { code: '40001' } },
+    )],
+    ['P2010 serialization failure metadata', new Prisma.PrismaClientKnownRequestError(
+      'Raw query failed', {
+        code: 'P2010', clientVersion: 'test',
+        meta: { message: 'ERROR: serialization failure while committing transaction' },
+      },
+    )],
+  ])('retries seed transactions after confirmed Prisma %s', async (_case, retryable) => {
     pageTemplate.findUnique.mockResolvedValue({ id: 'system-1', scope: 'system', currentVersion: 1 });
     prisma.$transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) => {
       await callback(prisma);
@@ -194,26 +209,23 @@ describe('PageTemplateService', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('retries seed transactions after an identifiable SQLSTATE 40001', async () => {
-    const retryable = new Error('transaction aborted with SQLSTATE 40001 serialization_failure');
-    pageTemplate.findUnique.mockResolvedValue({ id: 'system-1', scope: 'system', currentVersion: 1 });
-    prisma.$transaction.mockRejectedValueOnce(retryable);
-
-    await service.seedBuiltIns();
-
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
-  });
-
   it('stops after the bounded seed transaction retry budget is exhausted', async () => {
-    const retryable = Object.assign(new Error('serialization conflict'), { code: 'P2034' });
+    const retryable = new Prisma.PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+    );
     prisma.$transaction.mockRejectedValue(retryable);
 
     await expect(service.seedBuiltIns()).rejects.toBe(retryable);
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });
 
-  it('does not retry non-retryable seed transaction failures', async () => {
-    const failure = new Error('configuration failure');
+  it.each([
+    ['an ordinary error', new Error('configuration failure')],
+    ['an ordinary SQLSTATE message', new Error('transaction aborted with SQLSTATE 40001 serialization_failure')],
+    ['a non-Prisma P2034-shaped object', { code: 'P2034', message: 'not a Prisma error' }],
+    ['a non-Prisma P2002-shaped object', { code: 'P2002', message: 'not a Prisma error' }],
+    ['a non-Prisma SQLSTATE-shaped object', { sqlState: '40001', message: 'not a Prisma error' }],
+  ])('does not retry %s during seeding', async (_case, failure) => {
     prisma.$transaction.mockRejectedValue(failure);
 
     await expect(service.seedBuiltIns()).rejects.toBe(failure);

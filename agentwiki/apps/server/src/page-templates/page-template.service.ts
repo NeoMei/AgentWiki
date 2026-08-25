@@ -29,15 +29,13 @@ const PAGE_TEMPLATE_STABLE_KEY_CONSTRAINT = 'PageTemplate_scopeKey_stableKey_key
 const PAGE_TEMPLATE_VERSION_CONSTRAINT = 'PageTemplateVersion_templateId_version_key';
 
 function isRetryableSeedTransactionError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const record = error as Record<string, unknown>;
-  const nested = [record, record.meta, record.cause]
-    .filter((value): value is Record<string, unknown> => value !== null && typeof value === 'object');
-  const codes = nested.flatMap((value) => [value.code, value.sqlState, value.sqlstate])
-    .filter((value): value is string => typeof value === 'string');
-  if (codes.some((code) => ['P2034', 'P2002', '40001'].includes(code))) return true;
-  const messages = nested.map((value) => value.message).filter((value): value is string => typeof value === 'string');
-  return messages.some((message) => /\bSQLSTATE\s*[:=]?\s*40001\b|\bserialization_failure\b/iu.test(message));
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code === 'P2034' || error.code === 'P2002') return true;
+  if (error.code !== 'P2010') return false;
+  const meta = error.meta;
+  if (meta?.code === '40001') return true;
+  return typeof meta?.message === 'string'
+    && /\bserialization(?:_| )failure\b|\bcould not serialize access\b/iu.test(meta.message);
 }
 
 function isRetryableSpaceMutationError(error: unknown): boolean {

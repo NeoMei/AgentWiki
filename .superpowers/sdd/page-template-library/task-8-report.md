@@ -19,7 +19,7 @@ Worktree: `/Users/neomei/项目/codexprojects/AgentWiki /.worktrees/page-templat
 - A failed POST retains template, title, and parent state. While a POST is pending, duplicate submits, Escape, backdrop close, close, cancel, and back actions are blocked.
 - Modal teardown returns focus to the opener. The dialog uses a one-column card grid below `sm`, wrapping actions, viewport-bounded height, `w-full`, and no fixed width that can overflow a 390px viewport.
 - `SpaceView` now derives create visibility from the fetched Space's live membership plus the current authenticated user: Owner, Editor, and platform Super Admin can create; Space Admin and Viewer cannot.
-- Only the old inline create state/handler/overlay were replaced. Fetching, tree flattening/rendering, move/reorder, deletion, existing errors, and created-page navigation remain on their prior paths.
+- The original inline create state/handler/overlay were replaced. Tree flattening/rendering, move/reorder, deletion, existing errors, and created-page navigation remain on their prior paths; the later review fix below deliberately hardens Space fetch identity and stale-response handling.
 
 ## Data-shape preflight
 
@@ -103,7 +103,7 @@ git diff --check
 
 - Verified blank catalog failure/retry, stale response suppression, System interpolation, Space literal titles, exact template and blank POST shapes, state retention, pending-request guards, filter/management behavior, step focus, Escape/focus return, responsive classes, membership roles, Super Admin access, and created-page navigation through tests.
 - Verified no `content` or `format` field is constructed by the dialog.
-- Verified `SpaceView`'s move/delete/fetch/tree bodies are unchanged outside removal of the old create handler and overlay.
+- Verified `SpaceView`'s move/delete/tree behavior remains unchanged outside removal of the old create handler and overlay; route fetch state was intentionally changed by the review fix below to bind results and permissions to the current Space identity.
 - No server, database, package-version, push, publish, deployment, or release action was performed.
 
 ## Concerns

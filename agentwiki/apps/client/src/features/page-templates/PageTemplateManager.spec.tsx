@@ -299,6 +299,47 @@ describe('PageTemplateManager', () => {
     expect(screen.queryByText('筛选旧快照')).not.toBeInTheDocument();
   });
 
+  it('does not let a deferred mutation completion invalidate a different Space', async () => {
+    let resolveArchive!: (value: PageTemplateSummary) => void;
+    const spaceTwoTemplate = {
+      ...spaceTemplate,
+      id: 'space-2-template',
+      name: 'Space Two template',
+    };
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockImplementation(async (spaceId: string) => (
+      spaceId === 'space-1'
+        ? ownerCatalog
+        : { ...ownerCatalog, space: [spaceTwoTemplate] }
+    ));
+    mocks.archivePageTemplate.mockImplementation(() => new Promise((resolve) => {
+      resolveArchive = resolve;
+    }));
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/spaces/space-1/settings/page-templates']}>
+          <SpaceSwitch />
+          <Routes><Route path="/spaces/:id/settings/page-templates" element={<PageTemplateManager />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /归档 团队周报/ }));
+    await waitFor(() => expect(mocks.archivePageTemplate).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    expect(await screen.findByText('Space Two template')).toBeInTheDocument();
+
+    await act(async () => resolveArchive({
+      ...spaceTemplate,
+      archivedAt: '2026-08-25T18:00:00.000Z',
+      updatedAt: '2026-08-25T18:00:00.000Z',
+    }));
+
+    expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Space Two template')).toBeInTheDocument();
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+  });
+
   it('shows no-change feedback and keeps the version dialog open', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     mocks.api.get.mockResolvedValue({ data: { data: [{
