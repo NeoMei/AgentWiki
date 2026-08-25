@@ -15,6 +15,18 @@ const CODE_KEYS: Record<string, string> = {
   SOURCE_TOO_LARGE: 'error.sourceTooLarge',
   RESOURCE_CONFLICT: 'error.resourceConflict',
   CONFLICT: 'error.resourceConflict',
+  PAGE_TEMPLATE_INVALID: 'pageTemplate.invalid',
+  PAGE_TEMPLATE_NOT_FOUND: 'pageTemplate.notFound',
+  PAGE_TEMPLATE_VERSION_NOT_FOUND: 'pageTemplate.versionNotFound',
+  PAGE_TEMPLATE_ARCHIVED: 'pageTemplate.archived',
+  PAGE_TEMPLATE_SOURCE_INVALID: 'pageTemplate.sourceInvalid',
+  PAGE_TEMPLATE_SYSTEM_IMMUTABLE: 'pageTemplate.systemImmutable',
+  PAGE_TEMPLATE_AGENT_UNSUPPORTED: 'pageTemplate.agentUnsupported',
+  PAGE_TEMPLATE_PERMISSION_DENIED: 'pageTemplate.permissionDenied',
+  PAGE_TEMPLATE_NAME_CONFLICT: 'pageTemplate.nameConflict',
+  PAGE_TEMPLATE_VERSION_CONFLICT: 'pageTemplate.versionConflict',
+  PAGE_TEMPLATE_SOURCE_STALE: 'pageTemplate.sourceStale',
+  PAGE_TEMPLATE_QUOTA_EXCEEDED: 'pageTemplate.quotaExceeded',
 };
 
 export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: string): string {
