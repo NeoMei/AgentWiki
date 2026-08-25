@@ -14,7 +14,7 @@ const DetachedOpenerHarness: React.FC = () => {
     {open ? (
       <ModalDialog
         labelledBy="dialog-title"
-        fallbackFocusTo={fallbackRef.current}
+        fallbackFocusRef={fallbackRef}
         onRequestClose={() => {
           setShowOpener(false);
           setOpen(false);

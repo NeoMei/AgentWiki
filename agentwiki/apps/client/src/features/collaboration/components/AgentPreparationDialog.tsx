@@ -39,7 +39,7 @@ export interface AgentPreparationDialogProps {
   onClose: () => void;
   onPrepared: (result: PreparedAgentSelection) => Promise<void>;
   onAuthorizationLost: () => Promise<void>;
-  fallbackFocusTo?: HTMLElement | null;
+  fallbackFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 const safeStageErrorKey = (stage: PreparationStage): string => stage === 'issuing_instruction'
@@ -52,7 +52,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   onClose,
   onPrepared,
   onAuthorizationLost,
-  fallbackFocusTo,
+  fallbackFocusRef,
 }) => {
   const { t } = useLanguage();
   const ownedAgents = useOwnedAgents(spaceId, target.id);
@@ -247,7 +247,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
       labelledBy={titleId}
       onRequestClose={onClose}
       closeDisabled={busy}
-      fallbackFocusTo={fallbackFocusTo}
+      fallbackFocusRef={fallbackFocusRef}
       className="max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-2xl overflow-y-auto rounded-[14px] bg-white p-4 shadow-xl sm:p-6"
     >
       <div className="flex min-w-0 items-start justify-between gap-3">

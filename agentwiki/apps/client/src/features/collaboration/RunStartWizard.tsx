@@ -717,7 +717,7 @@ export const RunStartWizard: React.FC = () => {
           spaceId={id}
           target={{ id: preparationTarget.id, name: preparationTarget.name }}
           onClose={() => closePreparation(preparationTarget.token)}
-          fallbackFocusTo={mappingFocusFallbackRef.current}
+          fallbackFocusRef={mappingFocusFallbackRef}
           onPrepared={(prepared) => handlePrepared(
             preparationTarget.token,
             { id, templateId },

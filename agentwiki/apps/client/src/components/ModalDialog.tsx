@@ -15,7 +15,7 @@ export interface ModalDialogProps {
   onRequestClose: () => void;
   closeDisabled?: boolean;
   returnFocusTo?: HTMLElement | null;
-  fallbackFocusTo?: HTMLElement | null;
+  fallbackFocusRef?: React.RefObject<HTMLElement | null>;
   className?: string;
   children: React.ReactNode;
 }
@@ -25,7 +25,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
   onRequestClose,
   closeDisabled = false,
   returnFocusTo,
-  fallbackFocusTo,
+  fallbackFocusRef,
   className = '',
   children,
 }) => {
@@ -59,10 +59,12 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
       }
       portalNode.remove();
       const preferredReturnTarget = returnFocusTo ?? returnFocus;
-      if (preferredReturnTarget?.isConnected) preferredReturnTarget.focus();
-      else if (fallbackFocusTo?.isConnected) fallbackFocusTo.focus();
+      queueMicrotask(() => {
+        if (preferredReturnTarget?.isConnected) preferredReturnTarget.focus();
+        else if (fallbackFocusRef?.current?.isConnected) fallbackFocusRef.current.focus();
+      });
     };
-  }, [fallbackFocusTo, portalNode, returnFocus, returnFocusTo]);
+  }, [fallbackFocusRef, portalNode, returnFocus, returnFocusTo]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
