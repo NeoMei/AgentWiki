@@ -19,13 +19,13 @@
 - 2026-08-25 已完成逐段设计确认。
 - 正式设计：`agentwiki/docs/superpowers/specs/2026-08-25-page-template-library-design.md`。
 - 实施计划：`agentwiki/docs/superpowers/plans/2026-08-25-page-template-library-plan.md`。
-- 计划已按数据库合同、系统种子、服务端领域、两步弹窗、Space 管理、编辑器入口、独立数据库和真实浏览器验收分解为 13 个 TDD 任务，本地全部完成。
-- 分支 `codex/page-template-library`；2026-08-26 已继续修复最终审查的 Human Admin 入口、detail 权限、焦点/重入、文案、长度和类型契约问题。
-- 上一轮 Task 13 全仓门禁：runtime 104 pass / 51 skip、server 1184 pass / 4 skip、client 652/652、build 通过。本轮 fresh 聚焦门禁：schema 8/8、server 196/196、client 235/235、Playwright 静态发现 8 条路径，完整 typecheck/lint/diff-check 通过。
-- 专用 `PAGE_TEMPLATE_TEST_DATABASE_URL` 门禁在全新 PostgreSQL 16.14 上 2/2 通过；随机 schema `page_template_test_0430b861a8f2475abbd36f9e6cf130ba` 已 `DROP ... CASCADE`，残留计数 0。
-- 上一轮真实 Playwright 在全新 PostgreSQL/Redis/API/Vite 上 7/7 通过；本轮 E2E 源码新增 Human Admin 建页/管理路径及 metadata/version/archive/restore 的 `toBeFocused()` 断言，尚未声称该新增路径已在新栈重跑。
+- 计划按数据库合同、系统种子、服务端领域、两步弹窗、Space 管理、编辑器入口、独立数据库和真实浏览器验收分解；全部 TDD 任务、审查项和验收项已完成。
+- 分支 `codex/page-template-library`，最终代码候选 `cdcf52c`。四轮全分支审查已收敛，第四轮独立审查为 0 Critical / 0 Important / 0 Minor。
+- 最终全仓门禁：runtime 104 pass / 51 skip、server 1208 pass / 4 skip、client 708/708、sync-protocol 42/42、local-sync 748/748；typecheck、lint、build、diff-check 全部通过。
+- 专用 `PAGE_TEMPLATE_TEST_DATABASE_URL` 门禁在全新 PostgreSQL 16 上 2/2 通过，含 U+20000 Prisma 往返；随机 schema 已删除，全部 `page_template_test_%` 残留计数 0。
+- 真实 Chrome 在全新 PostgreSQL/Redis/API/Vite 上 8/8 通过，每场景 console error/warning 为 0；20 轮、80 个有序并发对全部通过，孤儿记录、锁等待者与活跃测试 fixture 均为 0。
 - 验收记录：`agentwiki/docs/testing/page-template-library-acceptance.md`。
-- 任务保持 active：本地实施已完成，GitHub/npm/生产发布属于未授权的独立后续工作。
+- 任务保持 active：本地任务、代码和全栈/UI 审查均已完成；GitHub/npm/生产发布属于未授权的独立后续工作。
 
 ## 完成标准
 

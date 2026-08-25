@@ -77,7 +77,7 @@
 - Consumes: existing `User`, `Space`, and `Page` Prisma models.
 - Produces: Prisma delegates `pageTemplate` and `pageTemplateVersion`; Page fields `sourceTemplateId`, `sourceTemplateVersion`, `sourceTemplateLocale`; compound identity `PageTemplateVersion_templateId_version_key`.
 
-- [ ] **Step 1: Write the failing static schema contract test**
+- [x] **Step 1: Write the failing static schema contract test**
 
 ```js
 // scripts/page-template-schema.test.mjs
@@ -104,13 +104,13 @@ test('page templates keep immutable versions and compound Page provenance', asyn
 });
 ```
 
-- [ ] **Step 2: Run the contract test and verify the migration is absent**
+- [x] **Step 2: Run the contract test and verify the migration is absent**
 
 Run: `cd agentwiki && node --test scripts/page-template-schema.test.mjs`
 
 Expected: FAIL with `ENOENT` for `20260825150000_add_page_templates/migration.sql`.
 
-- [ ] **Step 3: Add exact Prisma enums, models, inverse relations, and Page provenance**
+- [x] **Step 3: Add exact Prisma enums, models, inverse relations, and Page provenance**
 
 Add these declarations to `schema.prisma`; add the named inverse arrays to `User`, `Space`, and `Page` rather than leaving raw foreign-key IDs:
 
@@ -205,7 +205,7 @@ templateVersionsSourced      PageTemplateVersion[] @relation("PageTemplateVersio
 @@index([sourceTemplateId, sourceTemplateVersion])
 ```
 
-- [ ] **Step 4: Add the SQL migration with database-enforced scope and tuple checks**
+- [x] **Step 4: Add the SQL migration with database-enforced scope and tuple checks**
 
 Create the migration with these operations in one `BEGIN` / `COMMIT` transaction:
 
@@ -283,7 +283,7 @@ ALTER TABLE "Page" ADD CONSTRAINT "Page_sourceTemplate_version_fkey" FOREIGN KEY
 COMMIT;
 ```
 
-- [ ] **Step 5: Format, validate, generate, and rerun the contract test**
+- [x] **Step 5: Format, validate, generate, and rerun the contract test**
 
 Run:
 
@@ -297,7 +297,7 @@ node --test scripts/page-template-schema.test.mjs
 
 Expected: Prisma format/validate/generate exit 0; Node test reports `1 pass, 0 fail`.
 
-- [ ] **Step 6: Commit the database contract**
+- [x] **Step 6: Commit the database contract**
 
 ```bash
 cd agentwiki
@@ -318,7 +318,7 @@ git commit -m "feat(page-templates): add immutable template schema"
 - Consumes: Prisma `PageTemplateCategory`; Node `crypto`.
 - Produces: `PageTemplateLocale`, `LocalizedValue`, `BuiltInPageTemplate`, `normalizeTemplateName()`, `templateContentHash()`, `localizedValue()`, and `BUILT_IN_PAGE_TEMPLATES`.
 
-- [ ] **Step 1: Write failing seed and helper tests**
+- [x] **Step 1: Write failing seed and helper tests**
 
 ```ts
 // page-template-definitions.spec.ts
@@ -358,13 +358,13 @@ describe('built-in page templates', () => {
 });
 ```
 
-- [ ] **Step 2: Run the seed test and verify the module is missing**
+- [x] **Step 2: Run the seed test and verify the module is missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/page-templates/page-template-definitions.spec.ts`
 
 Expected: FAIL with `Cannot find module './page-template-definitions'`.
 
-- [ ] **Step 3: Implement strict locale helpers**
+- [x] **Step 3: Implement strict locale helpers**
 
 ```ts
 // page-template.types.ts
@@ -416,7 +416,7 @@ export function deepFreeze<T>(value: T): T {
 }
 ```
 
-- [ ] **Step 4: Implement the exact deeply frozen built-in seeds**
+- [x] **Step 4: Implement the exact deeply frozen built-in seeds**
 
 ```ts
 // page-template-definitions.ts
@@ -530,7 +530,7 @@ export const BUILT_IN_PAGE_TEMPLATES = deepFreeze([
 ]);
 ```
 
-- [ ] **Step 5: Run the focused tests and typecheck the server**
+- [x] **Step 5: Run the focused tests and typecheck the server**
 
 Run:
 
@@ -542,7 +542,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: focused Jest suite passes; server typecheck exits 0.
 
-- [ ] **Step 6: Commit the strict system catalog**
+- [x] **Step 6: Commit the strict system catalog**
 
 ```bash
 cd agentwiki
@@ -565,7 +565,7 @@ git commit -m "feat(page-templates): define bilingual system catalog"
 - Consumes: `BUILT_IN_PAGE_TEMPLATES`, Prisma delegates from Task 1, `AuthorizationService.assertSpaceAccess()`.
 - Produces: `PageTemplateService.seedBuiltIns()`, `list(spaceId, query, principal)`, `get(spaceId, templateId, locale, principal)`, and `resolveVersion(tx, input)` returning `{ content, templateId, version, locale }`.
 
-- [ ] **Step 1: Add failing read/seed/resolution tests**
+- [x] **Step 1: Add failing read/seed/resolution tests**
 
 Create mocked Prisma tests that assert these exact contracts:
 
@@ -627,13 +627,13 @@ it('rejects cross-Space, archived, and missing versions with stable codes', asyn
 });
 ```
 
-- [ ] **Step 2: Run the service test and verify the service is missing**
+- [x] **Step 2: Run the service test and verify the service is missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/page-templates/page-template.service.spec.ts`
 
 Expected: FAIL with `Cannot find module './page-template.service'`.
 
-- [ ] **Step 3: Add exact list and mutation DTO validation**
+- [x] **Step 3: Add exact list and mutation DTO validation**
 
 ```ts
 // page-template.dto.ts
@@ -679,7 +679,7 @@ export class PageTemplateStateDto {
 }
 ```
 
-- [ ] **Step 4: Add stable business error codes before compiling the service**
+- [x] **Step 4: Add stable business error codes before compiling the service**
 
 Add to `ERROR_CODE_MAP`:
 
@@ -698,7 +698,7 @@ PAGE_TEMPLATE_SYSTEM_IMMUTABLE: { status: HttpStatus.CONFLICT, message: 'System 
 PAGE_TEMPLATE_AGENT_UNSUPPORTED: { status: HttpStatus.FORBIDDEN, message: 'Agents cannot use page template source fields' },
 ```
 
-- [ ] **Step 5: Implement seed/list/get/resolve with strict JSON parsing**
+- [x] **Step 5: Implement seed/list/get/resolve with strict JSON parsing**
 
 Implement `PageTemplateService` with these public signatures and invariants:
 
@@ -865,7 +865,7 @@ export class PageTemplateService implements OnModuleInit {
 
 The returned object must use `summary()` and `localizedValue()` exactly as above; never pass unvalidated Prisma JSON to the client.
 
-- [ ] **Step 6: Run focused tests, DTO validation tests, and typecheck**
+- [x] **Step 6: Run focused tests, DTO validation tests, and typecheck**
 
 Add DTO tests using `validate()` for missing locale, `take=101`, invalid category, name length 81, invalid ISO timestamps, and valid bodies. Then run:
 
@@ -877,7 +877,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: all focused suites pass; typecheck exits 0.
 
-- [ ] **Step 7: Commit the read and seed domain**
+- [x] **Step 7: Commit the read and seed domain**
 
 ```bash
 cd agentwiki
@@ -897,7 +897,7 @@ git commit -m "feat(page-templates): seed and resolve template versions"
 - Consumes: DTOs and read service from Task 3; `AuthorizationService.assertLiveHumanSpaceAccess()`.
 - Produces: `createSpaceTemplate()`, `updateMetadata()`, `createVersion()`, `archive()`, and `restore()`.
 
-- [ ] **Step 1: Add failing management and race-safety tests**
+- [x] **Step 1: Add failing management and race-safety tests**
 
 ```ts
 it('creates a Space template only from the exact persisted Markdown page', async () => {
@@ -975,13 +975,13 @@ it('requires live Owner/Admin authorization for every mutation', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the mutation tests and verify methods are missing**
+- [x] **Step 2: Run the mutation tests and verify methods are missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/page-templates/page-template.service.spec.ts`
 
 Expected: FAIL because `createSpaceTemplate`, `createVersion`, and `archive` are undefined.
 
-- [ ] **Step 3: Implement live management authorization and exact source loading**
+- [x] **Step 3: Implement live management authorization and exact source loading**
 
 ```ts
 private async assertCanManage(
@@ -1066,7 +1066,7 @@ private rethrowNameConflict(error: unknown): never {
 }
 ```
 
-- [ ] **Step 4: Implement Space template creation in a serializable transaction**
+- [x] **Step 4: Implement Space template creation in a serializable transaction**
 
 ```ts
 async createSpaceTemplate(
@@ -1111,7 +1111,7 @@ async createSpaceTemplate(
 
 The explicit `P2002` mapping is required because two concurrent creates can pass the friendly preflight check. It preserves a stable `PAGE_TEMPLATE_NAME_CONFLICT` contract instead of leaking a Prisma error.
 
-- [ ] **Step 5: Implement metadata update, immutable content update, archive, and restore**
+- [x] **Step 5: Implement metadata update, immutable content update, archive, and restore**
 
 Use `updateMany` with exact optimistic predicates; never call unconditional `update` for these state changes:
 
@@ -1214,7 +1214,7 @@ async restore(spaceId: string, templateId: string, body: PageTemplateStateDto, p
 
 `requireSpaceTemplate()` supplies the system-ID rejection contract, while both writes use live authorization and optimistic timestamps. Keep the archived record readable to managers so `getManagedRecord()` can return the mutation result.
 
-- [ ] **Step 6: Run focused tests and server typecheck**
+- [x] **Step 6: Run focused tests and server typecheck**
 
 Run:
 
@@ -1226,7 +1226,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: service suite passes, including no-op hash, stale source, live permission, quota, name uniqueness, version race, archive, and restore tests.
 
-- [ ] **Step 7: Commit the management service**
+- [x] **Step 7: Commit the management service**
 
 ```bash
 cd agentwiki
@@ -1249,7 +1249,7 @@ git commit -m "feat(page-templates): manage Space template snapshots"
 - Consumes: management methods from Task 4, `CombinedAuthGuard`, `HumanOnlyGuard`.
 - Produces: `/spaces/:spaceId/page-templates` HTTP surface and exported `PageTemplateService` for PageModule.
 
-- [ ] **Step 1: Add failing controller delegation tests**
+- [x] **Step 1: Add failing controller delegation tests**
 
 ```ts
 describe('PageTemplateController', () => {
@@ -1282,13 +1282,13 @@ describe('PageTemplateController', () => {
 });
 ```
 
-- [ ] **Step 2: Run the controller test and verify the controller is missing**
+- [x] **Step 2: Run the controller test and verify the controller is missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/server exec jest --runInBand src/page-templates/page-template.controller.spec.ts`
 
 Expected: FAIL with `Cannot find module './page-template.controller'`.
 
-- [ ] **Step 3: Add the locale-only detail query DTO**
+- [x] **Step 3: Add the locale-only detail query DTO**
 
 ```ts
 export class PageTemplateLocaleQueryDto {
@@ -1296,7 +1296,7 @@ export class PageTemplateLocaleQueryDto {
 }
 ```
 
-- [ ] **Step 4: Implement the exact controller surface**
+- [x] **Step 4: Implement the exact controller surface**
 
 ```ts
 @Controller('spaces/:spaceId/page-templates')
@@ -1341,7 +1341,7 @@ export class PageTemplateController {
 }
 ```
 
-- [ ] **Step 5: Wire and export the domain module**
+- [x] **Step 5: Wire and export the domain module**
 
 ```ts
 // page-template.module.ts
@@ -1356,7 +1356,7 @@ export class PageTemplateModule {}
 
 Import `PageTemplateModule` once in `AppModule`. Do not import collaboration template services or expose page-template endpoints from the collaboration controller.
 
-- [ ] **Step 6: Run controller, DTO, service, guard regression, and typecheck**
+- [x] **Step 6: Run controller, DTO, service, guard regression, and typecheck**
 
 Run:
 
@@ -1368,7 +1368,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: page-template and HumanOnlyGuard suites pass; typecheck exits 0.
 
-- [ ] **Step 7: Commit the HTTP domain**
+- [x] **Step 7: Commit the HTTP domain**
 
 ```bash
 cd agentwiki
@@ -1395,7 +1395,7 @@ git commit -m "feat(page-templates): expose human template API"
 - Consumes: `PageTemplateService.resolveVersion()` from Task 3.
 - Produces: optional create fields `templateId`, `templateVersion`, `templateLocale`; persisted Page provenance; explicit `PAGE_TEMPLATE_AGENT_UNSUPPORTED` boundary.
 
-- [ ] **Step 1: Add failing DTO shape tests**
+- [x] **Step 1: Add failing DTO shape tests**
 
 ```ts
 it.each([
@@ -1411,7 +1411,7 @@ it.each([
 });
 ```
 
-- [ ] **Step 2: Add failing PageService and Agent boundary tests**
+- [x] **Step 2: Add failing PageService and Agent boundary tests**
 
 ```ts
 it('copies the exact resolved version and stores provenance in the existing transaction', async () => {
@@ -1450,7 +1450,7 @@ it('rejects Agent template fields before opening a ChangeSet', async () => {
 
 ```
 
-- [ ] **Step 3: Run focused tests and verify the new behavior fails**
+- [x] **Step 3: Run focused tests and verify the new behavior fails**
 
 Run:
 
@@ -1461,7 +1461,7 @@ pnpm --filter @agentwiki/server exec jest --runInBand src/core/dto/page.dto.spec
 
 Expected: FAIL because template fields, resolver injection, provenance writes, and Agent rejection do not exist.
 
-- [ ] **Step 4: Implement the class-level create-shape validator**
+- [x] **Step 4: Implement the class-level create-shape validator**
 
 ```ts
 // page-template-create.validator.ts
@@ -1494,7 +1494,7 @@ export function IsPageTemplateCreateShape(options?: ValidationOptions) {
 
 Add its own unit test for 0/1/2/3 template fields, content mixing, and `format: html`.
 
-- [ ] **Step 5: Extend `CreatePageDto` with validated optional template fields**
+- [x] **Step 5: Extend `CreatePageDto` with validated optional template fields**
 
 ```ts
 // Attach the object-shape validator to required spaceId so class-validator always runs it,
@@ -1522,7 +1522,7 @@ templateLocale?: 'zh-CN' | 'en';
 
 Import `IsInt`, `Min`, `Max`, and the custom validator. Keep existing `content`, `format`, blank create, and direct-content validation unchanged.
 
-- [ ] **Step 6: Resolve content inside the page-create transaction**
+- [x] **Step 6: Resolve content inside the page-create transaction**
 
 Inject `PageTemplateService` into `PageService`. Inside the existing transaction, immediately after `lockSpace()` and before path allocation, add:
 
@@ -1547,7 +1547,7 @@ sourceTemplateLocale: template?.locale,
 
 Add the three source fields to `PAGE_PUBLIC_FIELDS` so the created page and later reads expose provenance.
 
-- [ ] **Step 7: Reject Agent template fields before the review branch**
+- [x] **Step 7: Reject Agent template fields before the review branch**
 
 Keep the existing human create authorization call exactly as `['owner', 'editor'], 'pages:write'`; the shared authorization layer already treats Human Admin as satisfying this editor-level gate, while Agent roles remain exact. Do not add a page-template-specific role override. After `assertSpaceAccess()` and before `if (user.agentId)`, add:
 
@@ -1559,7 +1559,7 @@ if (user.agentId && (dto.templateId !== undefined || dto.templateVersion !== und
 
 Do not resolve a template or copy content into an Agent ChangeSet.
 
-- [ ] **Step 8: Wire the resolver into PageModule and update test providers**
+- [x] **Step 8: Wire the resolver into PageModule and update test providers**
 
 Import `PageTemplateModule` in `PageModule`. In `page.service.spec.ts`, provide:
 
@@ -1570,7 +1570,7 @@ const mockTemplates = { resolveVersion: jest.fn() };
 
 Update every direct `new PageService` construction in the test file to pass `mockTemplates` in the exact constructor position.
 
-- [ ] **Step 9: Run page, DTO, review-boundary, and template regressions**
+- [x] **Step 9: Run page, DTO, review-boundary, and template regressions**
 
 Run:
 
@@ -1582,7 +1582,7 @@ pnpm --filter @agentwiki/server typecheck
 
 Expected: all suites pass; existing direct page creation and Agent explicit-content proposal tests remain green.
 
-- [ ] **Step 10: Commit exact-version page creation**
+- [x] **Step 10: Commit exact-version page creation**
 
 ```bash
 cd agentwiki
@@ -1608,7 +1608,7 @@ git commit -m "feat(pages): create from immutable template versions"
 - Consumes: HTTP response shapes from Task 5.
 - Produces: typed API methods and `interpolateDefaultPageTitle(template, now)` used by every client screen.
 
-- [ ] **Step 1: Write failing date/title tests**
+- [x] **Step 1: Write failing date/title tests**
 
 ```ts
 describe('interpolateDefaultPageTitle', () => {
@@ -1624,7 +1624,7 @@ describe('interpolateDefaultPageTitle', () => {
 });
 ```
 
-- [ ] **Step 2: Write failing API adapter tests**
+- [x] **Step 2: Write failing API adapter tests**
 
 ```ts
 it('loads a localized active catalog with fixed bounds', async () => {
@@ -1644,13 +1644,13 @@ it('sends DELETE optimistic state in the request body', async () => {
 });
 ```
 
-- [ ] **Step 3: Run client tests and verify the modules are missing**
+- [x] **Step 3: Run client tests and verify the modules are missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client test -- src/features/page-templates/defaultPageTitle.spec.ts src/features/page-templates/pageTemplateApi.spec.ts`
 
 Expected: FAIL with missing module errors.
 
-- [ ] **Step 4: Add exact client contracts**
+- [x] **Step 4: Add exact client contracts**
 
 ```ts
 // pageTemplateTypes.ts
@@ -1698,7 +1698,7 @@ export interface SavePageTemplateInput {
 }
 ```
 
-- [ ] **Step 5: Implement local ISO-week title interpolation**
+- [x] **Step 5: Implement local ISO-week title interpolation**
 
 ```ts
 // defaultPageTitle.ts
@@ -1724,7 +1724,7 @@ export function interpolateDefaultPageTitle(template: string, now = new Date()):
 }
 ```
 
-- [ ] **Step 6: Implement focused API adapters**
+- [x] **Step 6: Implement focused API adapters**
 
 ```ts
 // pageTemplateApi.ts
@@ -1759,7 +1759,7 @@ export const restorePageTemplate = async (spaceId: string, templateId: string, e
   (await api.post(`/spaces/${spaceId}/page-templates/${templateId}/restore`, { expectedUpdatedAt })).data;
 ```
 
-- [ ] **Step 7: Add bilingual copy and stable error mappings**
+- [x] **Step 7: Add bilingual copy and stable error mappings**
 
 Merge these exact values into the existing flat English and Chinese dictionaries in `messages.ts`:
 
@@ -1890,7 +1890,7 @@ PAGE_TEMPLATE_QUOTA_EXCEEDED: 'pageTemplate.quotaExceeded',
 
 Add one parameterized `apiErrorMessage` test that verifies all twelve mappings return translated copy rather than the fallback key.
 
-- [ ] **Step 8: Run client helper/API/error tests and typecheck**
+- [x] **Step 8: Run client helper/API/error tests and typecheck**
 
 Run:
 
@@ -1902,7 +1902,7 @@ pnpm --filter @agentwiki/client exec tsc --noEmit
 
 Expected: all focused tests pass; client typecheck exits 0.
 
-- [ ] **Step 9: Commit client primitives**
+- [x] **Step 9: Commit client primitives**
 
 ```bash
 cd agentwiki
@@ -1924,7 +1924,7 @@ git commit -m "feat(page-templates): add client template contracts"
 - Consumes: `listPageTemplates()`, `interpolateDefaultPageTitle()`, existing `ModalDialog`, and `POST /pages`.
 - Produces: `NewPageDialog({ spaceId, parentOptions, returnFocusTo, onClose, onCreated })` and preserves `SpaceView` page navigation.
 
-- [ ] **Step 1: Write failing two-step dialog tests**
+- [x] **Step 1: Write failing two-step dialog tests**
 
 ```tsx
 it('defaults to blank, keeps blank available when the catalog fails, and retries', async () => {
@@ -1997,13 +1997,13 @@ it.each([
 
 Use fake timers or inject `now={new Date(2026, 7, 25, 12)}` as a test-only optional prop so date expectations are deterministic.
 
-- [ ] **Step 2: Run the dialog test and verify the component is missing**
+- [x] **Step 2: Run the dialog test and verify the component is missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client test -- src/features/page-templates/NewPageDialog.spec.tsx`
 
 Expected: FAIL with missing component module.
 
-- [ ] **Step 3: Implement catalog loading, stale-request protection, and blank fallback**
+- [x] **Step 3: Implement catalog loading, stale-request protection, and blank fallback**
 
 ```tsx
 export interface NewPageDialogProps {
@@ -2053,7 +2053,7 @@ export const NewPageDialog: React.FC<NewPageDialogProps> = ({
   };
 ```
 
-- [ ] **Step 4: Implement exact create payload and state-preserving errors**
+- [x] **Step 4: Implement exact create payload and state-preserving errors**
 
 ```tsx
   const create = async (event: React.FormEvent) => {
@@ -2099,7 +2099,7 @@ Render the second step as one form containing the selected-template summary, req
 
 Cards use `grid-cols-1 sm:grid-cols-2`; no fixed width may exceed 390px.
 
-- [ ] **Step 5: Replace only the inline create state and modal in `SpaceView`**
+- [x] **Step 5: Replace only the inline create state and modal in `SpaceView`**
 
 Keep fetching, hierarchy, move, delete, and navigation behavior untouched. Replace `showCreate`, title/parent/creating state, `handleCreatePage`, and the inline overlay with:
 
@@ -2139,7 +2139,7 @@ const canCreatePages = user?.platformRole === 'super_admin'
 ) : null}
 ```
 
-- [ ] **Step 6: Run dialog, Space tree, modal, and type tests**
+- [x] **Step 6: Run dialog, Space tree, modal, and type tests**
 
 Run:
 
@@ -2151,7 +2151,7 @@ pnpm --filter @agentwiki/client exec tsc --noEmit
 
 Expected: tests pass; no changes to move/delete behavior; typecheck exits 0.
 
-- [ ] **Step 7: Commit the two-step page flow**
+- [x] **Step 7: Commit the two-step page flow**
 
 ```bash
 cd agentwiki
@@ -2178,7 +2178,7 @@ git commit -m "feat(pages): add two-step template creation"
 - Consumes: list/mutation adapters from Task 7, existing paginated `/pages`, `SpaceNav`, and `ModalDialog`.
 - Produces: route `/spaces/:id/settings/page-templates`, settings summary card, and all Owner/Admin management actions.
 
-- [ ] **Step 1: Write failing settings-card and routing tests**
+- [x] **Step 1: Write failing settings-card and routing tests**
 
 ```tsx
 it('shows the active Space template count and manage link only when allowed', async () => {
@@ -2197,7 +2197,7 @@ it('routes the settings page to PageTemplateManager', async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing manager mutation tests**
+- [x] **Step 2: Write failing manager mutation tests**
 
 ```tsx
 it('edits metadata with the loaded optimistic timestamp', async () => {
@@ -2262,7 +2262,7 @@ it('renders system templates read-only and removes all mutations without capabil
 });
 ```
 
-- [ ] **Step 3: Run focused tests and verify components/routes are missing**
+- [x] **Step 3: Run focused tests and verify components/routes are missing**
 
 Run:
 
@@ -2273,7 +2273,7 @@ pnpm --filter @agentwiki/client test -- src/features/page-templates/PageTemplate
 
 Expected: FAIL with missing modules and route.
 
-- [ ] **Step 4: Implement the lightweight settings card**
+- [x] **Step 4: Implement the lightweight settings card**
 
 ```tsx
 export const PageTemplateSettingsCard: React.FC<{ spaceId: string }> = ({ spaceId }) => {
@@ -2306,7 +2306,7 @@ export const PageTemplateSettingsCard: React.FC<{ spaceId: string }> = ({ spaceI
 
 Render this card after `AutoGraphCard` in `SpaceSettings`; do not merge its loading/error state with the main settings form or graph card.
 
-- [ ] **Step 5: Implement manager loading and stable stale-response guards**
+- [x] **Step 5: Implement manager loading and stable stale-response guards**
 
 `PageTemplateManager` reads `id`, language, search, category, and `showArchived`; each load captures a monotonically increasing request ID. It renders `SpaceNav`, a back link, one search input, category select, archived checkbox, system section, Space section, and load-more button when `space.length < totalSpace`.
 
@@ -2335,7 +2335,7 @@ const load = async (reset = true) => {
 };
 ```
 
-- [ ] **Step 6: Implement focused management dialogs**
+- [x] **Step 6: Implement focused management dialogs**
 
 Use one discriminated pending state:
 
@@ -2356,7 +2356,7 @@ Metadata submit calls `updatePageTemplate()` with the selected record's `updated
 
 Archive and restore require `window.confirm`, call the exact optimistic adapters, then reload. System cards have no mutation controls.
 
-- [ ] **Step 7: Add the lazy manager route**
+- [x] **Step 7: Add the lazy manager route**
 
 ```tsx
 const PageTemplateManager = lazy(() => import('./features/page-templates/PageTemplateManager')
@@ -2370,7 +2370,7 @@ const PageTemplateManager = lazy(() => import('./features/page-templates/PageTem
 
 The static settings route must remain before the wildcard; no existing route changes meaning.
 
-- [ ] **Step 8: Run manager, settings, route, modal, and type tests**
+- [x] **Step 8: Run manager, settings, route, modal, and type tests**
 
 Run:
 
@@ -2382,7 +2382,7 @@ pnpm --filter @agentwiki/client exec tsc --noEmit
 
 Expected: focused suites pass; settings form and graph card regressions remain green; typecheck exits 0.
 
-- [ ] **Step 9: Commit Space template management UI**
+- [x] **Step 9: Commit Space template management UI**
 
 ```bash
 cd agentwiki
@@ -2404,7 +2404,7 @@ git commit -m "feat(page-templates): add Space template management"
 - Consumes: `listPageTemplates()`, `createPageTemplate()`, current Page `id`, `spaceId`, `format`, and `updatedAt`.
 - Produces: accessible “More → Save as Space template” editor action with exact persisted source version.
 
-- [ ] **Step 1: Write failing save-dialog tests**
+- [x] **Step 1: Write failing save-dialog tests**
 
 ```tsx
 it('saves the exact persisted page timestamp and source locale', async () => {
@@ -2436,7 +2436,7 @@ it('keeps entered metadata after a conflict', async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing PageEditor capability and dirty-state tests**
+- [x] **Step 2: Write failing PageEditor capability and dirty-state tests**
 
 ```tsx
 it('shows Save as Space template only with server management capability', async () => {
@@ -2468,13 +2468,13 @@ it('hides template actions for non-Markdown pages and capability failures', asyn
 });
 ```
 
-- [ ] **Step 3: Run focused tests and verify the dialog/action is missing**
+- [x] **Step 3: Run focused tests and verify the dialog/action is missing**
 
 Run: `cd agentwiki && pnpm --filter @agentwiki/client test -- src/features/page-templates/SavePageAsTemplateDialog.spec.tsx src/features/page/PageEditor.spec.tsx`
 
 Expected: FAIL with missing component and missing editor action.
 
-- [ ] **Step 4: Implement the save dialog**
+- [x] **Step 4: Implement the save dialog**
 
 ```tsx
 export const SavePageAsTemplateDialog: React.FC<{
@@ -2548,7 +2548,7 @@ export const SavePageAsTemplateDialog: React.FC<{
 };
 ```
 
-- [ ] **Step 5: Add a capability load that cannot disturb editor page queues or drafts**
+- [x] **Step 5: Add a capability load that cannot disturb editor page queues or drafts**
 
 Import `listPageTemplates` as a separate module dependency. After `page.spaceId` is known:
 
@@ -2566,7 +2566,7 @@ useEffect(() => {
 
 Mock this module directly in `PageEditor.spec.tsx`; do not route its request through the existing page-detail response queue.
 
-- [ ] **Step 6: Add the focused More menu without changing Save, History, or mode controls**
+- [x] **Step 6: Add the focused More menu without changing Save, History, or mode controls**
 
 Add `Ellipsis` beside History and Save. Only render it when `canManageTemplates && page?.format === 'markdown'`. Use `aria-haspopup="menu"`, close on Escape and outside click, and return focus after dialog closure. The menu item is disabled when `isDirty || saving || remoteUpdate !== null`; directly below it render `pageTemplate.savePageFirst` while dirty.
 
@@ -2581,7 +2581,7 @@ onSaved={() => {
 
 Do not mark the page clean, change `updatedAt`, or alter editor content as a side effect of template creation.
 
-- [ ] **Step 7: Run editor, dialog, remote-update, and type regressions**
+- [x] **Step 7: Run editor, dialog, remote-update, and type regressions**
 
 Run:
 
@@ -2593,7 +2593,7 @@ pnpm --filter @agentwiki/client exec tsc --noEmit
 
 Expected: all suites pass, including existing dirty-draft and remote-update safety tests.
 
-- [ ] **Step 8: Commit the editor-to-template path**
+- [x] **Step 8: Commit the editor-to-template path**
 
 ```bash
 cd agentwiki
@@ -2614,7 +2614,7 @@ git commit -m "feat(page-templates): save pages as Space templates"
 - Consumes: all Prisma migrations and generated client.
 - Produces: fail-closed `PAGE_TEMPLATE_TEST_DATABASE_URL` harness and `pnpm test:e2e:page-template-db`.
 
-- [ ] **Step 1: Write failing URL safety and database integrity tests**
+- [x] **Step 1: Write failing URL safety and database integrity tests**
 
 ```js
 // page-template-schema-db.test.mjs
@@ -2713,13 +2713,13 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
 });
 ```
 
-- [ ] **Step 2: Run the static part and verify the missing helper failure**
+- [x] **Step 2: Run the static part and verify the missing helper failure**
 
 Run: `cd agentwiki && node --test scripts/page-template-schema-db.test.mjs`
 
 Expected: FAIL with missing `page-template-test-database.mjs` before any database access.
 
-- [ ] **Step 3: Implement the fail-closed isolated schema harness**
+- [x] **Step 3: Implement the fail-closed isolated schema harness**
 
 ```js
 // page-template-test-database.mjs
@@ -2777,7 +2777,7 @@ export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback) {
 }
 ```
 
-- [ ] **Step 4: Add and run the isolated database command**
+- [x] **Step 4: Add and run the isolated database command**
 
 Add to root scripts:
 
@@ -2801,7 +2801,7 @@ pnpm test:e2e:page-template-db
 
 Expected: the first command proves the caller explicitly exported the dedicated test URL; the suite reports `2 pass, 0 fail, 0 skipped`; the random schema is dropped in `finally`.
 
-- [ ] **Step 5: Commit the real database guard**
+- [x] **Step 5: Commit the real database guard**
 
 ```bash
 cd agentwiki
@@ -2820,7 +2820,7 @@ git commit -m "test(page-templates): verify database integrity guards"
 - Consumes: running local API and frontend, real PostgreSQL, all feature routes.
 - Produces: Playwright evidence for bilingual system templates, custom template lifecycle, immutable old pages, roles, focus, and 390px layout.
 
-- [ ] **Step 1: Add a serial fixture with owner, editor, viewer, Space, and source pages**
+- [x] **Step 1: Add a serial fixture with owner, editor, viewer, Space, and source pages**
 
 ```ts
 import { test, expect, request as playwrightRequest, type APIRequestContext, type Page } from '@playwright/test';
@@ -2890,7 +2890,7 @@ test.describe.serial('page template library', () => {
   });
 ```
 
-- [ ] **Step 2: Add an authentication helper and owner custom-template flow**
+- [x] **Step 2: Add an authentication helper and owner custom-template flow**
 
 ```ts
 const authenticate = async (page: Page, account: any, language: 'zh-CN' | 'en') => {
@@ -2930,7 +2930,7 @@ test('Owner saves a page as a Space template and creates from it', async ({ page
 });
 ```
 
-- [ ] **Step 3: Add immutable-version and role tests**
+- [x] **Step 3: Add immutable-version and role tests**
 
 Add this exact owner test after the create test. It updates the source with optimistic concurrency, creates version 2 through the manager, creates a second page, and reads both pages back from the API:
 
@@ -3023,7 +3023,7 @@ test('Editor can use but cannot manage; Viewer cannot create', async ({ browser 
 
 The Chinese assertion in the English UI is deliberate: custom templates retain their authoring language and are not auto-translated.
 
-- [ ] **Step 4: Add bilingual system-template and 390px overflow/focus tests**
+- [x] **Step 4: Add bilingual system-template and 390px overflow/focus tests**
 
 ```ts
 test('Chinese and English system templates create localized Markdown', async ({ browser }) => {
@@ -3087,7 +3087,7 @@ test('English system template and mobile dialog are usable without overflow', as
 });
 ```
 
-- [ ] **Step 5: Run the real browser suite against local services**
+- [x] **Step 5: Run the real browser suite against local services**
 
 Start the local API and frontend with a disposable local development database, then run:
 
@@ -3095,7 +3095,7 @@ Start the local API and frontend with a disposable local development database, t
 
 Expected: owner lifecycle, immutable versions, Editor/Viewer permissions, bilingual system template, mobile overflow, focus, and console assertions all pass.
 
-- [ ] **Step 6: Commit browser acceptance**
+- [x] **Step 6: Commit browser acceptance**
 
 ```bash
 cd agentwiki
@@ -3118,7 +3118,7 @@ git commit -m "test(page-templates): cover browser template lifecycle"
 - Consumes: all implementation tasks and real database/browser configuration.
 - Produces: independently reviewable evidence, current project state, and a release boundary that does not imply push/publish/deploy.
 
-- [ ] **Step 1: Run all focused suites from a clean command invocation**
+- [x] **Step 1: Run all focused suites from a clean command invocation**
 
 ```bash
 cd agentwiki
@@ -3129,7 +3129,7 @@ pnpm --filter @agentwiki/client test -- src/features/page-templates src/features
 
 Expected: every named suite exits 0 with no skipped focused test.
 
-- [ ] **Step 2: Run the required real database and browser gates**
+- [x] **Step 2: Run the required real database and browser gates**
 
 ```bash
 cd agentwiki
@@ -3140,7 +3140,7 @@ pnpm --filter @agentwiki/client exec playwright test e2e/page-templates.spec.ts
 
 Expected: database reports `2 pass, 0 fail, 0 skipped`; Playwright passes all scenarios. Do not replace the database command with `DATABASE_URL`, and do not continue to a completion claim if the dedicated database gate was skipped.
 
-- [ ] **Step 3: Run full repository quality gates**
+- [x] **Step 3: Run full repository quality gates**
 
 ```bash
 cd agentwiki
@@ -3154,7 +3154,7 @@ pnpm build
 
 Expected: every command exits 0. Record exact pass/skip counts from Jest, Vitest, and Node test output.
 
-- [ ] **Step 4: Perform a fresh diff review before claiming completion**
+- [x] **Step 4: Perform a fresh diff review before claiming completion**
 
 Run:
 
@@ -3179,11 +3179,11 @@ Review every changed path for:
 
 Resolve every actionable finding with a failing regression test, minimal fix, focused rerun, and a separate `fix(page-templates): address final review findings` commit.
 
-- [ ] **Step 5: Use the required review and verification skills**
+- [x] **Step 5: Use the required review and verification skills**
 
 Invoke `superpowers:requesting-code-review` for an independent code-path review, address findings through `superpowers:receiving-code-review`, then invoke `superpowers:verification-before-completion` and rerun the commands it requires. A focused-green implementation is not completion evidence without this fresh review.
 
-- [ ] **Step 6: Write the acceptance record with observed evidence only**
+- [x] **Step 6: Write the acceptance record with observed evidence only**
 
 Create `docs/testing/page-template-library-acceptance.md` containing:
 
@@ -3197,11 +3197,11 @@ Create `docs/testing/page-template-library-acceptance.md` containing:
 
 Do not include unchecked boxes, template text, planned counts, or unobserved claims.
 
-- [ ] **Step 7: Update structured project memory**
+- [x] **Step 7: Update structured project memory**
 
 Update `.codex-memory/current.md` to the actual implementation state. Update the active task brief with implementation commits, tests, database/browser evidence, and remaining release work; add any durable decision discovered during implementation to `decisions.md`; add exact evidence paths to `refs.md`. Keep the task active unless all locally requested work and any separately authorized release work are complete.
 
-- [ ] **Step 8: Commit verification evidence and memory**
+- [x] **Step 8: Commit verification evidence and memory**
 
 ```bash
 cd agentwiki
@@ -3209,6 +3209,6 @@ git add docs/testing/page-template-library-acceptance.md ../.codex-memory/curren
 git commit -m "docs: verify page template library"
 ```
 
-- [ ] **Step 9: Report boundaries separately**
+- [x] **Step 9: Report boundaries separately**
 
 Report local branch/commit, `origin/master`, npm versions, and production state as four separate facts. Do not push, publish, or deploy as part of this plan without a new explicit user authorization.

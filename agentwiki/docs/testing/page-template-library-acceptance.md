@@ -2,6 +2,19 @@
 
 Date: 2026-08-26 (Asia/Shanghai)
 
+## 2026-08-26 convergence audit and final dynamic gate
+
+- Final code candidate: `cdcf52cc010db979fcbeb138f32c33da64d3a24f` on `codex/page-template-library`.
+- Four whole-branch review rounds converged after fixes `5721954`, `eb0c138`, `1ff5aae`, and `cdcf52c`. The fourth independent review reported 0 Critical, 0 Important, and 0 Minor actionable findings.
+- The final code candidate passed the complete repository test command: runtime 104 passed / 51 skipped; server 1,208 passed / 4 skipped; client 708/708; sync-protocol 42/42; local-sync 748/748. `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `git diff --check origin/master..HEAD` also exited 0. The build retained only the existing non-blocking Vite chunk-size warning.
+- A final fresh disposable stack applied all 43 migrations. The dedicated database gate passed 2/2 with 0 failures or skips, including a real Prisma persist/readback for U+20000. Its random schema was dropped and the final `page_template_test_%` residual count was 0.
+- Real Chrome passed all 8 scenarios with 0 failures or skips. Every scenario asserted an empty console error-and-warning collection. The version-source picker called the lightweight `source-pages` endpoint successfully (HTTP 200), and desktop plus 390px geometry and focus checks passed.
+- The final concurrency gate ran 20 rounds: 40 template pairs plus 40 Space pairs, for 80 explicitly ordered concurrent pairs. All passed. Archive-first rejected creation with `PAGE_TEMPLATE_ARCHIVED`; create-first created before archive; delete-first prevented transfer; transfer-first prevented the old owner from deleting. SQL found 0 provenance or template-version orphans and 0 advisory-lock waiters.
+- Cleanup succeeded: test Spaces and users were inactive, the API schema was dropped, PostgreSQL/Redis/API/Vite stopped, and ports 3000, 5173, 57733, and 57734 were free.
+- Final dynamic evidence bundle: `/Users/neomei/.Trash/agentwiki-cdcf52c-candidate.8Eq2bU-1787692547`.
+
+Two discarded disposable attempts hit the isolated Redis global 300/min test limit after cumulative browser/probe/concurrency traffic. This was diagnosed as test orchestration state, not a product locking failure. The passing run reset only the one-use Redis `rate:*` test buckets at phase boundaries and after round 10; it did not alter product rate limiting.
+
 ## Accepted local candidate
 
 - Branch: `codex/page-template-library`.
@@ -136,6 +149,6 @@ The production build emitted the existing non-blocking Vite warning for chunks o
 
 - The existing Vite chunk-size warning remains a performance follow-up, not a correctness failure.
 - This is local acceptance only. No GitHub push, npm publish, production migration, or deployment was authorized or performed.
-- Live `origin/master` remained `62ba721f74660e61a3fd431dc95b7e351ca2a902`; the local branch was 34 commits ahead and 0 behind before this evidence update.
+- Live `origin/master` remained `62ba721f74660e61a3fd431dc95b7e351ca2a902`; the local branch is 40 commits ahead and 0 behind after the final evidence-only documentation commit.
 - Workspace package versions remain root/server/client/local-sync `0.6.1` and sync-protocol `0.3.0`. Public npm `latest` remained Local Sync `0.6.1` and Sync Protocol `0.3.0`; the package diff contains no version change.
 - A read-only public check returned HTTP 200 with all health fields `ok`. `GET /api/spaces/task13-readonly-probe/page-templates?locale=en` returned the route-not-installed 404, consistent with this feature not being deployed.

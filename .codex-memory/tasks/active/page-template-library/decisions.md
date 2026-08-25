@@ -20,3 +20,6 @@
 - 建页请求发出后切换 Space/语言会卸载旧对话 session；旧请求可在服务端完成，但不得导航或污染新 session 的 success/error/loading 状态。
 - 归档模板不允许元数据更新；拒绝必须在查重与写入之前，CAS 也必须限定 `archivedAt: null`。
 - 合法的 80 字符无断点模板名必须在 390px 下换行；flex 最小内容宽度使得 `overflow-wrap:anywhere` 单独不足，因此卡片/动作/弹窗标题同时使用确定的 `word-break: break-all` 与移动端宽度约束。
+- Space 模板写入、Space 删除和 owner/member 变更统一获取同一 Space advisory lock，并在 `ReadCommitted` 事务中于锁后重新授权；避免 Serializable 等待锁时保留旧快照。
+- 模板来源页使用最多 100 条的轻量服务端分页，不下载页面正文或遍历全 Space；失败、迟到响应和路由切换不能污染当前页。
+- 编辑器收到远端 Socket 草稿时必须关闭并失效已打开的“保存为模板”弹窗，同时保持 dirty；旧数据库快照不得继续提交为模板。
