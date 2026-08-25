@@ -498,7 +498,7 @@ describe('PageTemplateService', () => {
 
     expect(pageTemplate.updateMany).toHaveBeenCalledWith({
       where: {
-        id: 'template-1', spaceId: 'space-1', scope: 'space',
+        id: 'template-1', spaceId: 'space-1', scope: 'space', archivedAt: null,
         updatedAt: new Date(templateTimestamp),
       },
       data: {
@@ -507,6 +507,19 @@ describe('PageTemplateService', () => {
         category: 'reporting', updatedById: 'user-1',
       },
     });
+  });
+
+  it('rejects archived templates before duplicate-name lookup or metadata writes', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({
+      archivedAt: new Date('2026-08-25T12:00:00.000Z'),
+    }));
+
+    await expect(service.updateMetadata('space-1', 'template-1', {
+      name: 'Weekly Report', category: 'reporting', defaultTitle: 'Weekly report',
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_ARCHIVED' });
+    expect(pageTemplate.findFirst).toHaveBeenCalledTimes(1);
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });
 
   it('maps an update timestamp miss to a version conflict', async () => {

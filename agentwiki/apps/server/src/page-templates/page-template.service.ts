@@ -300,6 +300,7 @@ export class PageTemplateService implements OnModuleInit {
     return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+      if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
       const { name, defaultTitle } = this.normalizedMetadata(body);
       const nameKey = normalizeTemplateName(name);
       const duplicate = await tx.pageTemplate.findFirst({
@@ -310,7 +311,7 @@ export class PageTemplateService implements OnModuleInit {
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
       const changed = await tx.pageTemplate.updateMany({
         where: {
-          id: templateId, spaceId, scope: 'space',
+          id: templateId, spaceId, scope: 'space', archivedAt: null,
           updatedAt: new Date(body.expectedUpdatedAt),
         },
         data: {

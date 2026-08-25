@@ -428,16 +428,29 @@ test.describe.serial('page template library', () => {
     await page.goto(`/spaces/${spaceId}/settings/page-templates`);
     await expect(page.getByRole('heading', { name: 'Space page templates' })).toBeVisible();
     const article = customTemplateArticle(page);
+    const mobileLongTemplateName = 'L'.repeat(80);
+    await article.getByRole('button', { name: `Edit ${customTemplateName}` }).click();
+    await page.getByLabel('Template name').fill(mobileLongTemplateName);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const longNameArticle = page.locator('article').filter({
+      has: page.getByRole('heading', { name: mobileLongTemplateName, exact: true }),
+    });
+    await longNameArticle.getByRole('button', { name: `Edit ${mobileLongTemplateName}` }).click();
+    const metadataDialog = page.getByRole('dialog', { name: `Edit ${mobileLongTemplateName}` });
+    await expectNoDocumentOverflow(page);
+    await expectInsideViewport(page, metadataDialog, 'long-name metadata dialog');
+    await expectInsideViewport(page, metadataDialog.getByRole('heading'), 'long-name metadata heading');
+    await metadataDialog.getByRole('button', { name: 'Close' }).click();
     await expectNoDocumentOverflow(page);
     for (const [label, locator] of [
       ['PageTemplateManager main', page.locator('main')],
       ['template search', page.getByLabel('Search')],
       ['template category', page.getByLabel('Category')],
       ['archive filter', page.getByRole('checkbox', { name: 'Show archived templates' })],
-      ['custom template article', article],
-      ['custom edit action', article.getByRole('button', { name: `Edit ${customTemplateName}` })],
-      ['custom version action', article.getByRole('button', { name: `Update content from page ${customTemplateName}` })],
-      ['custom archive action', article.getByRole('button', { name: `Archive ${customTemplateName}` })],
+      ['custom template article', longNameArticle],
+      ['custom edit action', longNameArticle.getByRole('button', { name: `Edit ${mobileLongTemplateName}` })],
+      ['custom version action', longNameArticle.getByRole('button', { name: `Update content from page ${mobileLongTemplateName}` })],
+      ['custom archive action', longNameArticle.getByRole('button', { name: `Archive ${mobileLongTemplateName}` })],
     ] as const) {
       await expectInsideViewport(page, locator, label);
     }

@@ -62,6 +62,14 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   });
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const focusCloseAfterBackRef = useRef(false);
+  const sessionActiveRef = useRef(true);
+
+  useEffect(() => {
+    sessionActiveRef.current = true;
+    return () => {
+      sessionActiveRef.current = false;
+    };
+  }, []);
 
   const currentCatalogState: CatalogLoadState = catalogState.generation === reloadKey
     ? catalogState
@@ -126,11 +134,13 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         } : {}),
       };
       const response = await api.post('/pages', payload);
-      onCreated(response.data.id);
+      if (sessionActiveRef.current) onCreated(response.data.id);
     } catch (error) {
-      setCreateError(apiErrorMessage(error, t, 'page.createFailed'));
+      if (sessionActiveRef.current) {
+        setCreateError(apiErrorMessage(error, t, 'page.createFailed'));
+      }
     } finally {
-      setCreating(false);
+      if (sessionActiveRef.current) setCreating(false);
     }
   };
 

@@ -93,6 +93,24 @@ describe('PageTemplateManager', () => {
     await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2));
   });
 
+  it('allows maximum-length unbroken template names to wrap in both management dialog headings', async () => {
+    const longName = 'L'.repeat(80);
+    mocks.listPageTemplates.mockResolvedValue({
+      ...ownerCatalog,
+      space: [{ ...spaceTemplate, name: longName }],
+    });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: `编辑 ${longName}` }));
+    expect(screen.getByRole('heading', { name: `编辑 ${longName}` }))
+      .toHaveClass('min-w-0', 'break-words', '[overflow-wrap:anywhere]');
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+
+    fireEvent.click(screen.getByRole('button', { name: `从页面更新内容 ${longName}` }));
+    expect(screen.getByRole('heading', { name: `从页面更新内容 ${longName}` }))
+      .toHaveClass('min-w-0', 'break-words', '[overflow-wrap:anywhere]');
+  });
+
   it('creates a new content version from an exact persisted source page', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     mocks.api.get.mockResolvedValue({ data: { data: [{

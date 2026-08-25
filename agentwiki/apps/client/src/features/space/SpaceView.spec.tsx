@@ -224,4 +224,42 @@ describe('SpaceView new-page flow', () => {
       spaceId: 'space-b',
     }));
   });
+
+  it.each([
+    ['successful', false],
+    ['failed', true],
+  ] as const)('ignores a %s old-Space create completion after navigating to another Space', async (_case, reject) => {
+    const createA = deferred<{ data: { id: string } }>();
+    mockNavigableGets({
+      'space-a': Promise.resolve(spaceResponse('space-a', 'Owner A', 'owner')),
+      'space-b': Promise.resolve(spaceResponse('space-b', 'Owner B', 'owner')),
+    });
+    mocks.api.post.mockReturnValue(createA.promise);
+    const { navigateTo } = renderNavigableSpaceView();
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建页面' }));
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Late A page' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
+      title: 'Late A page',
+      spaceId: 'space-a',
+    }));
+
+    navigateTo('space-b');
+    expect(await screen.findByRole('heading', { name: 'Owner B' })).toBeInTheDocument();
+    await act(async () => {
+      if (reject) createA.reject(new Error('old Space request failed'));
+      else createA.resolve({ data: { id: 'late-page-a' } });
+      try {
+        await createA.promise;
+      } catch {
+        // The rejected old request is the behavior under test.
+      }
+    });
+
+    expect(screen.getByRole('heading', { name: 'Owner B' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Editing created page' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

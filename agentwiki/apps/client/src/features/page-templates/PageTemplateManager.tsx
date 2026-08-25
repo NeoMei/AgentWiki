@@ -395,8 +395,8 @@ export const PageTemplateManager: React.FC = () => {
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'metadata' ? (
         <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
-            <h2 id="metadata-dialog-title" className="text-xl font-semibold">{t('common.edit')} {pendingDialog.template.name}</h2>
-            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 rounded-lg border disabled:opacity-50">×</button>
+            <h2 id="metadata-dialog-title" className="min-w-0 break-words text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
+            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitMetadata}>
             <label className="block text-sm font-medium">
@@ -429,8 +429,8 @@ export const PageTemplateManager: React.FC = () => {
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
         <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
-            <h2 id="version-dialog-title" className="text-xl font-semibold">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
-            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 rounded-lg border disabled:opacity-50">×</button>
+            <h2 id="version-dialog-title" className="min-w-0 break-words text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
+            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitVersion}>
             <label className="block text-sm font-medium">
