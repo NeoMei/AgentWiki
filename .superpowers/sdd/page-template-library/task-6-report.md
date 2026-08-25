@@ -94,3 +94,71 @@ git diff --check
 ## Concerns
 
 None identified within Task 6 scope.
+
+## Review fix: strict raw template input and service invariants
+
+Review fix date: 2026-08-25
+
+### Root cause
+
+- The production `ValidationPipe` enables implicit conversion. Unlike the already-hardened Task 3 mutation DTO fields, the three new page-template fields did not preserve raw body input, so numeric/boolean/object IDs and string/boolean versions could be converted into apparently valid declared types.
+- `@IsOptional()` skips both `undefined` and `null`. A complete three-field null shape therefore passed the property validators while the shape validator counted all three values as present.
+- `PageService.create()` used truthiness of `templateId` rather than presence of any template field. Empty IDs and version/locale-only internal calls silently fell through to ordinary blank page creation.
+
+### TDD evidence
+
+The review tests were added before the production fix and run through the exact `main.ts` body-pipe configuration:
+
+```text
+whitelist: true
+forbidNonWhitelisted: true
+transform: true
+transformOptions: { enableImplicitConversion: true }
+```
+
+RED command:
+
+```text
+cd agentwiki
+pnpm --filter @agentwiki/server exec jest --runInBand \
+  src/core/dto/page-template-create.validator.spec.ts \
+  src/core/dto/page.dto.spec.ts \
+  src/core/page/page.service.spec.ts \
+  src/review/agent-write-boundary.spec.ts
+```
+
+Observed RED: exit 1; 2 suites failed and 20 tests failed. The failures showed raw `templateId` conversion, raw version conversion, null acceptance, and all eight invalid internal service inputs resolving instead of returning `PAGE_TEMPLATE_INVALID`.
+
+GREEN after the minimal DTO/service fix: 4 suites passed, 99 tests passed.
+
+### Remediation
+
+- Applied the Task 3 `PreserveRawInput` strategy only to `templateId`, `templateVersion`, and `templateLocale`; ordinary `CreatePageDto` fields retain their existing production-pipe compatibility.
+- Replaced `@IsOptional()` on those fields with `@ValidateIf(value !== undefined)`, so only raw `undefined` is absence and explicit null always reaches strict validators.
+- Added non-empty/non-whitespace ID validation, strict integer bounds, and explicit string/supported-locale validation.
+- Replaced the service truthy check with presence detection across all three fields. Under the existing Space lock, incomplete/invalid triples, mixed content, or non-Markdown template format now raise `PAGE_TEMPLATE_INVALID` before resolver/path/page/revision work.
+- Kept the exact resolver call, actual-locale provenance, and lock -> resolve -> allocate ordering unchanged.
+- Added direct controller tests for each single Agent template field plus single/all/mixed null payloads; every case stops before review and page creation.
+- Added explicit blank Markdown, direct JSON, and resolver-failure zero-write coverage.
+
+### Final review-fix verification
+
+```text
+cd agentwiki
+pnpm --filter @agentwiki/server exec jest --runInBand \
+  src/core/dto/page-template-create.validator.spec.ts \
+  src/core/dto/page.dto.spec.ts \
+  src/core/page/page.service.spec.ts \
+  src/review/agent-write-boundary.spec.ts \
+  src/page-templates
+# exit 0: 8 suites passed, 196 tests passed
+
+pnpm --filter @agentwiki/server typecheck
+# exit 0: tsc --noEmit --incremental false
+
+cd ..
+git diff --check
+# exit 0, no output
+```
+
+No human authorization role, Agent explicit-content proposal behavior, template locale adjudication, push, publish, or deployment action changed.

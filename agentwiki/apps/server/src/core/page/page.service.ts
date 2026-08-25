@@ -91,12 +91,28 @@ export class PageService {
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const page = await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
-      const template = data.templateId ? await this.pageTemplates.resolveVersion(lockedTx, {
-        spaceId: data.spaceId,
-        templateId: data.templateId,
-        version: data.templateVersion!,
-        locale: data.templateLocale!,
-      }) : null;
+      const hasTemplateFields = data.templateId !== undefined
+        || data.templateVersion !== undefined
+        || data.templateLocale !== undefined;
+      let template = null;
+      if (hasTemplateFields) {
+        const validTemplateShape = typeof data.templateId === 'string'
+          && data.templateId.trim().length > 0
+          && data.templateId.length <= 100
+          && Number.isInteger(data.templateVersion)
+          && data.templateVersion! >= 1
+          && data.templateVersion! <= 2_147_483_647
+          && (data.templateLocale === 'zh-CN' || data.templateLocale === 'en')
+          && data.content === undefined
+          && (data.format === undefined || data.format === 'markdown');
+        if (!validTemplateShape) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+        template = await this.pageTemplates.resolveVersion(lockedTx, {
+          spaceId: data.spaceId,
+          templateId: data.templateId!,
+          version: data.templateVersion!,
+          locale: data.templateLocale!,
+        });
+      }
       const initialContent = template?.content ?? data.content ?? '';
       const knowledgeKey = randomUUID();
       const allocatedPath = await this.syncPaths.allocate(lockedTx, {

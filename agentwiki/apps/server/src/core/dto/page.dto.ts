@@ -1,6 +1,8 @@
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { IsPageTemplateCreateShape } from './page-template-create.validator';
+
+const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
 
 export class CreatePageDto {
   @IsString()
@@ -23,18 +25,24 @@ export class CreatePageDto {
   @IsPageTemplateCreateShape()
   spaceId: string;
 
-  @IsOptional()
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
+  @MinLength(1)
+  @Matches(/\S/u)
   @MaxLength(100)
   templateId?: string;
 
-  @IsOptional()
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsInt()
   @Min(1)
   @Max(2_147_483_647)
   templateVersion?: number;
 
-  @IsOptional()
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
   @IsIn(['zh-CN', 'en'])
   templateLocale?: 'zh-CN' | 'en';
 

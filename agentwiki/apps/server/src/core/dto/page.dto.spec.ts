@@ -1,6 +1,18 @@
 import 'reflect-metadata';
+import { ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { CreatePageDto, UpdatePageDto } from './page.dto';
+
+const productionPipe = new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+  transformOptions: { enableImplicitConversion: true },
+});
+
+function transformCreateBody(input: object) {
+  return productionPipe.transform(input, { type: 'body', metatype: CreatePageDto });
+}
 
 describe('CreatePageDto', () => {
   it.each([
@@ -11,8 +23,11 @@ describe('CreatePageDto', () => {
     [{ title: 'Mixed', spaceId: 'space-1', templateId: 'template-1', templateVersion: 2, templateLocale: 'en', content: '# Forged' }, false],
     [{ title: 'Wrong format', spaceId: 'space-1', templateId: 'template-1', templateVersion: 2, templateLocale: 'en', format: 'html' }, false],
   ])('validates the mutually exclusive template create shape %#', async (input, valid) => {
-    const errors = await validate(Object.assign(new CreatePageDto(), input));
-    expect(errors.length === 0).toBe(valid);
+    if (valid) {
+      await expect(transformCreateBody(input)).resolves.toBeDefined();
+    } else {
+      await expect(transformCreateBody(input)).rejects.toMatchObject({ status: 400 });
+    }
   });
 });
 

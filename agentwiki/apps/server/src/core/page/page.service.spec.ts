@@ -146,6 +146,78 @@ describe('PageService', () => {
       );
     });
 
+    it('creates a blank Markdown page with an empty initial revision body', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Blank', content: '', format: 'markdown',
+      });
+
+      await service.create({ title: 'Blank', spaceId: 'space-1' }, 'user-1');
+
+      expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
+      expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: '', format: 'markdown' }),
+      }));
+      expect(mockRevisionWriter.advance).toHaveBeenCalledWith(
+        expect.anything(), 'space-1', [expect.objectContaining({ body: '' })], expect.anything(),
+      );
+    });
+
+    it('preserves a direct page non-Markdown format', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Structured', content: '{}', format: 'json',
+      });
+
+      await service.create({
+        title: 'Structured', spaceId: 'space-1', content: '{}', format: 'json',
+      }, 'user-1');
+
+      expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
+      expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: '{}', format: 'json' }),
+      }));
+    });
+
+    it.each([
+      ['templateId only', { templateId: 'template-1' }],
+      ['templateVersion only', { templateVersion: 2 }],
+      ['templateLocale only', { templateLocale: 'en' }],
+      ['empty templateId', { templateId: '', templateVersion: 2, templateLocale: 'en' }],
+      ['null templateId', { templateId: null, templateVersion: 2, templateLocale: 'en' }],
+      ['string templateVersion', { templateId: 'template-1', templateVersion: '2', templateLocale: 'en' }],
+      ['unsupported templateLocale', { templateId: 'template-1', templateVersion: 2, templateLocale: 'fr' }],
+      ['mixed direct content', { templateId: 'template-1', templateVersion: 2, templateLocale: 'en', content: '# Forged' }],
+      ['non-Markdown format', { templateId: 'template-1', templateVersion: 2, templateLocale: 'en', format: 'html' }],
+    ])('rejects invalid internal template input: %s', async (_case, templateFields) => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+
+      await expect(service.create({
+        title: 'Invalid', spaceId: 'space-1', ...templateFields,
+      } as any, 'user-1')).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+
+      expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
+      expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
+      expect(mockPrisma.page.create).not.toHaveBeenCalled();
+      expect(mockRevisionWriter.advance).not.toHaveBeenCalled();
+    });
+
+    it('performs no page work after template resolution fails', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockTemplates.resolveVersion.mockRejectedValueOnce({
+        businessCode: 'PAGE_TEMPLATE_VERSION_NOT_FOUND',
+      });
+
+      await expect(service.create({
+        title: 'Missing version', spaceId: 'space-1', templateId: 'template-1',
+        templateVersion: 2, templateLocale: 'en',
+      }, 'user-1')).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_NOT_FOUND' });
+
+      expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
+      expect(mockPrisma.page.create).not.toHaveBeenCalled();
+      expect(mockRevisionWriter.advance).not.toHaveBeenCalled();
+    });
+
     it('copies the exact resolved version and stores provenance in the existing transaction', async () => {
       mockTemplates.resolveVersion.mockResolvedValue({
         content: '# Weekly v2', templateId: 'template-1', version: 2, locale: 'en',
