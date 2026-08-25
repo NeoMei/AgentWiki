@@ -64,7 +64,29 @@ ALTER TABLE "Page" ADD CONSTRAINT "Page_template_source_tuple_check" CHECK (
 CREATE FUNCTION "reject_page_template_version_update"()
 RETURNS TRIGGER AS $$
 BEGIN
-  RAISE EXCEPTION 'PageTemplateVersion rows are immutable';
+  IF NEW."id" IS DISTINCT FROM OLD."id"
+    OR NEW."templateId" IS DISTINCT FROM OLD."templateId"
+    OR NEW."version" IS DISTINCT FROM OLD."version"
+    OR NEW."contentI18n" IS DISTINCT FROM OLD."contentI18n"
+    OR NEW."contentHash" IS DISTINCT FROM OLD."contentHash"
+    OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt"
+  THEN
+    RAISE EXCEPTION 'PageTemplateVersion identity and content are immutable';
+  END IF;
+
+  IF NEW."sourcePageId" IS DISTINCT FROM OLD."sourcePageId"
+    AND NOT (OLD."sourcePageId" IS NOT NULL AND NEW."sourcePageId" IS NULL)
+  THEN
+    RAISE EXCEPTION 'PageTemplateVersion sourcePageId may only be cleared';
+  END IF;
+
+  IF NEW."createdById" IS DISTINCT FROM OLD."createdById"
+    AND NOT (OLD."createdById" IS NOT NULL AND NEW."createdById" IS NULL)
+  THEN
+    RAISE EXCEPTION 'PageTemplateVersion createdById may only be cleared';
+  END IF;
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 

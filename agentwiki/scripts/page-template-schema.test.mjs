@@ -49,15 +49,40 @@ test('Page provenance foreign key rejects template version key updates', async (
   );
 });
 
-test('PageTemplateVersion rows reject every update', async () => {
+test('PageTemplateVersion identity and content fields reject changes', async () => {
   const migration = await read('apps/server/prisma/migrations/20260825150000_add_page_templates/migration.sql');
   assert.match(
     migration,
-    /CREATE FUNCTION "reject_page_template_version_update"\(\)\s+RETURNS TRIGGER[\s\S]*?BEGIN\s+RAISE EXCEPTION 'PageTemplateVersion rows are immutable';\s+END;[\s\S]*?LANGUAGE plpgsql;/u,
+    /IF NEW\."id" IS DISTINCT FROM OLD\."id"\s+OR NEW\."templateId" IS DISTINCT FROM OLD\."templateId"\s+OR NEW\."version" IS DISTINCT FROM OLD\."version"\s+OR NEW\."contentI18n" IS DISTINCT FROM OLD\."contentI18n"\s+OR NEW\."contentHash" IS DISTINCT FROM OLD\."contentHash"\s+OR NEW\."createdAt" IS DISTINCT FROM OLD\."createdAt"\s+THEN\s+RAISE EXCEPTION 'PageTemplateVersion identity and content are immutable';\s+END IF;/u,
+  );
+});
+
+test('PageTemplateVersion provenance fields only allow existing foreign keys to be cleared', async () => {
+  const migration = await read('apps/server/prisma/migrations/20260825150000_add_page_templates/migration.sql');
+  assert.match(
+    migration,
+    /IF NEW\."sourcePageId" IS DISTINCT FROM OLD\."sourcePageId"\s+AND NOT \(OLD\."sourcePageId" IS NOT NULL AND NEW\."sourcePageId" IS NULL\)\s+THEN\s+RAISE EXCEPTION 'PageTemplateVersion sourcePageId may only be cleared';\s+END IF;/u,
   );
   assert.match(
     migration,
+    /IF NEW\."createdById" IS DISTINCT FROM OLD\."createdById"\s+AND NOT \(OLD\."createdById" IS NOT NULL AND NEW\."createdById" IS NULL\)\s+THEN\s+RAISE EXCEPTION 'PageTemplateVersion createdById may only be cleared';\s+END IF;/u,
+  );
+  assert.match(migration, /RETURN NEW;/u);
+  assert.match(
+    migration,
     /CREATE TRIGGER "PageTemplateVersion_immutable_update"\s+BEFORE UPDATE ON "PageTemplateVersion"\s+FOR EACH ROW\s+EXECUTE FUNCTION "reject_page_template_version_update"\(\);/u,
+  );
+});
+
+test('PageTemplateVersion provenance foreign keys retain ON DELETE SET NULL', async () => {
+  const migration = await read('apps/server/prisma/migrations/20260825150000_add_page_templates/migration.sql');
+  assert.match(
+    migration,
+    /FOREIGN KEY \("sourcePageId"\) REFERENCES "Page"\("id"\) ON DELETE SET NULL ON UPDATE CASCADE/u,
+  );
+  assert.match(
+    migration,
+    /FOREIGN KEY \("createdById"\) REFERENCES "User"\("id"\) ON DELETE SET NULL ON UPDATE CASCADE/u,
   );
 });
 
