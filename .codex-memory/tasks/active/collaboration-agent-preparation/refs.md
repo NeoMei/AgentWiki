@@ -11,3 +11,9 @@
 - Agent 列表：`agentwiki/apps/client/src/features/agent/AgentList.tsx`
 - 接入组件：`agentwiki/apps/client/src/features/agent/LocalSyncInstallCard.tsx`
 - Agent API：`agentwiki/apps/server/src/core/agent/agent.controller.ts`
+- Final Remediation B commit：`4974771 fix(collaboration): resume durable Agent preparation`
+- 最终状态收敛：`7418b4e fix(collaboration): reconcile Agent preparation state`
+- 焦点恢复：`ab49860 fix(collaboration): restore focus after Agent preparation`
+- 最终测试合同：`9abcdcc`、`a6e0bbe`、`2392223`
+- 安全真实 DB 测试：`agentwiki/apps/server/src/core/collaboration/agent-preparation.real-db.spec.ts`
+- 最终 Browser/自动化验收：`agentwiki/docs/testing/collaboration-agent-preparation-acceptance.md`

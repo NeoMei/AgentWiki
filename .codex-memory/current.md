@@ -13,11 +13,14 @@
 
 # 当前状态
 
-- Tasks 1–5 已在本地实现向导内创建/恢复、Grant、Local Sync 一次性接入、自动检测、当前 Slot 映射、待接入警告与权限边界。
-- Task 6 本地验收完成：核心 66 个 server + 103 个 client 测试通过；纯测试合同补充提交 `658538c` 上全仓 2,304 个测试通过，53 个既有环境依赖测试跳过；lint/typecheck/build/diff 通过。
-- Browser 真实路径已在 product runtime `e83d153` 完成桌面与 390px 验收；Owner/Admin、Editor 无 mutation/ownerRequired、无 SpaceMember 的 platform Super Admin 均通过，关键移动状态 7/7 的 `scrollWidth === 390`，Browser console 0 error/warn。`658538c` 仅新增测试，未重跑 Browser。
-- 验收中发现 worker 误订阅 API-only Socket.IO relay 的缺陷，已以失败回归测试驱动修复并在真实 worker 验证，修复提交为 `e83d153`。
-- 隔离 schema、4 个用户、3 个 Space、4 个 Agent、进程、Redis 临时键与隔离 HOME/config 已全部清理并二次确认。
+- Tasks 1–6 已在本地完成：向导内创建/恢复 Agent、Grant、一次性接入、自动检测、当前 Slot 映射、待接入警告、权限边界、并发收敛和安全数据库验收均已覆盖。
+- 最终状态收敛修复提交为 `7418b4e`：服务端返回权威 `agent.connected`，前端重建/轮询连接事实并处理跨路由、并发刷新、资格变化与 draft/update/validate/start 竞争；Agent 创建使用稳定幂等键、确定性 owner-scoped identity 与创建/审计同事务。
+- 真实 Browser 发现的唯一产品缺陷是准备完成后入口随弹窗一同移除时焦点落到 `body`；已在 `ab49860` 以实时 fallback ref + microtask 修复。`9abcdcc`、`a6e0bbe`、`2392223` 分别补齐异步焦点、403 跨轮询提示和 fallback DOM 同批替换的回归合同。
+- 最终全量门禁：lint、4 个 workspace typecheck、5 个 workspace build 均通过；全仓 2,358 个测试通过、54 个既有环境依赖测试跳过、0 失败。构建仅有既有 Vite 大分块建议。
+- 隔离 PostgreSQL 验收通过：schema/migration 2/2、协作 workflow 10/10、Agent 并发幂等/审计回滚 1/1；普通 DB 测试在未配置双重安全变量时按设计跳过。
+- 桌面与 390×844 Browser 验收通过：空状态创建/授权/Connect later、外部 connected 自动清除、直接选择 pending、真实 403 后跨 4.7 秒轮询持续 Owner/Admin 指引、焦点 fallback、无横向溢出；console error/warn 均为 0。曾观察到的提示消失由 Vite HMR 精确解释，稳定重验未复现，不计产品缺陷。
+- 最终清理零残留：Browser 测试页关闭，API/Vite 停止，3000/5173 无监听，四类 Redis 临时键为 0，全部 `collaboration_test_*` schema 为 0，临时 health 文件不存在。
+- 独立最终代码审查结论为 Critical 0 / Important 0 / Minor 0。
 - 本地实现已验证；push、npm 发布和生产发布未获授权，未执行。
 - 上一版协作发布基线仍为本地/GitHub/生产 `0.6.1` 与 Sync Protocol `0.3.0`。
 

@@ -2,6 +2,21 @@
 
 Local acceptance was completed on 2026-08-25 (Asia/Shanghai) against isolated local services only.
 
+## Final remediation acceptance
+
+This section supersedes the earlier commit and test counts below while retaining them as historical acceptance evidence.
+
+- Final product commits: `7418b4e` reconciles authoritative Agent eligibility and connection state, request/route races, mutation retries, deterministic create idempotency, and atomic audit persistence; `ab49860` restores focus through a live fallback ref when the original preparation opener is removed.
+- Final test-contract commits: `9abcdcc` awaits asynchronous modal focus restoration, `a6e0bbe` preserves Owner/Admin guidance across the 3-second authoritative poll after a 403, and `2392223` replaces the fallback DOM in the same close batch so the regression distinguishes the old snapshot implementation from the live-ref fix.
+- Fresh full gates on final code: PASS. Lint, four workspace typechecks, five workspace builds, and `git diff --check` exited 0. The repository passed 2,358 tests with 54 existing environment-gated skips and 0 failures. The existing Vite chunk-size advisory was the only build warning.
+- Isolated PostgreSQL gates: PASS. Collaboration schema/migration passed 2/2, workflow scenarios passed 10/10, and concurrent Agent-create idempotency plus audit rollback passed 1/1. The DB spec fails closed unless `DATABASE_URL` exactly equals `COLLABORATION_TEST_DATABASE_URL`, the database name contains `test`, and the schema is a random `collaboration_test_*` name.
+- Real Browser acceptance: PASS on desktop and 390×844. It covered no executable Agents, inline create/enable/Editor Grant, connect later, external connection auto-clear, direct selection of an unconnected Agent, real Owner-to-Editor permission loss with 403, and focus restoration after the opener disappeared. At 390 px the document `scrollWidth` remained 390 and Browser console error/warn remained empty.
+- Permission persistence: after a real 403, the dialog closed, all six preparation actions disappeared, executable Agent options remained, and Owner/Admin guidance persisted after a further 4.7-second wait spanning the authoritative poll. A prior apparent disappearance was correlated exactly with Vite HMR invalidation during shared development and did not reproduce after HMR became quiet.
+- Focus restoration: after “Prepare first Agent” → authorize an existing Agent → Connect later, the opener and dialog were gone and `document.activeElement` was the Step 2 mapping `H2` with `tabIndex=-1`; the accessibility tree also marked the heading active.
+- Independent final review: Critical 0 / Important 0 / Minor 0. The only review note was the weak first version of the fallback test, which `2392223` corrected before this conclusion.
+- Final cleanup: PASS. The Browser tab was closed and viewport reset; API/Vite stopped, ports 3000/5173 were free, the service PID was absent, all four relevant Redis key classes were empty while Redis still returned PONG, the exact random schema was absent, the count of every `collaboration_test_*` schema was 0, and the temporary health artifact was absent.
+- External release boundary: no push, npm publish, production deployment, production data write, or production configuration change was performed during this remediation.
+
 - Browser/runtime product tested commit: `e83d1530aa4d93c5a22104360e0dbef193750a2a` (Browser flow began from clean feature HEAD `5594a171d91f8bb67fbfc6bbec9c878af0df9a04`; the only subsequent product change was the verified worker relay fix in `e83d153`).
 - Final automated gate commit: `658538ced957f683b7e6131d688c5c0a41bb7590`; this follow-up added two contract tests only, then reran the complete automated gates. It did not change product runtime code or rerun Browser acceptance.
 - Focused server/client tests: PASS, server 3 suites / 66 tests and client 5 files / 103 tests; server and client focused typechecks also exited 0.
