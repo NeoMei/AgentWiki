@@ -13,6 +13,18 @@ enum AgentAccessRole {
   publisher
 }
 
+enum PageTemplateScope {
+  system
+  space
+}
+
+enum PageTemplateCategory {
+  planning
+  reporting
+  knowledge
+  other
+}
+
 enum CollaborationRunStatus {
   draft
   ready
@@ -109,6 +121,9 @@ model User {
   collaborationRunsStarted      CollaborationRun[]            @relation("CollaborationRunStartedBy")
   collaborationReviewsDecided   CollaborationReview[]         @relation("CollaborationReviewReviewer")
   collaborationEvents           CollaborationRunEvent[]       @relation("CollaborationEventUser")
+  pageTemplatesCreated          PageTemplate[]                @relation("PageTemplateCreatedBy")
+  pageTemplatesUpdated          PageTemplate[]                @relation("PageTemplateUpdatedBy")
+  pageTemplateVersionsCreated   PageTemplateVersion[]         @relation("PageTemplateVersionCreatedBy")
   lockedAt                      DateTime?
   mustChangePassword            Boolean                       @default(false)
   authVersion                   Int                           @default(0)
@@ -172,20 +187,21 @@ model Space {
   members SpaceMember[]
   pages   Page[]
 
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  deletedAt            DateTime?
-  agentGrants          AgentGrant[]
-  sources              Source[]
-  ingestRuns           IngestRun[]
-  changeSets           ChangeSet[]
-  knowledgeSubmissions KnowledgeSubmission[]
-  knowledgeRevisions   SpaceKnowledgeRevision[]
-  agentMemories        AgentMemory[]
-  assistTasks          AssistTask[]
-  graphState           SpaceGraphState?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  deletedAt              DateTime?
+  agentGrants            AgentGrant[]
+  sources                Source[]
+  ingestRuns             IngestRun[]
+  changeSets             ChangeSet[]
+  knowledgeSubmissions   KnowledgeSubmission[]
+  knowledgeRevisions     SpaceKnowledgeRevision[]
+  agentMemories          AgentMemory[]
+  assistTasks            AssistTask[]
+  graphState             SpaceGraphState?
   collaborationTemplates CollaborationTemplate[]
   collaborationRuns      CollaborationRun[]
+  pageTemplates          PageTemplate[]
 }
 
 model AssistTask {
@@ -328,12 +344,12 @@ model SpaceMember {
 }
 
 model Page {
-  id           String @id @default(cuid())
-  title        String
-  slug         String
-  knowledgeKey String @unique @default(cuid())
-  content      String @default("")
-  format       String @default("markdown")
+  id              String                        @id @default(cuid())
+  title           String
+  slug            String
+  knowledgeKey    String                        @unique @default(cuid())
+  content         String                        @default("")
+  format          String                        @default("markdown")
   embeddingVector Unsupported("halfvec(2048)")?
 
   parent    Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
@@ -364,24 +380,80 @@ model Page {
   sourcePath            String?
   syncPath              String
   syncPathKey           String
+  sourceTemplateId      String?
+  sourceTemplateVersion Int?
+  sourceTemplateLocale  String?
 
-  sourceChangeSet     ChangeSet?          @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
-  lastChangeSet       ChangeSet?          @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
-  createdByAgent      Agent?              @relation("PageCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  lastModifiedByUser  User?               @relation("PageLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
-  lastModifiedByAgent Agent?              @relation("PageLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
-  source              Source?             @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  sourceVersion       SourceVersion?      @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
-  outgoingRelations   KnowledgeRelation[] @relation("RelationSourcePage")
-  incomingRelations   KnowledgeRelation[] @relation("RelationTargetPage")
-  searchDocument      PageSearchDocument?
-  assistTasks         AssistTask[]
+  sourceChangeSet             ChangeSet?            @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  lastChangeSet               ChangeSet?            @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
+  createdByAgent              Agent?                @relation("PageCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  lastModifiedByUser          User?                 @relation("PageLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+  lastModifiedByAgent         Agent?                @relation("PageLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  source                      Source?               @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceVersion               SourceVersion?        @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  outgoingRelations           KnowledgeRelation[]   @relation("RelationSourcePage")
+  incomingRelations           KnowledgeRelation[]   @relation("RelationTargetPage")
+  searchDocument              PageSearchDocument?
+  assistTasks                 AssistTask[]
+  sourceTemplateVersionRecord PageTemplateVersion?  @relation("PageSourceTemplateVersion", fields: [sourceTemplateId, sourceTemplateVersion], references: [templateId, version], onDelete: Restrict)
+  templateVersionsSourced     PageTemplateVersion[] @relation("PageTemplateVersionSourcePage")
 
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
   @@unique([spaceId, syncPathKey])
   @@index([sourceId, sourceVersionId])
+  @@index([sourceTemplateId, sourceTemplateVersion])
   @@index([spaceId, deletedAt, sortOrder])
+}
+
+model PageTemplate {
+  id               String               @id @default(cuid())
+  scope            PageTemplateScope
+  scopeKey         String
+  spaceId          String?
+  stableKey        String
+  category         PageTemplateCategory
+  displayOrder     Int?
+  nameI18n         Json
+  nameKey          String?
+  descriptionI18n  Json
+  defaultTitleI18n Json
+  sourceLocale     String?
+  currentVersion   Int                  @default(1)
+  createdById      String?
+  updatedById      String?
+  archivedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  space     Space?                @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  createdBy User?                 @relation("PageTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?                 @relation("PageTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  versions  PageTemplateVersion[]
+
+  @@unique([scopeKey, stableKey])
+  @@unique([spaceId, nameKey])
+  @@index([spaceId, archivedAt, updatedAt])
+}
+
+model PageTemplateVersion {
+  id           String   @id @default(cuid())
+  templateId   String
+  version      Int
+  contentI18n  Json
+  sourcePageId String?
+  contentHash  String
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  template   PageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sourcePage Page?        @relation("PageTemplateVersionSourcePage", fields: [sourcePageId], references: [id], onDelete: SetNull)
+  createdBy  User?        @relation("PageTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  pages      Page[]       @relation("PageSourceTemplateVersion")
+
+  @@unique([templateId, version])
+  @@index([templateId, createdAt])
+  @@index([sourcePageId])
 }
 
 model PageSearchDocument {
