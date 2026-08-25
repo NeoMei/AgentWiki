@@ -18,7 +18,9 @@
 
 - 2026-08-25 已完成逐段设计确认。
 - 正式设计：`agentwiki/docs/superpowers/specs/2026-08-25-page-template-library-design.md`。
-- 等待用户审阅已提交设计，然后进入实施计划。
+- 实施计划：`agentwiki/docs/superpowers/plans/2026-08-25-page-template-library-plan.md`。
+- 计划已按数据库合同、系统种子、服务端领域、两步弹窗、Space 管理、编辑器入口、独立数据库和真实浏览器验收分解为 13 个 TDD 任务。
+- 当前等待用户选择执行方式，产品代码尚未开始修改。
 
 ## 完成标准
 
