@@ -160,4 +160,26 @@ describe('AgentPreparationDialog real preparation orchestrator retries', () => {
       'editor',
     );
   });
+
+  it('reuses one idempotency key when the create response is lost across two submissions', async () => {
+    vi.mocked(agentPreparationApi.createAgent)
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce({
+        id: 'agent-created',
+        name: 'Chapter Writer',
+        status: 'active',
+      });
+    const props = renderDialog();
+
+    await startNewAgent();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not create the Agent.');
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
+
+    await waitFor(() => expect(props.onPrepared).toHaveBeenCalled());
+    expect(agentPreparationApi.createAgent).toHaveBeenCalledTimes(2);
+    const first = vi.mocked(agentPreparationApi.createAgent).mock.calls[0][0];
+    const second = vi.mocked(agentPreparationApi.createAgent).mock.calls[1][0];
+    expect(first.idempotencyKey).toMatch(/^create-agent-/u);
+    expect(second.idempotencyKey).toBe(first.idempotencyKey);
+  });
 });

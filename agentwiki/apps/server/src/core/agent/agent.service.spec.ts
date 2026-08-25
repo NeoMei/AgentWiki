@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { AgentService } from './agent.service';
 
@@ -6,7 +7,7 @@ describe('AgentService grant scope validation', () => {
   const prisma = {
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
-    agent: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    agent: { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     space: { findFirst: jest.fn() },
     user: { findFirst: jest.fn() },
     agentCredential: {
@@ -25,6 +26,49 @@ describe('AgentService grant scope validation', () => {
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'active' });
     prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
     prisma.user.findFirst.mockResolvedValue({ id: 'owner-1', platformRole: 'user' });
+  });
+
+  it('replays one atomic Agent create for the same owner idempotency key', async () => {
+    let persisted: any;
+    prisma.agent.create.mockImplementation(async ({ data }: any) => {
+      if (persisted) {
+        throw new Prisma.PrismaClientKnownRequestError('duplicate Agent create', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ['id'] },
+        });
+      }
+      persisted = {
+        ...data,
+        status: 'active',
+        revokedAt: null,
+        createdAt: new Date('2026-08-25T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      };
+      return persisted;
+    });
+    prisma.agent.findUnique.mockImplementation(async ({ where }: any) => (
+      where.id === persisted?.id ? persisted : null
+    ));
+    prisma.agentAuditEvent.create.mockResolvedValue({ id: 'audit-1' });
+    const input = {
+      name: 'Writer',
+      description: null,
+      memoryEnabled: false,
+      idempotencyKey: 'create-agent-attempt-0001',
+    } as any;
+
+    const first = await service.create('owner-1', input);
+    const replay = await service.create('owner-1', input);
+
+    expect(replay).toEqual(first);
+    expect(first.id).toMatch(/^agent_[a-f0-9]{32}$/u);
+    expect(prisma.agent.create).toHaveBeenCalledTimes(2);
+    expect(prisma.agentAuditEvent.create).toHaveBeenCalledTimes(1);
+    await expect(service.create('owner-1', {
+      ...input,
+      name: 'Different payload',
+    })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('allows an owned Agent connection for a platform Super Admin without Space membership', async () => {

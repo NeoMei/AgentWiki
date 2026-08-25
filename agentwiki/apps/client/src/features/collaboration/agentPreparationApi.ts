@@ -45,7 +45,7 @@ export interface AgentInstallation {
 export interface AgentPreparationApi {
   listAgents(): Promise<OwnedAgentSummary[]>;
   getAgent(agentId: string): Promise<OwnedAgentDetail>;
-  createAgent(input: { name: string; description?: string }): Promise<AgentIdentity>;
+  createAgent(input: { name: string; description?: string; idempotencyKey?: string }): Promise<AgentIdentity>;
   activateAgent(agentId: string): Promise<AgentIdentity>;
   upsertGrant(agentId: string, spaceId: string, role: ExecutableAgentRole): Promise<unknown>;
   createInstallation(

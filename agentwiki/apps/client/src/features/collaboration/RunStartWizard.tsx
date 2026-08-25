@@ -21,6 +21,7 @@ import type {
 type Step = 1 | 2 | 3;
 type RetryAction = 'input' | 'mapping' | 'start' | null;
 type Translate = (key: string, params?: Record<string, string | number>) => string;
+const PENDING_CONNECTION_REFRESH_MS = 3_000;
 
 interface PreparationTarget {
   id: string;
@@ -80,6 +81,12 @@ function hasRepeatedAgentBindings(bindings: RoleBinding[]): boolean {
   return [...counts.values()].some((count) => count > 1);
 }
 
+function sameBindings(left: RoleBinding[], right: RoleBinding[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightBySlot = new Map(right.map((binding) => [binding.roleSlotId, binding.agentId]));
+  return left.every((binding) => rightBySlot.get(binding.roleSlotId) === binding.agentId);
+}
+
 export const RunStartWizard: React.FC = () => {
   const { id = '', templateId = '' } = useParams<{ id: string; templateId: string }>();
   const { t } = useLanguage();
@@ -103,13 +110,33 @@ export const RunStartWizard: React.FC = () => {
   const idempotencyKey = useMemo(() => `start-${safeUuid()}`, [id, templateId]);
   const initializeRequest = useRef(0);
   const mutationEpoch = useRef(0);
+  const memberRefreshRequest = useRef(0);
+  const authoritativeMemberRefresh = useRef<{ epoch: number; request: number | null }>({
+    epoch: 0,
+    request: null,
+  });
+  const agentsRef = useRef(agents);
   const preparationSequence = useRef(0);
   const preparationTargetRef = useRef<PreparationTarget | null>(null);
   const routeIdentityRef = useRef({ id, templateId });
+  const mappingStateRef = useRef(mappingState);
+  const stepRef = useRef(step);
+  const mappingFocusFallbackRef = useRef<HTMLHeadingElement>(null);
   preparationTargetRef.current = preparationTarget;
   routeIdentityRef.current = { id, templateId };
+  mappingStateRef.current = mappingState;
+  stepRef.current = step;
+  agentsRef.current = agents;
   const storageKey = `agentwiki.collaboration.draft.${id}.${templateId}`;
   const { bindings, preparedConnections } = mappingState;
+  const pendingConnectionKey = useMemo(() => {
+    const boundAgentIds = new Set(bindings.map((binding) => binding.agentId));
+    return Object.values(preparedConnections)
+      .filter((connection) => connection.connection === 'pending' && boundAgentIds.has(connection.agentId))
+      .map((connection) => connection.agentId)
+      .sort()
+      .join('|');
+  }, [bindings, preparedConnections]);
 
   const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
   const canPrepareAgents = user?.platformRole === 'super_admin' || myRole === 'owner' || myRole === 'admin';
@@ -118,9 +145,12 @@ export const RunStartWizard: React.FC = () => {
   useEffect(() => {
     initializeRequest.current += 1;
     mutationEpoch.current += 1;
+    authoritativeMemberRefresh.current = { epoch: mutationEpoch.current, request: null };
+    memberRefreshRequest.current += 1;
     setTemplate(null);
     setMembers([]);
     setAgents([]);
+    agentsRef.current = [];
     setRun(null);
     setStarted(null);
     setStep(1);
@@ -157,11 +187,12 @@ export const RunStartWizard: React.FC = () => {
 
   const validatedBindings = () => {
     if (!template) return null;
-    if (template.definition.roleSlots.some((slot) => slot.required && !bindings.some((binding) => binding.roleSlotId === slot.id))) {
+    const currentBindings = mappingStateRef.current.bindings;
+    if (template.definition.roleSlots.some((slot) => slot.required && !currentBindings.some((binding) => binding.roleSlotId === slot.id))) {
       setToast({ kind: 'error', message: t('collaboration.wizard.requiredBindings') });
       return null;
     }
-    return bindings.map(({ roleSlotId, agentId }) => ({ roleSlotId, agentId }));
+    return currentBindings.map(({ roleSlotId, agentId }) => ({ roleSlotId, agentId }));
   };
 
   const initialize = useCallback(async () => {
@@ -170,26 +201,41 @@ export const RunStartWizard: React.FC = () => {
     setLoading(true);
     setToast(null);
     try {
-      const [nextTemplate, members] = await Promise.all([
+      const [nextTemplate, nextMembers] = await Promise.all([
         collaborationApi.getTemplate(id, templateId),
         collaborationApi.listMembers(id),
       ]);
       if (initializeRequest.current !== request) return;
+      const executable = nextMembers.filter(isExecutableAgent);
       setTemplate(nextTemplate);
-      setMembers(members);
-      setAgents(members.filter(isExecutableAgent));
+      setMembers(nextMembers);
+      setAgents(executable);
+      agentsRef.current = executable;
       const storedRunId = localStorage.getItem(storageKey);
       if (storedRunId) {
         try {
           const existing = await loadEditableRun(id, storedRunId);
           if (initializeRequest.current !== request) return;
-          setRun(existing);
+          const restoredMapping = reconcileConnectionFacts(
+            convergeAuthoritativeMapping(
+              { bindings: existing.roleBindings, preparedConnections: {} },
+              new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : [])),
+            ),
+            executable,
+          );
+          const editable = ['draft', 'ready'].includes(existing.status);
+          const restoredRun = editable ? { ...existing, roleBindings: restoredMapping.bindings } : existing;
+          const removedBinding = restoredMapping.bindings.length !== existing.roleBindings.length;
+          setRun(restoredRun);
           setRunName(existing.name);
           setInputValues(existing.inputs ?? {});
-          setMappingState({ bindings: existing.roleBindings, preparedConnections: {} });
-          if (existing.status === 'ready') setStep(3);
-          else if (existing.status === 'draft') setStep(2);
-          else setStarted(existing);
+          setMappingState(restoredMapping);
+          if (!editable) setStarted(existing);
+          else if (removedBinding) {
+            setStep(2);
+            setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+          } else if (existing.status === 'ready') setStep(3);
+          else setStep(2);
         } catch {
           localStorage.removeItem(storageKey);
         }
@@ -203,6 +249,74 @@ export const RunStartWizard: React.FC = () => {
   }, [id, storageKey, t, templateId]);
 
   useEffect(() => { void initialize(); }, [initialize]);
+
+  const loadAuthoritativeMembers = async (spaceId: string) => {
+    const request = ++memberRefreshRequest.current;
+    const epoch = mutationEpoch.current;
+    authoritativeMemberRefresh.current = { epoch, request };
+    try {
+      return { members: await collaborationApi.listMembers(spaceId), request };
+    } finally {
+      if (authoritativeMemberRefresh.current.epoch === epoch
+        && authoritativeMemberRefresh.current.request === request) {
+        authoritativeMemberRefresh.current.request = null;
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!id || loading || !pendingConnectionKey || started) return;
+    const epoch = mutationEpoch.current;
+    const route = { id, templateId };
+    let disposed = false;
+    let timer: number | undefined;
+
+    const refresh = async () => {
+      if (authoritativeMemberRefresh.current.epoch === epoch
+        && authoritativeMemberRefresh.current.request !== null) {
+        if (!disposed) timer = window.setTimeout(refresh, PENDING_CONNECTION_REFRESH_MS);
+        return;
+      }
+      const refreshRequest = ++memberRefreshRequest.current;
+      try {
+        const nextMembers = await collaborationApi.listMembers(route.id);
+        const currentRoute = routeIdentityRef.current;
+        if (disposed
+          || mutationEpoch.current !== epoch
+          || currentRoute.id !== route.id
+          || currentRoute.templateId !== route.templateId) return;
+        if (memberRefreshRequest.current === refreshRequest) {
+          const executable = nextMembers.filter(isExecutableAgent);
+          const executableIds = new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : []));
+          const currentMapping = mappingStateRef.current;
+          const converged = reconcileConnectionFacts(
+            convergeAuthoritativeMapping(currentMapping, executableIds),
+            executable,
+          );
+          const removedBinding = converged.bindings.length !== currentMapping.bindings.length;
+          setMembers(nextMembers);
+          setAgents(executable);
+          agentsRef.current = executable;
+          setMappingState(converged);
+          if (removedBinding && stepRef.current === 3) {
+            setRun((current) => current ? { ...current, roleBindings: converged.bindings } : current);
+            setSelfReviewAcknowledged(false);
+            setStep(2);
+            setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+          }
+        }
+      } catch {
+        // A transient refresh failure keeps the last visible warning and retries.
+      }
+      if (!disposed) timer = window.setTimeout(refresh, PENDING_CONNECTION_REFRESH_MS);
+    };
+
+    timer = window.setTimeout(refresh, PENDING_CONNECTION_REFRESH_MS);
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [id, loading, pendingConnectionKey, started, t, templateId]);
 
   const isCurrentPreparation = (
     targetToken: number,
@@ -228,7 +342,10 @@ export const RunStartWizard: React.FC = () => {
   };
 
   const handleBindingsChange = (nextBindings: RoleBinding[]) => {
-    setMappingState((current) => replaceBindings(current, nextBindings));
+    setMappingState((current) => reconcileConnectionFacts(
+      replaceBindings(current, nextBindings),
+      agentsRef.current,
+    ));
     setSelfReviewAcknowledged(false);
   };
 
@@ -242,31 +359,42 @@ export const RunStartWizard: React.FC = () => {
     if (!target || target.token !== targetToken || !isCurrentPreparation(targetToken, epoch, route)) return;
 
     let nextMembers: SpaceMemberSummary[];
+    let memberRequest: number;
     try {
-      nextMembers = await collaborationApi.listMembers(route.id);
+      const refreshed = await loadAuthoritativeMembers(route.id);
+      nextMembers = refreshed.members;
+      memberRequest = refreshed.request;
     } catch (error) {
       if (!isCurrentPreparation(targetToken, epoch, route)) return;
       throw error;
     }
-    if (!isCurrentPreparation(targetToken, epoch, route)) return;
+    if (!isCurrentPreparation(targetToken, epoch, route)
+      || memberRefreshRequest.current !== memberRequest) return;
 
     const executable = nextMembers.filter(isExecutableAgent);
     const executableIds = new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : []));
     const authoritativeAgent = executable.find((member) => member.agentId === prepared.agentId);
     setMembers(nextMembers);
     setAgents(executable);
+    agentsRef.current = executable;
     if (!authoritativeAgent) {
-      setMappingState((current) => convergeAuthoritativeMapping(current, executableIds));
+      setMappingState((current) => reconcileConnectionFacts(
+        convergeAuthoritativeMapping(current, executableIds),
+        executable,
+      ));
       throw new Error(t('collaboration.agentPreparation.refreshFailed'));
     }
 
-    setMappingState((current) => convergeAuthoritativeMapping(current, executableIds, {
-      roleSlotId: target.id,
-      roleSlotName: target.name,
-      agentId: prepared.agentId,
-      agentName: authoritativeAgent.agent?.name ?? prepared.agentName,
-      connection: prepared.connection,
-    }));
+    setMappingState((current) => reconcileConnectionFacts(
+      convergeAuthoritativeMapping(current, executableIds, {
+        roleSlotId: target.id,
+        roleSlotName: target.name,
+        agentId: prepared.agentId,
+        agentName: authoritativeAgent.agent?.name ?? prepared.agentName,
+        connection: prepared.connection,
+      }),
+      executable,
+    ));
     setSelfReviewAcknowledged(false);
     setPreparationTarget((current) => current?.token === targetToken ? null : current);
   };
@@ -280,18 +408,24 @@ export const RunStartWizard: React.FC = () => {
     setPreparationAuthorizationInvalidated(true);
     setPreparationTarget((current) => current?.token === targetToken ? null : current);
     try {
-      const nextMembers = await collaborationApi.listMembers(route.id);
+      const refreshed = await loadAuthoritativeMembers(route.id);
+      const nextMembers = refreshed.members;
       const currentRoute = routeIdentityRef.current;
       if (mutationEpoch.current !== epoch
         || currentRoute.id !== route.id
         || currentRoute.templateId !== route.templateId
-        || preparationSequence.current !== targetToken) return;
+        || preparationSequence.current !== targetToken
+        || memberRefreshRequest.current !== refreshed.request) return;
       setMembers(nextMembers);
       const executable = nextMembers.filter(isExecutableAgent);
       setAgents(executable);
-      setMappingState((current) => convergeAuthoritativeMapping(
-        current,
-        new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : [])),
+      agentsRef.current = executable;
+      setMappingState((current) => reconcileConnectionFacts(
+        convergeAuthoritativeMapping(
+          current,
+          new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : [])),
+        ),
+        executable,
       ));
     } catch {
       // The preparation entry remains fail-closed for this wizard epoch.
@@ -328,11 +462,35 @@ export const RunStartWizard: React.FC = () => {
     try {
       const updated = await collaborationApi.updateRunDraft(id, currentRun.id, { expectedVersion: currentRun.version, roleBindings });
       if (mutationEpoch.current !== epoch) return;
+      const currentBindings = mappingStateRef.current.bindings;
+      if (!sameBindings(roleBindings, currentBindings)) {
+        setRun({ ...updated, roleBindings: currentBindings });
+        setRetryAction(null);
+        setSelfReviewAcknowledged(false);
+        setStep(2);
+        setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+        return;
+      }
       const ready = await collaborationApi.validateRunDraft(id, currentRun.id, updated.version);
       if (mutationEpoch.current !== epoch) return;
-      setRun(ready);
-      setMappingState((current) => replaceBindings(current, ready.roleBindings));
+      const executableIds = new Set(agentsRef.current.flatMap((member) => member.agentId ? [member.agentId] : []));
+      const converged = reconcileConnectionFacts(
+        convergeAuthoritativeMapping(
+          replaceBindings(mappingStateRef.current, ready.roleBindings),
+          executableIds,
+        ),
+        agentsRef.current,
+      );
+      const currentReady = { ...ready, roleBindings: converged.bindings };
+      setRun(currentReady);
+      setMappingState(converged);
       setRetryAction(null);
+      if (converged.bindings.length !== ready.roleBindings.length) {
+        setSelfReviewAcknowledged(false);
+        setStep(2);
+        setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+        return;
+      }
       setStep(3);
     } catch (error) {
       await handleMutationError(error, 'mapping', epoch);
@@ -343,9 +501,28 @@ export const RunStartWizard: React.FC = () => {
 
   const start = async (currentRun: CollaborationRun | null = run) => {
     if (!currentRun) return;
+    const executableIds = new Set(agentsRef.current.flatMap((member) => member.agentId ? [member.agentId] : []));
+    const converged = reconcileConnectionFacts(
+      convergeAuthoritativeMapping(
+        replaceBindings(mappingStateRef.current, currentRun.roleBindings),
+        executableIds,
+      ),
+      agentsRef.current,
+    );
+    if (converged.bindings.length !== currentRun.roleBindings.length) {
+      setRun({ ...currentRun, roleBindings: converged.bindings });
+      setMappingState(converged);
+      setSelfReviewAcknowledged(false);
+      setStep(2);
+      setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+      return;
+    }
     if (hasRepeatedAgentBindings(currentRun.roleBindings) && !selfReviewAcknowledged) {
       setRun(currentRun);
-      setMappingState((current) => replaceBindings(current, currentRun.roleBindings));
+      setMappingState((current) => reconcileConnectionFacts(
+        replaceBindings(current, currentRun.roleBindings),
+        agentsRef.current,
+      ));
       setStep(3);
       setToast({ kind: 'error', message: t('collaboration.wizard.selfReviewConfirm') });
       return;
@@ -377,16 +554,23 @@ export const RunStartWizard: React.FC = () => {
       setToast({ kind: 'error', message: t('collaboration.wizard.conflict') });
     } else if (code === 'COLLABORATION_AGENT_INACTIVE' || code === 'COLLABORATION_AGENT_CANNOT_EXECUTE') {
       try {
-        const members = await collaborationApi.listMembers(id);
-        if (mutationEpoch.current !== epoch) return;
+        const refreshed = await loadAuthoritativeMembers(id);
+        const members = refreshed.members;
+        if (mutationEpoch.current !== epoch
+          || memberRefreshRequest.current !== refreshed.request) return;
         const executable = members.filter(isExecutableAgent);
         const executableIds = new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : []));
         setMembers(members);
         setAgents(executable);
-        setMappingState((current) => convergeAuthoritativeMapping(current, executableIds));
+        agentsRef.current = executable;
+        setMappingState((current) => reconcileConnectionFacts(
+          convergeAuthoritativeMapping(current, executableIds),
+          executable,
+        ));
       } catch {
         setMembers([]);
         setAgents([]);
+        agentsRef.current = [];
         setMappingState(emptyMappingState());
       }
       setStep(2);
@@ -425,12 +609,24 @@ export const RunStartWizard: React.FC = () => {
           roleBindings,
         });
         if (mutationEpoch.current !== epoch) return;
+        const currentBindings = mappingStateRef.current.bindings;
+        if (!sameBindings(roleBindings, currentBindings)) {
+          setRun({ ...updated, roleBindings: currentBindings });
+          setRetryAction(null);
+          setSelfReviewAcknowledged(false);
+          setStep(2);
+          setToast({ kind: 'error', message: t('collaboration.wizard.agentChanged') });
+          return;
+        }
         const ready = await collaborationApi.validateRunDraft(id, latest.id, updated.version);
         if (mutationEpoch.current !== epoch) return;
         setRun(ready);
         await start(ready);
       } else {
-        setMappingState((current) => replaceBindings(current, latest.roleBindings));
+        setMappingState((current) => reconcileConnectionFacts(
+          replaceBindings(current, latest.roleBindings),
+          agentsRef.current,
+        ));
         await start(latest);
       }
     } catch (error) {
@@ -466,7 +662,7 @@ export const RunStartWizard: React.FC = () => {
         {!started && step === 1 ? <InputStep template={template} runName={runName} onRunName={setRunName} values={inputValues} onValues={setInputValues} t={t} /> : null}
         {!started && step === 2 ? (
           <section>
-            <h2 className="text-xl font-semibold">{t('collaboration.wizard.step2')}</h2>
+            <h2 ref={mappingFocusFallbackRef} tabIndex={-1} className="text-xl font-semibold">{t('collaboration.wizard.step2')}</h2>
             <p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step2Help')}</p>
             <div className="mt-5">
               <RoleBindingEditor
@@ -485,7 +681,12 @@ export const RunStartWizard: React.FC = () => {
               preparedConnections={preparedConnections}
               t={t}
             />
-            {!agents.length ? (
+            {preparationAuthorizationInvalidated ? (
+              <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {t('collaboration.agentPreparation.ownerRequired')}
+              </div>
+            ) : null}
+            {!agents.length && !preparationAuthorizationInvalidated ? (
               <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                 <p>{preparationActionsAvailable
                   ? t('collaboration.wizard.noAgents')
@@ -516,6 +717,7 @@ export const RunStartWizard: React.FC = () => {
           spaceId={id}
           target={{ id: preparationTarget.id, name: preparationTarget.name }}
           onClose={() => closePreparation(preparationTarget.token)}
+          fallbackFocusTo={mappingFocusFallbackRef.current}
           onPrepared={(prepared) => handlePrepared(
             preparationTarget.token,
             { id, templateId },
@@ -640,6 +842,34 @@ function prunePreparedConnections(
     agentId === connection.agentId
       && boundAgentIds.has(connection.agentId)
       && (!executableAgentIds || executableAgentIds.has(connection.agentId))));
+}
+
+function reconcileConnectionFacts(
+  current: MappingState,
+  executableAgents: SpaceMemberSummary[],
+): MappingState {
+  const membersByAgentId = new Map(executableAgents.flatMap((member) =>
+    member.agentId ? [[member.agentId, member] as const] : []));
+  const preparedConnections = { ...current.preparedConnections };
+
+  for (const binding of current.bindings) {
+    const member = membersByAgentId.get(binding.agentId);
+    const connected = member?.agent?.connected;
+    if (connected === true) {
+      delete preparedConnections[binding.agentId];
+    } else if (connected === false && member?.agent) {
+      preparedConnections[binding.agentId] = {
+        agentId: binding.agentId,
+        agentName: member.agent.name,
+        connection: 'pending',
+      };
+    }
+  }
+
+  return {
+    bindings: current.bindings,
+    preparedConnections: prunePreparedConnections(preparedConnections, current.bindings),
+  };
 }
 
 async function loadEditableRun(spaceId: string, runId: string): Promise<CollaborationRun> {

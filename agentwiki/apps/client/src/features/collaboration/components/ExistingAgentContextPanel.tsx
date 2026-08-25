@@ -16,6 +16,8 @@ export const ExistingAgentContextPanel: React.FC<{
   const roleText = current.grantRole === undefined
     ? t('common.loading')
     : current.grantRole ? t(`agent.role.${current.grantRole}.name`) : t('common.none');
+  const statusText = t(`collaboration.agentPreparation.context.status.${current.agentStatus}`);
+  const connectionText = t(`collaboration.agentPreparation.context.connection.${current.connection}`);
 
   return (
     <section
@@ -26,11 +28,14 @@ export const ExistingAgentContextPanel: React.FC<{
       <h3 className="text-sm font-medium text-gray-900">
         {t('collaboration.agentPreparation.context.title')}
       </h3>
+      <p role="status" aria-live="polite" className="sr-only">
+        {statusText}. {roleText}. {connectionText}.
+      </p>
       <dl className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
         <div>
           <dt className="text-gray-500">{t('common.status')}</dt>
           <dd className="mt-1 font-medium text-gray-900">
-            {t(`collaboration.agentPreparation.context.status.${current.agentStatus}`)}
+            {statusText}
           </dd>
         </div>
         <div>
@@ -46,7 +51,7 @@ export const ExistingAgentContextPanel: React.FC<{
             {t('collaboration.agentPreparation.context.connection')}
           </dt>
           <dd className="mt-1 font-medium text-gray-900">
-            {t(`collaboration.agentPreparation.context.connection.${current.connection}`)}
+            {connectionText}
           </dd>
         </div>
       </dl>

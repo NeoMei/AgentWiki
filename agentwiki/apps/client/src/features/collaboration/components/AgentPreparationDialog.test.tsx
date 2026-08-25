@@ -239,7 +239,12 @@ describe('AgentPreparationDialog', () => {
 
     await screen.findByText(/onboard --code AW-CODE/);
     expect(prepareAgent).toHaveBeenCalledWith({
-      candidate: { kind: 'new', name: 'New Agent', description: '' },
+      candidate: {
+        kind: 'new',
+        name: 'New Agent',
+        description: '',
+        idempotencyKey: expect.stringMatching(/^create-agent-/u),
+      },
       spaceId: 'space-1',
       role: 'editor',
     }, agentPreparationApi, expect.any(Function));
@@ -496,9 +501,14 @@ describe('AgentPreparationDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent' }));
 
     expect(await screen.findByText(/onboard --code AW-CODE/)).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('Waiting for Agent connection');
+    expect(screen.getByText('Waiting for Agent connection')).toBeVisible();
     expect(prepareAgent).toHaveBeenCalledWith({
-      candidate: { kind: 'new', name: 'Chapter Writer', description: '' },
+      candidate: {
+        kind: 'new',
+        name: 'Chapter Writer',
+        description: '',
+        idempotencyKey: expect.stringMatching(/^create-agent-/u),
+      },
       spaceId: 'space-1',
       role: 'editor',
     }, agentPreparationApi, expect.any(Function));
@@ -880,7 +890,7 @@ describe('AgentPreparationDialog', () => {
     await flushMicrotasks();
 
     expect(agentPreparationApi.getAgent).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
     expect(screen.queryByText('Waiting for Agent connection')).not.toBeInTheDocument();
   });
 
@@ -907,9 +917,7 @@ describe('AgentPreparationDialog', () => {
     await act(async () => { resolveDetail(connectedDetail); });
 
     expect(onPrepared).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'This connection instruction has expired.',
-    );
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
     expect(screen.queryByText('Waiting for Agent connection')).not.toBeInTheDocument();
   });
 
@@ -934,9 +942,7 @@ describe('AgentPreparationDialog', () => {
     vi.setSystemTime(new Date(startedAt.getTime() + 4_000));
     await act(async () => { rejectDetail(new Error('stale check failure')); });
 
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'This connection instruction has expired.',
-    );
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
     expect(screen.queryByText('Could not check the Agent connection.')).not.toBeInTheDocument();
   });
 
@@ -957,7 +963,7 @@ describe('AgentPreparationDialog', () => {
     await flushMicrotasks();
 
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
   });
 
   it('keeps expiry when a clipboard write resolves after the instruction expires', async () => {
@@ -980,7 +986,7 @@ describe('AgentPreparationDialog', () => {
     vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
     await act(async () => { resolveCopy(); });
 
-    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Connection instruction copied' })).not.toBeInTheDocument();
     expect(screen.queryByText('Could not copy the connection instruction.')).not.toBeInTheDocument();
   });
@@ -1005,7 +1011,7 @@ describe('AgentPreparationDialog', () => {
     vi.setSystemTime(new Date(startedAt.getTime() + 2_000));
     await act(async () => { rejectCopy(new Error('clipboard denied')); });
 
-    expect(screen.getByRole('status')).toHaveTextContent('This connection instruction has expired.');
+    expect(screen.getByText('This connection instruction has expired.')).toBeVisible();
     expect(screen.queryByText('Could not copy the connection instruction.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Connection instruction copied' })).not.toBeInTheDocument();
   });

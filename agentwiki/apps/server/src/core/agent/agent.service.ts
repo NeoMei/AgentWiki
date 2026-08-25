@@ -10,16 +10,38 @@ export class AgentService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(ownerId: string, dto: CreateAgentDto) {
-    const agent = await this.prisma.agent.create({
-      data: {
-        ownerId,
-        name: dto.name,
-        description: dto.description,
-        memoryEnabled: dto.memoryEnabled || false,
-      },
-    });
-    await this.audit(agent.id, 'agent.create', 'success');
-    return agent;
+    const id = dto.idempotencyKey ? deterministicAgentId(ownerId, dto.idempotencyKey) : undefined;
+    const description = dto.description ?? undefined;
+    const data = {
+      ...(id ? { id } : {}),
+      ownerId,
+      name: dto.name,
+      description,
+      memoryEnabled: dto.memoryEnabled || false,
+    };
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const agent = await tx.agent.create({ data });
+        await tx.agentAuditEvent.create({
+          data: { agentId: agent.id, action: 'agent.create', outcome: 'success' },
+        });
+        return agent;
+      });
+    } catch (error) {
+      if (!id || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error;
+      }
+      const existing = await this.prisma.agent.findUnique({ where: { id } });
+      if (!existing
+        || existing.ownerId !== ownerId
+        || existing.revokedAt
+        || existing.name !== dto.name
+        || (existing.description ?? undefined) !== description
+        || existing.memoryEnabled !== (dto.memoryEnabled || false)) {
+        throw new BadRequestException('Idempotency key was already used for a different Agent');
+      }
+      return existing;
+    }
   }
 
   async list(ownerId: string) {
@@ -607,4 +629,13 @@ export class AgentService {
     `);
   }
 
+}
+
+function deterministicAgentId(ownerId: string, idempotencyKey: string): string {
+  return `agent_${createHash('sha256')
+    .update(ownerId)
+    .update('\0')
+    .update(idempotencyKey)
+    .digest('hex')
+    .slice(0, 32)}`;
 }

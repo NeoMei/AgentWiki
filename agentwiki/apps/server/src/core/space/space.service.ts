@@ -322,6 +322,7 @@ export class SpaceService {
 
   async listMembers(spaceId: string, actorUserId: string, canManageAgentRoles: boolean) {
     await this.findOne(spaceId);
+    const now = new Date();
     const [humans, agentGrants] = await Promise.all([
       this.prisma.spaceMember.findMany({
         where: { spaceId },
@@ -337,6 +338,14 @@ export class SpaceService {
           spaceId: true,
           createdAt: true,
           agent: { select: { id: true, name: true, status: true, revokedAt: true, ownerId: true } },
+          credentials: {
+            where: {
+              revokedAt: null,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+            },
+            select: { id: true },
+            take: 1,
+          },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -345,9 +354,10 @@ export class SpaceService {
       ...humans.map((member) => ({ ...member, type: 'human' as const })),
       ...agentGrants.map((grant) => {
         const { ownerId, ...agent } = grant.agent;
+        const { credentials = [], ...summary } = grant;
         return {
-          ...grant,
-          agent,
+          ...summary,
+          agent: { ...agent, connected: credentials.length > 0 },
           type: 'agent' as const,
           canManageRole: canManageAgentRoles && ownerId === actorUserId,
         };

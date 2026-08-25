@@ -10,7 +10,7 @@ import {
 
 export type AgentCandidate =
   | { kind: 'existing'; agent: OwnedAgentSummary }
-  | { kind: 'new'; name: string; description: string };
+  | { kind: 'new'; name: string; description: string; idempotencyKey?: string };
 
 export type PreparationStage =
   | 'creating'
@@ -91,6 +91,9 @@ export async function prepareAgent(
       agent = await api.createAgent({
         name: input.candidate.name.trim(),
         description: input.candidate.description.trim(),
+        ...(input.candidate.idempotencyKey
+          ? { idempotencyKey: input.candidate.idempotencyKey }
+          : {}),
       });
       source = 'created';
     } else if (input.candidate?.kind === 'existing') {

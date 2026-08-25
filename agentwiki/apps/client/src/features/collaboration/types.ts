@@ -8,7 +8,7 @@ export interface SpaceMemberSummary {
   agentId?: string;
   role: string;
   user?: { id: string; name?: string | null; email: string; type?: string };
-  agent?: { id: string; name: string; status: string; revokedAt?: string | null };
+  agent?: { id: string; name: string; status: string; revokedAt?: string | null; connected?: boolean };
 }
 
 export interface TemplateSummary {

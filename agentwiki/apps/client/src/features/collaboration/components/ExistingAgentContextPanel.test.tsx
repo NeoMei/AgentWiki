@@ -77,5 +77,8 @@ describe('ExistingAgentContextPanel', () => {
       'ConnectionChecking connection…',
     );
     expect(within(context).queryByText('Connected')).not.toBeInTheDocument();
+    expect(within(context).getByRole('status')).toHaveTextContent(
+      'Active. Loading…. Checking connection….',
+    );
   });
 });

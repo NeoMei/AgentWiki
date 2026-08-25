@@ -5,6 +5,7 @@ export class CreateAgentDto {
   @IsString() @MinLength(1) @MaxLength(100) name: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsBoolean() memoryEnabled?: boolean;
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(128) idempotencyKey?: string;
 }
 
 export class UpdateAgentDto {

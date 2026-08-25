@@ -39,6 +39,7 @@ export interface AgentPreparationDialogProps {
   onClose: () => void;
   onPrepared: (result: PreparedAgentSelection) => Promise<void>;
   onAuthorizationLost: () => Promise<void>;
+  fallbackFocusTo?: HTMLElement | null;
 }
 
 const safeStageErrorKey = (stage: PreparationStage): string => stage === 'issuing_instruction'
@@ -51,6 +52,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   onClose,
   onPrepared,
   onAuthorizationLost,
+  fallbackFocusTo,
 }) => {
   const { t } = useLanguage();
   const ownedAgents = useOwnedAgents(spaceId, target.id);
@@ -72,6 +74,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
   const [preparationProgress, setPreparationProgress] = useState<AgentPreparationProgress | null>(null);
   const [createdAgent, setCreatedAgent] = useState<{ id: string; name: string } | null>(null);
   const preparationTokenRef = useRef<symbol | null>(null);
+  const creationAttemptRef = useRef<{ signature: string; idempotencyKey: string } | null>(null);
   const existingAgentContext = useExistingAgentContext({
     agentId: ownedAgents.selectedAgentId,
     enabled: mode === 'existing' && preparationProgress === null && createdAgent === null,
@@ -98,6 +101,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     setPreparationErrorKey(null);
     setPreparationProgress(null);
     setCreatedAgent(null);
+    creationAttemptRef.current = null;
   }, [spaceId, target.id]);
 
   useEffect(() => {
@@ -141,7 +145,18 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
         : {
           candidate: mode === 'existing'
             ? { kind: 'existing' as const, agent: existingEffectiveAgent! }
-            : { kind: 'new' as const, name, description },
+            : {
+              kind: 'new' as const,
+              name,
+              description,
+              idempotencyKey: creationIdempotencyKey(
+                creationAttemptRef,
+                spaceId,
+                target.id,
+                name,
+                description,
+              ),
+            },
           spaceId,
           role,
         };
@@ -232,6 +247,7 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
       labelledBy={titleId}
       onRequestClose={onClose}
       closeDisabled={busy}
+      fallbackFocusTo={fallbackFocusTo}
       className="max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-2xl overflow-y-auto rounded-[14px] bg-white p-4 shadow-xl sm:p-6"
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -315,3 +331,19 @@ export const AgentPreparationDialog: React.FC<AgentPreparationDialogProps> = ({
     </ModalDialog>
   );
 };
+
+function creationIdempotencyKey(
+  attemptRef: React.MutableRefObject<{ signature: string; idempotencyKey: string } | null>,
+  spaceId: string,
+  targetId: string,
+  name: string,
+  description: string,
+): string {
+  const signature = JSON.stringify([spaceId, targetId, name.trim(), description.trim()]);
+  if (attemptRef.current?.signature !== signature) {
+    const random = globalThis.crypto?.randomUUID?.()
+      ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    attemptRef.current = { signature, idempotencyKey: `create-agent-${random}` };
+  }
+  return attemptRef.current.idempotencyKey;
+}

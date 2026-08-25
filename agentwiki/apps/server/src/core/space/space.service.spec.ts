@@ -237,6 +237,44 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
   });
 
+  it('reports only a live Space credential as connected without exposing credentials', async () => {
+    prisma.spaceMember.findMany.mockResolvedValue([]);
+    prisma.agentGrant.findMany.mockResolvedValue([
+      {
+        id: 'connected', role: 'editor', agentId: 'ag-connected', spaceId: 'space-1', createdAt: new Date(),
+        agent: { id: 'ag-connected', name: 'Connected', status: 'active', revokedAt: null, ownerId: 'u1' },
+        credentials: [{ id: 'credential-live' }],
+      },
+      {
+        id: 'pending', role: 'publisher', agentId: 'ag-pending', spaceId: 'space-1', createdAt: new Date(),
+        agent: { id: 'ag-pending', name: 'Pending', status: 'active', revokedAt: null, ownerId: 'u1' },
+        credentials: [],
+      },
+    ]);
+
+    const result: any[] = await service.listMembers('space-1', 'u1', true);
+
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentId: 'ag-connected', agent: expect.objectContaining({ connected: true }) }),
+      expect.objectContaining({ agentId: 'ag-pending', agent: expect.objectContaining({ connected: false }) }),
+    ]));
+    expect(result).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ credentials: expect.anything() }),
+    ]));
+    expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({
+        credentials: expect.objectContaining({
+          where: {
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+          },
+          select: { id: true },
+          take: 1,
+        }),
+      }),
+    }));
+  });
+
   it('does not mark an owned Agent manageable for a non-admin Space member', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([

@@ -49,10 +49,14 @@ const template: TemplateDetail = {
   system: false, version: 1, definition: validDefinition,
 };
 const activeEditor = { type: 'agent' as const, agentId: 'agent-editor', role: 'editor', agent: { id: 'agent-editor', name: 'Editor Bot', status: 'active', revokedAt: null } };
+const pendingActiveEditor = { ...activeEditor, agent: { ...activeEditor.agent, connected: false } };
+const connectedActiveEditor = { ...activeEditor, agent: { ...activeEditor.agent, connected: true } };
 const activeReader = { type: 'agent' as const, agentId: 'agent-reader', role: 'reader', agent: { id: 'agent-reader', name: 'Reader Bot', status: 'active', revokedAt: null } };
 const revokedAgent = { type: 'agent' as const, agentId: 'agent-revoked', role: 'publisher', agent: { id: 'agent-revoked', name: 'Revoked Bot', status: 'inactive', revokedAt: '2026-08-24T00:00:00Z' } };
 const ownerMember = { type: 'human' as const, userId: 'user-owner', role: 'owner' };
 const preparedEditor = { type: 'agent' as const, agentId: 'agent-new', role: 'editor', agent: { id: 'agent-new', name: 'New Writer', status: 'active', revokedAt: null } };
+const pendingPreparedEditor = { ...preparedEditor, agent: { ...preparedEditor.agent, connected: false } };
+const connectedPreparedEditor = { ...preparedEditor, agent: { ...preparedEditor.agent, connected: true } };
 
 function renderWizard({
   user = { id: 'user-owner', platformRole: 'user' },
@@ -110,6 +114,7 @@ function NavigationWizard() {
 
 describe('RunStartWizard', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     localStorage.clear();
     vi.clearAllMocks();
     preparationDialogState.latest = null;
@@ -182,7 +187,7 @@ describe('RunStartWizard', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('targets the first required unmapped Role Slot when an earlier slot is already bound', async () => {
+  it('targets the first required Role Slot after pruning a missing saved Agent', async () => {
     localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-draft');
     vi.mocked(collaborationApi.listMembers).mockResolvedValue([ownerMember]);
     vi.mocked(collaborationApi.getRun).mockResolvedValue({
@@ -196,8 +201,8 @@ describe('RunStartWizard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare first Agent' }));
 
-    expect(await screen.findByRole('dialog', { name: 'Prepare Agent for Reviewer' })).toBeVisible();
-    expect(getMockedPreparationDialog().target.id).toBe('reviewer');
+    expect(await screen.findByRole('dialog', { name: 'Prepare Agent for Writer' })).toBeVisible();
+    expect(getMockedPreparationDialog().target.id).toBe('writer');
   });
 
   it('targets the exact Role Slot from each contextual preparation action', async () => {
@@ -382,6 +387,58 @@ describe('RunStartWizard', () => {
     expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
   });
 
+  it('keeps polling a new Space while an old Space authoritative refresh is still pending', async () => {
+    let resolveOldRefresh!: (members: SpaceMemberSummary[]) => void;
+    const oldRefresh = new Promise<SpaceMemberSummary[]>((resolve) => { resolveOldRefresh = resolve; });
+    vi.mocked(collaborationApi.getTemplate)
+      .mockResolvedValueOnce({ ...template, id: 'template-old', name: 'Old workflow' })
+      .mockResolvedValueOnce({ ...template, id: 'template-new', spaceId: 'space-new', name: 'New Space workflow' });
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor])
+      .mockReturnValueOnce(oldRefresh)
+      .mockResolvedValueOnce([ownerMember, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, connectedPreparedEditor]);
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-new-space', name: 'Existing draft', status: 'draft', version: 1,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-new' }],
+      updatedAt: '2026-08-24T00:00:00Z',
+    });
+    localStorage.setItem('agentwiki.collaboration.draft.space-new.template-new', 'run-new-space');
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-owner', platformRole: 'user' }));
+    render(<AuthProvider><LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-old/start']}>
+      <Routes><Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<NavigationWizard />} /></Routes>
+    </MemoryRouter></LanguageProvider></AuthProvider>);
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    const oldDialog = getMockedPreparationDialog();
+    const oldCompletion = oldDialog.onPrepared({
+      agentId: 'agent-reviewer', agentName: 'Old Agent', connection: 'pending',
+    });
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Open new Space' }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('New Space workflow')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(collaborationApi.listMembers).toHaveBeenLastCalledWith('space-new');
+    expect(screen.queryByText(
+      'New Writer is mapped but has not connected to this Space yet.',
+    )).not.toBeInTheDocument();
+    await act(async () => {
+      resolveOldRefresh([ownerMember, activeEditor]);
+      await oldCompletion;
+    });
+    vi.useRealTimers();
+  });
+
   it('reloads authorization and removes every preparation mutation entry after a 403', async () => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember])
@@ -395,6 +452,24 @@ describe('RunStartWizard', () => {
     expect(collaborationApi.listMembers).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByText('Ask a Space Owner or Admin to prepare an executable Agent.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
+  });
+
+  it('keeps persistent Owner or Admin guidance after a 403 when executable Agents remain', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor])
+      .mockResolvedValueOnce([{ type: 'human', userId: 'user-owner', role: 'editor' }, activeEditor]);
+    renderWizard();
+    await advanceToMapping();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+
+    await loseMockedPreparationAuthorization();
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Ask a Space Owner or Admin to prepare an executable Agent.',
+    );
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
     expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
   });
 
@@ -520,6 +595,329 @@ describe('RunStartWizard', () => {
     expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
     await waitFor(() => expect(collaborationApi.startRun).toHaveBeenCalledTimes(1));
+  });
+
+  it('clears a pending warning when the authoritative Space member refresh becomes connected', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, connectedPreparedEditor]);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+
+    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(screen.queryByText(
+      'New Writer is mapped but has not connected to this Space yet.',
+    )).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
+    vi.useRealTimers();
+  });
+
+  it('removes an ineligible pending Agent from mapping during the authoritative refresh', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember]);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.queryByText(
+      'New Writer is mapped but has not connected to this Space yet.',
+    )).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('returns a ready draft to mapping when a pending Agent becomes ineligible', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.updateRunDraft).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'draft', version: 2, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    vi.mocked(collaborationApi.validateRunDraft).mockResolvedValue({
+      id: 'run-1', name: 'Release 1', status: 'ready', version: 3, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }], updatedAt: '2026-08-24T00:00:00Z',
+    });
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByRole('heading', { name: '3. Review and start' })).toBeVisible();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(screen.getByRole('heading', { name: '2. Map Agents' })).toBeVisible();
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
+    expect(screen.getByText(
+      'An assigned Agent is no longer executable. Choose current Agents and try again.',
+    )).toBeVisible();
+    vi.useRealTimers();
+  });
+
+  it('does not restore an ineligible binding from a delayed validation response', async () => {
+    let resolveValidation!: (run: Awaited<ReturnType<typeof collaborationApi.validateRunDraft>>) => void;
+    const validation = new Promise<Awaited<ReturnType<typeof collaborationApi.validateRunDraft>>>((resolve) => {
+      resolveValidation = resolve;
+    });
+    const ready = {
+      id: 'run-1', name: 'Release 1', status: 'ready' as const, version: 3, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }], updatedAt: '2026-08-24T00:00:00Z',
+    };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.updateRunDraft).mockResolvedValue({ ...ready, status: 'draft', version: 2 });
+    vi.mocked(collaborationApi.validateRunDraft).mockReturnValue(validation);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(collaborationApi.validateRunDraft).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await act(async () => { resolveValidation(ready); await validation; });
+
+    expect(screen.getByRole('heading', { name: '2. Map Agents' })).toBeVisible();
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
+    expect(screen.getByText(
+      'An assigned Agent is no longer executable. Choose current Agents and try again.',
+    )).toBeVisible();
+    vi.useRealTimers();
+  });
+
+  it('rebases the local run version when mapping changes during a delayed draft update', async () => {
+    let resolveUpdate!: (run: Awaited<ReturnType<typeof collaborationApi.updateRunDraft>>) => void;
+    const delayedUpdate = new Promise<Awaited<ReturnType<typeof collaborationApi.updateRunDraft>>>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    const staleUpdated = {
+      id: 'run-1', name: 'Release 1', status: 'draft' as const, version: 2, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
+      updatedAt: '2026-08-24T00:00:00Z',
+    };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.updateRunDraft)
+      .mockReturnValueOnce(delayedUpdate)
+      .mockResolvedValueOnce({
+        ...staleUpdated,
+        version: 3,
+        roleBindings: [
+          { roleSlotId: 'writer', agentId: 'agent-editor' },
+          { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+        ],
+      });
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await act(async () => { resolveUpdate(staleUpdated); await delayedUpdate; });
+
+    expect(collaborationApi.validateRunDraft).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(collaborationApi.updateRunDraft).toHaveBeenLastCalledWith('space-1', 'run-1', {
+      expectedVersion: 2,
+      roleBindings: [
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+      ],
+    });
+    vi.useRealTimers();
+  });
+
+  it('does not let a poll overtake an authoritative preparation refresh', async () => {
+    let resolvePreparation!: (members: SpaceMemberSummary[]) => void;
+    const preparationRefresh = new Promise<SpaceMemberSummary[]>((resolve) => { resolvePreparation = resolve; });
+    const connectedReviewer = {
+      ...connectedPreparedEditor,
+      agentId: 'agent-reviewer',
+      agent: { ...connectedPreparedEditor.agent, id: 'agent-reviewer', name: 'Connected Reviewer' },
+    };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockReturnValueOnce(preparationRefresh);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    const reviewerDialog = getMockedPreparationDialog();
+    const completion = reviewerDialog.onPrepared({
+      agentId: 'agent-reviewer', agentName: 'Connected Reviewer', connection: 'connected',
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(collaborationApi.listMembers).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      resolvePreparation([ownerMember, activeEditor, pendingPreparedEditor, connectedReviewer]);
+      await completion;
+    });
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-reviewer');
+    vi.useRealTimers();
+  });
+
+  it('lets polling resume after a newer authoritative refresh supersedes a hung request', async () => {
+    let resolveOldRefresh!: (members: SpaceMemberSummary[]) => void;
+    const oldRefresh = new Promise<SpaceMemberSummary[]>((resolve) => { resolveOldRefresh = resolve; });
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, pendingActiveEditor])
+      .mockReturnValueOnce(oldRefresh)
+      .mockResolvedValueOnce([{ type: 'human', userId: 'user-owner', role: 'editor' }, pendingActiveEditor])
+      .mockResolvedValueOnce([{ type: 'human', userId: 'user-owner', role: 'editor' }, connectedActiveEditor]);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    const dialog = getMockedPreparationDialog();
+    const oldCompletion = dialog.onPrepared({
+      agentId: 'agent-reviewer', agentName: 'Reviewer', connection: 'connected',
+    });
+
+    await act(async () => { await dialog.onAuthorizationLost(); });
+    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(collaborationApi.listMembers).toHaveBeenCalledTimes(4);
+    expect(screen.queryByText(
+      'Editor Bot is mapped but has not connected to this Space yet.',
+    )).not.toBeInTheDocument();
+    await act(async () => {
+      resolveOldRefresh([ownerMember, pendingActiveEditor]);
+      await oldCompletion;
+    });
+    vi.useRealTimers();
+  });
+
+  it('rebuilds a pending warning from authoritative connection facts when a draft is restored', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-draft');
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([ownerMember, pendingPreparedEditor]);
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-draft', name: 'Existing draft', status: 'draft', version: 1,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-new' }],
+      updatedAt: '2026-08-24T00:00:00Z',
+    });
+
+    renderWizard();
+
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
+    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+  });
+
+  it('returns a restored ready draft to mapping when its saved Agent is no longer executable', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-ready', name: 'Existing ready draft', status: 'ready', version: 3,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [
+        { roleSlotId: 'writer', roleSlotName: 'Writer', agentId: 'agent-missing' },
+        { roleSlotId: 'reviewer', roleSlotName: 'Reviewer', agentId: 'agent-editor' },
+      ],
+      updatedAt: '2026-08-24T00:00:00Z',
+    });
+
+    renderWizard();
+
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-editor');
+    expect(screen.queryByRole('button', { name: 'Start run' })).not.toBeInTheDocument();
+  });
+
+  it('tracks and refreshes an unconnected existing Agent selected directly from a Role Slot', async () => {
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, pendingActiveEditor, preparedEditor])
+      .mockResolvedValueOnce([ownerMember, connectedActiveEditor, preparedEditor]);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-new' } });
+    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: '3. Review and start' })).toBeVisible();
+    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(screen.queryByText(
+      'Editor Bot is mapped but has not connected to this Space yet.',
+    )).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('ignores an older pending refresh after a newer preparation maps another Agent', async () => {
+    let resolveOldRefresh!: (members: SpaceMemberSummary[]) => void;
+    const oldRefresh = new Promise<SpaceMemberSummary[]>((resolve) => { resolveOldRefresh = resolve; });
+    const connectedReviewer = {
+      ...connectedPreparedEditor,
+      agentId: 'agent-reviewer',
+      agent: { ...connectedPreparedEditor.agent, id: 'agent-reviewer', name: 'Connected Reviewer' },
+    };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockReturnValueOnce(oldRefresh)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor, connectedReviewer]);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
+    await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
+
+    act(() => { vi.advanceTimersByTime(3_000); });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
+    await completeMockedPreparation({
+      agentId: 'agent-reviewer', agentName: 'Connected Reviewer', connection: 'connected',
+    });
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-reviewer');
+
+    await act(async () => {
+      resolveOldRefresh([ownerMember, activeEditor, pendingPreparedEditor]);
+      await oldRefresh;
+    });
+
+    expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
+    expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-reviewer');
+    vi.useRealTimers();
   });
 
   it('keeps pending truth until the final binding for that Agent is removed', async () => {
@@ -793,6 +1191,41 @@ describe('RunStartWizard', () => {
     expect(collaborationApi.getRun).toHaveBeenCalledWith('space-1', 'run-1');
   });
 
+  it('does not write a stale binding when a retry refresh overlaps Agent removal', async () => {
+    let resolveLatest!: (run: Awaited<ReturnType<typeof collaborationApi.getRun>>) => void;
+    const latestRun = new Promise<Awaited<ReturnType<typeof collaborationApi.getRun>>>((resolve) => {
+      resolveLatest = resolve;
+    });
+    const staleDraft = {
+      id: 'run-1', name: 'Release 1', status: 'draft' as const, version: 5,
+      inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
+      updatedAt: '2026-08-24T00:01:00Z',
+    };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.updateRunDraft)
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } });
+    vi.mocked(collaborationApi.getRun).mockReturnValue(latestRun);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preserved changes' }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await act(async () => { resolveLatest(staleDraft); await latestRun; });
+
+    expect(collaborationApi.updateRunDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    expect(screen.getByText('Map every required role to an executable Agent.')).toBeVisible();
+    vi.useRealTimers();
+  });
+
   it('preserves a pending warning while rebasing the same local mapping after a conflict', async () => {
     vi.mocked(collaborationApi.listMembers)
       .mockResolvedValueOnce([ownerMember, activeEditor])
@@ -892,6 +1325,15 @@ describe('RunStartWizard', () => {
 
   it('requires self-review confirmation when a conflict refresh introduces repeated Agent bindings', async () => {
     localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([
+      ownerMember,
+      activeEditor,
+      {
+        ...activeEditor,
+        agentId: 'agent-second',
+        agent: { ...activeEditor.agent, id: 'agent-second', name: 'Second Editor' },
+      },
+    ]);
     const initialRun = {
       id: 'run-ready', name: 'Ready release', status: 'ready' as const, version: 3,
       inputs: { brief: 'Ship it' },
@@ -977,6 +1419,77 @@ describe('RunStartWizard', () => {
       .toBeLessThan(vi.mocked(collaborationApi.validateRunDraft).mock.invocationCallOrder[0]);
     expect(vi.mocked(collaborationApi.validateRunDraft).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(collaborationApi.startRun).mock.invocationCallOrder[1]);
+  });
+
+  it('rebases a start-conflict draft when Agent removal overlaps its full update', async () => {
+    let resolveRetryUpdate!: (run: Awaited<ReturnType<typeof collaborationApi.updateRunDraft>>) => void;
+    const retryUpdate = new Promise<Awaited<ReturnType<typeof collaborationApi.updateRunDraft>>>((resolve) => {
+      resolveRetryUpdate = resolve;
+    });
+    const mappedDraft = {
+      id: 'run-1', name: 'Release 1', status: 'draft' as const, version: 2, inputs: { brief: 'Ship it' },
+      roleBindings: [{ roleSlotId: 'writer', agentId: 'agent-new' }, { roleSlotId: 'reviewer', agentId: 'agent-editor' }],
+      updatedAt: '2026-08-24T00:00:00Z',
+    };
+    const ready = { ...mappedDraft, status: 'ready' as const, version: 3 };
+    const latestDraft = { ...mappedDraft, version: 4, updatedAt: '2026-08-24T00:01:00Z' };
+    const retriedUpdate = { ...latestDraft, version: 5 };
+    vi.mocked(collaborationApi.listMembers)
+      .mockResolvedValueOnce([ownerMember, activeEditor, pendingPreparedEditor])
+      .mockResolvedValueOnce([ownerMember, activeEditor]);
+    vi.mocked(collaborationApi.updateRunDraft)
+      .mockResolvedValueOnce(mappedDraft)
+      .mockReturnValueOnce(retryUpdate)
+      .mockResolvedValueOnce({
+        ...mappedDraft,
+        version: 6,
+        roleBindings: [
+          { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+          { roleSlotId: 'writer', agentId: 'agent-editor' },
+        ],
+      });
+    vi.mocked(collaborationApi.validateRunDraft)
+      .mockResolvedValueOnce(ready)
+      .mockResolvedValueOnce({
+        ...ready,
+        version: 7,
+        roleBindings: [
+          { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+          { roleSlotId: 'writer', agentId: 'agent-editor' },
+        ],
+      });
+    vi.mocked(collaborationApi.startRun)
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'COLLABORATION_RUN_VERSION_CONFLICT' } } });
+    vi.mocked(collaborationApi.getRun).mockResolvedValue(latestDraft);
+    renderWizard();
+    await advanceToMapping();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
+    fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preserved changes' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    await act(async () => { resolveRetryUpdate(retriedUpdate); await retryUpdate; });
+
+    expect(collaborationApi.validateRunDraft).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: '2. Map Agents' })).toBeVisible();
+    expect(screen.getByLabelText('Writer')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(collaborationApi.updateRunDraft).toHaveBeenLastCalledWith('space-1', 'run-1', {
+      expectedVersion: 5,
+      roleBindings: [
+        { roleSlotId: 'reviewer', agentId: 'agent-editor' },
+        { roleSlotId: 'writer', agentId: 'agent-editor' },
+      ],
+    });
+    vi.useRealTimers();
   });
 
   it('clears submitting when preserved input retry fails local required validation', async () => {
