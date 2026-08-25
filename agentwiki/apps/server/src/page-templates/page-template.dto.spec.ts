@@ -7,6 +7,7 @@ import {
   CreatePageTemplateDto,
   CreatePageTemplateVersionDto,
   PageTemplateListQueryDto,
+  PageTemplateLocaleQueryDto,
   PageTemplateStateDto,
   UpdatePageTemplateDto,
 } from './page-template.dto';
@@ -41,6 +42,23 @@ async function errors<T extends object>(type: new () => T, input: object) {
 }
 
 describe('page template DTO validation', () => {
+  it.each(['zh-CN', 'en'] as const)(
+    'accepts the supported detail locale %s under the production ValidationPipe',
+    async (locale) => {
+      await expect(transformQuery(PageTemplateLocaleQueryDto, { locale }))
+        .resolves.toEqual({ locale });
+    },
+  );
+
+  it.each([
+    ['a missing locale', {}],
+    ['an unsupported locale', { locale: 'fr' }],
+    ['an extra field', { locale: 'en', extra: 'unexpected' }],
+  ])('rejects %s for detail queries under the production ValidationPipe', async (_case, input) => {
+    await expect(transformQuery(PageTemplateLocaleQueryDto, input))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
   it('requires a supported list locale', async () => {
     await expect(errors(PageTemplateListQueryDto, {})).resolves.not.toHaveLength(0);
     await expect(errors(PageTemplateListQueryDto, { locale: 'fr' })).resolves.not.toHaveLength(0);

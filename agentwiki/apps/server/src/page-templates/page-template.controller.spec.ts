@@ -1,5 +1,33 @@
+import { RequestMethod } from '@nestjs/common';
+import {
+  GUARDS_METADATA,
+  METHOD_METADATA,
+  PATH_METADATA,
+  ROUTE_ARGS_METADATA,
+} from '@nestjs/common/constants';
+import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { PageTemplateCategory } from '@prisma/client';
+import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
+import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { PageTemplateController } from './page-template.controller';
+
+type RouteArgument = {
+  type: RouteParamtypes;
+  index: number;
+  data?: string;
+};
+
+function expectRouteArguments(methodName: string, expected: RouteArgument[]) {
+  const metadata = Reflect.getMetadata(
+    ROUTE_ARGS_METADATA,
+    PageTemplateController,
+    methodName,
+  );
+  expect(metadata).toEqual(Object.fromEntries(expected.map(({ type, index, data }) => [
+    `${type}:${index}`,
+    expect.objectContaining({ index, data }),
+  ])));
+}
 
 describe('PageTemplateController', () => {
   const service = {
@@ -16,6 +44,62 @@ describe('PageTemplateController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('declares the exact base path and ordered human-only guards', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, PageTemplateController))
+      .toBe('spaces/:spaceId/page-templates');
+    expect(Reflect.getMetadata(GUARDS_METADATA, PageTemplateController))
+      .toEqual([CombinedAuthGuard, HumanOnlyGuard]);
+  });
+
+  it('declares the exact path and HTTP verb for all seven routes', () => {
+    const routes = [
+      ['list', '/', RequestMethod.GET],
+      ['get', ':templateId', RequestMethod.GET],
+      ['create', '/', RequestMethod.POST],
+      ['update', ':templateId', RequestMethod.PATCH],
+      ['createVersion', ':templateId/versions', RequestMethod.POST],
+      ['archive', ':templateId', RequestMethod.DELETE],
+      ['restore', ':templateId/restore', RequestMethod.POST],
+    ] as const;
+
+    for (const [methodName, path, verb] of routes) {
+      const method = PageTemplateController.prototype[methodName];
+      expect(Reflect.getMetadata(PATH_METADATA, method)).toBe(path);
+      expect(Reflect.getMetadata(METHOD_METADATA, method)).toBe(verb);
+    }
+  });
+
+  it('binds request, path, query, and body decorators to the exact parameters', () => {
+    const request = { type: RouteParamtypes.REQUEST, index: 0 };
+    const spaceId = { type: RouteParamtypes.PARAM, index: 1, data: 'spaceId' };
+    const templateId = { type: RouteParamtypes.PARAM, index: 2, data: 'templateId' };
+
+    expectRouteArguments('list', [
+      request,
+      spaceId,
+      { type: RouteParamtypes.QUERY, index: 2 },
+    ]);
+    expectRouteArguments('get', [
+      request,
+      spaceId,
+      templateId,
+      { type: RouteParamtypes.QUERY, index: 3 },
+    ]);
+    expectRouteArguments('create', [
+      request,
+      spaceId,
+      { type: RouteParamtypes.BODY, index: 2 },
+    ]);
+    for (const methodName of ['update', 'createVersion', 'archive', 'restore']) {
+      expectRouteArguments(methodName, [
+        request,
+        spaceId,
+        templateId,
+        { type: RouteParamtypes.BODY, index: 3 },
+      ]);
+    }
   });
 
   it('passes locale and filters to the list service', async () => {
