@@ -457,7 +457,9 @@ describe('PageTemplateService', () => {
   it('maps a concurrent create name constraint P2002 to a stable conflict', async () => {
     pageTemplate.findUnique.mockResolvedValue(null);
     pageTemplate.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
-      'Unique constraint failed', { code: 'P2002', clientVersion: 'test' },
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test', meta: { target: ['spaceId', 'nameKey'] },
+      },
     ));
 
     await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
@@ -504,7 +506,10 @@ describe('PageTemplateService', () => {
   it('maps a concurrent metadata name constraint P2002 to a stable conflict', async () => {
     pageTemplate.findFirst.mockResolvedValueOnce(spaceTemplate()).mockResolvedValueOnce(null);
     pageTemplate.updateMany.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
-      'Unique constraint failed', { code: 'P2002', clientVersion: 'test' },
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test',
+        meta: { target: 'PageTemplate_spaceId_nameKey_key' },
+      },
     ));
 
     await expect(service.updateMetadata('space-1', 'template-1', {
@@ -544,6 +549,26 @@ describe('PageTemplateService', () => {
     await expect(service.createVersion('space-1', 'template-1', {
       sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
     }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
+  it.each([
+    ['the same hash', '# Same', templateContentHash('# Same')],
+    ['a different hash', '# New', templateContentHash('# Old')],
+  ])('rejects archived templates before source/hash work for %s', async (_case, content, previousHash) => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({
+      currentVersion: 3,
+      archivedAt: new Date('2026-08-25T12:00:00.000Z'),
+    }));
+    page.findFirst.mockResolvedValue(markdownPage({ content }));
+    pageTemplateVersion.findUnique.mockResolvedValue({ version: 3, contentHash: previousHash });
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_ARCHIVED' });
+    expect(page.findFirst).not.toHaveBeenCalled();
+    expect(pageTemplateVersion.findUnique).not.toHaveBeenCalled();
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });
 
   it('creates version N+1 and advances the pointer only from expected N', async () => {
@@ -680,4 +705,262 @@ describe('PageTemplateService', () => {
     expect(pageTemplate.create).not.toHaveBeenCalled();
     expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      'Prisma P2034',
+      new Prisma.PrismaClientKnownRequestError(
+        'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+      ),
+    ],
+    [
+      'Prisma P2010 SQLSTATE 40001',
+      new Prisma.PrismaClientKnownRequestError(
+        'Raw query failed', { code: 'P2010', clientVersion: 'test', meta: { code: '40001' } },
+      ),
+    ],
+    [
+      'Prisma P2010 serialization failure metadata',
+      new Prisma.PrismaClientKnownRequestError(
+        'Raw query failed', {
+          code: 'P2010', clientVersion: 'test',
+          meta: { message: 'ERROR: serialization failure while committing transaction' },
+        },
+      ),
+    ],
+  ])('retries the complete mutation after %s', async (_case, retryable) => {
+    const current = spaceTemplate();
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue({ ...current, archivedAt: new Date() });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1',
+    });
+    prisma.$transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) => {
+      await callback(prisma);
+      throw retryable;
+    });
+
+    await service.archive(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.findFirst).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('maps exhausted transaction retries to a stable version conflict and reauthorizes each time', async () => {
+    const retryable = new Prisma.PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+    );
+    const current = spaceTemplate();
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue({ ...current, archivedAt: new Date() });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1',
+    });
+    prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => {
+      await callback(prisma);
+      throw retryable;
+    });
+
+    await expect(service.archive(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(3);
+    expect(pageTemplate.updateMany).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ['an ordinary error', new Error('database unavailable')],
+    ['a non-Prisma P2034-shaped object', { code: 'P2034', message: 'not a Prisma error' }],
+  ])('does not retry %s', async (_case, failure) => {
+    const current = spaceTemplate();
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue({ ...current, archivedAt: new Date() });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1',
+    });
+    prisma.$transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) => {
+      await callback(prisma);
+      throw failure;
+    });
+
+    await expect(service.archive(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )).rejects.toBe(failure);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('reruns create quota after a retryable conflict', async () => {
+    const retryable = new Prisma.PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+    );
+    pageTemplate.count.mockResolvedValueOnce(0).mockResolvedValueOnce(100);
+    pageTemplate.findUnique.mockResolvedValue(null);
+    pageTemplate.create.mockRejectedValueOnce(retryable);
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_QUOTA_EXCEEDED' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.count).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.findUnique).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('reruns restore quota reads after a retryable commit conflict', async () => {
+    const retryable = new Prisma.PrismaClientKnownRequestError(
+      'Transaction failed due to a write conflict', { code: 'P2034', clientVersion: 'test' },
+    );
+    const archived = spaceTemplate({ archivedAt: new Date('2026-08-25T12:00:00.000Z') });
+    pageTemplate.findFirst.mockResolvedValue(archived);
+    pageTemplate.findUnique.mockResolvedValue({ ...archived, archivedAt: null });
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1',
+    });
+    pageTemplate.count.mockResolvedValueOnce(0).mockResolvedValueOnce(100);
+    prisma.$transaction.mockImplementationOnce(async (callback: (tx: unknown) => unknown) => {
+      await callback(prisma);
+      throw retryable;
+    });
+
+    await expect(service.restore(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_QUOTA_EXCEEDED' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.count).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a stable-key P2002 and allocates -2 for a different colliding nameKey', async () => {
+    const stableKeyConflict = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test',
+        meta: { target: 'PageTemplate_scopeKey_stableKey_key' },
+      },
+    );
+    const created = spaceTemplate({
+      currentVersion: 1,
+      stableKey: 'team-weekly-2',
+      nameI18n: { en: 'Team---Weekly' },
+      updatedAt: new Date(templateTimestamp),
+    });
+    let nameLookups = 0;
+    let baseStableKeyLookups = 0;
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.spaceId_nameKey) {
+        nameLookups += 1;
+        return null;
+      }
+      if (where.scopeKey_stableKey) {
+        if (where.scopeKey_stableKey.stableKey === 'team-weekly') {
+          baseStableKeyLookups += 1;
+          return baseStableKeyLookups === 1 ? null : { id: 'occupied-stable-key' };
+        }
+        return null;
+      }
+      if (where.id === 'template-1') return created;
+      return null;
+    });
+    pageTemplate.create
+      .mockRejectedValueOnce(stableKeyConflict)
+      .mockResolvedValueOnce(created);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 1,
+      contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
+    });
+
+    await service.createSpaceTemplate('space-1', {
+      ...validCreateBody,
+      name: 'Team---Weekly',
+    }, principal);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(nameLookups).toBe(2);
+    expect(pageTemplate.create).toHaveBeenCalledTimes(2);
+    expect(pageTemplate.create).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ nameKey: 'team---weekly', stableKey: 'team-weekly-2' }),
+    }));
+  });
+
+  it('maps exhausted stable-key P2002 retries to a version conflict', async () => {
+    const stableKeyConflict = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test',
+        meta: { target: ['scopeKey', 'stableKey'] },
+      },
+    );
+    pageTemplate.findUnique.mockResolvedValue(null);
+    pageTemplate.create.mockRejectedValue(stableKeyConflict);
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(3);
+    expect(pageTemplate.create).toHaveBeenCalledTimes(3);
+  });
+
+  it('maps template-version P2002 to a version conflict', async () => {
+    const versionConflict = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test',
+        meta: { constraint: 'PageTemplateVersion_templateId_version_key' },
+      },
+    );
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ currentVersion: 3 }));
+    pageTemplateVersion.findUnique.mockResolvedValue({ version: 3, contentHash: 'old' });
+    page.findFirst.mockResolvedValue(markdownPage({ content: '# New' }));
+    pageTemplateVersion.create.mockRejectedValue(versionConflict);
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rethrows an unknown P2002 target without reclassification or retry', async () => {
+    const unknownConflict = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', {
+        code: 'P2002', clientVersion: 'test', meta: { target: ['otherField'] },
+      },
+    );
+    pageTemplate.findUnique.mockResolvedValue(null);
+    pageTemplate.create.mockRejectedValue(unknownConflict);
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toBe(unknownConflict);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['name', 'defaultTitle'] as const)(
+    'rejects whitespace-only create %s after normalization', async (field) => {
+      await expect(service.createSpaceTemplate('space-1', {
+        ...validCreateBody,
+        [field]: ' \t\n ',
+      }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+      expect(page.findFirst).not.toHaveBeenCalled();
+      expect(pageTemplate.create).not.toHaveBeenCalled();
+      expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['name', 'defaultTitle'] as const)(
+    'rejects whitespace-only metadata %s after normalization', async (field) => {
+      pageTemplate.findFirst.mockResolvedValue(spaceTemplate());
+
+      await expect(service.updateMetadata('space-1', 'template-1', {
+        name: 'Weekly', category: 'reporting', defaultTitle: 'Weekly',
+        expectedUpdatedAt: templateTimestamp, [field]: ' \t\n ',
+      }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+      expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+    },
+  );
 });

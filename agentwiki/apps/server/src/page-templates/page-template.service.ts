@@ -23,6 +23,10 @@ import {
 } from './page-template.types';
 
 const SEED_TRANSACTION_MAX_ATTEMPTS = 3;
+const SPACE_MUTATION_MAX_ATTEMPTS = 3;
+const PAGE_TEMPLATE_NAME_CONSTRAINT = 'PageTemplate_spaceId_nameKey_key';
+const PAGE_TEMPLATE_STABLE_KEY_CONSTRAINT = 'PageTemplate_scopeKey_stableKey_key';
+const PAGE_TEMPLATE_VERSION_CONSTRAINT = 'PageTemplateVersion_templateId_version_key';
 
 function isRetryableSeedTransactionError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -34,6 +38,46 @@ function isRetryableSeedTransactionError(error: unknown): boolean {
   if (codes.some((code) => ['P2034', 'P2002', '40001'].includes(code))) return true;
   const messages = nested.map((value) => value.message).filter((value): value is string => typeof value === 'string');
   return messages.some((message) => /\bSQLSTATE\s*[:=]?\s*40001\b|\bserialization_failure\b/iu.test(message));
+}
+
+function isRetryableSpaceMutationError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code === 'P2034') return true;
+  if (error.code !== 'P2010') return false;
+  const meta = error.meta;
+  if (meta?.code === '40001') return true;
+  return typeof meta?.message === 'string'
+    && /\bserialization(?:_| )failure\b|\bcould not serialize access\b/iu.test(meta.message);
+}
+
+type PageTemplateUniqueConflict = 'name' | 'stableKey' | 'version';
+
+function pageTemplateUniqueConflict(error: unknown): PageTemplateUniqueConflict | undefined {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+    return undefined;
+  }
+  const candidates = [error.meta?.target, error.meta?.constraint, error.meta?.constraint_name];
+  if (candidates.some((candidate) => uniqueTargetMatches(
+    candidate, ['spaceId', 'nameKey'], PAGE_TEMPLATE_NAME_CONSTRAINT,
+  ))) return 'name';
+  if (candidates.some((candidate) => uniqueTargetMatches(
+    candidate, ['scopeKey', 'stableKey'], PAGE_TEMPLATE_STABLE_KEY_CONSTRAINT,
+  ))) return 'stableKey';
+  if (candidates.some((candidate) => uniqueTargetMatches(
+    candidate, ['templateId', 'version'], PAGE_TEMPLATE_VERSION_CONSTRAINT,
+  ))) return 'version';
+  return undefined;
+}
+
+function uniqueTargetMatches(
+  candidate: unknown,
+  fields: string[],
+  constraint: string,
+): boolean {
+  if (candidate === constraint) return true;
+  return Array.isArray(candidate)
+    && candidate.length === fields.length
+    && candidate.every((field) => typeof field === 'string' && fields.includes(field));
 }
 
 @Injectable()
@@ -214,8 +258,9 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
+      const { name, defaultTitle } = this.normalizedMetadata(body);
       const activeCount = await tx.pageTemplate.count({
         where: { spaceId, scope: 'space', archivedAt: null },
       });
@@ -223,7 +268,6 @@ export class PageTemplateService implements OnModuleInit {
       const source = await this.sourceMarkdown(
         tx, spaceId, body.sourcePageId, body.expectedSourceUpdatedAt,
       );
-      const name = body.name.trim().replace(/\s+/gu, ' ');
       const nameKey = normalizeTemplateName(name);
       const existing = await tx.pageTemplate.findUnique({
         where: { spaceId_nameKey: { spaceId, nameKey } },
@@ -235,7 +279,7 @@ export class PageTemplateService implements OnModuleInit {
         scope: 'space', scopeKey: spaceId, spaceId, stableKey,
         category: body.category, nameI18n: localized(name), nameKey,
         descriptionI18n: localized(body.description?.trim() ?? ''),
-        defaultTitleI18n: localized(body.defaultTitle.trim()),
+        defaultTitleI18n: localized(defaultTitle),
         sourceLocale: body.locale, currentVersion: 1,
         createdById: principal.userId, updatedById: principal.userId,
       } });
@@ -246,8 +290,7 @@ export class PageTemplateService implements OnModuleInit {
         sourcePageId: source.id, createdById: principal.userId,
       } });
       return this.getManagedRecord(tx, created.id, body.locale);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-      .catch((error) => this.rethrowNameConflict(error));
+    }, { retryStableKeyConflict: true });
   }
 
   async updateMetadata(
@@ -256,10 +299,10 @@ export class PageTemplateService implements OnModuleInit {
     body: UpdatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
-      const name = body.name.trim().replace(/\s+/gu, ' ');
+      const { name, defaultTitle } = this.normalizedMetadata(body);
       const nameKey = normalizeTemplateName(name);
       const duplicate = await tx.pageTemplate.findFirst({
         where: { spaceId, nameKey, id: { not: templateId } },
@@ -275,14 +318,13 @@ export class PageTemplateService implements OnModuleInit {
         data: {
           nameI18n: { [locale]: name }, nameKey,
           descriptionI18n: { [locale]: body.description?.trim() ?? '' },
-          defaultTitleI18n: { [locale]: body.defaultTitle.trim() },
+          defaultTitleI18n: { [locale]: defaultTitle },
           category: body.category, updatedById: principal.userId,
         },
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       return this.getManagedRecord(tx, templateId, locale);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-      .catch((error) => this.rethrowNameConflict(error));
+    });
   }
 
   async createVersion(
@@ -291,9 +333,10 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateVersionDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+      if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
       if (current.currentVersion !== body.expectedCurrentVersion) {
         throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       }
@@ -329,7 +372,7 @@ export class PageTemplateService implements OnModuleInit {
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       return this.getManagedRecord(tx, templateId, locale);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async archive(
@@ -338,7 +381,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
@@ -351,7 +394,7 @@ export class PageTemplateService implements OnModuleInit {
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       return this.getManagedRecord(tx, templateId, locale);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   async restore(
@@ -360,7 +403,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return this.runSpaceMutation(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (!current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
@@ -378,7 +421,39 @@ export class PageTemplateService implements OnModuleInit {
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       return this.getManagedRecord(tx, templateId, locale);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
+  }
+
+  private async runSpaceMutation<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+    options: { retryStableKeyConflict?: boolean } = {},
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= SPACE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        const uniqueConflict = pageTemplateUniqueConflict(error);
+        if (uniqueConflict === 'name') {
+          throw new BusinessException('PAGE_TEMPLATE_NAME_CONFLICT');
+        }
+        if (uniqueConflict === 'version') {
+          throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+        }
+        if (uniqueConflict === 'stableKey' && options.retryStableKeyConflict) {
+          if (attempt === SPACE_MUTATION_MAX_ATTEMPTS) {
+            throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+          }
+          continue;
+        }
+        if (!isRetryableSpaceMutationError(error)) throw error;
+        if (attempt === SPACE_MUTATION_MAX_ATTEMPTS) {
+          throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+        }
+      }
+    }
+    throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
   }
 
   private async assertCanManage(
@@ -396,6 +471,13 @@ export class PageTemplateService implements OnModuleInit {
       }
       throw error;
     }
+  }
+
+  private normalizedMetadata(input: { name: string; defaultTitle: string }) {
+    const name = input.name.trim().replace(/\s+/gu, ' ');
+    const defaultTitle = input.defaultTitle.trim();
+    if (!name || !defaultTitle) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    return { name, defaultTitle };
   }
 
   private async sourceMarkdown(
@@ -485,13 +567,6 @@ export class PageTemplateService implements OnModuleInit {
     } catch (error) {
       this.rethrowInvalidTemplateJson(error);
     }
-  }
-
-  private rethrowNameConflict(error: unknown): never {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw new BusinessException('PAGE_TEMPLATE_NAME_CONFLICT');
-    }
-    throw error;
   }
 
   private rethrowInvalidTemplateJson(error: unknown): never {
