@@ -101,14 +101,21 @@ describe('PageTemplateManager', () => {
     });
     renderManager();
 
-    fireEvent.click(await screen.findByRole('button', { name: `编辑 ${longName}` }));
+    const editAction = await screen.findByRole('button', { name: `编辑 ${longName}` });
+    expect(editAction).toHaveClass('max-w-full', 'break-all', '[overflow-wrap:anywhere]');
+    expect(screen.getByRole('button', { name: `从页面更新内容 ${longName}` }))
+      .toHaveClass('max-w-full', 'break-all', '[overflow-wrap:anywhere]');
+    expect(screen.getByRole('button', { name: `归档 ${longName}` }))
+      .toHaveClass('max-w-full', 'break-all', '[overflow-wrap:anywhere]');
+
+    fireEvent.click(editAction);
     expect(screen.getByRole('heading', { name: `编辑 ${longName}` }))
-      .toHaveClass('min-w-0', 'break-words', '[overflow-wrap:anywhere]');
+      .toHaveClass('min-w-0', 'break-all', '[overflow-wrap:anywhere]');
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByRole('button', { name: `从页面更新内容 ${longName}` }));
     expect(screen.getByRole('heading', { name: `从页面更新内容 ${longName}` }))
-      .toHaveClass('min-w-0', 'break-words', '[overflow-wrap:anywhere]');
+      .toHaveClass('min-w-0', 'break-all', '[overflow-wrap:anywhere]');
   });
 
   it('creates a new content version from an exact persisted source page', async () => {

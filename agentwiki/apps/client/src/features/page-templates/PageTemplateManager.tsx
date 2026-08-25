@@ -284,28 +284,28 @@ export const PageTemplateManager: React.FC = () => {
     <article key={template.id} className="rounded-[14px] border bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 break-words">
-          <h3 className="break-words font-medium">{template.name}</h3>
+          <h3 className="break-all font-medium [overflow-wrap:anywhere]">{template.name}</h3>
           <p className="mt-1 break-words text-sm text-gray-500">{template.description}</p>
           <p className="mt-2 text-xs text-gray-400">
             {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
           </p>
         </div>
         {mutable && visibleTemplates.capabilities.canManage ? (
-          <div className="min-w-0 flex flex-wrap gap-2">
+          <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
             {!template.archivedAt ? (
               <>
-                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => openMetadata(template)}>
+                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => openMetadata(template)}>
                   {t('common.edit')} {template.name}
                 </button>
-                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => openVersion(template)}>
+                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => openVersion(template)}>
                   {t('pageTemplate.updateFromPage')} {template.name}
                 </button>
-                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm text-red-600 break-words" onClick={() => void changeArchiveState(template, false)}>
+                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
                 </button>
               </>
             ) : (
-              <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => void changeArchiveState(template, true)}>
+              <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, true)}>
                 {t('pageTemplate.restore')} {template.name}
               </button>
             )}
@@ -395,7 +395,7 @@ export const PageTemplateManager: React.FC = () => {
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'metadata' ? (
         <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
-            <h2 id="metadata-dialog-title" className="min-w-0 break-words text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
+            <h2 id="metadata-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitMetadata}>
@@ -429,7 +429,7 @@ export const PageTemplateManager: React.FC = () => {
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
         <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
-            <h2 id="version-dialog-title" className="min-w-0 break-words text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
+            <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitVersion}>
