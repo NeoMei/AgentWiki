@@ -395,7 +395,7 @@ model Page {
   incomingRelations           KnowledgeRelation[]   @relation("RelationTargetPage")
   searchDocument              PageSearchDocument?
   assistTasks                 AssistTask[]
-  sourceTemplateVersionRecord PageTemplateVersion?  @relation("PageSourceTemplateVersion", fields: [sourceTemplateId, sourceTemplateVersion], references: [templateId, version], onDelete: Restrict)
+  sourceTemplateVersionRecord PageTemplateVersion?  @relation("PageSourceTemplateVersion", fields: [sourceTemplateId, sourceTemplateVersion], references: [templateId, version], onDelete: Restrict, onUpdate: Restrict)
   templateVersionsSourced     PageTemplateVersion[] @relation("PageTemplateVersionSourcePage")
 
   @@unique([spaceId, slug])
