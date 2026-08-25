@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [page-template-library](active/page-template-library/brief.md)：单页系统模板与 Space 自定义模板设计、实施计划已完成，等待选择执行方式。
+- [page-template-library](active/page-template-library/brief.md)：单页系统模板与 Space 自定义模板已完成本地实施、最终审查修复和聚焦验收；等待独立发布授权。
 
 ## 最近完成
 

@@ -9,6 +9,7 @@ import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { PageTemplateCategory } from '@prisma/client';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
+import { BusinessException } from '../core/filters/business-error';
 import { PageTemplateController } from './page-template.controller';
 
 type RouteArgument = {
@@ -114,6 +115,13 @@ describe('PageTemplateController', () => {
     await controller.get(request, 'space-1', 'template-1', { locale: 'en' });
 
     expect(service.get).toHaveBeenCalledWith('space-1', 'template-1', 'en', request.user);
+  });
+
+  it('preserves the Viewer detail denial as HTTP 403', async () => {
+    service.get.mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'));
+
+    await expect(controller.get(request, 'space-1', 'template-1', { locale: 'en' }))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED', statusCode: 403 });
   });
 
   it('delegates every mutation with the request principal', async () => {

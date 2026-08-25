@@ -8,9 +8,30 @@ Date: 2026-08-26 (Asia/Shanghai)
 - Reviewed range: `origin/master` at `62ba721f74660e61a3fd431dc95b7e351ca2a902` through the local candidate.
 - Final review-fix commits before this record: `1ce9b135ef5832c00bf44d470dd0778eede77d76`, `e7984e0`, and `2c5cd61` (each `fix(page-templates): address final review findings`).
 - `git diff --stat origin/master...HEAD` before this record contained 67 files, 12,433 insertions, and 145 deletions. `git diff --check` exited 0.
-- The whole range was reviewed for cross-Space access, client-trusted Markdown, Agent fallback, archived reuse, optimistic predicates, nullable provenance, list bounds, stale asynchronous work, editor dirty state, bilingual copy, and 390px layout. No unresolved Important finding remained.
+- The earlier candidate range was reviewed for cross-Space access, client-trusted Markdown, Agent fallback, archived reuse, optimistic predicates, nullable provenance, list bounds, stale asynchronous work, editor dirty state, bilingual copy, and 390px layout. A subsequent final review identified 3 Important and 6 Minor findings; this remediation addresses all nine rather than preserving the earlier “none unresolved” conclusion.
 
-The final review commits added a serialized SHA-256 lock and edge coverage for the complete bilingual system catalog, narrowed seed retries to real Prisma known-request errors, corrected Task 8 evidence wording, and added a deferred cross-Space mutation regression. The PageEditor More trigger's localized accessible name was already covered by Task 12. Independent review reported no Critical, one Important, and three Minor findings. The Important stale create-completion navigation and the actionable archived-metadata and long-name overflow Minors were reproduced and fixed through TDD. The generic mutation fallback copy remains the one deferred Minor risk described below.
+The final review commits added a serialized SHA-256 lock and edge coverage for the complete bilingual system catalog, narrowed seed retries to real Prisma known-request errors, corrected Task 8 evidence wording, and added a deferred cross-Space mutation regression. The PageEditor More trigger's localized accessible name was already covered by Task 12. Independent review reported no Critical, one Important, and three Minor findings. The Important stale create-completion navigation and the actionable archived-metadata and long-name overflow Minors were reproduced and fixed through TDD.
+
+## 2026-08-26 final-review remediation
+
+- Corrected the Human Admin contract end to end: `SpaceView` now exposes the same new-page entry already authorized by the shared editor-level `pages:write` gate, the unit role matrix requires it, and the real E2E source now includes an authenticated Admin create/manage path.
+- Kept list metadata available to Viewer but restricted the detail route containing `content` and `sourcePageId` to Owner/Admin/Editor. Server service/controller tests assert Viewer receives HTTP 403 before any template/version query, including a snapshot whose source page was soft-deleted.
+- Added a stable manager search fallback target. Metadata/version dialogs pass `fallbackFocusRef`; archive/restore explicitly restore focus after their trigger is removed. Unit assertions use `toHaveFocus`, while Playwright acceptance uses `toBeFocused()` for all four success paths.
+- Added a synchronous archive/restore ref lock plus pending disabled state, 200/201 Unicode default-title coverage, visible localized Selected state, localized System/Space labels, and action-specific bilingual unknown-error fallbacks.
+- `PageTemplateSummary` is now a scope-discriminated union (`system => sourceLocale: null`, `space => sourceLocale: locale`); catalog adapters reject malformed runtime pairs and fixtures match the wire contract.
+- The previous disposable browser result remains 7/7 evidence for the earlier candidate. The newly added Admin/focus assertions are source-level acceptance coverage until a new disposable browser stack is run; this record does not relabel them as executed evidence.
+
+Fresh focused verification for this remediation:
+
+| Command | Observed result |
+| --- | --- |
+| `node --test scripts/page-template-schema.test.mjs` | 8 passed, 0 failed |
+| focused page-template/authorization/page Jest gate | 7 suites, 196 passed, 0 failed |
+| focused page-template/Space/PageEditor Vitest gate | 10 files, 235 passed, 0 failed |
+| `playwright test e2e/page-templates.spec.ts --list` | 8 scenarios discovered, including Human Admin; discovery only, not a browser execution claim |
+| `pnpm typecheck` | exit 0 |
+| `pnpm lint` | exit 0 |
+| `git diff --check` | exit 0 |
 
 ## Focused gates
 
@@ -86,7 +107,7 @@ The production build emitted the existing non-blocking Vite warning for chunks o
 
 ## Permission and integrity observations
 
-- Catalog use: Owner and Editor can create pages; Viewer cannot. Human Admin remains outside the existing page-write role set, while platform Super Admin retains its existing bypass.
+- Catalog use: Owner, Human Admin, and Editor can create pages; Viewer cannot. Platform Super Admin retains its existing bypass, and Agent roles are not broadened.
 - Space template management: Owner/Admin capabilities are returned by the server; Editor can list/use but has no management actions; Viewer cannot create a page.
 - The server, not the client, resolves trusted Markdown by exact template ID/version/locale and rechecks Space access and archive state.
 - Space-template mutations use optimistic timestamps/current-version predicates. Cross-Space IDs and stale operations fail without updating another Space's catalog.
@@ -98,7 +119,6 @@ The production build emitted the existing non-blocking Vite warning for chunks o
 
 ## Remaining risks and release boundary
 
-- Unknown server mutation codes currently use the generic localized create-failure fallback in several manager actions. Choosing more specific product copy is deferred because it would introduce new UX wording beyond this low-risk final pass.
 - The existing Vite chunk-size warning remains a performance follow-up, not a correctness failure.
 - This is local acceptance only. No GitHub push, npm publish, production migration, or deployment was authorized or performed.
 - Live `origin/master` remained `62ba721f74660e61a3fd431dc95b7e351ca2a902`; the local branch was 32 commits ahead and 0 behind before this evidence commit.

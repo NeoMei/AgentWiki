@@ -221,7 +221,7 @@ export class PageTemplateService implements OnModuleInit {
 
   async get(spaceId: string, templateId: string, locale: PageTemplateLocale, principal: Principal) {
     await this.authorization.assertSpaceAccess(
-      principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
+      principal, spaceId, ['owner', 'admin', 'editor'], 'pages:read',
     );
     return this.prisma.$transaction(async (tx) => {
       const template = await tx.pageTemplate.findFirst({

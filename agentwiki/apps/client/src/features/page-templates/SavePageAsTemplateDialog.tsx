@@ -7,7 +7,7 @@ import type { PageTemplateCategory, PageTemplateDetail } from './pageTemplateTyp
 
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
 const TEMPLATE_NAME_LIMIT = 80;
-const TEMPLATE_DEFAULT_TITLE_LIMIT = 160;
+const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
 
 // Match validator.js isLength: surrogate pairs count as one, and a variation
 // selector is discounted only when it follows a non-selector UTF-16 code unit.

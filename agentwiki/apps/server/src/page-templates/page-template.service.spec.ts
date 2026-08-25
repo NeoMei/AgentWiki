@@ -274,6 +274,27 @@ describe('PageTemplateService', () => {
     });
   });
 
+  it('denies Viewer detail content with HTTP 403 before a soft-deleted source can be disclosed', async () => {
+    authorization.assertSpaceAccess.mockRejectedValue(new BusinessException('SPACE_ACCESS_DENIED'));
+    pageTemplate.findFirst.mockResolvedValue(spaceRecord);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'space-template', version: 2,
+      contentI18n: { 'zh-CN': '# private snapshot' },
+      sourcePageId: 'soft-deleted-page',
+    });
+
+    await expect(service.get('space-1', 'space-template', 'zh-CN', principal)).rejects.toMatchObject({
+      businessCode: 'SPACE_ACCESS_DENIED',
+      statusCode: 403,
+    });
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
+      principal, 'space-1', ['owner', 'admin', 'editor'], 'pages:read',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(pageTemplate.findFirst).not.toHaveBeenCalled();
+    expect(pageTemplateVersion.findUnique).not.toHaveBeenCalled();
+  });
+
   it('get falls back missing requested system content to English with locale en', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     pageTemplate.findFirst.mockResolvedValue(systemRecord);

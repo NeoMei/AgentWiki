@@ -18,7 +18,7 @@ Worktree: `/Users/neomei/项目/codexprojects/AgentWiki /.worktrees/page-templat
 - Page creation trims the title and sends only `title`, `spaceId`, optional `parentId`, and optional exact template provenance. It never sends `content` or `format` from the client.
 - A failed POST retains template, title, and parent state. While a POST is pending, duplicate submits, Escape, backdrop close, close, cancel, and back actions are blocked.
 - Modal teardown returns focus to the opener. The dialog uses a one-column card grid below `sm`, wrapping actions, viewport-bounded height, `w-full`, and no fixed width that can overflow a 390px viewport.
-- `SpaceView` now derives create visibility from the fetched Space's live membership plus the current authenticated user: Owner, Editor, and platform Super Admin can create; Space Admin and Viewer cannot.
+- `SpaceView` now derives create visibility from the fetched Space's live membership plus the current authenticated user: Owner, Human Admin, Editor, and platform Super Admin can create; Viewer cannot.
 - The original inline create state/handler/overlay were replaced. Tree flattening/rendering, move/reorder, deletion, existing errors, and created-page navigation remain on their prior paths; the later review fix below deliberately hardens Space fetch identity and stale-response handling.
 
 ## Data-shape preflight
@@ -44,7 +44,7 @@ exited 1 with the expected missing-module failure:
 Failed to resolve import "./NewPageDialog"
 ```
 
-Because the current package script expands to `vitest run -- <paths>`, Vitest also ran the complete client suite. The new `SpaceView` tests independently demonstrated the old behavior: Space Admin and Viewer still saw the trigger, and the old inline overlay had no two-step `下一步` action.
+Because the current package script expands to `vitest run -- <paths>`, Vitest also ran the complete client suite. The new `SpaceView` tests demonstrated the old inline overlay and Viewer trigger gap. The original Task 8 Admin expectation was later identified as inconsistent with the shared authorization layer and corrected in the final-review remediation below.
 
 ### Focus RED
 
@@ -110,6 +110,11 @@ git diff --check
 
 - None identified within Task 8 scope.
 
+## Final-review correction: Human Admin entry
+
+- The shared `pages:write` authorization treats a Human Admin as satisfying the editor-level page gate; hiding the SpaceView trigger from Admin was therefore an incorrect UI-only denial.
+- The role matrix test now requires the trigger for Owner/Admin/Editor and hides it only from Viewer; `e2e/page-templates.spec.ts` adds an authenticated Human Admin path that creates from the Space template and sees management actions.
+
 ---
 
 ## Review fix: catalog and route identity isolation
@@ -148,7 +153,7 @@ Observed RED: 2 files failed, 5 tests failed.
 - Catalog load state is tagged with `reloadKey`. Only the current generation can render loading, success, error, catalog cards, or `canManage`; the existing effect cleanup still blocks unfinished old responses.
 - Retry is deliberately not part of the form-session key. A user who entered a blank-page title and parent, returned to step 1, and retried a failed catalog keeps that input after the current generation loads.
 - `SpaceView` now tags fetch state with the requested route ID and a monotonically increasing request sequence. Route changes immediately show loading, clear the old Space/tree/action state, close the old dialog, and invalidate previous requests.
-- Membership authorization additionally requires the resolved `space.id` to equal the live route `id`. Owner/Editor/Super Admin permissions cannot be borrowed from the previous route.
+- Membership authorization additionally requires the resolved `space.id` to equal the live route `id`. Owner/Human Admin/Editor/platform Super Admin permissions cannot be borrowed from the previous route.
 - The reorder rollback still calls the same `fetchData()` path without route-resetting tree state; page flattening, move calculation, delete behavior, and created-page navigation were not changed.
 - Pending creation coverage now directly verifies that close, cancel, back, Escape, backdrop close, and duplicate submit remain locked until the POST settles.
 

@@ -209,6 +209,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             <TemplateButton
               name={t('pageTemplate.blank.name')}
               description={t('pageTemplate.blank.description')}
+              scopeLabel={t('pageTemplate.scope.system')}
+              selectedLabel={t('pageTemplate.selected')}
               selected={selected === null}
               onClick={() => choose(null)}
             />
@@ -218,6 +220,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
                 name={template.name}
                 description={template.description}
                 category={t(`pageTemplate.category.${template.category}`)}
+                scopeLabel={t(`pageTemplate.scope.${template.scope}`)}
+                selectedLabel={t('pageTemplate.selected')}
                 selected={selected?.id === template.id}
                 onClick={() => choose(template)}
               />
@@ -329,11 +333,15 @@ interface TemplateButtonProps {
   name: string;
   description: string;
   category?: string;
+  scopeLabel: string;
+  selectedLabel: string;
   selected: boolean;
   onClick: () => void;
 }
 
-const TemplateButton: React.FC<TemplateButtonProps> = ({ name, description, category, selected, onClick }) => (
+const TemplateButton: React.FC<TemplateButtonProps> = ({
+  name, description, category, scopeLabel, selectedLabel, selected, onClick,
+}) => (
   <button
     type="button"
     aria-pressed={selected}
@@ -342,7 +350,11 @@ const TemplateButton: React.FC<TemplateButtonProps> = ({ name, description, cate
       selected ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-gray-200 hover:border-blue-300'
     }`}
   >
-    <span className="block break-words text-sm font-semibold text-gray-900">{name}</span>
+    <span className="flex flex-wrap items-start justify-between gap-2">
+      <span className="min-w-0 break-words text-sm font-semibold text-gray-900">{name}</span>
+      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{scopeLabel}</span>
+    </span>
+    {selected ? <span className="mt-2 block text-xs font-medium text-blue-700">{selectedLabel}</span> : null}
     {category ? <span className="mt-1 block text-xs text-blue-700">{category}</span> : null}
     <span className="mt-2 block break-words text-sm text-gray-600">{description}</span>
   </button>

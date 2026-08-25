@@ -1,20 +1,22 @@
 export type PageTemplateLocale = 'zh-CN' | 'en';
-export type PageTemplateScope = 'system' | 'space';
 export type PageTemplateCategory = 'planning' | 'reporting' | 'knowledge' | 'other';
 
-export interface PageTemplateSummary {
+interface PageTemplateSummaryBase {
   id: string;
-  scope: PageTemplateScope;
   stableKey: string;
   category: PageTemplateCategory;
   name: string;
   description: string;
   defaultTitle: string;
-  sourceLocale: PageTemplateLocale | null;
   currentVersion: number;
   archivedAt: string | null;
   updatedAt: string;
 }
+
+export type PageTemplateSummary = PageTemplateSummaryBase & (
+  | { scope: 'system'; sourceLocale: null }
+  | { scope: 'space'; sourceLocale: PageTemplateLocale }
+);
 
 export interface PageTemplateListResponse {
   system: PageTemplateSummary[];
@@ -25,11 +27,11 @@ export interface PageTemplateListResponse {
   capabilities: { canManage: boolean };
 }
 
-export interface PageTemplateDetail extends PageTemplateSummary {
+export type PageTemplateDetail = PageTemplateSummary & {
   content: string;
   contentLocale: PageTemplateLocale;
   sourcePageId: string | null;
-}
+};
 
 export interface SavePageTemplateInput {
   name: string;

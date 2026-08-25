@@ -219,6 +219,7 @@ export const SpaceView: React.FC = () => {
   const canCreatePages = space.id === id && (
     user?.platformRole === 'super_admin'
       || currentRole === 'owner'
+      || currentRole === 'admin'
       || currentRole === 'editor'
   );
 

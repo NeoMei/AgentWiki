@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
@@ -22,7 +22,7 @@ const systemWeekly: PageTemplateSummary = {
   name: '周报',
   description: '每周进展、问题和计划',
   defaultTitle: '周报 {year}年第{week}周',
-  sourceLocale: 'zh-CN',
+  sourceLocale: null,
   currentVersion: 1,
   archivedAt: null,
   updatedAt: '2026-08-25T10:00:00.000Z',
@@ -46,6 +46,7 @@ const spaceTemplate: PageTemplateSummary = {
   name: '团队周报',
   description: '团队自定义周报',
   defaultTitle: '团队周报',
+  sourceLocale: 'zh-CN',
 };
 
 const catalog: PageTemplateListResponse = {
@@ -214,6 +215,24 @@ describe('NewPageDialog', () => {
       'href',
       '/spaces/space-1/settings/page-templates',
     );
+  });
+
+  it('shows localized selected state and scope labels on template cards as selection moves', async () => {
+    mocks.listPageTemplates.mockResolvedValue(catalog);
+    renderDialog();
+
+    const blank = screen.getByRole('button', { name: /空白页面/ });
+    const system = await screen.findByRole('button', { name: /^周报(?:\s|$)/u });
+    const space = screen.getByRole('button', { name: /团队周报/ });
+
+    expect(within(blank).getByText('已选择')).toBeVisible();
+    expect(within(blank).getByText('系统')).toBeVisible();
+    expect(within(system).getByText('系统')).toBeVisible();
+    expect(within(space).getByText('Space')).toBeVisible();
+
+    fireEvent.click(space);
+    expect(within(space).getByText('已选择')).toBeVisible();
+    expect(within(blank).queryByText('已选择')).not.toBeInTheDocument();
   });
 
   it('ignores a stale catalog response after the Space changes', async () => {

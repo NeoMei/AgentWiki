@@ -96,7 +96,7 @@ describe('SpaceView new-page flow', () => {
 
   it.each([
     ['owner', true],
-    ['admin', false],
+    ['admin', true],
     ['editor', true],
     ['viewer', false],
   ] as const)('shows the new-page trigger for %s according to live Space membership', async (role, visible) => {

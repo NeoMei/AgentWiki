@@ -14,7 +14,7 @@ Worktree: `/Users/neomei/项目/codexprojects/AgentWiki /.worktrees/page-templat
 - `PageService.create()` calls `PageTemplateService.resolveVersion()` after the existing Space lock and before sync-path allocation, inside the existing transaction.
 - The page row and initial Space revision use the same exact resolved body. Template creates force Markdown and persist resolver-returned `templateId`, `version`, and actual `locale` as immutable provenance.
 - `PAGE_PUBLIC_FIELDS` exposes all three source-template fields for create and later page reads.
-- `PageController.create()` preserves the exact human authorization call `['owner', 'editor'], 'pages:write'` and rejects Agent template fields with `PAGE_TEMPLATE_AGENT_UNSUPPORTED` before the review/ChangeSet branch.
+- `PageController.create()` preserves the editor-level human authorization call `['owner', 'editor'], 'pages:write'`; the shared authorization layer includes Human Admin in that editor-level gate while keeping Agent roles exact. Agent template fields are rejected with `PAGE_TEMPLATE_AGENT_UNSUPPORTED` before the review/ChangeSet branch.
 - Agents neither resolve templates nor copy template content into proposals.
 - `PageModule` imports `PageTemplateModule`; both PageService test modules and the direct constructor receive the resolver dependency.
 
@@ -87,7 +87,7 @@ git diff --check
 - Confirmed the exact requested version is delegated to the existing resolver; PageService does not inspect template storage or advance to a current version.
 - Confirmed resolver execution occurs under the existing Space lock and before path allocation.
 - Confirmed direct-content and blank creates retain their prior content/format behavior.
-- Confirmed human page-write roles were not expanded to Admin.
+- Confirmed page-template creation uses the existing shared page-write policy: Human Admin satisfies the editor-level gate, while Viewer and admin-shaped Agent grants do not.
 - Confirmed Agent explicit-content proposals remain supported and do not receive template provenance fields.
 - Confirmed no push, publish, or deployment action was performed.
 
@@ -161,4 +161,4 @@ git diff --check
 # exit 0, no output
 ```
 
-No human authorization role, Agent explicit-content proposal behavior, template locale adjudication, push, publish, or deployment action changed.
+No page-specific authorization override, Agent explicit-content proposal behavior, template locale adjudication, push, publish, or deployment action was introduced.

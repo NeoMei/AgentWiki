@@ -26,13 +26,13 @@ vi.mock('../../components/SpaceNav', () => ({ SpaceNav: ({ spaceId }: { spaceId?
 
 const systemTemplate: PageTemplateSummary = {
   id: 'system-tasks', scope: 'system', stableKey: 'tasks', category: 'planning',
-  name: '任务清单', description: '系统任务清单', defaultTitle: '任务清单', sourceLocale: 'zh-CN',
+  name: '任务清单', description: '系统任务清单', defaultTitle: '任务清单', sourceLocale: null,
   currentVersion: 1, archivedAt: null, updatedAt: '2026-08-25T09:00:00.000Z',
 };
 
 const spaceTemplate: PageTemplateSummary = {
   id: 'space-1-template', scope: 'space', stableKey: 'team-weekly', category: 'reporting',
-  name: '团队周报', description: '团队格式', defaultTitle: '团队周报', sourceLocale: null,
+  name: '团队周报', description: '团队格式', defaultTitle: '团队周报', sourceLocale: 'zh-CN',
   currentVersion: 7, archivedAt: null, updatedAt: '2026-08-25T10:00:00.000Z',
 };
 
@@ -197,6 +197,137 @@ describe('PageTemplateManager', () => {
     expect(await screen.findByText('任务清单')).toBeInTheDocument();
     expect(screen.getByText('团队周报')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /编辑|归档|恢复|更新内容/ })).not.toBeInTheDocument();
+  });
+
+  it('shows localized system and Space scope labels on cards', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    renderManager();
+
+    const systemArticle = (await screen.findByText('任务清单')).closest('article')!;
+    const spaceArticle = screen.getByText('团队周报').closest('article')!;
+    expect(systemArticle).toHaveTextContent('系统');
+    expect(spaceArticle).toHaveTextContent('Space');
+  });
+
+  it('restores focus to the stable search field after metadata and version triggers unmount', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.updatePageTemplate.mockResolvedValue({ ...spaceTemplate, name: '新版周报' });
+    mocks.createPageTemplateVersion.mockResolvedValue({ ...spaceTemplate, currentVersion: 8 });
+    mocks.api.get.mockResolvedValue({ data: { data: [{
+      id: 'page-source', title: '源页面', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1 } });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(screen.getByLabelText('搜索模板')).toHaveFocus());
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    fireEvent.change(await screen.findByLabelText('源页面'), { target: { value: 'page-source' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }));
+    await waitFor(() => expect(screen.getByLabelText('搜索模板')).toHaveFocus());
+  });
+
+  it('uses a synchronous lock and disables archive while a deferred request is pending', async () => {
+    let resolveArchive!: (value: PageTemplateSummary) => void;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.archivePageTemplate.mockImplementation(() => new Promise((resolve) => { resolveArchive = resolve; }));
+    renderManager();
+
+    const archive = await screen.findByRole('button', { name: /归档 团队周报/ });
+    fireEvent.click(archive);
+    fireEvent.click(archive);
+
+    expect(mocks.archivePageTemplate).toHaveBeenCalledTimes(1);
+    expect(archive).toBeDisabled();
+
+    await act(async () => resolveArchive({ ...spaceTemplate, archivedAt: '2026-08-25T13:00:00.000Z' }));
+  });
+
+  it('uses the same synchronous lock and disabled state for a deferred restore', async () => {
+    let resolveRestore!: (value: PageTemplateSummary) => void;
+    const archivedTemplate = {
+      ...spaceTemplate,
+      archivedAt: '2026-08-25T13:00:00.000Z',
+      updatedAt: '2026-08-25T13:00:00.000Z',
+    };
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockResolvedValue({ ...ownerCatalog, space: [archivedTemplate] });
+    mocks.restorePageTemplate.mockImplementation(() => new Promise((resolve) => { resolveRestore = resolve; }));
+    renderManager();
+
+    const restore = await screen.findByRole('button', { name: /恢复 团队周报/ });
+    fireEvent.click(restore);
+    fireEvent.click(restore);
+
+    expect(mocks.restorePageTemplate).toHaveBeenCalledTimes(1);
+    expect(restore).toBeDisabled();
+
+    await act(async () => resolveRestore(spaceTemplate));
+  });
+
+  it('restores focus to the stable search field after archive and restore triggers unmount', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const archivedTemplate = {
+      ...spaceTemplate,
+      archivedAt: '2026-08-25T13:00:00.000Z',
+      updatedAt: '2026-08-25T13:00:00.000Z',
+    };
+    mocks.archivePageTemplate.mockResolvedValue(archivedTemplate);
+    mocks.restorePageTemplate.mockResolvedValue(spaceTemplate);
+    mocks.listPageTemplates.mockResolvedValueOnce(ownerCatalog).mockResolvedValue({
+      ...ownerCatalog, space: [archivedTemplate],
+    });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /归档 团队周报/ }));
+    await waitFor(() => expect(screen.getByLabelText('搜索模板')).toHaveFocus());
+
+    fireEvent.click(await screen.findByRole('button', { name: /恢复 团队周报/ }));
+    await waitFor(() => expect(screen.getByLabelText('搜索模板')).toHaveFocus());
+  });
+
+  it('uses action-specific localized fallbacks for unknown mutation errors', async () => {
+    const unknown = { response: { status: 500, data: { code: 'UNKNOWN' } } };
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.updatePageTemplate.mockRejectedValueOnce(unknown);
+    mocks.createPageTemplateVersion.mockRejectedValueOnce(unknown);
+    mocks.archivePageTemplate.mockRejectedValueOnce(unknown);
+    mocks.api.get.mockResolvedValue({ data: { data: [{
+      id: 'page-source', title: '源页面', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1 } });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板信息更新失败');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /更新内容 团队周报/ }));
+    fireEvent.change(await screen.findByLabelText('源页面'), { target: { value: 'page-source' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板新版本创建失败');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /归档 团队周报/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板归档失败');
+  });
+
+  it('uses an action-specific localized fallback for an unknown restore error', async () => {
+    const archivedTemplate = {
+      ...spaceTemplate,
+      archivedAt: '2026-08-25T13:00:00.000Z',
+      updatedAt: '2026-08-25T13:00:00.000Z',
+    };
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates.mockResolvedValue({ ...ownerCatalog, space: [archivedTemplate] });
+    mocks.restorePageTemplate.mockRejectedValue({ response: { status: 500, data: { code: 'UNKNOWN' } } });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /恢复 团队周报/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板恢复失败');
   });
 
   it('keeps metadata input after failure and prevents closing or duplicate submit while pending', async () => {

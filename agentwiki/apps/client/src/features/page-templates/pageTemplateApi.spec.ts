@@ -60,6 +60,17 @@ describe('page template API adapters', () => {
     });
   });
 
+  it.each([
+    [{ ...template, scope: 'system', sourceLocale: 'en' }],
+    [{ ...template, scope: 'space', sourceLocale: null }],
+  ])('rejects malformed catalog scope/sourceLocale pairs at runtime', async (invalid) => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...catalog, system: invalid, space: [] },
+    } as never);
+
+    await expect(listPageTemplates('space-1', { locale: 'en' })).rejects.toThrow(/page template/i);
+  });
+
   it('forwards optional catalog filters and trims a non-empty query', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: catalog } as never);
 
@@ -244,7 +255,7 @@ describe('page template API adapters', () => {
     method,
     expectedPath,
   }) => {
-    vi.mocked(api[method]).mockResolvedValue({ data: template } as never);
+    vi.mocked(api[method]).mockResolvedValue({ data: method === 'get' ? catalog : template } as never);
 
     await call();
 

@@ -62,10 +62,13 @@ export const PageTemplateManager: React.FC = () => {
   const [sourcePages, setSourcePages] = useState<SourcePage[]>([]);
   const [sourcePagesLoading, setSourcePagesLoading] = useState(false);
   const [sourcePageId, setSourcePageId] = useState('');
+  const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
   const requestIdRef = useRef(0);
   const sourceRequestIdRef = useRef(0);
   const templatesRef = useRef(EMPTY_TEMPLATES);
   const spaceIdRef = useRef(id);
+  const archiveOperationRef = useRef(new Set<string>());
+  const fallbackFocusRef = useRef<HTMLInputElement>(null);
   spaceIdRef.current = id;
   const identity = `${id ?? ''}\u0000${language}\u0000${search}\u0000${category}\u0000${showArchived ? 'all' : 'active'}`;
   const identityRef = useRef(identity);
@@ -219,10 +222,11 @@ export const PageTemplateManager: React.FC = () => {
       });
       if (spaceIdRef.current !== operationSpaceId) return;
       invalidateCatalog();
+      queueMicrotask(() => fallbackFocusRef.current?.focus());
       await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
-        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.updateMetadataFailed'));
       }
     } finally {
       if (identityRef.current === operationIdentity) setSubmitting(false);
@@ -251,10 +255,11 @@ export const PageTemplateManager: React.FC = () => {
         return;
       }
       invalidateCatalog();
+      queueMicrotask(() => fallbackFocusRef.current?.focus());
       await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
-        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createVersionFailed'));
       }
     } finally {
       if (identityRef.current === operationIdentity) setSubmitting(false);
@@ -262,7 +267,12 @@ export const PageTemplateManager: React.FC = () => {
   };
 
   const changeArchiveState = async (template: PageTemplateSummary, restore: boolean) => {
-    if (!id || !visibleTemplates.capabilities.canManage || !window.confirm(`${t(restore ? 'pageTemplate.restore' : 'pageTemplate.archive')} ${template.name}?`)) return;
+    if (!id || !visibleTemplates.capabilities.canManage) return;
+    const operationKey = `${id}\u0000${template.id}`;
+    if (archiveOperationRef.current.has(operationKey)
+      || !window.confirm(`${t(restore ? 'pageTemplate.restore' : 'pageTemplate.archive')} ${template.name}?`)) return;
+    archiveOperationRef.current.add(operationKey);
+    setPendingArchiveKeys((current) => new Set(current).add(operationKey));
     const operationIdentity = identityRef.current;
     const operationSpaceId = id;
     setError(null);
@@ -271,12 +281,20 @@ export const PageTemplateManager: React.FC = () => {
       else await archivePageTemplate(id, template.id, template.updatedAt);
       if (spaceIdRef.current === operationSpaceId) {
         invalidateCatalog();
+        queueMicrotask(() => fallbackFocusRef.current?.focus());
         await latestLoadRef.current(true);
       }
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
-        setError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
+        setError(apiErrorMessage(caught, t, restore ? 'pageTemplate.restoreFailed' : 'pageTemplate.archiveFailed'));
       }
+    } finally {
+      archiveOperationRef.current.delete(operationKey);
+      setPendingArchiveKeys((current) => {
+        const next = new Set(current);
+        next.delete(operationKey);
+        return next;
+      });
     }
   };
 
@@ -287,7 +305,7 @@ export const PageTemplateManager: React.FC = () => {
           <h3 className="break-all font-medium [overflow-wrap:anywhere]">{template.name}</h3>
           <p className="mt-1 break-words text-sm text-gray-500">{template.description}</p>
           <p className="mt-2 text-xs text-gray-400">
-            {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
+            {t(`pageTemplate.scope.${template.scope}`)} · {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
           </p>
         </div>
         {mutable && visibleTemplates.capabilities.canManage ? (
@@ -300,12 +318,12 @@ export const PageTemplateManager: React.FC = () => {
                 <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => openVersion(template)}>
                   {t('pageTemplate.updateFromPage')} {template.name}
                 </button>
-                <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, false)}>
+                <button type="button" disabled={pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`)} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
                 </button>
               </>
             ) : (
-              <button type="button" className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, true)}>
+              <button type="button" disabled={pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`)} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
                 {t('pageTemplate.restore')} {template.name}
               </button>
             )}
@@ -328,6 +346,7 @@ export const PageTemplateManager: React.FC = () => {
         <label className="text-sm font-medium">
           <span className="mb-1 block">{t('pageTemplate.search')}</span>
           <input
+            ref={fallbackFocusRef}
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -393,7 +412,7 @@ export const PageTemplateManager: React.FC = () => {
       </section>
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'metadata' ? (
-        <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
+        <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <h2 id="metadata-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
@@ -427,7 +446,7 @@ export const PageTemplateManager: React.FC = () => {
       ) : null}
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
-        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
+        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>

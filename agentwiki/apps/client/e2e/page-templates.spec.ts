@@ -51,6 +51,7 @@ let spaceId = '';
 let sourcePageId = '';
 let firstCreatedPageId = '';
 let owner: AuthAccount | undefined;
+let admin: AuthAccount | undefined;
 let editor: AuthAccount | undefined;
 let viewer: AuthAccount | undefined;
 
@@ -136,6 +137,7 @@ test.describe.serial('page template library', () => {
     });
 
     owner = await register('owner', 'Template Owner');
+    admin = await register('admin', 'Template Admin');
     editor = await register('editor', 'Template Editor');
     viewer = await register('viewer', 'Template Viewer');
 
@@ -145,7 +147,7 @@ test.describe.serial('page template library', () => {
     }), 'create Space');
     spaceId = createdSpace.id;
 
-    for (const [account, role] of [[editor, 'editor'], [viewer, 'viewer']] as const) {
+    for (const [account, role] of [[admin, 'admin'], [editor, 'editor'], [viewer, 'viewer']] as const) {
       await json(await api.post(`spaces/${spaceId}/members`, {
         headers: ownerHeaders(),
         data: { email: account.user.email, role },
@@ -181,7 +183,7 @@ test.describe.serial('page template library', () => {
         await remove(`spaces/${spaceId}`, ownerHeaders());
       }
     } finally {
-      for (const account of [viewer, editor, owner]) {
+      for (const account of [viewer, editor, admin, owner]) {
         if (account?.access_token && account.user.id) {
           await remove(
             `users/${account.user.id}`,
@@ -244,6 +246,7 @@ test.describe.serial('page template library', () => {
     await page.getByLabel('源页面').selectOption(sourcePageId);
     await page.getByRole('button', { name: '创建新版本' }).click();
     await expect(article).toContainText('v2');
+    await expect(page.getByLabel('搜索模板')).toBeFocused();
 
     await page.goto(`/spaces/${spaceId}`);
     await page.getByRole('button', { name: '新建页面' }).click();
@@ -280,6 +283,7 @@ test.describe.serial('page template library', () => {
       .getByRole('button', { name: `归档 ${customTemplateName}` })
       .click();
     await expect(customTemplateArticle(page)).toHaveCount(0);
+    await expect(page.getByLabel('搜索模板')).toBeFocused();
 
     await page.getByRole('checkbox', { name: '显示已归档模板' }).check();
     const archivedArticle = customTemplateArticle(page);
@@ -287,6 +291,7 @@ test.describe.serial('page template library', () => {
     page.once('dialog', (dialog) => dialog.accept());
     await archivedArticle.getByRole('button', { name: `恢复 ${customTemplateName}` }).click();
     await expect(customTemplateArticle(page).getByRole('button', { name: `归档 ${customTemplateName}` })).toBeVisible();
+    await expect(page.getByLabel('搜索模板')).toBeFocused();
   });
 
   test('Editor can use but cannot manage; Viewer cannot create', async ({ browser }) => {
@@ -326,6 +331,34 @@ test.describe.serial('page template library', () => {
       await expect(viewerSession.page.getByRole('button', { name: 'New page', exact: true })).toHaveCount(0);
     } finally {
       await viewerSession.context.close();
+    }
+  });
+
+  test('Human Admin can create from a template and open its management actions', async ({ browser }) => {
+    const adminSession = await newAuthenticatedPage(browser, admin!, 'en');
+    try {
+      await adminSession.page.goto(`/spaces/${spaceId}`);
+      const newPage = adminSession.page.getByRole('button', { name: 'New page', exact: true });
+      await expect(newPage).toBeVisible();
+      await newPage.click();
+      await expect(adminSession.page.getByRole('link', { name: 'Manage templates' })).toBeVisible();
+      await adminSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
+      await adminSession.page.getByRole('button', { name: 'Next', exact: true }).click();
+      await adminSession.page.getByLabel('Title').fill('Admin custom-template page');
+      await adminSession.page.getByRole('button', { name: 'Create', exact: true }).click();
+      await adminSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
+      await expectRenderedHeading(adminSession.page, 'Shared section', 'en');
+
+      await adminSession.page.goto(`/spaces/${spaceId}/settings/page-templates`);
+      const adminArticle = customTemplateArticle(adminSession.page);
+      await expect(adminArticle.getByRole('button', {
+        name: new RegExp(`^Edit ${customTemplateName}$`, 'u'),
+      })).toBeVisible();
+      await expect(adminArticle.getByRole('button', {
+        name: new RegExp(`^Update content from page ${customTemplateName}$`, 'u'),
+      })).toBeVisible();
+    } finally {
+      await adminSession.context.close();
     }
   });
 
@@ -432,6 +465,7 @@ test.describe.serial('page template library', () => {
     await article.getByRole('button', { name: `Edit ${customTemplateName}` }).click();
     await page.getByLabel('Template name').fill(mobileLongTemplateName);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByLabel('Search templates')).toBeFocused();
     const longNameArticle = page.locator('article').filter({
       has: page.getByRole('heading', { name: mobileLongTemplateName, exact: true }),
     });

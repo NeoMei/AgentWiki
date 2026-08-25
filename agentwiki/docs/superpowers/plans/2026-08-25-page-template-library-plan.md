@@ -1549,7 +1549,7 @@ Add the three source fields to `PAGE_PUBLIC_FIELDS` so the created page and late
 
 - [ ] **Step 7: Reject Agent template fields before the review branch**
 
-Keep the existing human create authorization call exactly as `['owner', 'editor'], 'pages:write'`; this feature must not expand Admin page-write permission. After `assertSpaceAccess()` and before `if (user.agentId)`, add:
+Keep the existing human create authorization call exactly as `['owner', 'editor'], 'pages:write'`; the shared authorization layer already treats Human Admin as satisfying this editor-level gate, while Agent roles remain exact. Do not add a page-template-specific role override. After `assertSpaceAccess()` and before `if (user.agentId)`, add:
 
 ```ts
 if (user.agentId && (dto.templateId !== undefined || dto.templateVersion !== undefined || dto.templateLocale !== undefined)) {
@@ -1984,7 +1984,7 @@ it('returns focus to the opener and fits the keyboard flow', async () => {
 
 // SpaceView.spec.tsx
 it.each([
-  ['owner', true], ['admin', false], ['editor', true], ['viewer', false],
+  ['owner', true], ['admin', true], ['editor', true], ['viewer', false],
 ] as const)('shows the new-page trigger for %s according to live Space membership', async (role, visible) => {
   api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
     ? { data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role }] } }

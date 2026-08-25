@@ -17,8 +17,14 @@ const pageTemplateZhCN = {
   'pageTemplate.step.choose': '选择模板',
   'pageTemplate.step.details': '填写页面信息',
   'pageTemplate.selected': '已选择',
+  'pageTemplate.scope.system': '系统',
+  'pageTemplate.scope.space': 'Space',
   'pageTemplate.loadFailed': '模板加载失败，仍可创建空白页面',
   'pageTemplate.createFailed': '创建模板失败',
+  'pageTemplate.updateMetadataFailed': '模板信息更新失败',
+  'pageTemplate.createVersionFailed': '模板新版本创建失败',
+  'pageTemplate.archiveFailed': '模板归档失败',
+  'pageTemplate.restoreFailed': '模板恢复失败',
   'pageTemplate.retry': '重试',
   'pageTemplate.back': '上一步',
   'pageTemplate.next': '下一步',
@@ -71,8 +77,14 @@ const pageTemplateEn = {
   'pageTemplate.step.choose': 'Choose a template',
   'pageTemplate.step.details': 'Page details',
   'pageTemplate.selected': 'Selected',
+  'pageTemplate.scope.system': 'System',
+  'pageTemplate.scope.space': 'Space',
   'pageTemplate.loadFailed': 'Templates could not be loaded. You can still create a blank page.',
   'pageTemplate.createFailed': 'Could not create the template',
+  'pageTemplate.updateMetadataFailed': 'Could not update the template details',
+  'pageTemplate.createVersionFailed': 'Could not create a new template version',
+  'pageTemplate.archiveFailed': 'Could not archive the template',
+  'pageTemplate.restoreFailed': 'Could not restore the template',
   'pageTemplate.retry': 'Retry',
   'pageTemplate.back': 'Back',
   'pageTemplate.next': 'Next',
@@ -126,9 +138,9 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
-  it('contains exactly 51 contract keys per locale', () => {
-    expect(Object.keys(pageTemplateZhCN)).toHaveLength(51);
-    expect(Object.keys(pageTemplateEn)).toHaveLength(51);
+  it('contains exactly 57 contract keys per locale', () => {
+    expect(Object.keys(pageTemplateZhCN)).toHaveLength(57);
+    expect(Object.keys(pageTemplateEn)).toHaveLength(57);
     expect(Object.keys(pageTemplateZhCN)).toEqual(Object.keys(pageTemplateEn));
   });
 
