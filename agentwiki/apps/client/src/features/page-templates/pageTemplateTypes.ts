@@ -27,6 +27,20 @@ export interface PageTemplateListResponse {
   capabilities: { canManage: boolean };
 }
 
+export interface PageTemplateSourcePage {
+  id: string;
+  title: string;
+  format: 'markdown';
+  updatedAt: string;
+}
+
+export interface PageTemplateSourcePageListResponse {
+  data: PageTemplateSourcePage[];
+  total: number;
+  skip: number;
+  take: number;
+}
+
 export type PageTemplateDetail = PageTemplateSummary & {
   content: string;
   contentLocale: PageTemplateLocale;

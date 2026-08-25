@@ -8,6 +8,7 @@ import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
+import { PageTemplateCategory } from '@prisma/client';
 
 const mockPrisma = {
   space: {
@@ -98,6 +99,137 @@ describe('PageService', () => {
   });
 
   describe('create', () => {
+    it('rejects a template-backed create when archive commits after the template was selected', async () => {
+      const selectedAt = new Date('2026-08-26T01:00:00.000Z');
+      const state = {
+        archivedAt: null as Date | null,
+        updatedAt: selectedAt,
+      };
+      let reportArchiveWrite!: () => void;
+      let releaseArchiveWrite!: () => void;
+      let reportCreateWaiting!: () => void;
+      const archiveReachedWrite = new Promise<void>((resolve) => { reportArchiveWrite = resolve; });
+      const archiveMayCommit = new Promise<void>((resolve) => { releaseArchiveWrite = resolve; });
+      const createWaitingForLock = new Promise<void>((resolve) => { reportCreateWaiting = resolve; });
+
+      const pageTemplate = {
+        findFirst: jest.fn(async ({ include }: any) => {
+          return {
+            id: 'template-1', scope: 'space', scopeKey: 'space-1', spaceId: 'space-1',
+            stableKey: 'weekly', category: PageTemplateCategory.reporting,
+            nameI18n: { en: 'Weekly' }, descriptionI18n: { en: '' },
+            defaultTitleI18n: { en: 'Weekly' }, sourceLocale: 'en', currentVersion: 1,
+            archivedAt: state.archivedAt, updatedAt: state.updatedAt,
+            createdAt: selectedAt, createdById: 'user-1', updatedById: 'user-1',
+            versions: include ? [{ version: 1, contentI18n: { en: '# Selected' } }] : undefined,
+          };
+        }),
+        findUnique: jest.fn(async () => ({
+          id: 'template-1', scope: 'space', scopeKey: 'space-1', spaceId: 'space-1',
+          stableKey: 'weekly', category: PageTemplateCategory.reporting,
+          nameI18n: { en: 'Weekly' }, descriptionI18n: { en: '' },
+          defaultTitleI18n: { en: 'Weekly' }, sourceLocale: 'en', currentVersion: 1,
+          archivedAt: state.archivedAt, updatedAt: state.updatedAt,
+          createdAt: selectedAt, createdById: 'user-1', updatedById: 'user-1',
+        })),
+        updateMany: jest.fn(async () => {
+          if (state.archivedAt) return { count: 0 };
+          reportArchiveWrite();
+          await archiveMayCommit;
+          state.archivedAt = new Date('2026-08-26T01:01:00.000Z');
+          state.updatedAt = new Date('2026-08-26T01:01:00.000Z');
+          return { count: 1 };
+        }),
+      };
+      const pageTemplateVersion = {
+        findUnique: jest.fn().mockResolvedValue({
+          templateId: 'template-1', version: 1, contentI18n: { en: '# Selected' },
+          contentHash: 'hash', sourcePageId: null,
+        }),
+      };
+      const transactionOwners: unknown[] = [];
+      const waiters: Array<() => void> = [];
+      const sharedWriter = {
+        lockSpace: jest.fn(async (tx: unknown) => {
+          if (transactionOwners.length === 0) {
+            transactionOwners.push(tx);
+            return tx;
+          }
+          reportCreateWaiting();
+          await new Promise<void>((resolve) => waiters.push(resolve));
+          transactionOwners.push(tx);
+          return tx;
+        }),
+        advance: jest.fn().mockResolvedValue({}),
+        release(tx: unknown) {
+          const index = transactionOwners.indexOf(tx);
+          if (index >= 0) transactionOwners.splice(index, 1);
+          waiters.shift()?.();
+        },
+      };
+      const makeTx = () => ({
+        pageTemplate,
+        pageTemplateVersion,
+        user: {},
+        space: {},
+        spaceMember: {},
+        page: {
+          create: jest.fn().mockResolvedValue({
+            id: 'page-created', knowledgeKey: 'knowledge-created', title: 'Weekly',
+            content: '# Selected', sourceTemplateId: 'template-1',
+          }),
+        },
+      });
+      const concurrentPrisma = {
+        space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+        changeSet: { findUnique: jest.fn() }, evidence: { findMany: jest.fn().mockResolvedValue([]) },
+        user: { findUnique: jest.fn() }, agent: { findUnique: jest.fn() },
+        $transaction: jest.fn(async (operation: (tx: any) => Promise<unknown>) => {
+          const tx = makeTx();
+          try {
+            return await operation(tx);
+          } finally {
+            sharedWriter.release(tx);
+          }
+        }),
+      } as any;
+      const liveAuthorization = {
+        assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+      } as any;
+      const templates = new (PageTemplateService as any)(
+        concurrentPrisma,
+        liveAuthorization,
+        { get: jest.fn().mockReturnValue('api') },
+        sharedWriter,
+      ) as PageTemplateService;
+      const pages = new PageService(
+        concurrentPrisma,
+        mockSearch as any,
+        sharedWriter as any,
+        mockSyncPaths as any,
+        mockGraphMaintenance as any,
+        templates,
+        liveAuthorization,
+      );
+
+      const archive = templates.archive(
+        'space-1', 'template-1', { expectedUpdatedAt: selectedAt.toISOString() }, humanPrincipal,
+      );
+      await archiveReachedWrite;
+
+      const create = pages.create({
+        title: 'Weekly', spaceId: 'space-1', templateId: 'template-1',
+        templateVersion: 1, templateLocale: 'en',
+      } as any, humanPrincipal);
+      await createWaitingForLock;
+      releaseArchiveWrite();
+      await archive;
+
+      await expect(create).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_ARCHIVED' });
+      expect(pageTemplate.updateMany).toHaveBeenCalledTimes(1);
+      expect(sharedWriter.lockSpace).toHaveBeenCalledTimes(2);
+    });
+
     it('should create a page', async () => {
       const dto = { title: 'Test', spaceId: 'space-1' };
       mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
@@ -259,6 +391,7 @@ describe('PageService', () => {
       expect(result).toMatchObject({
         sourceTemplateId: 'template-1', sourceTemplateVersion: 2, sourceTemplateLocale: 'en',
       });
+      expect(mockTemplates.resolveVersion).toHaveBeenCalledTimes(1);
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
         mockTemplates.resolveVersion.mock.invocationCallOrder[0],
       );

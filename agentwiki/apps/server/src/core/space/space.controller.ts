@@ -58,9 +58,10 @@ export class SpaceController {
 
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertSpaceAccess(req.user as any, id, ['owner']);
+    const principal = req.user as any;
+    await this.authorization.assertSpaceAccess(principal, id, ['owner']);
     this.logger.log('Removing space: ' + id);
-    return this.spaceService.remove(id);
+    return this.spaceService.remove(id, principal);
   }
   // ---- Member management ----
 

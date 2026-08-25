@@ -8,6 +8,7 @@ import {
   CreatePageTemplateVersionDto,
   PageTemplateListQueryDto,
   PageTemplateLocaleQueryDto,
+  PageTemplateSourceListQueryDto,
   PageTemplateStateDto,
   UpdatePageTemplateDto,
 } from './page-template.dto';
@@ -68,6 +69,15 @@ describe('page template DTO validation', () => {
     const input = plainToInstance(PageTemplateListQueryDto, { locale: 'en', take: '101' });
     expect(input.take).toBe(101);
     await expect(validate(input)).resolves.not.toHaveLength(0);
+  });
+
+  it('bounds source-page pagination and applies stable defaults', async () => {
+    await expect(transformQuery(PageTemplateSourceListQueryDto, {}))
+      .resolves.toEqual({ skip: 0, take: 100 });
+    await expect(transformQuery(PageTemplateSourceListQueryDto, { skip: '2', take: '25' }))
+      .resolves.toEqual({ skip: 2, take: 25 });
+    await expect(transformQuery(PageTemplateSourceListQueryDto, { take: '101' }))
+      .rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects invalid categories', async () => {

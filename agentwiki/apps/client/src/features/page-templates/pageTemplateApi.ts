@@ -4,6 +4,7 @@ import type {
   PageTemplateDetail,
   PageTemplateListResponse,
   PageTemplateLocale,
+  PageTemplateSourcePageListResponse,
   SavePageTemplateInput,
 } from './pageTemplateTypes';
 
@@ -69,6 +70,26 @@ function parsePageTemplateListResponse(value: unknown): PageTemplateListResponse
   return value as unknown as PageTemplateListResponse;
 }
 
+function parsePageTemplateSourcePageListResponse(value: unknown): PageTemplateSourcePageListResponse {
+  if (!isRecord(value)
+    || !Array.isArray(value.data)
+    || !value.data.every((item) => isRecord(item)
+      && typeof item.id === 'string'
+      && typeof item.title === 'string'
+      && item.format === 'markdown'
+      && typeof item.updatedAt === 'string')
+    || !Number.isInteger(value.total)
+    || (value.total as number) < 0
+    || !Number.isInteger(value.skip)
+    || (value.skip as number) < 0
+    || !Number.isInteger(value.take)
+    || (value.take as number) < 1
+    || (value.take as number) > 100) {
+    throw new TypeError('Invalid page template source page response');
+  }
+  return value as unknown as PageTemplateSourcePageListResponse;
+}
+
 export async function listPageTemplates(
   spaceId: string,
   options: ListPageTemplatesOptions,
@@ -85,6 +106,19 @@ export async function listPageTemplates(
     },
   });
   return parsePageTemplateListResponse(response.data);
+}
+
+export async function listPageTemplateSourcePages(
+  spaceId: string,
+  options: { skip?: number; take?: number } = {},
+): Promise<PageTemplateSourcePageListResponse> {
+  const response = await api.get(`${collectionPath(spaceId)}/source-pages`, {
+    params: {
+      skip: options.skip ?? 0,
+      take: options.take ?? 100,
+    },
+  });
+  return parsePageTemplateSourcePageListResponse(response.data);
 }
 
 export async function createPageTemplate(

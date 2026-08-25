@@ -87,7 +87,7 @@ describe('PageTemplateService', () => {
     findUnique: jest.fn(),
     create: jest.fn(),
   };
-  const page = { findFirst: jest.fn() };
+  const page = { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn() };
   const prisma = {
     pageTemplate,
     pageTemplateVersion,
@@ -101,10 +101,14 @@ describe('PageTemplateService', () => {
     assertLiveHumanSpaceAccess: jest.fn(),
   } as any;
   const config = { get: jest.fn().mockReturnValue('api') } as any;
+  const revisionWriter = {
+    lockSpace: jest.fn(async (tx: unknown) => tx),
+  } as any;
   let service: PageTemplateService;
 
   beforeEach(() => {
     jest.resetAllMocks();
+    revisionWriter.lockSpace.mockImplementation(async (tx: unknown) => tx);
     prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(prisma));
     prisma.$queryRaw.mockResolvedValue([]);
     prisma.$executeRaw.mockResolvedValue(1);
@@ -118,8 +122,10 @@ describe('PageTemplateService', () => {
     pageTemplate.findFirst.mockResolvedValue(null);
     pageTemplateVersion.findUnique.mockResolvedValue(null);
     page.findFirst.mockResolvedValue(markdownPage());
+    page.findMany.mockResolvedValue([]);
+    page.count.mockResolvedValue(0);
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
-    service = new PageTemplateService(prisma, authorization, config);
+    service = new PageTemplateService(prisma, authorization, config, revisionWriter);
   });
 
   it('seeds a new system template and version atomically', async () => {
@@ -288,6 +294,62 @@ describe('PageTemplateService', () => {
     expect(pageTemplate.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
       where: expect.objectContaining({ archivedAt: { not: null } }),
     }));
+  });
+
+  it('lists only lightweight Markdown source summaries with bounded stable pagination', async () => {
+    const firstUpdatedAt = new Date('2026-08-25T12:00:00.000Z');
+    const secondUpdatedAt = new Date('2026-08-25T11:00:00.000Z');
+    page.findMany.mockResolvedValue([
+      {
+        id: 'page-2', title: 'Second', format: 'markdown', updatedAt: firstUpdatedAt,
+        content: '# must not leak', slug: 'must-not-leak',
+      },
+      { id: 'page-1', title: 'First', format: 'markdown', updatedAt: secondUpdatedAt },
+    ]);
+    page.count.mockResolvedValue(42);
+
+    await expect(service.listSourcePages(
+      'space-1', { skip: 10, take: 25 }, principal,
+    )).resolves.toEqual({
+      data: [
+        { id: 'page-2', title: 'Second', format: 'markdown', updatedAt: firstUpdatedAt.toISOString() },
+        { id: 'page-1', title: 'First', format: 'markdown', updatedAt: secondUpdatedAt.toISOString() },
+      ],
+      total: 42,
+      skip: 10,
+      take: 25,
+    });
+
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, principal, 'space-1', ['owner', 'admin'],
+    );
+    expect(page.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null, format: 'markdown' },
+      select: { id: true, title: true, format: true, updatedAt: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      skip: 10,
+      take: 25,
+    });
+    expect(page.count).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null, format: 'markdown' },
+    });
+    expect(page.findMany.mock.calls[0]?.[0]?.select).not.toHaveProperty('content');
+  });
+
+  it('maps non-live or non-manager source-page access to the template permission error before reads', async () => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValue(
+      new BusinessException('SPACE_ACCESS_DENIED'),
+    );
+
+    await expect(service.listSourcePages(
+      'space-1', { skip: 0, take: 100 }, principal,
+    )).rejects.toMatchObject({
+      businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED',
+      statusCode: 403,
+    });
+
+    expect(page.findMany).not.toHaveBeenCalled();
+    expect(page.count).not.toHaveBeenCalled();
   });
 
   it('get returns existing requested system content with its requested locale', async () => {
@@ -484,6 +546,29 @@ describe('PageTemplateService', () => {
     }) }));
   });
 
+  it('accepts source content at the page DTO validator.js astral-character limit', async () => {
+    const content = '😀'.repeat(200_000);
+    const created = spaceTemplate({
+      currentVersion: 1,
+      updatedAt: new Date(templateTimestamp),
+    });
+    page.findFirst.mockResolvedValue(markdownPage({ content }));
+    pageTemplate.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(created);
+    pageTemplate.create.mockResolvedValue(created);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 1,
+      contentI18n: { en: content }, sourcePageId: 'page-1',
+    });
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .resolves.toMatchObject({ content });
+    expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ contentI18n: { en: content } }),
+    }));
+  });
+
   it.each([
     [{ format: 'html' }, 'PAGE_TEMPLATE_SOURCE_INVALID'],
     [{ deletedAt: new Date() }, 'PAGE_TEMPLATE_SOURCE_INVALID'],
@@ -626,6 +711,66 @@ describe('PageTemplateService', () => {
       select: { stableKey: true },
       take: 100,
     });
+  });
+
+  it('allocates base, numeric suffix, and entropy fallback by Unicode code points', async () => {
+    const supplementaryLetter = '\u{20000}';
+    const truncateCodePoints = (value: string, length: number) => (
+      Array.from(value).slice(0, length).join('')
+    );
+    const baseName = `${'a'.repeat(63)}${supplementaryLetter}`;
+    const numericName = `${'b'.repeat(61)}${supplementaryLetter}`;
+    const entropyName = `${'c'.repeat(30)}${supplementaryLetter}${'d'.repeat(20)}`;
+    const entropyCompatibleKeys = [
+      entropyName,
+      ...Array.from({ length: 99 }, (_, index) => {
+        const suffix = `-${index + 2}`;
+        return `${truncateCodePoints(entropyName, 64 - suffix.length)}${suffix}`;
+      }),
+    ];
+    let createdRecord: any;
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.spaceId_nameKey) return null;
+      if (where.id === createdRecord?.id) return createdRecord;
+      return null;
+    });
+    pageTemplate.create.mockImplementation(async ({ data }: any) => {
+      createdRecord = {
+        id: `created-${pageTemplate.create.mock.calls.length}`,
+        ...data,
+        archivedAt: null,
+        updatedAt: new Date(templateTimestamp),
+      };
+      return createdRecord;
+    });
+    pageTemplateVersion.findUnique.mockImplementation(async ({ where }: any) => ({
+      templateId: where.templateId_version.templateId,
+      version: 1,
+      contentI18n: { en: '# Team weekly' },
+      sourcePageId: 'page-1',
+    }));
+    pageTemplate.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ stableKey: numericName }])
+      .mockResolvedValueOnce(entropyCompatibleKeys.map((stableKey) => ({ stableKey })));
+
+    for (const name of [baseName, numericName, entropyName]) {
+      await service.createSpaceTemplate('space-1', { ...validCreateBody, name }, principal);
+    }
+
+    const stableKeys = pageTemplate.create.mock.calls.map(([input]) => input.data.stableKey as string);
+    expect(stableKeys[0]).toBe(baseName);
+    expect(stableKeys[1]).toBe(`${numericName}-2`);
+    expect(stableKeys[2]).toMatch(
+      new RegExp(`^${'c'.repeat(30)}${supplementaryLetter}-[0-9a-f]{32}$`, 'u'),
+    );
+    for (const stableKey of stableKeys) {
+      expect(Array.from(stableKey)).toHaveLength(64);
+      expect(Array.from(stableKey).some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint >= 0xd800 && codePoint <= 0xdfff;
+      })).toBe(false);
+    }
   });
 
   it('updates metadata only at the exact expected timestamp and source locale', async () => {
@@ -877,6 +1022,12 @@ describe('PageTemplateService', () => {
       await expect(mutate()).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED' });
     }
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(5);
+    expect(revisionWriter.lockSpace).toHaveBeenCalledTimes(5);
+    revisionWriter.lockSpace.mock.invocationCallOrder.forEach((lockOrder: number, index: number) => {
+      expect(lockOrder).toBeLessThan(
+        authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[index],
+      );
+    });
     expect(pageTemplate.create).not.toHaveBeenCalled();
     expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });

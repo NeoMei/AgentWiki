@@ -81,6 +81,11 @@ describe('built-in page templates', () => {
     });
   });
 
+  it('uses the page DTO validator.js character limit for astral template content', () => {
+    expect(LocalizedValueSchema.safeParse({ en: '😀'.repeat(200_000) }).success).toBe(true);
+    expect(LocalizedValueSchema.safeParse({ en: '😀'.repeat(200_001) }).success).toBe(false);
+  });
+
   it('returns the requested system value with its actual locale', () => {
     expect(resolveLocalizedValue(
       { 'zh-CN': '中文', en: 'English' }, { scope: 'system', requested: 'zh-CN' },

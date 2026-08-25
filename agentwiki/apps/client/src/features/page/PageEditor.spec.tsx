@@ -348,6 +348,54 @@ describe('PageEditor remote update safety', () => {
     expect(screen.queryByRole('dialog', { name: 'Save as Space template' })).not.toBeInTheDocument();
   });
 
+  it('persists pristine socket content before saving that page as a template', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    vi.mocked(api.patch).mockResolvedValue({
+      data: page({
+        content: 'Remote live content',
+        updatedAt: '2026-07-27T08:05:00.000Z',
+      }),
+    } as any);
+    templateMocks.createPageTemplate.mockResolvedValue({
+      ...createdTemplate,
+      content: 'Remote live content',
+    });
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    await act(async () => socketMock.handlers.get('contentUpdated')?.({
+      content: 'Remote live content',
+      userId: 'remote-socket',
+      version: 10,
+    }));
+
+    expect(contentEditorValue()).toBe('Remote live content');
+    expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'More page actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toBeDisabled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
+      title: 'Original title',
+      content: 'Remote live content',
+      expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
+    }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'More page actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Save as Space template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+
+    await waitFor(() => expect(templateMocks.createPageTemplate).toHaveBeenCalledWith(
+      'space-1', expect.objectContaining({
+        sourcePageId: 'page-1',
+        expectedSourceUpdatedAt: '2026-07-27T08:05:00.000Z',
+      }),
+    ));
+  });
+
   it('does not request or show template actions for non-Markdown pages', async () => {
     queuePages({ data: page({ format: 'html' }) });
     renderEditor();

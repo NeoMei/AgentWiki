@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
+import { AuthorizationService, type Principal } from '../authorization/authorization.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -69,6 +70,7 @@ export class SpaceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly revisionWriter: SpaceRevisionWriterService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   private slugify(text: string): string {
@@ -295,17 +297,20 @@ export class SpaceService {
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, principal: Principal) {
     await this.findOne(id);
 
     return this.prisma.$transaction(async (tx) => {
-      await this.revisionWriter.lockSpace(tx, id);
-      const liveSpace = await tx.space.findUnique({
+      const lockedTx = await this.revisionWriter.lockSpace(tx, id);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, id, ['owner'],
+      );
+      const liveSpace = await lockedTx.space.findUnique({
         where: { id, deletedAt: null },
         select: { id: true },
       });
       if (!liveSpace) throw new NotFoundException('Space not found');
-      await tx.assistTask.updateMany({
+      await lockedTx.assistTask.updateMany({
         where: { spaceId: id, status: { in: ['queued', 'running'] } },
         data: {
           status: 'failed',
@@ -317,12 +322,12 @@ export class SpaceService {
           nextAttemptAt: null,
         },
       });
-      await tx.pageSearchDocument.deleteMany({ where: { page: { spaceId: id } } });
-      await tx.page.updateMany({
+      await lockedTx.pageSearchDocument.deleteMany({ where: { page: { spaceId: id } } });
+      await lockedTx.page.updateMany({
         where: { spaceId: id, deletedAt: null },
         data: { deletedAt: new Date() },
       });
-      return tx.space.update({
+      return lockedTx.space.update({
         where: { id, deletedAt: null },
         data: { deletedAt: new Date() },
       });

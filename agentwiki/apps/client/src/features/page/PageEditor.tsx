@@ -59,6 +59,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const tRef = useRef(t);
   const pageRef = useRef<Page | null>(null);
   const baselineRevisionRef = useRef<string | null>(null);
+  const acceptedSocketRevisionRef = useRef<string | null>(null);
   const isDirtyRef = useRef(false);
   const editRevisionRef = useRef(0);
   const activePageIdRef = useRef(id);
@@ -109,6 +110,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const adoptRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage)) => {
     pageRef.current = nextPage;
     baselineRevisionRef.current = revision;
+    acceptedSocketRevisionRef.current = null;
     setPage(nextPage);
     setTitle(nextPage.title);
     setContent(nextPage.content || '');
@@ -118,8 +120,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     updateDirty(false);
   }, [updateDirty]);
 
+  const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
+    setContent(nextContent);
+    contentRef.current = nextContent;
+    editRevisionRef.current += 1;
+    acceptedSocketRevisionRef.current = revision;
+    dismissedRemoteRevisionRef.current = null;
+    setRemoteUpdate(null);
+    updateDirty(true);
+  }, [updateDirty]);
+
   const offerRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage), forcePrompt = false) => {
     if (nextPage.id !== activePageIdRef.current) return;
+    if (revision.startsWith('socket:') && revision === acceptedSocketRevisionRef.current) return;
     const baseline = pageRef.current;
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
     if (isDirtyRef.current) {
@@ -128,8 +141,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       }
       return;
     }
-    adoptRemotePage(nextPage, revision);
-  }, [adoptRemotePage]);
+    if (revision.startsWith('socket:')) {
+      adoptRemoteDraft(nextPage.content || '', revision);
+    } else {
+      adoptRemotePage(nextPage, revision);
+    }
+  }, [adoptRemoteDraft, adoptRemotePage]);
 
   const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
     if (!id) return;
@@ -290,6 +307,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     requestControllersRef.current.clear();
     pageRef.current = null;
     baselineRevisionRef.current = null;
+    acceptedSocketRevisionRef.current = null;
     dismissedRemoteRevisionRef.current = null;
     setPage(null);
     setTitle('');
@@ -452,8 +470,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   const acceptRemote = () => {
     if (!remoteUpdate || saving) return;
-    editRevisionRef.current += 1;
-    adoptRemotePage(remoteUpdate.page, remoteUpdate.revision);
+    if (remoteUpdate.revision.startsWith('socket:')) {
+      adoptRemoteDraft(remoteUpdate.page.content || '', remoteUpdate.revision);
+    } else {
+      editRevisionRef.current += 1;
+      adoptRemotePage(remoteUpdate.page, remoteUpdate.revision);
+    }
   };
 
   const keepLocal = () => {

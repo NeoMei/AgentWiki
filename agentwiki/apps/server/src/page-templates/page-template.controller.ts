@@ -19,6 +19,7 @@ import {
   CreatePageTemplateVersionDto,
   PageTemplateListQueryDto,
   PageTemplateLocaleQueryDto,
+  PageTemplateSourceListQueryDto,
   PageTemplateStateDto,
   UpdatePageTemplateDto,
 } from './page-template.dto';
@@ -36,6 +37,15 @@ export class PageTemplateController {
     @Query() query: PageTemplateListQueryDto,
   ) {
     return this.templates.list(spaceId, query, req.user as Principal);
+  }
+
+  @Get('source-pages')
+  listSourcePages(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Query() query: PageTemplateSourceListQueryDto,
+  ) {
+    return this.templates.listSourcePages(spaceId, query, req.user as Principal);
   }
 
   @Get(':templateId')

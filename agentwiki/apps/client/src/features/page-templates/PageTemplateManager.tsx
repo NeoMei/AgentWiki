@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
@@ -8,6 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import {
   archivePageTemplate,
   createPageTemplateVersion,
+  listPageTemplateSourcePages,
   listPageTemplates,
   restorePageTemplate,
   updatePageTemplate,
@@ -15,6 +15,7 @@ import {
 import type {
   PageTemplateCategory,
   PageTemplateListResponse,
+  PageTemplateSourcePage,
   PageTemplateSummary,
 } from './pageTemplateTypes';
 import { truncateValidatorLength } from './validatorLength';
@@ -23,13 +24,6 @@ type PendingDialog =
   | { type: 'metadata'; template: PageTemplateSummary }
   | { type: 'version'; template: PageTemplateSummary }
   | null;
-
-interface SourcePage {
-  id: string;
-  title: string;
-  format: string;
-  updatedAt: string;
-}
 
 const EMPTY_TEMPLATES: PageTemplateListResponse = {
   system: [],
@@ -44,6 +38,7 @@ const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge'
 const TEMPLATE_NAME_LIMIT = 80;
 const TEMPLATE_DESCRIPTION_LIMIT = 240;
 const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
+const TEMPLATE_SEARCH_LIMIT = 80;
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -63,7 +58,7 @@ export const PageTemplateManager: React.FC = () => {
   const [metadataDescription, setMetadataDescription] = useState('');
   const [metadataCategory, setMetadataCategory] = useState<PageTemplateCategory>('other');
   const [metadataDefaultTitle, setMetadataDefaultTitle] = useState('');
-  const [sourcePages, setSourcePages] = useState<SourcePage[]>([]);
+  const [sourcePages, setSourcePages] = useState<PageTemplateSourcePage[]>([]);
   const [sourcePagesLoading, setSourcePagesLoading] = useState(false);
   const [sourcePageId, setSourcePageId] = useState('');
   const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
@@ -157,20 +152,20 @@ export const PageTemplateManager: React.FC = () => {
     setDialogError(null);
     void (async () => {
       try {
-        const markdownPages: SourcePage[] = [];
+        const markdownPages: PageTemplateSourcePage[] = [];
         const seen = new Set<string>();
         let skip = 0;
         while (true) {
-          const response = await api.get(`/pages?spaceId=${encodeURIComponent(id)}&skip=${skip}&take=100`);
+          const response = await listPageTemplateSourcePages(id, { skip, take: 100 });
           if (requestId !== sourceRequestIdRef.current) return;
-          const batch = Array.isArray(response.data?.data) ? response.data.data as SourcePage[] : [];
+          const batch = response.data;
           for (const page of batch) {
             if (page.format === 'markdown' && !seen.has(page.id)) {
               seen.add(page.id);
               markdownPages.push(page);
             }
           }
-          const total = typeof response.data?.total === 'number' ? response.data.total : batch.length;
+          const total = response.total;
           skip += batch.length;
           if (!batch.length || skip >= total) break;
         }
@@ -362,7 +357,7 @@ export const PageTemplateManager: React.FC = () => {
             ref={fallbackFocusRef}
             type="search"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => setSearch(truncateValidatorLength(event.target.value, TEMPLATE_SEARCH_LIMIT))}
             className="h-10 w-full rounded-lg border px-3 font-normal"
           />
         </label>

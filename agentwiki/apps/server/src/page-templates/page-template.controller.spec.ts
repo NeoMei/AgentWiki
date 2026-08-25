@@ -34,6 +34,7 @@ function expectRouteArguments(methodName: string, expected: RouteArgument[]) {
 describe('PageTemplateController', () => {
   const service = {
     list: jest.fn(),
+    listSourcePages: jest.fn(),
     get: jest.fn(),
     createSpaceTemplate: jest.fn(),
     updateMetadata: jest.fn(),
@@ -55,9 +56,10 @@ describe('PageTemplateController', () => {
       .toEqual([CombinedAuthGuard, HumanOnlyGuard]);
   });
 
-  it('declares the exact path and HTTP verb for all seven routes', () => {
+  it('declares the exact path and HTTP verb for all eight routes', () => {
     const routes = [
       ['list', '/', RequestMethod.GET],
+      ['listSourcePages', 'source-pages', RequestMethod.GET],
       ['get', ':templateId', RequestMethod.GET],
       ['create', '/', RequestMethod.POST],
       ['update', ':templateId', RequestMethod.PATCH],
@@ -79,6 +81,11 @@ describe('PageTemplateController', () => {
     const templateId = { type: RouteParamtypes.PARAM, index: 2, data: 'templateId' };
 
     expectRouteArguments('list', [
+      request,
+      spaceId,
+      { type: RouteParamtypes.QUERY, index: 2 },
+    ]);
+    expectRouteArguments('listSourcePages', [
       request,
       spaceId,
       { type: RouteParamtypes.QUERY, index: 2 },
@@ -112,6 +119,24 @@ describe('PageTemplateController', () => {
     expect(service.list).toHaveBeenCalledWith('space-1', query, request.user);
   });
 
+  it('declares the static source-pages route before the dynamic detail route and delegates it', async () => {
+    const sourceDescriptor = Object.getOwnPropertyDescriptor(
+      PageTemplateController.prototype, 'listSourcePages',
+    )?.value;
+    const detailDescriptor = Object.getOwnPropertyDescriptor(
+      PageTemplateController.prototype, 'get',
+    )?.value;
+    expect(Reflect.getMetadata(PATH_METADATA, sourceDescriptor)).toBe('source-pages');
+    expect(Reflect.getMetadata(PATH_METADATA, detailDescriptor)).toBe(':templateId');
+    const declaredMethods = Object.getOwnPropertyNames(PageTemplateController.prototype);
+    expect(declaredMethods.indexOf('listSourcePages')).toBeLessThan(declaredMethods.indexOf('get'));
+
+    const query = { skip: 20, take: 25 };
+    await controller.listSourcePages(request, 'space-1', query);
+
+    expect(service.listSourcePages).toHaveBeenCalledWith('space-1', query, request.user);
+  });
+
   it('denies archived catalog enumeration through the real controller-service path', async () => {
     const query = {
       locale: 'en', scope: 'all', archived: 'all', skip: 0, take: 100,
@@ -124,6 +149,7 @@ describe('PageTemplateController', () => {
       { pageTemplate } as any,
       { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any,
       { get: jest.fn() } as any,
+      { lockSpace: jest.fn() } as any,
     );
     const realController = new PageTemplateController(realService);
 

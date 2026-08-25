@@ -4,6 +4,7 @@ import {
   archivePageTemplate,
   createPageTemplate,
   createPageTemplateVersion,
+  listPageTemplateSourcePages,
   listPageTemplates,
   restorePageTemplate,
   updatePageTemplate,
@@ -58,6 +59,48 @@ describe('page template API adapters', () => {
     expect(api.get).toHaveBeenCalledWith('/spaces/space-1/page-templates', {
       params: { locale: 'zh-CN', scope: 'all', archived: 'active', skip: 0, take: 100 },
     });
+  });
+
+  it('loads bounded Markdown source summaries without page bodies', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        data: [{
+          id: 'page-1',
+          title: 'Weekly source',
+          format: 'markdown',
+          updatedAt: '2026-08-25T09:00:00.000Z',
+        }],
+        total: 1,
+        skip: 0,
+        take: 100,
+      },
+    } as never);
+
+    await expect(listPageTemplateSourcePages('space/one', { skip: 0, take: 100 })).resolves.toEqual({
+      data: [{
+        id: 'page-1',
+        title: 'Weekly source',
+        format: 'markdown',
+        updatedAt: '2026-08-25T09:00:00.000Z',
+      }],
+      total: 1,
+      skip: 0,
+      take: 100,
+    });
+    expect(api.get).toHaveBeenCalledWith('/spaces/space%2Fone/page-templates/source-pages', {
+      params: { skip: 0, take: 100 },
+    });
+  });
+
+  it.each([
+    { total: -1, skip: 0, take: 100 },
+    { total: 1, skip: -1, take: 100 },
+    { total: 1, skip: 0, take: 0 },
+    { total: 1, skip: 0, take: 101 },
+  ])('rejects invalid source-summary pagination metadata %#', async (pagination) => {
+    vi.mocked(api.get).mockResolvedValue({ data: { data: [], ...pagination } } as never);
+
+    await expect(listPageTemplateSourcePages('space-1')).rejects.toThrow(/source page/i);
   });
 
   it.each([

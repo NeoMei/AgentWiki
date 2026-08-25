@@ -8,6 +8,7 @@ import { PageTemplateManager } from './PageTemplateManager';
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn() },
   listPageTemplates: vi.fn(),
+  listPageTemplateSourcePages: vi.fn(),
   updatePageTemplate: vi.fn(),
   createPageTemplateVersion: vi.fn(),
   archivePageTemplate: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('./pageTemplateApi', () => ({
   listPageTemplates: mocks.listPageTemplates,
+  listPageTemplateSourcePages: mocks.listPageTemplateSourcePages,
   updatePageTemplate: mocks.updatePageTemplate,
   createPageTemplateVersion: mocks.createPageTemplateVersion,
   archivePageTemplate: mocks.archivePageTemplate,
@@ -75,6 +77,7 @@ describe('PageTemplateManager', () => {
     vi.clearAllMocks();
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.api.get.mockResolvedValue({ data: { data: [], total: 0 } });
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [], total: 0, skip: 0, take: 100 });
   });
 
   it('edits metadata with the loaded optimistic timestamp', async () => {
@@ -115,6 +118,21 @@ describe('PageTemplateManager', () => {
     ));
   });
 
+  it('limits search to 80 validator.js characters before requesting the catalog', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    renderManager();
+    await screen.findByText('团队周报');
+
+    fireEvent.change(screen.getByLabelText('搜索模板'), {
+      target: { value: '😀'.repeat(81) },
+    });
+
+    expect(screen.getByLabelText('搜索模板')).toHaveValue('😀'.repeat(80));
+    await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenLastCalledWith(
+      'space-1', expect.objectContaining({ q: '😀'.repeat(80) }),
+    ));
+  });
+
   it('allows maximum-length unbroken template names to wrap in both management dialog headings', async () => {
     const longName = 'L'.repeat(80);
     mocks.listPageTemplates.mockResolvedValue({
@@ -142,9 +160,9 @@ describe('PageTemplateManager', () => {
 
   it('creates a new content version from an exact persisted source page', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
-    mocks.api.get.mockResolvedValue({ data: { data: [{
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
       id: 'page-source', title: '新版周报结构', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
-    }], total: 1 } });
+    }], total: 1, skip: 0, take: 100 });
     mocks.createPageTemplateVersion.mockResolvedValue({ ...spaceTemplate, currentVersion: 8 });
     renderManager();
 
@@ -166,20 +184,47 @@ describe('PageTemplateManager', () => {
       id: `page-${index}`, title: `Page ${index}`, format: index === 0 ? 'docx' : 'markdown',
       updatedAt: `2026-08-25T12:${String(index % 60).padStart(2, '0')}:00.000Z`,
     }));
-    mocks.api.get
-      .mockResolvedValueOnce({ data: { data: firstPage, total: 101 } })
-      .mockResolvedValueOnce({ data: { data: [{
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: firstPage, total: 101, skip: 0, take: 100 })
+      .mockResolvedValueOnce({ data: [{
         id: 'page-last', title: 'Last Markdown', format: 'markdown', updatedAt: '2026-08-25T13:00:00.000Z',
-      }], total: 101 } });
+      }], total: 101, skip: 100, take: 100 });
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
     const source = await screen.findByLabelText('源页面');
 
-    expect(mocks.api.get).toHaveBeenNthCalledWith(1, '/pages?spaceId=space-1&skip=0&take=100');
-    expect(mocks.api.get).toHaveBeenNthCalledWith(2, '/pages?spaceId=space-1&skip=100&take=100');
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(1, 'space-1', { skip: 0, take: 100 });
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(2, 'space-1', { skip: 100, take: 100 });
     expect(source.querySelector('option[value="page-0"]')).not.toBeInTheDocument();
     expect(source.querySelector('option[value="page-last"]')).toHaveTextContent('Last Markdown');
+  });
+
+  it('loads source summaries through the bounded template-source API without page bodies', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: `page-${index}`, title: `Page ${index}`, format: 'markdown' as const,
+      updatedAt: `2026-08-25T12:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    }));
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: firstPage, total: 101, skip: 0, take: 100 })
+      .mockResolvedValueOnce({ data: [{
+        id: 'page-last', title: 'Last Markdown', format: 'markdown',
+        updatedAt: '2026-08-25T13:00:00.000Z',
+      }], total: 101, skip: 100, take: 100 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    const source = await screen.findByLabelText('源页面');
+
+    await waitFor(() => expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
+      1, 'space-1', { skip: 0, take: 100 },
+    ));
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
+      2, 'space-1', { skip: 100, take: 100 },
+    );
+    expect(source.querySelector('option[value="page-last"]')).toHaveTextContent('Last Markdown');
+    expect(mocks.api.get).not.toHaveBeenCalled();
   });
 
   it('archives and restores with confirmation and exact updatedAt', async () => {
@@ -235,9 +280,9 @@ describe('PageTemplateManager', () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     mocks.updatePageTemplate.mockResolvedValue({ ...spaceTemplate, name: '新版周报' });
     mocks.createPageTemplateVersion.mockResolvedValue({ ...spaceTemplate, currentVersion: 8 });
-    mocks.api.get.mockResolvedValue({ data: { data: [{
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
       id: 'page-source', title: '源页面', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
-    }], total: 1 } });
+    }], total: 1, skip: 0, take: 100 });
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
@@ -352,9 +397,9 @@ describe('PageTemplateManager', () => {
     mocks.updatePageTemplate.mockRejectedValueOnce(unknown);
     mocks.createPageTemplateVersion.mockRejectedValueOnce(unknown);
     mocks.archivePageTemplate.mockRejectedValueOnce(unknown);
-    mocks.api.get.mockResolvedValue({ data: { data: [{
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
       id: 'page-source', title: '源页面', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
-    }], total: 1 } });
+    }], total: 1, skip: 0, take: 100 });
     renderManager();
 
     fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
@@ -555,9 +600,9 @@ describe('PageTemplateManager', () => {
 
   it('shows no-change feedback and keeps the version dialog open', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
-    mocks.api.get.mockResolvedValue({ data: { data: [{
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
       id: 'page-source', title: 'Source', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
-    }], total: 1 } });
+    }], total: 1, skip: 0, take: 100 });
     mocks.createPageTemplateVersion.mockResolvedValue({ ...spaceTemplate, noChange: true });
     renderManager();
 

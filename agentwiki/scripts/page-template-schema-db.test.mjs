@@ -78,6 +78,7 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
       const spaceId = `space_${suffix}`;
       const sourcePageId = `source_${suffix}`;
       const createdPageId = `created_${suffix}`;
+      const unicodeStableKey = `${'a'.repeat(63)}\u{20000}`;
       await prisma.user.create({
         data: { id: userId, email: `${userId}@page-template.test` },
       });
@@ -109,7 +110,7 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
           scope: 'space',
           scopeKey: spaceId,
           spaceId,
-          stableKey: 'weekly',
+          stableKey: unicodeStableKey,
           category: 'reporting',
           nameI18n: { en: 'Weekly' },
           nameKey: 'weekly',
@@ -120,6 +121,17 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
           updatedById: userId,
         },
       });
+      const persistedStableKey = await prisma.pageTemplate.findUniqueOrThrow({
+        where: { id: template.id },
+        select: { stableKey: true },
+      });
+      assert.equal(persistedStableKey.stableKey, unicodeStableKey);
+      assert.equal(Array.from(persistedStableKey.stableKey).length, 64);
+      assert.equal(persistedStableKey.stableKey.includes('\ufffd'), false);
+      assert.equal(Array.from(persistedStableKey.stableKey).some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint >= 0xd800 && codePoint <= 0xdfff;
+      }), false);
       const versionOne = await prisma.pageTemplateVersion.create({
         data: {
           templateId: template.id,

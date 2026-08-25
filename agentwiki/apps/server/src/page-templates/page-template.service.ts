@@ -6,10 +6,12 @@ import { ZodError } from 'zod';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import {
   type CreatePageTemplateDto,
   type CreatePageTemplateVersionDto,
   type PageTemplateListQueryDto,
+  type PageTemplateSourceListQueryDto,
   type PageTemplateStateDto,
   type UpdatePageTemplateDto,
 } from './page-template.dto';
@@ -17,6 +19,7 @@ import { BUILT_IN_PAGE_TEMPLATES, type BuiltInPageTemplate } from './page-templa
 import {
   localizedValue,
   normalizeTemplateName,
+  PageTemplateContentSchema,
   type PageTemplateLocale,
   PageTemplateLocaleSchema,
   resolveLocalizedValue,
@@ -79,12 +82,17 @@ function uniqueTargetMatches(
     && candidate.every((field) => typeof field === 'string' && fields.includes(field));
 }
 
+function truncateCodePoints(value: string, length: number): string {
+  return Array.from(value).slice(0, length).join('');
+}
+
 @Injectable()
 export class PageTemplateService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly config: ConfigService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -192,6 +200,38 @@ export class PageTemplateService implements OnModuleInit {
     }
   }
 
+  async listSourcePages(
+    spaceId: string,
+    query: PageTemplateSourceListQueryDto,
+    principal: Principal,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCanManage(tx, principal, spaceId);
+      const where = { spaceId, deletedAt: null, format: 'markdown' } as const;
+      const [pages, total] = await Promise.all([
+        tx.page.findMany({
+          where,
+          select: { id: true, title: true, format: true, updatedAt: true },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          skip: query.skip,
+          take: query.take,
+        }),
+        tx.page.count({ where }),
+      ]);
+      return {
+        data: pages.map((page) => ({
+          id: page.id,
+          title: page.title,
+          format: page.format,
+          updatedAt: page.updatedAt.toISOString(),
+        })),
+        total,
+        skip: query.skip,
+        take: query.take,
+      };
+    });
+  }
+
   async resolveVersion(tx: Prisma.TransactionClient, input: {
     spaceId: string; templateId: string; version: number; locale: PageTemplateLocale;
   }): Promise<{ content: string; templateId: string; version: number; locale: PageTemplateLocale }> {
@@ -260,7 +300,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(async (tx) => {
+    return this.runSpaceMutation(spaceId, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const { name, defaultTitle } = this.normalizedMetadata(body);
       const activeCount = await tx.pageTemplate.count({
@@ -301,7 +341,7 @@ export class PageTemplateService implements OnModuleInit {
     body: UpdatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(async (tx) => {
+    return this.runSpaceMutation(spaceId, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
@@ -336,7 +376,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateVersionDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(async (tx) => {
+    return this.runSpaceMutation(spaceId, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
@@ -384,7 +424,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(async (tx) => {
+    return this.runSpaceMutation(spaceId, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
@@ -406,7 +446,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(async (tx) => {
+    return this.runSpaceMutation(spaceId, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (!current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
@@ -428,12 +468,19 @@ export class PageTemplateService implements OnModuleInit {
   }
 
   private async runSpaceMutation<T>(
+    spaceId: string,
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
     options: { retryStableKeyConflict?: boolean } = {},
   ): Promise<T> {
     for (let attempt = 1; attempt <= SPACE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
       try {
-        return await this.prisma.$transaction(operation, {
+        return await this.prisma.$transaction(async (tx) => {
+          // Every Space-scoped template mutation shares the same first lock as
+          // Page and Space writes. Authorization and active-Space validation
+          // therefore run against state observed only after serialization.
+          const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+          return operation(lockedTx);
+        }, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
       } catch (error) {
@@ -495,7 +542,8 @@ export class PageTemplateService implements OnModuleInit {
         id: true, content: true, format: true, updatedAt: true, deletedAt: true,
       },
     });
-    if (!source || source.deletedAt || source.format !== 'markdown' || source.content.length > 200_000) {
+    if (!source || source.deletedAt || source.format !== 'markdown'
+      || !PageTemplateContentSchema.safeParse(source.content).success) {
       throw new BusinessException('PAGE_TEMPLATE_SOURCE_INVALID');
     }
     if (source.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()) {
@@ -529,15 +577,17 @@ export class PageTemplateService implements OnModuleInit {
     spaceId: string,
     name: string,
   ): Promise<string> {
-    const base = name.normalize('NFKC').toLocaleLowerCase()
-      .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
-      .replace(/^-+|-+$/gu, '')
-      .slice(0, 64) || 'template';
+    const base = truncateCodePoints(
+      name.normalize('NFKC').toLocaleLowerCase()
+        .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+        .replace(/^-+|-+$/gu, ''),
+      64,
+    ) || 'template';
     const compatibleStableKeys = [
       base,
       ...Array.from({ length: 99 }, (_, index) => {
         const suffix = `-${index + 2}`;
-        return `${base.slice(0, 64 - suffix.length)}${suffix}`;
+        return `${truncateCodePoints(base, 64 - suffix.length)}${suffix}`;
       }),
     ];
     const occupied = new Set((await tx.pageTemplate.findMany({
@@ -548,7 +598,7 @@ export class PageTemplateService implements OnModuleInit {
     const compatible = compatibleStableKeys.find((stableKey) => !occupied.has(stableKey));
     if (compatible) return compatible;
     const entropy = randomUUID().replaceAll('-', '');
-    return `${base.slice(0, 64 - entropy.length - 1)}-${entropy}`;
+    return `${truncateCodePoints(base, 64 - entropy.length - 1)}-${entropy}`;
   }
 
   private async getManagedRecord(

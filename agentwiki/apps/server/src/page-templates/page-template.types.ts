@@ -1,12 +1,18 @@
 import { createHash } from 'crypto';
+import { maxLength } from 'class-validator';
 import { z } from 'zod';
 
 export const PageTemplateLocaleSchema = z.enum(['zh-CN', 'en']);
 export type PageTemplateLocale = z.infer<typeof PageTemplateLocaleSchema>;
 
+export const PageTemplateContentSchema = z.string().refine(
+  (value) => maxLength(value, 200_000),
+  { message: 'Template content exceeds the page content limit' },
+);
+
 export const LocalizedValueSchema = z.object({
-  'zh-CN': z.string().max(200_000).optional(),
-  en: z.string().max(200_000).optional(),
+  'zh-CN': PageTemplateContentSchema.optional(),
+  en: PageTemplateContentSchema.optional(),
 }).strict().refine((value) => value['zh-CN'] !== undefined || value.en !== undefined, {
   message: 'At least one localization is required',
 });

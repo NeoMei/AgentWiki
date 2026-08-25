@@ -6,6 +6,10 @@ import { SpaceRevisionWriterService } from '../sync/space-revision-writer.servic
 const revisionWriter = {
   lockSpace: jest.fn(async (tx: unknown) => tx),
 } as unknown as SpaceRevisionWriterService;
+const authorization = {
+  assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+} as any;
+const ownerPrincipal = { userId: 'owner-1' } as any;
 
 describe('SpaceService.findAll pagination', () => {
   const prisma = {
@@ -15,7 +19,7 @@ describe('SpaceService.findAll pagination', () => {
     },
     $transaction: jest.fn(),
   } as any;
-  const service = new SpaceService(prisma, revisionWriter);
+  const service = new SpaceService(prisma, revisionWriter, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -177,7 +181,7 @@ describe('SpaceService.create ownership', () => {
       create: jest.fn(),
     },
   } as any;
-  const service = new SpaceService(prisma, revisionWriter);
+  const service = new SpaceService(prisma, revisionWriter, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -205,7 +209,7 @@ describe('SpaceService.listMembers includes agents', () => {
     spaceMember: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn() },
   } as any;
-  const service = new SpaceService(prisma, revisionWriter);
+  const service = new SpaceService(prisma, revisionWriter, authorization);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -309,7 +313,7 @@ describe('admin role and member management', () => {
     agentGrant: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   } as any;
-  const service = new SpaceService(prisma, revisionWriter);
+  const service = new SpaceService(prisma, revisionWriter, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -401,7 +405,7 @@ describe('SpaceService.remove', () => {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   } as any;
-  const service = new SpaceService(prisma, revisionWriter);
+  const service = new SpaceService(prisma, revisionWriter, authorization);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -411,7 +415,7 @@ describe('SpaceService.remove', () => {
   });
 
   it('fails queued and running assistant tasks before soft-deleting the space', async () => {
-    await service.remove('space-1');
+    await service.remove('space-1', ownerPrincipal);
 
     expect(tx.assistTask.updateMany).toHaveBeenCalledWith({
       where: { spaceId: 'space-1', status: { in: ['queued', 'running'] } },
@@ -428,7 +432,7 @@ describe('SpaceService.remove', () => {
   it('takes the shared Space lock before soft-deleting live pages and the Space', async () => {
     tx.space.update.mockResolvedValue({ id: 'space-1', deletedAt: new Date() });
 
-    await service.remove('space-1');
+    await service.remove('space-1', ownerPrincipal);
 
     expect(revisionWriter.lockSpace).toHaveBeenCalledWith(tx, 'space-1');
     expect((revisionWriter.lockSpace as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
