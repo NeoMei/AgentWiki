@@ -2,6 +2,7 @@
 **/.DS_Store
 .git-icloud-incomplete-*/
 .superpowers/
+.worktrees/
 0
 docker-compose-remote.yml
 ssh_login.*
