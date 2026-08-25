@@ -26,6 +26,10 @@ export class PageTemplateListQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
 }
 
+export class PageTemplateLocaleQueryDto {
+  @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
+}
+
 export class CreatePageTemplateDto {
   @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(80) name!: string;
   @PreserveRawInput() @ValidateIf((_object, value) => value !== undefined) @IsString() @MaxLength(240) description?: string;

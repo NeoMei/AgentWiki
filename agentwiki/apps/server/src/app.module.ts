@@ -24,6 +24,7 @@ import { MemoryModule } from './memory/memory.module';
 import { McpModule } from './mcp/mcp.module';
 import { HealthController } from './health.controller';
 import { CollaborationWorkflowsModule } from './collaboration-workflows/collaboration-workflows.module';
+import { PageTemplateModule } from './page-templates/page-template.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { CollaborationWorkflowsModule } from './collaboration-workflows/collabor
     WorkspaceModule,
     SpaceModule,
     PageModule,
+    PageTemplateModule,
     SearchModule,
     KnowledgeModule,
     CollaborationModule,
