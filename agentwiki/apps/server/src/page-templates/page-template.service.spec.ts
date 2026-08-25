@@ -1,6 +1,9 @@
+import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
+import { BusinessException } from '../core/filters/business-error';
 import { BUILT_IN_PAGE_TEMPLATES } from './page-template-definitions';
 import { PageTemplateService } from './page-template.service';
+import { templateContentHash } from './page-template.types';
 
 const principal: Principal = { userId: 'user-1' };
 
@@ -32,6 +35,45 @@ const spaceRecord = {
   updatedAt: new Date('2026-08-25T01:00:00.000Z'),
 };
 
+const sourceTimestamp = '2026-08-25T10:00:00.000Z';
+const templateTimestamp = '2026-08-25T01:00:00.000Z';
+
+const validCreateBody = {
+  name: ' Team Weekly ',
+  description: 'Shared format',
+  category: 'reporting' as const,
+  defaultTitle: 'Team weekly',
+  locale: 'en' as const,
+  sourcePageId: 'page-1',
+  expectedSourceUpdatedAt: sourceTimestamp,
+};
+
+function markdownPage(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'page-1',
+    spaceId: 'space-1',
+    format: 'markdown',
+    content: '# Team weekly',
+    deletedAt: null,
+    updatedAt: new Date(sourceTimestamp),
+    ...overrides,
+  };
+}
+
+function spaceTemplate(overrides: Record<string, unknown> = {}) {
+  return {
+    ...spaceRecord,
+    id: 'template-1',
+    stableKey: 'team-weekly',
+    nameI18n: { en: 'Team Weekly' },
+    descriptionI18n: { en: 'Shared format' },
+    defaultTitleI18n: { en: 'Team weekly' },
+    sourceLocale: 'en',
+    currentVersion: 3,
+    ...overrides,
+  };
+}
+
 describe('PageTemplateService', () => {
   const pageTemplate = {
     findUnique: jest.fn(),
@@ -45,13 +87,18 @@ describe('PageTemplateService', () => {
     findUnique: jest.fn(),
     create: jest.fn(),
   };
+  const page = { findFirst: jest.fn() };
   const prisma = {
     pageTemplate,
     pageTemplateVersion,
+    page,
     $queryRaw: jest.fn(),
     $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(prisma)),
   } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = {
+    assertSpaceAccess: jest.fn(),
+    assertLiveHumanSpaceAccess: jest.fn(),
+  } as any;
   const config = { get: jest.fn().mockReturnValue('api') } as any;
   let service: PageTemplateService;
 
@@ -65,6 +112,11 @@ describe('PageTemplateService', () => {
     pageTemplateVersion.create.mockResolvedValue({ id: 'version-1' });
     pageTemplate.findMany.mockResolvedValue([]);
     pageTemplate.count.mockResolvedValue(0);
+    pageTemplate.findUnique.mockResolvedValue(null);
+    pageTemplate.findFirst.mockResolvedValue(null);
+    pageTemplateVersion.findUnique.mockResolvedValue(null);
+    page.findFirst.mockResolvedValue(markdownPage());
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
     service = new PageTemplateService(prisma, authorization, config);
   });
 
@@ -332,5 +384,300 @@ describe('PageTemplateService', () => {
     await expect(service.resolveVersion(prisma, {
       spaceId: 'space-1', templateId: 'system-1', version: 1, locale: 'en',
     })).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
+  it('creates a Space template only from the exact persisted Markdown page', async () => {
+    const created = spaceTemplate({
+      currentVersion: 1,
+      updatedAt: new Date(templateTimestamp),
+    });
+    pageTemplate.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(created);
+    pageTemplate.create.mockResolvedValue(created);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 1,
+      contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
+    });
+
+    await service.createSpaceTemplate('space-1', validCreateBody, principal);
+
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, principal, 'space-1', ['owner', 'admin'],
+    );
+    expect(page.findFirst).toHaveBeenCalledWith({
+      where: { id: 'page-1', spaceId: 'space-1', deletedAt: null },
+      select: { id: true, content: true, format: true, updatedAt: true, deletedAt: true },
+    });
+    expect(pageTemplate.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      scope: 'space', scopeKey: 'space-1', nameKey: 'team weekly', sourceLocale: 'en',
+    }) }));
+    expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      version: 1, contentI18n: { en: '# Team weekly' }, sourcePageId: 'page-1',
+    }) }));
+  });
+
+  it.each([
+    [{ format: 'html' }, 'PAGE_TEMPLATE_SOURCE_INVALID'],
+    [{ deletedAt: new Date() }, 'PAGE_TEMPLATE_SOURCE_INVALID'],
+    [{ content: 'x'.repeat(200_001) }, 'PAGE_TEMPLATE_SOURCE_INVALID'],
+    [{ updatedAt: new Date('2026-08-25T11:00:00.000Z') }, 'PAGE_TEMPLATE_SOURCE_STALE'],
+  ])('rejects invalid or stale source pages %#', async (override, code) => {
+    page.findFirst.mockResolvedValue(markdownPage(override));
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: code });
+    expect(pageTemplate.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing source pages as invalid', async () => {
+    page.findFirst.mockResolvedValue(null);
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_SOURCE_INVALID' });
+  });
+
+  it('enforces the active Space-template quota on create', async () => {
+    pageTemplate.count.mockResolvedValue(100);
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_QUOTA_EXCEEDED' });
+    expect(page.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects an existing normalized Space-template name', async () => {
+    pageTemplate.findUnique.mockResolvedValue({ id: 'existing-template' });
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_NAME_CONFLICT' });
+    expect(pageTemplate.create).not.toHaveBeenCalled();
+  });
+
+  it('maps a concurrent create name constraint P2002 to a stable conflict', async () => {
+    pageTemplate.findUnique.mockResolvedValue(null);
+    pageTemplate.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', { code: 'P2002', clientVersion: 'test' },
+    ));
+
+    await expect(service.createSpaceTemplate('space-1', validCreateBody, principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_NAME_CONFLICT' });
+  });
+
+  it('updates metadata only at the exact expected timestamp and source locale', async () => {
+    const current = spaceTemplate();
+    pageTemplate.findFirst.mockResolvedValueOnce(current).mockResolvedValueOnce(null);
+    pageTemplate.findUnique.mockResolvedValue(current);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 3,
+      contentI18n: { en: '# Current' }, sourcePageId: 'page-1',
+    });
+
+    await service.updateMetadata('space-1', 'template-1', {
+      name: ' Weekly Report ', description: ' Updated ', category: 'reporting',
+      defaultTitle: ' Weekly report ', expectedUpdatedAt: templateTimestamp,
+    }, principal);
+
+    expect(pageTemplate.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'template-1', spaceId: 'space-1', scope: 'space',
+        updatedAt: new Date(templateTimestamp),
+      },
+      data: {
+        nameI18n: { en: 'Weekly Report' }, nameKey: 'weekly report',
+        descriptionI18n: { en: 'Updated' }, defaultTitleI18n: { en: 'Weekly report' },
+        category: 'reporting', updatedById: 'user-1',
+      },
+    });
+  });
+
+  it('maps an update timestamp miss to a version conflict', async () => {
+    pageTemplate.findFirst.mockResolvedValueOnce(spaceTemplate()).mockResolvedValueOnce(null);
+    pageTemplate.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.updateMetadata('space-1', 'template-1', {
+      name: 'Weekly Report', category: 'reporting', defaultTitle: 'Weekly report',
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+  });
+
+  it('maps a concurrent metadata name constraint P2002 to a stable conflict', async () => {
+    pageTemplate.findFirst.mockResolvedValueOnce(spaceTemplate()).mockResolvedValueOnce(null);
+    pageTemplate.updateMany.mockRejectedValue(new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed', { code: 'P2002', clientVersion: 'test' },
+    ));
+
+    await expect(service.updateMetadata('space-1', 'template-1', {
+      name: 'Weekly Report', category: 'reporting', defaultTitle: 'Weekly report',
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_NAME_CONFLICT' });
+  });
+
+  it('returns the current version without writing when source content is unchanged', async () => {
+    const current = spaceTemplate({ currentVersion: 3, sourceLocale: 'en' });
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue(current);
+    pageTemplateVersion.findUnique
+      .mockResolvedValueOnce({ version: 3, contentHash: templateContentHash('# Same') })
+      .mockResolvedValueOnce({
+        version: 3, contentHash: templateContentHash('# Same'),
+        contentI18n: { en: '# Same' }, sourcePageId: 'page-1',
+      });
+    page.findFirst.mockResolvedValue(markdownPage({ content: '# Same' }));
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).resolves.toMatchObject({ currentVersion: 3, noChange: true, content: '# Same' });
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps managed Space content strict to sourceLocale', async () => {
+    const current = spaceTemplate({ currentVersion: 3, sourceLocale: 'zh-CN' });
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue(current);
+    pageTemplateVersion.findUnique
+      .mockResolvedValueOnce({ version: 3, contentHash: templateContentHash('# 相同') })
+      .mockResolvedValueOnce({ version: 3, contentI18n: { en: '# Wrong fallback' }, sourcePageId: 'page-1' });
+    page.findFirst.mockResolvedValue(markdownPage({ content: '# 相同' }));
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
+  it('creates version N+1 and advances the pointer only from expected N', async () => {
+    const current = spaceTemplate({ currentVersion: 3 });
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue({ ...current, currentVersion: 4 });
+    pageTemplateVersion.findUnique
+      .mockResolvedValueOnce({ version: 3, contentHash: 'old' })
+      .mockResolvedValueOnce({ version: 4, contentI18n: { en: '# New' }, sourcePageId: 'page-1' });
+    page.findFirst.mockResolvedValue(markdownPage({ content: '# New' }));
+
+    await service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal);
+
+    expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ version: 4, contentI18n: { en: '# New' } }),
+    }));
+    expect(pageTemplate.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'template-1', currentVersion: 3, archivedAt: null }),
+      data: expect.objectContaining({ currentVersion: 4 }),
+    }));
+  });
+
+  it('rejects a stale expected current version before loading the source page', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ currentVersion: 4 }));
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+    expect(page.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('maps a failed version pointer compare-and-swap to a version conflict', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ currentVersion: 3 }));
+    pageTemplateVersion.findUnique.mockResolvedValue({ version: 3, contentHash: 'old' });
+    page.findFirst.mockResolvedValue(markdownPage({ content: '# New' }));
+    pageTemplate.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_CONFLICT' });
+  });
+
+  it('archives only an active template at the exact expected timestamp', async () => {
+    const current = spaceTemplate();
+    pageTemplate.findFirst.mockResolvedValue(current);
+    pageTemplate.findUnique.mockResolvedValue({ ...current, archivedAt: new Date('2026-08-25T12:00:00.000Z') });
+    pageTemplateVersion.findUnique.mockResolvedValue({ version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1' });
+
+    await service.archive('space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal);
+
+    expect(pageTemplate.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'template-1', spaceId: 'space-1', scope: 'space', archivedAt: null,
+        updatedAt: new Date(templateTimestamp),
+      },
+      data: { archivedAt: expect.any(Date), updatedById: 'user-1' },
+    });
+  });
+
+  it('restores an archived template only below quota and at the expected timestamp', async () => {
+    const archived = spaceTemplate({ archivedAt: new Date('2026-08-25T12:00:00.000Z') });
+    pageTemplate.findFirst.mockResolvedValue(archived);
+    pageTemplate.findUnique.mockResolvedValue({ ...archived, archivedAt: null });
+    pageTemplateVersion.findUnique.mockResolvedValue({ version: 3, contentI18n: { en: '# Current' }, sourcePageId: 'page-1' });
+
+    await service.restore('space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal);
+
+    expect(pageTemplate.count).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', scope: 'space', archivedAt: null },
+    });
+    expect(pageTemplate.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'template-1', spaceId: 'space-1', scope: 'space', archivedAt: { not: null },
+        updatedAt: new Date(templateTimestamp),
+      },
+      data: { archivedAt: null, updatedById: 'user-1' },
+    });
+  });
+
+  it('rejects restore when the active Space-template quota is full', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ archivedAt: new Date() }));
+    pageTemplate.count.mockResolvedValue(100);
+
+    await expect(service.restore('space-1', 'template-1', {
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_QUOTA_EXCEEDED' });
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(['updateMetadata', 'createVersion', 'archive', 'restore'] as const)(
+    'rejects system template mutation through %s', async (method) => {
+      pageTemplate.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'system-1' });
+      const bodies = {
+        updateMetadata: {
+          name: 'System', category: 'planning' as const, defaultTitle: 'System',
+          expectedUpdatedAt: templateTimestamp,
+        },
+        createVersion: {
+          sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 1,
+        },
+        archive: { expectedUpdatedAt: templateTimestamp },
+        restore: { expectedUpdatedAt: templateTimestamp },
+      };
+
+      await expect((service[method] as any)('space-1', 'system-1', bodies[method], principal))
+        .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_SYSTEM_IMMUTABLE' });
+    },
+  );
+
+  it('requires live Owner/Admin authorization for every mutation', async () => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValue(
+      new BusinessException('SPACE_ACCESS_DENIED'),
+    );
+    const mutations = [
+      () => service.createSpaceTemplate('space-1', validCreateBody, principal),
+      () => service.updateMetadata('space-1', 'template-1', {
+        name: 'Weekly', category: 'reporting', defaultTitle: 'Weekly', expectedUpdatedAt: templateTimestamp,
+      }, principal),
+      () => service.createVersion('space-1', 'template-1', {
+        sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+      }, principal),
+      () => service.archive('space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal),
+      () => service.restore('space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal),
+    ];
+
+    for (const mutate of mutations) {
+      await expect(mutate()).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED' });
+    }
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(5);
+    expect(pageTemplate.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });
 });
