@@ -93,6 +93,7 @@ describe('PageTemplateService', () => {
     pageTemplateVersion,
     page,
     $queryRaw: jest.fn(),
+    $executeRaw: jest.fn(),
     $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(prisma)),
   } as any;
   const authorization = {
@@ -106,6 +107,7 @@ describe('PageTemplateService', () => {
     jest.resetAllMocks();
     prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => callback(prisma));
     prisma.$queryRaw.mockResolvedValue([]);
+    prisma.$executeRaw.mockResolvedValue(1);
     config.get.mockReturnValue('api');
     pageTemplate.create.mockImplementation(async ({ data }: any) => ({ id: `created-${data.stableKey}`, ...data }));
     pageTemplate.updateMany.mockResolvedValue({ count: 1 });
@@ -129,7 +131,8 @@ describe('PageTemplateService', () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function), { isolationLevel: 'Serializable' },
     );
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
     expect(pageTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ scope: 'system', scopeKey: 'system', currentVersion: 1 }),
     }));
@@ -187,7 +190,8 @@ describe('PageTemplateService', () => {
     await service.seedBuiltIns();
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('retries seed transactions after an identifiable SQLSTATE 40001', async () => {

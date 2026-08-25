@@ -197,7 +197,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   useEffect(() => {
     if (!moreActionsOpen) return;
-    if (!templateCreationBlocked) saveAsTemplateItemRef.current?.focus({ preventScroll: true });
     const closeFromOutside = (event: PointerEvent) => {
       if (!moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
     };
@@ -224,6 +223,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       window.removeEventListener('scroll', closeForViewportChange, true);
     };
   }, [moreActionsOpen, templateCreationBlocked]);
+
+  useLayoutEffect(() => {
+    if (!moreActionsOpen || !moreActionsPosition || templateCreationBlocked) return;
+    saveAsTemplateItemRef.current?.focus({ preventScroll: true });
+  }, [moreActionsOpen, moreActionsPosition, templateCreationBlocked]);
 
   useEffect(() => {
     tRef.current = t;
@@ -526,6 +530,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                 <div
                   ref={moreActionsMenuRef}
                   role="menu"
+                  aria-label={language === 'zh-CN' ? '更多页面操作' : 'More page actions'}
                   style={moreActionsPosition ? {
                     left: moreActionsPosition.left,
                     top: moreActionsPosition.top,

@@ -386,6 +386,17 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
   });
 
+  it('gives the More menu an accessible name that matches its trigger', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('menu', { name: 'More page actions' })).toBeInTheDocument();
+  });
+
   it.each([8, 358])('clamps the More menu inside a 390px viewport from trigger left %i', async (triggerLeft) => {
     queuePages({ data: page() });
     templateMocks.listPageTemplates.mockResolvedValue(catalog(true));

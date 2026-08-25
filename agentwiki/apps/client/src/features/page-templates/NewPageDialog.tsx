@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import api from '../../api/client';
@@ -60,6 +60,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     generation: 0,
     status: 'loading',
   });
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const focusCloseAfterBackRef = useRef(false);
 
   const currentCatalogState: CatalogLoadState = catalogState.generation === reloadKey
     ? catalogState
@@ -82,6 +84,12 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       active = false;
     };
   }, [language, reloadKey, spaceId]);
+
+  useLayoutEffect(() => {
+    if (step !== 1 || !focusCloseAfterBackRef.current) return;
+    focusCloseAfterBackRef.current = false;
+    closeButtonRef.current?.focus();
+  }, [step]);
 
   const visibleTemplates = useMemo(() => {
     if (!catalog) return [];
@@ -144,6 +152,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           </p>
         </div>
         <button
+          ref={closeButtonRef}
           type="button"
           aria-label={t('common.close')}
           disabled={creating}
@@ -274,7 +283,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             <button
               type="button"
               disabled={creating}
-              onClick={() => setStep(1)}
+              onClick={() => {
+                focusCloseAfterBackRef.current = true;
+                setStep(1);
+              }}
               className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
             >
               {t('pageTemplate.back')}

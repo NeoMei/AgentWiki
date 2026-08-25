@@ -98,7 +98,7 @@ export class PageTemplateService implements OnModuleInit {
     for (let attempt = 1; attempt <= SEED_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
       try {
         await this.prisma.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('agentwiki:page-template-seeds'))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('agentwiki:page-template-seeds'))`;
           for (const seed of BUILT_IN_PAGE_TEMPLATES) await this.seedOne(seed, tx);
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return;

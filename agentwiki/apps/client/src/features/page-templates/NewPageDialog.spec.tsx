@@ -353,4 +353,22 @@ describe('NewPageDialog', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(opener).toHaveFocus());
   });
+
+  it('keeps focus inside the dialog after Back so Escape closes and restores the opener', async () => {
+    mocks.listPageTemplates.mockResolvedValue(catalog);
+    render(<OpenerHarness />);
+    const opener = screen.getByRole('button', { name: 'Open new page' });
+    opener.focus();
+    fireEvent.click(opener);
+
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    expect(screen.getByLabelText('标题')).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+
+    const close = screen.getByRole('button', { name: '关闭' });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+  });
 });
