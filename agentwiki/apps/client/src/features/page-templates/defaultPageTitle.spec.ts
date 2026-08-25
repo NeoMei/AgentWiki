@@ -14,6 +14,13 @@ describe('interpolateDefaultPageTitle', () => {
     expect(interpolateDefaultPageTitle('Team {name}', now)).toBe('Team {name}');
   });
 
+  it('replaces every repeated recognized token in the same title', () => {
+    expect(interpolateDefaultPageTitle(
+      '{date}|{date}|{year}|{year}|{week}|{week}',
+      now,
+    )).toBe('2026-08-25|2026-08-25|2026|2026|35|35');
+  });
+
   it('uses the ISO week-year at calendar-year boundaries', () => {
     expect(interpolateDefaultPageTitle('{date} {year}-W{week}', new Date(2025, 11, 29, 12)))
       .toBe('2025-12-29 2026-W01');

@@ -107,3 +107,73 @@ git diff --check
 ## Concerns
 
 - None identified within Task 7 scope.
+
+---
+
+## Review follow-up: contract and mutation coverage
+
+Review date: 2026-08-25
+
+### Added coverage
+
+- Title interpolation now asserts that two occurrences each of `{date}`, `{year}`, and `{week}` in one title are all replaced.
+- Catalog pagination now explicitly passes `skip: 0` and `take: 0` and asserts both values reach Axios unchanged. This locks the adapter to nullish defaulting rather than truthy defaulting; server-side DTO validation remains authoritative for range validity.
+- A parameterized path contract covers all six adapters. Both collection adapters and every item adapter receive Space/template identifiers containing `/`, `?`, and `#`, and assert exact `encodeURIComponent` output.
+- The 12 business-error cases now use the real HTTP status from `business-error.ts`: 400, 403, 404, 409, or 429. `PAGE_TEMPLATE_QUOTA_EXCEEDED` runs at 429 and still resolves to `pageTemplate.quotaExceeded`, proving business-code translation precedes the generic rate-limit branch.
+- Added a bilingual copy contract through the existing `LanguageProvider` / `useLanguage().t` API. It verifies both locale dictionaries have the same exact 50 page-template keys and asserts every one of the 100 key/value pairs from the brief.
+- No production implementation changed in this follow-up.
+
+### Mutation evidence
+
+Each mutation was applied temporarily, its focused suite was run, and production was restored with `apply_patch` before rerunning green.
+
+1. Replaced each `split(token).join(value)` with single `replace(token, value)`:
+   - Result: title suite failed 1/5.
+   - Exact failure retained the second `{date}`, `{year}`, and `{week}` occurrences.
+   - After restore: 5/5 passed.
+2. Replaced `skip/take ?? default` with `skip/take || default`:
+   - Result: API suite failed 1/15.
+   - Exact failure showed requested `take: 0` became `take: 100`.
+   - After restore: 15/15 passed.
+3. Replaced the shared `encodeURIComponent` segment helper with an identity function:
+   - Result: API suite failed 7/15, covering the pre-existing restore case plus all six adapter rows.
+   - After restore: 15/15 passed.
+
+`git diff --quiet` confirmed both production helper files match commit `38a568e` after restoration.
+
+### Focused and full verification
+
+Focused command:
+
+```bash
+cd agentwiki
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/defaultPageTitle.spec.ts \
+  src/features/page-templates/pageTemplateApi.spec.ts \
+  src/api/error-message.spec.ts \
+  src/i18n/page-template-messages.spec.tsx
+```
+
+Result: 4 files passed, 137/137 tests passed.
+
+Full client command:
+
+```bash
+pnpm --filter @agentwiki/client test
+```
+
+Result: 61 files passed, 578/578 tests passed.
+
+Additional gates:
+
+- Client `tsc --noEmit`: exit 0.
+- ESLint over all four changed test files: exit 0.
+- `git diff --check`: exit 0.
+
+### Follow-up files
+
+- Modified `agentwiki/apps/client/src/features/page-templates/defaultPageTitle.spec.ts`
+- Modified `agentwiki/apps/client/src/features/page-templates/pageTemplateApi.spec.ts`
+- Modified `agentwiki/apps/client/src/api/error-message.spec.ts`
+- Created `agentwiki/apps/client/src/i18n/page-template-messages.spec.tsx`
+- Modified `.superpowers/sdd/page-template-library/task-7-report.md`
