@@ -141,4 +141,89 @@ describe('SavePageAsTemplateDialog', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(templateDetail));
   });
+
+  it.each([80, 81, 160, 161, 200])(
+    'prefills a %i-character page title within the 80/160 UI limits',
+    async (length) => {
+      const pageTitle = 'x'.repeat(length);
+      mocks.createPageTemplate.mockResolvedValue(templateDetail);
+      renderDialog({ pageTitle });
+
+      expect(screen.getByLabelText('模板名称')).toHaveValue('x'.repeat(Math.min(length, 80)));
+      expect(screen.getByLabelText('默认页面标题')).toHaveValue('x'.repeat(Math.min(length, 160)));
+      fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+
+      await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledWith(
+        'space-1',
+        expect.objectContaining({
+          name: 'x'.repeat(Math.min(length, 80)),
+          defaultTitle: 'x'.repeat(Math.min(length, 160)),
+        }),
+      ));
+    },
+  );
+
+  it('truncates Unicode text without splitting surrogate pairs and never submits over-limit metadata', async () => {
+    const pageTitle = '😀'.repeat(200);
+    mocks.createPageTemplate.mockResolvedValue(templateDetail);
+    renderDialog({ pageTitle });
+    const name = screen.getByLabelText('模板名称');
+    const defaultTitle = screen.getByLabelText('默认页面标题');
+
+    expect(Array.from((name as HTMLInputElement).value)).toHaveLength(80);
+    expect(Array.from((defaultTitle as HTMLInputElement).value)).toHaveLength(160);
+    expect((name as HTMLInputElement).value.endsWith('😀')).toBe(true);
+    expect((defaultTitle as HTMLInputElement).value.endsWith('😀')).toBe(true);
+
+    fireEvent.change(name, { target: { value: '界'.repeat(81) } });
+    fireEvent.change(defaultTitle, { target: { value: '😀'.repeat(161) } });
+    fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+
+    await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledTimes(1));
+    const input = mocks.createPageTemplate.mock.calls[0][1];
+    expect(Array.from(input.name)).toHaveLength(80);
+    expect(Array.from(input.defaultTitle)).toHaveLength(160);
+    expect(input.defaultTitle.endsWith('😀')).toBe(true);
+  });
+
+  it('matches server length semantics for variation selectors on prefill and pasted input', async () => {
+    const plane = '✈️';
+    const pageTitle = `a${plane.repeat(160)}`;
+    mocks.createPageTemplate.mockResolvedValue(templateDetail);
+    renderDialog({ pageTitle });
+    const name = screen.getByLabelText('模板名称');
+    const defaultTitle = screen.getByLabelText('默认页面标题');
+
+    expect(name).toHaveValue(`a${plane.repeat(79)}`);
+    expect(defaultTitle).toHaveValue(`a${plane.repeat(159)}`);
+    expect((name as HTMLInputElement).value.endsWith(plane)).toBe(true);
+    expect((defaultTitle as HTMLInputElement).value.endsWith(plane)).toBe(true);
+    expect(name).not.toHaveAttribute('maxlength');
+    expect(defaultTitle).not.toHaveAttribute('maxlength');
+
+    const pastedName = `b${plane.repeat(80)}`;
+    fireEvent.paste(name, { clipboardData: { getData: () => pastedName } });
+    fireEvent.input(name, { target: { value: pastedName } });
+    expect(name).toHaveValue(`b${plane.repeat(79)}`);
+
+    fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+    await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledTimes(1));
+    const input = mocks.createPageTemplate.mock.calls[0][1];
+    expect(input.name).toBe(`b${plane.repeat(79)}`);
+    expect(input.defaultTitle).toBe(`a${plane.repeat(159)}`);
+  });
+
+  it('counts consecutive variation selectors separately like validator.js', async () => {
+    const selector = '\uFE0F';
+    const pageTitle = `a${selector.repeat(81)}`;
+    mocks.createPageTemplate.mockResolvedValue(templateDetail);
+    renderDialog({ pageTitle });
+    const name = screen.getByLabelText('模板名称');
+
+    expect(name).toHaveValue(`a${selector.repeat(80)}`);
+    fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+
+    await waitFor(() => expect(mocks.createPageTemplate).toHaveBeenCalledTimes(1));
+    expect(mocks.createPageTemplate.mock.calls[0][1].name).toBe(`a${selector.repeat(80)}`);
+  });
 });

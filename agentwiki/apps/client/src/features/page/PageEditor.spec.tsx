@@ -386,14 +386,54 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
   });
 
-  it('left-aligns the More menu on mobile and restores right alignment at larger breakpoints', async () => {
+  it.each([8, 358])('clamps the More menu inside a 390px viewport from trigger left %i', async (triggerLeft) => {
     queuePages({ data: page() });
     templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
     renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+    const rect = (left: number, width: number, top = 8, height = 32): DOMRect => ({
+      x: left, y: top, left, right: left + width, top, bottom: top + height, width, height,
+      toJSON: () => ({}),
+    });
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === trigger) return rect(triggerLeft, 32);
+      if (this.getAttribute('role') === 'menu') return rect(0, 256);
+      return rect(0, 0, 0, 0);
+    });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    try {
+      fireEvent.click(trigger);
+      const menu = await screen.findByRole('menu');
+      await waitFor(() => expect(menu.style.left).not.toBe(''));
+      const left = Number.parseFloat(menu.style.left);
+      const width = Number.parseFloat(menu.style.width);
 
-    expect(screen.getByRole('menu')).toHaveClass('left-0', 'sm:left-auto', 'sm:right-0');
+      expect(left).toBeGreaterThanOrEqual(16);
+      expect(left + width).toBeLessThanOrEqual(374);
+    } finally {
+      geometry.mockRestore();
+      viewport.mockRestore();
+    }
+  });
+
+  it('closes an open More menu when viewport geometry changes', async () => {
+    queuePages({ data: page() });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
+    renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
+    fireEvent(window, new Event('resize'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
+    fireEvent.scroll(window);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('ignores stale capability responses after a page route switch', async () => {

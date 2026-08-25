@@ -6,6 +6,32 @@ import { createPageTemplate } from './pageTemplateApi';
 import type { PageTemplateCategory, PageTemplateDetail } from './pageTemplateTypes';
 
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
+const TEMPLATE_NAME_LIMIT = 80;
+const TEMPLATE_DEFAULT_TITLE_LIMIT = 160;
+
+// Match validator.js isLength: surrogate pairs count as one, and a variation
+// selector is discounted only when it follows a non-selector UTF-16 code unit.
+const truncateValidatorLength = (value: string, maxLength: number) => {
+  let result = '';
+  let offset = 0;
+  let length = 0;
+  while (offset < value.length && length < maxLength) {
+    let end = offset + 1;
+    const first = value.charCodeAt(offset);
+    if (first >= 0xd800 && first <= 0xdbff && end < value.length) {
+      const second = value.charCodeAt(end);
+      if (second >= 0xdc00 && second <= 0xdfff) end += 1;
+    }
+    if (first !== 0xfe0e && first !== 0xfe0f && end < value.length) {
+      const next = value.charCodeAt(end);
+      if (next === 0xfe0e || next === 0xfe0f) end += 1;
+    }
+    result += value.slice(offset, end);
+    offset = end;
+    length += 1;
+  }
+  return result;
+};
 
 export interface SavePageAsTemplateDialogProps {
   spaceId: string;
@@ -28,10 +54,10 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
 }) => {
   const { language, t } = useLanguage();
   const [draft, setDraft] = useState({
-    name: pageTitle,
+    name: truncateValidatorLength(pageTitle, TEMPLATE_NAME_LIMIT),
     description: '',
     category: 'other' as PageTemplateCategory,
-    defaultTitle: pageTitle,
+    defaultTitle: truncateValidatorLength(pageTitle, TEMPLATE_DEFAULT_TITLE_LIMIT),
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,16 +73,18 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!draft.name.trim() || !draft.defaultTitle.trim() || submittingRef.current) return;
+    const name = truncateValidatorLength(draft.name.trim(), TEMPLATE_NAME_LIMIT);
+    const defaultTitle = truncateValidatorLength(draft.defaultTitle.trim(), TEMPLATE_DEFAULT_TITLE_LIMIT);
+    if (!name || !defaultTitle || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
       const result = await createPageTemplate(spaceId, {
-        name: draft.name.trim(),
+        name,
         description: draft.description.trim() || undefined,
         category: draft.category,
-        defaultTitle: draft.defaultTitle.trim(),
+        defaultTitle,
         locale: language,
         sourcePageId: pageId,
         expectedSourceUpdatedAt: pageUpdatedAt,
@@ -94,9 +122,11 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
             id="page-template-name"
             data-modal-autofocus
             required
-            maxLength={80}
             value={draft.name}
-            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({
+              ...value,
+              name: truncateValidatorLength(event.target.value, TEMPLATE_NAME_LIMIT),
+            }))}
             className="w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>
@@ -134,9 +164,11 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
           <input
             id="page-template-default-title"
             required
-            maxLength={160}
             value={draft.defaultTitle}
-            onChange={(event) => setDraft((value) => ({ ...value, defaultTitle: event.target.value }))}
+            onChange={(event) => setDraft((value) => ({
+              ...value,
+              defaultTitle: truncateValidatorLength(event.target.value, TEMPLATE_DEFAULT_TITLE_LIMIT),
+            }))}
             className="w-full rounded-lg border border-slate-300 px-3 py-2"
           />
         </label>

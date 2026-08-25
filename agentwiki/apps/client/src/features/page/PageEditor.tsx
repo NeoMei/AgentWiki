@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
@@ -60,6 +60,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const saveAsTemplateItemRef = useRef<HTMLButtonElement>(null);
 
   const [page, setPage] = useState<Page | null>(null);
@@ -77,6 +78,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
   const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
 
   const templateCapabilityIdentity = page
@@ -155,6 +157,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   useEffect(() => {
     setMoreActionsOpen(false);
+    setMoreActionsPosition(null);
     setTemplateDialogOpen(false);
     setTemplateCapability(null);
     if (!page?.spaceId || !page.id || page.format !== 'markdown' || !templateCapabilityIdentity) return;
@@ -173,9 +176,28 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     };
   }, [language, page?.format, page?.id, page?.spaceId, templateCapabilityIdentity]);
 
+  useLayoutEffect(() => {
+    if (!moreActionsOpen) {
+      setMoreActionsPosition(null);
+      return;
+    }
+    const trigger = moreActionsButtonRef.current;
+    const menu = moreActionsMenuRef.current;
+    if (!trigger || !menu) return;
+
+    const viewportWidth = window.innerWidth;
+    const availableWidth = Math.max(0, viewportWidth - 32);
+    const measuredWidth = menu.getBoundingClientRect().width || 256;
+    const width = Math.min(measuredWidth, 256, availableWidth);
+    const triggerRect = trigger.getBoundingClientRect();
+    const maximumLeft = Math.max(16, viewportWidth - 16 - width);
+    const left = Math.min(Math.max(triggerRect.right - width, 16), maximumLeft);
+    setMoreActionsPosition({ left, top: triggerRect.bottom + 8, width });
+  }, [moreActionsOpen]);
+
   useEffect(() => {
     if (!moreActionsOpen) return;
-    if (!templateCreationBlocked) saveAsTemplateItemRef.current?.focus();
+    if (!templateCreationBlocked) saveAsTemplateItemRef.current?.focus({ preventScroll: true });
     const closeFromOutside = (event: PointerEvent) => {
       if (!moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
     };
@@ -183,13 +205,23 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       if (event.key !== 'Escape') return;
       event.preventDefault();
       setMoreActionsOpen(false);
+      setMoreActionsPosition(null);
       moreActionsButtonRef.current?.focus();
+    };
+    const closeForViewportChange = () => {
+      setMoreActionsOpen(false);
+      setMoreActionsPosition(null);
+      moreActionsButtonRef.current?.focus({ preventScroll: true });
     };
     document.addEventListener('pointerdown', closeFromOutside);
     document.addEventListener('keydown', closeFromEscape);
+    window.addEventListener('resize', closeForViewportChange);
+    window.addEventListener('scroll', closeForViewportChange, true);
     return () => {
       document.removeEventListener('pointerdown', closeFromOutside);
       document.removeEventListener('keydown', closeFromEscape);
+      window.removeEventListener('resize', closeForViewportChange);
+      window.removeEventListener('scroll', closeForViewportChange, true);
     };
   }, [moreActionsOpen, templateCreationBlocked]);
 
@@ -477,7 +509,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                 aria-haspopup="menu"
                 aria-expanded={moreActionsOpen}
                 aria-describedby={moreActionsOpen && templateCreationBlocked ? 'save-page-template-blocked-reason' : undefined}
-                onClick={() => setMoreActionsOpen((open) => !open)}
+                onClick={() => setMoreActionsOpen((open) => {
+                  if (open) setMoreActionsPosition(null);
+                  return !open;
+                })}
                 onKeyDown={(event) => {
                   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
                   event.preventDefault();
@@ -489,8 +524,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               </button>
               {moreActionsOpen ? (
                 <div
+                  ref={moreActionsMenuRef}
                   role="menu"
-                  className="absolute left-0 top-10 z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-1 shadow-lg sm:left-auto sm:right-0"
+                  style={moreActionsPosition ? {
+                    left: moreActionsPosition.left,
+                    top: moreActionsPosition.top,
+                    width: moreActionsPosition.width,
+                  } : { visibility: 'hidden' }}
+                  className="fixed z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-1 shadow-lg"
                 >
                   <button
                     ref={saveAsTemplateItemRef}
