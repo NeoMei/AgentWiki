@@ -105,8 +105,8 @@ pnpm test:e2e:page-template-db
 ```
 
 The previously pending real migration, constraint, concurrency/no-orphan, and cleanup-path evidence
-for commit `c34bb8e` is therefore closed. The review remediation below expands the integration case;
-those newly added assertions require the controller's next disposable-cluster rerun.
+for commit `c34bb8e` is therefore closed. The review remediation below expanded the integration
+case and was subsequently verified by the final disposable-cluster rerun recorded there.
 
 ### Random-schema and `finally` cleanup evidence
 
@@ -167,9 +167,23 @@ node --check scripts/page-template-schema-db.test.mjs
 # both exit 0
 ```
 
-No PostgreSQL URL was used for this remediation pass. The new CHECK/trigger/provenance assertions
-are intentionally pending the controller's fresh temporary-cluster gate; the earlier `2 pass`
-result predates these added assertions and is not presented as evidence for them.
+No PostgreSQL URL was used for the local remediation pass above; its database case correctly
+skipped. The controller then ran commit `f4df2ad` against another newly initialized disposable
+PostgreSQL cluster:
+
+```text
+pnpm test:e2e:page-template-db
+# 2 passed, 0 failed, 0 skipped
+# database case: 622.922ms
+# total suite: 665.4685ms
+```
+
+This final real gate executed and passed the newly added lower-bound CHECK assertions, all six
+immutable identity/content-field update assertions, both allowed provenance cleanups, both
+provenance restoration rejections, the pre-existing compound-FK checks, and the concurrent
+version/no-orphan check. The harness's awaited random-schema `finally` cleanup completed as part of
+the passing case. The controller then stopped the temporary cluster and moved it to the system
+Trash. Task 11's revised real PostgreSQL gate is final at `2 pass, 0 fail, 0 skipped`.
 
 ## Files
 
@@ -183,5 +197,25 @@ result predates these added assertions and is not presented as evidence for them
 - Work stayed in the requested worktree and on `codex/page-template-library`.
 - No existing migration or product service code was changed.
 - The original subtask attempted no PostgreSQL connection because the only authorized URL was
-  absent; the subsequent gate used only the newly initialized disposable cluster described above.
+  absent; both subsequent real gates used only newly initialized disposable clusters described
+  above.
 - No push, publish, deployment, worktree creation, or branch creation was performed.
+
+## Task 13 final fresh rerun
+
+Task 13's final post-review rerun used a newly initialized Homebrew PostgreSQL 16.14
+cluster on `127.0.0.1:59501`, with the explicit local role `neomei` and a dedicated database supplied
+only through `PAGE_TEMPLATE_TEST_DATABASE_URL`:
+
+```text
+pnpm test:e2e:page-template-db
+# 2 passed, 0 failed, 0 skipped
+# database case: 3931.938084ms
+# total suite: 3978.943333ms; wall time 4.21s
+```
+
+PostgreSQL statement logging recorded exact schema
+`page_template_test_0430b861a8f2475abbd36f9e6cf130ba` being created and later dropped with
+`CASCADE`. A subsequent `pg_namespace` query reported zero `page_template_test_%` schemas. The
+cluster was stopped, port 59501 was verified free, and the whole disposable environment was moved
+to `/Users/neomei/.Trash/agentwiki-task13-final4.CO5j8h-1787679963`. No existing or remote database was used.

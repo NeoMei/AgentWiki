@@ -235,3 +235,24 @@ git diff --check
 - The pre-existing Task 11 report modification was preserved and excluded from this Task 12 commit.
 - No remote target, existing database, push, publish, deployment, new worktree, or new branch was
   used.
+
+## Task 13 final fresh rerun
+
+Task 13's final post-review run used a completely new disposable stack: PostgreSQL 16.14
+on 59501, Redis 8.8 on 59502, local API on 3000, and Vite on 5173. Health reported all four checks
+`ok`, all 43 migrations were applied to the disposable API database, and the exact command reported:
+
+```text
+pnpm --filter @agentwiki/client exec playwright test e2e/page-templates.spec.ts
+# 7 passed, 0 failed, 0 skipped; 1 worker
+# Playwright 13.1s; wall time 13.73s
+```
+
+Both scenarios that installed console-error collectors observed zero errors. The 390 x 844 scenario
+again verified NewPageDialog, manager, an 80-character unbroken template name, and PageEditor More
+menu viewport bounds plus focus restoration.
+The passing `afterAll` assertion proved all Space/User cleanup DELETE responses succeeded. These
+endpoints soft-delete, so remaining physical rows are expected and are not a cleanup failure. API,
+Vite, Redis, and PostgreSQL were stopped; ports 3000, 5173, 59501, and 59502 were verified free. The
+complete stack, logs, and four screenshots were moved to
+`/Users/neomei/.Trash/agentwiki-task13-final4.CO5j8h-1787679963`.
