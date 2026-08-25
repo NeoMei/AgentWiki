@@ -192,7 +192,7 @@ describe('PageTemplateService', () => {
     );
   });
 
-  it('returns the current localized content without exposing raw JSON', async () => {
+  it('get returns existing requested system content with its requested locale', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     pageTemplate.findFirst.mockResolvedValue(systemRecord);
     pageTemplateVersion.findUnique.mockResolvedValue({
@@ -204,6 +204,47 @@ describe('PageTemplateService', () => {
     await expect(service.get('space-1', 'system-1', 'zh-CN', principal)).resolves.toMatchObject({
       id: 'system-1', name: '任务清单', content: '# 任务清单', contentLocale: 'zh-CN', sourcePageId: null,
     });
+  });
+
+  it('get falls back missing requested system content to English with locale en', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    pageTemplate.findFirst.mockResolvedValue(systemRecord);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'system-1', version: 1,
+      contentI18n: { en: '# English only' },
+      sourcePageId: null,
+    });
+
+    await expect(service.get('space-1', 'system-1', 'zh-CN', principal)).resolves.toMatchObject({
+      content: '# English only', contentLocale: 'en',
+    });
+  });
+
+  it('get returns Space content strictly from sourceLocale', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    pageTemplate.findFirst.mockResolvedValue(spaceRecord);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'space-template', version: 2,
+      contentI18n: { 'zh-CN': '# 源语言', en: '# Other language' },
+      sourcePageId: 'page-1',
+    });
+
+    await expect(service.get('space-1', 'space-template', 'en', principal)).resolves.toMatchObject({
+      content: '# 源语言', contentLocale: 'zh-CN',
+    });
+  });
+
+  it('get rejects Space content missing sourceLocale with a stable code', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    pageTemplate.findFirst.mockResolvedValue(spaceRecord);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'space-template', version: 2,
+      contentI18n: { en: '# Wrong fallback' },
+      sourcePageId: 'page-1',
+    });
+
+    await expect(service.get('space-1', 'space-template', 'en', principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
   });
 
   it('resolves the exact requested old version without silently advancing', async () => {
@@ -220,6 +261,43 @@ describe('PageTemplateService', () => {
     expect(pageTemplate.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       include: { versions: { where: { version: 2 }, take: 1 } },
     }));
+  });
+
+  it('resolveVersion returns existing requested system content with its requested locale', async () => {
+    pageTemplate.findFirst.mockResolvedValue({
+      id: 'system-1', scope: 'system', sourceLocale: null, archivedAt: null,
+      versions: [{ version: 1, contentI18n: { 'zh-CN': '# 中文', en: '# English' } }],
+    });
+
+    await expect(service.resolveVersion(prisma, {
+      spaceId: 'space-1', templateId: 'system-1', version: 1, locale: 'zh-CN',
+    })).resolves.toEqual({
+      content: '# 中文', templateId: 'system-1', version: 1, locale: 'zh-CN',
+    });
+  });
+
+  it('resolveVersion falls back missing requested system content to English with locale en', async () => {
+    pageTemplate.findFirst.mockResolvedValue({
+      id: 'system-1', scope: 'system', sourceLocale: null, archivedAt: null,
+      versions: [{ version: 1, contentI18n: { en: '# English only' } }],
+    });
+
+    await expect(service.resolveVersion(prisma, {
+      spaceId: 'space-1', templateId: 'system-1', version: 1, locale: 'zh-CN',
+    })).resolves.toEqual({
+      content: '# English only', templateId: 'system-1', version: 1, locale: 'en',
+    });
+  });
+
+  it('resolveVersion rejects Space content missing sourceLocale with a stable code', async () => {
+    pageTemplate.findFirst.mockResolvedValue({
+      id: 'space-template', scope: 'space', spaceId: 'space-1', sourceLocale: 'zh-CN', archivedAt: null,
+      versions: [{ version: 2, contentI18n: { en: '# Wrong fallback' } }],
+    });
+
+    await expect(service.resolveVersion(prisma, {
+      spaceId: 'space-1', templateId: 'space-template', version: 2, locale: 'en',
+    })).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
   });
 
   it('rejects cross-Space, archived, and missing versions with stable codes', async () => {

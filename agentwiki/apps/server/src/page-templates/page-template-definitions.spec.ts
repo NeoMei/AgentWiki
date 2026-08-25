@@ -3,7 +3,12 @@ import {
   BUILT_IN_PAGE_TEMPLATES,
   BuiltInPageTemplateCategorySchema,
 } from './page-template-definitions';
-import { localizedValue, normalizeTemplateName, templateContentHash } from './page-template.types';
+import {
+  localizedValue,
+  normalizeTemplateName,
+  resolveLocalizedValue,
+  templateContentHash,
+} from './page-template.types';
 
 describe('built-in page templates', () => {
   it('defines the exact ordered bilingual catalog', () => {
@@ -50,5 +55,29 @@ describe('built-in page templates', () => {
     expect(localizedValue({ en: 'English' }, 'zh-CN', 'en')).toBe('English');
     expect(templateContentHash('# Same')).toBe(templateContentHash('# Same'));
     expect(templateContentHash('# Same')).not.toBe(templateContentHash('# Different'));
+  });
+
+  it('returns the requested system value with its actual locale', () => {
+    expect(resolveLocalizedValue(
+      { 'zh-CN': '中文', en: 'English' }, { scope: 'system', requested: 'zh-CN' },
+    )).toEqual({ value: '中文', locale: 'zh-CN' });
+  });
+
+  it('returns the English system fallback with locale en', () => {
+    expect(resolveLocalizedValue(
+      { en: 'English' }, { scope: 'system', requested: 'zh-CN' },
+    )).toEqual({ value: 'English', locale: 'en' });
+  });
+
+  it('returns only the strict Space source locale', () => {
+    expect(resolveLocalizedValue(
+      { 'zh-CN': '中文', en: 'English' }, { scope: 'space', sourceLocale: 'zh-CN' },
+    )).toEqual({ value: '中文', locale: 'zh-CN' });
+  });
+
+  it('rejects Space content missing its source locale', () => {
+    expect(() => resolveLocalizedValue(
+      { en: 'English' }, { scope: 'space', sourceLocale: 'zh-CN' },
+    )).toThrow();
   });
 });

@@ -12,6 +12,7 @@ import {
   normalizeTemplateName,
   type PageTemplateLocale,
   PageTemplateLocaleSchema,
+  resolveLocalizedValue,
   templateContentHash,
 } from './page-template.types';
 
@@ -154,13 +155,16 @@ export class PageTemplateService implements OnModuleInit {
     const version = template.versions[0];
     if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
     try {
-      const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
-      const locale = template.scope === 'system' ? input.locale : fallback;
+      const resolved = template.scope === 'system'
+        ? resolveLocalizedValue(version.contentI18n, { scope: 'system', requested: input.locale })
+        : resolveLocalizedValue(version.contentI18n, {
+          scope: 'space', sourceLocale: PageTemplateLocaleSchema.parse(template.sourceLocale),
+        });
       return {
-        content: localizedValue(version.contentI18n, input.locale, fallback),
+        content: resolved.value,
         templateId: template.id,
         version: version.version,
-        locale,
+        locale: resolved.locale,
       };
     } catch (error) {
       this.rethrowInvalidTemplateJson(error);
@@ -182,12 +186,15 @@ export class PageTemplateService implements OnModuleInit {
       });
       if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
       try {
-        const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
-        const contentLocale = template.scope === 'system' ? locale : fallback;
+        const resolved = template.scope === 'system'
+          ? resolveLocalizedValue(version.contentI18n, { scope: 'system', requested: locale })
+          : resolveLocalizedValue(version.contentI18n, {
+            scope: 'space', sourceLocale: PageTemplateLocaleSchema.parse(template.sourceLocale),
+          });
         return {
           ...this.summary(template, locale),
-          content: localizedValue(version.contentI18n, locale, fallback),
-          contentLocale,
+          content: resolved.value,
+          contentLocale: resolved.locale,
           sourcePageId: version.sourcePageId,
         };
       } catch (error) {

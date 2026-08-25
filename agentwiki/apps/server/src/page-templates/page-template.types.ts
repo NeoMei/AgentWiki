@@ -29,6 +29,19 @@ export function localizedValue(
   return parsed[requested] ?? parsed[fallback] ?? parsed.en ?? parsed['zh-CN']!;
 }
 
+export function resolveLocalizedValue(
+  value: unknown,
+  policy:
+    | { scope: 'system'; requested: PageTemplateLocale }
+    | { scope: 'space'; sourceLocale: PageTemplateLocale },
+): { value: string; locale: PageTemplateLocale } {
+  const parsed = LocalizedValueSchema.parse(value);
+  const locale = policy.scope === 'system'
+    ? (parsed[policy.requested] !== undefined ? policy.requested : 'en')
+    : policy.sourceLocale;
+  return { value: z.string().parse(parsed[locale]), locale };
+}
+
 export function normalizeTemplateName(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US');
 }
