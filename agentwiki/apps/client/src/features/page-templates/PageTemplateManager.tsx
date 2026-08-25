@@ -65,10 +65,19 @@ export const PageTemplateManager: React.FC = () => {
   const requestIdRef = useRef(0);
   const sourceRequestIdRef = useRef(0);
   const templatesRef = useRef(EMPTY_TEMPLATES);
+  const spaceIdRef = useRef(id);
+  spaceIdRef.current = id;
   const identity = `${id ?? ''}\u0000${language}\u0000${search}\u0000${category}\u0000${showArchived ? 'all' : 'active'}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const visibleTemplates = templatesIdentity === identity ? templates : EMPTY_TEMPLATES;
+
+  const invalidateCatalog = useCallback(() => {
+    templatesRef.current = EMPTY_TEMPLATES;
+    setTemplatesState(EMPTY_TEMPLATES);
+    setTemplatesIdentity(null);
+    setPendingDialog(null);
+  }, []);
 
   const load = useCallback(async (reset = true) => {
     if (!id) return;
@@ -103,16 +112,18 @@ export const PageTemplateManager: React.FC = () => {
       setTemplatesState(next);
       setTemplatesIdentity(requestIdentity);
     } catch (caught) {
-      if (requestId === requestIdRef.current) {
+      if (requestId === requestIdRef.current && requestIdentity === identityRef.current) {
         setError(apiErrorMessage(caught, t, 'pageTemplate.loadFailed'));
       }
     } finally {
-      if (requestId === requestIdRef.current) {
+      if (requestId === requestIdRef.current && requestIdentity === identityRef.current) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
   }, [category, id, identity, language, search, showArchived, t]);
+  const latestLoadRef = useRef(load);
+  latestLoadRef.current = load;
 
   useEffect(() => {
     requestIdRef.current += 1;
@@ -194,6 +205,7 @@ export const PageTemplateManager: React.FC = () => {
     event.preventDefault();
     if (!id || pendingDialog?.type !== 'metadata' || submitting || !visibleTemplates.capabilities.canManage) return;
     const operationIdentity = identityRef.current;
+    const operationSpaceId = id;
     const template = pendingDialog.template;
     setSubmitting(true);
     setDialogError(null);
@@ -205,9 +217,9 @@ export const PageTemplateManager: React.FC = () => {
         defaultTitle: metadataDefaultTitle.trim(),
         expectedUpdatedAt: template.updatedAt,
       });
-      if (identityRef.current !== operationIdentity) return;
-      setPendingDialog(null);
-      await load(true);
+      if (spaceIdRef.current !== operationSpaceId) return;
+      invalidateCatalog();
+      await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
         setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
@@ -223,6 +235,7 @@ export const PageTemplateManager: React.FC = () => {
     const sourcePage = sourcePages.find((page) => page.id === sourcePageId);
     if (!sourcePage) return;
     const operationIdentity = identityRef.current;
+    const operationSpaceId = id;
     const template = pendingDialog.template;
     setSubmitting(true);
     setDialogError(null);
@@ -232,13 +245,13 @@ export const PageTemplateManager: React.FC = () => {
         expectedSourceUpdatedAt: sourcePage.updatedAt,
         expectedCurrentVersion: template.currentVersion,
       });
-      if (identityRef.current !== operationIdentity) return;
+      if (spaceIdRef.current !== operationSpaceId) return;
       if (result.noChange) {
         setDialogError(t('pageTemplate.noChange'));
         return;
       }
-      setPendingDialog(null);
-      await load(true);
+      invalidateCatalog();
+      await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
         setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
@@ -251,11 +264,15 @@ export const PageTemplateManager: React.FC = () => {
   const changeArchiveState = async (template: PageTemplateSummary, restore: boolean) => {
     if (!id || !visibleTemplates.capabilities.canManage || !window.confirm(`${t(restore ? 'pageTemplate.restore' : 'pageTemplate.archive')} ${template.name}?`)) return;
     const operationIdentity = identityRef.current;
+    const operationSpaceId = id;
     setError(null);
     try {
       if (restore) await restorePageTemplate(id, template.id, template.updatedAt);
       else await archivePageTemplate(id, template.id, template.updatedAt);
-      if (identityRef.current === operationIdentity) await load(true);
+      if (spaceIdRef.current === operationSpaceId) {
+        invalidateCatalog();
+        await latestLoadRef.current(true);
+      }
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
         setError(apiErrorMessage(caught, t, 'pageTemplate.createFailed'));
@@ -266,29 +283,29 @@ export const PageTemplateManager: React.FC = () => {
   const renderTemplate = (template: PageTemplateSummary, mutable: boolean) => (
     <article key={template.id} className="rounded-[14px] border bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-medium">{template.name}</h3>
-          <p className="mt-1 text-sm text-gray-500">{template.description}</p>
+        <div className="min-w-0 break-words">
+          <h3 className="break-words font-medium">{template.name}</h3>
+          <p className="mt-1 break-words text-sm text-gray-500">{template.description}</p>
           <p className="mt-2 text-xs text-gray-400">
             {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
           </p>
         </div>
         {mutable && visibleTemplates.capabilities.canManage ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="min-w-0 flex flex-wrap gap-2">
             {!template.archivedAt ? (
               <>
-                <button type="button" className="h-8 rounded-lg border px-3 text-sm" onClick={() => openMetadata(template)}>
+                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => openMetadata(template)}>
                   {t('common.edit')} {template.name}
                 </button>
-                <button type="button" className="h-8 rounded-lg border px-3 text-sm" onClick={() => openVersion(template)}>
+                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => openVersion(template)}>
                   {t('pageTemplate.updateFromPage')} {template.name}
                 </button>
-                <button type="button" className="h-8 rounded-lg border px-3 text-sm text-red-600" onClick={() => void changeArchiveState(template, false)}>
+                <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm text-red-600 break-words" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
                 </button>
               </>
             ) : (
-              <button type="button" className="h-8 rounded-lg border px-3 text-sm" onClick={() => void changeArchiveState(template, true)}>
+              <button type="button" className="min-h-10 rounded-lg border px-3 py-2 text-sm break-words" onClick={() => void changeArchiveState(template, true)}>
                 {t('pageTemplate.restore')} {template.name}
               </button>
             )}
@@ -334,7 +351,21 @@ export const PageTemplateManager: React.FC = () => {
         </label>
       </div>
 
-      {error ? <p role="alert" className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {error ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-red-600">{error}</p>
+          <button
+            type="button"
+            className="min-h-10 rounded-lg border px-3 py-2 text-sm"
+            onClick={() => {
+              invalidateCatalog();
+              void load(true);
+            }}
+          >
+            {t('pageTemplate.retry')}
+          </button>
+        </div>
+      ) : null}
       {loading ? <p className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : null}
 
       <section className="mt-6" aria-labelledby="system-templates-heading">

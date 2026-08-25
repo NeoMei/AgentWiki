@@ -116,3 +116,101 @@ An independent read-only reviewer checked the brief, implementation, tests, API/
 ## Concerns
 
 - None identified within Task 9 scope.
+
+---
+
+## Review fix: authoritative post-mutation refresh gate
+
+Review-fix date: 2026-08-25
+
+Review-fix starting commit: `d49fca7842ba2576c650d11203710de89d79893b`
+
+### Root cause
+
+- Successful metadata, version, archive, and restore calls started an authoritative reset load while leaving the previously accepted catalog identity in place.
+- If that load was slow, cards and mutation controls still carried the old `updatedAt` / `currentVersion` and could start another optimistic mutation.
+- If that load failed, the old mutable catalog remained visible; the manager had an error message but no explicit retry action.
+
+### TDD RED
+
+Two deferred-promise tests were added before the production fix:
+
+```bash
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/PageTemplateManager.spec.tsx \
+  -t "authoritative|refresh gate"
+```
+
+Observed RED: 1 test file failed, 2/2 selected tests failed.
+
+- After a successful metadata mutation entered a pending authoritative reload, the old `团队周报` card and its mutation controls remained in the document.
+- The same stale card and controls remained after a successful archive entered its pending authoritative reload.
+
+### Remediation
+
+- Added one shared `invalidateCatalog()` gate used by successful metadata, version, archive, and restore paths before their authoritative reset load starts.
+- The gate clears the renderable catalog identity, catalog/ref contents, capabilities, and pending dialog. Old cards, mutation controls, and CAS tokens therefore disappear together.
+- A failed authoritative reload leaves the catalog invalid. The manager renders the translated load error plus the existing bilingual `pageTemplate.retry` action; retry performs another invalidated reset load.
+- Retry coverage proves that only the refreshed card and `v8` are displayed and that the next metadata update sends the refreshed exact `updatedAt`, never the prior token.
+- An archive-specific deferred test proves the same shared gate protects a non-dialog mutation path and does not issue a duplicate archive.
+- Load rejection/finalization now checks both request sequence and complete request identity, preserving the existing stale-response contract.
+- Template text containers now use `min-w-0` and `break-words`; card mutation buttons use at least `min-h-10` with wrapping text for better 390px and touch behavior. Real 390px browser verification remains Task 12.
+
+### Verification
+
+Fresh focused Task 9 gate after the fix:
+
+```text
+Test Files  5 passed (5)
+Tests       34 passed (34)
+```
+
+Fresh complete client suite after the fix:
+
+```text
+Test Files  65 passed (65)
+Tests       621 passed (621)
+```
+
+Additional gates:
+
+- Client `tsc --noEmit`: exit 0.
+- Client ESLint: exit 0 with no warnings.
+- `git diff --check`: exit 0.
+
+### Backlog note
+
+- Unknown mutation failures still use the pre-approved existing `pageTemplate.createFailed` fallback because Task 9 did not authorize new bilingual copy. Known business codes continue to resolve to their accurate existing translations. A dedicated generic page-template mutation fallback can be added in a later copy-contract task if desired.
+
+### Concurrent filter-identity follow-up
+
+The first review fix received an additional independent concurrency review. It identified that successful mutations still compared the entire original identity before refreshing. If search/category/archive/language changed while a mutation was pending, the success path could skip authoritative refresh even though the user remained in the same Space; calling the handler's captured `load` would also target the old filters.
+
+A deferred archive test was added before this second production fix:
+
+```bash
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/PageTemplateManager.spec.tsx \
+  -t "latest filter identity"
+```
+
+Observed RED: the selected test failed because only the initial and filter-change list requests occurred; the expected third authoritative request for the latest filter identity never started.
+
+Remediation:
+
+- Mutation success is discarded only when the live `spaceId` differs from the operation's Space.
+- A `latestLoadRef` is updated every render. Successful metadata, version, archive, and restore operations invalidate the current catalog and call the latest reset loader, so current language/search/category/archive filters are preserved.
+- The deferred test proves that an old filtered snapshot may load before the mutation commits, but mutation success immediately removes that snapshot and all controls, then issues a third request with `q: "latest filter"`, `archived: "active"`, and `skip: 0`.
+- Space-level isolation remains separate: a mutation from a different Space cannot refresh or overwrite the current Space.
+
+The same independent reviewer rechecked the remediation and reported no Critical, Important, or Minor findings. The reviewer confirmed all four mutation paths use the latest identity within the same Space and that an operation from a changed Space cannot clear or reload the new Space.
+
+Final verification after the concurrent filter-identity fix:
+
+```text
+Focused Task 9: 5 files passed, 35/35 tests passed
+Complete client: 65 files passed, 622/622 tests passed
+Client tsc --noEmit: exit 0
+Client ESLint: exit 0 with no warnings
+git diff --check: exit 0
+```

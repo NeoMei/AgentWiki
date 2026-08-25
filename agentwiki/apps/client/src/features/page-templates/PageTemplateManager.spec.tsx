@@ -197,6 +197,108 @@ describe('PageTemplateManager', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('keeps the catalog invalid after a successful metadata mutation until a failed authoritative reload is retried', async () => {
+    let rejectReload!: (reason: unknown) => void;
+    const refreshedTemplate = {
+      ...spaceTemplate,
+      name: '权威周报',
+      currentVersion: 8,
+      updatedAt: '2026-08-25T15:00:00.000Z',
+    };
+    mocks.listPageTemplates
+      .mockResolvedValueOnce(ownerCatalog)
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectReload = reject; }))
+      .mockResolvedValue({ ...ownerCatalog, space: [refreshedTemplate] });
+    mocks.updatePageTemplate.mockResolvedValue({ ...spaceTemplate, name: '缓存响应' });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.change(screen.getByLabelText('模板名称'), { target: { value: '提交名称' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /编辑|归档|恢复|更新内容/ })).not.toBeInTheDocument();
+    expect(mocks.updatePageTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.archivePageTemplate).not.toHaveBeenCalled();
+
+    await act(async () => rejectReload(new Error('reload offline')));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /编辑|归档|恢复|更新内容/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('权威周报')).toBeInTheDocument();
+    expect(screen.getByText(/v8/)).toBeInTheDocument();
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /编辑 权威周报/ }));
+    fireEvent.change(screen.getByLabelText('模板名称'), { target: { value: '再次提交' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(mocks.updatePageTemplate).toHaveBeenNthCalledWith(2, 'space-1', 'space-1-template', {
+      name: '再次提交', description: '团队格式', category: 'reporting',
+      defaultTitle: '团队周报', expectedUpdatedAt: refreshedTemplate.updatedAt,
+    }));
+  });
+
+  it('uses the same authoritative refresh gate after archive succeeds', async () => {
+    let resolveReload!: (value: PageTemplateListResponse) => void;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates
+      .mockResolvedValueOnce(ownerCatalog)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveReload = resolve; }));
+    mocks.archivePageTemplate.mockResolvedValue({
+      ...spaceTemplate, archivedAt: '2026-08-25T16:00:00.000Z', updatedAt: '2026-08-25T16:00:00.000Z',
+    });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /归档 团队周报/ }));
+    await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /编辑|归档|恢复|更新内容/ })).not.toBeInTheDocument();
+    expect(mocks.archivePageTemplate).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveReload({ ...ownerCatalog, space: [], totalSpace: 0 }));
+    expect(screen.queryByText('团队周报')).not.toBeInTheDocument();
+    expect(mocks.archivePageTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the latest filter identity when an archive succeeds after that identity changed', async () => {
+    let resolveArchive!: (value: PageTemplateSummary) => void;
+    let resolveAuthoritative!: (value: PageTemplateListResponse) => void;
+    const filteredOldSnapshot = {
+      ...ownerCatalog,
+      space: [{ ...spaceTemplate, name: '筛选旧快照' }],
+    };
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.listPageTemplates
+      .mockResolvedValueOnce(ownerCatalog)
+      .mockResolvedValueOnce(filteredOldSnapshot)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveAuthoritative = resolve; }));
+    mocks.archivePageTemplate.mockImplementation(() => new Promise((resolve) => { resolveArchive = resolve; }));
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /归档 团队周报/ }));
+    fireEvent.change(screen.getByLabelText('搜索模板'), { target: { value: 'latest filter' } });
+    expect(await screen.findByText('筛选旧快照')).toBeInTheDocument();
+
+    await act(async () => resolveArchive({
+      ...spaceTemplate,
+      archivedAt: '2026-08-25T17:00:00.000Z',
+      updatedAt: '2026-08-25T17:00:00.000Z',
+    }));
+    await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledTimes(3));
+    expect(mocks.listPageTemplates).toHaveBeenLastCalledWith('space-1', expect.objectContaining({
+      q: 'latest filter', archived: 'active', skip: 0,
+    }));
+    expect(screen.queryByText('筛选旧快照')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /编辑|归档|恢复|更新内容/ })).not.toBeInTheDocument();
+
+    await act(async () => resolveAuthoritative({ ...ownerCatalog, space: [], totalSpace: 0 }));
+    expect(screen.queryByText('筛选旧快照')).not.toBeInTheDocument();
+  });
+
   it('shows no-change feedback and keeps the version dialog open', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     mocks.api.get.mockResolvedValue({ data: { data: [{
