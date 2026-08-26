@@ -272,17 +272,18 @@ Add a parameterized test with human `owner`, `editor`, `admin`, `viewer`, super-
 
 ```ts
 it.each([
-  ['owner', false, true],
-  ['editor', false, true],
-  ['admin', false, true],
-  ['viewer', false, false],
-  ['owner', true, false],
-  ['owner', true, false, 'super_admin'],
-])('maps role %s and agent=%s to canEdit=%s', async (role, agent, canEdit) => {
+  ['owner', false, 'user', true],
+  ['editor', false, 'user', true],
+  ['admin', false, 'user', true],
+  ['viewer', false, 'user', false],
+  ['viewer', false, 'super_admin', true],
+  ['owner', true, 'user', false],
+  ['owner', true, 'super_admin', false],
+])('maps role %s, agent=%s, platformRole=%s to canEdit=%s', async (role, agent, platformRole, canEdit) => {
   authorization.assertPageAccess.mockResolvedValue({ id: 'page-1', spaceId: 'space-1' });
   authorization.assertSpaceAccess.mockResolvedValue({ role });
   const result = await controller.findOne('page-1', {
-    user: { userId: 'user-1', ...(agent ? { agentId: 'agent-1' } : {}) },
+    user: { userId: 'user-1', platformRole, ...(agent ? { agentId: 'agent-1' } : {}) },
   } as any);
   expect(result.capabilities).toEqual({ canEdit });
 });
