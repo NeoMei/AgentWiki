@@ -104,11 +104,23 @@ const DirectEditRedirectTarget = () => {
   return <p>{`${location.pathname}:${navigationType}`}</p>;
 };
 
+const expectNoWritableWorkspace = (container: HTMLElement) => {
+  expect(container.querySelector('.cm-editor')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('md-editor-surface')).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument();
+  expect(screen.queryByTestId('assist-toggle')).not.toBeInTheDocument();
+};
+
 const NavigationHarness = () => {
   const navigate = useNavigate();
   return <>
     <button type="button" onClick={() => navigate('/pages/page-2/edit')}>Navigate to second page</button>
-    <Routes><Route path="/pages/:id/edit" element={<PageEditor />} /></Routes>
+    <Routes>
+      <Route path="/pages/:id/edit" element={<PageEditor />} />
+      <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
+    </Routes>
   </>;
 };
 
@@ -168,13 +180,53 @@ describe('PageEditor remote update safety', () => {
 
   it('redirects a viewer from the direct-edit route without rendering a writable workspace', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
-    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+    const deniedPage = deferred<any>();
+    queuePages(deniedPage.promise);
 
     const { container } = renderEditor();
+    expectNoWritableWorkspace(container);
+
+    await act(async () => deniedPage.resolve({ data: page({ capabilities: { canEdit: false } }) }));
 
     expect(await screen.findByText('/pages/page-1:REPLACE')).toBeInTheDocument();
     expect(alertSpy).toHaveBeenCalledWith('Access Denied');
-    expect(container.querySelector('.cm-editor')).not.toBeInTheDocument();
+    expectNoWritableWorkspace(container);
+  });
+
+  it('ignores a stale denied response after navigating to another edit route', async () => {
+    const deniedFirstPage = deferred<any>();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === '/pages/page-1') return deniedFirstPage.promise;
+      if (url === '/pages/page-2') {
+        return Promise.resolve({ data: page({
+          id: 'page-2',
+          title: 'Second page',
+          content: 'Second content',
+          capabilities: { canEdit: true },
+        }) } as any);
+      }
+      if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
+
+    await act(async () => deniedFirstPage.resolve({
+      data: page({ capabilities: { canEdit: false } }),
+    }));
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue('Second page')).toBeInTheDocument();
+    expect(screen.queryByText('/pages/page-1:REPLACE')).not.toBeInTheDocument();
   });
 
   it('keeps the local draft and its original version token so a save is protected by the server', async () => {

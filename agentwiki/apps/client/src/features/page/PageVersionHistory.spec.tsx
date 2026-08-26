@@ -29,4 +29,23 @@ describe('PageVersionHistory', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭预览' }));
     expect(screen.queryByText('旧正文')).not.toBeInTheDocument();
   });
+
+  it('offers Restore to an editor while keeping historical tasks immutable', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
+      ? { data: [{ id: 'v1', title: '旧版本', content: '- [ ] 历史任务', createdAt: '2026-08-19T00:00:00Z' }] }
+      : { data: { id: 'page-1', title: '当前页面', spaceId: 'space-1', capabilities: { canEdit: true } } });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('button', { name: '恢复' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '预览 v1' }));
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toBeDisabled();
+
+    fireEvent.click(checkbox);
+
+    expect(checkbox).not.toBeChecked();
+    expect(api.post).not.toHaveBeenCalled();
+  });
 });

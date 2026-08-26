@@ -6,6 +6,20 @@ import { Markdown } from './Markdown';
 import { MarkdownMode, MarkdownWorkspace } from './MarkdownWorkspace';
 import { ModeToggleButton } from './ModeToggleButton';
 
+type ToggleMarkdownTask = typeof import('./markdown/tasks').toggleMarkdownTask;
+
+const taskTransformMocks = vi.hoisted(() => ({
+  actualToggleMarkdownTask: null as ToggleMarkdownTask | null,
+  forceNull: false,
+  toggleMarkdownTask: vi.fn(),
+}));
+
+vi.mock('./markdown/tasks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./markdown/tasks')>();
+  taskTransformMocks.actualToggleMarkdownTask = actual.toggleMarkdownTask;
+  return { ...actual, toggleMarkdownTask: taskTransformMocks.toggleMarkdownTask };
+});
+
 const Harness = ({ initial = '# Title\n\nFirst paragraph.', onChange = () => {} }: any) => {
   const [value, setValue] = useState(initial);
   const [mode, setMode] = useState<MarkdownMode>('edit');
@@ -25,7 +39,15 @@ const renderWYS = (props?: any) => render(<LanguageProvider><Harness {...props} 
 
 describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   afterEach(cleanup);
-  beforeEach(() => localStorage.setItem('agentwiki.language.v1', 'en'));
+  beforeEach(() => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    taskTransformMocks.forceNull = false;
+    const actualToggleMarkdownTask = taskTransformMocks.actualToggleMarkdownTask;
+    if (!actualToggleMarkdownTask) throw new Error('actual task transform was not loaded');
+    taskTransformMocks.toggleMarkdownTask.mockImplementation((...args: Parameters<ToggleMarkdownTask>) => (
+      taskTransformMocks.forceNull ? null : actualToggleMarkdownTask(...args)
+    ));
+  });
 
   it('edit mode shows a code editor surface for the whole document', () => {
     const { container } = renderWYS();
@@ -89,5 +111,17 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   it('keeps historical task checkboxes read-only', () => {
     render(<Markdown mode="version">- [ ] historical task</Markdown>);
     expect(screen.getByRole('checkbox')).toBeDisabled();
+  });
+
+  it('does not change the draft when the task source transform cannot find a safe target', () => {
+    const onChange = vi.fn();
+    taskTransformMocks.forceNull = true;
+    renderWYS({ initial: '- [ ] stale draft task', onChange });
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    expect(taskTransformMocks.toggleMarkdownTask).toHaveBeenCalledOnce();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
