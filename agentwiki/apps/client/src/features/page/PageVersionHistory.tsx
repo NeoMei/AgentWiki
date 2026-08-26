@@ -35,21 +35,31 @@ export const PageVersionHistory: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
+    let active = true;
+    setPage(null);
+    setVersions([]);
+    setPreviewVersionId(null);
+    setError(null);
+    setLoading(true);
     const fetchData = async () => {
       try {
         const [pageRes, versionsRes] = await Promise.all([
           api.get(`/pages/${id}`),
           api.get(`/pages/${id}/versions`),
         ]);
+        if (!active) return;
         setPage(pageRes.data);
         setVersions(versionsRes.data || []);
       } catch (err: unknown) {
-        setError(apiErrorMessage(err, t, 'version.loadFailed'));
+        if (active) setError(apiErrorMessage(err, t, 'version.loadFailed'));
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
     fetchData();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   const handleRestore = async (versionId: string) => {
