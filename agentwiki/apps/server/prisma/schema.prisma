@@ -25,6 +25,11 @@ enum PageTemplateCategory {
   other
 }
 
+enum SpaceAttachmentStatus {
+  active
+  archived
+}
+
 enum CollaborationRunStatus {
   draft
   ready
@@ -124,6 +129,7 @@ model User {
   pageTemplatesCreated          PageTemplate[]                @relation("PageTemplateCreatedBy")
   pageTemplatesUpdated          PageTemplate[]                @relation("PageTemplateUpdatedBy")
   pageTemplateVersionsCreated   PageTemplateVersion[]         @relation("PageTemplateVersionCreatedBy")
+  attachmentsUploaded           SpaceAttachment[]             @relation("AttachmentUploadedBy")
   lockedAt                      DateTime?
   mustChangePassword            Boolean                       @default(false)
   authVersion                   Int                           @default(0)
@@ -202,6 +208,33 @@ model Space {
   collaborationTemplates CollaborationTemplate[]
   collaborationRuns      CollaborationRun[]
   pageTemplates          PageTemplate[]
+  attachments            SpaceAttachment[]
+}
+
+model SpaceAttachment {
+  id               String                @id @default(cuid())
+  spaceId          String
+  displayName      String
+  nameKey          String
+  contentHash      String
+  storageKey       String
+  mimeType         String
+  sizeBytes        BigInt
+  width            Int
+  height           Int
+  status           SpaceAttachmentStatus @default(active)
+  uploadedByUserId String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  archivedAt       DateTime?
+
+  space          Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  uploadedByUser User? @relation("AttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([spaceId, nameKey])
+  @@index([spaceId, status, updatedAt])
+  @@index([contentHash])
+  @@index([status, archivedAt])
 }
 
 model AssistTask {
