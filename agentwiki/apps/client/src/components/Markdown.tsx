@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
@@ -133,6 +134,26 @@ const MermaidBlock = ({ source, index }: MermaidBlockProps) => {
       />
     </div>
   );
+};
+
+type MarkdownCodeProps = React.ComponentPropsWithoutRef<'code'> & ExtraProps;
+
+const MarkdownCode = ({ children: codeChildren, node, ...props }: MarkdownCodeProps) => {
+  if (!isMermaidCodeBlock(node)) return <code {...props}>{codeChildren}</code>;
+
+  const source = codeSource(codeChildren);
+  const index = Number(node?.properties[MERMAID_INDEX_PROPERTY]);
+  return <MermaidBlock source={source} index={index} />;
+};
+
+type MarkdownPreProps = React.ComponentPropsWithoutRef<'pre'> & ExtraProps;
+
+const MarkdownPre = ({ children: preChildren, node, ...props }: MarkdownPreProps) => {
+  const codeNode = node?.children.find((child) => (
+    isElementNode(child) && child.tagName === 'code'
+  ));
+  if (codeNode && isElementNode(codeNode) && isMermaidCodeBlock(codeNode)) return <>{preChildren}</>;
+  return <pre {...props}>{preChildren}</pre>;
 };
 
 export interface MarkdownProps {
@@ -294,13 +315,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
             }
             return <blockquote {...props}>{quoteChildren}</blockquote>;
           },
-          code: ({ children: codeChildren, node, ...props }) => {
-            if (!isMermaidCodeBlock(node)) return <code {...props}>{codeChildren}</code>;
-
-            const source = codeSource(codeChildren);
-            const index = Number(node?.properties[MERMAID_INDEX_PROPERTY]);
-            return <MermaidBlock source={source} index={index} />;
-          },
+          code: MarkdownCode,
           img: SafeImage,
           input: ({ node: _node, ...props }) => (
             <TaskInput
@@ -318,13 +333,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
               </TaskIndexContext.Provider>
             );
           },
-          pre: ({ children: preChildren, node, ...props }) => {
-            const codeNode = node?.children.find((child) => (
-              isElementNode(child) && child.tagName === 'code'
-            ));
-            if (codeNode && isElementNode(codeNode) && isMermaidCodeBlock(codeNode)) return <>{preChildren}</>;
-            return <pre {...props}>{preChildren}</pre>;
-          },
+          pre: MarkdownPre,
         }}
       >
         {children}

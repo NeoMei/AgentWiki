@@ -4,18 +4,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
 import { messages } from '../i18n/messages';
 
+interface MockMermaidDiagramProps {
+  source: string;
+  loadingLabel: string;
+  errorLabel: string;
+  tooLargeLabel: string;
+}
+
 const mermaidMocks = vi.hoisted(() => ({
-  MermaidDiagram: vi.fn((_props: {
-    source: string;
-    loadingLabel: string;
-    errorLabel: string;
-    tooLargeLabel: string;
-  }) => null),
+  MermaidDiagram: vi.fn((_props: MockMermaidDiagramProps) => null),
+  mounted: vi.fn((_source: string) => undefined),
+  unmounted: vi.fn((_source: string) => undefined),
 }));
 
-vi.mock('./markdown/MermaidDiagram', () => ({
-  MermaidDiagram: mermaidMocks.MermaidDiagram,
-}));
+vi.mock('./markdown/MermaidDiagram', async () => {
+  const { useEffect } = await import('react');
+  return {
+    MermaidDiagram: (props: MockMermaidDiagramProps) => {
+      mermaidMocks.MermaidDiagram(props);
+      useEffect(() => {
+        mermaidMocks.mounted(props.source);
+        return () => mermaidMocks.unmounted(props.source);
+      }, []);
+      return null;
+    },
+  };
+});
 
 import { Markdown } from './Markdown';
 import { isExternalHref, isInternalPageHref, resolveWikiHref } from './markdownLinks';
@@ -71,6 +85,8 @@ describe('Markdown rendering', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     mermaidMocks.MermaidDiagram.mockClear();
+    mermaidMocks.mounted.mockClear();
+    mermaidMocks.unmounted.mockClear();
   });
 
   it('renders only a normalized fenced Mermaid block as a diagram and preserves TypeScript highlighting', () => {
@@ -147,6 +163,53 @@ describe('Markdown rendering', () => {
         tooLargeLabel: expect.stringContaining('20,000'),
       }),
     );
+  });
+
+  it('keeps one MermaidDiagram instance mounted across unrelated Markdown rerenders', () => {
+    const source = '```mermaid\ngraph TD; A-->B\n```';
+    const view = render(
+      <LanguageProvider><MemoryRouter>
+        <Markdown pages={pages} pendingTaskIndexes={new Set()}>{source}</Markdown>
+      </MemoryRouter></LanguageProvider>,
+    );
+
+    expect(mermaidMocks.mounted).toHaveBeenCalledOnce();
+    expect(mermaidMocks.unmounted).not.toHaveBeenCalled();
+
+    view.rerender(
+      <LanguageProvider><MemoryRouter>
+        <Markdown
+          pages={[...pages, { id: 'ghi789', title: 'AnotherPage', slug: 'another-page-ghi' }]}
+          pendingTaskIndexes={new Set([0])}
+        >
+          {source}
+        </Markdown>
+      </MemoryRouter></LanguageProvider>,
+    );
+
+    expect(mermaidMocks.mounted).toHaveBeenCalledOnce();
+    expect(mermaidMocks.unmounted).not.toHaveBeenCalled();
+  });
+
+  it('updates Mermaid source once on the existing component instance', () => {
+    const initial = '```mermaid\ngraph TD; A-->B\n```';
+    const updated = '```mermaid\ngraph TD; C-->D\n```';
+    const view = render(
+      <LanguageProvider><MemoryRouter><Markdown pages={pages}>{initial}</Markdown></MemoryRouter></LanguageProvider>,
+    );
+    const renderCount = mermaidMocks.MermaidDiagram.mock.calls.length;
+
+    view.rerender(
+      <LanguageProvider><MemoryRouter><Markdown pages={pages}>{updated}</Markdown></MemoryRouter></LanguageProvider>,
+    );
+
+    expect(mermaidMocks.MermaidDiagram).toHaveBeenCalledTimes(renderCount + 1);
+    const lastCall = mermaidMocks.MermaidDiagram.mock.calls[mermaidMocks.MermaidDiagram.mock.calls.length - 1];
+    expect(lastCall?.[0]).toEqual(
+      expect.objectContaining({ source: 'graph TD; C-->D' }),
+    );
+    expect(mermaidMocks.mounted).toHaveBeenCalledOnce();
+    expect(mermaidMocks.unmounted).not.toHaveBeenCalled();
   });
 
   it('contains wide rich content locally without clipping the Markdown document root', () => {
