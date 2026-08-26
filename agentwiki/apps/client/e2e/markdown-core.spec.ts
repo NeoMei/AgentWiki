@@ -5,6 +5,7 @@ import {
   type APIRequestContext,
   type APIResponse,
   type Browser,
+  type Locator,
   type Page,
 } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
@@ -39,6 +40,8 @@ interface PageVersion {
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const artifacts = path.join(os.tmpdir(), 'agentwiki-markdown-core-qa', runId);
 const pageTitle = `Markdown Acceptance ${runId}`;
+const externalProbeHost = 'markdown-rich-rendering.invalid';
+const overLimitMermaidSource = 'x'.repeat(20_001);
 const source = `# ${pageTitle}
 
 ## Template checklist
@@ -49,6 +52,35 @@ const source = `# ${pageTitle}
 > Callout body stays visible.
 
 ==Highlighted delivery==
+
+## Rich rendering fixture
+
+Inline math: $e^{i\\pi}+1=0$.
+
+$$
+\\int_0^1 x^2 \\, dx = \\frac{1}{3}
+$$
+
+Invalid math before $\\notARealCommand{$ after invalid math.
+
+\`\`\`mermaid
+flowchart LR
+  A["Start"] --> B["A deliberately wide diagram node with enough text to exercise responsive containment"]
+  B --> C["Sanitized finish"]
+  click A "https://${externalProbeHost}/collect" "disabled external click"
+\`\`\`
+
+\`\`\`mermaid
+flowchart TD
+  Broken -->
+\`\`\`
+
+\`\`\`mermaid
+${overLimitMermaidSource}
+\`\`\`
+
+<script id="raw-html-script">window.__agentwikiRawHtmlExecuted = true</script>
+<img id="raw-html-image" src="https://${externalProbeHost}/pixel.png" onerror="window.__agentwikiRawHtmlExecuted = true">
 
 ## Deep Heading
 
@@ -104,6 +136,17 @@ const watchConsole = (page: Page) => {
   });
 };
 
+const watchExternalRequests = (page: Page) => {
+  const externalRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+      externalRequests.push(request.url());
+    }
+  });
+  return externalRequests;
+};
+
 const authenticate = async (page: Page, account: AuthAccount) => {
   await page.addInitScript(({ token, user }) => {
     localStorage.setItem('token', token);
@@ -116,8 +159,50 @@ const newAuthenticatedPage = async (browser: Browser, account: AuthAccount) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   watchConsole(page);
+  const externalRequests = watchExternalRequests(page);
   await authenticate(page, account);
-  return { context, page };
+  return { context, page, externalRequests };
+};
+
+const findMarkdownRoot = (scope: Page | Locator) => scope.locator('.katex').first().locator(
+  'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " prose-sm ")][1]',
+);
+
+const expectRichRendering = async (scope: Page | Locator) => {
+  const root = findMarkdownRoot(scope);
+  await expect(root.locator('.katex')).toHaveCount(2);
+  await expect(root.locator('.katex-mathml math')).toHaveCount(2);
+  await expect(root.locator('[data-mermaid-state="ready"] svg')).toHaveCount(1);
+  await expect(root.locator('.katex-error, [data-mermaid-state="error"]')).toHaveCount(3);
+  await expect(root.locator('.katex-error')).toContainText('\\notARealCommand{');
+
+  const invalidMermaid = root.locator('[data-mermaid-state="error"]').filter({
+    hasText: 'The Mermaid diagram could not be rendered. Its source is shown below.',
+  });
+  await expect(invalidMermaid.locator('code')).toContainText('Broken -->');
+
+  const overLimitMermaid = root.locator('[data-mermaid-state="error"]').filter({
+    hasText: 'The Mermaid diagram exceeds the 20,000 character limit. Its source is shown below.',
+  });
+  await expect(overLimitMermaid.locator('code')).toContainText('x'.repeat(80));
+
+  await expect(root.locator('#raw-html-script, #raw-html-image')).toHaveCount(0);
+  await expect(root.locator('script, iframe, object, embed, foreignObject')).toHaveCount(0);
+  await expect(root.locator('[data-mermaid-state="ready"] svg a[href], [data-mermaid-state="ready"] svg a[xlink\\:href]')).toHaveCount(0);
+
+  const unsafeAttributes = await root.locator('*').evaluateAll((elements) => elements.flatMap((element) => (
+    [...element.attributes]
+      .filter((attribute) => (
+        /^on/iu.test(attribute.name)
+        || (
+          !/^xmlns(?::|$)/iu.test(attribute.name)
+          && /(?:javascript:|data:text\/html|https?:\/\/|\/\/)/iu.test(attribute.value)
+        )
+      ))
+      .map((attribute) => `${element.tagName.toLowerCase()}.${attribute.name}=${attribute.value}`)
+  )));
+  expect(unsafeAttributes).toEqual([]);
+  return root;
 };
 
 const expectNoDocumentOverflow = async (page: Page) => {
@@ -210,7 +295,7 @@ test.describe.serial('Markdown core browser acceptance', () => {
   });
 
   test('persists editable checklists while preserving read-only, literal-code and mobile contracts', async ({ browser }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const contexts = [];
     try {
       const ownerSession = await newAuthenticatedPage(browser, owner!);
@@ -224,8 +309,23 @@ test.describe.serial('Markdown core browser acceptance', () => {
       await expect(ownerPage.getByRole('link', { name: `${pageTitle}#Deep Heading` })).toHaveAttribute('href', `/pages/${pageId}#deep-heading`);
       await expect(ownerPage.getByRole('link', { name: `${pageTitle}#^acceptance-block` })).toHaveAttribute('href', `/pages/${pageId}#%5Eacceptance-block`);
       await expect(ownerPage.locator('[id="^acceptance-block"]')).toHaveCount(1);
-      await expect(ownerPage.locator('pre code')).toContainText('- [ ] fake code task');
+      await expect(ownerPage.locator('pre code.language-md')).toContainText('- [ ] fake code task');
       await expect(ownerPage.getByRole('checkbox')).toHaveCount(2);
+      const ownerMarkdown = await expectRichRendering(ownerPage);
+      await expectNoDocumentOverflow(ownerPage);
+      const pageUrlBeforeMermaidClick = ownerPage.url();
+      await ownerMarkdown.locator('[data-mermaid-state="ready"] svg').getByText('Start', { exact: true }).click();
+      await expect(ownerPage).toHaveURL(pageUrlBeforeMermaidClick);
+      expect(ownerSession.externalRequests).toEqual([]);
+
+      await ownerPage.goto(`/pages/${pageId}/edit`);
+      await ownerPage.getByRole('button', { name: 'Preview', exact: true }).click();
+      await expect(ownerPage.getByTestId('md-preview')).toBeVisible();
+      await expectRichRendering(ownerPage.getByTestId('md-preview'));
+      await expectNoDocumentOverflow(ownerPage);
+      expect(ownerSession.externalRequests).toEqual([]);
+
+      await ownerPage.goto(`/pages/${pageId}`);
 
       const versionsBeforeToggle = await json<PageVersion[]>(
         await api.get(`pages/${pageId}/versions`, { headers: ownerHeaders() }),
@@ -275,13 +375,16 @@ test.describe.serial('Markdown core browser acceptance', () => {
       const historicalCheckboxes = versionDialog.getByRole('checkbox');
       await expect(historicalCheckboxes).toHaveCount(2);
       for (const checkbox of await historicalCheckboxes.all()) await expect(checkbox).toBeDisabled();
-      await expect(versionDialog.locator('pre code')).toContainText('- [ ] fake code task');
+      await expect(versionDialog.locator('pre code.language-md')).toContainText('- [ ] fake code task');
+      await expectRichRendering(versionDialog);
 
       await viewerPage.setViewportSize({ width: 390, height: 844 });
       await viewerPage.reload();
       await expect(viewerPage.getByRole('heading', { name: pageTitle, exact: true }).first()).toBeVisible();
       await expect(viewerPage.locator('table')).toBeVisible();
+      await expectRichRendering(viewerPage);
       await expectNoDocumentOverflow(viewerPage);
+      expect(viewerSession.externalRequests).toEqual([]);
       await viewerPage.screenshot({ path: path.join(artifacts, 'mobile-390.png'), fullPage: true });
     } finally {
       await Promise.all(contexts.map((context) => context.close()));

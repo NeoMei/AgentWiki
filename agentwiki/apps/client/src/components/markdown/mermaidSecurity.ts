@@ -32,6 +32,12 @@ const CSS_EXTERNAL_TOKEN = /(?:https?|data|blob|javascript|file|ftp):|\/\/|(?:^|
 const CSS_URL_START = /url\s*\(/iu;
 const CSS_URL = /url\s*\(([^)]*)\)/giu;
 const SAFE_SVG_ID = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
+const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
+
+const normalizeMermaidXlinkNamespace = (svg: string) => {
+  if (!/\sxlink:href\s*=/u.test(svg) || /\sxmlns:xlink\s*=/u.test(svg)) return svg;
+  return svg.replace(/^(\s*<svg)(?=[\s>])/u, `$1 xmlns:xlink="${XLINK_NAMESPACE}"`);
+};
 
 const hasUnsafeControlCharacter = (value: string) => [...value].some((character) => {
   const codePoint = character.codePointAt(0) ?? 0;
@@ -207,8 +213,10 @@ const hasOnlyScopedRules = (css: string, rootId: string) => {
 
 export const sanitizeMermaidSvg = (svg: string) => {
   // Reject a repaired non-SVG or malformed wrapper instead of letting sanitizer
-  // recovery silently broaden the accepted renderer contract.
-  const { root: sourceRoot } = parseSvg(svg);
+  // recovery silently broaden the accepted renderer contract. Mermaid click
+  // output is one narrow exception: 11.17.2 emits xlink:href without declaring
+  // the standard namespace, so add that declaration before stripping the href.
+  const { root: sourceRoot } = parseSvg(normalizeMermaidXlinkNamespace(svg));
   const sanitizedRoot = DOMPurify.sanitize(sourceRoot, {
     USE_PROFILES: { svg: true, svgFilters: true },
     FORBID_TAGS: [...FORBIDDEN_SVG_TAGS],

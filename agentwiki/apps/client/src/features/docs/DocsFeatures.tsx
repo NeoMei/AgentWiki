@@ -18,7 +18,12 @@ export const DocsFeatures: React.FC = () => {
       icon: FileText, color: 'indigo',
       title: zh ? '页面与文档' : 'Pages & Documents',
       design: zh ? 'Markdown 编辑与共享预览，支持层级目录树、Wiki 链接与版本历史。每次保存生成不可变版本快照，可随时回溯、对比和恢复。' : 'Markdown editing and shared preview with a hierarchical page tree, wiki links, and version history. Each save creates an immutable version snapshot for rollback, diff, and restore.',
-      details: [t('markdown.previewTitle'), t('markdown.supportedSyntax'), t('markdown.checklistModes')],
+      details: [
+        t('markdown.previewTitle'),
+        t('markdown.supportedSyntax'),
+        t('markdown.richSafety'),
+        t('markdown.checklistModes'),
+      ],
       usage: zh ? ['在 Space 内点击「新建页面」', '在编辑状态输入 Markdown，切换到预览状态检查共享效果', '通过 [[页面名]] 语法创建 Wiki 链接', '在版本历史中查看、对比或恢复任意版本'] : ['Click "New Page" inside a Space', 'Enter Markdown in Edit mode, then switch to Preview to check the shared result', 'Use [[page name]] syntax to create wiki links', 'View, diff, or restore any version in the version history'],
     },
     {

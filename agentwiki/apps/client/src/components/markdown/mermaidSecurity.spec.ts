@@ -37,6 +37,19 @@ describe('sanitizeMermaidSvg', () => {
     expect(clean).toContain('href="#safe"');
   });
 
+  it('sanitizes Mermaid click output that omits the xlink namespace declaration', () => {
+    const dirty = [
+      '<svg id="diagram" xmlns="http://www.w3.org/2000/svg">',
+      '<a xlink:href="https://evil.test/click"><text>safe label</text></a>',
+      '</svg>',
+    ].join('');
+
+    const clean = sanitizeMermaidSvg(dirty);
+
+    expect(clean).toContain('<text>safe label</text>');
+    expect(clean).not.toMatch(/evil\.test|xlink:href/iu);
+  });
+
   it('strips a non-fragment href from the SVG root itself', () => {
     const clean = sanitizeMermaidSvg('<svg xmlns="http://www.w3.org/2000/svg" href="/relative/root"><text>safe</text></svg>');
 

@@ -309,6 +309,7 @@ export const UsageGuide: React.FC = () => {
               </h3>
               <div className="space-y-2 text-sm text-gray-600">
                 <p>{t('markdown.supportedSyntax')}</p>
+                <p>{t('markdown.richSafety')}</p>
                 <p>{t('markdown.checklistModes')}</p>
               </div>
             </div>
