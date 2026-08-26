@@ -1,6 +1,22 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LanguageProvider } from '../context/LanguageContext';
+import { messages } from '../i18n/messages';
+
+const mermaidMocks = vi.hoisted(() => ({
+  MermaidDiagram: vi.fn((_props: {
+    source: string;
+    loadingLabel: string;
+    errorLabel: string;
+    tooLargeLabel: string;
+  }) => null),
+}));
+
+vi.mock('./markdown/MermaidDiagram', () => ({
+  MermaidDiagram: mermaidMocks.MermaidDiagram,
+}));
+
 import { Markdown } from './Markdown';
 import { isExternalHref, isInternalPageHref, resolveWikiHref } from './markdownLinks';
 import { parseWikiReference } from './markdown/obsidian';
@@ -10,7 +26,9 @@ const pages = [
   { id: 'def456', title: '链接能力测试', slug: 'link-test-def' },
 ];
 
-const renderMd = (content: string, p = pages) => render(<MemoryRouter><Markdown pages={p}>{content}</Markdown></MemoryRouter>);
+const renderMd = (content: string, p = pages) => render(
+  <LanguageProvider><MemoryRouter><Markdown pages={p}>{content}</Markdown></MemoryRouter></LanguageProvider>,
+);
 
 describe('resolveWikiHref', () => {
   afterEach(cleanup);
@@ -50,6 +68,100 @@ describe('href classification', () => {
 
 describe('Markdown rendering', () => {
   afterEach(cleanup);
+  beforeEach(() => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    mermaidMocks.MermaidDiagram.mockClear();
+  });
+
+  it('renders only a normalized fenced Mermaid block as a diagram and preserves TypeScript highlighting', () => {
+    const source = [
+      '```  MeRmAiD  ',
+      'graph TD;',
+      '  Start-->Done',
+      '```',
+      '',
+      '```typescript',
+      'const answer: number = 42;',
+      '```',
+    ].join('\n');
+
+    const { container } = renderMd(source);
+
+    expect(mermaidMocks.MermaidDiagram).toHaveBeenCalledOnce();
+    expect(mermaidMocks.MermaidDiagram.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ source: 'graph TD;\n  Start-->Done' }),
+    );
+    const typescript = container.querySelector('code.language-typescript');
+    expect(typescript).toHaveClass('hljs');
+    expect(typescript?.querySelector('.hljs-keyword')).toHaveTextContent('const');
+  });
+
+  it('keeps inline Mermaid lookalikes and other fenced languages on the normal code path', () => {
+    const { container } = renderMd([
+      '`mermaid` and `language-mermaid graph TD; A-->B`',
+      '',
+      '```javascript',
+      'const mermaid = true;',
+      '```',
+    ].join('\n'));
+
+    expect(mermaidMocks.MermaidDiagram).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('p code')).toHaveLength(2);
+    expect(container.querySelector('code.language-javascript')).toHaveClass('hljs');
+  });
+
+  it('renders exactly 20 Mermaid diagrams and preserves the 21st source in a localized limit fallback', () => {
+    const blocks = Array.from({ length: 21 }, (_, index) => [
+      '```mermaid',
+      `graph TD; A${index + 1}-->B${index + 1}`,
+      '```',
+    ].join('\n')).join('\n\n');
+
+    const { container } = renderMd(blocks);
+
+    expect(mermaidMocks.MermaidDiagram).toHaveBeenCalledTimes(20);
+    const lastCall = mermaidMocks.MermaidDiagram.mock.calls[mermaidMocks.MermaidDiagram.mock.calls.length - 1];
+    expect(lastCall?.[0]).toEqual(
+      expect.objectContaining({ source: 'graph TD; A20-->B20' }),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(messages.en['markdown.mermaid.limitReached']);
+    const fallback = container.querySelector('[data-mermaid-state="limit"]');
+    expect(fallback).toHaveTextContent('graph TD; A21-->B21');
+  });
+
+  it('does not mount the Mermaid component for a document without a Mermaid fence', () => {
+    const { container } = renderMd('Plain mermaid text.\n\n```typescript\nconst mermaid = false;\n```');
+
+    expect(mermaidMocks.MermaidDiagram).not.toHaveBeenCalled();
+    expect(container.querySelector('code.language-typescript')).toHaveClass('hljs');
+  });
+
+  it('passes source and localized readable-fallback labels to MermaidDiagram', () => {
+    renderMd('```mermaid\ngraph TD; A["<source>"]-->B\n```');
+
+    expect(mermaidMocks.MermaidDiagram.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        source: 'graph TD; A["<source>"]-->B',
+        loadingLabel: messages.en['markdown.mermaid.loading'],
+        errorLabel: messages.en['markdown.mermaid.error'],
+        tooLargeLabel: expect.stringContaining('20,000'),
+      }),
+    );
+  });
+
+  it('contains wide rich content locally without clipping the Markdown document root', () => {
+    const { container } = renderMd('```mermaid\ngraph TD; A-->B\n```\n\n$$x^2$$\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n![wide](/wide.png)');
+    const root = container.firstElementChild;
+
+    expect(root).toHaveClass('min-w-0');
+    expect(root).not.toHaveClass('overflow-hidden');
+    expect(root?.className).toContain('[&_.markdown-mermaid]:overflow-x-auto');
+    expect(root?.className).toContain('[&_.markdown-mermaid_svg]:max-w-full');
+    expect(root?.className).toContain('[&_.katex-display]:overflow-x-auto');
+    expect(root?.className).toContain('[&_pre]:max-w-full');
+    expect(root?.className).toContain('[&_table]:max-w-full');
+    expect(root?.className).toContain('[&_img]:max-w-full');
+  });
 
   it('renders external markdown links with target=_blank', () => {
     renderMd('[opencode](https://opencode.ai)');

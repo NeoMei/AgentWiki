@@ -9,13 +9,16 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
 import 'katex/dist/katex.min.css';
+import { useLanguage } from '../context/LanguageContext';
 import { isExternalHref, isInternalPageHref, PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { KATEX_OPTIONS } from './markdown/math';
 import type { MarkdownRenderMode, MarkdownTaskToggle } from './markdown/markdownTypes';
+import { MermaidDiagram } from './markdown/MermaidDiagram';
+import { MAX_MERMAID_SOURCE_CHARS } from './markdown/mermaidSecurity';
 import { remarkAgentWikiObsidian } from './markdown/obsidian';
 import { collectMarkdownTasks } from './markdown/tasks';
 
-export const markdownClass = `prose prose-sm max-w-none
+export const markdownClass = `prose prose-sm min-w-0 max-w-none
   [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
   [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
   [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4
@@ -31,15 +34,106 @@ export const markdownClass = `prose prose-sm max-w-none
   [&_mark]:rounded [&_mark]:bg-yellow-200 [&_mark]:px-0.5
   [&_.block-anchor]:relative [&_.block-anchor]:top-[-5rem]
   [&_.task-list-item]:list-none [&_.contains-task-list]:ml-0
-  [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
+  [&_pre]:max-w-full [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
   [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
-  [&_pre_code]:bg-transparent [&_pre_code]:p-0
+  [&_pre_code]:block [&_pre_code]:max-w-none [&_pre_code]:bg-transparent [&_pre_code]:p-0
   [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_table]:mb-4
   [&_th]:border [&_th]:border-gray-300 [&_th]:px-3 [&_th]:py-2 [&_th]:bg-gray-50 [&_th]:font-semibold [&_th]:text-left
   [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
   [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md
+  [&_.markdown-mermaid]:max-w-full [&_.markdown-mermaid]:overflow-x-auto [&_.markdown-mermaid]:overflow-y-hidden
+  [&_.markdown-mermaid_svg]:block [&_.markdown-mermaid_svg]:h-auto [&_.markdown-mermaid_svg]:max-w-full
+  [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden
   [&_hr]:border-gray-300 [&_hr]:my-6 [&_del]:line-through
   [&_input[type=checkbox]]:mr-2`;
+
+const MAX_MERMAID_BLOCKS = 20;
+const CODE_BLOCK_PROPERTY = 'data-markdown-code-block';
+const CODE_PARENT_PROPERTY = 'data-markdown-code-parent';
+const CODE_LANGUAGE_PROPERTY = 'data-markdown-language';
+const MERMAID_INDEX_PROPERTY = 'data-mermaid-index';
+
+interface HastNode {
+  type: string;
+  children?: HastNode[];
+}
+
+interface HastElementNode extends HastNode {
+  type: 'element';
+  tagName: string;
+  properties: Record<string, unknown>;
+  children: HastNode[];
+}
+
+const isElementNode = (node: HastNode): node is HastElementNode => node.type === 'element';
+
+const normalizedCodeLanguage = (node: HastElementNode) => {
+  const rawClasses = node.properties.className;
+  const classes = Array.isArray(rawClasses) ? rawClasses : [rawClasses];
+  for (const value of classes) {
+    const match = /^language-(.+)$/iu.exec(String(value ?? ''));
+    if (match) return match[1].trim().toLowerCase();
+  }
+  return '';
+};
+
+const rehypeAnnotateCodeBlocks = () => (tree: HastNode) => {
+  let mermaidIndex = 0;
+  const annotate = (node: HastNode, parent?: HastElementNode) => {
+    if (isElementNode(node) && node.tagName === 'code' && parent?.tagName === 'pre') {
+      const language = normalizedCodeLanguage(node);
+      node.properties[CODE_BLOCK_PROPERTY] = 'fenced';
+      node.properties[CODE_PARENT_PROPERTY] = parent.tagName;
+      node.properties[CODE_LANGUAGE_PROPERTY] = language;
+      if (language === 'mermaid') {
+        node.properties[MERMAID_INDEX_PROPERTY] = mermaidIndex;
+        mermaidIndex += 1;
+      }
+    }
+    for (const child of node.children ?? []) annotate(child, isElementNode(node) ? node : undefined);
+  };
+  annotate(tree);
+};
+
+const isMermaidCodeBlock = (node?: HastElementNode) => {
+  const properties = node?.properties;
+  return properties?.[CODE_BLOCK_PROPERTY] === 'fenced'
+    && properties[CODE_PARENT_PROPERTY] === 'pre'
+    && properties[CODE_LANGUAGE_PROPERTY] === 'mermaid'
+    && Number.isInteger(Number(properties[MERMAID_INDEX_PROPERTY]));
+};
+
+const codeSource = (children: React.ReactNode) => String(children).replace(/\n$/u, '');
+
+interface MermaidBlockProps {
+  source: string;
+  index: number;
+}
+
+const MermaidBlock = ({ source, index }: MermaidBlockProps) => {
+  const { language, t } = useLanguage();
+  if (index >= MAX_MERMAID_BLOCKS) {
+    return (
+      <div className="markdown-mermaid my-4" data-mermaid-state="limit">
+        <p role="alert">{t('markdown.mermaid.limitReached')}</p>
+        <pre><code className="language-mermaid">{source}</code></pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="markdown-mermaid my-4">
+      <MermaidDiagram
+        source={source}
+        loadingLabel={t('markdown.mermaid.loading')}
+        errorLabel={t('markdown.mermaid.error')}
+        tooLargeLabel={t('markdown.mermaid.tooLarge', {
+          max: MAX_MERMAID_SOURCE_CHARS.toLocaleString(language === 'zh-CN' ? 'zh-CN' : 'en-US'),
+        })}
+      />
+    </div>
+  );
+};
 
 export interface MarkdownProps {
   children: string;
@@ -172,6 +266,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
             content: { type: 'text', value: ' #' },
           }],
           rehypeHighlight,
+          rehypeAnnotateCodeBlocks,
         ]}
         components={{
           a: ({ href, children: linkChildren, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
@@ -199,6 +294,13 @@ export const Markdown: React.FC<MarkdownProps> = ({
             }
             return <blockquote {...props}>{quoteChildren}</blockquote>;
           },
+          code: ({ children: codeChildren, node, ...props }) => {
+            if (!isMermaidCodeBlock(node)) return <code {...props}>{codeChildren}</code>;
+
+            const source = codeSource(codeChildren);
+            const index = Number(node?.properties[MERMAID_INDEX_PROPERTY]);
+            return <MermaidBlock source={source} index={index} />;
+          },
           img: SafeImage,
           input: ({ node: _node, ...props }) => (
             <TaskInput
@@ -215,6 +317,13 @@ export const Markdown: React.FC<MarkdownProps> = ({
                 <li {...props}>{listChildren}</li>
               </TaskIndexContext.Provider>
             );
+          },
+          pre: ({ children: preChildren, node, ...props }) => {
+            const codeNode = node?.children.find((child) => (
+              isElementNode(child) && child.tagName === 'code'
+            ));
+            if (codeNode && isElementNode(codeNode) && isMermaidCodeBlock(codeNode)) return <>{preChildren}</>;
+            return <pre {...props}>{preChildren}</pre>;
           },
         }}
       >
