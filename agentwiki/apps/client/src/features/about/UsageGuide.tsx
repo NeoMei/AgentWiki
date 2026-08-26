@@ -54,7 +54,7 @@ export const UsageGuide: React.FC = () => {
               </div>
               <h3 className="font-semibold text-gray-900 mb-2">{zh ? '编写页面' : 'Write Pages'}</h3>
               <p className="text-sm text-gray-600">
-                {zh ? '用 Markdown 编写文档，支持实时预览、版本历史和多人协作。' : 'Write in Markdown with live preview, version history, and real-time collaboration.'}
+                {zh ? '用 Markdown 编写文档，在共享预览中检查结果，并保留版本历史。' : 'Write documents in Markdown, check the result in shared preview, and retain version history.'}
               </p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-6">
@@ -305,11 +305,12 @@ export const UsageGuide: React.FC = () => {
             <div className="bg-white border border-gray-200 rounded-xl p-6">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                 <FileText size={18} className="text-blue-600" />
-                {zh ? 'Markdown 编辑' : 'Markdown Editing'}
+                {t('markdown.previewTitle')}
               </h3>
-              <p className="text-sm text-gray-600">
-                {zh ? 'Obsidian 式实时预览，所见即所得。支持 GFM 表格、代码高亮、任务列表。版本历史随时回溯。' : 'Obsidian-style live preview with WYSIWYG editing. Supports GFM tables, code highlighting, task lists. Version history for rollback.'}
-              </p>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>{t('markdown.supportedSyntax')}</p>
+                <p>{t('markdown.checklistModes')}</p>
+              </div>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-6">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">

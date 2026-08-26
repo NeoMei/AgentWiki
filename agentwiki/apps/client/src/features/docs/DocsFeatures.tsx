@@ -4,7 +4,7 @@ import { Layers, FileText, Network, Search, GitBranch, CheckCircle2, Brain, Arro
 import { useLanguage } from '../../context/LanguageContext';
 
 export const DocsFeatures: React.FC = () => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
 
   const features = [
@@ -17,8 +17,9 @@ export const DocsFeatures: React.FC = () => {
     {
       icon: FileText, color: 'indigo',
       title: zh ? '页面与文档' : 'Pages & Documents',
-      design: zh ? 'Markdown 编写，实时预览，所见即所得。支持层级目录树、双向链接、版本历史和多人协作编辑。每次保存生成不可变版本快照，可随时回溯、对比和恢复。' : 'Markdown with live WYSIWYG preview, hierarchical page tree, bidirectional links, version history, and collaborative editing. Each save creates an immutable version snapshot for rollback, diff, and restore.',
-      usage: zh ? ['在 Space 内点击「新建页面」', '用 Markdown 编写内容，右侧实时预览', '通过 [[页面名]] 语法创建双向链接', '在版本历史中查看、对比或恢复任意版本'] : ['Click "New Page" inside a Space', 'Write in Markdown with live preview on the right', 'Use [[page name]] syntax for bidirectional links', 'View, diff, or restore any version in the version history'],
+      design: zh ? 'Markdown 编辑与共享预览，支持层级目录树、Wiki 链接与版本历史。每次保存生成不可变版本快照，可随时回溯、对比和恢复。' : 'Markdown editing and shared preview with a hierarchical page tree, wiki links, and version history. Each save creates an immutable version snapshot for rollback, diff, and restore.',
+      details: [t('markdown.previewTitle'), t('markdown.supportedSyntax'), t('markdown.checklistModes')],
+      usage: zh ? ['在 Space 内点击「新建页面」', '在编辑状态输入 Markdown，切换到预览状态检查共享效果', '通过 [[页面名]] 语法创建 Wiki 链接', '在版本历史中查看、对比或恢复任意版本'] : ['Click "New Page" inside a Space', 'Enter Markdown in Edit mode, then switch to Preview to check the shared result', 'Use [[page name]] syntax to create wiki links', 'View, diff, or restore any version in the version history'],
     },
     {
       icon: Network, color: 'purple',
@@ -78,6 +79,9 @@ export const DocsFeatures: React.FC = () => {
                   <h2 className="text-xl font-bold text-gray-900">{f.title}</h2>
                 </div>
                 <p className="text-sm text-gray-600 leading-relaxed mb-4">{f.design}</p>
+                {'details' in f && f.details ? <div className="mb-4 space-y-2 text-sm text-gray-600">
+                  {f.details.map((detail) => <p key={detail}>{detail}</p>)}
+                </div> : null}
                 <div className={`${c.bg} rounded-lg p-4`}>
                   <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">{zh ? '使用方法' : 'How to use'}</p>
                   <ul className="space-y-1.5">

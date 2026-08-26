@@ -355,7 +355,7 @@ export const PagePreview: React.FC = () => {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
-      <div className="relative bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
+      <div className="relative min-w-0 bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
         {page.capabilities?.canEdit === true ? <div className="absolute right-4 top-4 flex items-center gap-1">
           <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
           <button
