@@ -34,9 +34,18 @@ export const PageVersionHistory: React.FC = () => {
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const routeRef = useRef({ id, generation: 0 });
   const restoringRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
   if (routeRef.current.id !== id) {
     routeRef.current = { id, generation: routeRef.current.generation + 1 };
   }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      restoringRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -77,14 +86,14 @@ export const PageVersionHistory: React.FC = () => {
     setRestoring(versionId);
     try {
       await api.post(`/pages/${requestedId}/versions/${versionId}/restore`);
-      if (routeRef.current !== requestedRoute) return;
+      if (!mountedRef.current || routeRef.current !== requestedRoute) return;
       alert(t('version.restored'));
       navigate(`/pages/${requestedId}/edit`);
     } catch (err: unknown) {
-      if (routeRef.current !== requestedRoute) return;
+      if (!mountedRef.current || routeRef.current !== requestedRoute) return;
       alert(apiErrorMessage(err, t, 'version.restoreFailedGeneric'));
     } finally {
-      if (routeRef.current === requestedRoute && restoringRef.current === versionId) {
+      if (mountedRef.current && routeRef.current === requestedRoute && restoringRef.current === versionId) {
         restoringRef.current = null;
         setRestoring(null);
       }

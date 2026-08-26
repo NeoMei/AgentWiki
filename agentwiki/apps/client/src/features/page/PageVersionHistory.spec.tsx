@@ -23,7 +23,11 @@ const NavigationHarness = () => {
     <>
       <button type="button" onClick={() => navigate('/pages/page-1/versions')}>Open first history</button>
       <button type="button" onClick={() => navigate('/pages/page-2/versions')}>Open second history</button>
-      <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
+      <button type="button" onClick={() => navigate('/outside')}>Leave history</button>
+      <Routes>
+        <Route path="/pages/:id/versions" element={<PageVersionHistory />} />
+        <Route path="/outside" element={<p>Outside history</p>} />
+      </Routes>
     </>
   );
 };
@@ -156,6 +160,36 @@ describe('PageVersionHistory', () => {
     expect(alertSpy).not.toHaveBeenCalled();
     expect(screen.getByText('page-2 version')).toBeInTheDocument();
   });
+
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a restore completion that would %s after version history unmounts',
+    async (settlement) => {
+      const restore = deferred<any>();
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.mocked(api.post).mockImplementation(() => restore.promise);
+      vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
+        ? { data: [{ id: 'v1', title: 'Version one', content: '', createdAt: '2026-08-19T00:00:00Z' }] }
+        : { data: { id: 'page-1', title: 'Page one', spaceId: 'space-1', capabilities: { canEdit: true } } });
+      render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+        <NavigationHarness />
+      </LanguageProvider></MemoryRouter>);
+
+      fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
+      await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole('button', { name: 'Leave history' }));
+      expect(await screen.findByText('Outside history')).toBeInTheDocument();
+
+      await act(async () => {
+        if (settlement === 'resolve') restore.resolve({ data: {} });
+        else restore.reject(new Error('late unmounted failure'));
+        await Promise.allSettled([restore.promise]);
+      });
+
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(screen.getByText('Outside history')).toBeInTheDocument();
+    },
+  );
 
   it('does not keep a reused version ID disabled after a history route switch', async () => {
     const restore = deferred<any>();
