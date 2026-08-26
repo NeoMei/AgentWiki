@@ -66,6 +66,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const editRevisionRef = useRef(0);
   const activePageIdRef = useRef(id);
   const loadSequenceRef = useRef(0);
+  const routeGenerationRef = useRef(0);
   const mountedRef = useRef(true);
   const dismissedRemoteRevisionRef = useRef<string | null>(null);
   const requestControllersRef = useRef(new Set<AbortController>());
@@ -184,11 +185,36 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [content]);
 
   useEffect(() => {
-    if (!page?.spaceId) return;
-    api.get(`/pages?spaceId=${page.spaceId}&take=200`)
-      .then((res) => setSpacePages(res.data?.data || res.data?.items || []))
-      .catch(() => setSpacePages([]));
-  }, [page?.spaceId]);
+    setSpacePages([]);
+    if (!page?.id || !page.spaceId) return;
+    const requestedPageId = page.id;
+    const requestedSpaceId = page.spaceId;
+    const generation = routeGenerationRef.current;
+    const controller = new AbortController();
+    requestControllersRef.current.add(controller);
+    api.get(`/pages?spaceId=${requestedSpaceId}&take=200`, { signal: controller.signal })
+      .then((res) => {
+        if (
+          mountedRef.current
+          && !controller.signal.aborted
+          && routeGenerationRef.current === generation
+          && activePageIdRef.current === requestedPageId
+        ) setSpacePages(res.data?.data || res.data?.items || []);
+      })
+      .catch(() => {
+        if (
+          mountedRef.current
+          && !controller.signal.aborted
+          && routeGenerationRef.current === generation
+          && activePageIdRef.current === requestedPageId
+        ) setSpacePages([]);
+      })
+      .finally(() => requestControllersRef.current.delete(controller));
+    return () => {
+      controller.abort();
+      requestControllersRef.current.delete(controller);
+    };
+  }, [page?.id, page?.spaceId]);
 
   useEffect(() => {
     setMoreActionsOpen(false);
@@ -310,6 +336,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
+    routeGenerationRef.current += 1;
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
@@ -318,6 +345,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     acceptedSocketRevisionRef.current = null;
     dismissedRemoteRevisionRef.current = null;
     setPage(null);
+    setSpacePages([]);
     setTitle('');
     setContent('');
     contentRef.current = '';

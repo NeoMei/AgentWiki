@@ -266,6 +266,8 @@ export const PagePreview: React.FC = () => {
     setError(null);
     setTaskSaveError(null);
     setPendingTaskIndexes(new Set());
+    setRelatedPages([]);
+    setSpacePages([]);
     if (!id) {
       setLoading(false);
       return;
@@ -289,18 +291,35 @@ export const PagePreview: React.FC = () => {
   }, [id]);
 
   useEffect(() => {
+    setRelatedPages([]);
     if (!id) return;
-    api.get(`/knowledge/related/${id}`)
-      .then(res => setRelatedPages(res.data || []))
-      .catch(() => setRelatedPages([]));
+    const requestedId = id;
+    const generation = routeGenerationRef.current;
+    api.get(`/knowledge/related/${requestedId}`)
+      .then((res) => {
+        if (routeIsActive(requestedId, generation)) setRelatedPages(res.data || []);
+      })
+      .catch(() => {
+        if (routeIsActive(requestedId, generation)) setRelatedPages([]);
+      });
   }, [id]);
 
   useEffect(() => {
-    if (!page?.spaceId) return;
-    api.get(`/pages?spaceId=${page.spaceId}&take=200`)
-      .then((res) => setSpacePages(res.data?.data || res.data?.items || []))
-      .catch(() => setSpacePages([]));
-  }, [page?.spaceId]);
+    setSpacePages([]);
+    if (!page?.id || !page.spaceId) return;
+    const requestedId = page.id;
+    const requestedSpaceId = page.spaceId;
+    const generation = routeGenerationRef.current;
+    api.get(`/pages?spaceId=${requestedSpaceId}&take=200`)
+      .then((res) => {
+        if (routeIsActive(requestedId, generation)) {
+          setSpacePages(res.data?.data || res.data?.items || []);
+        }
+      })
+      .catch(() => {
+        if (routeIsActive(requestedId, generation)) setSpacePages([]);
+      });
+  }, [page?.id, page?.spaceId]);
 
   const handleDelete = async () => {
     if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
