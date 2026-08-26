@@ -520,7 +520,7 @@ export const messages: Record<Language, Record<string, string>> = {
     'editor.markdown': 'Markdown',
     'markdown.previewTitle': 'Markdown editing and shared preview',
     'markdown.supportedSyntax': 'Supports CommonMark and GFM headings, emphasis, links, lists, blockquotes, strikethrough, tables, task lists, fenced code and syntax highlighting, plus wiki links, aliases, heading links, block links, ==highlights==, and Callouts. Use $...$ and $$...$$ for math; use fenced Mermaid syntax: ```mermaid ... ```.',
-    'markdown.richSafety': 'Raw HTML is disabled. Mermaid clicks and HTML labels are disabled. Malformed formulas or diagrams show a readable fallback in their own block. Each root document renders at most 20 Mermaid diagrams.',
+    'markdown.richSafety': 'Raw HTML is disabled. Mermaid clicks and HTML labels are disabled. Malformed formulas or diagrams show a readable fallback in place. Each root document renders at most 20 Mermaid diagrams.',
     'markdown.checklistModes': 'Checklist modes: toggling in editor preview updates only the unsaved draft and persists when the page is saved; on a published page, owner, admin, and editor toggles save immediately and create a new version; viewer and version-history previews are read-only.',
     'markdown.mermaid.loading': 'Rendering Mermaid diagram…',
     'markdown.mermaid.error': 'The Mermaid diagram could not be rendered. Its source is shown below.',

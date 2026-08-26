@@ -46,7 +46,7 @@ Result: 1/1 passed; test body 18.2 seconds, command 23.4 seconds. Chrome's defau
 
 - two `.katex` renderings and two accessible `.katex-mathml math` trees for inline and display formulas;
 - exactly one ready, sanitized Mermaid SVG plus three local fallbacks: malformed math, malformed Mermaid, and a 20,001-character Mermaid source;
-- readable invalid/over-limit source remained in its own block;
+- malformed math showed a readable fallback in place, while malformed and over-limit Mermaid source remained readable in each diagram's own block;
 - raw `<script>`/`<img onerror>` Markdown was absent, and rendered content contained no script, iframe, object, embed, `foreignObject`, event handler, executable URL, remote URL attribute, or external request;
 - the unsafe Mermaid click target had no `href`/`xlink:href`; clicking its visible `Start` node did not navigate;
 - warning/error console collection remained empty;
@@ -88,6 +88,50 @@ Every required command exited 0 in this order:
 3. `pnpm typecheck`: passed for server, client, sync protocol, and local sync.
 4. `pnpm build`: passed for shared, sync protocol ESM/CJS, server, client, and local sync; Vite transformed 4,731 modules in 16.52 seconds and emitted only the recorded size advisory.
 5. `git diff --check`: passed with no whitespace errors.
+
+## Reviewer convergence follow-up — 2026-08-27
+
+The Task 4 review reported 0 Critical, 1 Important, and 1 Minor finding. The Important finding showed that the first XLink compatibility repair searched the entire SVG string, so a declaration-looking literal in text, comments, styles, or another attribute could suppress the repair, while a real declaration bound to a spoofed URI was accepted. The Minor finding corrected the English guide's claim that malformed formulas always use a separate block; KaTeX actually preserves a readable error in place.
+
+### Regression-first namespace and documentation evidence
+
+The namespace matrix was added before production code changed:
+
+```bash
+pnpm --filter @agentwiki/client exec vitest run src/components/markdown/mermaidSecurity.spec.ts
+```
+
+RED: 26 tests ran, 20 passed, and 6 failed. Spoofed root/nested declarations were incorrectly accepted, while root-attribute, comment, element-text, and style decoys incorrectly prevented a real undeclared `xlink:href` from rendering. The matrix also locks exact standard and missing declarations, identical/conflicting duplicates, valid nested scope, a real attribute with XML whitespace around `=`, case-sensitive prefix/local-name variants, external-link removal, and malformed-root rejection.
+
+The English locale expectation was changed first and produced the separate documentation RED: 2 tests ran, Chinese passed, and English failed because the UI still said “their own block.”
+
+The repaired implementation lexically parses only the leading lowercase `<svg ...>` opening tag and its quoted attributes. It counts only real root `xmlns:xlink` declarations, rejects duplicate or non-standard root bindings, first preserves any already-valid XML unchanged, and validates every parsed nested XLink declaration against the exact standard URI. Only when the original XML fails, the root has no declaration, and a candidate with the standard root namespace parses to a real case-sensitive `xlink:href` attribute does it retain that candidate. Text/comment/style literals and other attributes cannot trigger or suppress the repair; other malformed XML remains rejected. DOMPurify and the existing post-pass still strip the external click URL.
+
+Final focused verification after the lint-only helper refactor:
+
+```bash
+pnpm --filter @agentwiki/client exec vitest run src/components/markdown/mermaidSecurity.spec.ts src/components/markdown/MermaidDiagram.spec.tsx src/i18n/markdown-support-messages.spec.tsx src/features/about/UsageGuide.spec.tsx
+```
+
+Result: 4/4 files and 42/42 tests passed. English now says malformed formulas or diagrams “show a readable fallback in place”; the shared message keeps UsageGuide and DocsFeatures aligned. Chinese was already accurate and remains unchanged.
+
+### Follow-up real-browser acceptance and cleanup
+
+The follow-up used only database `agentwiki_collaboration_test` and disposable schema `collaboration_test_markdown_rich_task4_followup_20260827_0057`. Database/role/search path were printed, the schema count was 0 before creation and 1 afterward, and Prisma applied all 43 migrations only to that schema.
+
+The same local Chrome command passed 1/1; test body 16.3 seconds and command 20.6 seconds. The valid click-directive diagram remained a ready sanitized SVG, its external link remained absent/inert, and all original math/fallback/console/request/shared-mode/checklist/desktop/390 px assertions remained green. Passing screenshots were written only to `/var/folders/0n/49qgdd8x7kgcvh719fw743mh0000gn/T/agentwiki-markdown-core-qa/1787763567367-40638c20975518/` and were not committed.
+
+After the browser run, active User/Space/Page counts were `0/0/0`. The task-owned server and client stopped, ports 3000 and 5173 were closed, and the exact schema count changed from 1 before drop to 0 after drop. `public` and the pre-existing Redis process were not changed.
+
+### Follow-up fresh gates
+
+- The first standard full-client run after the behavior change passed 74/74 files and 839/839 tests in 80.76 seconds.
+- After a lint-only `tryParseSvg` refactor, two standard full-client reruns hit unrelated load-sensitive tests: one had three failures in Dashboard/AgentPreparation, and one had two different Dashboard 5-second timeouts. The exact two affected files immediately passed 74/74 in isolation. No unrelated source was changed.
+- Final full-client verification constrained concurrency, without changing the 839-test set: `pnpm --filter @agentwiki/client exec vitest run --maxWorkers=4` passed 74/74 files and 839/839 tests in 135.69 seconds.
+- `pnpm lint` passed after removing the one initial `no-useless-assignment` diagnostic from the new helper.
+- `pnpm typecheck` passed for server, client, sync protocol, and local sync.
+- `pnpm build` passed; Vite transformed 4,731 modules in 17.24 seconds. It emitted local `Markdown-1bsMXAir.js` and separate `mermaid.core-PDG7IFIK.js`; the Markdown asset contains `import("./mermaid.core-PDG7IFIK.js")`. The existing >500 kB advisory remains non-blocking.
+- `git diff --check` passed after the final evidence update.
 
 ## Release state
 

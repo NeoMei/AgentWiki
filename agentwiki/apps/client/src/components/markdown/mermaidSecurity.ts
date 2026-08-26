@@ -33,11 +33,7 @@ const CSS_URL_START = /url\s*\(/iu;
 const CSS_URL = /url\s*\(([^)]*)\)/giu;
 const SAFE_SVG_ID = /^[A-Za-z_][A-Za-z0-9_-]*$/u;
 const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';
-
-const normalizeMermaidXlinkNamespace = (svg: string) => {
-  if (!/\sxlink:href\s*=/u.test(svg) || /\sxmlns:xlink\s*=/u.test(svg)) return svg;
-  return svg.replace(/^(\s*<svg)(?=[\s>])/u, `$1 xmlns:xlink="${XLINK_NAMESPACE}"`);
-};
+const XML_WHITESPACE = /[\t\n\r ]/u;
 
 const hasUnsafeControlCharacter = (value: string) => [...value].some((character) => {
   const codePoint = character.codePointAt(0) ?? 0;
@@ -59,6 +55,94 @@ const parseSvg = (svg: string) => {
     throw new Error(INVALID_SVG_ERROR);
   }
   return { document, root };
+};
+
+const inspectLexicalSvgRoot = (svg: string) => {
+  let cursor = 0;
+  while (XML_WHITESPACE.test(svg[cursor] ?? '')) cursor += 1;
+  if (!svg.startsWith('<svg', cursor)) throw new Error(INVALID_SVG_ERROR);
+
+  const insertAt = cursor + '<svg'.length;
+  const afterName = svg[insertAt] ?? '';
+  if (afterName !== '>' && afterName !== '/' && !XML_WHITESPACE.test(afterName)) {
+    throw new Error(INVALID_SVG_ERROR);
+  }
+
+  const xlinkDeclarations: string[] = [];
+  cursor = insertAt;
+  while (cursor < svg.length) {
+    while (XML_WHITESPACE.test(svg[cursor] ?? '')) cursor += 1;
+    if (svg[cursor] === '>') return { insertAt, xlinkDeclarations };
+    if (svg[cursor] === '/' && svg[cursor + 1] === '>') return { insertAt, xlinkDeclarations };
+
+    const nameStart = cursor;
+    while (cursor < svg.length && !/[\t\n\r =/>]/u.test(svg[cursor])) cursor += 1;
+    if (cursor === nameStart) throw new Error(INVALID_SVG_ERROR);
+    const name = svg.slice(nameStart, cursor);
+
+    while (XML_WHITESPACE.test(svg[cursor] ?? '')) cursor += 1;
+    if (svg[cursor] !== '=') throw new Error(INVALID_SVG_ERROR);
+    cursor += 1;
+    while (XML_WHITESPACE.test(svg[cursor] ?? '')) cursor += 1;
+
+    const quote = svg[cursor];
+    if (quote !== '"' && quote !== "'") throw new Error(INVALID_SVG_ERROR);
+    cursor += 1;
+    const valueStart = cursor;
+    while (cursor < svg.length && svg[cursor] !== quote) cursor += 1;
+    if (cursor >= svg.length) throw new Error(INVALID_SVG_ERROR);
+    if (name === 'xmlns:xlink') xlinkDeclarations.push(svg.slice(valueStart, cursor));
+    cursor += 1;
+  }
+
+  throw new Error(INVALID_SVG_ERROR);
+};
+
+const inspectParsedXlinkAttributes = (document: XMLDocument, root: Element) => {
+  let hasExactXlinkHref = false;
+  for (const element of [root, ...document.querySelectorAll('*')]) {
+    for (const attribute of [...element.attributes]) {
+      if (attribute.name === 'xmlns:xlink' && attribute.value !== XLINK_NAMESPACE) {
+        throw new Error(INVALID_SVG_ERROR);
+      }
+      if (attribute.prefix === 'xlink') {
+        if (attribute.namespaceURI !== XLINK_NAMESPACE) throw new Error(INVALID_SVG_ERROR);
+        if (attribute.localName === 'href') hasExactXlinkHref = true;
+      }
+    }
+  }
+  return hasExactXlinkHref;
+};
+
+const tryParseSvg = (svg: string) => {
+  try {
+    return parseSvg(svg);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeMermaidXlinkNamespace = (svg: string) => {
+  const { insertAt, xlinkDeclarations } = inspectLexicalSvgRoot(svg);
+  if (xlinkDeclarations.length > 1 || (
+    xlinkDeclarations.length === 1 && xlinkDeclarations[0] !== XLINK_NAMESPACE
+  )) {
+    throw new Error(INVALID_SVG_ERROR);
+  }
+
+  const parsed = tryParseSvg(svg);
+  if (parsed) {
+    inspectParsedXlinkAttributes(parsed.document, parsed.root);
+    return svg;
+  }
+  if (xlinkDeclarations.length !== 0) throw new Error(INVALID_SVG_ERROR);
+
+  const repaired = `${svg.slice(0, insertAt)} xmlns:xlink="${XLINK_NAMESPACE}"${svg.slice(insertAt)}`;
+  const repairedParsed = parseSvg(repaired);
+  if (!inspectParsedXlinkAttributes(repairedParsed.document, repairedParsed.root)) {
+    throw new Error(INVALID_SVG_ERROR);
+  }
+  return repaired;
 };
 
 const isLocalFragment = (value: string) => /^#[^\s#]+$/u.test(value);

@@ -16,7 +16,7 @@ const copy = {
   en: {
     title: 'Markdown editing and shared preview',
     syntax: 'Supports CommonMark and GFM headings, emphasis, links, lists, blockquotes, strikethrough, tables, task lists, fenced code and syntax highlighting, plus wiki links, aliases, heading links, block links, ==highlights==, and Callouts. Use $...$ and $$...$$ for math; use fenced Mermaid syntax: ```mermaid ... ```.',
-    safety: 'Raw HTML is disabled. Mermaid clicks and HTML labels are disabled. Malformed formulas or diagrams show a readable fallback in their own block. Each root document renders at most 20 Mermaid diagrams.',
+    safety: 'Raw HTML is disabled. Mermaid clicks and HTML labels are disabled. Malformed formulas or diagrams show a readable fallback in place. Each root document renders at most 20 Mermaid diagrams.',
     checklist: 'Checklist modes: toggling in editor preview updates only the unsaved draft and persists when the page is saved; on a published page, owner, admin, and editor toggles save immediately and create a new version; viewer and version-history previews are read-only.',
     forbidden: [/live WYSIWYG preview/iu, /image attachments/iu],
   },
