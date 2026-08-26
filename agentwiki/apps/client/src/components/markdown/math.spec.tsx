@@ -1,6 +1,9 @@
 import { cleanup, render, screen } from '@testing-library/react';
+import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { version as katexVersion } from 'katex';
 import { Markdown } from '../Markdown';
 
 const renderMd = (content: string) => render(
@@ -21,12 +24,39 @@ it('renders inline and display math with accessible MathML', () => {
   expect(document.querySelector('math')).not.toBeNull();
 });
 
+it('resolves every math dependency to the reviewed KaTeX runtime', () => {
+  const require = createRequire(import.meta.url);
+  const directKatex = realpathSync(require.resolve('katex'));
+  const rehypeKatex = realpathSync(require.resolve('rehype-katex'));
+  const remarkMath = realpathSync(require.resolve('remark-math'));
+  const micromarkMath = realpathSync(createRequire(remarkMath).resolve('micromark-extension-math'));
+  const resolvedKatexEntries = [
+    directKatex,
+    realpathSync(createRequire(rehypeKatex).resolve('katex')),
+    realpathSync(createRequire(micromarkMath).resolve('katex')),
+  ];
+
+  expect(katexVersion).toBe('0.18.4');
+  expect(new Set(resolvedKatexEntries)).toEqual(new Set([directKatex]));
+});
+
+it('renders fractions, scripts, roots, and matrices with matching layout classes', () => {
+  const { container } = renderMd('$$\\frac{x_1^2}{\\sqrt{y}} + \\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$$');
+
+  for (const className of ['katex-base', 'katex-strut', 'mfrac', 'msupsub', 'sqrt', 'mtable']) {
+    expect(container.querySelector(`.${className}`)).not.toBeNull();
+  }
+});
+
 it('renders an invalid formula as local error text without crashing', () => {
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-  renderMd('before $\\notARealCommand{$ after');
+  const { container } = renderMd('before $\\notARealCommand{$ after');
+  const error = container.querySelector('.katex-error');
 
-  expect(screen.getByText(/before/)).toBeInTheDocument();
+  expect(error).not.toBeNull();
+  expect(error).toHaveTextContent('\\notARealCommand{');
+  expect(container.querySelector('p')).toHaveTextContent('before \\notARealCommand{ after');
   expect(consoleError).not.toHaveBeenCalled();
 });
 
