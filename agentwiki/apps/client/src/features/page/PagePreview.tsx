@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, Clock, User, Trash2, FileText, Database } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
+import type { MarkdownTaskRef, MarkdownTaskToggle } from '../../components/markdown/markdownTypes';
+import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdown/tasks';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
 
 interface Page {
@@ -23,33 +25,247 @@ interface Page {
   lastModifiedByUser?: { id: string; name?: string; email?: string } | null;
   lastModifiedByAgent?: { id: string; name: string } | null;
   lastModifiedAt?: string;
+  capabilities?: { canEdit?: boolean };
+}
+
+interface PendingTaskOperation {
+  id: number;
+  pageId: string;
+  task: MarkdownTaskRef;
+  nextChecked: boolean;
+  requiresRebase: boolean;
 }
 
 export const PagePreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [page, setPage] = useState<Page | null>(null);
   const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
+  const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
+  const mountedRef = useRef(false);
+  const activePageIdRef = useRef<string | undefined>(id);
+  const pageRef = useRef<Page | null>(null);
+  const lastCommittedPageRef = useRef<Page | null>(null);
+  const pendingTaskOperationsRef = useRef<PendingTaskOperation[]>([]);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const nextTaskOperationIdRef = useRef(0);
 
-  const fetchPage = async () => {
-    if (!id) return;
+  const routeIsActive = (pageId: string) => (
+    mountedRef.current && activePageIdRef.current === pageId
+  );
+
+  const removePendingOperation = (operationId: number) => {
+    pendingTaskOperationsRef.current = pendingTaskOperationsRef.current.filter(
+      (operation) => operation.id !== operationId,
+    );
+  };
+
+  const replayPendingOperations = (pageId: string) => {
+    const committed = lastCommittedPageRef.current;
+    if (!committed || !routeIsActive(pageId)) return;
+
+    let content = committed.content || '';
+    const indexes = new Set<number>();
+    for (const operation of pendingTaskOperationsRef.current) {
+      if (operation.pageId !== pageId) continue;
+
+      let task = operation.requiresRebase ? rebaseMarkdownTask(content, operation.task) : operation.task;
+      let toggled = task ? toggleMarkdownTask(content, task, operation.nextChecked) : null;
+      if (!toggled && !operation.requiresRebase) {
+        task = rebaseMarkdownTask(content, operation.task);
+        toggled = task ? toggleMarkdownTask(content, task, operation.nextChecked) : null;
+      }
+      if (!task || toggled === null) continue;
+
+      operation.task = task;
+      operation.requiresRebase = false;
+      indexes.add(task.index);
+      content = toggled;
+    }
+
+    const optimisticPage = { ...committed, content };
+    pageRef.current = optimisticPage;
+    setPage(optimisticPage);
+    setPendingTaskIndexes(indexes);
+  };
+
+  const showTaskSaveFailure = (pageId: string) => {
+    if (routeIsActive(pageId)) setTaskSaveError(tRef.current('page.taskSaveFailed'));
+  };
+
+  const adoptSavedTask = (
+    pageId: string,
+    operation: PendingTaskOperation,
+    baseline: Page,
+    content: string,
+    responseData: Partial<Page>,
+  ) => {
+    if (!routeIsActive(pageId)) return;
+    lastCommittedPageRef.current = {
+      ...baseline,
+      ...responseData,
+      content,
+      capabilities: responseData.capabilities ?? baseline.capabilities,
+    };
+    removePendingOperation(operation.id);
+    replayPendingOperations(pageId);
+  };
+
+  const processTaskOperation = async (operation: PendingTaskOperation) => {
+    const pageId = operation.pageId;
+    if (!routeIsActive(pageId)) return;
+    const baseline = lastCommittedPageRef.current;
+    if (!baseline) return;
+
+    let task = operation.requiresRebase
+      ? rebaseMarkdownTask(baseline.content || '', operation.task)
+      : operation.task;
+    let content = task
+      ? toggleMarkdownTask(baseline.content || '', task, operation.nextChecked)
+      : null;
+    if (content === null && !operation.requiresRebase) {
+      task = rebaseMarkdownTask(baseline.content || '', operation.task);
+      content = task
+        ? toggleMarkdownTask(baseline.content || '', task, operation.nextChecked)
+        : null;
+    }
+    if (!task || content === null) {
+      removePendingOperation(operation.id);
+      replayPendingOperations(pageId);
+      showTaskSaveFailure(pageId);
+      return;
+    }
+
     try {
-      const res = await api.get(`/pages/${id}`);
-      setPage(res.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || t('editor.loadFailed'));
-    } finally {
-      setLoading(false);
+      const response = await api.patch(`/pages/${pageId}`, {
+        content,
+        expectedUpdatedAt: baseline.updatedAt,
+      });
+      adoptSavedTask(pageId, operation, baseline, content, response.data || {});
+      return;
+    } catch (error: any) {
+      if (!routeIsActive(pageId)) return;
+      if (error.response?.status !== 409) {
+        removePendingOperation(operation.id);
+        replayPendingOperations(pageId);
+        showTaskSaveFailure(pageId);
+        return;
+      }
+    }
+
+    try {
+      const latestResponse = await api.get(`/pages/${pageId}`);
+      if (!routeIsActive(pageId)) return;
+      const latest: Page = { ...baseline, ...latestResponse.data };
+      lastCommittedPageRef.current = latest;
+      for (const pending of pendingTaskOperationsRef.current) {
+        if (pending.pageId === pageId && pending.id !== operation.id) pending.requiresRebase = true;
+      }
+
+      const rebasedTask = rebaseMarkdownTask(latest.content || '', operation.task);
+      const rebasedContent = rebasedTask
+        ? toggleMarkdownTask(latest.content || '', rebasedTask, operation.nextChecked)
+        : null;
+      if (!rebasedTask || rebasedContent === null) {
+        removePendingOperation(operation.id);
+        replayPendingOperations(pageId);
+        showTaskSaveFailure(pageId);
+        return;
+      }
+
+      try {
+        const retryResponse = await api.patch(`/pages/${pageId}`, {
+          content: rebasedContent,
+          expectedUpdatedAt: latest.updatedAt,
+        });
+        adoptSavedTask(pageId, operation, latest, rebasedContent, retryResponse.data || {});
+      } catch {
+        if (!routeIsActive(pageId)) return;
+        removePendingOperation(operation.id);
+        replayPendingOperations(pageId);
+        showTaskSaveFailure(pageId);
+      }
+    } catch {
+      if (!routeIsActive(pageId)) return;
+      removePendingOperation(operation.id);
+      replayPendingOperations(pageId);
+      showTaskSaveFailure(pageId);
     }
   };
 
+  const handleTaskToggle = (toggle: MarkdownTaskToggle) => {
+    if (!id || activePageIdRef.current !== id) return;
+    const current = pageRef.current;
+    if (!current || current.capabilities?.canEdit !== true) return;
+    const optimisticContent = toggleMarkdownTask(current.content || '', toggle.task, toggle.nextChecked);
+    if (optimisticContent === null) return;
+
+    const operation: PendingTaskOperation = {
+      id: nextTaskOperationIdRef.current++,
+      pageId: id,
+      task: toggle.task,
+      nextChecked: toggle.nextChecked,
+      requiresRebase: false,
+    };
+    pendingTaskOperationsRef.current = [...pendingTaskOperationsRef.current, operation];
+    setTaskSaveError(null);
+    replayPendingOperations(id);
+    saveChainRef.current = saveChainRef.current
+      .then(() => processTaskOperation(operation))
+      .catch(() => {
+        if (!routeIsActive(operation.pageId)) return;
+        removePendingOperation(operation.id);
+        replayPendingOperations(operation.pageId);
+        showTaskSaveFailure(operation.pageId);
+      });
+  };
+
   useEffect(() => {
-    fetchPage();
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    activePageIdRef.current = id;
+    pendingTaskOperationsRef.current = [];
+    saveChainRef.current = Promise.resolve();
+    lastCommittedPageRef.current = null;
+    pageRef.current = null;
+    setPage(null);
+    setLoading(true);
+    setError(null);
+    setTaskSaveError(null);
+    setPendingTaskIndexes(new Set());
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+
+    const requestedId = id;
+    api.get(`/pages/${requestedId}`)
+      .then((response) => {
+        if (!routeIsActive(requestedId)) return;
+        lastCommittedPageRef.current = response.data;
+        pageRef.current = response.data;
+        setPage(response.data);
+      })
+      .catch((loadError: any) => {
+        if (!routeIsActive(requestedId)) return;
+        setError(loadError.response?.data?.message || tRef.current('editor.loadFailed'));
+      })
+      .finally(() => {
+        if (routeIsActive(requestedId)) setLoading(false);
+      });
   }, [id]);
 
   useEffect(() => {
@@ -67,7 +283,7 @@ export const PagePreview: React.FC = () => {
   }, [page?.spaceId]);
 
   const handleDelete = async () => {
-    if (!page || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
+    if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
     setDeleting(true);
     try {
       await api.delete(`/pages/${page.id}`);
@@ -120,7 +336,7 @@ export const PagePreview: React.FC = () => {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
       <div className="relative bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
-        <div className="absolute right-4 top-4 flex items-center gap-1">
+        {page.capabilities?.canEdit === true ? <div className="absolute right-4 top-4 flex items-center gap-1">
           <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
           <button
             onClick={handleDelete}
@@ -131,7 +347,8 @@ export const PagePreview: React.FC = () => {
           >
             <Trash2 size={18} />
           </button>
-        </div>
+        </div> : null}
+        {taskSaveError ? <p role="alert" className="mb-4 text-sm text-red-600">{taskSaveError}</p> : null}
         <div className="prose prose-sm max-w-none
           [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
           [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
@@ -155,7 +372,15 @@ export const PagePreview: React.FC = () => {
           [&_input[type=checkbox]]:mr-2
         ">
           {page.content ? (
-            <Markdown pages={spacePages}>{page.content}</Markdown>
+            <Markdown
+              mode="page"
+              canEdit={page.capabilities?.canEdit === true}
+              pendingTaskIndexes={pendingTaskIndexes}
+              onTaskToggle={handleTaskToggle}
+              pages={spacePages}
+            >
+              {page.content}
+            </Markdown>
           ) : (
             <p className="text-gray-400">{t('page.emptyContent')}</p>
           )}
