@@ -4,10 +4,11 @@
 
 ## 活跃任务
 
-- [page-template-library](active/page-template-library/brief.md)：单页系统模板与 Space 自定义模板已完成本地实施、重复多轮任务/代码审查和全栈/UI 动态验收；2026-08-26 已获发布授权，正在完成 GitHub 与生产发布。
+- 当前无活跃任务。
 
 ## 最近完成
 
+- [page-template-library](archive/page-template-library/brief.md)：单页系统模板与 Space 自定义模板完成多轮任务/代码/全栈/UI 审查、GitHub 推送、生产双备份、第 43 个迁移与公网真实 Chrome 验收；npm 包无差异，未发布 npm。
 - [collaboration-agent-preparation](archive/collaboration-agent-preparation/brief.md)：协作向导内 Agent 准备、接入、映射与权限闭环已完成 GitHub 和生产发布；双备份、727 文件哈希、服务/迁移/公网健康及桌面/390px 已登录 Browser 验收全部通过。
 - [collaboration-release-finalization-2026-08-24](archive/collaboration-release-finalization-2026-08-24/brief.md)：协作模板完成多轮任务/代码/全栈/UI 审查、GitHub 与 npm `0.6.1/0.3.0` 发布、生产双备份部署及公网双轮烟测；活跃测试 fixture 与测试 schema 均清零。
 - [agent-collaboration-templates](archive/agent-collaboration-templates/brief.md)：五类协作模板、任务/Todo/依赖/审核/交接组件、六个 MCP 工具与 Space UI 已完成四轮审查和全栈验收；本地候选达到发布标准，GitHub、npm 与生产仍等待独立授权。
