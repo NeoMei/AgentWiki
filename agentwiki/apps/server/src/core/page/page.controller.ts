@@ -86,9 +86,18 @@ export class PageController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: Request) {
-    await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+    const principal = req.user as any;
+    const page = await this.authorization.assertPageAccess(principal, id, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+    const access = await this.authorization.assertSpaceAccess(
+      principal,
+      page.spaceId,
+      ['owner', 'admin', 'editor', 'viewer'],
+      'pages:read',
+    );
+    const canEdit = !principal.agentId
+      && (principal.platformRole === 'super_admin' || ['owner', 'editor'].includes(String(access.role)));
     this.logger.log('Finding page: ' + id);
-    return this.pageService.findOne(id);
+    return { ...await this.pageService.findOne(id), capabilities: { canEdit } };
   }
 
   @Get(':id/versions')
