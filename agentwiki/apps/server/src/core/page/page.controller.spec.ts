@@ -1,4 +1,5 @@
 import { PageController } from './page.controller';
+import { AuthorizationService } from '../authorization/authorization.service';
 
 describe('PageController.create', () => {
   it('passes the complete human principal to the locked PageService create path', async () => {
@@ -26,9 +27,10 @@ describe('PageController.findOne', () => {
   it.each([
     ['owner', false, 'user', true],
     ['editor', false, 'user', true],
-    ['admin', false, 'user', false],
+    ['admin', false, 'user', true],
     ['viewer', false, 'user', false],
     ['owner', true, 'user', false],
+    ['owner', true, 'super_admin', false],
     ['viewer', false, 'super_admin', true],
   ] as const)(
     'maps role %s, agent=%s, platformRole=%s to canEdit=%s',
@@ -71,7 +73,7 @@ describe('PageController.findOne', () => {
 });
 
 describe('PageController.update', () => {
-  it('keeps direct PATCH authorization limited to owner and editor roles', async () => {
+  it('uses the established content-write authorization gate for direct PATCH', async () => {
     const pageService = { update: jest.fn().mockResolvedValue({ id: 'page-1' }) } as any;
     const authorization = {
       assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }),
@@ -88,5 +90,31 @@ describe('PageController.update', () => {
       ['owner', 'editor'],
       'pages:write',
     );
+  });
+
+  it('allows human admin PATCH and reports a matching direct-edit capability through live authorization', async () => {
+    const prisma = {
+      page: { findUnique: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: {
+        findUnique: jest.fn().mockResolvedValue({
+          role: 'admin',
+          space: { deletedAt: null },
+        }),
+      },
+    };
+    const authorization = new AuthorizationService(prisma as any);
+    const pageService = {
+      update: jest.fn().mockResolvedValue({ id: 'page-1', title: 'Updated' }),
+      findOne: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1', title: 'Updated' }),
+    } as any;
+    const controller = new PageController(pageService, authorization, { propose: jest.fn() } as any);
+    const principal = { userId: 'admin-1', platformRole: 'user' as const };
+    const dto = { title: 'Updated', expectedUpdatedAt: '2026-08-26T00:00:00.000Z' };
+
+    await expect(controller.update('page-1', dto, { user: principal } as any))
+      .resolves.toEqual({ id: 'page-1', title: 'Updated' });
+    await expect(controller.findOne('page-1', { user: principal } as any))
+      .resolves.toMatchObject({ capabilities: { canEdit: true } });
   });
 });

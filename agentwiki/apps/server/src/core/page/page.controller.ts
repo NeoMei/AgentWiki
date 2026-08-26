@@ -95,7 +95,7 @@ export class PageController {
       'pages:read',
     );
     const canEdit = !principal.agentId
-      && (principal.platformRole === 'super_admin' || ['owner', 'editor'].includes(String(access.role)));
+      && (principal.platformRole === 'super_admin' || ['owner', 'admin', 'editor'].includes(String(access.role)));
     this.logger.log('Finding page: ' + id);
     return { ...await this.pageService.findOne(id), capabilities: { canEdit } };
   }
