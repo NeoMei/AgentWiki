@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -21,6 +21,7 @@ interface Page {
   format: string;
   spaceId: string;
   updatedAt: string;
+  capabilities?: { canEdit?: boolean };
 }
 
 interface ActiveUser {
@@ -52,6 +53,7 @@ const pageRevision = (page: Page) => JSON.stringify([
 
 export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<MarkdownWorkspaceHandle | null> }> = ({ workspaceRef } = {}) => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { language, t } = useLanguage();
   const socketRef = useRef<Socket | null>(null);
@@ -159,6 +161,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     try {
       const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
       if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
+      if (res.data.capabilities?.canEdit === false) {
+        window.alert(tRef.current('common.forbidden'));
+        navigate(`/pages/${requestedId}`, { replace: true });
+        return;
+      }
       setError(null);
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
     } catch (err: any) {
@@ -170,7 +177,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, offerRemotePage]);
+  }, [id, navigate, offerRemotePage]);
 
   useEffect(() => {
     contentRef.current = content;

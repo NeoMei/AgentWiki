@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
+import { Markdown } from './Markdown';
 import { MarkdownMode, MarkdownWorkspace } from './MarkdownWorkspace';
 import { ModeToggleButton } from './ModeToggleButton';
 
@@ -71,5 +72,22 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     renderWYS();
     fireEvent.click(screen.getByTestId('mode-toggle'));
     expect(screen.getByTestId('md-preview')).toBeInTheDocument();
+  });
+
+  it('updates only the editor draft when a preview task is toggled', () => {
+    const onChange = vi.fn();
+    renderWYS({ initial: '- [ ] draft task', onChange });
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).not.toBeDisabled();
+    fireEvent.click(checkbox);
+
+    expect(onChange).toHaveBeenCalledWith('- [x] draft task');
+  });
+
+  it('keeps historical task checkboxes read-only', () => {
+    render(<Markdown mode="version">- [ ] historical task</Markdown>);
+    expect(screen.getByRole('checkbox')).toBeDisabled();
   });
 });

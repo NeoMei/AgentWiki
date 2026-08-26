@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -90,10 +90,19 @@ const renderEditor = (withLanguageSwitcher = false) => render(
   <LanguageProvider>
     {withLanguageSwitcher ? <LanguageSwitcher /> : null}
     <MemoryRouter initialEntries={['/pages/page-1/edit']}>
-      <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>
+      <Routes>
+        <Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} />
+        <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
+      </Routes>
     </MemoryRouter>
   </LanguageProvider>,
 );
+
+const DirectEditRedirectTarget = () => {
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  return <p>{`${location.pathname}:${navigationType}`}</p>;
+};
 
 const NavigationHarness = () => {
   const navigate = useNavigate();
@@ -104,7 +113,10 @@ const NavigationHarness = () => {
 };
 
 describe('PageEditor remote update safety', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
@@ -152,6 +164,17 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('Remote content v3');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('redirects a viewer from the direct-edit route without rendering a writable workspace', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+
+    const { container } = renderEditor();
+
+    expect(await screen.findByText('/pages/page-1:REPLACE')).toBeInTheDocument();
+    expect(alertSpy).toHaveBeenCalledWith('Access Denied');
+    expect(container.querySelector('.cm-editor')).not.toBeInTheDocument();
   });
 
   it('keeps the local draft and its original version token so a save is protected by the server', async () => {

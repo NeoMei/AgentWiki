@@ -19,6 +19,7 @@ interface Page {
   id: string;
   title: string;
   spaceId: string;
+  capabilities?: { canEdit?: boolean };
 }
 
 export const PageVersionHistory: React.FC = () => {
@@ -137,14 +138,16 @@ export const PageVersionHistory: React.FC = () => {
                 >
                   <Eye size={16} /> {t('common.preview')}
                 </button>
-                <button
-                  onClick={() => handleRestore(version.id)}
-                  disabled={restoring === version.id}
-                  className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 text-sm flex-shrink-0"
-                >
-                  <RotateCcw size={16} />
-                  {restoring === version.id ? t('version.restoring') : t('version.restore')}
-                </button>
+                {page?.capabilities?.canEdit === true ? (
+                  <button
+                    onClick={() => handleRestore(version.id)}
+                    disabled={restoring === version.id}
+                    className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 text-sm flex-shrink-0"
+                  >
+                    <RotateCcw size={16} />
+                    {restoring === version.id ? t('version.restoring') : t('version.restore')}
+                  </button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -157,7 +160,7 @@ export const PageVersionHistory: React.FC = () => {
               <div><h2 className="text-xl font-semibold">{t('version.previewTitle', { version: previewNumber })}</h2><p className="mt-1 text-sm text-gray-500">{previewVersion.title}</p></div>
               <button type="button" aria-label={t('version.closePreview')} onClick={() => setPreviewVersionId(null)} className="rounded p-1 hover:bg-gray-100"><X size={20} /></button>
             </div>
-            <div className="mt-4"><Markdown>{previewVersion.content || ''}</Markdown></div>
+            <div className="mt-4"><Markdown mode="version" canEdit={false}>{previewVersion.content || ''}</Markdown></div>
           </div>
         </div>
       ) : null}

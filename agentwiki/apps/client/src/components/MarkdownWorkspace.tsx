@@ -9,6 +9,7 @@ import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
+import { toggleMarkdownTask } from './markdown/tasks';
 import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
 
 export type MarkdownMode = 'edit' | 'preview';
@@ -167,7 +168,17 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           <div className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
             <div className="mx-auto max-w-4xl">
               {value ? (
-                <Markdown pages={pages}>{value}</Markdown>
+                <Markdown
+                  mode="editor-preview"
+                  canEdit
+                  onTaskToggle={({ task, nextChecked }) => {
+                    const next = toggleMarkdownTask(value, task, nextChecked);
+                    if (next !== null) onChange(next);
+                  }}
+                  pages={pages}
+                >
+                  {value}
+                </Markdown>
               ) : (
                 <p className="py-12 text-center text-sm text-gray-400">{t('editor.emptyPreview')}</p>
               )}
