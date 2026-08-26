@@ -82,6 +82,18 @@ Final focused affected-client verification passed 3/3 files and 57/57 tests. The
 
 The final independent production review reported 0 Critical and 0 Important findings. Its single Minor was coverage-only: PageEditor does not repeat every A→B→A and stale-rejection Space-index cell already exercised in PagePreview, while the production path has aborted-signal, route-generation, and current-page guards.
 
+### Post-final-fix full repository gates (application candidate `43b7be9`)
+
+After all product fixes were committed at `43b7be9` (with only verification-document commits after it), the complete repository gates ran in the required order. Every command exited 0:
+
+1. `pnpm test`: runtime 104 passed / 51 environment-gated skipped; server 1,222 passed / 4 skipped (89 suites passed / 2 skipped); client 787 passed / 0 skipped (71 files); sync protocol 42 passed / 0 skipped; local sync 748 passed / 0 skipped (61 files). Total executed: 2,903. Total environment-gated skips, excluded from executed coverage: 55.
+2. `pnpm lint`: passed with no diagnostics across server, client, and local sync.
+3. `pnpm typecheck`: passed for server, client, sync protocol, and local sync.
+4. `pnpm build`: passed for shared, sync protocol ESM/CJS, server, client, and local sync. Vite transformed 2,624 modules and emitted only the existing non-blocking >500 kB chunk advisory.
+5. `git diff --check`: passed with no whitespace errors.
+
+No browser rerun followed these gates because there were no product-code changes after the already passing final-candidate browser run below.
+
 ### Final-candidate browser rerun and cleanup
 
 The fresh rerun used only schema `markdown_core_task7_followup_20260826_1800` in `agentwiki_collaboration_test`; all 43 migrations were applied there. Real Chrome ran `e2e/markdown-core.spec.ts` against `http://127.0.0.1:5173` and `http://127.0.0.1:3000/api/`: 1/1 passed in 12.8 s. The acceptance test's browser warning/error assertion remained clean.
