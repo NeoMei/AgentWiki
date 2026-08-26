@@ -101,13 +101,17 @@ const inspectLexicalSvgRoot = (svg: string) => {
 const inspectParsedXlinkAttributes = (document: XMLDocument, root: Element) => {
   let hasExactXlinkHref = false;
   for (const element of [root, ...document.querySelectorAll('*')]) {
+    if (element.prefix === 'xlink') throw new Error(INVALID_SVG_ERROR);
     for (const attribute of [...element.attributes]) {
       if (attribute.name === 'xmlns:xlink' && attribute.value !== XLINK_NAMESPACE) {
         throw new Error(INVALID_SVG_ERROR);
       }
       if (attribute.prefix === 'xlink') {
-        if (attribute.namespaceURI !== XLINK_NAMESPACE) throw new Error(INVALID_SVG_ERROR);
-        if (attribute.localName === 'href') hasExactXlinkHref = true;
+        if (
+          attribute.namespaceURI !== XLINK_NAMESPACE
+          || attribute.localName !== 'href'
+        ) throw new Error(INVALID_SVG_ERROR);
+        hasExactXlinkHref = true;
       }
     }
   }

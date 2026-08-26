@@ -133,6 +133,45 @@ After the browser run, active User/Space/Page counts were `0/0/0`. The task-owne
 - `pnpm build` passed; Vite transformed 4,731 modules in 17.24 seconds. It emitted local `Markdown-1bsMXAir.js` and separate `mermaid.core-PDG7IFIK.js`; the Markdown asset contains `import("./mermaid.core-PDG7IFIK.js")`. The existing >500 kB advisory remains non-blocking.
 - `git diff --check` passed after the final evidence update.
 
+## Second reviewer convergence follow-up — 2026-08-27
+
+The second Task 4 re-review reported 0 Critical, 1 Important, and 0 Minor findings. It showed that adding the standard root namespace could make a real undeclared `xlink:href` valid while also legitimizing an unrelated `<xlink:foo>` element or `xlink:other` attribute in the same original XML.
+
+### Prefix-use regression and narrow repair
+
+The additional regression matrix was written before the second production change:
+
+```bash
+pnpm --filter @agentwiki/client exec vitest run src/components/markdown/mermaidSecurity.spec.ts
+```
+
+Final RED: 31 tests ran, 26 passed, and 5 failed. The five failures covered an XLink-prefixed element and a non-`href` XLink attribute both with a missing declaration and with an exact standard declaration, plus a case-variant `xlink:HrEf` under the standard declaration. Compatibility coverage also keeps multiple case-exact `xlink:href` attributes with XML whitespace around `=` and the existing comment/text/style/attribute decoys.
+
+The production change is limited to the existing parsed-XLink inspection. Before either valid original XML or namespace-repaired XML is accepted, every real parsed element and attribute is checked. An element whose case-sensitive prefix is `xlink` fails closed; an attribute with that prefix must bind to the exact standard namespace and have the case-sensitive local name `href`. Namespace injection does not change qualified names, so this rejects every forbidden real prefix use from the original XML while comments, element/style text, and attribute-value literals remain non-attributes. Multiple exact `xlink:href` attributes remain compatible, and the existing sanitizer still removes non-fragment targets.
+
+GREEN evidence:
+
+```text
+mermaidSecurity.spec.ts: 31/31 passed
+mermaidSecurity.spec.ts + MermaidDiagram.spec.tsx + markdown-support-messages.spec.tsx + UsageGuide.spec.tsx: 4 files, 47/47 passed
+```
+
+### Second follow-up real-browser acceptance and cleanup
+
+The browser rerun used database `agentwiki_collaboration_test` and disposable schema `collaboration_test_markdown_rich_task4_rereview_20260827_0130`. The resolved database, role, and search path were printed first; the exact schema count was 0 before creation and 1 afterward. Prisma applied all 43 migrations only to that schema. API health reported database, Redis, and audit persistence healthy.
+
+The complete `markdown-core.spec.ts` Chrome acceptance passed 1/1; test body 17.2 seconds and command 21.8 seconds. This included the real valid Mermaid click-directive SVG probe plus all Task 4 math, fallback, sanitization, console/request, shared-mode, checklist, desktop, and 390 px assertions. Passing screenshots were written only to `/var/folders/0n/49qgdd8x7kgcvh719fw743mh0000gn/T/agentwiki-markdown-core-qa/1787765478084-6993b49598114/` and were not committed.
+
+Active User/Space/Page counts were `0/0/0` after fixture cleanup. The task API/client were stopped, ports 3000/5173 were closed, the exact schema count changed from 1 before drop to 0 after drop, generated Playwright results were removed, and `public` was untouched.
+
+### Second follow-up fresh gates
+
+- `pnpm --filter @agentwiki/client exec vitest run --maxWorkers=4`: 74/74 files and 844/844 tests passed in 27.17 seconds.
+- `pnpm lint`: passed with no diagnostics.
+- `pnpm typecheck`: passed for server, client, sync protocol, and local sync.
+- `pnpm build`: passed; Vite transformed 4,731 modules and completed in 8.60 seconds. It emitted local `Markdown-DL5EiBAI.js` and separate `mermaid.core-YICEimvX.js`; the Markdown asset contains `import("./mermaid.core-YICEimvX.js")`. The existing >500 kB advisory remains non-blocking.
+- `git diff --check`: passed after the final evidence update.
+
 ## Release state
 
 - **Local branch:** Task 4 is committed locally on `codex/markdown-rendering-attachments` after the verified Task 1–3 candidate `9635677f55f8404304b9ccbae2471acc195ed5d4`.

@@ -27,7 +27,6 @@ describe('sanitizeMermaidSvg', () => {
     ['mixed-case external URL', 'HrEf="HTTPS://evil.test/path"'],
     ['protocol-relative URL', 'href="//evil.test/path"'],
     ['encoded javascript URL', 'href="&#x6a;avascript:alert(1)"'],
-    ['mixed-case xlink URL', 'xlink:HrEf="https://evil.test/path"'],
     ['encoded xlink javascript URL', 'xlink:href="java&#x73;cript:alert(1)"'],
   ])('strips %s from every href namespace and casing', (_label, attribute) => {
     const dirty = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a ${attribute}><text>bad</text></a><a href="#safe"><text>safe</text></a></svg>`;
@@ -109,6 +108,43 @@ describe('sanitizeMermaidSvg', () => {
 
     expect(clean).toContain('<text>safe label</text>');
     expect(clean).not.toMatch(/evil\.test|xlink:href/iu);
+  });
+
+  it('repairs multiple case-exact xlink:href attributes with XML whitespace', () => {
+    const clean = sanitizeMermaidSvg([
+      '<svg xmlns="http://www.w3.org/2000/svg">',
+      '<a xlink:href\n = "#first"><text>first</text></a>',
+      '<a xlink:href\t=\r"#second"><text>second</text></a>',
+      '</svg>',
+    ].join(''));
+
+    expect(clean).toContain('<text>first</text>');
+    expect(clean).toContain('<text>second</text>');
+  });
+
+  it.each([
+    [
+      'an xlink-prefixed element beside a real missing-namespace href',
+      '<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="#safe"/><xlink:foo/></svg>',
+    ],
+    [
+      'another xlink-prefixed attribute beside a real missing-namespace href',
+      '<svg xmlns="http://www.w3.org/2000/svg"><a xlink:href="#safe" xlink:other="value"/></svg>',
+    ],
+    [
+      'an xlink-prefixed element with a standard declaration',
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="#safe"/><xlink:foo/></svg>',
+    ],
+    [
+      'another xlink-prefixed attribute with a standard declaration',
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="#safe" xlink:other="value"/></svg>',
+    ],
+    [
+      'a case-variant xlink-prefixed attribute with a standard declaration',
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a xlink:href="#safe" xlink:HrEf="value"/></svg>',
+    ],
+  ])('fails closed for %s', (_label, dirty) => {
+    expect(() => sanitizeMermaidSvg(dirty)).toThrow('MERMAID_SVG_INVALID');
   });
 
   it.each([
