@@ -31,6 +31,7 @@ interface Page {
 interface PendingTaskOperation {
   id: number;
   pageId: string;
+  generation: number;
   task: MarkdownTaskRef;
   nextChecked: boolean;
   requiresRebase: boolean;
@@ -52,14 +53,17 @@ export const PagePreview: React.FC = () => {
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
   const activePageIdRef = useRef<string | undefined>(id);
+  const routeGenerationRef = useRef(0);
   const pageRef = useRef<Page | null>(null);
   const lastCommittedPageRef = useRef<Page | null>(null);
   const pendingTaskOperationsRef = useRef<PendingTaskOperation[]>([]);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const nextTaskOperationIdRef = useRef(0);
 
-  const routeIsActive = (pageId: string) => (
-    mountedRef.current && activePageIdRef.current === pageId
+  const routeIsActive = (pageId: string, generation: number) => (
+    mountedRef.current
+    && activePageIdRef.current === pageId
+    && routeGenerationRef.current === generation
   );
 
   const removePendingOperation = (operationId: number) => {
@@ -68,14 +72,14 @@ export const PagePreview: React.FC = () => {
     );
   };
 
-  const replayPendingOperations = (pageId: string) => {
+  const replayPendingOperations = (pageId: string, generation: number) => {
     const committed = lastCommittedPageRef.current;
-    if (!committed || !routeIsActive(pageId)) return;
+    if (!committed || !routeIsActive(pageId, generation)) return;
 
     let content = committed.content || '';
     const indexes = new Set<number>();
     for (const operation of pendingTaskOperationsRef.current) {
-      if (operation.pageId !== pageId) continue;
+      if (operation.pageId !== pageId || operation.generation !== generation) continue;
 
       let task = operation.requiresRebase ? rebaseMarkdownTask(content, operation.task) : operation.task;
       let toggled = task ? toggleMarkdownTask(content, task, operation.nextChecked) : null;
@@ -97,18 +101,19 @@ export const PagePreview: React.FC = () => {
     setPendingTaskIndexes(indexes);
   };
 
-  const showTaskSaveFailure = (pageId: string) => {
-    if (routeIsActive(pageId)) setTaskSaveError(tRef.current('page.taskSaveFailed'));
+  const showTaskSaveFailure = (pageId: string, generation: number) => {
+    if (routeIsActive(pageId, generation)) setTaskSaveError(tRef.current('page.taskSaveFailed'));
   };
 
   const adoptSavedTask = (
     pageId: string,
+    generation: number,
     operation: PendingTaskOperation,
     baseline: Page,
     content: string,
     responseData: Partial<Page>,
   ) => {
-    if (!routeIsActive(pageId)) return;
+    if (!routeIsActive(pageId, generation)) return;
     lastCommittedPageRef.current = {
       ...baseline,
       ...responseData,
@@ -116,12 +121,13 @@ export const PagePreview: React.FC = () => {
       capabilities: responseData.capabilities ?? baseline.capabilities,
     };
     removePendingOperation(operation.id);
-    replayPendingOperations(pageId);
+    replayPendingOperations(pageId, generation);
   };
 
   const processTaskOperation = async (operation: PendingTaskOperation) => {
     const pageId = operation.pageId;
-    if (!routeIsActive(pageId)) return;
+    const generation = operation.generation;
+    if (!routeIsActive(pageId, generation)) return;
     const baseline = lastCommittedPageRef.current;
     if (!baseline) return;
 
@@ -139,8 +145,8 @@ export const PagePreview: React.FC = () => {
     }
     if (!task || content === null) {
       removePendingOperation(operation.id);
-      replayPendingOperations(pageId);
-      showTaskSaveFailure(pageId);
+      replayPendingOperations(pageId, generation);
+      showTaskSaveFailure(pageId, generation);
       return;
     }
 
@@ -149,35 +155,44 @@ export const PagePreview: React.FC = () => {
         content,
         expectedUpdatedAt: baseline.updatedAt,
       });
-      adoptSavedTask(pageId, operation, baseline, content, response.data || {});
+      adoptSavedTask(pageId, generation, operation, baseline, content, response.data || {});
       return;
     } catch (error: any) {
-      if (!routeIsActive(pageId)) return;
+      if (!routeIsActive(pageId, generation)) return;
       if (error.response?.status !== 409) {
         removePendingOperation(operation.id);
-        replayPendingOperations(pageId);
-        showTaskSaveFailure(pageId);
+        replayPendingOperations(pageId, generation);
+        showTaskSaveFailure(pageId, generation);
         return;
       }
     }
 
     try {
       const latestResponse = await api.get(`/pages/${pageId}`);
-      if (!routeIsActive(pageId)) return;
+      if (!routeIsActive(pageId, generation)) return;
       const latest: Page = { ...baseline, ...latestResponse.data };
       lastCommittedPageRef.current = latest;
       for (const pending of pendingTaskOperationsRef.current) {
-        if (pending.pageId === pageId && pending.id !== operation.id) pending.requiresRebase = true;
+        if (
+          pending.pageId === pageId
+          && pending.generation === generation
+          && pending.id !== operation.id
+        ) pending.requiresRebase = true;
       }
 
       const rebasedTask = rebaseMarkdownTask(latest.content || '', operation.task);
+      if (rebasedTask?.checked === operation.nextChecked) {
+        removePendingOperation(operation.id);
+        replayPendingOperations(pageId, generation);
+        return;
+      }
       const rebasedContent = rebasedTask
         ? toggleMarkdownTask(latest.content || '', rebasedTask, operation.nextChecked)
         : null;
       if (!rebasedTask || rebasedContent === null) {
         removePendingOperation(operation.id);
-        replayPendingOperations(pageId);
-        showTaskSaveFailure(pageId);
+        replayPendingOperations(pageId, generation);
+        showTaskSaveFailure(pageId, generation);
         return;
       }
 
@@ -186,23 +201,25 @@ export const PagePreview: React.FC = () => {
           content: rebasedContent,
           expectedUpdatedAt: latest.updatedAt,
         });
-        adoptSavedTask(pageId, operation, latest, rebasedContent, retryResponse.data || {});
+        adoptSavedTask(pageId, generation, operation, latest, rebasedContent, retryResponse.data || {});
       } catch {
-        if (!routeIsActive(pageId)) return;
+        if (!routeIsActive(pageId, generation)) return;
         removePendingOperation(operation.id);
-        replayPendingOperations(pageId);
-        showTaskSaveFailure(pageId);
+        replayPendingOperations(pageId, generation);
+        showTaskSaveFailure(pageId, generation);
       }
     } catch {
-      if (!routeIsActive(pageId)) return;
+      if (!routeIsActive(pageId, generation)) return;
       removePendingOperation(operation.id);
-      replayPendingOperations(pageId);
-      showTaskSaveFailure(pageId);
+      replayPendingOperations(pageId, generation);
+      showTaskSaveFailure(pageId, generation);
     }
   };
 
   const handleTaskToggle = (toggle: MarkdownTaskToggle) => {
-    if (!id || activePageIdRef.current !== id) return;
+    if (!id) return;
+    const generation = routeGenerationRef.current;
+    if (!routeIsActive(id, generation)) return;
     const current = pageRef.current;
     if (!current || current.capabilities?.canEdit !== true) return;
     const optimisticContent = toggleMarkdownTask(current.content || '', toggle.task, toggle.nextChecked);
@@ -211,20 +228,21 @@ export const PagePreview: React.FC = () => {
     const operation: PendingTaskOperation = {
       id: nextTaskOperationIdRef.current++,
       pageId: id,
+      generation,
       task: toggle.task,
       nextChecked: toggle.nextChecked,
       requiresRebase: false,
     };
     pendingTaskOperationsRef.current = [...pendingTaskOperationsRef.current, operation];
     setTaskSaveError(null);
-    replayPendingOperations(id);
+    replayPendingOperations(id, generation);
     saveChainRef.current = saveChainRef.current
       .then(() => processTaskOperation(operation))
       .catch(() => {
-        if (!routeIsActive(operation.pageId)) return;
+        if (!routeIsActive(operation.pageId, operation.generation)) return;
         removePendingOperation(operation.id);
-        replayPendingOperations(operation.pageId);
-        showTaskSaveFailure(operation.pageId);
+        replayPendingOperations(operation.pageId, operation.generation);
+        showTaskSaveFailure(operation.pageId, operation.generation);
       });
   };
 
@@ -236,6 +254,8 @@ export const PagePreview: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const generation = routeGenerationRef.current + 1;
+    routeGenerationRef.current = generation;
     activePageIdRef.current = id;
     pendingTaskOperationsRef.current = [];
     saveChainRef.current = Promise.resolve();
@@ -254,17 +274,17 @@ export const PagePreview: React.FC = () => {
     const requestedId = id;
     api.get(`/pages/${requestedId}`)
       .then((response) => {
-        if (!routeIsActive(requestedId)) return;
+        if (!routeIsActive(requestedId, generation)) return;
         lastCommittedPageRef.current = response.data;
         pageRef.current = response.data;
         setPage(response.data);
       })
       .catch((loadError: any) => {
-        if (!routeIsActive(requestedId)) return;
+        if (!routeIsActive(requestedId, generation)) return;
         setError(loadError.response?.data?.message || tRef.current('editor.loadFailed'));
       })
       .finally(() => {
-        if (routeIsActive(requestedId)) setLoading(false);
+        if (routeIsActive(requestedId, generation)) setLoading(false);
       });
   }, [id]);
 

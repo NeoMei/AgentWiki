@@ -24,6 +24,12 @@ const page = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const patchPage = (overrides: Record<string, unknown> = {}) => {
+  const response: Record<string, unknown> = page(overrides);
+  delete response.capabilities;
+  return response;
+};
+
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -66,6 +72,17 @@ const NavigationHarness = () => {
   );
 };
 
+const AbaNavigationHarness = () => {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => navigate('/pages/page-1')}>Open first page</button>
+      <button type="button" onClick={() => navigate('/pages/page-2')}>Open second page</button>
+      <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
+    </>
+  );
+};
+
 describe('PagePreview checklist saves', () => {
   afterEach(cleanup);
 
@@ -89,7 +106,7 @@ describe('PagePreview checklist saves', () => {
   it('optimistically toggles an editable task and immediately saves page content', async () => {
     queuePages({ data: page() });
     vi.mocked(api.patch).mockResolvedValue({
-      data: page({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+      data: patchPage({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
     } as any);
     renderPreview();
 
@@ -102,6 +119,11 @@ describe('PagePreview checklist saves', () => {
       content: '- [x] first task\n- [ ] second task',
       expectedUpdatedAt: '2026-08-26T01:00:00.000Z',
     }));
+    const [savedFirst] = await taskCheckboxes();
+    expect(savedFirst).toBeChecked();
+    expect(savedFirst).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete page' })).toBeInTheDocument();
   });
 
   it('keeps viewer tasks and page mutation controls disabled', async () => {
@@ -122,7 +144,7 @@ describe('PagePreview checklist saves', () => {
     vi.mocked(api.patch)
       .mockImplementationOnce(() => firstSave.promise)
       .mockResolvedValueOnce({
-        data: page({ content: '- [x] first task\n- [x] second task', updatedAt: '2026-08-26T01:02:00.000Z' }),
+        data: patchPage({ content: '- [x] first task\n- [x] second task', updatedAt: '2026-08-26T01:02:00.000Z' }),
       } as any);
     renderPreview();
 
@@ -136,7 +158,7 @@ describe('PagePreview checklist saves', () => {
     expect(api.patch).toHaveBeenCalledTimes(1);
 
     await act(async () => firstSave.resolve({
-      data: page({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+      data: patchPage({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
     }));
 
     await waitFor(() => expect(api.patch).toHaveBeenNthCalledWith(2, '/pages/page-1', {
@@ -156,7 +178,7 @@ describe('PagePreview checklist saves', () => {
     vi.mocked(api.patch)
       .mockRejectedValueOnce({ response: { status: 409 } })
       .mockResolvedValueOnce({
-        data: page({
+        data: patchPage({
           content: '# Remote heading\n\n- [x] first task\n- [ ] second task',
           updatedAt: '2026-08-26T01:06:00.000Z',
         }),
@@ -196,13 +218,47 @@ describe('PagePreview checklist saves', () => {
     expect(api.patch).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts an already-satisfied conflicted task without a retry version and continues later queued work', async () => {
+    const firstSave = deferred<any>();
+    queuePages(
+      { data: page() },
+      { data: page({
+        content: '- [x] first task\n- [ ] second task',
+        updatedAt: '2026-08-26T01:05:00.000Z',
+      }) },
+    );
+    vi.mocked(api.patch)
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValueOnce({
+        data: patchPage({
+          content: '- [x] first task\n- [x] second task',
+          updatedAt: '2026-08-26T01:06:00.000Z',
+        }),
+      } as any);
+    renderPreview();
+
+    const [first] = await taskCheckboxes();
+    fireEvent.click(first);
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const [, second] = await taskCheckboxes();
+    fireEvent.click(second);
+    await act(async () => firstSave.reject({ response: { status: 409 } }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenNthCalledWith(2, '/pages/page-1', {
+      content: '- [x] first task\n- [x] second task',
+      expectedUpdatedAt: '2026-08-26T01:05:00.000Z',
+    }));
+    expect(api.patch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('drops a failed operation but replays and saves later queued task operations', async () => {
     const firstSave = deferred<any>();
     queuePages({ data: page() });
     vi.mocked(api.patch)
       .mockImplementationOnce(() => firstSave.promise)
       .mockResolvedValueOnce({
-        data: page({ content: '- [ ] first task\n- [x] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+        data: patchPage({ content: '- [ ] first task\n- [x] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
       } as any);
     renderPreview();
 
@@ -239,12 +295,123 @@ describe('PagePreview checklist saves', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
     await act(async () => save.resolve({
-      data: page({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+      data: patchPage({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
     }));
 
     expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
     const [savedFirst] = await taskCheckboxes();
     expect(savedFirst).toBeChecked();
+  });
+
+  it('ignores the first page-one load after navigating A to B to A', async () => {
+    const firstA = deferred<any>();
+    const secondA = deferred<any>();
+    let pageOneLoads = 0;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') return ++pageOneLoads === 1 ? firstA.promise : secondA.promise;
+      if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B' }) } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <AbaNavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    expect(await screen.findByRole('heading', { name: 'Page B' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open first page' }));
+    await waitFor(() => expect(pageOneLoads).toBe(2));
+    await act(async () => secondA.resolve({ data: page({ title: 'New page A', content: '- [ ] new A task' }) }));
+    expect(await screen.findByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+
+    await act(async () => firstA.resolve({ data: page({ title: 'Old page A', content: '- [ ] old A task' }) }));
+    expect(screen.getByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Old page A' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a first-page save response after navigating A to B to A', async () => {
+    const oldSave = deferred<any>();
+    let pageOneLoads = 0;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') {
+        pageOneLoads += 1;
+        return Promise.resolve({ data: page(pageOneLoads === 1 ? {} : {
+          title: 'New page A', content: '- [ ] new A task', updatedAt: '2026-08-26T02:00:00.000Z',
+        }) } as any);
+      }
+      if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B' }) } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.patch).mockImplementationOnce(() => oldSave.promise);
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <AbaNavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const [first] = await taskCheckboxes();
+    fireEvent.click(first);
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    expect(await screen.findByRole('heading', { name: 'Page B' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open first page' }));
+    expect(await screen.findByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+
+    await act(async () => oldSave.resolve({
+      data: patchPage({ title: 'Old saved A', content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+    }));
+    expect(screen.getByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+    expect(screen.getByText('new A task')).toBeInTheDocument();
+  });
+
+  it('ignores a first-page conflict refetch after navigating A to B to A', async () => {
+    const oldRefetch = deferred<any>();
+    let pageOneLoads = 0;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') {
+        pageOneLoads += 1;
+        if (pageOneLoads === 1) return Promise.resolve({ data: page() } as any);
+        if (pageOneLoads === 2) return oldRefetch.promise;
+        return Promise.resolve({ data: page({
+          title: 'New page A', content: '- [ ] new A task', updatedAt: '2026-08-26T02:00:00.000Z',
+        }) } as any);
+      }
+      if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B' }) } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.patch).mockRejectedValueOnce({ response: { status: 409 } });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <AbaNavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const [first] = await taskCheckboxes();
+    fireEvent.click(first);
+    await waitFor(() => expect(pageOneLoads).toBe(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    expect(await screen.findByRole('heading', { name: 'Page B' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open first page' }));
+    expect(await screen.findByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+
+    await act(async () => oldRefetch.resolve({ data: page({
+      title: 'Old conflict A', content: '- [ ] first task\n- [ ] second task', updatedAt: '2026-08-26T01:05:00.000Z',
+    }) }));
+    expect(screen.getByRole('heading', { name: 'New page A' })).toBeInTheDocument();
+    expect(api.patch).toHaveBeenCalledTimes(1);
   });
 
   it('ignores an obsolete save response after navigating to another page', async () => {
@@ -274,7 +441,7 @@ describe('PagePreview checklist saves', () => {
     expect(await screen.findByRole('heading', { name: 'Second checklist' })).toBeInTheDocument();
 
     await act(async () => oldSave.resolve({
-      data: page({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
+      data: patchPage({ content: '- [x] first task\n- [ ] second task', updatedAt: '2026-08-26T01:01:00.000Z' }),
     }));
 
     expect(screen.getByRole('heading', { name: 'Second checklist' })).toBeInTheDocument();
