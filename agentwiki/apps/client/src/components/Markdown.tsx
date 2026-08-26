@@ -91,7 +91,7 @@ const Callout: React.FC<CalloutProps> = ({ type, title, fold, children }) => {
 const isExternalHttpsImage = (src: string): boolean => /^https:\/\//i.test(src);
 
 const isInternalImage = (src: string): boolean => {
-  if (!src || src.startsWith('//') || src.startsWith('\\')) return false;
+  if (!src || src.startsWith('//') || /\\|%5c/i.test(src)) return false;
   return !/^[a-z][a-z\d+.-]*:/i.test(src);
 };
 

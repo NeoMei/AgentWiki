@@ -25,6 +25,15 @@ describe('resolveWikiHref', () => {
     expect(resolveWikiHref(parseWikiReference('MyFirstPage#^block / one'), pages)).toBe('/pages/abc123#^block%20%2F%20one');
     expect(resolveWikiHref(parseWikiReference('Missing#Heading'), pages)).toBeNull();
   });
+  it('uses the same punctuation and spacing slug as rendered headings', () => {
+    const { container } = renderMd('## A - B\n\n[[MyFirstPage#A - B]]');
+    const heading = container.querySelector('h2');
+    const link = screen.getByRole('link', { name: 'MyFirstPage#A - B' });
+
+    expect(heading).toHaveAttribute('id', 'a---b');
+    expect(link).toHaveAttribute('href', '/pages/abc123#a---b');
+    expect(link.getAttribute('href')?.split('#')[1]).toBe(heading?.id);
+  });
   it('returns null for unknown names', () => {
     expect(resolveWikiHref(parseWikiReference('不存在'), pages)).toBeNull();
   });
@@ -137,6 +146,13 @@ describe('Markdown rendering', () => {
     expect(screen.getByText(/Image unavailable: unsafe/)).toBeInTheDocument();
     expect(screen.getByText(/Image unavailable: protocol/)).toBeInTheDocument();
     expect(container.querySelectorAll('img')).toHaveLength(2);
+  });
+
+  it('rejects mixed slash and backslash network image paths', () => {
+    const { container } = renderMd('![mixed](/\\evil.example/x)');
+
+    expect(screen.getByText('Image unavailable: mixed')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
   });
 
   it('disables viewer tasks and delegates enabled page task changes to source refs', () => {
