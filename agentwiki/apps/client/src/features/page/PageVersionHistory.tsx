@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X } from 'lucide-react';
@@ -32,6 +32,11 @@ export const PageVersionHistory: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const routeRef = useRef({ id, generation: 0 });
+  const restoringRef = useRef<string | null>(null);
+  if (routeRef.current.id !== id) {
+    routeRef.current = { id, generation: routeRef.current.generation + 1 };
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -40,6 +45,8 @@ export const PageVersionHistory: React.FC = () => {
     setVersions([]);
     setPreviewVersionId(null);
     setError(null);
+    restoringRef.current = null;
+    setRestoring(null);
     setLoading(true);
     const fetchData = async () => {
       try {
@@ -63,16 +70,24 @@ export const PageVersionHistory: React.FC = () => {
   }, [id]);
 
   const handleRestore = async (versionId: string) => {
-    if (!id || !window.confirm(t('version.restoreConfirm'))) return;
+    if (!id || restoringRef.current !== null || !window.confirm(t('version.restoreConfirm'))) return;
+    const requestedId = id;
+    const requestedRoute = routeRef.current;
+    restoringRef.current = versionId;
     setRestoring(versionId);
     try {
-      await api.post(`/pages/${id}/versions/${versionId}/restore`);
+      await api.post(`/pages/${requestedId}/versions/${versionId}/restore`);
+      if (routeRef.current !== requestedRoute) return;
       alert(t('version.restored'));
-      navigate(`/pages/${id}/edit`);
+      navigate(`/pages/${requestedId}/edit`);
     } catch (err: unknown) {
+      if (routeRef.current !== requestedRoute) return;
       alert(apiErrorMessage(err, t, 'version.restoreFailedGeneric'));
     } finally {
-      setRestoring(null);
+      if (routeRef.current === requestedRoute && restoringRef.current === versionId) {
+        restoringRef.current = null;
+        setRestoring(null);
+      }
     }
   };
 
@@ -151,7 +166,7 @@ export const PageVersionHistory: React.FC = () => {
                 {page?.capabilities?.canEdit === true ? (
                   <button
                     onClick={() => handleRestore(version.id)}
-                    disabled={restoring === version.id}
+                    disabled={restoring !== null}
                     className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 text-sm flex-shrink-0"
                   >
                     <RotateCcw size={16} />

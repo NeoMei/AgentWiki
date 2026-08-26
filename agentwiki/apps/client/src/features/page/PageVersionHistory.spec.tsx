@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
@@ -9,16 +9,19 @@ vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } })
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 };
 
 const NavigationHarness = () => {
   const navigate = useNavigate();
   return (
     <>
+      <button type="button" onClick={() => navigate('/pages/page-1/versions')}>Open first history</button>
       <button type="button" onClick={() => navigate('/pages/page-2/versions')}>Open second history</button>
       <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
     </>
@@ -98,5 +101,147 @@ describe('PageVersionHistory', () => {
     expect(screen.getByText('Second version')).toBeInTheDocument();
     expect(screen.queryByText('Stale first version')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '恢复' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a successful restore completion after navigating to another history route', async () => {
+    const restore = deferred<any>();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.post).mockImplementation(() => restore.promise);
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const pageId = url.includes('page-2') ? 'page-2' : 'page-1';
+      if (url.endsWith('/versions')) return {
+        data: [{ id: `${pageId}-version`, title: `${pageId} version`, content: '', createdAt: '2026-08-19T00:00:00Z' }],
+      };
+      return { data: { id: pageId, title: `${pageId} title`, spaceId: `${pageId}-space`, capabilities: { canEdit: true } } };
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <NavigationHarness />
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/pages/page-1/versions/page-1-version/restore'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
+    expect(await screen.findByText('page-2 version')).toBeInTheDocument();
+
+    await act(async () => restore.resolve({ data: {} }));
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByText('page-2 version')).toBeInTheDocument();
+  });
+
+  it('ignores a failed restore completion after navigating to another history route', async () => {
+    const restore = deferred<any>();
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.post).mockImplementation(() => restore.promise);
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const pageId = url.includes('page-2') ? 'page-2' : 'page-1';
+      if (url.endsWith('/versions')) return {
+        data: [{ id: `${pageId}-version`, title: `${pageId} version`, content: '', createdAt: '2026-08-19T00:00:00Z' }],
+      };
+      return { data: { id: pageId, title: `${pageId} title`, spaceId: `${pageId}-space`, capabilities: { canEdit: true } } };
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <NavigationHarness />
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
+    expect(await screen.findByText('page-2 version')).toBeInTheDocument();
+
+    await act(async () => restore.reject(new Error('late restore failure')));
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByText('page-2 version')).toBeInTheDocument();
+  });
+
+  it('does not keep a reused version ID disabled after a history route switch', async () => {
+    const restore = deferred<any>();
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.post).mockImplementation(() => restore.promise);
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const pageId = url.includes('page-2') ? 'page-2' : 'page-1';
+      if (url.endsWith('/versions')) return {
+        data: [{ id: 'shared-version', title: `${pageId} version`, content: '', createdAt: '2026-08-19T00:00:00Z' }],
+      };
+      return { data: { id: pageId, title: `${pageId} title`, spaceId: `${pageId}-space`, capabilities: { canEdit: true } } };
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <NavigationHarness />
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
+    expect(await screen.findByText('page-2 version')).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: '恢复' })).toBeEnabled();
+  });
+
+  it('allows only one restore request and disables every Restore button while it is pending', async () => {
+    const restore = deferred<any>();
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.post).mockImplementation(() => restore.promise);
+    vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
+      ? { data: [
+        { id: 'v2', title: 'Version two', content: '', createdAt: '2026-08-20T00:00:00Z' },
+        { id: 'v1', title: 'Version one', content: '', createdAt: '2026-08-19T00:00:00Z' },
+      ] }
+      : { data: { id: 'page-1', title: 'Current page', spaceId: 'space-1', capabilities: { canEdit: true } } });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    const restoreButtons = await screen.findAllByRole('button', { name: '恢复' });
+    fireEvent.click(restoreButtons[0]);
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(restoreButtons[0]).toBeDisabled();
+    expect(restoreButtons[1]).toBeDisabled();
+    fireEvent.click(restoreButtons[1]);
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a rejected first A load after navigating A to B to A', async () => {
+    const firstPageA = deferred<any>();
+    const firstVersionsA = deferred<any>();
+    let pageALoads = 0;
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-1') {
+        pageALoads += 1;
+        return pageALoads === 1
+          ? firstPageA.promise
+          : { data: { id: 'page-1', title: 'Fresh A', spaceId: 'space-a', capabilities: { canEdit: false } } };
+      }
+      if (url === '/pages/page-1/versions') {
+        return pageALoads === 1
+          ? firstVersionsA.promise
+          : { data: [{ id: 'fresh-a', title: 'Fresh A version', content: '', createdAt: '2026-08-21T00:00:00Z' }] };
+      }
+      if (url === '/pages/page-2') return { data: { id: 'page-2', title: 'Page B', spaceId: 'space-b', capabilities: { canEdit: false } } };
+      if (url === '/pages/page-2/versions') return { data: [{ id: 'b', title: 'B version', content: '', createdAt: '2026-08-20T00:00:00Z' }] };
+      throw new Error(`unexpected get ${url}`);
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <NavigationHarness />
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
+    expect(await screen.findByText('B version')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open first history' }));
+    expect(await screen.findByText('Fresh A version')).toBeInTheDocument();
+
+    await act(async () => {
+      firstPageA.reject(new Error('stale A failure'));
+      firstVersionsA.resolve({ data: [] });
+      await Promise.allSettled([firstPageA.promise, firstVersionsA.promise]);
+    });
+
+    expect(screen.getByText('Fresh A version')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to load version history')).not.toBeInTheDocument();
   });
 });
