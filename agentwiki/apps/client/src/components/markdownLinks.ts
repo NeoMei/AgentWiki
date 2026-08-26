@@ -35,4 +35,4 @@ export const isInternalPageHref = (href?: string | null): boolean =>
   !!href && /^\/pages\/[^/?#]+/.test(href);
 
 export const isExternalHref = (href?: string | null): boolean =>
-  !!href && /^(https?:)?\/\//.test(href);
+  !!href && /^(https?:)?\/\//i.test(href);

@@ -59,6 +59,15 @@ describe('Markdown rendering', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
+  it('protects external HTTPS links when the URI scheme uses uppercase letters', () => {
+    renderMd('[docs](HTTPS://example.com)');
+    const link = screen.getByRole('link', { name: 'docs' });
+
+    expect(link).toHaveAttribute('href', 'HTTPS://example.com');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
   it('renders GFM bare-url autolinks as external', () => {
     renderMd('https://github.com/sst/opencode');
     const link = screen.getByRole('link', { name: 'https://github.com/sst/opencode' });
