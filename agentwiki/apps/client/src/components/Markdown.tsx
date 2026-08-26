@@ -1,12 +1,16 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
+import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
+import 'katex/dist/katex.min.css';
 import { isExternalHref, isInternalPageHref, PageLinkTarget, resolveWikiHref } from './markdownLinks';
+import { KATEX_OPTIONS } from './markdown/math';
 import type { MarkdownRenderMode, MarkdownTaskToggle } from './markdown/markdownTypes';
 import { remarkAgentWikiObsidian } from './markdown/obsidian';
 import { collectMarkdownTasks } from './markdown/tasks';
@@ -157,9 +161,11 @@ export const Markdown: React.FC<MarkdownProps> = ({
   return (
     <div className={className ?? markdownClass} onChange={handleChange}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, obsidianPlugin, remarkBreaks]}
+        skipHtml
+        remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
         rehypePlugins={[
           rehypeSlug,
+          [rehypeKatex, KATEX_OPTIONS],
           [rehypeAutolinkHeadings, {
             behavior: 'append',
             properties: { className: ['heading-anchor'], ariaHidden: true, tabIndex: -1 },
