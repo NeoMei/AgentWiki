@@ -227,6 +227,11 @@ test.describe.serial('Markdown core browser acceptance', () => {
       await expect(ownerPage.locator('pre code')).toContainText('- [ ] fake code task');
       await expect(ownerPage.getByRole('checkbox')).toHaveCount(2);
 
+      const versionsBeforeToggle = await json<PageVersion[]>(
+        await api.get(`pages/${pageId}/versions`, { headers: ownerHeaders() }),
+        'read PageVersions before checklist toggle',
+      );
+      const versionIdsBeforeToggle = new Set(versionsBeforeToggle.map((version) => version.id));
       const ownerCheckbox = ownerPage.getByRole('checkbox').first();
       await expect(ownerCheckbox).toBeEnabled();
       await ownerCheckbox.click();
@@ -241,7 +246,14 @@ test.describe.serial('Markdown core browser acceptance', () => {
         json<PageVersion[]>(await api.get(`pages/${pageId}/versions`, { headers: ownerHeaders() }), 'read PageVersions'),
       ]);
       expect(persisted.content).toContain('- [x] Owner persisted task');
-      expect(versions.length).toBeGreaterThan(0);
+      expect(versions).toHaveLength(versionsBeforeToggle.length + 1);
+      const versionsCreatedByToggle = versions.filter((version) => !versionIdsBeforeToggle.has(version.id));
+      expect(versionsCreatedByToggle).toHaveLength(1);
+      const [toggleVersion] = versionsCreatedByToggle;
+      expect(toggleVersion.content).toContain('- [ ] Owner persisted task');
+      const toggleVersionIndex = versions.findIndex((version) => version.id === toggleVersion.id);
+      expect(toggleVersionIndex).toBeGreaterThanOrEqual(0);
+      const toggleVersionNumber = versions.length - toggleVersionIndex;
 
       const editorSession = await newAuthenticatedPage(browser, editor!);
       contexts.push(editorSession.context);
@@ -257,10 +269,12 @@ test.describe.serial('Markdown core browser acceptance', () => {
       await viewerPage.screenshot({ path: path.join(artifacts, 'viewer-read-only.png'), fullPage: true });
 
       await ownerPage.goto(`/pages/${pageId}/versions`);
-      await ownerPage.getByRole('button', { name: /Preview v\d+/u }).first().click();
-      const versionDialog = ownerPage.getByRole('dialog', { name: /Preview v\d+/u });
+      await ownerPage.getByRole('button', { name: `Preview v${toggleVersionNumber}` }).click();
+      const versionDialog = ownerPage.getByRole('dialog', { name: `Preview v${toggleVersionNumber}` });
       await expect(versionDialog).toBeVisible();
-      for (const checkbox of await versionDialog.getByRole('checkbox').all()) await expect(checkbox).toBeDisabled();
+      const historicalCheckboxes = versionDialog.getByRole('checkbox');
+      await expect(historicalCheckboxes).toHaveCount(2);
+      for (const checkbox of await historicalCheckboxes.all()) await expect(checkbox).toBeDisabled();
       await expect(versionDialog.locator('pre code')).toContainText('- [ ] fake code task');
 
       await viewerPage.setViewportSize({ width: 390, height: 844 });
