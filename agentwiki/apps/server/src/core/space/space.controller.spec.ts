@@ -247,3 +247,25 @@ describe('SpaceController.listMembers', () => {
     expect(spaces.listMembers).toHaveBeenCalledWith('space-1', 'user-1', canManageAgentRoles);
   });
 });
+
+describe('SpaceController.addMember', () => {
+  const spaces = { addMember: jest.fn().mockResolvedValue({ id: 'member-2' }) } as any;
+  const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }) } as any;
+  const controller = new SpaceController(spaces, authorization);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('passes the authenticated principal into the locked live-authorization write path', async () => {
+    const principal = { userId: 'owner-1', type: 'human' };
+
+    await controller.addMember(
+      'space-1',
+      { email: 'member@example.com', role: 'editor' } as any,
+      { user: principal } as any,
+    );
+
+    expect(spaces.addMember).toHaveBeenCalledWith(
+      'space-1', 'member@example.com', 'editor', principal,
+    );
+  });
+});

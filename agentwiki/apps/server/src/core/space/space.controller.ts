@@ -78,11 +78,12 @@ export class SpaceController {
 
   @Post(':id/members')
   async addMember(@Param('id') id: string, @Body() dto: AddMemberDto, @Req() req: Request) {
-    const member = await this.authorization.assertSpaceAccess(req.user as any, id, ['owner', 'admin']);
+    const principal = req.user as any;
+    const member = await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin']);
     // Only an owner can grant the owner role; admins manage non-owner members.
     if (dto.role === 'owner' && member.role !== 'owner') throw new ForbiddenException('Only an owner can grant the owner role');
     this.logger.log('Adding member to space: ' + id);
-    return this.spaceService.addMember(id, dto.email, dto.role || 'viewer');
+    return this.spaceService.addMember(id, dto.email, dto.role || 'viewer', principal);
   }
 
   @Patch(':id/members/:userId')

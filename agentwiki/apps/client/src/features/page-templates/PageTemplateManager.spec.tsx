@@ -8,6 +8,7 @@ import { PageTemplateManager } from './PageTemplateManager';
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn() },
   listPageTemplates: vi.fn(),
+  getPageTemplate: vi.fn(),
   listPageTemplateSourcePages: vi.fn(),
   updatePageTemplate: vi.fn(),
   createPageTemplateVersion: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('./pageTemplateApi', () => ({
   listPageTemplates: mocks.listPageTemplates,
+  getPageTemplate: mocks.getPageTemplate,
   listPageTemplateSourcePages: mocks.listPageTemplateSourcePages,
   updatePageTemplate: mocks.updatePageTemplate,
   createPageTemplateVersion: mocks.createPageTemplateVersion,
@@ -178,6 +180,83 @@ describe('PageTemplateManager', () => {
     ));
   });
 
+  it('preserves metadata input and reloads the latest conflict token before retry', async () => {
+    const conflict = { response: { status: 409, data: { code: 'PAGE_TEMPLATE_VERSION_CONFLICT' } } };
+    const latest = { ...spaceTemplate, currentVersion: 8, updatedAt: '2026-08-25T15:00:00.000Z', content: '# latest', contentLocale: 'zh-CN' as const, sourcePageId: null };
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.updatePageTemplate.mockRejectedValueOnce(conflict).mockResolvedValueOnce(latest);
+    mocks.getPageTemplate.mockResolvedValue(latest);
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.change(screen.getByLabelText('模板名称'), { target: { value: '保留的名称' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载模板' }));
+
+    await waitFor(() => expect(mocks.getPageTemplate).toHaveBeenCalledWith('space-1', 'space-1-template', 'zh-CN'));
+    expect(screen.getByLabelText('模板名称')).toHaveValue('保留的名称');
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(mocks.updatePageTemplate).toHaveBeenLastCalledWith(
+      'space-1', 'space-1-template', expect.objectContaining({ expectedUpdatedAt: latest.updatedAt }),
+    ));
+  });
+
+  it('keeps conflict recovery available when reloading the latest token fails', async () => {
+    const conflict = { response: { status: 409, data: { code: 'PAGE_TEMPLATE_VERSION_CONFLICT' } } };
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.updatePageTemplate.mockRejectedValue(conflict);
+    mocks.getPageTemplate.mockRejectedValue({ response: { status: 500, data: { code: 'UNKNOWN' } } });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /编辑 团队周报/ }));
+    fireEvent.change(screen.getByLabelText('模板名称'), { target: { value: '保留的名称' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载模板' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('最新模板加载失败');
+    expect(screen.getByRole('button', { name: '重新加载模板' })).toBeEnabled();
+    expect(screen.getByLabelText('模板名称')).toHaveValue('保留的名称');
+  });
+
+  it('preserves the selected source and reloads the latest version before retry', async () => {
+    const conflict = { response: { status: 409, data: { code: 'PAGE_TEMPLATE_VERSION_CONFLICT' } } };
+    const latest = { ...spaceTemplate, currentVersion: 8, updatedAt: '2026-08-25T15:00:00.000Z', content: '# latest', contentLocale: 'zh-CN' as const, sourcePageId: null };
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{
+      id: 'page-source', title: '新版周报结构', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1, skip: 0, take: 100 });
+    mocks.createPageTemplateVersion.mockRejectedValueOnce(conflict).mockResolvedValueOnce({ ...latest, currentVersion: 9 });
+    mocks.getPageTemplate.mockResolvedValue(latest);
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    fireEvent.change(await screen.findByLabelText('源页面'), { target: { value: 'page-source' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }));
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载模板' }));
+
+    await waitFor(() => expect(mocks.getPageTemplate).toHaveBeenCalled());
+    expect(screen.getByLabelText('源页面')).toHaveValue('page-source');
+    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }));
+    await waitFor(() => expect(mocks.createPageTemplateVersion).toHaveBeenLastCalledWith(
+      'space-1', 'space-1-template', expect.objectContaining({ expectedCurrentVersion: 8 }),
+    ));
+  });
+
+  it('retries the initial source-page load in place', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockRejectedValueOnce({ response: { status: 500, data: { code: 'UNKNOWN' } } }).mockResolvedValueOnce({ data: [{
+      id: 'page-source', title: '可选页面', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1, skip: 0, take: 100 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('源页面加载失败');
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByRole('option', { name: '可选页面' })).toBeInTheDocument();
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenCalledTimes(2);
+  });
+
   it('loads only the first bounded source page and renders at most 100 source choices', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
@@ -255,6 +334,30 @@ describe('PageTemplateManager', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('网络连接失败，请稍后重试');
     expect(screen.getByRole('option', { name: 'Page 0' })).toBeInTheDocument();
     expect(source).toHaveValue('page-0');
+  });
+
+  it('retries a failed source-page pagination request at the failed offset', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: [{
+        id: 'page-0', title: 'Page 0', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+      }], total: 101, skip: 0, take: 100 })
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ data: [{
+        id: 'page-last', title: 'Last Markdown', format: 'markdown', updatedAt: '2026-08-25T13:00:00.000Z',
+      }], total: 101, skip: 100, take: 100 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    await screen.findByRole('option', { name: 'Page 0' });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    await waitFor(() => expect(mocks.listPageTemplateSourcePages).toHaveBeenNthCalledWith(
+      3, 'space-1', { skip: 100, take: 100 },
+    ));
+    expect(await screen.findByRole('option', { name: 'Last Markdown' })).toBeInTheDocument();
   });
 
   it('ignores a late source page after the version dialog closes and reopens', async () => {
@@ -805,5 +908,36 @@ describe('PageTemplateManager', () => {
     expect(await screen.findByText('Second template')).toBeInTheDocument();
     expect(screen.getAllByText('团队周报')).toHaveLength(1);
     expect(mocks.listPageTemplates).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ skip: 1 }));
+  });
+
+  it('refreshes from the head when an offset page makes no unique progress', async () => {
+    const second = { ...spaceTemplate, id: 'second', name: 'Second template' };
+    const inserted = { ...spaceTemplate, id: 'inserted', name: 'Inserted at head' };
+    mocks.listPageTemplates
+      .mockResolvedValueOnce({ ...ownerCatalog, space: [spaceTemplate, second], totalSpace: 3, take: 2 })
+      .mockResolvedValueOnce({ ...ownerCatalog, space: [second], totalSpace: 3, skip: 2, take: 2 })
+      .mockResolvedValueOnce({ ...ownerCatalog, space: [inserted, spaceTemplate, second], totalSpace: 3, skip: 0, take: 50 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /加载更多/ }));
+
+    expect(await screen.findByText('Inserted at head')).toBeInTheDocument();
+    expect(mocks.listPageTemplates).toHaveBeenCalledTimes(3);
+    expect(mocks.listPageTemplates).toHaveBeenNthCalledWith(3, 'space-1', expect.objectContaining({ skip: 0 }));
+    expect(screen.queryByRole('button', { name: /加载更多/ })).not.toBeInTheDocument();
+  });
+
+  it('refreshes from the head when an offset page is unexpectedly empty before the total', async () => {
+    const inserted = { ...spaceTemplate, id: 'inserted-empty', name: 'Inserted after empty page' };
+    mocks.listPageTemplates
+      .mockResolvedValueOnce({ ...ownerCatalog, totalSpace: 2 })
+      .mockResolvedValueOnce({ ...ownerCatalog, space: [], totalSpace: 2, skip: 1 })
+      .mockResolvedValueOnce({ ...ownerCatalog, space: [inserted, spaceTemplate], totalSpace: 2, skip: 0 });
+    renderManager();
+
+    fireEvent.click(await screen.findByRole('button', { name: /加载更多/ }));
+
+    expect(await screen.findByText('Inserted after empty page')).toBeInTheDocument();
+    expect(mocks.listPageTemplates).toHaveBeenCalledTimes(3);
   });
 });

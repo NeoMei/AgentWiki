@@ -62,10 +62,21 @@ describe('PageTemplateSettingsCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
     await waitFor(() => expect(rejectEnglish).toBeTypeOf('function'));
     await act(async () => rejectEnglish(new Error('offline')));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Templates could not be loaded');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Template management details could not be loaded');
 
     await act(async () => resolveChinese(catalog));
     expect(screen.queryByText('3/100 active')).not.toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('Templates could not be loaded');
+    expect(screen.getByRole('alert')).toHaveTextContent('Template management details could not be loaded');
+  });
+
+  it('retries a failed settings-card request in place', async () => {
+    mocks.listPageTemplates.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(catalog);
+    render(<LanguageProvider><MemoryRouter><PageTemplateSettingsCard spaceId="space-1" /></MemoryRouter></LanguageProvider>);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('模板管理信息加载失败');
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByRole('link', { name: '管理模板' })).toBeInTheDocument();
+    expect(mocks.listPageTemplates).toHaveBeenCalledTimes(2);
   });
 });

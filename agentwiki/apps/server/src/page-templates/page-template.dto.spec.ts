@@ -169,4 +169,11 @@ describe('page template DTO validation', () => {
       locale: 'en', skip: '2', take: '25',
     })).resolves.toMatchObject({ skip: 2, take: 25 });
   });
+
+  it.each([
+    [PageTemplateListQueryDto, { locale: 'en', skip: '1e100' }],
+    [PageTemplateSourceListQueryDto, { skip: '1e100' }],
+  ])('rejects an offset above the database-safe integer range', async (type, input) => {
+    await expect(transformQuery(type, input)).rejects.toMatchObject({ status: 400 });
+  });
 });

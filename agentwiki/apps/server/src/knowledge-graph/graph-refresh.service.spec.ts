@@ -1,4 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { GraphRefreshService } from './graph-refresh.service';
 import { GraphExtractionService } from './graph-extraction.service';
 
@@ -62,6 +63,26 @@ describe('GraphRefreshService', () => {
   };
 
   const buildLlm = () => ({ generateText: jest.fn() });
+
+  it('converges on the winner when concurrent graph-state initialization hits spaceId uniqueness', async () => {
+    const prisma = buildPrisma();
+    const racedState = {
+      spaceId: 'space-1', wikilinkEnabled: true, similarEnabled: false,
+      similarThreshold: 0.86, llmEnabled: false, lastLlmRunAt: null,
+    };
+    prisma.spaceGraphState.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(racedState);
+    prisma.spaceGraphState.upsert.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed on spaceId', {
+        code: 'P2002', clientVersion: 'test', meta: { target: ['spaceId'] },
+      }),
+    );
+    const service = new GraphRefreshService(prisma, extraction, buildLlm() as any);
+
+    await expect(service.getOrCreateState('space-1')).resolves.toBe(racedState);
+    expect(prisma.spaceGraphState.findUnique).toHaveBeenCalledTimes(2);
+  });
 
   it('creates wikilink relations and reports dangling links', async () => {
     const prisma = buildPrisma();

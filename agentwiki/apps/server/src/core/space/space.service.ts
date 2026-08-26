@@ -380,26 +380,35 @@ export class SpaceService {
     ];
   }
 
-  async addMember(spaceId: string, email: string, role: 'owner' | 'admin' | 'editor' | 'viewer' = 'viewer') {
+  async addMember(
+    spaceId: string,
+    email: string,
+    role: 'owner' | 'admin' | 'editor' | 'viewer' = 'viewer',
+    principal: Principal,
+  ) {
     if (role === 'owner') {
       throw new BadRequestException('Invite the member as an admin, then transfer ownership');
     }
-    await this.findOne(spaceId);
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'admin'],
+      );
+      const user = await lockedTx.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' }, deletedAt: null, type: 'human' },
+      });
+      if (!user) throw new NotFoundException('User not found with that email');
 
-    const user = await this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' }, deletedAt: null, type: 'human' },
-    });
-    if (!user) throw new NotFoundException('User not found with that email');
+      const existing = await lockedTx.spaceMember.findUnique({
+        where: { userId_spaceId: { userId: user.id, spaceId } },
+      });
+      if (existing) throw new ConflictException('User is already a member');
 
-    const existing = await this.prisma.spaceMember.findUnique({
-      where: { userId_spaceId: { userId: user.id, spaceId } },
-    });
-    if (existing) throw new ConflictException('User is already a member');
-
-    return this.prisma.spaceMember.create({
-      data: { userId: user.id, spaceId, role },
-      select: MEMBER_SELECT,
-    });
+      return lockedTx.spaceMember.create({
+        data: { userId: user.id, spaceId, role },
+        select: MEMBER_SELECT,
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   async updateMemberRole(spaceId: string, userId: string, role: 'owner' | 'editor' | 'viewer') {

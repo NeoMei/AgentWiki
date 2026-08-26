@@ -51,6 +51,7 @@ function isSummary(value: unknown, expectedScope: 'system' | 'space'): value is 
     .every((key) => typeof value[key] === 'string')
     && isCategory(value.category)
     && Number.isInteger(value.currentVersion)
+    && (value.currentVersion as number) >= 1
     && (value.archivedAt === null || typeof value.archivedAt === 'string');
 }
 
@@ -60,14 +61,30 @@ function parsePageTemplateListResponse(value: unknown): PageTemplateListResponse
     || !Array.isArray(value.space)
     || !value.system.every((item) => isSummary(item, 'system'))
     || !value.space.every((item) => isSummary(item, 'space'))
-    || typeof value.totalSpace !== 'number'
-    || typeof value.skip !== 'number'
-    || typeof value.take !== 'number'
+    || !Number.isInteger(value.totalSpace)
+    || (value.totalSpace as number) < 0
+    || !Number.isInteger(value.skip)
+    || (value.skip as number) < 0
+    || !Number.isInteger(value.take)
+    || (value.take as number) < 1
+    || (value.take as number) > 100
     || !isRecord(value.capabilities)
     || typeof value.capabilities.canManage !== 'boolean') {
     throw new TypeError('Invalid page template catalog response');
   }
   return value as unknown as PageTemplateListResponse;
+}
+
+function parsePageTemplateDetail(value: unknown): PageTemplateDetail {
+  if (!isRecord(value)
+    || (value.scope !== 'system' && value.scope !== 'space')
+    || !isSummary(value, value.scope)
+    || typeof value.content !== 'string'
+    || !isLocale(value.contentLocale)
+    || (value.sourcePageId !== null && typeof value.sourcePageId !== 'string')) {
+    throw new TypeError('Invalid page template detail response');
+  }
+  return value as unknown as PageTemplateDetail;
 }
 
 function parsePageTemplateSourcePageListResponse(value: unknown): PageTemplateSourcePageListResponse {
@@ -119,6 +136,15 @@ export async function listPageTemplateSourcePages(
     },
   });
   return parsePageTemplateSourcePageListResponse(response.data);
+}
+
+export async function getPageTemplate(
+  spaceId: string,
+  templateId: string,
+  locale: PageTemplateLocale,
+): Promise<PageTemplateDetail> {
+  const response = await api.get(templatePath(spaceId, templateId), { params: { locale } });
+  return parsePageTemplateDetail(response.data);
 }
 
 export async function createPageTemplate(

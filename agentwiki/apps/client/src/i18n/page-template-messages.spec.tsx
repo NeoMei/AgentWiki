@@ -25,6 +25,10 @@ const pageTemplateZhCN = {
   'pageTemplate.emptyCatalog': '这个 Space 还没有可用的页面模板。',
   'pageTemplate.emptySearch': '没有符合当前搜索或筛选条件的模板。',
   'pageTemplate.loadFailed': '模板加载失败，仍可创建空白页面',
+  'pageTemplate.settingsLoadFailed': '模板管理信息加载失败',
+  'pageTemplate.sourcePagesLoadFailed': '源页面加载失败',
+  'pageTemplate.reload': '重新加载模板',
+  'pageTemplate.reloadFailed': '最新模板加载失败',
   'pageTemplate.createFailed': '创建模板失败',
   'pageTemplate.updateMetadataFailed': '模板信息更新失败',
   'pageTemplate.createVersionFailed': '模板新版本创建失败',
@@ -90,6 +94,10 @@ const pageTemplateEn = {
   'pageTemplate.emptyCatalog': 'No page templates are available in this Space yet.',
   'pageTemplate.emptySearch': 'No templates match the current search or filters.',
   'pageTemplate.loadFailed': 'Templates could not be loaded. You can still create a blank page.',
+  'pageTemplate.settingsLoadFailed': 'Template management details could not be loaded.',
+  'pageTemplate.sourcePagesLoadFailed': 'Source pages could not be loaded.',
+  'pageTemplate.reload': 'Reload template',
+  'pageTemplate.reloadFailed': 'The latest template could not be loaded.',
   'pageTemplate.createFailed': 'Could not create the template',
   'pageTemplate.updateMetadataFailed': 'Could not update the template details',
   'pageTemplate.createVersionFailed': 'Could not create a new template version',
@@ -148,9 +156,9 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
-  it('contains exactly 62 contract keys per locale', () => {
-    expect(Object.keys(pageTemplateZhCN)).toHaveLength(62);
-    expect(Object.keys(pageTemplateEn)).toHaveLength(62);
+  it('contains exactly 66 contract keys per locale', () => {
+    expect(Object.keys(pageTemplateZhCN)).toHaveLength(66);
+    expect(Object.keys(pageTemplateEn)).toHaveLength(66);
     expect(Object.keys(pageTemplateZhCN)).toEqual(Object.keys(pageTemplateEn));
   });
 

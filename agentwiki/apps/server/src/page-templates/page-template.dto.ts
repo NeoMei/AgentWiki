@@ -22,7 +22,7 @@ export class PageTemplateListQueryDto {
   @IsOptional() @IsIn(['active', 'archived', 'all']) archived?: 'active' | 'archived' | 'all';
   @IsOptional() @IsEnum(PageTemplateCategory) category?: PageTemplateCategory;
   @IsOptional() @IsString() @MaxLength(80) q?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(0) skip = 0;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(2_147_483_647) skip = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
 }
 
@@ -31,7 +31,7 @@ export class PageTemplateLocaleQueryDto {
 }
 
 export class PageTemplateSourceListQueryDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(0) skip = 0;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(2_147_483_647) skip = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
 }
 

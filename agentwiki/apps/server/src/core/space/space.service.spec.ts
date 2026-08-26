@@ -326,7 +326,7 @@ describe('admin role and member management', () => {
     prisma.user.findFirst.mockResolvedValue({ id: 'u2', email: 'b@x.com', type: 'human' });
     prisma.spaceMember.findUnique.mockResolvedValue(null);
     prisma.spaceMember.create.mockResolvedValue({ id: 'm2', role: 'admin' });
-    const result = await service.addMember('space-1', 'b@x.com', 'admin' as any);
+    const result = await (service.addMember as any)('space-1', 'b@x.com', 'admin', ownerPrincipal);
     expect(prisma.spaceMember.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ role: 'admin' }),
     }));
@@ -334,9 +334,31 @@ describe('admin role and member management', () => {
   });
 
   it('requires ownership to be transferred to an existing member instead of inviting a second owner', async () => {
-    await expect(service.addMember('space-1', 'b@x.com', 'owner' as any))
+    await expect((service.addMember as any)('space-1', 'b@x.com', 'owner', ownerPrincipal))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('locks and live-reauthorizes the caller before adding a member', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2', email: 'b@x.com', type: 'human' });
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+    prisma.spaceMember.create.mockResolvedValue({ id: 'm2', role: 'viewer' });
+
+    await (service.addMember as any)('space-1', 'b@x.com', 'viewer', ownerPrincipal);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+    });
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, ownerPrincipal, 'space-1', ['owner', 'admin'],
+    );
+    expect((revisionWriter.lockSpace as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
+    );
+    expect(authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.user.findFirst.mock.invocationCallOrder[0],
+    );
   });
 
   it('rejects an admin changing another owner or granting owner', async () => {

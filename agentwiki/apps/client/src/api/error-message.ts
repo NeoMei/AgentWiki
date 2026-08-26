@@ -37,3 +37,8 @@ export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: strin
   if (!response) return t('error.network');
   return t(fallbackKey);
 }
+
+export function apiErrorCode(error: unknown): string | null {
+  const code = (error as { response?: { data?: { code?: unknown } } })?.response?.data?.code;
+  return typeof code === 'string' ? code : null;
+}

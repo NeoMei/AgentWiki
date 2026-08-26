@@ -55,14 +55,35 @@ let admin: AuthAccount | undefined;
 let editor: AuthAccount | undefined;
 let viewer: AuthAccount | undefined;
 let consoleIssues: string[] = [];
+const expectedHttpConsoleStatuses = new WeakMap<Page, Map<number, number>>();
 
 const watchConsole = (page: Page) => {
   page.on('console', (message) => {
     if (message.type() === 'error' || message.type() === 'warning') {
-      consoleIssues.push(`${message.type()}: ${message.text()}`);
+      const text = message.text();
+      const status = /status of (\d+)/u.exec(text)?.[1];
+      const statusCode = status ? Number(status) : null;
+      const remaining = statusCode === null
+        ? 0
+        : (expectedHttpConsoleStatuses.get(page)?.get(statusCode) ?? 0);
+      if (statusCode !== null && remaining > 0) {
+        expectedHttpConsoleStatuses.get(page)!.set(statusCode, remaining - 1);
+        return;
+      }
+      consoleIssues.push(`${message.type()}: ${text}`);
     }
   });
 };
+
+const allowExpectedHttpConsoleStatus = (page: Page, status: number) => {
+  const statuses = expectedHttpConsoleStatuses.get(page) ?? new Map<number, number>();
+  statuses.set(status, (statuses.get(status) ?? 0) + 1);
+  expectedHttpConsoleStatuses.set(page, statuses);
+};
+
+const unconsumedExpectedHttpConsoleStatuses = (page: Page) => [
+  ...(expectedHttpConsoleStatuses.get(page) ?? new Map<number, number>()),
+].filter(([, count]) => count > 0);
 
 const json = async <T,>(response: APIResponse, operation: string): Promise<T> => {
   const body = await response.text();
@@ -145,8 +166,9 @@ test.describe.serial('page template library', () => {
     watchConsole(page);
   });
 
-  test.afterEach(() => {
+  test.afterEach(({ page }) => {
     expect(consoleIssues).toEqual([]);
+    expect(unconsumedExpectedHttpConsoleStatuses(page)).toEqual([]);
   });
 
   test.beforeAll(async () => {
@@ -309,6 +331,132 @@ test.describe.serial('page template library', () => {
     await expect(customTemplateArticle(page).getByRole('button', { name: `归档 ${customTemplateName}` })).toBeVisible();
     await expect(page.getByLabel('搜索模板')).toBeFocused();
     await expectNoDocumentOverflow(page);
+  });
+
+  test('Owner resolves a real metadata conflict without losing form input', async ({ page }) => {
+    await authenticate(page, owner!, 'zh-CN');
+    await page.goto(`/spaces/${spaceId}/settings/page-templates`);
+    await customTemplateArticle(page)
+      .getByRole('button', { name: `编辑 ${customTemplateName}` })
+      .click();
+    await page.getByLabel('模板说明').fill('保留在表单里的说明');
+
+    const catalog = await json<{
+      space: Array<{
+        id: string;
+        name: string;
+        description: string;
+        category: 'planning' | 'reporting' | 'knowledge' | 'other';
+        defaultTitle: string;
+        updatedAt: string;
+      }>;
+    }>(await api.get(`spaces/${spaceId}/page-templates?locale=zh-CN&scope=space&archived=active&skip=0&take=100`, {
+      headers: ownerHeaders(),
+    }), 'load template before conflict');
+    const current = catalog.space.find((template) => template.name === customTemplateName);
+    expect(current).toBeTruthy();
+    await json(await api.patch(`spaces/${spaceId}/page-templates/${current!.id}`, {
+      headers: ownerHeaders(),
+      data: {
+        name: current!.name,
+        description: '并发写入的说明',
+        category: current!.category,
+        defaultTitle: current!.defaultTitle,
+        expectedUpdatedAt: current!.updatedAt,
+      },
+    }), 'create metadata conflict');
+
+    allowExpectedHttpConsoleStatus(page, 409);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('模板已被其他人更新，请刷新后重试')).toBeVisible();
+    await page.getByRole('button', { name: '重新加载模板' }).click();
+    await expect(page.getByLabel('模板说明')).toHaveValue('保留在表单里的说明');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByLabel('搜索模板')).toBeFocused();
+  });
+
+  test('Settings and source-page loaders retry failed requests in place', async ({ page }) => {
+    await authenticate(page, owner!, 'zh-CN');
+    let failSettingsCatalog = true;
+    await page.route(`**/api/spaces/${spaceId}/page-templates?*`, async (route) => {
+      if (new URL(route.request().url()).searchParams.get('take') === '1' && failSettingsCatalog) {
+        allowExpectedHttpConsoleStatus(page, 500);
+        await route.fulfill({ status: 500, contentType: 'application/json', body: '{"code":"UNKNOWN"}' });
+        return;
+      }
+      await route.continue();
+    });
+    await page.goto(`/spaces/${spaceId}/settings`);
+    await expect(page.getByText('模板管理信息加载失败')).toBeVisible();
+    failSettingsCatalog = false;
+    await page.getByRole('button', { name: '重试' }).click();
+    await expect(page.getByRole('link', { name: '管理模板' })).toBeVisible();
+    await page.unroute(`**/api/spaces/${spaceId}/page-templates?*`);
+
+    let failSourcePages = true;
+    await page.route(`**/api/spaces/${spaceId}/page-templates/source-pages?*`, async (route) => {
+      if (failSourcePages) {
+        allowExpectedHttpConsoleStatus(page, 500);
+        await route.fulfill({ status: 500, contentType: 'application/json', body: '{"code":"UNKNOWN"}' });
+        return;
+      }
+      await route.continue();
+    });
+    await page.goto(`/spaces/${spaceId}/settings/page-templates`);
+    await customTemplateArticle(page)
+      .getByRole('button', { name: `从页面更新内容 ${customTemplateName}` })
+      .click();
+    await expect(page.getByText('源页面加载失败')).toBeVisible();
+    failSourcePages = false;
+    await page.getByRole('button', { name: '重试' }).click();
+    await expect(page.getByLabel('源页面').locator(`option[value="${sourcePageId}"]`)).toHaveCount(1);
+    await page.unroute(`**/api/spaces/${spaceId}/page-templates/source-pages?*`);
+
+    await page.getByRole('button', { name: '关闭' }).click();
+    let secondPageAttempts = 0;
+    await page.route(`**/api/spaces/${spaceId}/page-templates/source-pages?*`, async (route) => {
+      const skip = Number(new URL(route.request().url()).searchParams.get('skip') ?? 0);
+      if (skip === 100) {
+        secondPageAttempts += 1;
+        if (secondPageAttempts === 1) {
+          allowExpectedHttpConsoleStatus(page, 500);
+          await route.fulfill({ status: 500, contentType: 'application/json', body: '{"code":"UNKNOWN"}' });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: [{
+              id: 'page-last', title: 'Last Markdown', format: 'markdown',
+              updatedAt: '2026-08-26T00:00:00.000Z',
+            }],
+            total: 101, skip: 100, take: 100,
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [{
+            id: sourcePageId, title: 'Team source', format: 'markdown',
+            updatedAt: '2026-08-26T00:00:00.000Z',
+          }],
+          total: 101, skip: 0, take: 100,
+        }),
+      });
+    });
+    await customTemplateArticle(page)
+      .getByRole('button', { name: `从页面更新内容 ${customTemplateName}` })
+      .click();
+    await page.getByRole('button', { name: '下一页' }).click();
+    await expect(page.getByText('源页面加载失败')).toBeVisible();
+    await page.getByRole('button', { name: '重试' }).click();
+    await expect(page.getByLabel('源页面').getByRole('option', { name: 'Last Markdown' })).toHaveCount(1);
+    expect(secondPageAttempts).toBe(2);
+    await page.unroute(`**/api/spaces/${spaceId}/page-templates/source-pages?*`);
   });
 
   test('Editor can use but cannot manage; Viewer cannot create', async ({ browser }) => {

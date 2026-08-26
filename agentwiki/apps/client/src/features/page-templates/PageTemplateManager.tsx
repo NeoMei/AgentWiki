@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiErrorMessage } from '../../api/error-message';
+import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   archivePageTemplate,
   createPageTemplateVersion,
+  getPageTemplate,
   listPageTemplateSourcePages,
   listPageTemplates,
   restorePageTemplate,
@@ -55,20 +56,25 @@ export const PageTemplateManager: React.FC = () => {
   const [pendingDialog, setPendingDialog] = useState<PendingDialog>(null);
   const [submitting, setSubmitting] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [dialogConflict, setDialogConflict] = useState(false);
+  const [conflictReloading, setConflictReloading] = useState(false);
   const [metadataName, setMetadataName] = useState('');
   const [metadataDescription, setMetadataDescription] = useState('');
   const [metadataCategory, setMetadataCategory] = useState<PageTemplateCategory>('other');
   const [metadataDefaultTitle, setMetadataDefaultTitle] = useState('');
   const [sourcePages, setSourcePages] = useState<PageTemplateSourcePage[]>([]);
   const [sourcePagesLoading, setSourcePagesLoading] = useState(false);
+  const [sourcePagesFailed, setSourcePagesFailed] = useState(false);
   const [sourcePageSkip, setSourcePageSkip] = useState(0);
   const [sourcePageTotal, setSourcePageTotal] = useState(0);
   const [sourcePageId, setSourcePageId] = useState('');
   const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
   const requestIdRef = useRef(0);
   const sourceRequestIdRef = useRef(0);
+  const sourceRetrySkipRef = useRef(0);
   const sourceDialogSpaceIdRef = useRef<string | null>(null);
   const templatesRef = useRef(EMPTY_TEMPLATES);
+  const spaceNextSkipRef = useRef(0);
   const spaceIdRef = useRef(id);
   const archiveOperationRef = useRef(new Set<string>());
   const fallbackFocusRef = useRef<HTMLInputElement>(null);
@@ -80,6 +86,7 @@ export const PageTemplateManager: React.FC = () => {
 
   const invalidateCatalog = useCallback(() => {
     templatesRef.current = EMPTY_TEMPLATES;
+    spaceNextSkipRef.current = 0;
     setTemplatesState(EMPTY_TEMPLATES);
     setTemplatesIdentity(null);
     setPendingDialog(null);
@@ -97,23 +104,33 @@ export const PageTemplateManager: React.FC = () => {
     }
     setError(null);
     try {
-      const result = await listPageTemplates(id, {
+      const options = {
         locale: language,
         scope: 'all',
         archived: showArchived ? 'all' : 'active',
         category: category || undefined,
         q: search || undefined,
-        skip: reset ? 0 : templatesRef.current.space.length,
+        skip: reset ? 0 : spaceNextSkipRef.current,
         take: 50,
-      });
+      } as const;
+      let result = await listPageTemplates(id, options);
       if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
-      const next = reset ? result : {
-        ...result,
-        space: [
-          ...templatesRef.current.space,
-          ...result.space.filter((item) => !templatesRef.current.space.some((old) => old.id === item.id)),
-        ],
-      };
+      let next: PageTemplateListResponse;
+      if (reset) {
+        next = result;
+      } else {
+        const additions = result.space.filter(
+          (item) => !templatesRef.current.space.some((old) => old.id === item.id),
+        );
+        if (additions.length === 0) {
+          result = await listPageTemplates(id, { ...options, skip: 0 });
+          if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
+          next = result;
+        } else {
+          next = { ...result, space: [...templatesRef.current.space, ...additions] };
+        }
+      }
+      spaceNextSkipRef.current = result.skip + result.space.length;
       templatesRef.current = next;
       setTemplatesState(next);
       setTemplatesIdentity(requestIdentity);
@@ -134,7 +151,9 @@ export const PageTemplateManager: React.FC = () => {
   const loadSourcePage = useCallback(async (skip: number) => {
     if (!id) return;
     const requestId = ++sourceRequestIdRef.current;
+    sourceRetrySkipRef.current = skip;
     setSourcePagesLoading(true);
+    setSourcePagesFailed(false);
     setDialogError(null);
     try {
       const response = await listPageTemplateSourcePages(id, {
@@ -148,7 +167,8 @@ export const PageTemplateManager: React.FC = () => {
       setSourcePageId('');
     } catch (caught) {
       if (requestId === sourceRequestIdRef.current) {
-        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.loadFailed'));
+        setSourcePagesFailed(true);
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.sourcePagesLoadFailed'));
       }
     } finally {
       if (requestId === sourceRequestIdRef.current) setSourcePagesLoading(false);
@@ -160,11 +180,15 @@ export const PageTemplateManager: React.FC = () => {
     sourceRequestIdRef.current += 1;
     sourceDialogSpaceIdRef.current = null;
     templatesRef.current = EMPTY_TEMPLATES;
+    spaceNextSkipRef.current = 0;
     setTemplatesState(EMPTY_TEMPLATES);
     setTemplatesIdentity(null);
     setPendingDialog(null);
     setSubmitting(false);
     setDialogError(null);
+    setDialogConflict(false);
+    setConflictReloading(false);
+    setSourcePagesFailed(false);
     void load(true);
   }, [load]);
 
@@ -174,11 +198,14 @@ export const PageTemplateManager: React.FC = () => {
 
   useEffect(() => {
     if (pendingDialog?.type !== 'version' || !id || sourceDialogSpaceIdRef.current !== id) return;
+    sourceDialogSpaceIdRef.current = null;
     setSourcePages([]);
     setSourcePageSkip(0);
     setSourcePageTotal(0);
     setSourcePageId('');
     setDialogError(null);
+    setDialogConflict(false);
+    setSourcePagesFailed(false);
     void loadSourcePage(0);
     return () => {
       sourceRequestIdRef.current += 1;
@@ -194,6 +221,8 @@ export const PageTemplateManager: React.FC = () => {
     setMetadataDefaultTitle(truncateValidatorLength(template.defaultTitle, TEMPLATE_DEFAULT_TITLE_LIMIT));
     sourceDialogSpaceIdRef.current = null;
     setDialogError(null);
+    setDialogConflict(false);
+    setSourcePagesFailed(false);
     setPendingDialog({ type: 'metadata', template });
   };
 
@@ -202,11 +231,13 @@ export const PageTemplateManager: React.FC = () => {
     if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
     sourceDialogSpaceIdRef.current = id ?? null;
     setDialogError(null);
+    setDialogConflict(false);
+    setSourcePagesFailed(false);
     setPendingDialog({ type: 'version', template });
   };
 
   const closeDialog = () => {
-    if (!submitting) {
+    if (!submitting && !conflictReloading) {
       sourceDialogSpaceIdRef.current = null;
       setPendingDialog(null);
     }
@@ -224,6 +255,7 @@ export const PageTemplateManager: React.FC = () => {
     if (!name || !defaultTitle) return;
     setSubmitting(true);
     setDialogError(null);
+    setDialogConflict(false);
     try {
       await updatePageTemplate(id, template.id, {
         name,
@@ -238,6 +270,7 @@ export const PageTemplateManager: React.FC = () => {
       await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
+        setDialogConflict(apiErrorCode(caught) === 'PAGE_TEMPLATE_VERSION_CONFLICT');
         setDialogError(apiErrorMessage(caught, t, 'pageTemplate.updateMetadataFailed'));
       }
     } finally {
@@ -255,6 +288,7 @@ export const PageTemplateManager: React.FC = () => {
     const template = pendingDialog.template;
     setSubmitting(true);
     setDialogError(null);
+    setDialogConflict(false);
     try {
       const result = await createPageTemplateVersion(id, template.id, {
         sourcePageId: sourcePage.id,
@@ -271,10 +305,45 @@ export const PageTemplateManager: React.FC = () => {
       await latestLoadRef.current(true);
     } catch (caught) {
       if (identityRef.current === operationIdentity) {
+        setDialogConflict(apiErrorCode(caught) === 'PAGE_TEMPLATE_VERSION_CONFLICT');
         setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createVersionFailed'));
       }
     } finally {
       if (identityRef.current === operationIdentity) setSubmitting(false);
+    }
+  };
+
+  const reloadConflict = async () => {
+    if (!id || !pendingDialog || submitting || conflictReloading || !dialogConflict) return;
+    const operationIdentity = identityRef.current;
+    const operationSpaceId = id;
+    const operationType = pendingDialog.type;
+    const templateId = pendingDialog.template.id;
+    setConflictReloading(true);
+    setDialogError(null);
+    try {
+      const latest = await getPageTemplate(id, templateId, language);
+      if (spaceIdRef.current !== operationSpaceId || identityRef.current !== operationIdentity) return;
+      setPendingDialog((current) => (
+        current?.type === operationType && current.template.id === templateId
+          ? { ...current, template: latest }
+          : current
+      ));
+      const nextCatalog = {
+        ...templatesRef.current,
+        space: templatesRef.current.space.map((item) => item.id === templateId ? latest : item),
+      };
+      templatesRef.current = nextCatalog;
+      setTemplatesState(nextCatalog);
+      setDialogConflict(false);
+    } catch (caught) {
+      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity) {
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+      }
+    } finally {
+      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity) {
+        setConflictReloading(false);
+      }
     }
   };
 
@@ -421,7 +490,7 @@ export const PageTemplateManager: React.FC = () => {
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {visibleTemplates.space.map((template) => renderTemplate(template, true))}
         </div>
-        {visibleTemplates.space.length < visibleTemplates.totalSpace ? (
+        {spaceNextSkipRef.current < visibleTemplates.totalSpace ? (
           <button
             type="button"
             disabled={loadingMore}
@@ -434,10 +503,10 @@ export const PageTemplateManager: React.FC = () => {
       </section>
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'metadata' ? (
-        <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
+        <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <h2 id="metadata-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
-            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
+            <button type="button" aria-label={t('common.close')} disabled={submitting || conflictReloading} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitMetadata}>
             <label className="block text-sm font-medium">
@@ -460,18 +529,19 @@ export const PageTemplateManager: React.FC = () => {
             </label>
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
-              <button type="button" disabled={submitting} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
-              <button type="submit" disabled={submitting} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('common.save')}</button>
+              {dialogConflict ? <button type="button" disabled={conflictReloading} onClick={() => void reloadConflict()} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.reload')}</button> : null}
+              <button type="button" disabled={submitting || conflictReloading} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
+              <button type="submit" disabled={submitting || conflictReloading || dialogConflict} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('common.save')}</button>
             </div>
           </form>
         </ModalDialog>
       ) : null}
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
-        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
+        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
-            <button type="button" aria-label={t('common.close')} disabled={submitting} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
+            <button type="button" aria-label={t('common.close')} disabled={submitting || conflictReloading} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitVersion}>
             <label className="block text-sm font-medium">
@@ -504,8 +574,10 @@ export const PageTemplateManager: React.FC = () => {
             </div>
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
-              <button type="button" disabled={submitting} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
-              <button type="submit" disabled={submitting || sourcePagesLoading || !sourcePageId} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button>
+              {sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
+              {dialogConflict ? <button type="button" disabled={conflictReloading} onClick={() => void reloadConflict()} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.reload')}</button> : null}
+              <button type="button" disabled={submitting || conflictReloading} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
+              <button type="submit" disabled={submitting || conflictReloading || dialogConflict || sourcePagesLoading || !sourcePageId} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button>
             </div>
           </form>
         </ModalDialog>

@@ -150,11 +150,20 @@ export class GraphRefreshService {
   async getOrCreateState(spaceId: string) {
     const existing = await this.prisma.spaceGraphState.findUnique({ where: { spaceId } });
     if (existing) return existing;
-    return this.prisma.spaceGraphState.upsert({
-      where: { spaceId },
-      create: { spaceId },
-      update: {},
-    });
+    try {
+      return await this.prisma.spaceGraphState.upsert({
+        where: { spaceId },
+        create: { spaceId },
+        update: {},
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error;
+      }
+      const raced = await this.prisma.spaceGraphState.findUnique({ where: { spaceId } });
+      if (!raced) throw error;
+      return raced;
+    }
   }
 
   async updateSettings(

@@ -4,6 +4,7 @@ import {
   archivePageTemplate,
   createPageTemplate,
   createPageTemplateVersion,
+  getPageTemplate,
   listPageTemplateSourcePages,
   listPageTemplates,
   restorePageTemplate,
@@ -114,6 +115,27 @@ describe('page template API adapters', () => {
     await expect(listPageTemplates('space-1', { locale: 'en' })).rejects.toThrow(/page template/i);
   });
 
+  it.each([
+    { totalSpace: -1, skip: 0, take: 100 },
+    { totalSpace: 1.5, skip: 0, take: 100 },
+    { totalSpace: 1, skip: -1, take: 100 },
+    { totalSpace: 1, skip: 0.5, take: 100 },
+    { totalSpace: 1, skip: 0, take: 0 },
+    { totalSpace: 1, skip: 0, take: 101 },
+  ])('rejects invalid catalog pagination metadata %#', async (pagination) => {
+    vi.mocked(api.get).mockResolvedValue({ data: { ...catalog, ...pagination } } as never);
+
+    await expect(listPageTemplates('space-1', { locale: 'en' })).rejects.toThrow(/page template/i);
+  });
+
+  it('rejects a non-positive template version at runtime', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { ...catalog, space: [{ ...template, currentVersion: 0 }] },
+    } as never);
+
+    await expect(listPageTemplates('space-1', { locale: 'en' })).rejects.toThrow(/page template/i);
+  });
+
   it('forwards optional catalog filters and trims a non-empty query', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: catalog } as never);
 
@@ -188,6 +210,19 @@ describe('page template API adapters', () => {
 
     await expect(updatePageTemplate('space-1', 'template-1', input)).resolves.toEqual(template);
     expect(api.patch).toHaveBeenCalledWith('/spaces/space-1/page-templates/template-1', input);
+  });
+
+  it('loads and validates one template for conflict recovery', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: template } as never);
+
+    await expect(getPageTemplate('space/one', 'template?#one', 'en')).resolves.toEqual(template);
+    expect(api.get).toHaveBeenCalledWith(
+      '/spaces/space%2Fone/page-templates/template%3F%23one',
+      { params: { locale: 'en' } },
+    );
+
+    vi.mocked(api.get).mockResolvedValueOnce({ data: { ...template, content: 42 } } as never);
+    await expect(getPageTemplate('space-1', 'template-1', 'en')).rejects.toThrow(/page template/i);
   });
 
   it('creates a content version from the source page', async () => {

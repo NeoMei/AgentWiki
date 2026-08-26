@@ -2,7 +2,21 @@
 
 Date: 2026-08-26 (Asia/Shanghai)
 
-## 2026-08-26 convergence audit and final dynamic gate
+## 2026-08-26 repeated comprehensive audit and final acceptance
+
+- Current state: local `master@03690b93e42ac9d7b053fad57b6efe79fd63f0d3`, with `origin/master@62ba721f74660e61a3fd431dc95b7e351ca2a902` (ahead 40, behind 0). The former `codex/page-template-library` branch no longer exists. The fixes documented in this section remain uncommitted in the local worktree.
+- Three independent first-round reviews covered task/design completion, backend concurrency and authorization, and frontend recovery/UI behavior. After de-duplicating the shared conflict finding, they found no Critical issue, three Important defects, and three Minor defects. The fixes addressed add-member revocation/Space-delete races, bounded `skip`, in-place version-conflict reload while preserving edits, zero-progress pagination, retryable settings/source-page loads with contextual error copy, and stale branch/acceptance records.
+- Fresh real-browser testing then exposed a seventh defect: concurrent graph-settings state initialization could raise Prisma P2002 and surface HTTP 409. The service now accepts only a genuine P2002 winner race, re-reads the winning row, and rethrows unrelated failures. A new RED/GREEN regression test covers it.
+- A subsequent fresh review found two additional Minor defects. A retry after source-page page 2 failed restarted at offset 0 instead of retrying the failed offset, and the runtime catalog adapter accepted negative/fractional pagination or version zero. The client now retains the attempted offset, and the adapter rejects non-integer/out-of-range metadata; RED/GREEN tests cover both fixes. This brings the repeated-audit total to nine fixed issue classes.
+- Repeated post-fix task, code-path, diff, and runtime reviews found no remaining actionable Critical, Important, or Minor issue in the requested scope. The implementation plan has no unchecked task.
+- Fresh complete repository gate: runtime 104 passed / 51 skipped; server 1,213 passed / 4 skipped; client 732/732; sync-protocol 42/42; local-sync 748/748. `pnpm typecheck`, `pnpm lint`, and `pnpm build` exited 0. The build retained only the pre-existing non-blocking Vite chunk-size warning.
+- A completely fresh disposable PostgreSQL 16/Redis/API/Vite stack applied all 43 migrations. The dedicated page-template database gate passed 2/2, including U+20000 Prisma persistence/readback; all `page_template_test_%` schemas were removed.
+- Real Chrome passed 10/10 serial scenarios: immutable versioning, a real metadata conflict followed by in-place reload/retry with form preservation, settings/source-page 500 fault injection followed by in-place retry, a failed `skip=100` source page retried at the same offset, role boundaries, bilingual built-ins, blank provenance, source-page API behavior, and 390px/focus interaction. Intentional 409/500 probes were counted and consumed exactly once; any unexpected or unconsumed console error/warning remained fatal.
+- The concurrency gate ran 20 rounds containing 40 template pairs, 40 Space pairs, 80 member-operation pairs, and 160 total explicitly ordered pairs. Every expected status ordering passed; SQL found no provenance/version orphan, active test fixture, or advisory-lock waiter.
+- Cleanup succeeded: the disposable database/schema and fixtures were removed, PostgreSQL/Redis/API/Vite stopped, and ports 3000, 5173, 57033, and 57034 were free. Final evidence bundle: `/Users/neomei/.Trash/agentwiki-cdcf52c-candidate.FTXzXh-1787706478`.
+- This acceptance record was completed before release authorization. The user authorized GitHub and production release afterward on 2026-08-26; package directories and versions are unchanged, so npm publication is not part of this release.
+
+## Historical 2026-08-26 candidate convergence audit
 
 - Final code candidate: `cdcf52cc010db979fcbeb138f32c33da64d3a24f` on `codex/page-template-library`.
 - Four whole-branch review rounds converged after fixes `5721954`, `eb0c138`, `1ff5aae`, and `cdcf52c`. The fourth independent review reported 0 Critical, 0 Important, and 0 Minor actionable findings.

@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 页面模板库已完成本地实施、最终审查修复与聚焦验收；保持本地分支，等待单独的 GitHub / npm / 生产发布授权。
+- 页面模板库已完成本地实施、多轮任务/代码审查、缺陷修复与全栈/UI 验收；2026-08-26 已获得发布授权，正在完成提交、GitHub 推送与备份优先的生产发布。
 
 # 范围 / 不做
 
@@ -15,11 +15,12 @@
 - 正式设计：`agentwiki/docs/superpowers/specs/2026-08-25-page-template-library-design.md`。
 - 实施计划：`agentwiki/docs/superpowers/plans/2026-08-25-page-template-library-plan.md`，全部 TDD 任务、审查项与验收项均已完成。
 - 活跃任务：`.codex-memory/tasks/active/page-template-library/`。
-- 本地候选分支 `codex/page-template-library`；最终代码候选 `cdcf52c`。四轮全分支审查先后修复并发、实时授权、Socket 草稿、Unicode、分页与限流边界，第四轮独立审查收敛为 0 Critical / 0 Important / 0 Minor。
-- 最终全仓门禁：runtime 104 pass / 51 skip、server 1208 pass / 4 skip、client 708/708、sync-protocol 42/42、local-sync 748/748；typecheck、lint、build、diff-check 全部通过。
-- 最终全新一次性 PostgreSQL 门禁 2/2，含 U+20000 Prisma 往返；真实 Chrome 8/8 且每场景 console error/warning 为 0；20 轮共 80 个有序并发对全部通过。随机 schema、孤儿记录、锁等待者和活跃测试 fixture 均为 0，临时服务及端口已清理。
+- 当前 Git 状态：本地 `master@03690b9`，`origin/master@62ba721f`，ahead 40 / behind 0；旧的 `codex/page-template-library` 分支已不存在。本轮修复仍在工作树中，未提交。
+- 2026-08-26 重复审查累计修复了 9 类值得修复的问题：成员新增的撤权/删除竞态、分页参数越界、模板冲突无法原位恢复、Load more 零进展、设置/来源页加载无重试且错误文案不准确、陈旧的分支/验收记录、图谱刷新状态 P2002 并发竞态、来源页翻页失败后重试偏移错误，以及目录运行时分页/版本字段校验过宽。修复后最终复查为 0 个未解决的值得修复问题。
+- 最终全仓门禁：runtime 104 pass / 51 skip、server 1213 pass / 4 skip、client 732/732、sync-protocol 42/42、local-sync 748/748；typecheck、lint、build 全部通过。
+- 最终全新一次性 PostgreSQL 16 门禁 2/2，含 U+20000 Prisma 往返；真实 Chrome 10/10，覆盖真实版本冲突恢复、首页与失败翻页偏移的故障注入原位重试、逐次消费的预期控制台错误、权限、双语、空白页来源、390px 与焦点；20 轮共 160 个明确有序并发对全部通过。随机 schema、孤儿记录、锁等待者和活跃测试 fixture 均为 0，临时服务及端口已清理。
 - 验收记录：`agentwiki/docs/testing/page-template-library-acceptance.md`。
-- 本任务仅完成本地候选；没有 push、npm publish 或生产部署。
+- 2026-08-26 发布授权后的精确候选已再次通过完整测试、typecheck、lint 与 build；两个 npm 包目录无差异且本地/registry 版本一致，因此本次不发布 npm。GitHub 推送与生产部署状态以本次发布记录为准。
 
 # 稳定约束
 
@@ -40,5 +41,5 @@
 # 风险 / 下一步
 
 - 生产构建仍有既有的 Vite `>500 kB` chunk 警告，本次构建成功。
-- 若进入发布，需要单独核对 GitHub 推送、生产数据库备份/迁移、部署与公网登录态验收；包版本未变，不需要因本功能发布 npm。当前生产健康，但页面模板路由仍为 404，符合尚未部署本功能的状态。
-- 未经单独授权，不推送 GitHub、不发布 npm、不部署生产。
+- 当前发布必须保持提交边界，完成生产只读预检、数据库与应用双备份、迁移/服务/文件指纹及公网登录态验收；包版本未变，不需要因本功能发布 npm。
+- 发布完成前不得把本地、GitHub、npm 或生产中的任一状态误报为其他状态。

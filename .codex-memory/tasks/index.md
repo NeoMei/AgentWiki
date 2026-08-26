@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [page-template-library](active/page-template-library/brief.md)：单页系统模板与 Space 自定义模板已完成本地实施、四轮全分支审查和全栈/UI 动态验收；等待独立发布授权。
+- [page-template-library](active/page-template-library/brief.md)：单页系统模板与 Space 自定义模板已完成本地实施、重复多轮任务/代码审查和全栈/UI 动态验收；2026-08-26 已获发布授权，正在完成 GitHub 与生产发布。
 
 ## 最近完成
 
