@@ -268,15 +268,16 @@ git commit -m "feat(markdown): render common Obsidian syntax"
 
 - [ ] **Step 1: Write the failing role-matrix controller test**
 
-Add a parameterized test with human `owner`, `editor`, `admin`, `viewer`, super-admin, and Agent principals. Mock the broad read authorization result role, then assert only human owner/editor and super-admin receive `canEdit: true`; admin/viewer/Agent receive false. Also assert the controller never broadens PATCH permissions.
+Add a parameterized test with human `owner`, `editor`, `admin`, `viewer`, super-admin, and Agent principals. Mock the broad read authorization result role, then assert human owner/editor/admin and super-admin receive `canEdit: true`; viewer and every Agent principal receive false. Add one Agent row with a super-admin-shaped platform role so Agent identity is proven to take precedence. Also assert the capability agrees with the real live PATCH mapping without broadening PATCH permissions.
 
 ```ts
 it.each([
   ['owner', false, true],
   ['editor', false, true],
-  ['admin', false, false],
+  ['admin', false, true],
   ['viewer', false, false],
   ['owner', true, false],
+  ['owner', true, false, 'super_admin'],
 ])('maps role %s and agent=%s to canEdit=%s', async (role, agent, canEdit) => {
   authorization.assertPageAccess.mockResolvedValue({ id: 'page-1', spaceId: 'space-1' });
   authorization.assertSpaceAccess.mockResolvedValue({ role });
@@ -303,7 +304,7 @@ After `assertPageAccess`, call broad `assertSpaceAccess` for the already-authori
 
 ```ts
 const canEdit = !principal.agentId
-  && (principal.platformRole === 'super_admin' || ['owner', 'editor'].includes(String(access.role)));
+  && (principal.platformRole === 'super_admin' || ['owner', 'editor', 'admin'].includes(String(access.role)));
 return { ...await this.pageService.findOne(id), capabilities: { canEdit } };
 ```
 
