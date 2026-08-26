@@ -152,6 +152,45 @@ const isSafeKeyframes = ({ header, body }: CssRule) => {
   ));
 };
 
+const selectorStaysWithinRoot = (selector: string, rootSelector: string) => {
+  if (!selector.startsWith(rootSelector)) return false;
+  const remainder = selector.slice(rootSelector.length);
+  if (/^[A-Za-z0-9_-]/u.test(remainder)) return false;
+
+  let parentheses = 0;
+  let brackets = 0;
+  let quote = '';
+  for (let index = 0; index < remainder.length; index += 1) {
+    const character = remainder[index];
+    if (quote) {
+      if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '(') parentheses += 1;
+    else if (character === ')') parentheses -= 1;
+    else if (character === '[') brackets += 1;
+    else if (character === ']') brackets -= 1;
+    else if (parentheses === 0 && brackets === 0) {
+      if (character === '+' || character === '~' || character === '|') return false;
+      if (character === '>') return true;
+      if (/\s/u.test(character)) {
+        let lookahead = index + 1;
+        while (/\s/u.test(remainder[lookahead] ?? '')) lookahead += 1;
+        const next = remainder[lookahead] ?? '';
+        if (next === '+' || next === '~' || next === '|') return false;
+        return true;
+      }
+    }
+    if (parentheses < 0 || brackets < 0) return false;
+  }
+
+  return !quote && parentheses === 0 && brackets === 0;
+};
+
 const hasOnlyScopedRules = (css: string, rootId: string) => {
   if (!SAFE_SVG_ID.test(rootId) || !hasSafeCssResources(css)) return false;
 
@@ -161,11 +200,8 @@ const hasOnlyScopedRules = (css: string, rootId: string) => {
     if (rule.header.startsWith('@')) return isSafeKeyframes(rule);
     if (/[{}]/u.test(rule.body) || /@/u.test(rule.body) || !hasSafeCssResources(rule.body)) return false;
     const selectors = rule.header.split(',').map((selector) => selector.trim());
-    return selectors.length > 0 && selectors.every((selector) => {
-      if (!selector.startsWith(rootSelector)) return false;
-      const remainder = selector.slice(rootSelector.length);
-      return !/^[A-Za-z0-9_-]|^\s*[+~|]/u.test(remainder);
-    });
+    return selectors.length > 0
+      && selectors.every((selector) => selectorStaysWithinRoot(selector, rootSelector));
   });
 };
 

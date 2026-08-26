@@ -51,6 +51,7 @@ describe('sanitizeMermaidSvg', () => {
       '<style>@keyframes dash{to{stroke-dashoffset:0}}#diagram .safe{fill:url(#local);animation:dash 1s}</style>',
       '<style>@import url(https://evil.test/import.css);#diagram .bad{fill:red}</style>',
       '<style>body{display:none}</style>',
+      '<style>#diagram:not(.never) + #outside{display:none}</style>',
       '<rect class="safe" fill="url(#local)"/>',
       '<rect class="bad" fill="url(https://evil.test/fill.svg)" style="filter:url(data:image/svg+xml,bad)"/>',
       '<circle cursor="url(blob:https://evil.test/cursor)" stroke="url(//evil.test/stroke.svg)"/>',
@@ -63,7 +64,7 @@ describe('sanitizeMermaidSvg', () => {
     expect(clean).toContain('@keyframes dash{to{stroke-dashoffset:0}}');
     expect(clean).toContain('#diagram .safe{fill:url(#local);animation:dash 1s}');
     expect(clean).toContain('fill="url(#local)"');
-    expect(clean).not.toMatch(/evil\.test|data:|blob:|javascript:|@import|body\s*\{/iu);
+    expect(clean).not.toMatch(/evil\.test|data:|blob:|javascript:|@import|body\s*\{|#outside/iu);
   });
 
   it('fails closed for ambiguous or escaped CSS URL syntax', () => {
