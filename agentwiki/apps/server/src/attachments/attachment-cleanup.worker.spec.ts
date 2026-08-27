@@ -271,6 +271,66 @@ describe('AttachmentCleanupWorker', () => {
     expect((worker as any).orphanIterator).toBeUndefined();
   });
 
+  it('shuts down while a real orphan generator next is pending without replacing it or doing later work', async () => {
+    const root = await createRoot();
+    const hash = 'f'.repeat(64);
+    const absolutePath = join(root, 'sha256', 'ff', 'ff', hash);
+    await mkdir(join(root, 'sha256', 'ff', 'ff'), { recursive: true });
+    await writeFile(absolutePath, 'old orphan');
+    const oldTime = new Date(now.getTime() - DAY_MS - 1);
+    await utimes(absolutePath, oldTime, oldTime);
+    const { worker, prisma, storage } = createWorker(root);
+    let releaseNext!: () => void;
+    let signalNextStarted!: () => void;
+    const nextStarted = new Promise<void>((resolve) => { signalNextStarted = resolve; });
+    const pendingNext = new Promise<void>((resolve) => { releaseNext = resolve; });
+    let generators = 0;
+    let generatorsClosed = 0;
+    async function* controlledScan() {
+      generators += 1;
+      try {
+        signalNextStarted();
+        await pendingNext;
+        yield {
+          candidate: {
+            absolutePath,
+            contentHash: hash,
+            storageKey: `sha256/ff/ff/${hash}`,
+          },
+        };
+      } finally {
+        generatorsClosed += 1;
+      }
+    }
+    jest.spyOn(worker as any, 'scanOrphanEntries').mockImplementation(controlledScan);
+
+    const activeTick = worker.tick();
+    await nextStarted;
+    const firstDestroy = worker.onModuleDestroy();
+    const repeatedDestroy = worker.onModuleDestroy();
+    expect(repeatedDestroy).toBe(firstDestroy);
+    let destroySettled = false;
+    void firstDestroy.then(() => { destroySettled = true; });
+    await Promise.resolve();
+    expect(destroySettled).toBe(false);
+
+    releaseNext();
+    await Promise.all([activeTick, firstDestroy, repeatedDestroy]);
+    const finishedDestroy = worker.onModuleDestroy();
+    expect(finishedDestroy).toBe(firstDestroy);
+    await finishedDestroy;
+    await worker.tick();
+    await (worker as any).safeTick();
+
+    expect(generators).toBe(1);
+    expect(generatorsClosed).toBe(1);
+    expect((worker as any).orphanIterator).toBeUndefined();
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.spaceAttachment.count).not.toHaveBeenCalled();
+    expect(storage.withContentLock).not.toHaveBeenCalled();
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+  });
+
   it('closes and resets the stateful orphan iterator after a scan error', async () => {
     const root = await createRoot();
     const { worker } = createWorker(root);

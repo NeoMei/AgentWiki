@@ -64,7 +64,9 @@ function isMissing(error: unknown): boolean {
 export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AttachmentCleanupWorker.name);
   private timer?: NodeJS.Timeout;
-  private running = false;
+  private shuttingDown = false;
+  private activeTick?: Promise<void>;
+  private destroyPromise?: Promise<void>;
   private orphanIterator?: AsyncGenerator<OrphanScanVisit, void, void>;
 
   constructor(
@@ -77,6 +79,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    if (this.shuttingDown) return;
     const role = String(this.config.get('PROCESS_ROLE') || 'api').toLowerCase();
     if (!['worker', 'all'].includes(role)) return;
     const intervalMs = pollInterval(this.config.get('ATTACHMENT_CLEANUP_POLL_MS'));
@@ -85,29 +88,35 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     void this.safeTick();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): Promise<void> {
+    this.shuttingDown = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    try {
-      await this.closeOrphanIterator();
-    } catch (error) {
-      this.logger.error(`Attachment orphan iterator close failed: ${safeMessage(error)}`);
-    }
+    this.destroyPromise ??= this.finishDestroy();
+    return this.destroyPromise;
   }
 
   async tick(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+    if (this.shuttingDown || this.activeTick) return;
+    const activeTick = this.runTick();
+    this.activeTick = activeTick;
     try {
-      const now = Date.now();
-      await this.cleanupArchived(new Date(now - this.attachmentConfig.retentionMs));
-      await this.cleanupOrphans(new Date(now - this.attachmentConfig.orphanGraceMs));
+      await activeTick;
     } finally {
-      this.running = false;
+      if (this.activeTick === activeTick) this.activeTick = undefined;
     }
   }
 
+  private async runTick(): Promise<void> {
+    if (this.shuttingDown) return;
+    const now = Date.now();
+    await this.cleanupArchived(new Date(now - this.attachmentConfig.retentionMs));
+    if (this.shuttingDown) return;
+    await this.cleanupOrphans(new Date(now - this.attachmentConfig.orphanGraceMs));
+  }
+
   private async safeTick(): Promise<void> {
+    if (this.shuttingDown) return;
     try {
       await this.tick();
     } catch (error) {
@@ -116,14 +125,17 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private async cleanupArchived(cutoff: Date): Promise<void> {
+    if (this.shuttingDown) return;
     const archived = await this.prisma.spaceAttachment.findMany({
       where: { status: 'archived', archivedAt: { lte: cutoff } },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: BATCH_SIZE,
       select: { id: true, contentHash: true, storageKey: true, archivedAt: true },
     }) as ArchivedAttachment[];
+    if (this.shuttingDown) return;
 
     for (const attachment of archived) {
+      if (this.shuttingDown) return;
       try {
         const deleted = await this.prisma.$transaction((tx) =>
           tx.spaceAttachment.deleteMany({
@@ -135,6 +147,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
           }),
         );
         if (deleted.count !== 1) continue;
+        if (this.shuttingDown) return;
         await this.removeBlobWhenUnreferenced(
           attachment.storageKey,
           attachment.contentHash,
@@ -150,7 +163,11 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async cleanupOrphans(cutoff: Date): Promise<void> {
     let visited = 0;
     let deletions = 0;
-    while (visited < ORPHAN_SCAN_VISIT_LIMIT && deletions < ORPHAN_DELETE_LIMIT) {
+    while (
+      !this.shuttingDown
+      && visited < ORPHAN_SCAN_VISIT_LIMIT
+      && deletions < ORPHAN_DELETE_LIMIT
+    ) {
       this.orphanIterator ??= this.scanOrphanEntries();
       let next: IteratorResult<OrphanScanVisit, void>;
       try {
@@ -165,6 +182,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         }
         throw error;
       }
+      if (this.shuttingDown) return;
       if (next.done) {
         await this.closeOrphanIterator();
         break;
@@ -174,8 +192,11 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
       if (!candidate) continue;
       try {
         let removed = false;
+        if (this.shuttingDown) return;
         await this.storage.withContentLock(candidate.contentHash, async (lease) => {
+          if (this.shuttingDown) return;
           const metadata = await lstat(candidate.absolutePath);
+          if (this.shuttingDown) return;
           if (
             metadata.isSymbolicLink()
             || !metadata.isFile()
@@ -184,6 +205,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
           const references = await this.prisma.spaceAttachment.count({
             where: { storageKey: candidate.storageKey },
           });
+          if (this.shuttingDown) return;
           if (references === 0) {
             await this.storage.removeIfUnreferenced(candidate.storageKey, lease);
             removed = true;
@@ -202,14 +224,33 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     storageKey: string,
     contentHash: string,
   ): Promise<void> {
+    if (this.shuttingDown) return;
     await this.storage.withContentLock(contentHash, async (lease) => {
+      if (this.shuttingDown) return;
       const references = await this.prisma.spaceAttachment.count({
         where: { storageKey },
       });
+      if (this.shuttingDown) return;
       if (references === 0) {
         await this.storage.removeIfUnreferenced(storageKey, lease);
       }
     });
+  }
+
+  private async finishDestroy(): Promise<void> {
+    const activeTick = this.activeTick;
+    if (activeTick) {
+      try {
+        await activeTick;
+      } catch (error) {
+        this.logger.error(`Attachment cleanup tick failed during shutdown: ${safeMessage(error)}`);
+      }
+    }
+    try {
+      await this.closeOrphanIterator();
+    } catch (error) {
+      this.logger.error(`Attachment orphan iterator close failed: ${safeMessage(error)}`);
+    }
   }
 
   private async *scanOrphanEntries(): AsyncGenerator<OrphanScanVisit, void, void> {
