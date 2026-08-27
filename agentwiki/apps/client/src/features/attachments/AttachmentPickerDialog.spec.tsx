@@ -67,23 +67,53 @@ describe('AttachmentPickerDialog', () => {
     expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ status: 'archived', skip: 0 }), expect.any(AbortSignal));
   });
 
-  it('inserts an active existing attachment but not an archived attachment before successful restore', async () => {
-    mocks.listAttachments.mockResolvedValueOnce({ items: [attachment(), attachment({ id: 'old', displayName: 'old.png', status: 'archived' })], total: 2, skip: 0, take: 20 });
+  it('switches to the authoritative active filter after restore before allowing insertion', async () => {
+    const archived = attachment({ id: 'old', displayName: 'old.png', status: 'archived' });
+    const restoredItem = attachment({ id: 'old', displayName: 'old.png', status: 'active', updatedAt: '2026-08-27T02:00:00Z' });
+    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { status: string }) => params.status === 'archived'
+      ? { items: [archived], total: 1, skip: 0, take: 20 }
+      : { items: [restoredItem], total: 1, skip: 0, take: 20 });
     const restored = deferred<ReturnType<typeof attachment>>();
     mocks.restoreAttachment.mockReturnValue(restored.promise);
     const { onInsert } = renderDialog();
-    const activeRow = await screen.findByRole('listitem', { name: 'diagram.png' });
-    fireEvent.click(within(activeRow).getByRole('button', { name: 'Insert diagram.png' }));
-    expect(onInsert).toHaveBeenCalledWith('diagram.png');
-
-    const archivedRow = screen.getByRole('listitem', { name: 'old.png' });
+    await screen.findByRole('listitem', { name: 'old.png' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } });
+    const archivedRow = await screen.findByRole('listitem', { name: 'old.png' });
     expect(within(archivedRow).queryByRole('button', { name: 'Insert old.png' })).not.toBeInTheDocument();
     fireEvent.click(within(archivedRow).getByRole('button', { name: 'Restore old.png' }));
     expect(mocks.restoreAttachment).toHaveBeenCalledWith('space-1', 'old', '2026-08-27T01:01:00Z');
     expect(within(archivedRow).queryByRole('button', { name: 'Insert old.png' })).not.toBeInTheDocument();
-    await act(async () => restored.resolve(attachment({ id: 'old', displayName: 'old.png', status: 'active', updatedAt: '2026-08-27T02:00:00Z' })));
-    fireEvent.click(await within(archivedRow).findByRole('button', { name: 'Insert old.png' }));
+    await act(async () => restored.resolve(restoredItem));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Attachment status' })).toHaveValue('active'));
+    const activeRow = await screen.findByRole('listitem', { name: 'old.png' });
+    fireEvent.click(within(activeRow).getByRole('button', { name: 'Insert old.png' }));
     expect(onInsert).toHaveBeenLastCalledWith('old.png');
+  });
+
+  it('reloads the active first page after archive so offset pagination cannot skip the shifted boundary row', async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => attachment({
+      id: `active-${index + 1}`,
+      displayName: `active-${index + 1}.png`,
+    }));
+    const shiftedPage = [...firstPage.slice(1), attachment({ id: 'active-21', displayName: 'active-21.png' })];
+    const reconciliation = deferred<{ items: ReturnType<typeof attachment>[]; total: number; skip: number; take: number }>();
+    mocks.listAttachments
+      .mockResolvedValueOnce({ items: firstPage, total: 21, skip: 0, take: 20 })
+      .mockReturnValueOnce(reconciliation.promise);
+    mocks.archiveAttachment.mockResolvedValue(attachment({ id: 'active-1', displayName: 'active-1.png', status: 'archived' }));
+    renderDialog();
+    const row = await screen.findByRole('listitem', { name: 'active-1.png' });
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Archive active-1.png' }));
+
+    await waitFor(() => expect(mocks.listAttachments).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Attachment status' })).toBeDisabled();
+    await act(async () => reconciliation.resolve({ items: shiftedPage, total: 20, skip: 0, take: 20 }));
+    expect(await screen.findByRole('listitem', { name: 'active-21.png' })).toBeInTheDocument();
+    expect(screen.queryByRole('listitem', { name: 'active-1.png' })).not.toBeInTheDocument();
+    expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ status: 'active', skip: 0, take: 20 }), expect.any(AbortSignal));
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 
   it('uploads only accepted images, announces progress, confirms and inserts the final suffixed server name', async () => {
@@ -103,6 +133,48 @@ describe('AttachmentPickerDialog', () => {
     await act(async () => upload.resolve(attachment({ id: 'uploaded', displayName: 'diagram (2).png' })));
     await waitFor(() => expect(onInsert).toHaveBeenCalledWith('diagram (2).png'));
     expect(screen.getByText('Uploaded as diagram (2).png')).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('reloads the current archived search after upload instead of exposing the nonmatching active result', async () => {
+    const archived = attachment({ id: 'old', displayName: 'old.png', status: 'archived' });
+    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { q?: string; status: string; skip: number; take: number }) => ({
+      items: params.status === 'archived' && params.q === 'old' ? [archived] : [],
+      total: params.status === 'archived' && params.q === 'old' ? 1 : 0,
+      skip: params.skip,
+      take: params.take,
+    }));
+    mocks.uploadAttachment.mockResolvedValue(attachment({ id: 'uploaded', displayName: 'new (2).png' }));
+    const { onInsert } = renderDialog();
+    await waitFor(() => expect(mocks.listAttachments).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } });
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search attachments' }), { target: { value: 'old' } });
+    await screen.findByRole('listitem', { name: 'old.png' });
+    const callsBeforeUpload = mocks.listAttachments.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText('Upload image'), { target: { files: [new File(['png'], 'new.png', { type: 'image/png' })] } });
+
+    await waitFor(() => expect(onInsert).toHaveBeenCalledWith('new (2).png'));
+    await waitFor(() => expect(mocks.listAttachments.mock.calls.length).toBeGreaterThan(callsBeforeUpload));
+    expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ q: 'old', status: 'archived', skip: 0 }), expect.any(AbortSignal));
+    expect(screen.queryByRole('listitem', { name: 'new (2).png' })).not.toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: 'old.png' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['failed replacement search', () => fireEvent.change(screen.getByRole('searchbox', { name: 'Search attachments' }), { target: { value: 'broken' } })],
+    ['failed replacement status filter', () => fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } })],
+  ])('hides prior actionable results after a %s', async (_name, changeCriteria) => {
+    mocks.listAttachments
+      .mockResolvedValueOnce({ items: [attachment()], total: 1, skip: 0, take: 20 })
+      .mockRejectedValueOnce(new Error('replacement failed'));
+    renderDialog();
+    await screen.findByRole('listitem', { name: 'diagram.png' });
+
+    changeCriteria();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network connection failed');
+    expect(screen.queryByRole('listitem', { name: 'diagram.png' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Insert diagram.png' })).not.toBeInTheDocument();
   });
 
   it('uses current timestamps for archive and surfaces mutation failures without insertion or optimistic state', async () => {
@@ -143,6 +215,8 @@ describe('AttachmentPickerDialog', () => {
       fireEvent.change(input, { target: { files: [file] } });
     });
     expect(mocks.uploadAttachment).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Attachment status' })).toBeDisabled();
     await act(async () => upload.resolve(Promise.reject(new Error('network')) as never));
     expect(await screen.findByRole('alert')).toHaveTextContent('Network connection failed');
     expect(onInsert).not.toHaveBeenCalled();
@@ -161,6 +235,8 @@ describe('AttachmentPickerDialog', () => {
     });
 
     expect(mocks.archiveAttachment).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Attachment status' })).toBeDisabled();
     await act(async () => archived.resolve(attachment({ status: 'archived' })));
   });
 
