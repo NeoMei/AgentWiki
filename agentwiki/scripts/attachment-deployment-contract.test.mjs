@@ -20,7 +20,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
 // SECURITY: changing either digest is approval to execute a new Markdown-derived program and requires full executable-code review.
 const REVIEWED_RESTORE_PROGRAM_SHA256 = '35f5daaae0c519b3efd0a8818f78dd833b495901201828e981977ec2899277c8';
-const REVIEWED_MANIFEST_PROGRAM_SHA256 = '62fdf67c4a06ecd6b7263789b36c78168956ca47429dc23b12080822ca161404';
+const REVIEWED_MANIFEST_PROGRAM_SHA256 = 'd3555b183cc1d7fb99f4b9af95c01909993bd1e75d7eaf9d090785954e0ee710';
 const UNREVIEWED_RESTORE_PROGRAM = /unreviewed executable restore program/iu;
 
 const uncommentedLines = (source) => source
@@ -70,11 +70,10 @@ function shellWithoutComments(source) {
   return uncommentedLines(source).join('\n');
 }
 
-function markdownBashBlocks(source) {
-  return [...source.matchAll(/^```bash[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gmu)]
-    .map((match) => match[1])
-    .join('\n');
-}
+const markdownBashBlockList = (source) => [...source.matchAll(/^```bash[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gmu)]
+  .map((match) => match[1]);
+
+const markdownBashBlocks = (source) => markdownBashBlockList(source).join('\n');
 
 function exactShellCommandPositions(source, command) {
   const positions = [];
@@ -117,10 +116,22 @@ function restoreProgram(runbook) {
 }
 
 function reviewedManifestParts(runbook) {
-  const pairMatch = runbook.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
+  const manifestBlocks = markdownBashBlockList(runbook).filter((block) => /^manifest_(?:pair_)?jsonl\(\) \{/mu.test(block));
+  assert.equal(manifestBlocks.length, 1, 'unreviewed executable manifest program: expected exactly one manifest Bash block');
+  const [program] = manifestBlocks;
+  assert.equal(
+    (program.match(/^manifest_pair_jsonl\(\) \{/gmu) ?? []).length,
+    1,
+    'unreviewed executable manifest program: manifest_pair_jsonl must be defined exactly once',
+  );
+  assert.equal(
+    (program.match(/^manifest_jsonl\(\) \{/gmu) ?? []).length,
+    1,
+    'unreviewed executable manifest program: manifest_jsonl must be defined exactly once',
+  );
+  const pairMatch = program.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
   assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
-  const wrapper = extractShellFunction(runbook, 'manifest_jsonl');
-  const program = `${pairMatch[0]}\n${wrapper}`;
+  const wrapper = extractShellFunction(program, 'manifest_jsonl');
   assert.equal(
     sha256(program),
     REVIEWED_MANIFEST_PROGRAM_SHA256,
@@ -1181,6 +1192,43 @@ test('manifest trust boundary rejects a changed Markdown program before Node exe
     else process.env.CONTRACT_SENTINEL_PATH = previousPath;
     if (previousSecret === undefined) delete process.env.CONTRACT_SECRET;
     else process.env.CONTRACT_SECRET = previousSecret;
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('manifest trust boundary rejects a same-name pair override after the reviewed wrapper', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const wrapper = extractShellFunction(runbook, 'manifest_jsonl');
+  const override = "manifest_pair_jsonl() { printf 'UNREVIEWED-OVERRIDE\\n'; }";
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-manifest-override-'));
+  const bundle = resolve(sandbox, 'bundle');
+  await mkdir(resolve(bundle, 'attachments'), { recursive: true });
+  await writeFile(resolve(bundle, 'database.dump'), 'database');
+  try {
+    assert.throws(
+      () => runManifestBundleFunction(runbook.replace(wrapper, `${wrapper}\n${override}`), bundle),
+      /unreviewed executable manifest program/iu,
+    );
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('manifest trust boundary rejects an executable statement after the reviewed wrapper', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const wrapper = extractShellFunction(runbook, 'manifest_jsonl');
+  const tail = "printf 'UNREVIEWED-TAIL\\n'";
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-manifest-tail-'));
+  const dump = resolve(sandbox, 'database.dump');
+  const attachments = resolve(sandbox, 'attachments');
+  await mkdir(attachments);
+  await writeFile(dump, 'database');
+  try {
+    assert.throws(
+      () => runManifestFunction(runbook.replace(wrapper, `${wrapper}\n${tail}`), dump, attachments),
+      /unreviewed executable manifest program/iu,
+    );
+  } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
 });
