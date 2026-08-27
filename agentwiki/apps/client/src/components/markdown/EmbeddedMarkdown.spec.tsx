@@ -156,6 +156,25 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
+  it('fails invalid non-embed Wiki fragments immediately while a valid sibling resolver is pending', () => {
+    const pending = deferred<{ data: unknown[] }>();
+    vi.mocked(api.post).mockReturnValue(pending.promise);
+
+    renderMarkdown([
+      '[[Page#|Empty heading]]',
+      '[[Page#^bad id|Invalid block]]',
+      '[[Good Page]]',
+    ].join('\n\n'));
+
+    expect(screen.getByText('[[Page#|Empty heading]]')).toBeInTheDocument();
+    expect(screen.getByText('[[Page#^bad id|Invalid block]]')).toBeInTheDocument();
+    expect(screen.getAllByText('Invalid reference fragment.')).toHaveLength(2);
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+      { key: 'r0', kind: 'page', target: 'Good Page' },
+    ] });
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
   it('detects direct and indirect cycles per branch without breaking surrounding Markdown', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string; target: string }> }).references.map((ref) => (
@@ -295,6 +314,37 @@ describe('EmbeddedMarkdown resource rendering', () => {
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     expect(screen.queryByText('![[Allowed NonBMP]]')).not.toBeInTheDocument();
     expect(allowedView.container.querySelector('.markdown-page-embed')).toBeInTheDocument();
+  });
+
+  it('counts every presentation-sequence code point in the embedded-character budget', async () => {
+    const heart = '❤️';
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string; target: string }> }).references.map((ref) => (
+        pageResource(ref.key, ref.target)
+      )),
+    }));
+    vi.mocked(api.get).mockImplementation(async (url) => {
+      const id = decodeURIComponent(String(url).split('/').pop()!);
+      const content = id === 'Allowed Presentation'
+        ? heart.repeat(100_000)
+        : id === 'One Over Presentation'
+          ? heart.repeat(100_001)
+          : heart.repeat(200_000);
+      return { data: { id, content } };
+    });
+
+    const allowedView = renderMarkdown('![[Allowed Presentation]]');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByText('![[Allowed Presentation]]')).not.toBeInTheDocument();
+    expect(allowedView.container.querySelector('.markdown-page-embed')).toBeInTheDocument();
+    allowedView.unmount();
+
+    const overView = renderMarkdown('![[One Over Presentation]]');
+    expect(await screen.findByText('![[One Over Presentation]]')).toBeInTheDocument();
+    overView.unmount();
+
+    renderMarkdown('![[Double Presentation]]');
+    expect(await screen.findByText('![[Double Presentation]]')).toBeInTheDocument();
   });
 
   it('disables tasks inside embeds and only labels successful version-root embeds as current content', async () => {

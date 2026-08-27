@@ -53,20 +53,26 @@ describe('resolveWikiHref', () => {
     expect(resolveWikiHref(parseWikiReference('链接能力测试'), pages)).toBe('/pages/def456');
   });
   it('appends heading and block fragments only after the page resolves', () => {
-    expect(resolveWikiHref(parseWikiReference('MyFirstPage#Heading Name'), pages)).toBe('/pages/abc123#heading-name');
-    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^block / one'), pages)).toBe('/pages/abc123#^block%20%2F%20one');
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#Heading Name'), pages)).toBe('/pages/abc123#agentwiki:heading:heading-name');
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^block-one'), pages)).toBe('/pages/abc123#agentwiki:block:block-one');
     expect(resolveWikiHref(parseWikiReference('Missing#Heading'), pages)).toBeNull();
   });
+  it('rejects empty and invalid fragments instead of degrading to the whole page', () => {
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#'), pages)).toBeNull();
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^'), pages)).toBeNull();
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^bad id'), pages)).toBeNull();
+  });
   it('uses the same punctuation and spacing slug as rendered headings', () => {
-    const { container } = renderMd('## A - B\n\n[[MyFirstPage#A - B]]');
+    const { container } = renderMd('## A - B\n\n[Standard self](#a---b) [[MyFirstPage#A - B]]');
     const heading = container.querySelector('h2');
     const link = screen.getByRole('link', { name: 'MyFirstPage#A - B' });
 
     expect(heading).toHaveAttribute('id', 'a---b');
-    expect(link).toHaveAttribute('href', '/pages/abc123#a---b');
-    expect(link.getAttribute('href')?.split('#')[1]).toBe(heading?.id);
+    expect(screen.getByRole('link', { name: 'Standard self' })).toHaveAttribute('href', '#a---b');
+    expect(link).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:a---b');
+    expect(container.querySelector('[id="agentwiki:heading:a---b"]')).toBeInTheDocument();
   });
-  it('full-folds page, heading and block anchors while deduping rendered headings', () => {
+  it('keeps standard Markdown anchors while adding full-fold Wiki heading and block aliases', () => {
     const unicodePages = [{ id: 'unicode-page', title: 'Straße', slug: 'unicode' }];
     const { container } = renderMd([
       '## Straße',
@@ -77,25 +83,56 @@ describe('resolveWikiHref', () => {
       '',
       'Paragraph ^Straße',
       '',
+      '[Standard German self](#straße)',
+      '[Standard Greek self](#ος)',
+      '[Standard block self](#^Straße)',
+      '',
       '[[STRASSE#STRASSE|German heading]]',
       '[[STRASSE#οσ|Greek heading]]',
       '[[STRASSE#^STRASSE|Block target]]',
     ].join('\n'), unicodePages);
 
     const headingIds = [...container.querySelectorAll('h2')].map((heading) => heading.id);
-    const blockId = container.querySelector('.block-anchor')?.id;
+    const exactBlockId = container.querySelector('.block-anchor')?.id;
     const germanHref = screen.getByRole('link', { name: 'German heading' }).getAttribute('href');
     const greekHref = screen.getByRole('link', { name: 'Greek heading' }).getAttribute('href');
     const blockHref = screen.getByRole('link', { name: 'Block target' }).getAttribute('href');
+    const standardGermanHref = screen.getByRole('link', { name: 'Standard German self' }).getAttribute('href')!;
+    const standardGreekHref = screen.getByRole('link', { name: 'Standard Greek self' }).getAttribute('href')!;
+    const standardBlockHref = screen.getByRole('link', { name: 'Standard block self' }).getAttribute('href')!;
 
-    expect(headingIds).toEqual(['strasse', 'strasse-1', 'οσ']);
-    expect(blockId).toBe('^strasse');
-    expect(germanHref).toBe('/pages/unicode-page#strasse');
-    expect(greekHref).toBe('/pages/unicode-page#οσ');
-    expect(blockHref).toBe('/pages/unicode-page#^strasse');
-    expect(germanHref?.split('#')[1]).toBe(headingIds[0]);
-    expect(greekHref?.split('#')[1]).toBe(headingIds[2]);
-    expect(blockHref?.split('#')[1]).toBe(blockId);
+    expect(headingIds).toEqual(['straße', 'straße-1', 'ος']);
+    expect(exactBlockId).toBe('^Straße');
+    expect(decodeURIComponent(standardGermanHref.slice(1))).toBe('straße');
+    expect(decodeURIComponent(standardGreekHref.slice(1))).toBe('ος');
+    expect(decodeURIComponent(standardBlockHref.slice(1))).toBe('^Straße');
+    expect(container.querySelector(`[id="${decodeURIComponent(standardGermanHref.slice(1))}"]`)).toBeInTheDocument();
+    expect(container.querySelector(`[id="${decodeURIComponent(standardGreekHref.slice(1))}"]`)).toBeInTheDocument();
+    expect(container.querySelector(`[id="${decodeURIComponent(standardBlockHref.slice(1))}"]`)).toBeInTheDocument();
+    expect(germanHref).toBe('/pages/unicode-page#agentwiki:heading:strasse');
+    expect(greekHref).toBe('/pages/unicode-page#agentwiki:heading:οσ');
+    expect(blockHref).toBe('/pages/unicode-page#agentwiki:block:strasse');
+    expect(container.querySelector('[id="agentwiki:heading:strasse"]')).toBeInTheDocument();
+    expect(container.querySelector('[id="agentwiki:heading:οσ"]')).toBeInTheDocument();
+    expect(container.querySelector('[id="agentwiki:block:strasse"]')).toBeInTheDocument();
+  });
+  it('dedupes Wiki heading aliases without colliding with standard heading IDs', () => {
+    const { container } = renderMd([
+      '## Straße',
+      '',
+      '## Straße',
+      '',
+      '## agentwiki:heading:strasse',
+    ].join('\n'));
+
+    const ids = [...container.querySelectorAll('[id]')].map((node) => node.id);
+    expect([...container.querySelectorAll('h2')].map((heading) => heading.id)).toEqual([
+      'straße',
+      'straße-1',
+      'agentwikiheadingstrasse',
+    ]);
+    expect(container.querySelectorAll('[id="agentwiki:heading:strasse"]')).toHaveLength(1);
+    expect(new Set(ids).size).toBe(ids.length);
   });
   it('returns null for unknown names', () => {
     expect(resolveWikiHref(parseWikiReference('不存在'), pages)).toBeNull();
@@ -313,7 +350,7 @@ describe('Markdown rendering', () => {
 
     expect(screen.getByText('marked').tagName).toBe('MARK');
     expect(screen.getByRole('link', { name: 'Shown' })).toHaveAttribute('href', '/pages/abc123');
-    expect(screen.getByRole('link', { name: 'MyFirstPage#Heading Name' })).toHaveAttribute('href', '/pages/abc123#heading-name');
+    expect(screen.getByRole('link', { name: 'MyFirstPage#Heading Name' })).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:heading-name');
     expect(container.querySelector('[id="^block-1"]')).toHaveClass('block-anchor');
     expect(container).not.toHaveTextContent('^block-1');
   });

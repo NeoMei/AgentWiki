@@ -4,6 +4,7 @@ import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -16,7 +17,7 @@ import { KATEX_OPTIONS } from './markdown/math';
 import type { MarkdownRenderMode, MarkdownTaskToggle } from './markdown/markdownTypes';
 import { MermaidDiagram } from './markdown/MermaidDiagram';
 import { MAX_MERMAID_SOURCE_CHARS } from './markdown/mermaidSecurity';
-import { createMarkdownHeadingSlugger, remarkAgentWikiObsidian } from './markdown/obsidian';
+import { markdownWikiHeadingAnchorId, remarkAgentWikiObsidian } from './markdown/obsidian';
 import { collectMarkdownTasks } from './markdown/tasks';
 import { EmbeddedMarkdown } from './markdown/EmbeddedMarkdown';
 import {
@@ -84,15 +85,24 @@ const hastText = (node: HastNode): string => (
   node.type === 'text' ? node.value ?? '' : (node.children ?? []).map(hastText).join('')
 );
 
-const rehypeAgentWikiSlug = () => (tree: HastNode) => {
-  const slugHeading = createMarkdownHeadingSlugger();
-  const addHeadingIds = (node: HastNode) => {
-    if (isElementNode(node) && /^h[1-6]$/u.test(node.tagName) && !node.properties.id) {
-      node.properties.id = slugHeading(hastText(node));
+const rehypeAgentWikiHeadingAliases = () => (tree: HastNode) => {
+  const aliases = new Set<string>();
+  const addHeadingAliases = (node: HastNode) => {
+    if (isElementNode(node) && /^h[1-6]$/u.test(node.tagName)) {
+      const alias = markdownWikiHeadingAnchorId(hastText(node));
+      if (!aliases.has(alias)) {
+        aliases.add(alias);
+        node.children.unshift({
+          type: 'element',
+          tagName: 'span',
+          properties: { id: alias, className: ['wiki-heading-anchor'], ariaHidden: true },
+          children: [],
+        } as HastElementNode);
+      }
     }
-    for (const child of node.children ?? []) addHeadingIds(child);
+    for (const child of node.children ?? []) addHeadingAliases(child);
   };
-  addHeadingIds(tree);
+  addHeadingAliases(tree);
 };
 
 const normalizedCodeLanguage = (node: HastElementNode) => {
@@ -227,6 +237,11 @@ const AgentWikiLink = ({ node, children: linkChildren }: AgentWikiNodeProps) => 
   const legacyHref = nodeProperty(element, 'data-markdown-legacy-href');
   const heading = nodeProperty(element, 'data-markdown-heading') || null;
   const blockId = nodeProperty(element, 'data-markdown-block-id') || null;
+  const fragmentPresent = nodeProperty(element, 'data-markdown-fragment-present') === 'true';
+  const fragmentValid = nodeProperty(element, 'data-markdown-fragment-valid') !== 'false';
+  if (fragmentPresent && !fragmentValid) {
+    return <ResourceFallback literal={literal} status={t('markdown.resource.invalidFragment')} />;
+  }
   if (!runtime?.tree.spaceId) {
     return legacyHref
       ? <Link to={legacyHref} target="_blank" rel="noopener noreferrer" className="wiki-link text-blue-600 hover:underline">{linkChildren}</Link>
@@ -520,7 +535,8 @@ export const Markdown: React.FC<MarkdownProps> = ({
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
         rehypePlugins={[
-          rehypeAgentWikiSlug,
+          rehypeSlug,
+          rehypeAgentWikiHeadingAliases,
           [rehypeKatex, KATEX_OPTIONS],
           [rehypeAutolinkHeadings, {
             behavior: 'append',

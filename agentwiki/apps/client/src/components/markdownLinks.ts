@@ -1,8 +1,8 @@
 // Shared markdown link handling: wiki-style [[Page Name]] resolution and
 // internal vs external link classification for SPA navigation.
 import {
-  markdownAnchorSlug,
-  markdownBlockAnchorId,
+  markdownWikiBlockAnchorId,
+  markdownWikiHeadingAnchorId,
   normalizeMarkdownPageIdentity,
   type WikiReference,
 } from './markdown/obsidian';
@@ -17,8 +17,9 @@ export interface PageLinkTarget {
 // page id, slug, or title. Returns null when no page matches (rendered as-is).
 export const resolveWikiHref = (reference: WikiReference | string, pages: PageLinkTarget[]): string | null => {
   const parsed = typeof reference === 'string'
-    ? { target: reference, heading: null, blockId: null, fragmentValid: true }
+    ? { target: reference, heading: null, blockId: null, fragmentPresent: false, fragmentValid: true }
     : reference;
+  if (parsed.fragmentPresent && !parsed.fragmentValid) return null;
   const needle = normalizeMarkdownPageIdentity(parsed.target);
   if (!needle) return null;
   const byId = pages.find((page) => normalizeMarkdownPageIdentity(page.id) === needle);
@@ -28,12 +29,8 @@ export const resolveWikiHref = (reference: WikiReference | string, pages: PageLi
   if (!page) return null;
 
   const base = `/pages/${page.id}`;
-  if (parsed.blockId) {
-    return parsed.fragmentValid === false
-      ? `${base}#^${encodeURIComponent(parsed.blockId)}`
-      : `${base}#${markdownBlockAnchorId(parsed.blockId)}`;
-  }
-  if (parsed.heading) return `${base}#${markdownAnchorSlug(parsed.heading)}`;
+  if (parsed.blockId) return `${base}#${markdownWikiBlockAnchorId(parsed.blockId)}`;
+  if (parsed.heading) return `${base}#${markdownWikiHeadingAnchorId(parsed.heading)}`;
   return base;
 };
 

@@ -1,5 +1,5 @@
 import { foldCase } from '@neomei/agentwiki-sync-protocol';
-import GithubSlugger, { slug } from 'github-slugger';
+import { slug } from 'github-slugger';
 import { SKIP, visit } from 'unist-util-visit';
 
 export interface WikiReference {
@@ -59,12 +59,15 @@ export const markdownAnchorSlug = (value: string): string => (
   slug(normalizeMarkdownPageIdentity(value))
 );
 
-export const createMarkdownHeadingSlugger = (): ((value: string) => string) => {
-  const slugger = new GithubSlugger();
-  return (value: string) => slugger.slug(normalizeMarkdownPageIdentity(value));
-};
+export const markdownWikiHeadingAnchorId = (value: string): string => (
+  `agentwiki:heading:${markdownAnchorSlug(value)}`
+);
 
-export const markdownBlockAnchorId = (value: string): string => `^${markdownAnchorSlug(value)}`;
+export const markdownWikiBlockAnchorId = (value: string): string => (
+  `agentwiki:block:${markdownAnchorSlug(value)}`
+);
+
+export const markdownBlockAnchorId = (value: string): string => `^${value}`;
 
 export const wikiReferenceKind = (reference: WikiReference): 'page' | 'attachment' => (
   reference.embed && ATTACHMENT_IMAGE_PATTERN.test(reference.target.trim()) ? 'attachment' : 'page'
@@ -180,6 +183,7 @@ function annotateTasks(tree: AstNode): void {
 }
 
 function transformBlockAnchors(tree: AstNode): void {
+  const wikiAliases = new Set<string>();
   visit(tree as never, 'paragraph', (node: AstNode) => {
     const children = node.children;
     const last = children?.[children.length - 1];
@@ -196,6 +200,15 @@ function transformBlockAnchors(tree: AstNode): void {
       className: ['block-anchor'],
       ariaHidden: true,
     }));
+    const wikiAlias = markdownWikiBlockAnchorId(match[1]);
+    if (!wikiAliases.has(wikiAlias)) {
+      wikiAliases.add(wikiAlias);
+      children.push(generatedNode('agentWikiBlockAnchor', 'span', {
+        id: wikiAlias,
+        className: ['block-anchor', 'wiki-block-anchor'],
+        ariaHidden: true,
+      }));
+    }
   });
 }
 
