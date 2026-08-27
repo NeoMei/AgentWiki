@@ -89,6 +89,76 @@ cleanup_release() {
   fi
 }
 trap cleanup_release EXIT
+
+attachment_storage_path="/var/lib/agentwiki/attachments"
+attachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"
+configured_attachment_min_free_bytes="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/apps/server/.env" 2>/dev/null | tail -n1)"
+if [ -z "\$configured_attachment_min_free_bytes" ]; then
+  configured_attachment_min_free_bytes="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/.env" | tail -n1)"
+fi
+if [ -n "\$configured_attachment_min_free_bytes" ]; then
+  attachment_min_free_bytes="\$configured_attachment_min_free_bytes"
+fi
+case "\$attachment_min_free_bytes" in
+  ''|*[!0-9]*|0)
+    echo "ATTACHMENT_MIN_FREE_BYTES must be a positive integer." >&2
+    exit 1
+    ;;
+esac
+case "\$attachment_storage_path" in
+  "\$live_dir"|"\$live_dir"/*|"\$release_dir"|"\$release_dir"/*|"\$HOME"|"\$HOME"/*|/tmp|/tmp/*)
+    echo "Attachment storage must remain outside home, temporary, live, and release trees." >&2
+    exit 1
+    ;;
+esac
+if [ -L "\$attachment_storage_path" ]; then
+  echo "Attachment storage must not be a symbolic link: \$attachment_storage_path" >&2
+  exit 1
+fi
+if [ -e "\$attachment_storage_path" ] && [ ! -d "\$attachment_storage_path" ]; then
+  echo "Attachment storage exists but is not a directory: \$attachment_storage_path" >&2
+  exit 1
+fi
+if [ ! -d "\$attachment_storage_path" ]; then
+  if ! install -d -m 0700 -- "\$attachment_storage_path"; then
+    echo "Cannot provision \$attachment_storage_path; grant the deployment user authority explicitly." >&2
+    exit 1
+  fi
+fi
+resolved_attachment_storage_path="\$(readlink -f -- "\$attachment_storage_path")"
+if [ "\$resolved_attachment_storage_path" != "\$attachment_storage_path" ]; then
+  echo "Attachment storage path or an ancestor resolves through a symbolic link." >&2
+  exit 1
+fi
+chmod 0700 -- "\$attachment_storage_path"
+attachment_storage_mode="\$(stat -c '%a' -- "\$attachment_storage_path")"
+if [ "\$attachment_storage_mode" != 700 ]; then
+  echo "Attachment storage must have effective mode 0700." >&2
+  exit 1
+fi
+if [ ! -w "\$attachment_storage_path" ]; then
+  echo "Attachment storage is not writable by the deployment user." >&2
+  exit 1
+fi
+attachment_write_probe="\$attachment_storage_path/.deploy-write-probe.\$\$"
+if ! (umask 077 && : > "\$attachment_write_probe"); then
+  echo "Attachment storage failed its write probe." >&2
+  exit 1
+fi
+rm -f -- "\$attachment_write_probe"
+available_kib="\$(df -Pk -- "\$attachment_storage_path" | awk 'NR == 2 { print \$4 }')"
+case "\$available_kib" in
+  ''|*[!0-9]*)
+    echo "Could not determine free bytes for attachment storage." >&2
+    exit 1
+    ;;
+esac
+available_bytes="\$((available_kib * 1024))"
+if [ "\$available_bytes" -lt "\$attachment_min_free_bytes" ]; then
+  echo "Attachment storage has \$available_bytes bytes free; \$attachment_min_free_bytes required." >&2
+  exit 1
+fi
+
 tar -xzf "\$HOME/${ARCHIVE}" -C "\$release_dir"
 rm -f "\$HOME/${ARCHIVE}"
 install -m 0600 "\$live_dir/.env" "\$release_dir/.env"
@@ -119,6 +189,10 @@ case "\$local_sync_version" in
 esac
 set_env_value .env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
 set_env_value apps/server/.env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
+set_env_value .env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
+set_env_value apps/server/.env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
+set_env_value .env ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
+set_env_value apps/server/.env ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
 
 ensure_base64_secret() {
   local key="\$1" value
@@ -234,12 +308,17 @@ systemctl --user restart agentwiki-worker.service
 systemctl --user restart agentwiki-frontend.service
 
 for attempt in \$(seq 1 30); do
-  api="\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health || true)"
+  api_body=""
+  api_ok=0
+  if api_body="\$(curl -fsS http://127.0.0.1:3000/api/health)" && \
+     "\$node_binary" -e 'const body = JSON.parse(process.argv[1]); if (body.status !== "ok" || body.attachmentStorage !== "ok") process.exit(1)' "\$api_body"; then
+    api_ok=1
+  fi
   ui="\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5173/ || true)"
-  if [ "\$api" = 200 ] && [ "\$ui" = 200 ]; then break; fi
+  if [ "\$api_ok" = 1 ] && [ "\$ui" = 200 ]; then break; fi
   sleep 2
 done
-test "\${api:-}" = 200
+test "\${api_ok:-0}" = 1
 test "\${ui:-}" = 200
 systemctl --user --no-pager --full status agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
 echo "Previous application tree retained at \$previous_dir; do not reactivate it without restoring its matching database backup."

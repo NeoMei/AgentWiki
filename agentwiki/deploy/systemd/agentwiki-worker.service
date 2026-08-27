@@ -10,6 +10,7 @@ EnvironmentFile=%h/agentwiki/.env
 EnvironmentFile=-%h/agentwiki/apps/server/.env
 Environment=NODE_ENV=production
 Environment=PROCESS_ROLE=worker
+Environment=ATTACHMENT_STORAGE_PATH=/var/lib/agentwiki/attachments
 Environment=INGEST_CONCURRENCY=2
 Environment=INGEST_LEASE_MS=300000
 Environment=INGEST_QUEUE_POLL_MS=1000

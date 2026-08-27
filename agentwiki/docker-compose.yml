@@ -43,11 +43,23 @@ services:
       KIMI_API_KEY: ${KIMI_API_KEY:-}
       GLM_API_KEY: ${GLM_API_KEY:-}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
+      ATTACHMENT_STORAGE_PATH: /var/lib/agentwiki/attachments
+      ATTACHMENT_MAX_FILE_BYTES: ${ATTACHMENT_MAX_FILE_BYTES:-10485760}
+      ATTACHMENT_MAX_SPACE_BYTES: ${ATTACHMENT_MAX_SPACE_BYTES:-524288000}
+      ATTACHMENT_MAX_DIMENSION: ${ATTACHMENT_MAX_DIMENSION:-10000}
+      ATTACHMENT_MAX_PIXELS: ${ATTACHMENT_MAX_PIXELS:-40000000}
+      ATTACHMENT_MIN_FREE_BYTES: ${ATTACHMENT_MIN_FREE_BYTES:-1073741824}
+      ATTACHMENT_RETENTION_DAYS: ${ATTACHMENT_RETENTION_DAYS:-30}
+      ATTACHMENT_ORPHAN_GRACE_HOURS: ${ATTACHMENT_ORPHAN_GRACE_HOURS:-24}
+      ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS: ${ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS:-5000}
+      ATTACHMENT_CLEANUP_POLL_MS: ${ATTACHMENT_CLEANUP_POLL_MS:-3600000}
       PROCESS_ROLE: api
       NODE_ENV: production
       PORT: 3000
     ports:
       - "127.0.0.1:3000:3000"
+    volumes:
+      - attachment-data:/var/lib/agentwiki/attachments
     depends_on:
       redis:
         condition: service_healthy
@@ -56,7 +68,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/api/health').then(async r=>{const body=await r.json();process.exit(r.ok&&body.status==='ok'&&body.attachmentStorage==='ok'?0:1)}).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 12
@@ -73,6 +85,16 @@ services:
       JWT_SECRET: ${APP_SECRET:?APP_SECRET is required}
       API_KEY_SECRET: ${API_KEY_SECRET:?API_KEY_SECRET is required}
       ALLOWED_GIT_HOSTS: ${ALLOWED_GIT_HOSTS:-github.com,gitlab.com}
+      ATTACHMENT_STORAGE_PATH: /var/lib/agentwiki/attachments
+      ATTACHMENT_MAX_FILE_BYTES: ${ATTACHMENT_MAX_FILE_BYTES:-10485760}
+      ATTACHMENT_MAX_SPACE_BYTES: ${ATTACHMENT_MAX_SPACE_BYTES:-524288000}
+      ATTACHMENT_MAX_DIMENSION: ${ATTACHMENT_MAX_DIMENSION:-10000}
+      ATTACHMENT_MAX_PIXELS: ${ATTACHMENT_MAX_PIXELS:-40000000}
+      ATTACHMENT_MIN_FREE_BYTES: ${ATTACHMENT_MIN_FREE_BYTES:-1073741824}
+      ATTACHMENT_RETENTION_DAYS: ${ATTACHMENT_RETENTION_DAYS:-30}
+      ATTACHMENT_ORPHAN_GRACE_HOURS: ${ATTACHMENT_ORPHAN_GRACE_HOURS:-24}
+      ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS: ${ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS:-5000}
+      ATTACHMENT_CLEANUP_POLL_MS: ${ATTACHMENT_CLEANUP_POLL_MS:-3600000}
       PROCESS_ROLE: worker
       NODE_ENV: production
       INGEST_CONCURRENCY: ${INGEST_CONCURRENCY:-2}
@@ -81,6 +103,8 @@ services:
       INGEST_RECOVERY_POLL_MS: ${INGEST_RECOVERY_POLL_MS:-30000}
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=268435456,mode=1777
+    volumes:
+      - attachment-data:/var/lib/agentwiki/attachments
     depends_on:
       backend:
         condition: service_healthy
@@ -120,3 +144,4 @@ services:
 
 volumes:
   redis-data:
+  attachment-data:

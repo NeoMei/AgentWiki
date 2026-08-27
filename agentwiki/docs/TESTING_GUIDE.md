@@ -80,6 +80,20 @@
 
 **前端路由：** `/pages/:id`（预览）、`/pages/:id/edit`（Obsidian 风格实时编辑，Edit/Preview 切换按钮，Ctrl/Cmd+E 快捷键）
 
+### 模块 3A：Markdown 附件与嵌入
+
+| 序号 | 功能点 | 测试要点 |
+|------|--------|----------|
+| 3A.1 | 图片附件 | PNG/JPEG/WebP/GIF 的扩展名、MIME、魔数一致；10 MiB、尺寸、像素、Space 配额边界；同名后缀以服务端返回为准 |
+| 3A.2 | 权限与 Blob | Owner/Editor 可上传，Viewer 只读，Outsider 不可枚举；图片使用认证请求后的 `blob:` URL，DOM/地址/控制台不含凭据 |
+| 3A.3 | 编辑交互 | picker 上传/选取、剪贴板图片、坐标 drop 均插入精确 `![[name]]`，保持顺序并标记未保存；刷新后持久化 |
+| 3A.4 | 页面嵌入 | 同 Space 页面/章节解析，目标刷新，跨 Space unresolved 不泄露；直接/间接循环和深度 3、数量 20、字符 200,000 降级 |
+| 3A.5 | 版本与锚点 | 历史预览显示“嵌入内容来自当前版本”；初始/异步 heading 和 block hash 定位 |
+| 3A.6 | 响应式 | 桌面和 390 px 无 document 横向溢出，编辑器、附件按钮、对话框关键控件可触达 |
+
+运维架构、完整限制、备份/恢复和事故步骤见
+[`docs/operations/markdown-attachments.md`](operations/markdown-attachments.md)。
+
 ---
 
 ### 模块 4：Agent 管理 `/api/agents`
@@ -334,3 +348,45 @@ AGENTWIKI_UI_ROUTE_E2E=1 pnpm test:e2e:ui-routes
 如需对远程环境执行会创建数据的 E2E，必须同时显式设置 `<SUITE>_ALLOW_REMOTE=1`
 和 `<SUITE>_CONFIRM_HOST=<精确域名>`。脚本只使用一次性用户、Space 和 Agent，并在 `finally`
 中清理全部测试数据。
+
+## 五、Markdown 附件专用隔离验证
+
+以下命令只能在本机专用测试库执行。不得用 `DATABASE_URL`
+回退，不得迁移/删除 `public`，不得指向远程主机。每次先确认库名、角色和
+`test` 标识：
+
+```bash
+MARKDOWN_TEST_DATABASE_URL='postgresql://neomei@/agentwiki_collaboration_test?host=/tmp'
+psql "$MARKDOWN_TEST_DATABASE_URL" -Atc \
+  "select current_database(), current_user, current_database() like '%test%'"
+```
+
+部署契约和专用 DB 门禁：
+
+```bash
+pnpm test:runtime
+MARKDOWN_TEST_DATABASE_URL='postgresql://neomei@/agentwiki_collaboration_test?host=/tmp' \
+  pnpm test:e2e:markdown-db
+```
+
+真浏览器验收必须创建全新 `markdown_test_*` schema，仅对该 schema 执行
+`prisma migrate deploy`；附件根目录必须由
+`mktemp -d /tmp/agentwiki-attachment-test-XXXXXXXX`创建。必须先证明 3000/5173
+端口无监听；如已占用，停止而不是复用共享进程/数据。当前 Vite 代理固定指向
+loopback 3000，因此不能在不修改受审核配置的情况下安全改用其他 API 端口。
+
+迁移后启动仅属于本次的 API/Vite/Redis（如需）进程，然后执行：
+
+```bash
+AGENTWIKI_WEB_URL='http://127.0.0.1:5173' \
+AGENTWIKI_API_URL='http://127.0.0.1:3000/api/' \
+pnpm --filter @agentwiki/client exec playwright test \
+  --workers=1 \
+  e2e/markdown-core.spec.ts e2e/markdown-attachments.spec.ts
+```
+
+无论成功或失败都要在 `finally` 中：通过正常 API 归档测试附件并软删除测试
+Space/User；停止仅属于本次的 PID；删除精确引用的 schema 和 `mktemp`
+根目录；确认 schema 计数、活跃 User/Space/Page/Attachment 计数和端口监听均为 0；
+删除 Playwright output/trace/临时截图。`ALLOW_REMOTE_E2E` 默认不允许；未经明确授权
+不得运行远程写入型 E2E。

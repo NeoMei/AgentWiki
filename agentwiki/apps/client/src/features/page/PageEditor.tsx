@@ -893,6 +893,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             value={content}
             mode={mode}
             onChange={handleContentChange}
+            pageId={page.id}
+            spaceId={page.spaceId}
             pages={spacePages}
             onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}

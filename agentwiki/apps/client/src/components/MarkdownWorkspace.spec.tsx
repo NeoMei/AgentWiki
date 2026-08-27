@@ -10,6 +10,16 @@ import { ModeToggleButton } from './ModeToggleButton';
 
 type ToggleMarkdownTask = typeof import('./markdown/tasks').toggleMarkdownTask;
 
+const resourceMocks = vi.hoisted(() => ({
+  post: vi.fn(),
+  fetchAttachmentBlob: vi.fn(),
+}));
+
+vi.mock('../api/client', () => ({ default: { post: resourceMocks.post } }));
+vi.mock('../features/attachments/attachmentApi', () => ({
+  fetchAttachmentBlob: resourceMocks.fetchAttachmentBlob,
+}));
+
 const taskTransformMocks = vi.hoisted(() => ({
   actualToggleMarkdownTask: null as ToggleMarkdownTask | null,
   forceNull: false,
@@ -28,6 +38,8 @@ const Harness = ({
   workspaceRef,
   onUploadImages,
   onUploadError,
+  pageId,
+  spaceId,
 }: any) => {
   const [value, setValue] = useState(initial);
   const [mode, setMode] = useState<MarkdownMode>('edit');
@@ -39,6 +51,8 @@ const Harness = ({
         value={value}
         mode={mode}
         onChange={(next: string) => { setValue(next); onChange(next); }}
+        pageId={pageId}
+        spaceId={spaceId}
         onUploadImages={onUploadImages}
         onUploadError={onUploadError}
       />
@@ -97,6 +111,8 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     taskTransformMocks.toggleMarkdownTask.mockImplementation((...args: Parameters<ToggleMarkdownTask>) => (
       taskTransformMocks.forceNull ? null : actualToggleMarkdownTask(...args)
     ));
+    resourceMocks.post.mockReset();
+    resourceMocks.fetchAttachmentBlob.mockReset();
   });
 
   it('edit mode shows a code editor surface for the whole document', () => {
@@ -144,6 +160,47 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     renderWYS();
     fireEvent.click(screen.getByTestId('mode-toggle'));
     expect(screen.getByTestId('md-preview')).toBeInTheDocument();
+  });
+
+  it('passes the authoritative page and Space context into scoped attachment preview rendering', async () => {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:workspace-preview') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    resourceMocks.post.mockImplementation((_url: string, body: any) => Promise.resolve({ data: [{
+      key: body.references[0].key,
+      status: 'resolved',
+      kind: 'attachment',
+      attachmentId: 'attachment-1',
+      displayName: 'preview.png',
+      mimeType: 'image/png',
+      width: 1,
+      height: 1,
+    }] }));
+    resourceMocks.fetchAttachmentBlob.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+
+    try {
+      const rendered = renderWYS({
+        initial: '![[preview.png]]',
+        pageId: 'page-authoritative',
+        spaceId: 'space-authoritative',
+      });
+      fireEvent.click(screen.getByTestId('mode-toggle'));
+
+      expect(await screen.findByRole('img', { name: 'preview.png' })).toHaveAttribute('src', 'blob:workspace-preview');
+      expect(resourceMocks.post).toHaveBeenCalledWith(
+        '/spaces/space-authoritative/markdown/resolve',
+        expect.objectContaining({ references: [expect.objectContaining({ target: 'preview.png' })] }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(resourceMocks.fetchAttachmentBlob).toHaveBeenCalledWith('attachment-1', expect.any(AbortSignal));
+      rendered.unmount();
+    } finally {
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
   });
 
   it('updates only the editor draft when a preview task is toggled', () => {

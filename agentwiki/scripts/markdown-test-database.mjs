@@ -5,12 +5,24 @@ import { createRequire } from 'node:module';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^markdown_test_[a-z0-9_]+$/u;
+const EMPTY_AUTHORITY_SOCKET_URL = /^(postgres(?:ql)?:\/\/)([^/?#]+@)\/([^?#]+)(\?[^#]*)?$/iu;
+
+function normalizeEmptyAuthoritySocketUrl(value) {
+  const match = EMPTY_AUTHORITY_SOCKET_URL.exec(value);
+  if (!match) return value;
+
+  const normalized = `${match[1]}${match[2]}localhost/${match[3]}${match[4] ?? ''}`;
+  const parsed = new URL(normalized);
+  const socketHosts = parsed.searchParams.getAll('host');
+  if (socketHosts.length !== 1 || !socketHosts[0]?.startsWith('/')) return value;
+  return normalized;
+}
 
 export function validateMarkdownTestDatabaseUrl(value) {
   if (!value) throw new Error('MARKDOWN_TEST_DATABASE_URL is required');
   let parsed;
   try {
-    parsed = new URL(value);
+    parsed = new URL(normalizeEmptyAuthoritySocketUrl(value));
   } catch {
     throw new Error('MARKDOWN_TEST_DATABASE_URL must be a valid PostgreSQL URL');
   }

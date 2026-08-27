@@ -23,6 +23,8 @@ for setup details.
 
 ### Wiki & Editor
 - **Obsidian-style Live Preview** — edit Markdown with inline formatting visible, no split-pane switching
+- **Protected image attachments** — picker, paste and drop insert authenticated Space-scoped images without exposing credentials in URLs
+- **Rich Markdown embeds** — formulas, Mermaid, Obsidian-style page/section embeds and immutable attachment images share one bounded rendering surface
 - **Hierarchical page tree** — organize pages with parent-child relationships, drag to reorder and re-nest
 - **Wiki-links & anchors** — `[[Page Name]]` resolves to internal pages; headings generate anchor links
 - **Version history** — every save creates a version; restore any previous state with one click
@@ -351,12 +353,18 @@ pnpm lint
 pnpm typecheck
 ```
 
+Markdown attachment deployment, isolated database and loopback browser acceptance have
+dedicated commands in [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md). Storage layout,
+limits, permissions, coordinated backup/restore and incident handling are documented in
+[`docs/operations/markdown-attachments.md`](docs/operations/markdown-attachments.md).
+
 ## Deployment
 
 AgentWiki uses direct deployment with systemd (no Docker for the application):
 
 1. Before replacing application files or running migrations, create and verify a
-   PostgreSQL custom-format backup and an application rollback archive.
+   coordinated PostgreSQL custom-format backup, attachment-filesystem snapshot and
+   path/size/SHA-256 manifest. A database-only or filesystem-only backup is incomplete.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
 3. Pack `@neomei/agentwiki-sync-protocol@0.3.0` and
    `@neomei/agentwiki-local-sync@0.6.1`, then run
@@ -377,6 +385,10 @@ the verified database backup and matching application archive, not as a schema-o
 downgrade.
 
 See `deploy.sh` for an automated deployment script.
+The API and worker must share `/var/lib/agentwiki/attachments` with owner-only mode
+`0700`; release swaps must never move, archive, recursively chown or remove that root.
+Follow the [Markdown attachment operations guide](docs/operations/markdown-attachments.md)
+before any production migration, backup, restore or cleanup.
 
 ## License
 

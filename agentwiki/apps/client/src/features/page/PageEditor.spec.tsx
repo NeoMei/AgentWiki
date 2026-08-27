@@ -36,7 +36,7 @@ const socketMock = vi.hoisted(() => {
   return { handlers, socket };
 });
 
-vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn() } }));
+vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() } }));
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }),
 }));
@@ -192,6 +192,7 @@ describe('PageEditor remote update safety', () => {
     socketMock.socket.disconnect.mockClear();
     vi.mocked(api.get).mockReset();
     vi.mocked(api.patch).mockReset();
+    vi.mocked(api.post).mockReset();
     templateMocks.listPageTemplates.mockReset();
     templateMocks.createPageTemplate.mockReset();
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
@@ -290,6 +291,17 @@ describe('PageEditor remote update safety', () => {
 
   it('clears the A Space index before B resolves its preview wiki-link target', async () => {
     const indexB = deferred<any>();
+    vi.mocked(api.post).mockImplementation((url: string, body: any) => {
+      const response = { data: [{
+        key: body.references[0].key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: url.includes('space-a') ? 'target-a' : 'target-b',
+        title: 'Shared',
+        slug: 'shared',
+      }] } as any;
+      return url.includes('space-b') ? indexB.promise.then(() => response) : Promise.resolve(response);
+    });
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({
@@ -314,8 +326,55 @@ describe('PageEditor remote update safety', () => {
     expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
   });
 
+  it('previews resources with the current authoritative page and Space context', async () => {
+    queuePages({ data: page({
+      title: 'Self preview',
+      content: '![[Self preview]]',
+      capabilities: { canEdit: true },
+    }) });
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === '/pages/page-1') {
+        const next = pageQueue.shift();
+        if (!next) return Promise.reject(new Error(`unexpected get ${url}`));
+        return Promise.resolve(next);
+      }
+      if (url === '/pages?spaceId=space-1&take=200') {
+        return Promise.resolve({ data: { data: [{ id: 'page-1', title: 'Self preview' }] } } as any);
+      }
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.post).mockImplementation((_url: string, body: any) => Promise.resolve({ data: [{
+      key: body.references[0].key,
+      status: 'resolved',
+      kind: 'page',
+      pageId: 'page-1',
+      title: 'Self preview',
+      slug: 'self-preview',
+    }] } as any));
+
+    renderEditor();
+    await screen.findByDisplayValue('Self preview');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    expect(await screen.findByText('A circular embed was stopped.')).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-1/markdown/resolve',
+      expect.anything(),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
+  });
+
   it('ignores a deferred A Space index after B preview links have resolved', async () => {
     const oldIndexA = deferred<any>();
+    vi.mocked(api.post).mockImplementation((url: string, body: any) => Promise.resolve({ data: [{
+      key: body.references[0].key,
+      status: 'resolved',
+      kind: 'page',
+      pageId: url.includes('space-a') ? 'stale-target-a' : 'target-b',
+      title: 'Shared',
+      slug: 'shared',
+    }] } as any));
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({

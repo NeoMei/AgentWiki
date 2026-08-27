@@ -10,6 +10,7 @@ EnvironmentFile=%h/agentwiki/.env
 EnvironmentFile=-%h/agentwiki/apps/server/.env
 Environment=NODE_ENV=production
 Environment=PROCESS_ROLE=api
+Environment=ATTACHMENT_STORAGE_PATH=/var/lib/agentwiki/attachments
 ExecStart=/usr/bin/node dist/main.js
 Restart=always
 RestartSec=3

@@ -58,6 +58,25 @@ test('Markdown database URLs fail closed', () => {
       'postgresql://localhost/agentwiki_test?schema=markdown_test_existing_1',
     ),
   );
+
+  const unixSocketUrl = validateMarkdownTestDatabaseUrl(
+    'postgresql://neomei@/agentwiki_collaboration_test?host=/tmp',
+  );
+  assert.equal(unixSocketUrl.hostname, 'localhost');
+  assert.equal(unixSocketUrl.username, 'neomei');
+  assert.equal(unixSocketUrl.pathname, '/agentwiki_collaboration_test');
+  assert.equal(unixSocketUrl.searchParams.get('host'), '/tmp');
+
+  for (const nonSocketEmptyAuthority of [
+    'postgresql://neomei@/agentwiki_collaboration_test',
+    'postgresql://neomei@/agentwiki_collaboration_test?host=localhost',
+    'postgresql://neomei@/agentwiki_collaboration_test?host=/tmp&host=/var/run/postgresql',
+  ]) {
+    assert.throws(
+      () => validateMarkdownTestDatabaseUrl(nonSocketEmptyAuthority),
+      /valid PostgreSQL URL/iu,
+    );
+  }
 });
 
 test('attachment migration enforces Space-scoped names, metadata checks, and delete behavior', {
@@ -86,10 +105,13 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
     try {
       const session = await prisma.$queryRawUnsafe(
         `SELECT current_database() AS database, current_user AS role,
-                current_schema() AS schema, current_setting('search_path') AS search_path`,
+                current_schema() AS schema, current_setting('search_path') AS search_path,
+                inet_server_addr() IS NULL AS unix_socket`,
       );
       assert.equal(session[0].schema, schemaName);
-      assert.match(session[0].database, /test/iu);
+      assert.equal(session[0].database, 'agentwiki_collaboration_test');
+      assert.equal(session[0].role, 'neomei');
+      assert.equal(session[0].unix_socket, true);
       assert.match(session[0].search_path, new RegExp(schemaName, 'u'));
 
       const guards = await prisma.$queryRawUnsafe(

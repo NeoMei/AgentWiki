@@ -12,6 +12,10 @@ import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveE2ETarget } from '../src/config/localTargets';
+import {
+  markdownWikiBlockAnchorId,
+  markdownWikiHeadingAnchorId,
+} from '../src/components/markdown/obsidian';
 
 const apiBaseUrl = resolveE2ETarget({
   configured: process.env.AGENTWIKI_API_URL,
@@ -306,8 +310,14 @@ test.describe.serial('Markdown core browser acceptance', () => {
       await expect(ownerPage.locator('[data-callout="note"]')).toContainText('Browser acceptance');
       await expect(ownerPage.locator('mark')).toHaveText('Highlighted delivery');
       await expect(ownerPage.getByRole('link', { name: 'Acceptance alias' })).toHaveAttribute('href', `/pages/${pageId}`);
-      await expect(ownerPage.getByRole('link', { name: `${pageTitle}#Deep Heading` })).toHaveAttribute('href', `/pages/${pageId}#deep-heading`);
-      await expect(ownerPage.getByRole('link', { name: `${pageTitle}#^acceptance-block` })).toHaveAttribute('href', `/pages/${pageId}#%5Eacceptance-block`);
+      await expect(ownerPage.getByRole('link', { name: `${pageTitle}#Deep Heading` })).toHaveAttribute(
+        'href',
+        `/pages/${pageId}#${markdownWikiHeadingAnchorId('Deep Heading')}`,
+      );
+      await expect(ownerPage.getByRole('link', { name: `${pageTitle}#^acceptance-block` })).toHaveAttribute(
+        'href',
+        `/pages/${pageId}#${markdownWikiBlockAnchorId('acceptance-block')}`,
+      );
       await expect(ownerPage.locator('[id="^acceptance-block"]')).toHaveCount(1);
       await expect(ownerPage.locator('pre code.language-md')).toContainText('- [ ] fake code task');
       await expect(ownerPage.getByRole('checkbox')).toHaveCount(2);

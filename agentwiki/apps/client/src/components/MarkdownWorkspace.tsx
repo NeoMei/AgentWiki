@@ -19,6 +19,8 @@ interface MarkdownWorkspaceProps {
   mode: MarkdownMode;
   onChange: (next: string) => void;
   onModeChange?: (mode: MarkdownMode) => void;
+  pageId?: string;
+  spaceId?: string;
   pages?: PageLinkTarget[];
   onUploadImages?: (files: File[]) => Promise<string[]>;
   onUploadError?: (error: unknown) => void;
@@ -282,6 +284,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   value,
   mode,
   onChange,
+  pageId,
+  spaceId,
   pages = [],
   onUploadImages,
   onUploadError,
@@ -452,6 +456,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
                 <Markdown
                   mode="editor-preview"
                   canEdit
+                  pageId={pageId}
+                  spaceId={spaceId}
                   onTaskToggle={({ task, nextChecked }) => {
                     const next = toggleMarkdownTask(value, task, nextChecked);
                     if (next !== null) onChange(next);
