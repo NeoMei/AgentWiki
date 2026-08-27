@@ -54,6 +54,8 @@ export const PagePreview: React.FC = () => {
   const activePageIdRef = useRef<string | undefined>(id);
   const routeGenerationRef = useRef(0);
   const pageRef = useRef<Page | null>(null);
+  const markdownRootRef = useRef<HTMLDivElement | null>(null);
+  const lastScrolledHashRef = useRef<string | null>(null);
   const lastCommittedPageRef = useRef<Page | null>(null);
   const pendingTaskOperationsRef = useRef<PendingTaskOperation[]>([]);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -260,6 +262,7 @@ export const PagePreview: React.FC = () => {
     saveChainRef.current = Promise.resolve();
     lastCommittedPageRef.current = null;
     pageRef.current = null;
+    lastScrolledHashRef.current = null;
     setPage(null);
     setLoading(true);
     setError(null);
@@ -301,6 +304,47 @@ export const PagePreview: React.FC = () => {
         if (routeIsActive(requestedId, generation)) setRelatedPages([]);
       });
   }, [id]);
+
+  useEffect(() => {
+    if (loading || !id || !page || page.id !== id) return;
+    const pageId = id;
+    const spaceId = page.spaceId;
+    const generation = routeGenerationRef.current;
+
+    const scrollToCurrentHash = () => {
+      const currentPage = pageRef.current;
+      if (
+        !mountedRef.current
+        || activePageIdRef.current !== pageId
+        || routeGenerationRef.current !== generation
+        || currentPage?.id !== pageId
+        || currentPage.spaceId !== spaceId
+      ) return;
+
+      const encodedTarget = window.location.hash.slice(1);
+      if (!encodedTarget) return;
+      let targetId: string;
+      try {
+        targetId = decodeURIComponent(encodedTarget);
+      } catch {
+        return;
+      }
+      if (!targetId) return;
+
+      const target = document.getElementById(targetId);
+      const markdownRoot = markdownRootRef.current;
+      if (!target || !markdownRoot?.contains(target)) return;
+
+      const scrollIdentity = `${generation}:${window.location.hash}`;
+      if (lastScrolledHashRef.current === scrollIdentity) return;
+      target.scrollIntoView();
+      lastScrolledHashRef.current = scrollIdentity;
+    };
+
+    scrollToCurrentHash();
+    window.addEventListener('hashchange', scrollToCurrentHash);
+    return () => window.removeEventListener('hashchange', scrollToCurrentHash);
+  }, [id, loading, page?.content, page?.id, page?.spaceId]);
 
   const handleDelete = async () => {
     if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
@@ -369,7 +413,7 @@ export const PagePreview: React.FC = () => {
           </button>
         </div> : null}
         {taskSaveError ? <p role="alert" className="mb-4 text-sm text-red-600">{taskSaveError}</p> : null}
-        <div className="prose prose-sm max-w-none
+        <div ref={markdownRootRef} className="prose prose-sm max-w-none
           [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
           [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
           [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4

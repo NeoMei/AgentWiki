@@ -41,6 +41,8 @@ const deferred = <T,>() => {
 };
 
 let pageResponses: any[] = [];
+let scrollIntoViewMock: ReturnType<typeof vi.fn>;
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
 
 const queuePages = (...responses: any[]) => {
   pageResponses = responses;
@@ -84,9 +86,25 @@ const AbaNavigationHarness = () => {
 };
 
 describe('PagePreview checklist saves', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    document.querySelectorAll('[data-page-preview-test-outside]').forEach((node) => node.remove());
+    window.history.replaceState(null, '', '/');
+    if (originalScrollIntoView) {
+      Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+    } else {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
 
   beforeEach(() => {
+    scrollIntoViewMock = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollIntoViewMock,
+    });
+    window.history.replaceState(null, '', '/');
     localStorage.setItem('agentwiki.language.v1', 'en');
     pageResponses = [];
     vi.mocked(api.get).mockReset();
@@ -579,5 +597,95 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('heading', { name: 'Second checklist' })).toBeInTheDocument();
     expect(screen.getByText('second page task')).toBeInTheDocument();
     expect(screen.queryByText('first task')).not.toBeInTheDocument();
+  });
+
+  it('scrolls a standard heading after the initial hashed page finishes loading', async () => {
+    const pageLoad = deferred<any>();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url === '/pages/page-1') return pageLoad.promise;
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    window.history.replaceState(null, '', '/pages/page-1#intro');
+    renderPreview();
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    await act(async () => pageLoad.resolve({ data: page({ content: '# Intro' }) }));
+
+    const heading = await screen.findByRole('heading', { name: 'Intro' });
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledTimes(1));
+    expect(scrollIntoViewMock.mock.instances[0]).toBe(heading);
+  });
+
+  it('scrolls Wiki heading and block aliases plus the exact block on same-page hash changes, then removes its listener', async () => {
+    queuePages({ data: page({ content: '## Straße\n\nParagraph ^Block-One' }) });
+    const view = renderPreview();
+    await screen.findByRole('heading', { name: 'Straße' });
+
+    const targets = [
+      'agentwiki:heading:000073000074000072000061000073000073000065',
+      'agentwiki:block:00006200006c00006f00006300006b00002d00006f00006e000065',
+      '^Block-One',
+    ];
+    for (const [index, targetId] of targets.entries()) {
+      window.history.replaceState(null, '', `/pages/page-1#${encodeURIComponent(targetId)}`);
+      act(() => window.dispatchEvent(new Event('hashchange')));
+      await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledTimes(index + 1));
+      expect(scrollIntoViewMock.mock.instances[index]).toBe(document.getElementById(targetId));
+    }
+
+    view.unmount();
+    scrollIntoViewMock.mockClear();
+    window.history.replaceState(null, '', '/pages/page-1#another-target');
+    act(() => window.dispatchEvent(new Event('hashchange')));
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+  });
+
+  it('does not scroll a missing or out-of-page target and ignores malformed hash encoding', async () => {
+    const outsideTarget = document.createElement('div');
+    outsideTarget.id = 'outside-target';
+    outsideTarget.dataset.pagePreviewTestOutside = 'true';
+    document.body.append(outsideTarget);
+    queuePages({ data: page({ content: '# Present' }) });
+    window.history.replaceState(null, '', '/pages/page-1#outside-target');
+    renderPreview();
+    await screen.findByRole('heading', { name: 'Present' });
+
+    expect(document.getElementById('outside-target')).toBe(outsideTarget);
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    window.history.replaceState(null, '', '/pages/page-1#missing-target');
+    act(() => window.dispatchEvent(new Event('hashchange')));
+    window.history.replaceState(null, '', '/pages/page-1#%E0%A4%A');
+    expect(() => act(() => window.dispatchEvent(new Event('hashchange')))).not.toThrow();
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    outsideTarget.remove();
+  });
+
+  it('does not let an obsolete page load scroll the active page after a fast route change', async () => {
+    const oldPageLoad = deferred<any>();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url === '/pages/page-1') return oldPageLoad.promise;
+      if (url === '/pages/page-2') return Promise.resolve({
+        data: page({ id: 'page-2', title: 'Page B', content: '# Shared', spaceId: 'space-b' }),
+      } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    window.history.replaceState(null, '', '/pages/page-1#shared');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}>
+      <NavigationHarness />
+    </MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    const activeHeading = await screen.findByRole('heading', { name: 'Shared' });
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledTimes(1));
+    expect(scrollIntoViewMock.mock.instances[0]).toBe(activeHeading);
+
+    await act(async () => oldPageLoad.resolve({
+      data: page({ title: 'Old page A', content: '# Shared', spaceId: 'space-a' }),
+    }));
+    expect(screen.getByRole('heading', { name: 'Page B' })).toBeInTheDocument();
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
 });
