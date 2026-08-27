@@ -1,4 +1,5 @@
 import { foldCase } from '@neomei/agentwiki-sync-protocol';
+import GithubSlugger, { slug } from 'github-slugger';
 import { SKIP, visit } from 'unist-util-visit';
 
 export interface WikiReference {
@@ -7,6 +8,9 @@ export interface WikiReference {
   label: string | null;
   heading: string | null;
   blockId: string | null;
+  fragmentPresent: boolean;
+  fragmentKind: 'heading' | 'block' | null;
+  fragmentValid: boolean;
 }
 
 export interface ObsidianPluginOptions {
@@ -51,6 +55,17 @@ export const normalizeMarkdownAttachmentIdentity = (value: string | null | undef
   value?.normalize('NFC').trim().toLocaleLowerCase('und') ?? ''
 );
 
+export const markdownAnchorSlug = (value: string): string => (
+  slug(normalizeMarkdownPageIdentity(value))
+);
+
+export const createMarkdownHeadingSlugger = (): ((value: string) => string) => {
+  const slugger = new GithubSlugger();
+  return (value: string) => slugger.slug(normalizeMarkdownPageIdentity(value));
+};
+
+export const markdownBlockAnchorId = (value: string): string => `^${markdownAnchorSlug(value)}`;
+
 export const wikiReferenceKind = (reference: WikiReference): 'page' | 'attachment' => (
   reference.embed && ATTACHMENT_IMAGE_PATTERN.test(reference.target.trim()) ? 'attachment' : 'page'
 );
@@ -77,13 +92,23 @@ export function parseWikiReference(raw: string): WikiReference {
   const fragmentIndex = targetAndFragment.indexOf('#');
   const target = (fragmentIndex === -1 ? targetAndFragment : targetAndFragment.slice(0, fragmentIndex)).trim();
   const fragment = fragmentIndex === -1 ? '' : targetAndFragment.slice(fragmentIndex + 1).trim();
+  const fragmentPresent = fragmentIndex !== -1;
+  const fragmentKind = !fragmentPresent ? null : fragment.startsWith('^') ? 'block' : 'heading';
+  const blockId = fragmentKind === 'block' && fragment.length > 1 ? fragment.slice(1).trim() : null;
+  const heading = fragmentKind === 'heading' && fragment ? fragment : null;
+  const fragmentValid = !fragmentPresent || (fragmentKind === 'block'
+    ? blockId !== null && /^[\p{L}\p{N}_-]+$/u.test(blockId)
+    : heading !== null);
 
   return {
     embed,
     target,
     label,
-    heading: fragment && !fragment.startsWith('^') ? fragment : null,
-    blockId: fragment.startsWith('^') && fragment.length > 1 ? fragment.slice(1) : null,
+    heading,
+    blockId,
+    fragmentPresent,
+    fragmentKind,
+    fragmentValid,
   };
 }
 
@@ -167,7 +192,7 @@ function transformBlockAnchors(tree: AstNode): void {
     if (prefix) last.value = prefix;
     else children.pop();
     children.push(generatedNode('agentWikiBlockAnchor', 'span', {
-      id: `^${match[1]}`,
+      id: markdownBlockAnchorId(match[1]),
       className: ['block-anchor'],
       ariaHidden: true,
     }));
@@ -214,6 +239,9 @@ function tokenizeText(
         'data-markdown-label': reference.label ?? undefined,
         'data-markdown-heading': reference.heading ?? undefined,
         'data-markdown-block-id': reference.blockId ?? undefined,
+        'data-markdown-fragment-present': String(reference.fragmentPresent),
+        'data-markdown-fragment-kind': reference.fragmentKind ?? undefined,
+        'data-markdown-fragment-valid': String(reference.fragmentValid),
         'data-markdown-legacy-href': href ?? undefined,
         'data-markdown-source-offset': position,
       };

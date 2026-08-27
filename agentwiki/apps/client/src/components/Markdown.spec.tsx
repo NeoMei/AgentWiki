@@ -66,6 +66,37 @@ describe('resolveWikiHref', () => {
     expect(link).toHaveAttribute('href', '/pages/abc123#a---b');
     expect(link.getAttribute('href')?.split('#')[1]).toBe(heading?.id);
   });
+  it('full-folds page, heading and block anchors while deduping rendered headings', () => {
+    const unicodePages = [{ id: 'unicode-page', title: 'Straße', slug: 'unicode' }];
+    const { container } = renderMd([
+      '## Straße',
+      '',
+      '## Straße',
+      '',
+      '## ΟΣ',
+      '',
+      'Paragraph ^Straße',
+      '',
+      '[[STRASSE#STRASSE|German heading]]',
+      '[[STRASSE#οσ|Greek heading]]',
+      '[[STRASSE#^STRASSE|Block target]]',
+    ].join('\n'), unicodePages);
+
+    const headingIds = [...container.querySelectorAll('h2')].map((heading) => heading.id);
+    const blockId = container.querySelector('.block-anchor')?.id;
+    const germanHref = screen.getByRole('link', { name: 'German heading' }).getAttribute('href');
+    const greekHref = screen.getByRole('link', { name: 'Greek heading' }).getAttribute('href');
+    const blockHref = screen.getByRole('link', { name: 'Block target' }).getAttribute('href');
+
+    expect(headingIds).toEqual(['strasse', 'strasse-1', 'οσ']);
+    expect(blockId).toBe('^strasse');
+    expect(germanHref).toBe('/pages/unicode-page#strasse');
+    expect(greekHref).toBe('/pages/unicode-page#οσ');
+    expect(blockHref).toBe('/pages/unicode-page#^strasse');
+    expect(germanHref?.split('#')[1]).toBe(headingIds[0]);
+    expect(greekHref?.split('#')[1]).toBe(headingIds[2]);
+    expect(blockHref?.split('#')[1]).toBe(blockId);
+  });
   it('returns null for unknown names', () => {
     expect(resolveWikiHref(parseWikiReference('不存在'), pages)).toBeNull();
   });

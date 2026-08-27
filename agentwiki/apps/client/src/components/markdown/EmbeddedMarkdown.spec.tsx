@@ -135,6 +135,27 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
+  it('renders invalid fragment fallbacks immediately while a valid sibling resolver is pending', () => {
+    const pending = deferred<{ data: unknown[] }>();
+    vi.mocked(api.post).mockReturnValue(pending.promise);
+
+    renderMarkdown([
+      '![[Page#^|Page alias]]',
+      '![[image.png#^|Picture]]',
+      '[[Good Page]]',
+    ].join('\n\n'));
+
+    expect(screen.getByText('![[Page#^|Page alias]]')).toBeInTheDocument();
+    expect(screen.getByText('Block-ID embeds are not supported.')).toBeInTheDocument();
+    expect(screen.getByText('![[image.png#^|Picture]]')).toBeInTheDocument();
+    expect(screen.getByText('Embedded attachment fragments are not supported.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '' })).toBeInTheDocument();
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+      { key: 'r0', kind: 'page', target: 'Good Page' },
+    ] });
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
   it('detects direct and indirect cycles per branch without breaking surrounding Markdown', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string; target: string }> }).references.map((ref) => (

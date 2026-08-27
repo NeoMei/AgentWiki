@@ -4,7 +4,6 @@ import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
-import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -17,7 +16,7 @@ import { KATEX_OPTIONS } from './markdown/math';
 import type { MarkdownRenderMode, MarkdownTaskToggle } from './markdown/markdownTypes';
 import { MermaidDiagram } from './markdown/MermaidDiagram';
 import { MAX_MERMAID_SOURCE_CHARS } from './markdown/mermaidSecurity';
-import { remarkAgentWikiObsidian } from './markdown/obsidian';
+import { createMarkdownHeadingSlugger, remarkAgentWikiObsidian } from './markdown/obsidian';
 import { collectMarkdownTasks } from './markdown/tasks';
 import { EmbeddedMarkdown } from './markdown/EmbeddedMarkdown';
 import {
@@ -68,6 +67,7 @@ const MERMAID_INDEX_PROPERTY = 'data-mermaid-index';
 
 interface HastNode {
   type: string;
+  value?: string;
   children?: HastNode[];
 }
 
@@ -79,6 +79,21 @@ interface HastElementNode extends HastNode {
 }
 
 const isElementNode = (node: HastNode): node is HastElementNode => node.type === 'element';
+
+const hastText = (node: HastNode): string => (
+  node.type === 'text' ? node.value ?? '' : (node.children ?? []).map(hastText).join('')
+);
+
+const rehypeAgentWikiSlug = () => (tree: HastNode) => {
+  const slugHeading = createMarkdownHeadingSlugger();
+  const addHeadingIds = (node: HastNode) => {
+    if (isElementNode(node) && /^h[1-6]$/u.test(node.tagName) && !node.properties.id) {
+      node.properties.id = slugHeading(hastText(node));
+    }
+    for (const child of node.children ?? []) addHeadingIds(child);
+  };
+  addHeadingIds(tree);
+};
 
 const normalizedCodeLanguage = (node: HastElementNode) => {
   const rawClasses = node.properties.className;
@@ -236,6 +251,9 @@ const AgentWikiLink = ({ node, children: linkChildren }: AgentWikiNodeProps) => 
     label: null,
     heading,
     blockId,
+    fragmentPresent: Boolean(heading || blockId),
+    fragmentKind: blockId ? 'block' : heading ? 'heading' : null,
+    fragmentValid: true,
   }, [{ id: resource.pageId, title: resource.title, slug: resource.slug }]);
   return <Link to={href!} target="_blank" rel="noopener noreferrer" className="wiki-link text-blue-600 hover:underline">{linkChildren}</Link>;
 };
@@ -246,6 +264,9 @@ const AgentWikiImage = ({ node }: AgentWikiNodeProps) => {
   const element = node && isElementNode(node) ? node : undefined;
   const literal = nodeProperty(element, 'data-markdown-literal');
   const label = nodeProperty(element, 'data-markdown-label');
+  if (nodeProperty(element, 'data-markdown-fragment-present') === 'true') {
+    return <ResourceFallback literal={literal} status={t('markdown.embed.attachmentFragment')} />;
+  }
   const resource = runtime ? resourceForNode(runtime.resourceState, element) : null;
   if (!runtime?.tree.spaceId || !resource) {
     if (runtime?.tree.spaceId && runtime.resourceState.status === 'loading') {
@@ -280,6 +301,15 @@ const AgentWikiEmbed = ({ node }: AgentWikiNodeProps) => {
   const { t } = useLanguage();
   const element = node && isElementNode(node) ? node : undefined;
   const literal = nodeProperty(element, 'data-markdown-literal');
+  const fragmentPresent = nodeProperty(element, 'data-markdown-fragment-present') === 'true';
+  const fragmentKind = nodeProperty(element, 'data-markdown-fragment-kind');
+  const fragmentValid = nodeProperty(element, 'data-markdown-fragment-valid') !== 'false';
+  if (fragmentKind === 'block') {
+    return <ResourceFallback literal={literal} status={t('markdown.embed.block')} />;
+  }
+  if (fragmentPresent && !fragmentValid) {
+    return <ResourceFallback literal={literal} status={t('markdown.embed.unavailable')} />;
+  }
   const resource = runtime ? resourceForNode(runtime.resourceState, element) : null;
   if (!runtime?.tree.spaceId || !resource) {
     if (runtime?.tree.spaceId && runtime.resourceState.status === 'loading') {
@@ -490,7 +520,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
         rehypePlugins={[
-          rehypeSlug,
+          rehypeAgentWikiSlug,
           [rehypeKatex, KATEX_OPTIONS],
           [rehypeAutolinkHeadings, {
             behavior: 'append',

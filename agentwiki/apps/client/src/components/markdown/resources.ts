@@ -17,7 +17,14 @@ import {
 const MAX_REFERENCES = 100;
 const MAX_REFERENCE_CHARS = 512;
 
-export const unicodeCodePointLength = (value: string): number => Array.from(value).length;
+// Mirrors validator.js `isLength`, which class-validator's MaxLength delegates
+// to: surrogate pairs and BMP presentation-selector sequences each count as a
+// single character.
+export const validatorStringLength = (value: string): number => {
+  const presentationSequences = value.match(/[^\uFE0F\uFE0E][\uFE0F\uFE0E]/g) ?? [];
+  const surrogatePairs = value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g) ?? [];
+  return value.length - presentationSequences.length - surrogatePairs.length;
+};
 
 export interface MarkdownResourceRef {
   canonicalKey: string;
@@ -210,7 +217,7 @@ const resourceParser = unified()
   .use(remarkAgentWikiObsidian({}) as never);
 
 const assertBoundedPart = (value: string | undefined): void => {
-  if (value !== undefined && unicodeCodePointLength(value) > MAX_REFERENCE_CHARS) {
+  if (value !== undefined && validatorStringLength(value) > MAX_REFERENCE_CHARS) {
     throw new Error('Markdown resource reference is too long');
   }
 };
@@ -228,8 +235,12 @@ export function collectMarkdownResourceRefs(source: string): MarkdownResourceRef
     const blockValue = properties['data-markdown-block-id'];
     const heading = typeof headingValue === 'string' && headingValue.trim() ? headingValue.trim() : undefined;
     const blockId = typeof blockValue === 'string' && blockValue.trim() ? blockValue.trim() : undefined;
-    if (node.type === 'agentWikiEmbed' && blockId) return;
-    if (node.type === 'agentWikiImage' && (heading || blockId)) return;
+    const fragmentPresent = properties['data-markdown-fragment-present'] === 'true';
+    const fragmentKind = properties['data-markdown-fragment-kind'];
+    const fragmentValid = properties['data-markdown-fragment-valid'] !== 'false';
+    if (!fragmentValid) return;
+    if (node.type === 'agentWikiEmbed' && fragmentKind === 'block') return;
+    if (node.type === 'agentWikiImage' && fragmentPresent) return;
     assertBoundedPart(target);
     assertBoundedPart(heading);
     assertBoundedPart(blockId);
@@ -240,6 +251,9 @@ export function collectMarkdownResourceRefs(source: string): MarkdownResourceRef
       label: null,
       heading: heading ?? null,
       blockId: blockId ?? null,
+      fragmentPresent,
+      fragmentKind: fragmentKind === 'heading' || fragmentKind === 'block' ? fragmentKind : null,
+      fragmentValid,
     };
     const canonicalKey = canonicalWikiReferenceKey(reference);
     if (!refs.has(canonicalKey)) {

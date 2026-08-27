@@ -79,9 +79,26 @@ describe('collectMarkdownResourceRefs', () => {
   });
 
   it.each([
+    ['BMP characters', 'a', 512, true],
+    ['BMP characters', 'a', 513, false],
+    ['surrogate-pair characters', '😀', 512, true],
+    ['surrogate-pair characters', '😀', 513, false],
+    ['presentation sequences', '❤️', 257, true],
+    ['presentation sequences', '❤️', 512, true],
+    ['presentation sequences', '❤️', 513, false],
+  ])('matches validator.js length for %s (%s × %i)', (_kind, unit, count, accepted) => {
+    const collect = () => collectMarkdownResourceRefs(`[[${unit.repeat(count)}]]`);
+    if (accepted) expect(collect()).toHaveLength(1);
+    else expect(collect).toThrow('Markdown resource reference is too long');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ['![[image.png#Heading]] [[Good Page]]'],
+    ['![[image.png#^|Picture]] [[Good Page]]'],
     ['![[Page#^bad id]] [[Good Page]]'],
     ['![[Page#^block-one]] [[Good Page]]'],
+    ['![[Page#^|Alias]] [[Good Page]]'],
   ])('skips unsupported embed fragments without poisoning valid references: %s', (source) => {
     expect(collectMarkdownResourceRefs(source)).toEqual([
       expect.objectContaining({ kind: 'page', target: 'Good Page' }),
@@ -107,6 +124,27 @@ describe('resolveMarkdownResources', () => {
     [513, false],
   ])('revalidates %i non-BMP target characters by Unicode code point', async (count, accepted) => {
     const references = [{ canonicalKey: `emoji-${count}`, kind: 'page' as const, target: '😀'.repeat(count) }];
+    if (accepted) {
+      vi.mocked(api.post).mockResolvedValue({ data: [{ key: 'r0', status: 'unresolved' }] });
+      await expect(resolveMarkdownResources('space-1', references)).resolves.toHaveProperty('size', 1);
+    } else {
+      await expect(resolveMarkdownResources('space-1', references)).rejects.toThrow(
+        'Markdown resource reference is too long',
+      );
+      expect(api.post).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ['BMP characters', 'a', 512, true],
+    ['BMP characters', 'a', 513, false],
+    ['surrogate-pair characters', '😀', 512, true],
+    ['surrogate-pair characters', '😀', 513, false],
+    ['presentation sequences', '❤️', 257, true],
+    ['presentation sequences', '❤️', 512, true],
+    ['presentation sequences', '❤️', 513, false],
+  ])('revalidates validator.js length for %s (%s × %i)', async (_kind, unit, count, accepted) => {
+    const references = [{ canonicalKey: `${_kind}-${count}`, kind: 'page' as const, target: unit.repeat(count) }];
     if (accepted) {
       vi.mocked(api.post).mockResolvedValue({ data: [{ key: 'r0', status: 'unresolved' }] });
       await expect(resolveMarkdownResources('space-1', references)).resolves.toHaveProperty('size', 1);

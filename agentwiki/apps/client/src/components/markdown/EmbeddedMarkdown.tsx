@@ -7,7 +7,7 @@ import {
   extractMarkdownSection,
   loadTreePage,
   MarkdownRuntimeContext,
-  unicodeCodePointLength,
+  validatorStringLength,
   type ResolvedMarkdownResource,
 } from './resources';
 
@@ -96,7 +96,7 @@ export const EmbeddedMarkdown: React.FC<EmbeddedMarkdownProps> = ({
   if (selectedSource === undefined || !acquireEmbedCharacters(
     tree,
     occurrenceKey,
-    unicodeCodePointLength(selectedSource),
+    validatorStringLength(selectedSource),
   )) {
     return <EmbedFallback literal={literal} message={t('markdown.embed.characters')} />;
   }
