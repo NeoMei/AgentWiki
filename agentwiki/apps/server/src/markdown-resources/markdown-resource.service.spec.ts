@@ -31,6 +31,7 @@ function attachment(overrides: Partial<Record<'id' | 'spaceId' | 'displayName' |
 
 describe('MarkdownResourceService', () => {
   const prisma = {
+    $queryRaw: jest.fn(),
     page: { findMany: jest.fn() },
     spaceAttachment: { findMany: jest.fn() },
   } as any;
@@ -40,17 +41,18 @@ describe('MarkdownResourceService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'viewer' });
+    prisma.$queryRaw.mockResolvedValue([]);
     prisma.page.findMany.mockResolvedValue([]);
     prisma.spaceAttachment.findMany.mockResolvedValue([]);
     service = new MarkdownResourceService(prisma, authorization);
   });
 
   it('authorizes the Space once and resolves pages in id, syncPath, slug, then title order', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([
-        page({ id: 'same-target', title: 'ID winner', slug: 'id-winner', syncPath: 'pages/Id.md', syncPathKey: 'pages/id.md' }),
-        page({ id: 'sync-row', title: 'Sync winner', slug: 'same-target', syncPath: 'Same-Target', syncPathKey: 'same-target' }),
-      ])
+    prisma.page.findMany.mockResolvedValueOnce([
+      page({ id: 'same-target', title: 'ID winner', slug: 'id-winner', syncPath: 'pages/Id.md', syncPathKey: 'pages/id.md' }),
+      page({ id: 'sync-row', title: 'Sync winner', slug: 'same-target', syncPath: 'Same-Target', syncPathKey: 'same-target' }),
+    ]);
+    prisma.$queryRaw
       .mockResolvedValueOnce([
         page({ id: 'slug-row', title: 'Same-Target', slug: 'same-target', syncPath: 'pages/Slug.md', syncPathKey: 'pages/slug.md' }),
       ])
@@ -74,10 +76,10 @@ describe('MarkdownResourceService', () => {
   });
 
   it('matches NFC/case-normalized sync paths and slugs while preserving response keys and order', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([
-        page({ id: 'sync', title: 'Sync', slug: 'sync', syncPath: 'Guides/Caf\u00e9.md', syncPathKey: 'guides/caf\u00e9.md' }),
-      ])
+    prisma.page.findMany.mockResolvedValueOnce([
+      page({ id: 'sync', title: 'Sync', slug: 'sync', syncPath: 'Guides/Caf\u00e9.md', syncPathKey: 'guides/caf\u00e9.md' }),
+    ]);
+    prisma.$queryRaw
       .mockResolvedValueOnce([
         page({ id: 'slug', title: 'Slug', slug: 'MiXeD', syncPath: 'pages/Slug.md', syncPathKey: 'pages/slug.md' }),
       ])
@@ -95,15 +97,32 @@ describe('MarkdownResourceService', () => {
     ]);
   });
 
-  it('treats .md as a page suffix only after full syncPath matching', async () => {
+  it('queries and compares sync paths with the shared Unicode full-fold pathKey', async () => {
     prisma.page.findMany
-      .mockResolvedValueOnce([
-        page({ id: 'full-path', title: 'Other', slug: 'other', syncPath: 'guides/Guide.md', syncPathKey: 'guides/guide.md' }),
-      ])
-      .mockResolvedValueOnce([
-        page({ id: 'fallback', title: 'Guide', slug: 'guide', syncPath: 'pages/Guide.md', syncPathKey: 'pages/guide.md' }),
-      ])
-      .mockResolvedValueOnce([]);
+      .mockImplementationOnce(async (query: any) => (
+        query.where.OR[1].syncPathKey.in.includes('strasse/guide.md')
+          ? [page({
+              id: 'unicode-path', title: 'Unicode path', slug: 'unicode-path',
+              syncPath: 'Stra\u00dfe/Guide.md', syncPathKey: 'strasse/guide.md',
+            })]
+          : []
+      ));
+
+    await expect(service.resolve('space-1', [
+      { key: 'unicode-path', kind: 'page', target: 'Stra\u00dfe/Guide.md' },
+    ], principal)).resolves.toEqual([{
+      key: 'unicode-path', status: 'resolved', kind: 'page',
+      pageId: 'unicode-path', title: 'Unicode path', slug: 'unicode-path',
+    }]);
+  });
+
+  it('treats .md as a page suffix only after full syncPath matching', async () => {
+    prisma.page.findMany.mockResolvedValueOnce([
+      page({ id: 'full-path', title: 'Other', slug: 'other', syncPath: 'guides/Guide.md', syncPathKey: 'guides/guide.md' }),
+    ]);
+    prisma.$queryRaw.mockResolvedValueOnce([
+      page({ id: 'fallback', title: 'Guide', slug: 'guide', syncPath: 'pages/Guide.md', syncPathKey: 'pages/guide.md' }),
+    ]);
 
     const result = await service.resolve('space-1', [
       { key: 'full', kind: 'page', target: 'guides/Guide.md' },
@@ -117,8 +136,7 @@ describe('MarkdownResourceService', () => {
   });
 
   it('returns ambiguous without candidates when exact normalized titles collide', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([])
+    prisma.$queryRaw
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         page({ id: 'one', title: 'Caf\u00e9', slug: 'one' }),
@@ -130,15 +148,10 @@ describe('MarkdownResourceService', () => {
     ], principal)).resolves.toEqual([{ key: 'ambiguous', status: 'ambiguous' }]);
   });
 
-  it('queries the NFD equivalent so NFC title matching also works for legacy decomposed rows', async () => {
-    prisma.page.findMany
+  it('queries the indexed identity so NFC title matching covers legacy decomposed rows', async () => {
+    prisma.$queryRaw
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(async (query: any) => (
-        query.where.title.in.includes('cafe\u0301')
-          ? [page({ id: 'legacy-nfd', title: 'Cafe\u0301', slug: 'legacy-nfd' })]
-          : []
-      ));
+      .mockResolvedValueOnce([page({ id: 'legacy-nfd', title: 'Cafe\u0301', slug: 'legacy-nfd' })]);
 
     await expect(service.resolve('space-1', [
       { key: 'canonical', kind: 'page', target: 'CAF\u00c9' },
@@ -146,16 +159,12 @@ describe('MarkdownResourceService', () => {
       key: 'canonical', status: 'resolved', kind: 'page',
       pageId: 'legacy-nfd', title: 'Cafe\u0301', slug: 'legacy-nfd',
     }]);
+    expect(prisma.$queryRaw.mock.calls[1][0].values).toContain('caf\u00e9');
   });
 
-  it('queries the NFD equivalent so normalized slug matching covers decomposed stored values', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(async (query: any) => (
-        query.where.slug.in.includes('cafe\u0301')
-          ? [page({ id: 'nfd-slug', title: 'NFD slug', slug: 'cafe\u0301' })]
-          : []
-      ))
+  it('queries the indexed identity so normalized slug matching covers decomposed stored values', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([page({ id: 'nfd-slug', title: 'NFD slug', slug: 'cafe\u0301' })])
       .mockResolvedValueOnce([]);
 
     await expect(service.resolve('space-1', [
@@ -164,11 +173,11 @@ describe('MarkdownResourceService', () => {
       key: 'slug-canonical', status: 'resolved', kind: 'page',
       pageId: 'nfd-slug', title: 'NFD slug', slug: 'cafe\u0301',
     }]);
+    expect(prisma.$queryRaw.mock.calls[0][0].values).toContain('caf\u00e9');
   });
 
   it('fails every title-tier reference closed when the global title query reaches its cap', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([])
+    prisma.$queryRaw
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(Array.from({ length: 201 }, (_, index) => page({
         id: `crowded-${index}`,
@@ -188,8 +197,7 @@ describe('MarkdownResourceService', () => {
   });
 
   it('fails every post-exact reference closed when case-insensitive slug candidates reach the cap', async () => {
-    prisma.page.findMany
-      .mockResolvedValueOnce([])
+    prisma.$queryRaw
       .mockResolvedValueOnce(Array.from({ length: 201 }, (_, index) => page({
         id: `slug-collision-${index}`,
         title: `Slug collision ${index}`,
@@ -245,6 +253,9 @@ describe('MarkdownResourceService', () => {
     prisma.page.findMany.mockResolvedValue([
       { ...page({ id: 'foreign-page', title: 'Foreign' }), spaceId: 'space-2' },
     ]);
+    prisma.$queryRaw.mockResolvedValue([
+      { ...page({ id: 'foreign-page', title: 'Foreign' }), spaceId: 'space-2' },
+    ]);
     prisma.spaceAttachment.findMany.mockResolvedValue([
       { ...attachment({ id: 'foreign-attachment', displayName: 'foreign.png', nameKey: 'foreign.png' }), spaceId: 'space-2' },
     ]);
@@ -255,9 +266,12 @@ describe('MarkdownResourceService', () => {
     ], principal);
 
     expect(prisma.page.findMany).toHaveBeenCalled();
-    for (const [query] of prisma.page.findMany.mock.calls) {
-      expect(query.where.spaceId).toBe('space-1');
-      expect(query.where.deletedAt).toBeNull();
+    const [exactQuery] = prisma.page.findMany.mock.calls[0];
+    expect(exactQuery.where.spaceId).toBe('space-1');
+    expect(exactQuery.where.deletedAt).toBeNull();
+    for (const [query] of prisma.$queryRaw.mock.calls) {
+      expect(query.values).toContain('space-1');
+      expect(query.strings.join('?')).toMatch(/"deletedAt" IS NULL/u);
     }
     expect(prisma.spaceAttachment.findMany.mock.calls[0][0].where.spaceId).toBe('space-1');
     expect(result).toEqual([
@@ -290,21 +304,25 @@ describe('MarkdownResourceService', () => {
       { key: 'secret', kind: 'page', target: 'Secret' },
     ], principal)).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     expect(prisma.page.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
   });
 
-  it('uses a constant number of bounded bulk findMany queries for one hundred references', async () => {
+  it('uses three constant-count bounded Page queries for one hundred references', async () => {
     const references = Array.from({ length: 100 }, (_, index) => index % 2 === 0
       ? { key: `page-${index}`, kind: 'page' as const, target: `Page ${index}` }
       : { key: `attachment-${index}`, kind: 'attachment' as const, target: `image-${index}.png` });
 
     await service.resolve('space-1', references, principal);
 
-    expect(prisma.page.findMany).toHaveBeenCalledTimes(3);
+    expect(prisma.page.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
     expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.page.findMany.mock.calls[0][0].take).toBe(201);
-    expect(prisma.page.findMany.mock.calls[1][0].take).toBe(201);
-    expect(prisma.page.findMany.mock.calls[2][0].take).toBe(201);
+    for (const [query] of prisma.$queryRaw.mock.calls) {
+      expect(query.values).toContain(201);
+      expect(query.strings.join('?')).toMatch(/markdown_page_identity/u);
+    }
     expect(prisma.spaceAttachment.findMany.mock.calls[0][0].take).toBeLessThanOrEqual(100);
   });
 });

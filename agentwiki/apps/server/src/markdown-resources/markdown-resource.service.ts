@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { pathKey } from '@neomei/agentwiki-sync-protocol';
+import { Prisma } from '@prisma/client';
 import { normalizeAttachmentName } from '../attachments/attachment.service';
 import {
   AuthorizationService,
@@ -8,6 +10,7 @@ import { PrismaService } from '../database/prisma.service';
 import {
   type MarkdownResourceReferenceDto,
   type ResolvedMarkdownResource,
+  normalizeMarkdownPageIdentity,
 } from './markdown-resource.dto';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
@@ -34,10 +37,6 @@ interface AttachmentRow {
   mimeType: string;
   width: number;
   height: number;
-}
-
-export function normalizeMarkdownResourceValue(value: string): string {
-  return value.normalize('NFC').trim().toLocaleLowerCase('und');
 }
 
 function withoutMarkdownSuffix(value: string): string {
@@ -83,14 +82,11 @@ export class MarkdownResourceService {
     ));
     const attachmentReferences = references.filter((reference) => reference.kind === 'attachment');
     const pageTargets = unique(pageReferences.map((reference) => (
-      normalizeMarkdownResourceValue(reference.target)
+      normalizeMarkdownPageIdentity(reference.target)
     )));
+    const pagePathTargets = unique(pageReferences.map((reference) => pathKey(reference.target.trim())));
     const pageFallbackTargets = unique(pageTargets.map(withoutMarkdownSuffix));
     const titleTargets = unique([...pageTargets, ...pageFallbackTargets]);
-    const databaseQueryTargets = unique([
-      ...titleTargets,
-      ...titleTargets.map((target) => target.normalize('NFD')),
-    ]);
     const attachmentTargets = unique(attachmentReferences.map((reference) => (
       normalizeAttachmentName(reference.target).nameKey
     )));
@@ -102,7 +98,7 @@ export class MarkdownResourceService {
             deletedAt: null,
             OR: [
               { id: { in: pageTargets } },
-              { syncPathKey: { in: pageTargets } },
+              { syncPathKey: { in: pagePathTargets } },
             ],
           },
           select: {
@@ -116,41 +112,27 @@ export class MarkdownResourceService {
           take: MAX_EXACT_PAGE_ROWS,
         }) as PageRow[]
       : [];
-    const slugPageRows = databaseQueryTargets.length > 0
-      ? await this.prisma.page.findMany({
-          where: {
-            spaceId,
-            deletedAt: null,
-            slug: { in: databaseQueryTargets, mode: 'insensitive' },
-          },
-          select: {
-            id: true,
-            spaceId: true,
-            title: true,
-            slug: true,
-            syncPath: true,
-            syncPathKey: true,
-          },
-          take: MAX_SLUG_PAGE_ROWS,
-        }) as PageRow[]
+    const slugPageRows = titleTargets.length > 0
+      ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
+          SELECT "id", "spaceId", "title", "slug", "syncPath", "syncPathKey"
+          FROM "Page"
+          WHERE "spaceId" = ${spaceId}
+            AND "deletedAt" IS NULL
+            AND markdown_page_identity("slug") IN (${Prisma.join(titleTargets)})
+          ORDER BY "id" ASC
+          LIMIT ${MAX_SLUG_PAGE_ROWS}
+        `)
       : [];
     const titlePageRows = titleTargets.length > 0
-      ? await this.prisma.page.findMany({
-          where: {
-            spaceId,
-            deletedAt: null,
-            title: { in: databaseQueryTargets, mode: 'insensitive' },
-          },
-          select: {
-            id: true,
-            spaceId: true,
-            title: true,
-            slug: true,
-            syncPath: true,
-            syncPathKey: true,
-          },
-          take: MAX_TITLE_PAGE_ROWS,
-        }) as PageRow[]
+      ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
+          SELECT "id", "spaceId", "title", "slug", "syncPath", "syncPathKey"
+          FROM "Page"
+          WHERE "spaceId" = ${spaceId}
+            AND "deletedAt" IS NULL
+            AND markdown_page_identity("title") IN (${Prisma.join(titleTargets)})
+          ORDER BY "id" ASC
+          LIMIT ${MAX_TITLE_PAGE_ROWS}
+        `)
       : [];
     const attachmentRows = attachmentTargets.length > 0
       ? await this.prisma.spaceAttachment.findMany({
@@ -200,14 +182,12 @@ export class MarkdownResourceService {
       if (IMAGE_EXTENSION.test(reference.target.trim())) {
         return { key: reference.key, status: 'unresolved' };
       }
-      const target = normalizeMarkdownResourceValue(reference.target);
+      const target = normalizeMarkdownPageIdentity(reference.target);
+      const targetPathKey = pathKey(reference.target.trim());
       const fallbackTarget = withoutMarkdownSuffix(target);
       const tiers: PageRow[][] = [
-        scopedExactPages.filter((candidate) => normalizeMarkdownResourceValue(candidate.id) === target),
-        scopedExactPages.filter((candidate) => (
-          normalizeMarkdownResourceValue(candidate.syncPathKey) === target
-          || normalizeMarkdownResourceValue(candidate.syncPath) === target
-        )),
+        scopedExactPages.filter((candidate) => normalizeMarkdownPageIdentity(candidate.id) === target),
+        scopedExactPages.filter((candidate) => pathKey(candidate.syncPath) === targetPathKey),
       ];
       for (const matches of tiers) {
         if (matches.length > 1) return { key: reference.key, status: 'ambiguous' };
@@ -215,13 +195,13 @@ export class MarkdownResourceService {
       }
       if (slugQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
       const slugMatches = scopedSlugPages.filter((candidate) => {
-        const slug = normalizeMarkdownResourceValue(candidate.slug);
+        const slug = normalizeMarkdownPageIdentity(candidate.slug);
         return slug === target || (fallbackTarget !== target && slug === fallbackTarget);
       });
       if (slugMatches.length > 1) return { key: reference.key, status: 'ambiguous' };
       if (slugMatches.length === 1) return pageResult(reference.key, slugMatches[0]);
       const titleMatches = scopedTitlePages.filter((candidate) => {
-        const title = normalizeMarkdownResourceValue(candidate.title);
+        const title = normalizeMarkdownPageIdentity(candidate.title);
         return title === target || (fallbackTarget !== target && title === fallbackTarget);
       });
       if (titleMatches.length > 1 || titleQueryWasCapped) {

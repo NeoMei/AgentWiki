@@ -1,15 +1,16 @@
 import { Transform, Type } from 'class-transformer';
+import { foldCase } from '@neomei/agentwiki-sync-protocol';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsIn,
-  IsOptional,
   IsString,
   Matches,
   MaxLength,
   MinLength,
   Validate,
+  ValidateIf,
   ValidateNested,
   ValidatorConstraint,
   type ValidatorConstraintInterface,
@@ -18,7 +19,11 @@ import {
 const MAX_REFERENCE_LENGTH = 512;
 const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
 
-function normalized(value: string): string {
+export function normalizeMarkdownPageIdentity(value: string): string {
+  return foldCase(value.normalize('NFC').trim());
+}
+
+function normalizeAttachmentReferenceIdentity(value: string): string {
   return value.normalize('NFC').trim().toLocaleLowerCase('und');
 }
 
@@ -42,7 +47,7 @@ export class MarkdownResourceReferenceDto {
   target!: string;
 
   @PreserveRawInput()
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
   @Matches(/\S/u)
@@ -50,7 +55,7 @@ export class MarkdownResourceReferenceDto {
   heading?: string;
 
   @PreserveRawInput()
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
   @Matches(/^[\p{L}\p{N}_-]+$/u)
@@ -77,12 +82,14 @@ class UniqueMarkdownResourceReferences implements ValidatorConstraintInterface {
         || typeof reference.kind !== 'string'
         || typeof reference.target !== 'string'
       ) continue;
-      const key = normalized(reference.key);
+      const key = normalizeMarkdownPageIdentity(reference.key);
       const signature = [
         reference.kind,
-        normalized(reference.target),
-        typeof reference.heading === 'string' ? normalized(reference.heading) : '',
-        typeof reference.blockId === 'string' ? normalized(reference.blockId) : '',
+        reference.kind === 'attachment'
+          ? normalizeAttachmentReferenceIdentity(reference.target)
+          : normalizeMarkdownPageIdentity(reference.target),
+        typeof reference.heading === 'string' ? normalizeMarkdownPageIdentity(reference.heading) : '',
+        typeof reference.blockId === 'string' ? normalizeMarkdownPageIdentity(reference.blockId) : '',
       ].join('\u0000');
       if (keys.has(key) || references.has(signature)) return false;
       keys.add(key);

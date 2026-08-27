@@ -72,7 +72,8 @@ test('dedicated Markdown attachment gate builds current server output and enable
       + 'pnpm --filter @agentwiki/server build && '
       + 'MARKDOWN_ATTACHMENTS_DEDICATED_GATE=1 node --test '
       + 'scripts/markdown-attachments-schema-db.test.mjs '
-      + 'scripts/markdown-attachments-http-db.test.mjs',
+      + 'scripts/markdown-attachments-http-db.test.mjs '
+      + 'scripts/markdown-resource-resolution-db.test.mjs',
   );
 });
 

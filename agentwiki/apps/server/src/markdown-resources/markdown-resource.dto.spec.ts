@@ -52,6 +52,8 @@ describe('Markdown resource DTO validation', () => {
     { key: 'key', kind: 'page', target: 'Page', heading: 'H', blockId: 'block' },
     { key: 'key', kind: 'attachment', target: 'image.png', heading: 'H' },
     { key: 'key', kind: 'attachment', target: 'image.png', blockId: 'block' },
+    { key: 'key', kind: 'page', target: 'Page', heading: null },
+    { key: 'key', kind: 'page', target: 'Page', blockId: null },
   ])('rejects malformed or over-limit reference %j', async (reference) => {
     await expect(transformBody({ references: [reference] }))
       .rejects.toMatchObject({ status: 400 });
@@ -80,6 +82,20 @@ describe('Markdown resource DTO validation', () => {
       .rejects.toMatchObject({ status: 400 });
   });
 
+  it.each([
+    [
+      { key: 'Stra\u00dfe', kind: 'page', target: 'One' },
+      { key: 'STRASSE', kind: 'page', target: 'Two' },
+    ],
+    [
+      { key: 'one', kind: 'page', target: '\u039f\u03a3' },
+      { key: 'two', kind: 'page', target: '\u03bf\u03c3' },
+    ],
+  ])('rejects duplicate Unicode 15.1 full-fold identities', async (...references) => {
+    await expect(transformBody({ references }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
   it('allows the same target when kind or fragment identity differs', async () => {
     const references = [
       { key: 'page', kind: 'page', target: 'Asset' },
@@ -87,6 +103,15 @@ describe('Markdown resource DTO validation', () => {
       { key: 'heading-a', kind: 'page', target: 'Asset', heading: 'A' },
       { key: 'heading-b', kind: 'page', target: 'Asset', heading: 'B' },
     ];
+    await expect(transformBody({ references })).resolves.toEqual({ references });
+  });
+
+  it('keeps attachment duplicate identity aligned with the stored Task 3 nameKey contract', async () => {
+    const references = [
+      { key: 'one', kind: 'attachment', target: 'Stra\u00dfe.png' },
+      { key: 'two', kind: 'attachment', target: 'STRASSE.png' },
+    ];
+
     await expect(transformBody({ references })).resolves.toEqual({ references });
   });
 });
