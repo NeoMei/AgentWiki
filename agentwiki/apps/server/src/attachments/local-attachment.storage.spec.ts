@@ -433,6 +433,49 @@ describe('LocalAttachmentStorage', () => {
     },
   );
 
+  it('reclaims an old lease orphaned after publish moved away the base temp file', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+      setInterval: () => ({ unref: () => undefined } as unknown as NodeJS.Timeout),
+      clearInterval: () => undefined,
+    } as any);
+    const reservation = await storage.createReservedTempPath(10n, 1n);
+    const publishedPath = join(root, 'published-blob');
+    await rename(reservation.path, publishedPath);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await utimes(`${reservation.path}.lease`, old, old);
+
+    const removed = await storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    );
+
+    expect(removed).toBe(1);
+    await expect(access(`${reservation.path}.lease`)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(publishedPath)).toEqual(Buffer.alloc(10, 0xa5));
+  });
+
+  it('reclaims an old reclaim sidecar orphaned after the base temp was unlinked', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+      setInterval: () => ({ unref: () => undefined } as unknown as NodeJS.Timeout),
+      clearInterval: () => undefined,
+    } as any);
+    const reservation = await storage.createReservedTempPath(10n, 1n);
+    await rename(`${reservation.path}.lease`, `${reservation.path}.reclaim`);
+    await rm(reservation.path);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await utimes(`${reservation.path}.reclaim`, old, old);
+
+    const removed = await storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    );
+
+    expect(removed).toBe(1);
+    await expect(access(`${reservation.path}.reclaim`)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it.each([
     ['owner write', { writeLockOwner: async () => { throw new Error('owner write failed'); } }],
     ['owner file sync', { syncLockOwner: async () => { throw new Error('owner sync failed'); } }],

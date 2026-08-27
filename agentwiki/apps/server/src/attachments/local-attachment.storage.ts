@@ -24,6 +24,7 @@ import type {
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
+const TEMP_SIDECAR_NAME_PATTERN = /^(upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp)\.(lease|reclaim)$/;
 const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
 
 interface ReservationLeaseRecord {
@@ -427,6 +428,17 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       if (await this.cleanupExpiredTempReservation(join(this.tempRoot, entry.name), cutoff)) {
         removed += 1;
       }
+    }
+    for (const entry of await readdir(this.tempRoot, { withFileTypes: true })) {
+      const match = TEMP_SIDECAR_NAME_PATTERN.exec(entry.name);
+      if (!match) continue;
+      const [, tempName, sidecarKind] = match;
+      if (await this.cleanupOrphanedReservationSidecar(
+        join(this.tempRoot, entry.name),
+        join(this.tempRoot, tempName),
+        sidecarKind as 'lease' | 'reclaim',
+        cutoff,
+      )) removed += 1;
     }
     return removed;
   }
@@ -909,6 +921,52 @@ export class LocalAttachmentStorage implements AttachmentStorage {
 
     await unlink(tempPath);
     await unlink(reclaimPath);
+    await this.syncDirectory(this.tempRoot);
+    return true;
+  }
+
+  private async cleanupOrphanedReservationSidecar(
+    sidecarPath: string,
+    tempPath: string,
+    sidecarKind: 'lease' | 'reclaim',
+    cutoff: Date,
+  ): Promise<boolean> {
+    if (await this.lstatBigInt(tempPath)) return false;
+    const initialSidecar = await this.lstatBigInt(sidecarPath);
+    if (
+      !initialSidecar?.isFile()
+      || initialSidecar.isSymbolicLink()
+      || Number(initialSidecar.mtimeMs) > cutoff.getTime()
+    ) return false;
+
+    const openedSidecar = await this.readReservationSidecar(sidecarPath);
+    if (
+      !openedSidecar
+      || !sameBigIntFile(openedSidecar.metadata, initialSidecar)
+    ) return false;
+    if (sidecarKind === 'lease') {
+      const record = parseReservationLease(openedSidecar.raw);
+      if (record && record.tempName !== basename(tempPath)) return false;
+    }
+
+    const [finalTemp, finalSidecar] = await Promise.all([
+      this.lstatBigInt(tempPath),
+      this.lstatBigInt(sidecarPath),
+    ]);
+    if (
+      finalTemp
+      || !finalSidecar?.isFile()
+      || finalSidecar.isSymbolicLink()
+      || !sameBigIntFile(finalSidecar, openedSidecar.metadata)
+      || Number(finalSidecar.mtimeMs) > cutoff.getTime()
+    ) return false;
+
+    try {
+      await unlink(sidecarPath);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return false;
+      throw error;
+    }
     await this.syncDirectory(this.tempRoot);
     return true;
   }
