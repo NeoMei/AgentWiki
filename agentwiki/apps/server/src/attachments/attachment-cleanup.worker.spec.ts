@@ -69,6 +69,7 @@ describe('AttachmentCleanupWorker', () => {
       }),
     };
     const storage = {
+      cleanupExpiredTempReservations: jest.fn().mockResolvedValue(0),
       withContentLock: jest.fn(async (_hash: string, work: (lease: object) => unknown) => {
         events.push('lock-start');
         const result = await work(Object.freeze({ contentHash: _hash }));
@@ -128,6 +129,21 @@ describe('AttachmentCleanupWorker', () => {
     await jest.advanceTimersByTimeAsync(HOUR_MS);
     expect(tick).toHaveBeenCalledTimes(2);
     worker.onModuleDestroy();
+  });
+
+  it('scans expired temp reservations on worker startup before metadata and blob cleanup', async () => {
+    const root = await createRoot();
+    const { worker, storage, prisma } = createWorker(root);
+
+    worker.onModuleInit();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(storage.cleanupExpiredTempReservations).toHaveBeenCalledWith(
+      new Date(now.getTime() - DAY_MS),
+    );
+    expect(storage.cleanupExpiredTempReservations.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.spaceAttachment.findMany.mock.invocationCallOrder[0],
+    );
   });
 
   it('accepts the largest delay supported by Node timers without clamping', () => {

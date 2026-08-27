@@ -19,6 +19,10 @@ const PNG = {
   height: 20,
   tempPath: '/tmp/photo.png',
 };
+const TEMP_RESERVATION = Object.freeze({
+  path: PNG.tempPath,
+  ownerToken: '1'.repeat(64),
+});
 
 const config: AttachmentConfig = {
   storagePath: '/var/lib/agentwiki/attachments',
@@ -58,7 +62,12 @@ function principal(role: 'owner' | 'editor' | 'admin' | 'viewer' = 'owner') {
 }
 
 function uploadFile(overrides: Record<string, unknown> = {}) {
-  return { originalname: PNG.displayName, path: PNG.tempPath, ...overrides } as any;
+  return {
+    originalname: PNG.displayName,
+    path: PNG.tempPath,
+    attachmentTempReservation: TEMP_RESERVATION,
+    ...overrides,
+  } as any;
 }
 
 function harness() {
@@ -96,6 +105,8 @@ function harness() {
   const storage = {
     createTempPath: jest.fn(),
     createReservedTempPath: jest.fn(),
+    releaseTempReservation: jest.fn(),
+    cleanupExpiredTempReservations: jest.fn(),
     withContentLock: jest.fn(async (hash, work) => {
       const lease = { contentHash: hash };
       activeLease = lease;
@@ -172,6 +183,7 @@ describe('AttachmentService', () => {
       .resolves.toMatchObject({ displayName: 'Photo.png', sizeBytes: '40' });
     expect(h.revisionWriter.lockSpace).toHaveBeenCalledWith(h.tx, 'space-1');
     expect(h.authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
   it('normalizes and trims the incoming name before real image validation', async () => {
@@ -197,6 +209,7 @@ describe('AttachmentService', () => {
       message: 'Attachment MIME is invalid',
     });
     expect(h.storage.publish).not.toHaveBeenCalled();
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
   it('rethrows validator I/O failures instead of misclassifying them as client input', async () => {
@@ -206,6 +219,7 @@ describe('AttachmentService', () => {
 
     await expect(h.service.upload('space-1', uploadFile(), principal())).rejects.toBe(ioFailure);
     expect(h.storage.publish).not.toHaveBeenCalled();
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
   it.each(['admin', 'viewer'] as const)('denies a live human %s before publishing', async (role) => {
@@ -213,6 +227,7 @@ describe('AttachmentService', () => {
     await expect(h.service.upload('space-1', uploadFile(), principal(role)))
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     expect(h.storage.publish).not.toHaveBeenCalled();
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
   it('denies an Agent mutation before validation or publishing', async () => {
@@ -225,6 +240,7 @@ describe('AttachmentService', () => {
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     expect(validator.validateUploadedImage).not.toHaveBeenCalled();
     expect(h.storage.publish).not.toHaveBeenCalled();
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
   it('keeps the content lease through publish, Space lock, live revalidation, and metadata commit', async () => {
@@ -511,6 +527,7 @@ describe('AttachmentService', () => {
       h.published.storageKey,
       expect.objectContaining({ contentHash: PNG.contentHash }),
     );
+    expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
     expect(h.storage.withContentLock.mock.invocationCallOrder[0]).toBeLessThan(
       h.storage.removeIfUnreferenced.mock.invocationCallOrder[0],
     );

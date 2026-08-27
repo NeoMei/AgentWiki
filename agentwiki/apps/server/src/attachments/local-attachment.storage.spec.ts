@@ -20,7 +20,7 @@ import { cwd } from 'node:process';
 import { join } from 'node:path';
 import { loadAttachmentConfig, type AttachmentConfig } from './attachment.config';
 import { LocalAttachmentStorage } from './local-attachment.storage';
-import type { StoredAttachment } from './attachment-storage';
+import type { AttachmentTempReservation, StoredAttachment } from './attachment-storage';
 
 const roots = new Set<string>();
 
@@ -50,13 +50,22 @@ function config(
 
 async function publishLocked(
   storage: LocalAttachmentStorage,
-  tempPath: string,
+  reservation: AttachmentTempReservation,
   contentHash: string,
   sizeBytes: bigint,
 ): Promise<StoredAttachment> {
   return storage.withContentLock(contentHash, (lease) =>
-    storage.publish(tempPath, contentHash, sizeBytes, lease),
+    storage.publish(reservation, contentHash, sizeBytes, lease),
   );
+}
+
+async function reservedBytes(
+  storage: LocalAttachmentStorage,
+  bytes: Buffer,
+): Promise<AttachmentTempReservation> {
+  const reservation = await storage.createReservedTempPath(BigInt(bytes.length), 1n);
+  await writeFile(reservation.path, bytes, { mode: 0o600 });
+  return reservation;
 }
 
 describe('attachment config', () => {
@@ -169,10 +178,26 @@ describe('LocalAttachmentStorage', () => {
       availableBytes: async () => 15n,
     } as any);
 
-    const tempPath = await (storage as any).createReservedTempPath(10n, 5n);
+    const reservation = await (storage as any).createReservedTempPath(10n, 5n);
 
-    expect((await stat(tempPath)).size).toBe(10);
-    await rm(tempPath);
+    expect(reservation).toMatchObject({
+      path: expect.stringMatching(/upload-[0-9a-f-]+\.tmp$/u),
+      ownerToken: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
+    expect((await stat(reservation.path)).size).toBe(10);
+    const lease = JSON.parse(await readFile(`${reservation.path}.lease`, 'utf8'));
+    const metadata = await lstat(reservation.path, { bigint: true });
+    expect(lease).toMatchObject({
+      version: 1,
+      ownerToken: reservation.ownerToken,
+      tempName: expect.stringMatching(/^upload-.*\.tmp$/u),
+      device: metadata.dev.toString(10),
+      inode: metadata.ino.toString(10),
+      createdAt: expect.any(String),
+      heartbeatAt: expect.any(String),
+    });
+    await (storage as any).releaseTempReservation(reservation);
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
   });
 
   it('fails closed below the minimum-free boundary without leaving a reservation', async () => {
@@ -213,6 +238,201 @@ describe('LocalAttachmentStorage', () => {
     expect(await readdir(join(root, '.tmp'))).toEqual([]);
   });
 
+  it('reclaims a stopped-heartbeat crash reservation only after atomically claiming its exact lease', async () => {
+    const root = await makeRoot();
+    const clearReservationInterval = jest.fn();
+    const owner = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+      setInterval: () => ({ unref: () => undefined } as unknown as NodeJS.Timeout),
+      clearInterval: clearReservationInterval,
+    } as any);
+    const reservation = await (owner as any).createReservedTempPath(10n, 1n);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    const record = JSON.parse(await readFile(`${reservation.path}.lease`, 'utf8'));
+    record.createdAt = old.toISOString();
+    record.heartbeatAt = old.toISOString();
+    await writeFile(`${reservation.path}.lease`, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    await utimes(reservation.path, old, old);
+    await utimes(`${reservation.path}.lease`, old, old);
+    let publishError: unknown;
+    const bytes = Buffer.from('0123456789');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    let releaseError: unknown;
+    let originalLeaseMissingAfterClaim = false;
+    const cleaner = new LocalAttachmentStorage(config(root), {
+      beforeReservationReap: async (stage: string) => {
+        if (stage !== 'after-claim') return;
+        originalLeaseMissingAfterClaim = await access(`${reservation.path}.lease`).then(
+          () => false,
+          (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+        );
+        try {
+          await owner.withContentLock(hash, (lease) =>
+            (owner as any).publish(reservation, hash, 10n, lease));
+        } catch (error) {
+          publishError = error;
+        }
+        try {
+          await (owner as any).releaseTempReservation(reservation);
+        } catch (error) {
+          releaseError = error;
+        }
+      },
+    } as any);
+
+    const removed = await (cleaner as any).cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    );
+
+    expect(removed).toBe(1);
+    expect(publishError).toMatchObject({ message: expect.stringContaining('reservation') });
+    expect(releaseError).toMatchObject({ message: expect.stringContaining('claimed') });
+    expect(originalLeaseMissingAfterClaim).toBe(true);
+    expect(clearReservationInterval).toHaveBeenCalledTimes(1);
+    expect((owner as any).activeReservations.has(reservation)).toBe(false);
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
+  });
+
+  it('keeps a reservation with a fresh heartbeat when scanned by another instance', async () => {
+    const root = await makeRoot();
+    const owner = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+    } as any);
+    const reservation = await (owner as any).createReservedTempPath(10n, 1n);
+    const cleaner = new LocalAttachmentStorage(config(root));
+
+    const removed = await (cleaner as any).cleanupExpiredTempReservations(
+      new Date(Date.now() - 1_000),
+    );
+
+    expect(removed).toBe(0);
+    expect((await lstat(reservation.path)).isFile()).toBe(true);
+    expect((await lstat(`${reservation.path}.lease`)).isFile()).toBe(true);
+    await (owner as any).releaseTempReservation(reservation);
+  });
+
+  it('durably advances the lease heartbeat without changing its owner or inode identity', async () => {
+    const root = await makeRoot();
+    let now = Date.parse('2026-08-20T00:00:00.000Z');
+    let heartbeat!: () => void;
+    const clearReservationInterval = jest.fn();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+      now: () => now,
+      setInterval: (callback: () => void) => {
+        heartbeat = callback;
+        return { unref: () => undefined } as unknown as NodeJS.Timeout;
+      },
+      clearInterval: clearReservationInterval,
+    } as any);
+    const reservation = await storage.createReservedTempPath(10n, 1n);
+    const before = JSON.parse(await readFile(`${reservation.path}.lease`, 'utf8'));
+    const leaseBefore = await lstat(`${reservation.path}.lease`, { bigint: true });
+
+    now += 60_000;
+    heartbeat();
+    await (storage as any).activeReservations.get(reservation).heartbeatPromise;
+
+    const after = JSON.parse(await readFile(`${reservation.path}.lease`, 'utf8'));
+    const leaseAfter = await lstat(`${reservation.path}.lease`, { bigint: true });
+    expect(after).toMatchObject({
+      ownerToken: before.ownerToken,
+      device: before.device,
+      inode: before.inode,
+      createdAt: before.createdAt,
+      heartbeatAt: '2026-08-20T00:01:00.000Z',
+    });
+    expect(leaseAfter.dev).toBe(leaseBefore.dev);
+    expect(leaseAfter.ino).toBe(leaseBefore.ino);
+    await storage.releaseTempReservation(reservation);
+    expect(clearReservationInterval).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not delete an inode replacement introduced after a stale lease is claimed', async () => {
+    const root = await makeRoot();
+    const owner = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 20n,
+      setInterval: () => ({ unref: () => undefined } as unknown as NodeJS.Timeout),
+      clearInterval: () => undefined,
+    } as any);
+    const reservation = await (owner as any).createReservedTempPath(10n, 1n);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    const record = JSON.parse(await readFile(`${reservation.path}.lease`, 'utf8'));
+    record.createdAt = old.toISOString();
+    record.heartbeatAt = old.toISOString();
+    await writeFile(`${reservation.path}.lease`, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    await utimes(reservation.path, old, old);
+    await utimes(`${reservation.path}.lease`, old, old);
+    const cleaner = new LocalAttachmentStorage(config(root), {
+      beforeReservationReap: async (stage: string) => {
+        if (stage !== 'after-claim') return;
+        await rm(reservation.path);
+        await writeFile(reservation.path, 'replacement', { mode: 0o600 });
+      },
+    } as any);
+
+    const removed = await (cleaner as any).cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    );
+
+    expect(removed).toBe(0);
+    expect(await readFile(reservation.path, 'utf8')).toBe('replacement');
+  });
+
+  it('leaves fresh malformed leases, unknown names, and symlinks untouched', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    await storage.createTempPath();
+    const tempRoot = join(root, '.tmp');
+    const malformed = join(tempRoot, 'upload-11111111-1111-4111-8111-111111111111.tmp');
+    const unknown = join(tempRoot, 'operator-owned.tmp');
+    const outside = join(root, 'outside');
+    await writeFile(malformed, 'fresh', { mode: 0o600 });
+    await writeFile(`${malformed}.lease`, '{broken', { mode: 0o600 });
+    await writeFile(unknown, 'unknown', { mode: 0o600 });
+    await writeFile(outside, 'outside');
+    await symlink(outside, join(tempRoot, 'upload-22222222-2222-4222-8222-222222222222.tmp'));
+    await utimes(unknown, new Date(0), new Date(0));
+
+    const removed = await (storage as any).cleanupExpiredTempReservations(
+      new Date(Date.now() - 24 * 60 * 60 * 1000),
+    );
+
+    expect(removed).toBe(0);
+    expect(await readFile(malformed, 'utf8')).toBe('fresh');
+    expect(await readFile(unknown, 'utf8')).toBe('unknown');
+    expect(await readFile(outside, 'utf8')).toBe('outside');
+  });
+
+  it.each(['missing', 'malformed'] as const)(
+    'reclaims an exact stable %s lease fallback only after the grace cutoff',
+    async (kind) => {
+      const root = await makeRoot();
+      const storage = new LocalAttachmentStorage(config(root));
+      await storage.createTempPath();
+      const tempPath = join(
+        root,
+        '.tmp',
+        `upload-33333333-3333-4333-8333-33333333333${kind === 'missing' ? '3' : '4'}.tmp`,
+      );
+      await writeFile(tempPath, 'crash residue', { mode: 0o600 });
+      if (kind === 'malformed') {
+        await writeFile(`${tempPath}.lease`, '{broken', { mode: 0o600 });
+      }
+      const old = new Date('2026-08-20T00:00:00.000Z');
+      await utimes(tempPath, old, old);
+      if (kind === 'malformed') await utimes(`${tempPath}.lease`, old, old);
+
+      const removed = await storage.cleanupExpiredTempReservations(
+        new Date('2026-08-21T00:00:00.000Z'),
+      );
+
+      expect(removed).toBe(1);
+      await expect(access(tempPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(access(`${tempPath}.reclaim`)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
   it.each([
     ['owner write', { writeLockOwner: async () => { throw new Error('owner write failed'); } }],
     ['owner file sync', { syncLockOwner: async () => { throw new Error('owner sync failed'); } }],
@@ -249,10 +469,8 @@ describe('LocalAttachmentStorage', () => {
     const storage = new LocalAttachmentStorage(config(root));
     const bytes = Buffer.from('identical attachment bytes');
     const hash = createHash('sha256').update(bytes).digest('hex');
-    const firstTemp = await storage.createTempPath();
-    const secondTemp = await storage.createTempPath();
-    await writeFile(firstTemp, bytes, { mode: 0o600 });
-    await writeFile(secondTemp, bytes, { mode: 0o600 });
+    const firstTemp = await reservedBytes(storage, bytes);
+    const secondTemp = await reservedBytes(storage, bytes);
 
     const first = await publishLocked(storage, firstTemp, hash, BigInt(bytes.length));
     const firstStat = await stat(join(root, first.storageKey));
@@ -269,8 +487,28 @@ describe('LocalAttachmentStorage', () => {
     expect(secondStat.ino).toBe(firstStat.ino);
     expect(secondStat.mode & 0o777).toBe(0o600);
     expect(await readFile(join(root, first.storageKey))).toEqual(bytes);
-    await expect(access(firstTemp, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(access(secondTemp, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(firstTemp.path, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(secondTemp.path, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('removes reservation lease sidecars after a successful publish or dedupe', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 1_000n,
+    } as any);
+    const bytes = Buffer.from('leased publish bytes');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const first = await (storage as any).createReservedTempPath(BigInt(bytes.length), 1n);
+    const second = await (storage as any).createReservedTempPath(BigInt(bytes.length), 1n);
+    await writeFile(first.path, bytes);
+    await writeFile(second.path, bytes);
+
+    await storage.withContentLock(hash, async (lease) => {
+      await (storage as any).publish(first, hash, BigInt(bytes.length), lease);
+      await (storage as any).publish(second, hash, BigInt(bytes.length), lease);
+    });
+
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
   });
 
   it('marks pre-existing content as not created so DB-failure cleanup cannot delete it', async () => {
@@ -279,11 +517,9 @@ describe('LocalAttachmentStorage', () => {
     const storage = new LocalAttachmentStorage(config(root));
     const bytes = Buffer.from('already referenced bytes');
     const hash = createHash('sha256').update(bytes).digest('hex');
-    const firstTemp = await storage.createTempPath();
-    await writeFile(firstTemp, bytes);
+    const firstTemp = await reservedBytes(storage, bytes);
     const existing = await publishLocked(storage, firstTemp, hash, BigInt(bytes.length));
-    const retryTemp = await storage.createTempPath();
-    await writeFile(retryTemp, bytes);
+    const retryTemp = await reservedBytes(storage, bytes);
 
     const retried = await storage.withContentLock(hash, async (lease) => {
       const published = await storage.publish(
@@ -311,14 +547,12 @@ describe('LocalAttachmentStorage', () => {
     const hash = createHash('sha256').update(bytes).digest('hex');
     const storageKey = `sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
     const metadataReferences = new Set<string>();
-    const seedTemp = await uploadStorage.createTempPath();
-    await writeFile(seedTemp, bytes);
+    const seedTemp = await reservedBytes(uploadStorage, bytes);
     await uploadStorage.withContentLock(hash, async (lease) => {
       await uploadStorage.publish(seedTemp, hash, BigInt(bytes.length), lease);
     });
 
-    const retryTemp = await uploadStorage.createTempPath();
-    await writeFile(retryTemp, bytes);
+    const retryTemp = await reservedBytes(uploadStorage, bytes);
     let uploadPublished!: () => void;
     const uploadCanCommit = new Promise<void>((resolve) => {
       uploadPublished = resolve;
@@ -470,8 +704,7 @@ describe('LocalAttachmentStorage', () => {
     const second = new LocalAttachmentStorage(config(root));
     const bytes = Buffer.from('leased bytes');
     const hash = createHash('sha256').update(bytes).digest('hex');
-    const tempPath = await second.createTempPath();
-    await writeFile(tempPath, bytes);
+    const tempPath = await reservedBytes(second, bytes);
     let expiredLease: Parameters<LocalAttachmentStorage['publish']>[3] | undefined;
 
     await first.withContentLock(hash, async (lease) => {
@@ -484,6 +717,7 @@ describe('LocalAttachmentStorage', () => {
     await expect(
       first.publish(tempPath, hash, BigInt(bytes.length), expiredLease!),
     ).rejects.toThrow('matching active');
+    await second.releaseTempReservation(tempPath);
   });
 
   it('opens, probes, and precisely removes a published content file', async () => {
@@ -491,8 +725,7 @@ describe('LocalAttachmentStorage', () => {
     const storage = new LocalAttachmentStorage(config(root));
     const bytes = Buffer.from('streamed content');
     const hash = createHash('sha256').update(bytes).digest('hex');
-    const tempPath = await storage.createTempPath();
-    await writeFile(tempPath, bytes);
+    const tempPath = await reservedBytes(storage, bytes);
     const published = await publishLocked(storage, tempPath, hash, BigInt(bytes.length));
 
     const stream = await storage.open(published.storageKey);
@@ -549,13 +782,13 @@ describe('LocalAttachmentStorage', () => {
     const outside = join(parent, 'outside');
     await writeFile(outside, 'outside-bytes');
     const storage = new LocalAttachmentStorage(config(root));
-    const tempPath = await storage.createTempPath();
-    await rm(tempPath);
-    await symlink(outside, tempPath);
+    const reservation = await reservedBytes(storage, Buffer.from('outside-bytes'));
+    await rm(reservation.path);
+    await symlink(outside, reservation.path);
     const hash = createHash('sha256').update('outside-bytes').digest('hex');
 
     await expect(
-      storage.withContentLock(hash, (lease) => storage.publish(tempPath, hash, 13n, lease)),
+      storage.withContentLock(hash, (lease) => storage.publish(reservation, hash, 13n, lease)),
     ).rejects.toThrow();
     expect(await readFile(outside, 'utf8')).toBe('outside-bytes');
   });
@@ -563,8 +796,7 @@ describe('LocalAttachmentStorage', () => {
   it('refuses a caller-supplied hash that does not match the temp bytes', async () => {
     const root = await makeRoot();
     const storage = new LocalAttachmentStorage(config(root));
-    const tempPath = await storage.createTempPath();
-    await writeFile(tempPath, 'real bytes');
+    const tempPath = await reservedBytes(storage, Buffer.from('real bytes'));
 
     await expect(
       storage.withContentLock('a'.repeat(64), (lease) =>

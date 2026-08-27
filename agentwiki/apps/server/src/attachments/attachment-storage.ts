@@ -11,14 +11,25 @@ export interface AttachmentContentLease {
   readonly contentHash: string;
 }
 
+export interface AttachmentTempReservation {
+  readonly path: string;
+  readonly ownerToken: string;
+}
+
+export interface StoredUpload extends Express.Multer.File {
+  attachmentTempReservation: AttachmentTempReservation;
+}
+
 export interface AttachmentStorage {
   createTempPath(): Promise<string>;
   createReservedTempPath(
     reservedBytes: bigint,
     minFreeBytes: bigint,
-  ): Promise<string>;
+  ): Promise<AttachmentTempReservation>;
+  releaseTempReservation(reservation: AttachmentTempReservation): Promise<void>;
+  cleanupExpiredTempReservations(cutoff: Date): Promise<number>;
   publish(
-    tempPath: string,
+    reservation: AttachmentTempReservation,
     contentHash: string,
     sizeBytes: bigint,
     lease: AttachmentContentLease,

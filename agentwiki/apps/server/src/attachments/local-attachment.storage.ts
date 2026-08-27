@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { constants, type Stats } from 'node:fs';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { constants, type BigIntStats, type Stats } from 'node:fs';
 import {
   link,
   lstat,
   mkdir,
   open,
+  readdir,
   rmdir,
   rename,
   statfs,
@@ -17,11 +18,35 @@ import type { AttachmentConfig } from './attachment.config';
 import type {
   AttachmentStorage,
   AttachmentContentLease,
+  AttachmentTempReservation,
   StoredAttachment,
 } from './attachment-storage';
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
+const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
+
+interface ReservationLeaseRecord {
+  version: 1;
+  ownerToken: string;
+  tempName: string;
+  device: string;
+  inode: string;
+  createdAt: string;
+  heartbeatAt: string;
+}
+
+interface OwnedTempReservation {
+  reservation: AttachmentTempReservation;
+  leasePath: string;
+  reclaimPath: string;
+  tempIdentity: { dev: bigint; ino: bigint };
+  leaseIdentity: { dev: bigint; ino: bigint };
+  timer?: NodeJS.Timeout;
+  heartbeatPromise?: Promise<void>;
+  heartbeatFailure?: unknown;
+  releasePromise?: Promise<void>;
+}
 
 interface OwnedContentLock {
   lockPath: string;
@@ -40,6 +65,13 @@ interface LocalAttachmentStorageDependencies {
     handle: FileHandle,
     stage: LockDirectorySyncStage,
   ) => Promise<void>;
+  now?: () => number;
+  setInterval?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  clearInterval?: (timer: NodeJS.Timeout) => void;
+  beforeReservationReap?: (
+    stage: 'after-claim' | 'before-unlink',
+    tempPath: string,
+  ) => Promise<void> | void;
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
@@ -141,6 +173,51 @@ function sameFile(left: Stats, right: Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+function sameBigIntFile(
+  left: Pick<BigIntStats, 'dev' | 'ino'>,
+  right: Pick<BigIntStats, 'dev' | 'ino'>,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function leaseBytes(record: ReservationLeaseRecord): Buffer {
+  return Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
+}
+
+function parseReservationLease(raw: string): ReservationLeaseRecord | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const value = parsed as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  const expected = [
+    'createdAt', 'device', 'heartbeatAt', 'inode', 'ownerToken', 'tempName', 'version',
+  ];
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    return undefined;
+  }
+  if (
+    value.version !== 1
+    || typeof value.ownerToken !== 'string'
+    || !OWNER_TOKEN_PATTERN.test(value.ownerToken)
+    || typeof value.tempName !== 'string'
+    || !TEMP_NAME_PATTERN.test(value.tempName)
+    || typeof value.device !== 'string'
+    || !/^[0-9]+$/u.test(value.device)
+    || typeof value.inode !== 'string'
+    || !/^[0-9]+$/u.test(value.inode)
+    || typeof value.createdAt !== 'string'
+    || !Number.isFinite(Date.parse(value.createdAt))
+    || typeof value.heartbeatAt !== 'string'
+    || !Number.isFinite(Date.parse(value.heartbeatAt))
+  ) return undefined;
+  return value as unknown as ReservationLeaseRecord;
+}
+
 async function writeReservation(handle: FileHandle, reservedBytes: bigint): Promise<void> {
   if (reservedBytes > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new Error('Attachment reservation size must be a safe integer');
@@ -163,6 +240,17 @@ export class LocalAttachmentStorage implements AttachmentStorage {
   private readonly tempRoot: string;
   private readonly lockRoot: string;
   private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
+  private readonly activeReservations = new WeakMap<
+    AttachmentTempReservation,
+    OwnedTempReservation
+  >();
+  private readonly releasedReservations = new WeakSet<AttachmentTempReservation>();
+  private readonly now: () => number;
+  private readonly scheduleInterval: (
+    callback: () => void,
+    delayMs: number,
+  ) => NodeJS.Timeout;
+  private readonly cancelInterval: (timer: NodeJS.Timeout) => void;
 
   constructor(
     private readonly config: AttachmentConfig,
@@ -171,6 +259,10 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     this.root = resolve(config.storagePath);
     this.tempRoot = join(this.root, '.tmp');
     this.lockRoot = join(this.root, '.locks');
+    this.now = dependencies.now ?? Date.now;
+    this.scheduleInterval = dependencies.setInterval
+      ?? ((callback, delayMs) => setInterval(callback, delayMs));
+    this.cancelInterval = dependencies.clearInterval ?? clearInterval;
   }
 
   async createTempPath(): Promise<string> {
@@ -195,7 +287,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
   async createReservedTempPath(
     reservedBytes: bigint,
     minFreeBytes: bigint,
-  ): Promise<string> {
+  ): Promise<AttachmentTempReservation> {
     if (reservedBytes <= 0n || minFreeBytes <= 0n) {
       throw new Error('Attachment reservation and minimum free space must be positive');
     }
@@ -206,7 +298,10 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     }
 
     const tempPath = join(this.tempRoot, `upload-${randomUUID()}.tmp`);
+    const leasePath = `${tempPath}.lease`;
+    const reclaimPath = `${tempPath}.reclaim`;
     let handle: FileHandle | undefined;
+    let leaseHandle: FileHandle | undefined;
     try {
       handle = await open(
         tempPath,
@@ -221,7 +316,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
         handle,
         reservedBytes,
       );
-      const metadata = await handle.stat();
+      const metadata = await handle.stat({ bigint: true });
       if (!metadata.isFile() || BigInt(metadata.size) !== reservedBytes) {
         throw new Error('Attachment reservation size does not match requested bytes');
       }
@@ -229,13 +324,76 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       if (await this.availableBytes() < minFreeBytes) {
         throw new Error('Insufficient attachment storage free space after reservation');
       }
+      const ownerToken = randomBytes(32).toString('hex');
+      const createdAt = new Date(this.now()).toISOString();
+      const reservation = Object.freeze({ path: tempPath, ownerToken });
+      const record: ReservationLeaseRecord = {
+        version: 1,
+        ownerToken,
+        tempName: basename(tempPath),
+        device: metadata.dev.toString(10),
+        inode: metadata.ino.toString(10),
+        createdAt,
+        heartbeatAt: createdAt,
+      };
+      leaseHandle = await open(
+        leasePath,
+        constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_RDWR |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+      await leaseHandle.writeFile(leaseBytes(record));
+      await leaseHandle.chmod(0o600);
+      await leaseHandle.sync();
+      const leaseMetadata = await leaseHandle.stat({ bigint: true });
+      if (!leaseMetadata.isFile()) {
+        throw new Error('Attachment reservation lease must be a regular file');
+      }
+      await leaseHandle.close();
+      leaseHandle = undefined;
       await handle.close();
       handle = undefined;
       await this.syncDirectory(this.tempRoot);
-      return tempPath;
+      const owned: OwnedTempReservation = {
+        reservation,
+        leasePath,
+        reclaimPath,
+        tempIdentity: { dev: metadata.dev, ino: metadata.ino },
+        leaseIdentity: { dev: leaseMetadata.dev, ino: leaseMetadata.ino },
+      };
+      this.activeReservations.set(reservation, owned);
+      const heartbeatMs = Math.max(
+        1_000,
+        Math.min(60_000, Math.floor(this.config.orphanGraceMs / 3)),
+      );
+      owned.timer = this.scheduleInterval(() => {
+        if (owned.heartbeatPromise || owned.releasePromise) return;
+        const heartbeat = this.refreshReservationHeartbeat(owned);
+        owned.heartbeatPromise = heartbeat;
+        void heartbeat.catch((error: unknown) => {
+          owned.heartbeatFailure = error;
+          if (owned.timer) this.cancelInterval(owned.timer);
+          owned.timer = undefined;
+        }).finally(() => {
+          if (owned.heartbeatPromise === heartbeat) owned.heartbeatPromise = undefined;
+        });
+      }, heartbeatMs);
+      owned.timer.unref?.();
+      return reservation;
     } catch (error) {
+      await leaseHandle?.close().catch((cleanupError: unknown) => {
+        attachCleanupCause(error, cleanupError);
+      });
       await handle?.close().catch((cleanupError: unknown) => {
         attachCleanupCause(error, cleanupError);
+      });
+      await unlink(leasePath).catch((cleanupError: unknown) => {
+        if (!isNodeError(cleanupError, 'ENOENT')) attachCleanupCause(error, cleanupError);
+      });
+      await unlink(reclaimPath).catch((cleanupError: unknown) => {
+        if (!isNodeError(cleanupError, 'ENOENT')) attachCleanupCause(error, cleanupError);
       });
       await unlink(tempPath).catch((cleanupError: unknown) => {
         if (!isNodeError(cleanupError, 'ENOENT')) {
@@ -246,12 +404,40 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     }
   }
 
+  async releaseTempReservation(
+    reservation: AttachmentTempReservation,
+  ): Promise<void> {
+    if (this.releasedReservations.has(reservation)) return;
+    const owned = this.activeReservations.get(reservation);
+    if (!owned) {
+      throw new Error('A matching active attachment temp reservation is required');
+    }
+    owned.releasePromise ??= this.releaseOwnedTempReservation(owned);
+    return owned.releasePromise;
+  }
+
+  async cleanupExpiredTempReservations(cutoff: Date): Promise<number> {
+    if (!Number.isFinite(cutoff.getTime())) {
+      throw new Error('Attachment temp reservation cutoff must be a valid date');
+    }
+    await this.ensureBaseDirectories();
+    let removed = 0;
+    for (const entry of await readdir(this.tempRoot, { withFileTypes: true })) {
+      if (!TEMP_NAME_PATTERN.test(entry.name)) continue;
+      if (await this.cleanupExpiredTempReservation(join(this.tempRoot, entry.name), cutoff)) {
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   async publish(
-    tempPath: string,
+    reservation: AttachmentTempReservation,
     contentHash: string,
     sizeBytes: bigint,
     lease: AttachmentContentLease,
   ): Promise<StoredAttachment> {
+    const tempPath = reservation.path;
     if (!HASH_PATTERN.test(contentHash)) {
       throw new Error('Invalid attachment content hash');
     }
@@ -261,6 +447,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     this.assertLease(lease, contentHash);
     this.assertTempPath(tempPath);
     await this.ensureBaseDirectories();
+    const ownedReservation = await this.assertTempReservationActive(reservation);
 
     let tempHandle: FileHandle;
     try {
@@ -276,9 +463,12 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     }
 
     try {
-      const metadata = await tempHandle.stat();
+      const metadata = await tempHandle.stat({ bigint: true });
       if (!metadata.isFile()) {
         throw new Error('Attachment temp path must be a regular file');
+      }
+      if (!sameBigIntFile(metadata, ownedReservation.tempIdentity)) {
+        throw new Error('Attachment temp reservation identity changed before publishing');
       }
       if (BigInt(metadata.size) !== sizeBytes) {
         throw new Error('Attachment size does not match the temp file');
@@ -295,15 +485,16 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       await this.ensureHashDirectories(contentHash);
       const stagingPath = join(finalDirectory, `.${contentHash}.${randomUUID()}.tmp`);
 
+      await this.assertTempReservationActive(reservation);
       await rename(tempPath, stagingPath);
       let created = false;
       try {
         try {
           await link(stagingPath, finalPath);
           created = true;
-          const published = await lstat(finalPath);
-          const opened = await tempHandle.stat();
-          if (!published.isFile() || !sameFile(published, opened)) {
+          const published = await lstat(finalPath, { bigint: true });
+          const opened = await tempHandle.stat({ bigint: true });
+          if (!published.isFile() || !sameBigIntFile(published, opened)) {
             await unlink(finalPath).catch(() => undefined);
             throw new Error('Attachment temp file changed while publishing');
           }
@@ -324,7 +515,11 @@ export class LocalAttachmentStorage implements AttachmentStorage {
 
       return { contentHash, storageKey, sizeBytes, created };
     } finally {
-      await tempHandle.close();
+      try {
+        await tempHandle.close();
+      } finally {
+        await this.releaseTempReservation(reservation);
+      }
     }
   }
 
@@ -434,6 +629,288 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     }
     const filesystem = await statfs(this.root, { bigint: true });
     return filesystem.bavail * filesystem.bsize;
+  }
+
+  private async lstatBigInt(path: string): Promise<BigIntStats | undefined> {
+    try {
+      return await lstat(path, { bigint: true });
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return undefined;
+      throw error;
+    }
+  }
+
+  private async readReservationSidecar(
+    path: string,
+  ): Promise<{ raw: string; metadata: BigIntStats } | undefined> {
+    let handle: FileHandle;
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return undefined;
+      throw error;
+    }
+    try {
+      const metadata = await handle.stat({ bigint: true });
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 4_096n) {
+        throw new Error('Attachment reservation sidecar is unsafe');
+      }
+      return { raw: await handle.readFile('utf8'), metadata };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private recordMatchesTemp(
+    record: ReservationLeaseRecord,
+    tempPath: string,
+    metadata: Pick<BigIntStats, 'dev' | 'ino'>,
+  ): boolean {
+    return record.tempName === basename(tempPath)
+      && record.device === metadata.dev.toString(10)
+      && record.inode === metadata.ino.toString(10);
+  }
+
+  private async refreshReservationHeartbeat(owned: OwnedTempReservation): Promise<void> {
+    if (owned.releasePromise || this.releasedReservations.has(owned.reservation)) return;
+    if (await this.lstatBigInt(owned.reclaimPath)) {
+      throw new Error('Attachment temp reservation was claimed for cleanup');
+    }
+    const handle = await open(
+      owned.leasePath,
+      constants.O_RDWR | constants.O_NOFOLLOW,
+    );
+    try {
+      const leaseMetadata = await handle.stat({ bigint: true });
+      if (!leaseMetadata.isFile() || !sameBigIntFile(leaseMetadata, owned.leaseIdentity)) {
+        throw new Error('Attachment temp reservation lease identity changed');
+      }
+      const raw = await handle.readFile('utf8');
+      const record = parseReservationLease(raw);
+      const tempMetadata = await this.lstatBigInt(owned.reservation.path);
+      if (
+        !record
+        || record.ownerToken !== owned.reservation.ownerToken
+        || !tempMetadata?.isFile()
+        || tempMetadata.isSymbolicLink()
+        || !sameBigIntFile(tempMetadata, owned.tempIdentity)
+        || !this.recordMatchesTemp(record, owned.reservation.path, tempMetadata)
+      ) {
+        throw new Error('Attachment temp reservation ownership changed');
+      }
+      const next = leaseBytes({
+        ...record,
+        heartbeatAt: new Date(this.now()).toISOString(),
+      });
+      if (next.byteLength !== Buffer.byteLength(raw, 'utf8')) {
+        throw new Error('Attachment temp reservation heartbeat size changed');
+      }
+      const { bytesWritten } = await handle.write(next, 0, next.byteLength, 0);
+      if (bytesWritten !== next.byteLength) {
+        throw new Error('Attachment temp reservation heartbeat write was incomplete');
+      }
+      await handle.sync();
+      const currentLease = await this.lstatBigInt(owned.leasePath);
+      if (
+        !currentLease?.isFile()
+        || !sameBigIntFile(currentLease, owned.leaseIdentity)
+        || await this.lstatBigInt(owned.reclaimPath)
+      ) {
+        throw new Error('Attachment temp reservation lease was claimed during heartbeat');
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async assertTempReservationActive(
+    reservation: AttachmentTempReservation,
+  ): Promise<OwnedTempReservation> {
+    const owned = this.activeReservations.get(reservation);
+    if (!owned || this.releasedReservations.has(reservation)) {
+      throw new Error('A matching active attachment temp reservation is required');
+    }
+    if (owned.heartbeatFailure) {
+      throw errorWithCause(
+        'Attachment temp reservation heartbeat failed',
+        owned.heartbeatFailure,
+      );
+    }
+    if (owned.heartbeatPromise) await owned.heartbeatPromise;
+    const [lease, reclaim, tempMetadata] = await Promise.all([
+      this.readReservationSidecar(owned.leasePath),
+      this.lstatBigInt(owned.reclaimPath),
+      this.lstatBigInt(reservation.path),
+    ]);
+    const record = lease && parseReservationLease(lease.raw);
+    if (
+      reclaim
+      || !lease
+      || !sameBigIntFile(lease.metadata, owned.leaseIdentity)
+      || !record
+      || record.ownerToken !== reservation.ownerToken
+      || !tempMetadata?.isFile()
+      || tempMetadata.isSymbolicLink()
+      || !sameBigIntFile(tempMetadata, owned.tempIdentity)
+      || !this.recordMatchesTemp(record, reservation.path, tempMetadata)
+    ) {
+      throw new Error('Attachment temp reservation ownership changed');
+    }
+    return owned;
+  }
+
+  private async releaseOwnedTempReservation(owned: OwnedTempReservation): Promise<void> {
+    if (owned.timer) this.cancelInterval(owned.timer);
+    owned.timer = undefined;
+    if (owned.heartbeatPromise) {
+      await owned.heartbeatPromise.catch(() => undefined);
+    }
+    this.activeReservations.delete(owned.reservation);
+    this.releasedReservations.add(owned.reservation);
+    if (await this.lstatBigInt(owned.reclaimPath)) {
+      throw new Error('Attachment temp reservation was claimed for cleanup');
+    }
+
+    let cleanupError: unknown;
+    const tempMetadata = await this.lstatBigInt(owned.reservation.path).catch((error) => {
+      cleanupError = error;
+      return undefined;
+    });
+    if (tempMetadata) {
+      if (
+        !tempMetadata.isFile()
+        || tempMetadata.isSymbolicLink()
+        || !sameBigIntFile(tempMetadata, owned.tempIdentity)
+      ) {
+        cleanupError = new Error('Attachment temp reservation identity changed before release');
+      } else {
+        await unlink(owned.reservation.path).catch((error) => { cleanupError ??= error; });
+      }
+    }
+    for (const path of [owned.leasePath, owned.reclaimPath]) {
+      const metadata = await this.lstatBigInt(path).catch((error) => {
+        cleanupError ??= error;
+        return undefined;
+      });
+      if (!metadata) continue;
+      if (
+        !metadata.isFile()
+        || metadata.isSymbolicLink()
+        || !sameBigIntFile(metadata, owned.leaseIdentity)
+      ) {
+        cleanupError ??= new Error('Attachment temp reservation sidecar identity changed');
+        continue;
+      }
+      await unlink(path).catch((error) => { cleanupError ??= error; });
+    }
+    await this.syncDirectory(this.tempRoot).catch((error) => { cleanupError ??= error; });
+    if (cleanupError) throw cleanupError;
+  }
+
+  private async cleanupExpiredTempReservation(
+    tempPath: string,
+    cutoff: Date,
+  ): Promise<boolean> {
+    const cutoffMs = cutoff.getTime();
+    const initialTemp = await this.lstatBigInt(tempPath);
+    if (!initialTemp?.isFile() || initialTemp.isSymbolicLink()) return false;
+    const leasePath = `${tempPath}.lease`;
+    const reclaimPath = `${tempPath}.reclaim`;
+    let claim = await this.readReservationSidecar(reclaimPath);
+
+    if (!claim) {
+      const lease = await this.readReservationSidecar(leasePath);
+      const parsed = lease && parseReservationLease(lease.raw);
+      if (parsed) {
+        if (!this.recordMatchesTemp(parsed, tempPath, initialTemp)) return false;
+        if (Date.parse(parsed.heartbeatAt) > cutoffMs) return false;
+      } else if (Number(initialTemp.mtimeMs) > cutoffMs) {
+        return false;
+      }
+
+      if (lease) {
+        try {
+          await link(leasePath, reclaimPath);
+        } catch (error) {
+          if (!isNodeError(error, 'EEXIST')) throw error;
+        }
+        claim = await this.readReservationSidecar(reclaimPath);
+        const currentLease = await this.lstatBigInt(leasePath);
+        if (
+          !claim
+          || !sameBigIntFile(claim.metadata, lease.metadata)
+          || !currentLease
+          || !sameBigIntFile(currentLease, lease.metadata)
+        ) return false;
+        await unlink(leasePath);
+      } else {
+        let claimHandle: FileHandle;
+        try {
+          claimHandle = await open(
+            reclaimPath,
+            constants.O_CREAT |
+              constants.O_EXCL |
+              constants.O_RDWR |
+              constants.O_NOFOLLOW,
+            0o600,
+          );
+        } catch (error) {
+          if (isNodeError(error, 'EEXIST')) return false;
+          throw error;
+        }
+        try {
+          await claimHandle.writeFile(`${JSON.stringify({
+            claim: 'missing-lease',
+            device: initialTemp.dev.toString(10),
+            inode: initialTemp.ino.toString(10),
+          })}\n`);
+          await claimHandle.sync();
+        } finally {
+          await claimHandle.close();
+        }
+        claim = await this.readReservationSidecar(reclaimPath);
+      }
+      await this.syncDirectory(this.tempRoot);
+    }
+
+    if (!claim) return false;
+    await this.dependencies.beforeReservationReap?.('after-claim', tempPath);
+    const claimedRecord = parseReservationLease(claim.raw);
+    const claimedTemp = await this.lstatBigInt(tempPath);
+    if (!claimedTemp?.isFile() || claimedTemp.isSymbolicLink()) return false;
+    const eligible = claimedRecord
+      ? this.recordMatchesTemp(claimedRecord, tempPath, claimedTemp)
+        && Date.parse(claimedRecord.heartbeatAt) <= cutoffMs
+      : Number(claimedTemp.mtimeMs) <= cutoffMs;
+    if (!eligible || !sameBigIntFile(claimedTemp, initialTemp)) return false;
+
+    await this.dependencies.beforeReservationReap?.('before-unlink', tempPath);
+    const [leaseAfterClaim, finalClaim, finalTemp] = await Promise.all([
+      this.lstatBigInt(leasePath),
+      this.readReservationSidecar(reclaimPath),
+      this.lstatBigInt(tempPath),
+    ]);
+    if (
+      leaseAfterClaim
+      || !finalClaim
+      || finalClaim.raw !== claim.raw
+      || !sameBigIntFile(finalClaim.metadata, claim.metadata)
+      || !finalTemp?.isFile()
+      || finalTemp.isSymbolicLink()
+      || !sameBigIntFile(finalTemp, initialTemp)
+    ) return false;
+    const finalRecord = parseReservationLease(finalClaim.raw);
+    if (
+      finalRecord
+        ? !this.recordMatchesTemp(finalRecord, tempPath, finalTemp)
+          || Date.parse(finalRecord.heartbeatAt) > cutoffMs
+        : Number(finalTemp.mtimeMs) > cutoffMs
+    ) return false;
+
+    await unlink(tempPath);
+    await unlink(reclaimPath);
+    await this.syncDirectory(this.tempRoot);
+    return true;
   }
 
   private async acquireLockDirectory(

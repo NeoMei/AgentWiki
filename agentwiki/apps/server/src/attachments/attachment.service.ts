@@ -1,4 +1,3 @@
-import { unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
@@ -12,6 +11,8 @@ import {
   ATTACHMENT_STORAGE,
   type AttachmentContentLease,
   type AttachmentStorage,
+  type AttachmentTempReservation,
+  type StoredUpload,
   type StoredAttachment,
 } from './attachment-storage';
 import {
@@ -169,6 +170,10 @@ export class AttachmentService {
     file: Express.Multer.File,
     principal: Principal,
   ): Promise<AttachmentSummary> {
+    const reservation = (file as Partial<StoredUpload>).attachmentTempReservation;
+    if (!reservation || reservation.path !== file.path) {
+      throw new Error('A matching attachment temp reservation is required');
+    }
     try {
       await this.assertWritableHuman(this.prisma, principal, spaceId);
       let prepared: PreparedAttachment;
@@ -195,14 +200,11 @@ export class AttachmentService {
           normalizedPrepared,
           principal,
           lease,
+          reservation,
         ),
       );
     } finally {
-      if (file?.path) {
-        await unlink(file.path).catch((error: unknown) => {
-          if (!isNodeError(error, 'ENOENT')) throw error;
-        });
-      }
+      await this.storage.releaseTempReservation(reservation);
     }
   }
 
@@ -284,11 +286,12 @@ export class AttachmentService {
     prepared: PreparedAttachment,
     principal: Principal,
     lease: AttachmentContentLease,
+    reservation: AttachmentTempReservation,
   ): Promise<AttachmentSummary> {
     let stored: StoredAttachment | undefined;
     try {
       stored = await this.storage.publish(
-        prepared.tempPath,
+        reservation,
         prepared.contentHash,
         prepared.sizeBytes,
         lease,

@@ -89,26 +89,76 @@ describe('AttachmentUploadStorage', () => {
     }
   });
 
-  it('uses a fixed transaction-scoped PostgreSQL advisory lock with a bounded allocation timeout', async () => {
+  it('releases a losing try-lock transaction before bounded backoff and retries the fixed key', async () => {
     const events: string[] = [];
+    let attempt = 0;
+    let transactionActive = false;
+    let now = 1_000;
     const tx = {
-      $executeRawUnsafe: jest.fn(async () => { events.push('advisory-lock'); }),
+      $queryRawUnsafe: jest.fn(async () => {
+        events.push('try-lock');
+        attempt += 1;
+        return [{ acquired: attempt > 1 }];
+      }),
+    };
+    const prisma = {
+      $transaction: jest.fn(async (work: (client: typeof tx) => Promise<unknown>) => {
+        transactionActive = true;
+        events.push('transaction-start');
+        try {
+          return await work(tx);
+        } finally {
+          events.push('transaction-end');
+          transactionActive = false;
+        }
+      }),
+    };
+    const coordinator = new PostgresAttachmentCapacityCoordinator(prisma as any, {
+      timeoutMs: 100,
+      now: () => now,
+      random: () => 0,
+      sleep: async (delayMs: number) => {
+        expect(transactionActive).toBe(false);
+        events.push(`backoff:${delayMs}`);
+        now += delayMs;
+      },
+    });
+
+    await coordinator.withLock(async () => { events.push('reservation'); });
+
+    expect(events).toEqual([
+      'transaction-start', 'try-lock', 'transaction-end', 'backoff:10',
+      'transaction-start', 'try-lock', 'reservation', 'transaction-end',
+    ]);
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledWith(
+      'SELECT pg_try_advisory_xact_lock(1096243028, 1) AS acquired',
+    );
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { maxWait: 5_000, timeout: 120_000 },
+    );
+  });
+
+  it('fails closed after the bounded try-lock deadline without running allocation', async () => {
+    let now = 1_000;
+    const tx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{ acquired: false }]),
     };
     const prisma = {
       $transaction: jest.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)),
     };
-    const coordinator = new PostgresAttachmentCapacityCoordinator(prisma as any);
+    const allocation = jest.fn();
+    const coordinator = new PostgresAttachmentCapacityCoordinator(prisma as any, {
+      timeoutMs: 20,
+      now: () => now,
+      random: () => 0,
+      sleep: async (delayMs: number) => { now += delayMs; },
+    });
 
-    await coordinator.withLock(async () => { events.push('reservation'); });
+    await expect(coordinator.withLock(allocation)).rejects.toThrow('capacity admission');
 
-    expect(events).toEqual(['advisory-lock', 'reservation']);
-    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
-      'SELECT pg_advisory_xact_lock(1096243028, 1)',
-    );
-    expect(prisma.$transaction).toHaveBeenCalledWith(
-      expect.any(Function),
-      { maxWait: 30_000, timeout: 120_000 },
-    );
+    expect(allocation).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
   it('streams an exact-limit upload into a private storage temp file', async () => {

@@ -1,11 +1,15 @@
 import { constants } from 'node:fs';
-import { lstat, open, unlink } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Request } from 'express';
 import type { StorageEngine } from 'multer';
 import type { AttachmentConfig } from './attachment.config';
-import type { AttachmentStorage } from './attachment-storage';
+import type {
+  AttachmentStorage,
+  AttachmentTempReservation,
+  StoredUpload,
+} from './attachment-storage';
 import { PrismaService } from '../database/prisma.service';
 
 type StorageCallback = (
@@ -34,25 +38,72 @@ export interface AttachmentCapacityCoordinator {
   withLock<T>(work: () => Promise<T>): Promise<T>;
 }
 
+interface CapacityCoordinatorDependencies {
+  timeoutMs?: number;
+  now?: () => number;
+  random?: () => number;
+  sleep?: (delayMs: number) => Promise<void>;
+}
+
+const CAPACITY_LOCK_SQL =
+  'SELECT pg_try_advisory_xact_lock(1096243028, 1) AS acquired';
+const CAPACITY_TRANSACTION_OPTIONS = { maxWait: 5_000, timeout: 120_000 } as const;
+
 export class PostgresAttachmentCapacityCoordinator
 implements AttachmentCapacityCoordinator {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly timeoutMs: number;
+  private readonly now: () => number;
+  private readonly random: () => number;
+  private readonly sleep: (delayMs: number) => Promise<void>;
 
-  withLock<T>(work: () => Promise<T>): Promise<T> {
-    return this.prisma.$transaction(async (transaction) => {
-      await transaction.$executeRawUnsafe(
-        'SELECT pg_advisory_xact_lock(1096243028, 1)',
-      );
-      return work();
-    }, {
-      maxWait: 30_000,
-      timeout: 120_000,
-    });
+  constructor(
+    private readonly prisma: PrismaService,
+    dependencies: CapacityCoordinatorDependencies = {},
+  ) {
+    this.timeoutMs = dependencies.timeoutMs ?? 30_000;
+    this.now = dependencies.now ?? Date.now;
+    this.random = dependencies.random ?? Math.random;
+    this.sleep = dependencies.sleep ?? ((delayMs) =>
+      new Promise<void>((resolveWait) => setTimeout(resolveWait, delayMs)));
+  }
+
+  async withLock<T>(work: () => Promise<T>): Promise<T> {
+    const deadline = this.now() + this.timeoutMs;
+    let delayMs = 10;
+    let attempted = false;
+    for (;;) {
+      if (attempted && this.now() >= deadline) {
+        throw new Error('Timed out acquiring attachment capacity admission lock');
+      }
+      attempted = true;
+      const attempt = await this.prisma.$transaction(async (transaction) => {
+        const rows = await transaction.$queryRawUnsafe<Array<{ acquired: boolean }>>(
+          CAPACITY_LOCK_SQL,
+        );
+        if (rows.length !== 1 || typeof rows[0]?.acquired !== 'boolean') {
+          throw new Error('Attachment capacity admission lock returned an invalid result');
+        }
+        if (!rows[0].acquired) return { acquired: false } as const;
+        return { acquired: true, value: await work() } as const;
+      }, CAPACITY_TRANSACTION_OPTIONS);
+      if (attempt.acquired) return attempt.value;
+
+      const remainingMs = deadline - this.now();
+      if (remainingMs <= 0) {
+        throw new Error('Timed out acquiring attachment capacity admission lock');
+      }
+      const jittered = Math.max(1, Math.floor(delayMs * (1 + this.random() * 0.25)));
+      await this.sleep(Math.min(jittered, remainingMs));
+      delayMs = Math.min(delayMs * 2, 250);
+    }
   }
 }
 
 export class AttachmentUploadStorage implements StorageEngine {
-  private readonly pendingPaths = new WeakMap<Express.Multer.File, string>();
+  private readonly pendingReservations = new WeakMap<
+    Express.Multer.File,
+    AttachmentTempReservation
+  >();
 
   constructor(
     private readonly storage: AttachmentStorage,
@@ -83,20 +134,21 @@ export class AttachmentUploadStorage implements StorageEngine {
   }
 
   private async store(file: Express.Multer.File): Promise<Partial<Express.Multer.File>> {
-    let tempPath: string | undefined;
+    let reservation: AttachmentTempReservation | undefined;
     let handle;
     let size = 0n;
     try {
       await this.capacity.withLock(async () => {
-        tempPath = await this.storage.createReservedTempPath(
+        reservation = await this.storage.createReservedTempPath(
           this.config.maxFileBytes,
           this.config.minFreeBytes,
         );
       });
-      if (!tempPath) {
+      if (!reservation) {
         throw new Error('Attachment capacity reservation did not return a temp path');
       }
-      this.pendingPaths.set(file, tempPath);
+      const tempPath = reservation.path;
+      this.pendingReservations.set(file, reservation);
       handle = await open(
         tempPath,
         constants.O_RDWR | constants.O_NOFOLLOW,
@@ -149,15 +201,12 @@ export class AttachmentUploadStorage implements StorageEngine {
         mimetype: file.mimetype,
         path: tempPath,
         size: Number(size),
-      };
+        attachmentTempReservation: reservation,
+      } as Partial<StoredUpload>;
     } catch (error) {
-      this.pendingPaths.delete(file);
-      if (tempPath) {
-        await unlink(tempPath).catch((unlinkError: unknown) => {
-          if (!isNodeError(unlinkError, 'ENOENT')) {
-            throw unlinkError;
-          }
-        });
+      this.pendingReservations.delete(file);
+      if (reservation) {
+        await this.storage.releaseTempReservation(reservation);
       }
       throw error;
     } finally {
@@ -170,15 +219,15 @@ export class AttachmentUploadStorage implements StorageEngine {
   }
 
   private async remove(file: Express.Multer.File): Promise<void> {
-    const tempPath = this.pendingPaths.get(file);
-    if (!tempPath || file.path !== tempPath) {
+    const reservation = this.pendingReservations.get(file);
+    if (!reservation || file.path !== reservation.path) {
       throw new Error('Invalid attachment temp path');
     }
-    const metadata = await lstat(tempPath);
+    const metadata = await lstat(reservation.path);
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
       throw new Error('Attachment temp path must not be a symbolic link');
     }
-    await unlink(tempPath);
-    this.pendingPaths.delete(file);
+    await this.storage.releaseTempReservation(reservation);
+    this.pendingReservations.delete(file);
   }
 }

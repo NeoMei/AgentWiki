@@ -83,6 +83,73 @@ function createAdminClient(databaseUrl) {
   return new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
 }
 
+test('capacity lock contenders release a two-connection pool for unrelated PostgreSQL work', {
+  skip: baseDatabaseUrl
+    ? false
+    : 'MARKDOWN_TEST_DATABASE_URL is required; run the dedicated gate to satisfy acceptance',
+  timeout: 180_000,
+}, async () => {
+  let generatedSchema;
+  await withMarkdownTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    generatedSchema = schemaName;
+    const pooledUrl = new URL(databaseUrl);
+    pooledUrl.searchParams.set('connection_limit', '2');
+    pooledUrl.searchParams.set('pool_timeout', '2');
+    const prisma = new PrismaClient({ datasources: { db: { url: pooledUrl.href } } });
+    const { PostgresAttachmentCapacityCoordinator } = await import(
+      '../apps/server/dist/attachments/attachment-upload.storage.js'
+    );
+    const coordinator = new PostgresAttachmentCapacityCoordinator(prisma);
+    let releaseWinner;
+    let signalWinner;
+    const winnerEntered = new Promise((resolve) => { signalWinner = resolve; });
+    const winnerRelease = new Promise((resolve) => { releaseWinner = resolve; });
+    let winner;
+    let contenders = [];
+    let unrelatedQuery;
+    try {
+      winner = coordinator.withLock(async () => {
+        signalWinner();
+        await winnerRelease;
+        return 'winner';
+      });
+      await winnerEntered;
+      contenders = Array.from({ length: 3 }, (_, index) =>
+        coordinator.withLock(async () => `contender-${index}`));
+      await delay(100);
+
+      const timeout = Symbol('unrelated-query-timeout');
+      unrelatedQuery = prisma.$queryRawUnsafe('SELECT 1::int AS value');
+      const unrelated = await Promise.race([
+        unrelatedQuery,
+        delay(750).then(() => timeout),
+      ]);
+
+      assert.notEqual(
+        unrelated,
+        timeout,
+        'advisory lock waiters must not occupy both pool connections',
+      );
+      assert.deepEqual(unrelated, [{ value: 1 }]);
+    } finally {
+      releaseWinner?.();
+      await Promise.allSettled([winner, unrelatedQuery, ...contenders].filter(Boolean));
+      await prisma.$disconnect();
+    }
+  });
+
+  const admin = createAdminClient(baseDatabaseUrl);
+  try {
+    const [cleanup] = await admin.$queryRawUnsafe(
+      'SELECT count(*)::int AS schema_count FROM pg_namespace WHERE nspname = $1',
+      generatedSchema,
+    );
+    assert.equal(cleanup.schema_count, 0);
+  } finally {
+    await admin.$disconnect();
+  }
+});
+
 test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup race', {
   skip: baseDatabaseUrl
     ? false
@@ -270,6 +337,11 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         }).then((result) => result._sum.sizeBytes),
         BigInt(PNG.length * 2),
         'quota must count logical metadata bytes despite physical dedupe',
+      );
+      assert.deepEqual(
+        await readdir(join(storageRoot, '.tmp')),
+        [],
+        'successful, denied, invalid, and quota-failed uploads must leave no temp lease sidecars',
       );
 
       for (const token of [owner.token, editor.token, viewer.token, agentToken]) {

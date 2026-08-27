@@ -114,6 +114,10 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async runTick(): Promise<void> {
     if (this.shuttingDown) return;
     const now = Date.now();
+    await this.storage.cleanupExpiredTempReservations(
+      new Date(now - this.attachmentConfig.orphanGraceMs),
+    );
+    if (this.shuttingDown) return;
     await this.cleanupArchived(new Date(now - this.attachmentConfig.retentionMs));
     if (this.shuttingDown) return;
     await this.cleanupOrphans(new Date(now - this.attachmentConfig.orphanGraceMs));
