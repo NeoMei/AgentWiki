@@ -263,7 +263,7 @@ describe('PageEditor remote update safety', () => {
           id: 'page-2',
           title: 'Second page',
           content: 'Second content',
-          capabilities: { canEdit: true },
+          capabilities: { canEdit: true, canManageAttachments: true },
         }) } as any);
       }
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
@@ -330,7 +330,7 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page({
       title: 'Self preview',
       content: '![[Self preview]]',
-      capabilities: { canEdit: true },
+      capabilities: { canEdit: true, canManageAttachments: true },
     }) });
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === '/pages/page-1') {
@@ -904,7 +904,7 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('shows the attachment picker only for an authorized Markdown editor in edit mode', async () => {
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     const first = renderEditor();
     const trigger = await screen.findByRole('button', { name: 'Image attachments' });
     expect(trigger).toBeInTheDocument();
@@ -919,7 +919,7 @@ describe('PageEditor remote update safety', () => {
     expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
     cleanup();
 
-    queuePages({ data: page({ format: 'html', capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ format: 'html', capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByDisplayValue('Original title');
     expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
@@ -929,7 +929,7 @@ describe('PageEditor remote update safety', () => {
     attachmentMocks.listAttachments.mockResolvedValue({
       items: [attachment('diagram.png')], total: 1, skip: 0, take: 20,
     });
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     const trigger = await screen.findByRole('button', { name: 'Image attachments' });
     const view = currentEditorView();
@@ -945,9 +945,38 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
+  it('keeps page editing available while hiding and blocking attachments without the dedicated capability', async () => {
+    queuePages({ data: page({
+      capabilities: { canEdit: true, canManageAttachments: false },
+    }) });
+    renderEditor();
+
+    await screen.findByRole('button', { name: 'Save' });
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    editContent('Admin page edit');
+    const paste = pasteImage(new File(['png'], 'blocked.png', { type: 'image/png' }));
+
+    expect(paste.defaultPrevented).toBe(true);
+    expect(attachmentMocks.uploadAttachment).not.toHaveBeenCalled();
+    expect(contentEditorValue()).toBe('Admin page edit');
+  });
+
+  it('enables attachment picker and paste for the dedicated owner/editor capability', async () => {
+    attachmentMocks.uploadAttachment.mockResolvedValue(attachment('allowed.png'));
+    queuePages({ data: page({
+      capabilities: { canEdit: true, canManageAttachments: true },
+    }) });
+    renderEditor();
+
+    expect(await screen.findByRole('button', { name: 'Image attachments' })).toBeEnabled();
+    pasteImage(new File(['png'], 'allowed.png', { type: 'image/png' }));
+
+    await waitFor(() => expect(attachmentMocks.uploadAttachment).toHaveBeenCalledTimes(1));
+  });
+
   it('picker upload inserts the final suffixed server name and enables save', async () => {
     attachmentMocks.uploadAttachment.mockResolvedValue(attachment('diagram-2.png'));
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     fireEvent.click(await screen.findByRole('button', { name: 'Image attachments' }));
     const localFile = new File(['png'], 'diagram.png', { type: 'image/png' });
@@ -963,7 +992,7 @@ describe('PageEditor remote update safety', () => {
     attachmentMocks.uploadAttachment
       .mockResolvedValueOnce(attachment('first-2.png'))
       .mockResolvedValueOnce(attachment('second.gif', { mimeType: 'image/gif' }));
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     const first = new File(['one'], 'first.png', { type: 'image/png' });
@@ -985,7 +1014,7 @@ describe('PageEditor remote update safety', () => {
     attachmentMocks.uploadAttachment
       .mockResolvedValueOnce(attachment('first.png'))
       .mockRejectedValueOnce(new Error('second upload failed'));
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
 
@@ -1001,7 +1030,7 @@ describe('PageEditor remote update safety', () => {
   });
 
   it('remote conflict removes attachment entry points and refuses a new paste upload', async () => {
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     editContent('Local draft');
@@ -1025,7 +1054,7 @@ describe('PageEditor remote update safety', () => {
       signal = options?.signal;
       return upload.promise;
     });
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
@@ -1043,7 +1072,7 @@ describe('PageEditor remote update safety', () => {
     const save = deferred<{ data: ReturnType<typeof page> }>();
     attachmentMocks.uploadAttachment.mockImplementation(() => upload.promise);
     vi.mocked(api.patch).mockImplementation(() => save.promise as any);
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     editContent('Local draft');
@@ -1060,7 +1089,7 @@ describe('PageEditor remote update safety', () => {
   it('remote conflict suppresses an already in-flight paste upload', async () => {
     const upload = deferred<ReturnType<typeof attachment>>();
     attachmentMocks.uploadAttachment.mockImplementation(() => upload.promise);
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     editContent('Local draft');
@@ -1085,9 +1114,9 @@ describe('PageEditor remote update safety', () => {
     });
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
-      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true } }) } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) } as any);
       return Promise.resolve({ data: page({
-        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true },
+        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true, canManageAttachments: true },
       }) } as any);
     });
     render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
@@ -1111,8 +1140,8 @@ describe('PageEditor remote update safety', () => {
       return upload.promise;
     });
     queuePages(
-      { data: page({ capabilities: { canEdit: true } }) },
-      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
+      { data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) },
+      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true, canManageAttachments: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
     );
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
@@ -1135,11 +1164,11 @@ describe('PageEditor remote update safety', () => {
       return upload.promise;
     });
     queuePages(
-      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) },
       { data: page({
         title: 'Refreshed title',
         content: 'Completely replaced remote content',
-        capabilities: { canEdit: true },
+        capabilities: { canEdit: true, canManageAttachments: true },
         updatedAt: '2026-08-28T09:30:00.000Z',
       }) },
     );
@@ -1161,9 +1190,9 @@ describe('PageEditor remote update safety', () => {
     attachmentMocks.uploadAttachment.mockRejectedValueOnce(new Error('upload failed'));
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
-      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true } }) } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) } as any);
       return Promise.resolve({ data: page({
-        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true },
+        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true, canManageAttachments: true },
       }) } as any);
     });
     render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
@@ -1180,12 +1209,12 @@ describe('PageEditor remote update safety', () => {
   it('clears an attachment failure when the same page moves to another Space', async () => {
     attachmentMocks.uploadAttachment.mockRejectedValueOnce(new Error('upload failed'));
     queuePages(
-      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) },
       { data: page({
         title: 'Moved page',
         content: 'Moved content',
         spaceId: 'space-2',
-        capabilities: { canEdit: true },
+        capabilities: { canEdit: true, canManageAttachments: true },
         updatedAt: '2026-08-28T09:00:00.000Z',
       }) },
     );
@@ -1202,17 +1231,17 @@ describe('PageEditor remote update safety', () => {
 
   it('does not clear a normal save success when the same page changes Space', async () => {
     queuePages(
-      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) },
       { data: page({
         title: 'Moved page',
         content: 'Local draft',
         spaceId: 'space-2',
-        capabilities: { canEdit: true },
+        capabilities: { canEdit: true, canManageAttachments: true },
         updatedAt: '2026-08-28T10:30:00.000Z',
       }) },
     );
     vi.mocked(api.patch).mockResolvedValue({
-      data: page({ content: 'Local draft', capabilities: { canEdit: true }, updatedAt: '2026-08-28T10:00:00.000Z' }),
+      data: page({ content: 'Local draft', capabilities: { canEdit: true, canManageAttachments: true }, updatedAt: '2026-08-28T10:00:00.000Z' }),
     } as any);
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
@@ -1229,8 +1258,8 @@ describe('PageEditor remote update safety', () => {
   it('keeps the live workspace usable for a new upload after a Space change', async () => {
     attachmentMocks.uploadAttachment.mockResolvedValue(attachment('new-space.png', { spaceId: 'space-2' }));
     queuePages(
-      { data: page({ capabilities: { canEdit: true } }) },
-      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
+      { data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) },
+      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true, canManageAttachments: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
     );
     renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
@@ -1253,7 +1282,7 @@ describe('PageEditor remote update safety', () => {
       signal = options?.signal;
       return upload.promise;
     });
-    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
     const rendered = renderEditor();
     await screen.findByRole('button', { name: 'Image attachments' });
     pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));

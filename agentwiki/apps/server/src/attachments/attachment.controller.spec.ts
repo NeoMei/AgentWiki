@@ -138,7 +138,10 @@ describe('attachment controllers', () => {
     expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
     expect(response.setHeader).toHaveBeenCalledWith('Content-Length', '42');
     expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
-    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', expect.stringContaining('private'));
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    expect(response.setHeader).not.toHaveBeenCalledWith(
+      'Cache-Control', expect.stringMatching(/max-age|immutable/u),
+    );
     expect(response.setHeader).toHaveBeenCalledWith('ETag', `"${'a'.repeat(64)}"`);
     expect(response.setHeader).not.toHaveBeenCalledWith(
       expect.anything(), expect.stringContaining('storageKey'),

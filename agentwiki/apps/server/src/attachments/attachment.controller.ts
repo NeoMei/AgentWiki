@@ -98,7 +98,7 @@ export class AttachmentContentController {
     response.setHeader('Content-Length', content.sizeBytes.toString(10));
     response.setHeader('Content-Disposition', contentDisposition(content.displayName));
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'private, max-age=3600, immutable');
+    response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('ETag', `"${content.contentHash}"`);
     return new StreamableFile(content.stream as Readable);
   }

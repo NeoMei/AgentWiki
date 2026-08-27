@@ -29,6 +29,19 @@ interface OwnedContentLock {
   token: string;
 }
 
+type LockDirectorySyncStage = 'after-mkdir' | 'after-owner';
+
+interface LocalAttachmentStorageDependencies {
+  availableBytes?: () => Promise<bigint>;
+  writeReservation?: (handle: FileHandle, reservedBytes: bigint) => Promise<void>;
+  writeLockOwner?: (handle: FileHandle, token: string) => Promise<void>;
+  syncLockOwner?: (handle: FileHandle) => Promise<void>;
+  syncLockDirectory?: (
+    handle: FileHandle,
+    stage: LockDirectorySyncStage,
+  ) => Promise<void>;
+}
+
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
   return (
     typeof error === 'object' &&
@@ -128,13 +141,33 @@ function sameFile(left: Stats, right: Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+async function writeReservation(handle: FileHandle, reservedBytes: bigint): Promise<void> {
+  if (reservedBytes > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('Attachment reservation size must be a safe integer');
+  }
+  const chunk = Buffer.alloc(1024 * 1024, 0xa5);
+  let offset = 0;
+  const total = Number(reservedBytes);
+  while (offset < total) {
+    const length = Math.min(chunk.length, total - offset);
+    const { bytesWritten } = await handle.write(chunk, 0, length, offset);
+    if (bytesWritten !== length) {
+      throw new Error('Attachment reservation write was incomplete');
+    }
+    offset += bytesWritten;
+  }
+}
+
 export class LocalAttachmentStorage implements AttachmentStorage {
   private readonly root: string;
   private readonly tempRoot: string;
   private readonly lockRoot: string;
   private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
 
-  constructor(private readonly config: AttachmentConfig) {
+  constructor(
+    private readonly config: AttachmentConfig,
+    private readonly dependencies: LocalAttachmentStorageDependencies = {},
+  ) {
     this.root = resolve(config.storagePath);
     this.tempRoot = join(this.root, '.tmp');
     this.lockRoot = join(this.root, '.locks');
@@ -157,6 +190,60 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       await handle.close();
     }
     return tempPath;
+  }
+
+  async createReservedTempPath(
+    reservedBytes: bigint,
+    minFreeBytes: bigint,
+  ): Promise<string> {
+    if (reservedBytes <= 0n || minFreeBytes <= 0n) {
+      throw new Error('Attachment reservation and minimum free space must be positive');
+    }
+    await this.ensureBaseDirectories();
+    const availableBytes = await this.availableBytes();
+    if (availableBytes < reservedBytes + minFreeBytes) {
+      throw new Error('Insufficient attachment storage free space');
+    }
+
+    const tempPath = join(this.tempRoot, `upload-${randomUUID()}.tmp`);
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(
+        tempPath,
+        constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_RDWR |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+      await handle.chmod(0o600);
+      await (this.dependencies.writeReservation ?? writeReservation)(
+        handle,
+        reservedBytes,
+      );
+      const metadata = await handle.stat();
+      if (!metadata.isFile() || BigInt(metadata.size) !== reservedBytes) {
+        throw new Error('Attachment reservation size does not match requested bytes');
+      }
+      await handle.sync();
+      if (await this.availableBytes() < minFreeBytes) {
+        throw new Error('Insufficient attachment storage free space after reservation');
+      }
+      await handle.close();
+      handle = undefined;
+      await this.syncDirectory(this.tempRoot);
+      return tempPath;
+    } catch (error) {
+      await handle?.close().catch((cleanupError: unknown) => {
+        attachCleanupCause(error, cleanupError);
+      });
+      await unlink(tempPath).catch((cleanupError: unknown) => {
+        if (!isNodeError(cleanupError, 'ENOENT')) {
+          attachCleanupCause(error, cleanupError);
+        }
+      });
+      throw error;
+    }
   }
 
   async publish(
@@ -341,6 +428,14 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     await ensurePrivateDirectory(this.lockRoot);
   }
 
+  private async availableBytes(): Promise<bigint> {
+    if (this.dependencies.availableBytes) {
+      return this.dependencies.availableBytes();
+    }
+    const filesystem = await statfs(this.root, { bigint: true });
+    return filesystem.bavail * filesystem.bsize;
+  }
+
   private async acquireLockDirectory(
     lockPath: string,
     timeoutMs: number,
@@ -349,36 +444,83 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     for (;;) {
       try {
         await mkdir(lockPath, { mode: 0o700 });
-        const directoryHandle = await openDirectorySafely(lockPath);
-        try {
-          const metadata = await directoryHandle.stat();
-          if ((metadata.mode & 0o777) !== 0o700) {
-            throw new Error(`Attachment content lock must have mode 0700: ${lockPath}`);
-          }
-          await directoryHandle.sync();
-        } finally {
-          await directoryHandle.close();
-        }
+        let directoryHandle: FileHandle | undefined;
+        let directoryIdentity: Stats | undefined;
+        let ownerHandle: FileHandle | undefined;
+        let ownerIdentity: Stats | undefined;
         const token = randomUUID();
         const ownerPath = join(lockPath, '.owner');
-        const ownerHandle = await open(
-          ownerPath,
-          constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_RDWR |
-            constants.O_NOFOLLOW,
-          0o600,
-        );
         try {
-          await ownerHandle.writeFile(token, 'utf8');
+          directoryHandle = await openDirectorySafely(lockPath);
+          directoryIdentity = await directoryHandle.stat();
+          if ((directoryIdentity.mode & 0o777) !== 0o700) {
+            throw new Error(`Attachment content lock must have mode 0700: ${lockPath}`);
+          }
+          await (this.dependencies.syncLockDirectory
+            ?? ((handle: FileHandle) => handle.sync()))(
+            directoryHandle,
+            'after-mkdir',
+          );
+          ownerHandle = await open(
+            ownerPath,
+            constants.O_CREAT |
+              constants.O_EXCL |
+              constants.O_RDWR |
+              constants.O_NOFOLLOW,
+            0o600,
+          );
+          ownerIdentity = await ownerHandle.stat();
+          await (this.dependencies.writeLockOwner
+            ?? ((handle: FileHandle, value: string) => handle.writeFile(value, 'utf8')))(
+            ownerHandle,
+            token,
+          );
           await ownerHandle.chmod(0o600);
-          await ownerHandle.sync();
-        } finally {
+          await (this.dependencies.syncLockOwner
+            ?? ((handle: FileHandle) => handle.sync()))(ownerHandle);
           await ownerHandle.close();
+          ownerHandle = undefined;
+          await (this.dependencies.syncLockDirectory
+            ?? ((handle: FileHandle) => handle.sync()))(
+            directoryHandle,
+            'after-owner',
+          );
+          await directoryHandle.close();
+          directoryHandle = undefined;
+          await this.syncDirectory(dirname(lockPath));
+          return { lockPath, ownerPath, token };
+        } catch (initializationError) {
+          await ownerHandle?.close().catch((cleanupError: unknown) => {
+            attachCleanupCause(initializationError, cleanupError);
+          });
+          await directoryHandle?.close().catch((cleanupError: unknown) => {
+            attachCleanupCause(initializationError, cleanupError);
+          });
+          try {
+            if (ownerIdentity) {
+              const currentOwner = await lstat(ownerPath).catch((error: unknown) => {
+                if (isNodeError(error, 'ENOENT')) return undefined;
+                throw error;
+              });
+              if (currentOwner && sameFile(ownerIdentity, currentOwner)) {
+                await unlink(ownerPath);
+              }
+            }
+            if (directoryIdentity) {
+              const currentDirectory = await lstat(lockPath).catch((error: unknown) => {
+                if (isNodeError(error, 'ENOENT')) return undefined;
+                throw error;
+              });
+              if (currentDirectory && sameFile(directoryIdentity, currentDirectory)) {
+                await rmdir(lockPath);
+                await this.syncDirectory(dirname(lockPath));
+              }
+            }
+          } catch (cleanupError) {
+            attachCleanupCause(initializationError, cleanupError);
+          }
+          throw initializationError;
         }
-        await this.syncDirectory(lockPath);
-        await this.syncDirectory(dirname(lockPath));
-        return { lockPath, ownerPath, token };
       } catch (error) {
         if (!isNodeError(error, 'EEXIST')) {
           throw error;

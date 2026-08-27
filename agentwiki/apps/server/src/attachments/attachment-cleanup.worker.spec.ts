@@ -130,6 +130,27 @@ describe('AttachmentCleanupWorker', () => {
     worker.onModuleDestroy();
   });
 
+  it('accepts the largest delay supported by Node timers without clamping', () => {
+    const { worker } = createWorker('/tmp/agentwiki-attachment-test-timer-boundary', {
+      pollMs: 2_147_483_647,
+    });
+    const interval = jest.spyOn(global, 'setInterval');
+
+    worker.onModuleInit();
+
+    expect(interval).toHaveBeenCalledWith(expect.any(Function), 2_147_483_647);
+  });
+
+  it('fails closed before scheduling when the configured delay exceeds the Node timer maximum', () => {
+    const { worker } = createWorker('/tmp/agentwiki-attachment-test-timer-overflow', {
+      pollMs: 2_147_483_648,
+    });
+    const interval = jest.spyOn(global, 'setInterval');
+
+    expect(() => worker.onModuleInit()).toThrow('ATTACHMENT_CLEANUP_POLL_MS');
+    expect(interval).not.toHaveBeenCalled();
+  });
+
   it('suppresses an overlapping tick', async () => {
     const root = await createRoot();
     const { worker, prisma } = createWorker(root);

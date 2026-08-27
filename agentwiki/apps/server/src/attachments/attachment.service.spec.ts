@@ -95,6 +95,7 @@ function harness() {
   };
   const storage = {
     createTempPath: jest.fn(),
+    createReservedTempPath: jest.fn(),
     withContentLock: jest.fn(async (hash, work) => {
       const lease = { contentHash: hash };
       activeLease = lease;

@@ -23,7 +23,7 @@ interface Page {
   format: string;
   spaceId: string;
   updatedAt: string;
-  capabilities?: { canEdit?: boolean };
+  capabilities?: { canEdit?: boolean; canManageAttachments?: boolean };
 }
 
 interface ActiveUser {
@@ -139,7 +139,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
-  const attachmentEnabled = page?.capabilities?.canEdit === true
+  const attachmentEnabled = page?.capabilities?.canManageAttachments === true
     && page.id === id
     && page.format === 'markdown'
     && mode === 'edit'

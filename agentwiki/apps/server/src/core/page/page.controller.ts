@@ -96,8 +96,13 @@ export class PageController {
     );
     const canEdit = !principal.agentId
       && (principal.platformRole === 'super_admin' || ['owner', 'admin', 'editor'].includes(String(access.role)));
+    const canManageAttachments = !principal.agentId
+      && (principal.platformRole === 'super_admin' || ['owner', 'editor'].includes(String(access.role)));
     this.logger.log('Finding page: ' + id);
-    return { ...await this.pageService.findOne(id), capabilities: { canEdit } };
+    return {
+      ...await this.pageService.findOne(id),
+      capabilities: { canEdit, canManageAttachments },
+    };
   }
 
   @Get(':id/versions')

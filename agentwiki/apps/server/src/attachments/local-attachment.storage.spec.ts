@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -160,6 +161,73 @@ describe('LocalAttachmentStorage', () => {
     expect((await stat(root)).mode & 0o777).toBe(0o700);
     expect((await stat(join(root, '.tmp'))).mode & 0o777).toBe(0o700);
     expect((await stat(tempPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it('admits the exact free-space boundary and physically reserves the incoming allocation', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 15n,
+    } as any);
+
+    const tempPath = await (storage as any).createReservedTempPath(10n, 5n);
+
+    expect((await stat(tempPath)).size).toBe(10);
+    await rm(tempPath);
+  });
+
+  it('fails closed below the minimum-free boundary without leaving a reservation', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 14n,
+    } as any);
+
+    await expect((storage as any).createReservedTempPath(10n, 5n))
+      .rejects.toThrow('free space');
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
+  });
+
+  it('fails closed and removes the reservation if the post-allocation probe falls below minimum free', async () => {
+    const root = await makeRoot();
+    const available = [15n, 4n];
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => available.shift(),
+    } as any);
+
+    await expect((storage as any).createReservedTempPath(10n, 5n))
+      .rejects.toThrow('free space');
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
+  });
+
+  it('removes a partial reservation when physical allocation fails', async () => {
+    const root = await makeRoot();
+    const failure = new Error('allocation failed');
+    const storage = new LocalAttachmentStorage(config(root), {
+      availableBytes: async () => 15n,
+      writeReservation: async (handle: { write: (...args: any[]) => Promise<unknown> }) => {
+        await handle.write(Buffer.alloc(4), 0, 4, 0);
+        throw failure;
+      },
+    } as any);
+
+    await expect((storage as any).createReservedTempPath(10n, 5n)).rejects.toBe(failure);
+    expect(await readdir(join(root, '.tmp'))).toEqual([]);
+  });
+
+  it.each([
+    ['owner write', { writeLockOwner: async () => { throw new Error('owner write failed'); } }],
+    ['owner file sync', { syncLockOwner: async () => { throw new Error('owner sync failed'); } }],
+    ['lock directory sync', { syncLockDirectory: async (_handle: unknown, stage: string) => {
+      if (stage === 'after-owner') throw new Error('directory sync failed');
+    } }],
+  ] as const)('removes only this attempt partial lock after %s failure', async (_stage, dependencies) => {
+    const root = await makeRoot();
+    const hash = '9'.repeat(64);
+    const lockPath = join(root, '.locks', hash.slice(0, 2), `${hash}.lock`);
+    const storage = new LocalAttachmentStorage(config(root), dependencies as any);
+
+    await expect(storage.withContentLock(hash, async () => undefined)).rejects.toThrow('failed');
+
+    await expect(lstat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('fails closed without chmodding an overly broad pre-existing root', async () => {

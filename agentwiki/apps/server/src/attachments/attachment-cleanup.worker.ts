@@ -20,6 +20,7 @@ const BATCH_SIZE = 100;
 const ORPHAN_SCAN_VISIT_LIMIT = 100;
 const ORPHAN_DELETE_LIMIT = 100;
 const DEFAULT_POLL_MS = 60 * 60 * 1000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const SHARD_PATTERN = /^[0-9a-f]{2}$/u;
 
@@ -48,6 +49,9 @@ function pollInterval(value: unknown): number {
   if (value === undefined || value === null || value === '') return DEFAULT_POLL_MS;
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) return DEFAULT_POLL_MS;
+  if (parsed > MAX_TIMER_DELAY_MS) {
+    throw new Error(`ATTACHMENT_CLEANUP_POLL_MS must be at most ${MAX_TIMER_DELAY_MS}`);
+  }
   return parsed;
 }
 

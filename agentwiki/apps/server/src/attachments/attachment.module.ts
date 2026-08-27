@@ -12,7 +12,11 @@ import {
 } from './attachment.controller';
 import { ATTACHMENT_CONFIG, AttachmentService } from './attachment.service';
 import { ATTACHMENT_STORAGE, type AttachmentStorage } from './attachment-storage';
-import { AttachmentUploadStorage } from './attachment-upload.storage';
+import {
+  AttachmentUploadStorage,
+  PostgresAttachmentCapacityCoordinator,
+} from './attachment-upload.storage';
+import { PrismaService } from '../database/prisma.service';
 import { LocalAttachmentStorage } from './local-attachment.storage';
 
 @Module({
@@ -38,13 +42,18 @@ export class AttachmentStorageModule {}
     SyncModule,
     AttachmentStorageModule,
     MulterModule.registerAsync({
-      imports: [AttachmentStorageModule],
-      inject: [ATTACHMENT_CONFIG, ATTACHMENT_STORAGE],
+      imports: [AttachmentStorageModule, DatabaseModule],
+      inject: [ATTACHMENT_CONFIG, ATTACHMENT_STORAGE, PrismaService],
       useFactory: (
         config: AttachmentConfig,
         storage: AttachmentStorage,
+        prisma: PrismaService,
       ) => ({
-        storage: new AttachmentUploadStorage(storage, config),
+        storage: new AttachmentUploadStorage(
+          storage,
+          config,
+          new PostgresAttachmentCapacityCoordinator(prisma),
+        ),
         limits: {
           files: 1,
           fileSize: Number(config.maxFileBytes),

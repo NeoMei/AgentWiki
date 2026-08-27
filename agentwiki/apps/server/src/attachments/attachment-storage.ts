@@ -13,6 +13,10 @@ export interface AttachmentContentLease {
 
 export interface AttachmentStorage {
   createTempPath(): Promise<string>;
+  createReservedTempPath(
+    reservedBytes: bigint,
+    minFreeBytes: bigint,
+  ): Promise<string>;
   publish(
     tempPath: string,
     contentHash: string,

@@ -295,7 +295,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         assert.equal(content.headers.get('content-type'), 'image/png');
         assert.equal(content.headers.get('content-length'), String(PNG.length));
         assert.equal(content.headers.get('x-content-type-options'), 'nosniff');
-        assert.equal(content.headers.get('cache-control'), 'private, max-age=3600, immutable');
+        assert.equal(content.headers.get('cache-control'), 'private, no-store');
         assert.equal(content.headers.get('etag'), `"${createHash('sha256').update(PNG).digest('hex')}"`);
         assert.match(content.headers.get('content-disposition') ?? '', /Alpha\.png/u);
         assert.deepEqual(Buffer.from(await content.arrayBuffer()), PNG);
@@ -305,6 +305,10 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         token: outsider.token, expected: [403],
       });
       await rawContent(outsider.token, 404);
+      await prisma.spaceMember.delete({
+        where: { userId_spaceId: { userId: viewer.id, spaceId: space.id } },
+      });
+      await rawContent(viewer.token, 404);
       assert.equal(outsiderSpace.members[0].userId, outsider.id);
 
       const archived = (await request(
