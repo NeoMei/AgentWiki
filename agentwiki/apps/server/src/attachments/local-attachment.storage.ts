@@ -5,20 +5,29 @@ import {
   lstat,
   mkdir,
   open,
+  rmdir,
   rename,
   statfs,
   unlink,
   type FileHandle,
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import type { AttachmentConfig } from './attachment.config';
 import type {
   AttachmentStorage,
+  AttachmentContentLease,
   StoredAttachment,
 } from './attachment-storage';
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
+
+interface OwnedContentLock {
+  lockPath: string;
+  ownerPath: string;
+  token: string;
+}
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
   return (
@@ -35,6 +44,23 @@ function errorWithCause(message: string, cause: unknown): Error {
   return error;
 }
 
+function attachCleanupCause(primary: unknown, cleanupError: unknown): void {
+  if (typeof primary !== 'object' || primary === null) {
+    return;
+  }
+  try {
+    const error = primary as { cause?: unknown; attachmentLockCleanupError?: unknown };
+    if (error.cause === undefined) {
+      error.cause = cleanupError;
+    } else {
+      error.attachmentLockCleanupError = cleanupError;
+    }
+  } catch {
+    // A frozen callback error remains the primary failure even when diagnostics
+    // cannot be attached to it.
+  }
+}
+
 async function openDirectorySafely(path: string): Promise<FileHandle> {
   const handle = await open(
     path,
@@ -49,8 +75,10 @@ async function openDirectorySafely(path: string): Promise<FileHandle> {
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
+  let created = false;
   try {
     await mkdir(path, { mode: 0o700 });
+    created = true;
   } catch (error) {
     if (!isNodeError(error, 'EEXIST')) {
       throw error;
@@ -75,7 +103,13 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
     throw error;
   }
   try {
-    await handle.chmod(0o700);
+    const metadata = await handle.stat();
+    if ((metadata.mode & 0o777) !== 0o700) {
+      throw new Error(`Attachment storage directory must have mode 0700: ${path}`);
+    }
+    if (created) {
+      await handle.sync();
+    }
   } finally {
     await handle.close();
   }
@@ -97,10 +131,13 @@ function sameFile(left: Stats, right: Stats): boolean {
 export class LocalAttachmentStorage implements AttachmentStorage {
   private readonly root: string;
   private readonly tempRoot: string;
+  private readonly lockRoot: string;
+  private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
 
-  constructor(config: AttachmentConfig) {
+  constructor(private readonly config: AttachmentConfig) {
     this.root = resolve(config.storagePath);
     this.tempRoot = join(this.root, '.tmp');
+    this.lockRoot = join(this.root, '.locks');
   }
 
   async createTempPath(): Promise<string> {
@@ -126,6 +163,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     tempPath: string,
     contentHash: string,
     sizeBytes: bigint,
+    lease: AttachmentContentLease,
   ): Promise<StoredAttachment> {
     if (!HASH_PATTERN.test(contentHash)) {
       throw new Error('Invalid attachment content hash');
@@ -133,6 +171,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     if (sizeBytes <= 0n) {
       throw new Error('Attachment size must be positive');
     }
+    this.assertLease(lease, contentHash);
     this.assertTempPath(tempPath);
     await this.ensureBaseDirectories();
 
@@ -202,6 +241,48 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     }
   }
 
+  async withContentLock<T>(
+    contentHash: string,
+    work: (lease: AttachmentContentLease) => Promise<T>,
+  ): Promise<T> {
+    if (!HASH_PATTERN.test(contentHash)) {
+      throw new Error('Invalid attachment content hash');
+    }
+    await this.ensureBaseDirectories();
+    const firstShard = join(this.lockRoot, contentHash.slice(0, 2));
+    await ensurePrivateDirectory(firstShard);
+    const lockPath = join(firstShard, `${contentHash}.lock`);
+    const ownedLock = await this.acquireLockDirectory(
+      lockPath,
+      this.config.contentLockTimeoutMs,
+    );
+    const lease = Object.freeze({ contentHash });
+    this.activeLeases.set(lease, ownedLock);
+    let callbackFailed = false;
+    let callbackError: unknown;
+    let result: T | undefined;
+    try {
+      result = await work(lease);
+    } catch (error) {
+      callbackFailed = true;
+      callbackError = error;
+    }
+    this.activeLeases.delete(lease);
+    try {
+      await this.releaseLockDirectory(ownedLock);
+    } catch (cleanupError) {
+      if (callbackFailed) {
+        attachCleanupCause(callbackError, cleanupError);
+        throw callbackError;
+      }
+      throw cleanupError;
+    }
+    if (callbackFailed) {
+      throw callbackError;
+    }
+    return result as T;
+  }
+
   async open(storageKey: string): Promise<NodeJS.ReadableStream> {
     const path = this.pathForStorageKey(storageKey);
     let handle: FileHandle;
@@ -221,8 +302,13 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     return handle.createReadStream({ autoClose: true, start: 0 });
   }
 
-  async removeIfUnreferenced(storageKey: string): Promise<void> {
+  async removeIfUnreferenced(
+    storageKey: string,
+    lease: AttachmentContentLease,
+  ): Promise<void> {
     const path = this.pathForStorageKey(storageKey);
+    const contentHash = storageKey.slice(storageKey.lastIndexOf('/') + 1);
+    this.assertLease(lease, contentHash);
     let metadata;
     try {
       metadata = await lstat(path);
@@ -252,6 +338,100 @@ export class LocalAttachmentStorage implements AttachmentStorage {
   private async ensureBaseDirectories(): Promise<void> {
     await ensurePrivateDirectory(this.root);
     await ensurePrivateDirectory(this.tempRoot);
+    await ensurePrivateDirectory(this.lockRoot);
+  }
+
+  private async acquireLockDirectory(
+    lockPath: string,
+    timeoutMs: number,
+  ): Promise<OwnedContentLock> {
+    const deadline = performance.now() + timeoutMs;
+    for (;;) {
+      try {
+        await mkdir(lockPath, { mode: 0o700 });
+        const directoryHandle = await openDirectorySafely(lockPath);
+        try {
+          const metadata = await directoryHandle.stat();
+          if ((metadata.mode & 0o777) !== 0o700) {
+            throw new Error(`Attachment content lock must have mode 0700: ${lockPath}`);
+          }
+          await directoryHandle.sync();
+        } finally {
+          await directoryHandle.close();
+        }
+        const token = randomUUID();
+        const ownerPath = join(lockPath, '.owner');
+        const ownerHandle = await open(
+          ownerPath,
+          constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_RDWR |
+            constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          await ownerHandle.writeFile(token, 'utf8');
+          await ownerHandle.chmod(0o600);
+          await ownerHandle.sync();
+        } finally {
+          await ownerHandle.close();
+        }
+        await this.syncDirectory(lockPath);
+        await this.syncDirectory(dirname(lockPath));
+        return { lockPath, ownerPath, token };
+      } catch (error) {
+        if (!isNodeError(error, 'EEXIST')) {
+          throw error;
+        }
+        let existing;
+        try {
+          existing = await lstat(lockPath);
+        } catch (statError) {
+          if (isNodeError(statError, 'ENOENT')) {
+            continue;
+          }
+          throw statError;
+        }
+        if (!existing.isDirectory() || existing.isSymbolicLink()) {
+          throw errorWithCause('Attachment content lock path is unsafe', error);
+        }
+        const remainingMs = deadline - performance.now();
+        if (remainingMs <= 0) {
+          throw errorWithCause('Timed out acquiring attachment content lock', error);
+        }
+        await new Promise<void>((resolveWait) =>
+          setTimeout(resolveWait, Math.min(10, remainingMs)),
+        );
+      }
+    }
+  }
+
+  private async releaseLockDirectory(ownedLock: OwnedContentLock): Promise<void> {
+    const ownerHandle = await open(
+      ownedLock.ownerPath,
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+    try {
+      const metadata = await ownerHandle.stat();
+      if (!metadata.isFile() || (metadata.mode & 0o777) !== 0o600) {
+        throw new Error('Attachment content lock ownership file is unsafe');
+      }
+      const token = await ownerHandle.readFile('utf8');
+      if (token !== ownedLock.token) {
+        throw new Error('Attachment content lock ownership changed before release');
+      }
+    } finally {
+      await ownerHandle.close();
+    }
+    await unlink(ownedLock.ownerPath);
+    await rmdir(ownedLock.lockPath);
+    await this.syncDirectory(dirname(ownedLock.lockPath));
+  }
+
+  private assertLease(lease: AttachmentContentLease, contentHash: string): void {
+    if (!this.activeLeases.has(lease) || lease.contentHash !== contentHash) {
+      throw new Error('A matching active attachment content lease is required');
+    }
   }
 
   private async ensureHashDirectories(contentHash: string): Promise<void> {

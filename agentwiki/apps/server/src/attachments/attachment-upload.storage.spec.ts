@@ -28,6 +28,7 @@ function config(storagePath: string, maxFileBytes = 10n): AttachmentConfig {
     minFreeBytes: 1n,
     retentionMs: 30 * 24 * 60 * 60 * 1000,
     orphanGraceMs: 24 * 60 * 60 * 1000,
+    contentLockTimeoutMs: 5_000,
   };
 }
 

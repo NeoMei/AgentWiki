@@ -1,4 +1,6 @@
-import { isAbsolute, join, parse, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { cwd } from 'node:process';
+import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
 const MIB = 1024n * 1024n;
 
@@ -11,6 +13,7 @@ export interface AttachmentConfig {
   minFreeBytes: bigint;
   retentionMs: number;
   orphanGraceMs: number;
+  contentLockTimeoutMs: number;
 }
 
 function positiveBigInt(value: string | undefined, fallback: bigint, name: string): bigint {
@@ -37,13 +40,52 @@ function positiveSafeInteger(value: string | undefined, fallback: number, name: 
   return parsed;
 }
 
-function validateStoragePath(value: string): string {
+function isWithin(path: string, parent: string): boolean {
+  return path === parent || path.startsWith(parent + sep);
+}
+
+function validateStoragePath(value: string, allowGeneratedDevelopmentPath = false): string {
   if (value !== value.trim() || !isAbsolute(value)) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be an absolute path');
   }
   const normalized = resolve(value);
-  if (normalized === parse(normalized).root) {
+  const root = parse(normalized).root;
+  const broadPaths = new Set([
+    root,
+    '/tmp',
+    '/var',
+    resolve(tmpdir()),
+    resolve(homedir()),
+    resolve(cwd()),
+  ]);
+  const pathSegments = normalized.slice(root.length).split(sep).filter(Boolean);
+  if (broadPaths.has(normalized) || pathSegments.length < 3) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be a narrow directory, not a filesystem root');
+  }
+  if (
+    !allowGeneratedDevelopmentPath &&
+    [resolve(tmpdir()), '/tmp', '/private/tmp', resolve(homedir()), resolve(cwd())].some(
+      (parent) => isWithin(normalized, parent),
+    )
+  ) {
+    throw new Error(
+      'ATTACHMENT_STORAGE_PATH must be outside temporary, home, and deployment trees',
+    );
+  }
+  const forbiddenSystemTrees = [
+    '/Applications',
+    '/Library',
+    '/System',
+    '/bin',
+    '/dev',
+    '/etc',
+    '/proc',
+    '/sbin',
+    '/sys',
+    '/usr',
+  ];
+  if (forbiddenSystemTrees.some((parent) => isWithin(normalized, parent))) {
+    throw new Error('ATTACHMENT_STORAGE_PATH must be outside system-managed trees');
   }
   return normalized;
 }
@@ -56,8 +98,14 @@ export function loadAttachmentConfig(
     throw new Error('ATTACHMENT_STORAGE_PATH is required in production');
   }
 
+  const generatedDevelopmentPath = join(tmpdir(), 'agentwiki-development-attachments');
+  const isExactTestRoot =
+    environment.NODE_ENV === 'test' &&
+    configuredPath !== undefined &&
+    basename(configuredPath).startsWith('agentwiki-attachment-test-');
   const storagePath = validateStoragePath(
-    configuredPath ?? join(process.cwd(), '.data', 'attachments'),
+    configuredPath ?? generatedDevelopmentPath,
+    configuredPath === undefined || isExactTestRoot,
   );
   const retentionDays = positiveSafeInteger(
     environment.ATTACHMENT_RETENTION_DAYS,
@@ -99,5 +147,10 @@ export function loadAttachmentConfig(
     ),
     retentionMs: retentionDays * 24 * 60 * 60 * 1000,
     orphanGraceMs: orphanGraceHours * 60 * 60 * 1000,
+    contentLockTimeoutMs: positiveSafeInteger(
+      environment.ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS,
+      5_000,
+      'ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS',
+    ),
   };
 }
