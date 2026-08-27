@@ -39,6 +39,19 @@ describe('collectMarkdownResourceRefs', () => {
     expect(refs.map((ref) => ref.kind)).toEqual(['page', 'attachment']);
   });
 
+  it('full-folds page identities while preserving the attachment-name identity contract', () => {
+    const refs = collectMarkdownResourceRefs(
+      '[[Straße]] [[STRASSE]] [[ΟΣ]] [[οσ]] ![[Straße.png]] ![[STRASSE.png]]',
+    );
+
+    expect(refs.map(({ kind, target }) => ({ kind, target }))).toEqual([
+      { kind: 'page', target: 'Straße' },
+      { kind: 'page', target: 'ΟΣ' },
+      { kind: 'attachment', target: 'Straße.png' },
+      { kind: 'attachment', target: 'STRASSE.png' },
+    ]);
+  });
+
   it('rejects more than 100 unique identities before any API request', async () => {
     const source = Array.from({ length: 101 }, (_, index) => `[[Page ${index}]]`).join(' ');
 
@@ -53,6 +66,27 @@ describe('collectMarkdownResourceRefs', () => {
     );
     expect(api.post).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [300, true],
+    [512, true],
+    [513, false],
+  ])('counts %i non-BMP target characters as Unicode code points', (count, accepted) => {
+    const collect = () => collectMarkdownResourceRefs(`[[${'😀'.repeat(count)}]]`);
+    if (accepted) expect(collect()).toHaveLength(1);
+    else expect(collect).toThrow('Markdown resource reference is too long');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['![[image.png#Heading]] [[Good Page]]'],
+    ['![[Page#^bad id]] [[Good Page]]'],
+    ['![[Page#^block-one]] [[Good Page]]'],
+  ])('skips unsupported embed fragments without poisoning valid references: %s', (source) => {
+    expect(collectMarkdownResourceRefs(source)).toEqual([
+      expect.objectContaining({ kind: 'page', target: 'Good Page' }),
+    ]);
+  });
 });
 
 describe('resolveMarkdownResources', () => {
@@ -64,6 +98,47 @@ describe('resolveMarkdownResources', () => {
       kind: 'page',
       target: 'a'.repeat(513),
     }])).rejects.toThrow('Markdown resource reference is too long');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [300, true],
+    [512, true],
+    [513, false],
+  ])('revalidates %i non-BMP target characters by Unicode code point', async (count, accepted) => {
+    const references = [{ canonicalKey: `emoji-${count}`, kind: 'page' as const, target: '😀'.repeat(count) }];
+    if (accepted) {
+      vi.mocked(api.post).mockResolvedValue({ data: [{ key: 'r0', status: 'unresolved' }] });
+      await expect(resolveMarkdownResources('space-1', references)).resolves.toHaveProperty('size', 1);
+    } else {
+      await expect(resolveMarkdownResources('space-1', references)).rejects.toThrow(
+        'Markdown resource reference is too long',
+      );
+      expect(api.post).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ['non-array input', null],
+    ['empty array', []],
+    ['blank target', [{ canonicalKey: 'blank', kind: 'page', target: '   ' }]],
+    ['both fragments', [{ canonicalKey: 'both', kind: 'page', target: 'Page', heading: 'H', blockId: 'block' }]],
+    ['invalid block', [{ canonicalKey: 'block', kind: 'page', target: 'Page', blockId: 'bad id' }]],
+    ['attachment heading', [{ canonicalKey: 'image-heading', kind: 'attachment', target: 'image.png', heading: 'H' }]],
+    ['attachment block', [{ canonicalKey: 'image-block', kind: 'attachment', target: 'image.png', blockId: 'block' }]],
+    ['invalid kind', [{ canonicalKey: 'kind', kind: 'other', target: 'Page' }]],
+    ['duplicate page identity', [
+      { canonicalKey: 'one', kind: 'page', target: 'Straße' },
+      { canonicalKey: 'two', kind: 'page', target: 'STRASSE' },
+    ]],
+    ['duplicate attachment identity', [
+      { canonicalKey: 'one', kind: 'attachment', target: 'PIC.PNG' },
+      { canonicalKey: 'two', kind: 'attachment', target: 'pic.png' },
+    ]],
+  ])('rejects an exported request that the server DTO rejects: %s', async (_case, references) => {
+    await expect(resolveMarkdownResources('space-1', references as any)).rejects.toThrow(
+      'Invalid Markdown resource request',
+    );
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -91,6 +166,24 @@ describe('resolveMarkdownResources', () => {
       expect.objectContaining({ status: 'resolved', kind: 'page', pageId: 'page-1' }),
       expect.objectContaining({ status: 'resolved', kind: 'attachment', attachmentId: 'attachment-1' }),
     ]);
+  });
+
+  it('keeps attachment Straße and STRASSE identities distinct like the server DTO', async () => {
+    const references = collectMarkdownResourceRefs('![[Straße.png]] ![[STRASSE.png]]');
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string; target: string }> }).references.map((ref) => ({
+        key: ref.key,
+        status: 'resolved',
+        kind: 'attachment',
+        attachmentId: ref.target,
+        displayName: ref.target,
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+      })),
+    }));
+
+    await expect(resolveMarkdownResources('space-1', references)).resolves.toHaveProperty('size', 2);
   });
 
   it.each([
@@ -135,5 +228,11 @@ describe('extractMarkdownSection', () => {
     const duplicates = '## CAFÉ\n\nfirst\n\n## cafe\u0301\n\nsecond';
     expect(extractMarkdownSection(duplicates, '  cafe\u0301 ')).toBe('## CAFÉ\n\nfirst\n\n');
     expect(extractMarkdownSection(source, 'Missing')).toBeNull();
+  });
+
+  it('matches section headings with Unicode 15.1 full case folding', () => {
+    expect(extractMarkdownSection('## Straße ΟΣ\n\nbody', 'STRASSE οσ')).toBe(
+      '## Straße ΟΣ\n\nbody',
+    );
   });
 });

@@ -423,15 +423,17 @@ export const Markdown: React.FC<MarkdownProps> = ({
     }
   }, [children, tree]);
   const [resourceSnapshot, setResourceSnapshot] = useState<{
+    tree: typeof tree;
     key: string;
     state: MarkdownResourceState;
   }>({
+    tree,
     key: documentKey,
     state: tree.spaceId
       ? { status: 'loading', resources: emptyResources }
       : { status: 'ready', resources: emptyResources },
   });
-  const resourceState = resourceSnapshot.key === documentKey
+  const resourceState = resourceSnapshot.tree === tree && resourceSnapshot.key === documentKey
     ? resourceSnapshot.state
     : tree.spaceId
       ? { status: 'loading' as const, resources: emptyResources }
@@ -446,15 +448,15 @@ export const Markdown: React.FC<MarkdownProps> = ({
   useEffect(() => {
     if (!tree.spaceId) return;
     if (resourceCollection.failed) {
-      setResourceSnapshot({ key: documentKey, state: { status: 'error', resources: emptyResources } });
+      setResourceSnapshot({ tree, key: documentKey, state: { status: 'error', resources: emptyResources } });
       return;
     }
     let current = true;
-    setResourceSnapshot({ key: documentKey, state: { status: 'loading', resources: emptyResources } });
+    setResourceSnapshot({ tree, key: documentKey, state: { status: 'loading', resources: emptyResources } });
     void loadTreeResources(tree, documentKey, resourceCollection.references).then((resources) => {
-      if (current) setResourceSnapshot({ key: documentKey, state: { status: 'ready', resources } });
+      if (current) setResourceSnapshot({ tree, key: documentKey, state: { status: 'ready', resources } });
     }).catch(() => {
-      if (current) setResourceSnapshot({ key: documentKey, state: { status: 'error', resources: emptyResources } });
+      if (current) setResourceSnapshot({ tree, key: documentKey, state: { status: 'error', resources: emptyResources } });
     });
     return () => {
       current = false;

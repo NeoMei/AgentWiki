@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWikiReference } from './obsidian';
+import { canonicalWikiReferenceKey, parseWikiReference } from './obsidian';
 
 describe('parseWikiReference', () => {
   it('parses an aliased page reference', () => {
@@ -18,5 +18,22 @@ describe('parseWikiReference', () => {
     expect(parseWikiReference('Page#^block-1')).toEqual({
       embed: false, target: 'Page', label: null, heading: null, blockId: 'block-1',
     });
+  });
+});
+
+describe('canonicalWikiReferenceKey', () => {
+  it('uses Unicode 15.1 full case folding for page targets and fragments', () => {
+    expect(canonicalWikiReferenceKey(parseWikiReference('Straße#ΟΣ'))).toBe(
+      canonicalWikiReferenceKey(parseWikiReference('STRASSE#οσ')),
+    );
+    expect(canonicalWikiReferenceKey(parseWikiReference('Page#^Straße'))).toBe(
+      canonicalWikiReferenceKey(parseWikiReference('PAGE#^STRASSE')),
+    );
+  });
+
+  it('keeps attachment target identity on the stored attachment-name rule', () => {
+    expect(canonicalWikiReferenceKey(parseWikiReference('!Straße.png'))).not.toBe(
+      canonicalWikiReferenceKey(parseWikiReference('!STRASSE.png')),
+    );
   });
 });

@@ -108,6 +108,30 @@ describe('EmbeddedMarkdown resource rendering', () => {
     renderMarkdown('Before ![[Page#^block-one]] after');
 
     expect(await screen.findByText('![[Page#^block-one]]')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('keeps unsupported embed fragments local while resolving a valid sibling reference', async () => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => {
+      const references = (body as { references: Array<{ key: string; target: string }> }).references;
+      return { data: references.map((ref) => pageResource(ref.key, 'good-page', ref.target)) };
+    });
+
+    renderMarkdown([
+      '![[image.png#Heading]]',
+      '[[Good Page]]',
+      '![[Page#^bad id]]',
+      '![[Page#^block-one]]',
+    ].join('\n\n'));
+
+    expect(await screen.findByRole('link', { name: 'Good Page' })).toHaveAttribute('href', '/pages/good-page');
+    expect(screen.getByText('![[image.png#Heading]]')).toBeInTheDocument();
+    expect(screen.getByText('![[Page#^bad id]]')).toBeInTheDocument();
+    expect(screen.getByText('![[Page#^block-one]]')).toBeInTheDocument();
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+      { key: 'r0', kind: 'page', target: 'Good Page' },
+    ] });
     expect(api.get).not.toHaveBeenCalled();
   });
 
@@ -226,6 +250,32 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(allowedView.container.querySelector('.markdown-page-embed')).toBeInTheDocument();
   });
 
+  it('counts the 200,000 embedded-character boundary by Unicode code point', async () => {
+    const nonBmp = '\u{E0100}';
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string; target: string }> }).references.map((ref) => (
+        pageResource(ref.key, ref.target)
+      )),
+    }));
+    vi.mocked(api.get).mockImplementation(async (url) => ({
+      data: {
+        id: String(url).split('/').pop(),
+        content: String(url).endsWith('/Allowed%20NonBMP')
+          ? nonBmp.repeat(200_000)
+          : nonBmp.repeat(200_001),
+      },
+    }));
+
+    const rejectedView = renderMarkdown('![[Too Large NonBMP]]');
+    expect(await screen.findByText('![[Too Large NonBMP]]')).toBeInTheDocument();
+    rejectedView.unmount();
+
+    const allowedView = renderMarkdown('![[Allowed NonBMP]]');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByText('![[Allowed NonBMP]]')).not.toBeInTheDocument();
+    expect(allowedView.container.querySelector('.markdown-page-embed')).toBeInTheDocument();
+  });
+
   it('disables tasks inside embeds and only labels successful version-root embeds as current content', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string }> }).references.map((ref) => pageResource(ref.key, 'embedded')),
@@ -268,6 +318,40 @@ describe('EmbeddedMarkdown resource rendering', () => {
       await Promise.all([staleResolver.promise, stalePage.promise]);
     });
     expect(screen.queryByText('stale-content')).not.toBeInTheDocument();
+  });
+
+  it('does not expose a resolved resource snapshot to a new Space tree with the same root and source', async () => {
+    const spaceBResolver = deferred<any>();
+    vi.mocked(api.post).mockImplementation(async (url, body) => {
+      const ref = (body as { references: Array<{ key: string }> }).references[0];
+      if (url === '/spaces/space-a/markdown/resolve') {
+        return { data: [pageResource(ref.key, 'space-a-target')] };
+      }
+      if (url === '/spaces/space-b/markdown/resolve') return spaceBResolver.promise;
+      throw new Error(`unexpected post ${url}`);
+    });
+    vi.mocked(api.get).mockImplementation(async (url) => ({
+      data: {
+        id: String(url).split('/').pop(),
+        content: String(url).endsWith('/space-a-target') ? 'space-a-content' : 'space-b-content',
+      },
+    }));
+    const view = renderMarkdown('![[Shared]]', { spaceId: 'space-a' });
+    expect(await screen.findByText('space-a-content')).toBeInTheDocument();
+
+    view.rerender(<LanguageProvider><MemoryRouter>
+      <Markdown spaceId="space-b" pageId="root-page" mode="page">![[Shared]]</Markdown>
+    </MemoryRouter></LanguageProvider>);
+
+    expect(screen.queryByText('space-a-content')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Resolving reference');
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-b/markdown/resolve', expect.anything(), expect.anything(),
+    ));
+    await act(async () => spaceBResolver.resolve({ data: [pageResource('r0', 'space-b-target')] }));
+    expect(await screen.findByText('space-b-content')).toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/space-a-target')).toHaveLength(1);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/space-b-target')).toHaveLength(1);
   });
 
   it('aborts and suppresses an already-started stale page fetch after the active root changes', async () => {

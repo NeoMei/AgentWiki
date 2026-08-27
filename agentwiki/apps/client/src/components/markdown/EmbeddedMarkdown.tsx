@@ -7,6 +7,7 @@ import {
   extractMarkdownSection,
   loadTreePage,
   MarkdownRuntimeContext,
+  unicodeCodePointLength,
   type ResolvedMarkdownResource,
 } from './resources';
 
@@ -92,7 +93,11 @@ export const EmbeddedMarkdown: React.FC<EmbeddedMarkdownProps> = ({
   if (selectedSource === null) {
     return <EmbedFallback literal={literal} message={t('markdown.embed.missingSection')} />;
   }
-  if (selectedSource === undefined || !acquireEmbedCharacters(tree, occurrenceKey, selectedSource.length)) {
+  if (selectedSource === undefined || !acquireEmbedCharacters(
+    tree,
+    occurrenceKey,
+    unicodeCodePointLength(selectedSource),
+  )) {
     return <EmbedFallback literal={literal} message={t('markdown.embed.characters')} />;
   }
 

@@ -1,3 +1,4 @@
+import { foldCase } from '@neomei/agentwiki-sync-protocol';
 import { SKIP, visit } from 'unist-util-visit';
 
 export interface WikiReference {
@@ -42,20 +43,29 @@ const BLOCK_ID_PATTERN = /(?:^|\s)\^([\p{L}\p{N}_-]+)\s*$/u;
 const CALLOUT_PATTERN = /^\[!([^\]\s]+)\]([+-])?(?:[ \t]+([^\n]*))?(?:\n|$)/;
 const ATTACHMENT_IMAGE_PATTERN = /\.(?:png|jpe?g|webp|gif)$/iu;
 
-const normalizeIdentityPart = (value: string | null | undefined) => (
-  value?.trim().normalize('NFC').toLocaleLowerCase('und') ?? ''
+export const normalizeMarkdownPageIdentity = (value: string | null | undefined) => (
+  value === null || value === undefined ? '' : foldCase(value.normalize('NFC').trim())
+);
+
+export const normalizeMarkdownAttachmentIdentity = (value: string | null | undefined) => (
+  value?.normalize('NFC').trim().toLocaleLowerCase('und') ?? ''
 );
 
 export const wikiReferenceKind = (reference: WikiReference): 'page' | 'attachment' => (
   reference.embed && ATTACHMENT_IMAGE_PATTERN.test(reference.target.trim()) ? 'attachment' : 'page'
 );
 
-export const canonicalWikiReferenceKey = (reference: WikiReference): string => JSON.stringify([
-  wikiReferenceKind(reference),
-  normalizeIdentityPart(reference.target),
-  normalizeIdentityPart(reference.heading),
-  normalizeIdentityPart(reference.blockId),
-]);
+export const canonicalWikiReferenceKey = (reference: WikiReference): string => {
+  const kind = wikiReferenceKind(reference);
+  return JSON.stringify([
+    kind,
+    kind === 'attachment'
+      ? normalizeMarkdownAttachmentIdentity(reference.target)
+      : normalizeMarkdownPageIdentity(reference.target),
+    normalizeMarkdownPageIdentity(reference.heading),
+    normalizeMarkdownPageIdentity(reference.blockId),
+  ]);
+};
 
 export function parseWikiReference(raw: string): WikiReference {
   const trimmed = raw.trim();

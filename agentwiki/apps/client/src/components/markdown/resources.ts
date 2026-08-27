@@ -7,6 +7,8 @@ import { visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
   canonicalWikiReferenceKey,
+  normalizeMarkdownAttachmentIdentity,
+  normalizeMarkdownPageIdentity,
   remarkAgentWikiObsidian,
   type WikiReference,
   wikiReferenceKind,
@@ -14,6 +16,8 @@ import {
 
 const MAX_REFERENCES = 100;
 const MAX_REFERENCE_CHARS = 512;
+
+export const unicodeCodePointLength = (value: string): number => Array.from(value).length;
 
 export interface MarkdownResourceRef {
   canonicalKey: string;
@@ -205,12 +209,8 @@ const resourceParser = unified()
   .use(remarkGfm)
   .use(remarkAgentWikiObsidian({}) as never);
 
-const normalizeIdentity = (value: string): string => (
-  value.trim().normalize('NFC').toLocaleLowerCase('und')
-);
-
 const assertBoundedPart = (value: string | undefined): void => {
-  if (value !== undefined && value.length > MAX_REFERENCE_CHARS) {
+  if (value !== undefined && unicodeCodePointLength(value) > MAX_REFERENCE_CHARS) {
     throw new Error('Markdown resource reference is too long');
   }
 };
@@ -228,6 +228,8 @@ export function collectMarkdownResourceRefs(source: string): MarkdownResourceRef
     const blockValue = properties['data-markdown-block-id'];
     const heading = typeof headingValue === 'string' && headingValue.trim() ? headingValue.trim() : undefined;
     const blockId = typeof blockValue === 'string' && blockValue.trim() ? blockValue.trim() : undefined;
+    if (node.type === 'agentWikiEmbed' && blockId) return;
+    if (node.type === 'agentWikiImage' && (heading || blockId)) return;
     assertBoundedPart(target);
     assertBoundedPart(heading);
     assertBoundedPart(blockId);
@@ -292,11 +294,41 @@ export async function resolveMarkdownResources(
   references: readonly MarkdownResourceRef[],
   signal?: AbortSignal,
 ): Promise<MarkdownResourceMap> {
+  if (!Array.isArray(references) || references.length === 0) {
+    throw new Error('Invalid Markdown resource request');
+  }
   if (references.length > MAX_REFERENCES) throw new Error('Markdown resource limit exceeded');
+  const identities = new Set<string>();
   for (const reference of references) {
+    if (!reference || typeof reference !== 'object'
+      || (reference.kind !== 'page' && reference.kind !== 'attachment')
+      || typeof reference.target !== 'string' || !/\S/u.test(reference.target)
+      || (reference.heading !== undefined && (
+        typeof reference.heading !== 'string' || !/\S/u.test(reference.heading)
+      ))
+      || (reference.blockId !== undefined && (
+        typeof reference.blockId !== 'string'
+        || !/^[\p{L}\p{N}_-]+$/u.test(reference.blockId)
+      ))
+      || (reference.heading !== undefined && reference.blockId !== undefined)
+      || (reference.kind === 'attachment' && (
+        reference.heading !== undefined || reference.blockId !== undefined
+      ))) {
+      throw new Error('Invalid Markdown resource request');
+    }
     assertBoundedPart(reference.target);
     assertBoundedPart(reference.heading);
     assertBoundedPart(reference.blockId);
+    const identity = [
+      reference.kind,
+      reference.kind === 'attachment'
+        ? normalizeMarkdownAttachmentIdentity(reference.target)
+        : normalizeMarkdownPageIdentity(reference.target),
+      reference.heading === undefined ? '' : normalizeMarkdownPageIdentity(reference.heading),
+      reference.blockId === undefined ? '' : normalizeMarkdownPageIdentity(reference.blockId),
+    ].join('\u0000');
+    if (identities.has(identity)) throw new Error('Invalid Markdown resource request');
+    identities.add(identity);
   }
   const requests: MarkdownResourceRequest[] = references.map((reference, index) => ({
     key: `r${index}`,
@@ -333,8 +365,10 @@ export function extractMarkdownSection(source: string, heading: string): string 
   visit(tree as never, 'heading', (node: MarkdownAstNode) => {
     headings.push(node);
   });
-  const wanted = normalizeIdentity(heading);
-  const matchIndex = headings.findIndex((node) => normalizeIdentity(toString(node as never)) === wanted);
+  const wanted = normalizeMarkdownPageIdentity(heading);
+  const matchIndex = headings.findIndex((node) => (
+    normalizeMarkdownPageIdentity(toString(node as never)) === wanted
+  ));
   if (matchIndex < 0) return null;
   const match = headings[matchIndex];
   const start = match.position?.start?.offset;
