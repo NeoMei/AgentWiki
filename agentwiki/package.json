@@ -37,7 +37,8 @@
     "test:e2e:collaboration-schema-db": "node --test scripts/collaboration-schema-db.test.mjs",
     "test:e2e:collaboration-db": "node --test scripts/collaboration-workflows-db.test.mjs",
     "test:e2e:collaboration": "node scripts/collaboration-workflows-e2e.mjs",
-    "test:e2e:page-template-db": "node --test scripts/page-template-schema-db.test.mjs"
+    "test:e2e:page-template-db": "node --test scripts/page-template-schema-db.test.mjs",
+    "test:e2e:markdown-db": "node --test scripts/markdown-attachments-schema-db.test.mjs scripts/markdown-attachments-http-db.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

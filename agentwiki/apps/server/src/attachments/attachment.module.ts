@@ -27,7 +27,7 @@ import { LocalAttachmentStorage } from './local-attachment.storage';
   ],
   exports: [ATTACHMENT_CONFIG, ATTACHMENT_STORAGE],
 })
-class AttachmentStorageModule {}
+export class AttachmentStorageModule {}
 
 @Module({
   imports: [

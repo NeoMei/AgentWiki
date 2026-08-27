@@ -17,9 +17,11 @@ import { KnowledgeGraphModule } from './knowledge-graph/knowledge-graph.module';
 import { RunEventStore } from './collaboration-workflows/run-event.store';
 import { CollaborationEventsService } from './collaboration-workflows/collaboration-events.service';
 import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
+import { AttachmentCleanupWorker } from './attachments/attachment-cleanup.worker';
+import { AttachmentStorageModule } from './attachments/attachment.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
   providers: [
     ReviewService,
     SourceService,
@@ -39,6 +41,7 @@ import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
     RunEventStore,
     CollaborationEventsService,
     RecoveryWorker,
+    AttachmentCleanupWorker,
     { provide: 'OPENCODE_RUNNER', useExisting: OpencodeModelRouter },
   ],
 })
