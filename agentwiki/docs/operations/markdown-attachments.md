@@ -100,19 +100,20 @@ database URL explicitly, never by sourcing an unreviewed shell file. The capture
 deliberately leaves writers stopped so it can also be used for a pre-restore rollback
 snapshot.
 
-Define this manifest function in the controlled maintenance shell. It walks the two
-allowed roots only, uses base64 for raw relative pathname bytes, sorts by those bytes,
+Define these manifest functions in the controlled maintenance shell. They walk the two
+allowed roots only, use base64 for raw relative pathname bytes, sort by those bytes,
 records every directory and regular file, and rejects symlinks, devices, sockets,
 FIFOs and any other entry type. Regular files are opened with `O_NOFOLLOW` where the
 platform provides it and are rejected if identity or size changes while hashing.
 
 ```bash
-manifest_jsonl() {
-  node --input-type=commonjs - "$1" <<'NODE'
+manifest_pair_jsonl() {
+  node --input-type=commonjs - "$1" "$2" <<'NODE'
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const slash = Buffer.from('/');
-const bundle = Buffer.from(process.argv[2]);
+const dump = Buffer.from(process.argv[2]);
+const attachments = Buffer.from(process.argv[3]);
 const join = (left, right) => Buffer.concat([left, slash, right]);
 const rows = [];
 
@@ -159,15 +160,18 @@ function visit(absolute, relative) {
   }
 }
 
-for (const relative of [Buffer.from('database.dump'), Buffer.from('attachments')]) {
-  visit(join(bundle, relative), relative);
-}
+visit(dump, Buffer.from('database.dump'));
+visit(attachments, Buffer.from('attachments'));
 rows.sort((left, right) => Buffer.compare(
   Buffer.from(left.pathBase64, 'base64'),
   Buffer.from(right.pathBase64, 'base64'),
 ));
 process.stdout.write(`${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
 NODE
+}
+
+manifest_jsonl() {
+  manifest_pair_jsonl "$1/database.dump" "$1/attachments"
 }
 ```
 
@@ -248,9 +252,10 @@ cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_manifest_check"
 rm -- "$rollback_manifest_check"
 ```
 
-Stage only the locked selected bundle, compare its complete tree with the selected
-manifest, and restore only its selected database dump. Any failure here leaves normal
-writers stopped:
+Stage both immutable pairs on the attachment filesystem before changing either live
+half. The selected candidate and rollback candidate stay separate. Compare each
+staged tree byte-for-byte with its source manifest; after staging, database restore
+uses the staged selected dump, never the mutable operator path:
 
 ```bash
 restore_bundle="$(mktemp -d /var/lib/agentwiki/attachments-restore.XXXXXXXX)"
@@ -259,39 +264,158 @@ mkdir -m 0700 "$restore_bundle/attachments"
 rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/" "$restore_bundle/attachments/"
 manifest_jsonl "$restore_bundle" > "$restore_bundle/MANIFEST.candidate.jsonl"
 cmp "$selected_backup_dir/MANIFEST.jsonl" "$restore_bundle/MANIFEST.candidate.jsonl"
-pg_restore --list "$selected_backup_dir/database.dump" > /dev/null
-pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"
+
+rollback_restore_bundle="$(mktemp -d /var/lib/agentwiki/attachments-rollback-restore.XXXXXXXX)"
+install -m 0600 "$rollback_dir/database.dump" "$rollback_restore_bundle/database.dump"
+mkdir -m 0700 "$rollback_restore_bundle/attachments"
+rsync -a --numeric-ids --delete "$rollback_dir/attachments/" "$rollback_restore_bundle/attachments/"
+manifest_jsonl "$rollback_restore_bundle" > "$rollback_restore_bundle/MANIFEST.candidate.jsonl"
+cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_restore_bundle/MANIFEST.candidate.jsonl"
+pg_restore --list "$restore_bundle/database.dump" > /dev/null
 ```
 
-Run Prisma migration status against the restored database. Validate the staged
-attachment directory's canonical path, owner, `0700` mode, complete manifest and
-free-space floor, then promote it while services remain stopped. Before enabling
-normal services, run a one-shot API on a private loopback port with the restored
-database and live attachment path. Require semantic health; only after it passes may
-the normal writers start:
+Set the reviewed release root and free-space floor explicitly. These helpers reject a
+symlink or non-directory, require its expected canonical path, `agentwiki:agentwiki`
+owner and `0700` mode, and require enough space on the containing filesystem. The
+private probe starts the built API on loopback, waits for semantic health, then always
+stops and reaps that process; it never starts the normal writer units.
 
 ```bash
-response="$(curl -fsS http://127.0.0.1:13000/api/health)"
-node -e 'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)' "$response"
+live_attachment_root=/var/lib/agentwiki/attachments
+readonly live_attachment_root
+AGENTWIKI_RELEASE_ROOT="${AGENTWIKI_RELEASE_ROOT:?set the reviewed release root containing apps/server/dist/main.js}"
+ATTACHMENT_MIN_FREE_BYTES="${ATTACHMENT_MIN_FREE_BYTES:?set the reviewed positive free-space floor}"
+: "${REDIS_URL:?load the reviewed production Redis URL into the maintenance shell}"
+: "${JWT_SECRET:?load the reviewed production JWT secret into the maintenance shell}"
+: "${AGENTWIKI_SERVER_PEPPER:?load the reviewed production server pepper into the maintenance shell}"
+: "${AGENTWIKI_DEPLOYMENT_SEED:?load the reviewed production deployment seed into the maintenance shell}"
+: "${PUBLIC_API_URL:?load the reviewed production public API URL into the maintenance shell}"
+
+validate_attachment_root() {
+  candidate="$1"
+  expected="$2"
+  test -d "$candidate"
+  test ! -L "$candidate"
+  canonical="$(cd -- "$candidate" && pwd -P)"
+  test "$canonical" = "$expected"
+  test "$(stat -c '%U:%G' -- "$candidate")" = 'agentwiki:agentwiki'
+  test "$(stat -c '%a' -- "$candidate")" = '700'
+  available_kib="$(df -Pk -- "$candidate" | awk 'NR == 2 { print $4 }')"
+  case "$available_kib:$ATTACHMENT_MIN_FREE_BYTES" in
+    *[!0-9:]*|:*|*:) return 1 ;;
+  esac
+  test "$((available_kib * 1024))" -ge "$ATTACHMENT_MIN_FREE_BYTES"
+}
+
+one_shot_pid=''
+cleanup_one_shot() {
+  if test -n "$one_shot_pid" && kill -0 "$one_shot_pid" 2>/dev/null; then
+    kill -- "$one_shot_pid"
+  fi
+  if test -n "$one_shot_pid"; then
+    wait "$one_shot_pid" 2>/dev/null || true
+  fi
+  one_shot_pid=''
+}
+
+verify_private_api() {
+  private_attachment_root="$1"
+  if ss -H -ltn 'sport = :13000' | grep -q .; then
+    echo 'Refusing occupied private health port 13000' >&2
+    return 1
+  fi
+  one_shot_log="$(mktemp /var/tmp/agentwiki-restore-health.XXXXXXXX.log)"
+  (
+    cd -- "$AGENTWIKI_RELEASE_ROOT"
+    exec sudo -u agentwiki env NODE_ENV=production PORT=13000 PROCESS_ROLE=api \
+      ATTACHMENT_STORAGE_PATH="$private_attachment_root" \
+      DATABASE_URL="$DATABASE_URL" \
+      REDIS_URL="$REDIS_URL" JWT_SECRET="$JWT_SECRET" \
+      AGENTWIKI_SERVER_PEPPER="$AGENTWIKI_SERVER_PEPPER" \
+      AGENTWIKI_DEPLOYMENT_SEED="$AGENTWIKI_DEPLOYMENT_SEED" \
+      PUBLIC_API_URL="$PUBLIC_API_URL" \
+      node apps/server/dist/main.js
+  ) >"$one_shot_log" 2>&1 &
+  one_shot_pid=$!
+  response=''
+  for attempt in $(seq 1 30); do
+    if response="$(curl -fsS http://127.0.0.1:13000/api/health 2>/dev/null)"; then break; fi
+    kill -0 "$one_shot_pid"
+    sleep 1
+  done
+  test -n "$response"
+  node -e 'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)' "$response"
+  cleanup_one_shot
+  rm -- "$one_shot_log"
+}
+```
+
+Normalize the staged root's top-level ownership/mode, validate it, restore the staged
+database, and run migration status. While writers remain stopped, atomically rename
+the current live tree to an independent rollback-live path on the same filesystem,
+then atomically rename the verified candidate to the exact live path. If either rename
+or any later verification fails, the error trap restores the fresh rollback database
+and promotes the separately verified rollback attachment candidate; it never `rsync`s
+into the live root.
+
+```bash
+sudo chown agentwiki:agentwiki -- "$restore_bundle/attachments" "$rollback_restore_bundle/attachments"
+sudo chmod 0700 -- "$restore_bundle/attachments" "$rollback_restore_bundle/attachments"
+validate_attachment_root "$restore_bundle/attachments" "$restore_bundle/attachments"
+validate_attachment_root "$rollback_restore_bundle/attachments" "$rollback_restore_bundle/attachments"
+validate_attachment_root "$live_attachment_root" "$live_attachment_root"
+live_parent="$(dirname -- "$live_attachment_root")"
+live_parent_device="$(stat -c '%d' -- "$live_parent")"
+test "$(stat -c '%d' -- "$live_attachment_root")" = "$live_parent_device"
+test "$(stat -c '%d' -- "$restore_bundle/attachments")" = "$live_parent_device"
+test "$(stat -c '%d' -- "$rollback_restore_bundle/attachments")" = "$live_parent_device"
+
+rollback_live_parent="$(mktemp -d /var/lib/agentwiki/attachments-live-rollback.XXXXXXXX)"
+rollback_live_root="$rollback_live_parent/attachments"
+failed_live_root="$rollback_live_parent/failed-selected-attachments"
+rollback_pair() {
+  trap - ERR
+  set +e
+  cleanup_one_shot
+  set -e
+  sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service
+  pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"
+  if test -e "$live_attachment_root"; then
+    mv -- "$live_attachment_root" "$failed_live_root"
+  fi
+  if ! mv -- "$rollback_restore_bundle/attachments" "$live_attachment_root"; then
+    if test -d "$rollback_live_root" && test ! -e "$live_attachment_root"; then
+      mv -- "$rollback_live_root" "$live_attachment_root"
+    fi
+    return 1
+  fi
+  validate_attachment_root "$live_attachment_root" "$live_attachment_root"
+  manifest_pair_jsonl "$rollback_dir/database.dump" "$live_attachment_root" > "$rollback_dir/MANIFEST.promoted-rollback.jsonl"
+  cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_dir/MANIFEST.promoted-rollback.jsonl"
+  pnpm --filter @agentwiki/server exec prisma migrate status
+  verify_private_api "$live_attachment_root"
+  echo 'Rollback pair verified; writers remain stopped for operator review.' >&2
+}
+trap 'rollback_pair' ERR
+
+pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"
+pnpm --filter @agentwiki/server exec prisma migrate status
+mv -- "$live_attachment_root" "$rollback_live_root"
+mv -- "$restore_bundle/attachments" "$live_attachment_root"
+validate_attachment_root "$live_attachment_root" "$live_attachment_root"
+manifest_pair_jsonl "$restore_bundle/database.dump" "$live_attachment_root" > "$restore_bundle/MANIFEST.promoted.jsonl"
+cmp "$selected_backup_dir/MANIFEST.jsonl" "$restore_bundle/MANIFEST.promoted.jsonl"
+verify_private_api "$live_attachment_root"
+trap - ERR
 sudo -u agentwiki systemctl --user start agentwiki-api.service agentwiki-worker.service
 ```
 
-Repeat semantic health with the normal API, render a known protected image as an
-authorized viewer, and only then close maintenance. If any restore, promotion or
-acceptance step fails, stop both services and roll back from the fresh rollback pair,
-never from the selected historical bundle:
-
-```bash
-sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service
-pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"
-sudo install -d -o agentwiki -g agentwiki -m 0700 /var/lib/agentwiki/attachments
-rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/
-manifest_jsonl "$rollback_dir" > "$rollback_dir/MANIFEST.rollback-check.jsonl"
-cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_dir/MANIFEST.rollback-check.jsonl"
-```
-
-Re-run migration status, storage ownership/mode/free-space checks, one-shot semantic
-health and authorized image rendering before starting normal services. Never mix
+Repeat semantic health through the normal API and render a known protected image as
+an authorized viewer before closing maintenance. Preserve `rollback_dir`,
+`rollback_live_parent`, and the failed selected tree until acceptance is signed off.
+If normal-service acceptance fails, stop both services and invoke `rollback_pair`; it
+restores and verifies the fresh rollback pair while leaving writers stopped. Start
+normal writers after rollback only as a separate operator-approved action. Never mix
 database and filesystem halves from different bundle directories.
 
 ## Capacity, cleanup and incidents

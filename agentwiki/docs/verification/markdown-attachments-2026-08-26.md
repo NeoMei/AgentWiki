@@ -48,6 +48,19 @@ production database probe was performed.
   the missing selected/rollback variable separation. GREEN locks and verifies the
   selected historical bundle before maintenance, captures rollback into a distinct
   directory, and mutation-rejects a rollback tree substituted into selected staging.
+- Third-review restore RED failed both focused contract cases: database restore still
+  read the operator-selected path and no verified attachment candidate was promoted.
+  GREEN restores only the staged dump, validates live/staged roots and their shared
+  device, atomically preserves/promotes the attachment tree, re-manifests the promoted
+  pair, and starts/stops a private one-shot API before normal writers. The paired
+  rollback handler restores the fresh rollback database plus a separately staged
+  attachment tree and leaves writers stopped. Mutations prove missing promotion,
+  wrong dump source, and promotion/manifest/health reordering all fail.
+- Markdown-core artifact cleanup RED proved a simulated API-cleanup failure left its
+  layout directory behind. GREEN uses a `finally` removal and an executable Playwright
+  case proves the cleanup error is preserved while the directory is absent. Four exact
+  earlier Task 9 temporary screenshot directories were deleted with explicit paths;
+  each is absent and the deletion is not recoverable.
 - The exact database probe returned
   `agentwiki_collaboration_test|neomei|true|true`; the dedicated gate passed 8/8 with
   no skips and asserted `inet_server_addr() IS NULL` inside the callback. Generic
@@ -59,16 +72,16 @@ production database probe was performed.
 
 The final joint run used only task-owned local resources:
 
-- Schema: `markdown_test_browser_20260828032901_51098`
-- Attachment root: `/private/tmp/agentwiki-attachment-test-Fr8gEnhl`
+- Schema: `markdown_test_browser_20260828035503_57354`
+- Attachment root: `/private/tmp/agentwiki-attachment-test-N5ikMzbH`
 - Redis: loopback port `6387`, AOF enabled, temporary root
-  `/tmp/agentwiki-redis-test-YfDEH560`
-- API/Vite/Redis PIDs: `51135` / `51149` / `51133`
+  `/private/tmp/agentwiki-redis-test-h3v5aCpH`
+- API/Vite/Redis PIDs: `57393` / `57429` / `57392`
 - Semantic health:
   `{"status":"ok","database":"ok","redis":"ok","auditPersistence":"ok","attachmentStorage":"ok"}`
 
-With one worker, `markdown-attachments.spec.ts` and `markdown-core.spec.ts` passed 5/5
-in 14.7 seconds. The browser covered scoped resolver and Viewer Blob rendering,
+With one worker, `markdown-attachments.spec.ts` and `markdown-core.spec.ts` passed 6/6
+in 13.5 seconds. The browser covered scoped resolver and Viewer Blob rendering,
 Outsider direct attachment-content denial, a real Owner active-to-archived-to-active
 lifecycle, Owner/Editor picker-paste-coordinate-drop flows, authoritative filename
 suffixes, save/reload source, live page/section refresh, cycles, depth/count/character
@@ -80,7 +93,9 @@ attributes, visible text, and current/resource/image URLs were scanned against e
 fixture token and Bearer form. An isolated close-time fixture proves the same scanner
 rejects late log/info/debug token records after its context closes.
 Screenshots were layout evidence only, not pixel-level secret scans; they were written
-only beneath the test's OS-temporary artifact root and removed by teardown.
+only beneath the test's unique OS-temporary artifact root. The executable failure-path
+cleanup case and final postflight proved all run-specific core artifact children were
+removed even if API cleanup fails.
 
 Before schema teardown, active User/Space/Page/Attachment counts were `0|0|0|0`.
 Intentional soft-deleted/archived audit rows were recorded separately as
@@ -89,10 +104,10 @@ The final trap then proved the exact schema count and all
 `markdown_test_browser_%` schema count were zero, all three orchestration temporary
 roots were absent, and ports `3000`, `5173`, and `6387` had no listeners. Playwright output,
 trace and report directories were removed. This review discarded one setup that
-failed closed on an invalid test-storage path before browser execution and one 5/5
-run whose postflight incorrectly passed a Prisma-only `schema` query to `psql`; both
-were cleaned to the same zero schema/port/root postflight and were not counted as the
-final acceptance run.
+failed before schema creation on identity-output formatting, one on the empty-authority
+Prisma URL before service start, and two after isolated migration on missing test-only
+tmpdir/startup variables. Every attempt failed closed and was cleaned to the same zero
+schema/port/root/artifact postflight; none is counted as acceptance.
 
 ## Full repository gates
 
@@ -114,16 +129,18 @@ final acceptance run.
    capture has an independent locked variable and cannot overwrite the selected
    historical bundle or execute the backup-only writer restart; and the executable
    manifest binds the complete allowed tree while rejecting special entries.
-   `bash -n deploy.sh` and the 12/12 contract suite re-passed. No further defect was
-   found.
+   Promotion now validates the live/candidate/rollback trees and common device before
+   database mutation; private health refuses an occupied loopback port and passes all
+   required runtime environment explicitly through `sudo`. `bash -n deploy.sh` and the
+   12/12 contract suite re-passed. No further defect was found.
 2. Database, browser and evidence: re-read URL normalization/identity expectations,
    all new role/lifecycle/credential/overflow assertions and cleanup accounting.
    Confirmed generic username-less TCP test identity is not coupled to the local
    socket account, archived content follows the documented recoverable-byte contract,
    every context closes before all-type console and inspectable-surface token scans,
-   screenshots carry layout-only claims, and active versus retained rows are reported
-   separately. Exact schema counts, artifacts and ports remained clean. No further
-   defect was found.
+   screenshots carry layout-only claims, failure-path artifact removal is executable,
+   and active versus retained rows are reported separately. Exact schema counts,
+   artifacts and ports remained clean. No further defect was found.
 
 ## Release-state separation
 

@@ -8,7 +8,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveE2ETarget } from '../src/config/localTargets';
@@ -227,6 +227,30 @@ const expectNoDocumentOverflow = async (page: Page) => {
   expect(dimensions.scrollWidth, JSON.stringify(dimensions.offenders, null, 2)).toBe(dimensions.clientWidth);
 };
 
+const cleanupWithArtifactRemoval = async (
+  cleanup: () => Promise<void>,
+  artifactRoot: string,
+) => {
+  try {
+    await cleanup();
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true });
+  }
+};
+
+test('removes temporary Markdown layout artifacts even when API cleanup fails', async () => {
+  const proofRoot = await mkdtemp(path.join(os.tmpdir(), 'agentwiki-markdown-core-cleanup-proof-'));
+  await writeFile(path.join(proofRoot, 'layout.png'), 'temporary-layout-evidence');
+  try {
+    await expect(cleanupWithArtifactRemoval(async () => {
+      throw new Error('simulated API cleanup failure');
+    }, proofRoot)).rejects.toThrow('simulated API cleanup failure');
+    await expect(stat(proofRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(proofRoot, { recursive: true, force: true });
+  }
+});
+
 test.describe.serial('Markdown core browser acceptance', () => {
   test.beforeEach(() => {
     consoleIssues = [];
@@ -270,32 +294,34 @@ test.describe.serial('Markdown core browser acceptance', () => {
   });
 
   test.afterAll(async () => {
-    if (!api) return;
-    const cleanupFailures: string[] = [];
-    const remove = async (resource: string, headers: Record<string, string>) => {
-      try {
-        const response = await api.delete(resource, { headers });
-        if (!response.ok()) {
-          cleanupFailures.push(`${resource}: ${response.status()} ${await response.text()}`);
+    await cleanupWithArtifactRemoval(async () => {
+      if (!api) return;
+      const cleanupFailures: string[] = [];
+      const remove = async (resource: string, headers: Record<string, string>) => {
+        try {
+          const response = await api.delete(resource, { headers });
+          if (!response.ok()) {
+            cleanupFailures.push(`${resource}: ${response.status()} ${await response.text()}`);
+          }
+        } catch (error) {
+          cleanupFailures.push(`${resource}: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } catch (error) {
-        cleanupFailures.push(`${resource}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    };
+      };
 
-    try {
-      if (owner?.access_token && spaceId) await remove(`spaces/${spaceId}`, ownerHeaders());
-    } finally {
-      for (const account of [viewer, editor, owner]) {
-        if (account?.access_token && account.user.id) {
-          await remove(`users/${account.user.id}`, {
-            Authorization: `Bearer ${account.access_token}`,
-          });
+      try {
+        if (owner?.access_token && spaceId) await remove(`spaces/${spaceId}`, ownerHeaders());
+      } finally {
+        for (const account of [viewer, editor, owner]) {
+          if (account?.access_token && account.user.id) {
+            await remove(`users/${account.user.id}`, {
+              Authorization: `Bearer ${account.access_token}`,
+            });
+          }
         }
+        await api.dispose();
       }
-      await api.dispose();
-    }
-    expect(cleanupFailures).toEqual([]);
+      expect(cleanupFailures).toEqual([]);
+    }, artifacts);
   });
 
   test('persists editable checklists while preserving read-only, literal-code and mobile contracts', async ({ browser }) => {

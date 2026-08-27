@@ -72,6 +72,23 @@ function runShellFunction(source, name, argument) {
   });
 }
 
+function runManifestFunction(source, dumpPath, attachmentPath) {
+  const pairMatch = source.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
+  assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
+  return spawnSync('bash', ['-c', `set -euo pipefail\n${pairMatch[0]}\nmanifest_pair_jsonl "$1" "$2"`, 'contract', dumpPath, attachmentPath], {
+    encoding: 'utf8',
+  });
+}
+
+function runManifestBundleFunction(source, bundlePath) {
+  const pairMatch = source.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
+  assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
+  const wrapper = extractShellFunction(source, 'manifest_jsonl');
+  return spawnSync('bash', ['-c', `set -euo pipefail\n${pairMatch[0]}\n${wrapper}\nmanifest_jsonl "$1"`, 'contract', bundlePath], {
+    encoding: 'utf8',
+  });
+}
+
 function assertSafeAttachmentDeployment(deploy) {
   for (const line of deploy.split(/\r?\n/u)) {
     if (!/(?:\$attachment_storage_path|\/var\/lib\/agentwiki\/attachments)/u.test(line)) continue;
@@ -132,7 +149,7 @@ function assertSafeRestoreRunbook(runbook) {
   for (const selectedReference of [
     'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/"',
     'cmp "$selected_backup_dir/MANIFEST.jsonl"',
-    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"',
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"',
   ]) {
     assert.ok(restore.includes(selectedReference), `restore must use selected historical bundle: ${selectedReference}`);
   }
@@ -140,32 +157,76 @@ function assertSafeRestoreRunbook(runbook) {
     'pg_dump --format=custom --file="$rollback_dir/database.dump"',
     'rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$rollback_dir/attachments/"',
     'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
-    'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/',
+    'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" "$rollback_restore_bundle/attachments/"',
+    'mv -- "$rollback_restore_bundle/attachments" "$live_attachment_root"',
   ]) {
     assert.ok(restore.includes(rollbackReference), `rollback must use fresh rollback bundle: ${rollbackReference}`);
   }
   assert.doesNotMatch(restore, /\$backup_dir/u, 'restore must not reuse the generic backup capture variable');
 
   const selectedStage = restore.indexOf('restore_bundle=');
-  const oneShotHealth = restore.indexOf('http://127.0.0.1:13000/api/health');
-  const startWriters = restore.indexOf('systemctl --user start agentwiki-api.service agentwiki-worker.service');
-  const rollbackRestore = restore.lastIndexOf(
-    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+  const databaseRestore = restore.indexOf(
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"',
   );
+  const livePreflight = restore.indexOf('validate_attachment_root "$live_attachment_root" "$live_attachment_root"');
+  const preserveLive = restore.indexOf('mv -- "$live_attachment_root" "$rollback_live_root"');
+  const promoteCandidate = restore.indexOf('mv -- "$restore_bundle/attachments" "$live_attachment_root"');
+  const promotedManifest = restore.indexOf(
+    'manifest_pair_jsonl "$restore_bundle/database.dump" "$live_attachment_root"',
+  );
+  const oneShotHealth = restore.indexOf('verify_private_api "$live_attachment_root"', promotedManifest);
+  const startWriters = restore.indexOf('systemctl --user start agentwiki-api.service agentwiki-worker.service');
+  const rollbackStage = restore.indexOf('rollback_restore_bundle=');
   assert.ok(selectedStage > rollbackAssignment, 'selected restore staging must follow rollback capture');
   assert.doesNotMatch(
-    restore.slice(selectedStage, oneShotHealth),
+    restore.slice(selectedStage, rollbackStage),
     /\$rollback_dir/u,
     'selected restore staging must not read the rollback bundle',
   );
-  assert.ok(oneShotHealth > rollbackAssignment, 'one-shot semantic health must follow restore staging');
+  assert.ok(livePreflight > selectedStage && livePreflight < databaseRestore, 'live root must be validated before restore promotion');
+  assert.ok(databaseRestore > selectedStage, 'database restore must use the verified staged dump');
+  assert.ok(preserveLive > databaseRestore, 'live attachments must be preserved after the staged database restore');
+  assert.ok(promoteCandidate > preserveLive, 'verified candidate attachments must be promoted atomically');
+  assert.ok(promotedManifest > promoteCandidate, 'the promoted database/filesystem pair must be re-manifested');
+  assert.ok(oneShotHealth > promotedManifest, 'private semantic health must follow promoted-pair verification');
   assert.ok(startWriters > oneShotHealth, 'normal writers must not start before one-shot semantic health');
-  assert.ok(rollbackRestore > startWriters, 'failure rollback must remain after normal acceptance');
   assert.doesNotMatch(
-    restore.slice(rollbackRestore),
-    /\$selected_backup_dir/u,
-    'failure rollback must not read the selected historical bundle',
+    restore.slice(selectedStage),
+    /rsync[^\n]+(?:\/var\/lib\/agentwiki\/attachments\/|"\$live_attachment_root\/?")/u,
+    'restore must never rsync a half-update into the live attachment root',
   );
+  for (const candidate of ['$live_attachment_root', '$restore_bundle/attachments', '$rollback_restore_bundle/attachments']) {
+    assert.match(
+      restore.slice(selectedStage, databaseRestore),
+      new RegExp(`stat -c '%d' -- "\\${candidate.replace('/', '\\/')}"`, 'u'),
+      `${candidate} must share the live parent device before restore`,
+    );
+  }
+
+  const rollbackHandler = extractShellFunction(restore, 'rollback_pair');
+  assert.doesNotMatch(rollbackHandler, /\$selected_backup_dir/u, 'failure rollback must not read the selected bundle');
+  assert.match(rollbackHandler, /pg_restore[^\n]+"\$rollback_dir\/database\.dump"/u);
+  assert.match(rollbackHandler, /mv -- "\$rollback_restore_bundle\/attachments" "\$live_attachment_root"/u);
+  assert.match(rollbackHandler, /manifest_pair_jsonl "\$rollback_dir\/database\.dump" "\$live_attachment_root"/u);
+  assert.ok(
+    rollbackHandler.indexOf('systemctl --user stop') < rollbackHandler.indexOf('pg_restore'),
+    'rollback must stop writers before restoring either half',
+  );
+  const rollbackTrap = restore.indexOf("trap 'rollback_pair' ERR");
+  assert.ok(rollbackTrap > rollbackStage && rollbackTrap < databaseRestore, 'paired rollback must guard every live mutation');
+
+  const privateProbe = extractShellFunction(restore, 'verify_private_api');
+  assert.match(privateProbe, /exec sudo -u agentwiki env NODE_ENV=production/u);
+  assert.match(privateProbe, /node apps\/server\/dist\/main\.js/u, 'private health must start the built API');
+  for (const key of ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'AGENTWIKI_SERVER_PEPPER', 'AGENTWIKI_DEPLOYMENT_SEED', 'PUBLIC_API_URL']) {
+    assert.match(privateProbe, new RegExp(`${key}="\\$${key}"`, 'u'), `private health must pass ${key}`);
+  }
+  assert.match(privateProbe, /http:\/\/127\.0\.0\.1:13000\/api\/health/u);
+  assert.match(privateProbe, /ss -H -ltn 'sport = :13000'/u, 'private health must reject an occupied port');
+  assert.match(privateProbe, /cleanup_one_shot/u, 'private health must clean up the one-shot API');
+  const privateCleanup = extractShellFunction(restore, 'cleanup_one_shot');
+  assert.match(privateCleanup, /kill -- "\$one_shot_pid"/u, 'private health must stop the one-shot API');
+  assert.match(privateCleanup, /wait "\$one_shot_pid"/u, 'private health must reap the one-shot API');
 }
 
 const requiredAttachmentEnv = [
@@ -380,8 +441,11 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     await writeFile(resolve(attachments, 'ordinary.png'), 'image-v1');
     await writeFile(resolve(attachments, 'line\nbreak.png'), 'odd-name');
 
-    const baseline = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const baseline = runManifestBundleFunction(runbook, bundle);
     assert.equal(baseline.status, 0, baseline.stderr);
+    const paired = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
+    assert.equal(paired.status, 0, paired.stderr);
+    assert.equal(paired.stdout, baseline.stdout, 'bundle and promoted-pair manifests must be byte-identical');
     const rows = parseManifest(baseline.stdout);
     const byPath = manifestByPath(rows);
     assert.deepEqual([...byPath.keys()], [
@@ -401,22 +465,22 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     }
 
     await writeFile(resolve(attachments, 'ordinary.png'), 'IMAGE-v1');
-    const changed = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const changed = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.equal(changed.status, 0, changed.stderr);
     assert.notEqual(changed.stdout, baseline.stdout, 'same-size content mutation must change manifest');
 
     await writeFile(resolve(attachments, 'extra.png'), 'extra');
-    const extra = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const extra = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.equal(extra.status, 0, extra.stderr);
     assert.notEqual(extra.stdout, changed.stdout, 'extra entry must change manifest');
     await rm(resolve(attachments, 'extra.png'));
     await rm(resolve(attachments, 'line\nbreak.png'));
-    const missing = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const missing = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.equal(missing.status, 0, missing.stderr);
     assert.notEqual(missing.stdout, changed.stdout, 'missing entry must change manifest');
 
     await symlink('ordinary.png', resolve(attachments, 'link.png'));
-    const symlinked = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const symlinked = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.notEqual(symlinked.status, 0);
     assert.match(symlinked.stderr, /symlink rejected/iu);
     await rm(resolve(attachments, 'link.png'));
@@ -424,7 +488,7 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     const fifoPath = resolve(attachments, 'pipe');
     const fifo = spawnSync('mkfifo', [fifoPath], { encoding: 'utf8' });
     assert.equal(fifo.status, 0, fifo.stderr);
-    const special = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    const special = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.notEqual(special.status, 0);
     assert.match(special.stderr, /non-regular entry rejected/iu);
   } finally {
@@ -436,26 +500,53 @@ test('restore locks the selected historical bundle before capturing an independe
   assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
 });
 
-test('restore contract rejects selected and rollback variable mixing', async () => {
+test('restore contract rejects missing promotion, wrong dump source, and reordered acceptance', async () => {
   const runbook = await read('docs/operations/markdown-attachments.md');
-  for (const [expected, replacement] of [
+  for (const [expected, replacement, failure] of [
     [
       'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/"',
       'rsync -a --numeric-ids --delete "$rollback_dir/attachments/"',
+      /selected historical bundle|must not read the rollback bundle/iu,
     ],
     [
-      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"',
+      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"',
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+      /selected historical bundle|verified staged dump/iu,
     ],
     [
-      'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/',
-      'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/" /var/lib/agentwiki/attachments/',
+      'mv -- "$restore_bundle/attachments" "$live_attachment_root"',
+      ': # candidate promotion accidentally omitted',
+      /promoted atomically/iu,
+    ],
+    [
+      'manifest_pair_jsonl "$restore_bundle/database.dump" "$live_attachment_root"',
+      ': # promoted pair verification accidentally omitted',
+      /re-manifested/iu,
     ],
   ]) {
     assert.ok(runbook.includes(expected), `runbook must expose mutation target: ${expected}`);
     assert.throws(
       () => assertSafeRestoreRunbook(runbook.replace(expected, replacement)),
-      /selected historical bundle|fresh rollback bundle|must not read/iu,
+      failure,
     );
+  }
+
+  const preserve = 'mv -- "$live_attachment_root" "$rollback_live_root"';
+  const promote = 'mv -- "$restore_bundle/attachments" "$live_attachment_root"';
+  const manifest = 'manifest_pair_jsonl "$restore_bundle/database.dump" "$live_attachment_root"';
+  const oneShot = 'verify_private_api "$live_attachment_root"';
+  const selectedOneShotIndex = runbook.lastIndexOf(oneShot);
+  assert.ok(selectedOneShotIndex >= 0, 'runbook must expose the selected-pair private health target');
+  const missingSelectedHealth = `${runbook.slice(0, selectedOneShotIndex)}: # selected-pair one-shot API accidentally omitted${runbook.slice(selectedOneShotIndex + oneShot.length)}`;
+  assert.throws(() => assertSafeRestoreRunbook(missingSelectedHealth), /semantic health must follow/iu);
+
+  for (const [first, firstIndex, second, secondIndex, failure] of [
+    [promote, runbook.indexOf(promote), preserve, runbook.indexOf(preserve), /preserved after|promoted atomically/iu],
+    [manifest, runbook.indexOf(manifest), promote, runbook.indexOf(promote), /promoted atomically|re-manifested/iu],
+    [oneShot, selectedOneShotIndex, manifest, runbook.indexOf(manifest), /re-manifested|semantic health/iu],
+  ]) {
+    assert.ok(firstIndex >= 0 && secondIndex >= 0, `runbook must expose reorder targets: ${first} / ${second}`);
+    const reordered = `${runbook.slice(0, secondIndex)}${first}${runbook.slice(secondIndex + second.length, firstIndex)}${second}${runbook.slice(firstIndex + first.length)}`;
+    assert.throws(() => assertSafeRestoreRunbook(reordered), failure);
   }
 });
