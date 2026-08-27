@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +58,54 @@ function shellWithoutComments(source) {
 
 const deployedShell = (source) => shellWithoutComments(source).replaceAll('\\$', '$');
 
+function extractShellFunction(source, name) {
+  const match = source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'mu'));
+  assert.ok(match, `missing executable shell function ${name}`);
+  return match[0];
+}
+
+function runShellFunction(source, name, argument) {
+  const hereDocMatch = source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^NODE\\n\\}`, 'mu'));
+  const functionSource = hereDocMatch?.[0] ?? extractShellFunction(source, name);
+  return spawnSync('bash', ['-c', `set -euo pipefail\n${functionSource}\n${name} "$1"`, 'contract', argument], {
+    encoding: 'utf8',
+  });
+}
+
+function assertSafeAttachmentDeployment(deploy) {
+  for (const line of deploy.split(/\r?\n/u)) {
+    if (!/(?:\$attachment_storage_path|\/var\/lib\/agentwiki\/attachments)/u.test(line)) continue;
+    if (/(?:^|[;&|()]|\bthen)\s*(?:sudo\s+)?(?:rm|mv|chown)\b/u.test(line)) {
+      assert.fail(`destructive persistent-root command: ${line.trim()}`);
+    }
+  }
+
+  const completed = deploy.indexOf('attachment_storage_preflight_complete=1');
+  assert.ok(completed >= 0, 'missing completed attachment-storage preflight marker');
+  for (const required of [
+    "stat -c '%a' -- \"$attachment_storage_path\"",
+    'attachment_write_probe="$attachment_storage_path/.deploy-write-probe.$$"',
+    'df -Pk -- "$attachment_storage_path"',
+    '"$available_bytes" -lt "$attachment_min_free_bytes"',
+    'set_live_attachment_env_value "$live_dir/.env" ATTACHMENT_STORAGE_PATH',
+    'set_live_attachment_env_value "$live_dir/.env" ATTACHMENT_MIN_FREE_BYTES',
+    'verified_attachment_storage_path=',
+    'verified_attachment_min_free_bytes=',
+  ]) {
+    const position = deploy.indexOf(required);
+    assert.ok(position >= 0 && position < completed, `${required} must complete before the marker`);
+  }
+  for (const boundary of [
+    'tar -xzf',
+    'pnpm install --frozen-lockfile',
+    'systemctl --user stop',
+    'pnpm --filter @agentwiki/server exec prisma migrate deploy',
+  ]) {
+    const position = deploy.indexOf(boundary);
+    assert.ok(position > completed, `${boundary} must remain after the completed preflight`);
+  }
+}
+
 const requiredAttachmentEnv = [
   'ATTACHMENT_STORAGE_PATH',
   'ATTACHMENT_MAX_FILE_BYTES',
@@ -106,6 +155,18 @@ test('Docker gives API and worker one private persistent attachment volume and a
   assert.match(program, /attachmentStorage\s*===\s*'ok'/u);
 });
 
+test('Docker image prepares the fresh named-volume mountpoint for the non-root runtime', async () => {
+  const dockerfile = await read('apps/server/Dockerfile');
+  const production = dockerfile.slice(dockerfile.lastIndexOf('FROM '));
+  const runtimeUser = production.lastIndexOf('USER node');
+  assert.ok(runtimeUser >= 0, 'production runtime must remain USER node');
+  assert.match(
+    production.slice(0, runtimeUser),
+    /RUN install -d -o node -g node -m 0700 \/var\/lib\/agentwiki\/attachments/u,
+  );
+  assert.doesNotMatch(production.slice(runtimeUser), /USER\s+(?:0|root)\b/u);
+});
+
 test('direct-runtime units share the durable attachment path with restrictive creation masks', async () => {
   const units = await Promise.all([
     read('deploy/systemd/agentwiki-api.service'),
@@ -133,24 +194,70 @@ test('direct deployment validates durable storage before stopping services or mi
   assert.match(deploy, /\[ ! -w "\$attachment_storage_path" \]/u);
   assert.match(deploy, /df -Pk -- "\$attachment_storage_path"/u);
   assert.match(deploy, /available_bytes/u);
-  assert.match(deploy, /set_env_value \.env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"/u);
-  assert.match(deploy, /set_env_value apps\/server\/\.env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"/u);
+  assert.match(deploy, /set_live_attachment_env_value "\$live_dir\/\.env" ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"/u);
+  assert.match(deploy, /set_live_attachment_env_value "\$live_dir\/\.env" ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"/u);
 
-  const preflight = deploy.indexOf('attachment_storage_path="/var/lib/agentwiki/attachments"');
-  const stop = deploy.indexOf('systemctl --user stop');
-  const migrate = deploy.indexOf('prisma migrate deploy');
-  assert.ok(preflight >= 0 && preflight < stop && preflight < migrate);
-
-  const dangerousPersistentOperations = [
-    /(?:rm|mv|chown)\s+(?:-[^\s]+\s+)*--?\s*"?\$attachment_storage_path/u,
-    /chown\s+-R[^\n]*\/var\/lib\/agentwiki\/attachments/u,
-  ];
-  for (const pattern of dangerousPersistentOperations) assert.doesNotMatch(deploy, pattern);
+  assertSafeAttachmentDeployment(deploy);
 
   const archiveCommand = deploy.match(/COPYFILE_DISABLE=1 tar[\s\S]*?-czf "\$\{ARCHIVE\}"([\s\S]*?)\n\n/u)?.[1];
   assert.ok(archiveCommand, 'release archive command must be inspectable');
   assert.doesNotMatch(archiveCommand, /\/var\/lib\/agentwiki\/attachments|attachment_storage_path/u);
   assert.doesNotMatch(archiveCommand, /(?:^|\s)\.(?:\s|$)/u, 'archive input must stay an explicit allowlist');
+});
+
+test('deployment contract rejects reordered validation and destructive root mutations', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const marker = 'attachment_storage_preflight_complete=1';
+  const reordered = deploy.replace(marker, '').replace(
+    'pnpm --filter @agentwiki/server exec prisma migrate deploy',
+    `pnpm --filter @agentwiki/server exec prisma migrate deploy\n${marker}`,
+  );
+  assert.throws(() => assertSafeAttachmentDeployment(reordered), /must remain after/iu);
+
+  for (const command of [
+    'rm -rf "$attachment_storage_path"',
+    'mv -- "$attachment_storage_path" "$release_dir/attachments"',
+    'chown -R node:node /var/lib/agentwiki/attachments',
+  ]) {
+    assert.throws(
+      () => assertSafeAttachmentDeployment(`${deploy}\n${command}`),
+      /destructive persistent-root command/iu,
+      command,
+    );
+  }
+});
+
+test('deployment reads optional server env safely and validates its selected free-space floor', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const reader = extractShellFunction(deploy, 'read_attachment_min_free_bytes');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-deploy-env-contract-'));
+  const serverDirectory = resolve(sandbox, 'apps/server');
+  await mkdir(serverDirectory, { recursive: true });
+  const environment = { ...process.env };
+  delete environment.ATTACHMENT_MIN_FREE_BYTES;
+  const run = () => spawnSync('bash', ['-c', `set -euo pipefail\n${reader}\nlive_dir="$1"\nattachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"\nread_attachment_min_free_bytes\nprintf '%s' "$attachment_min_free_bytes"`, 'contract', sandbox], {
+    encoding: 'utf8',
+    env: environment,
+  });
+
+  try {
+    await writeFile(resolve(sandbox, '.env'), 'ATTACHMENT_MIN_FREE_BYTES=2468\n');
+    let result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '2468');
+
+    await writeFile(resolve(serverDirectory, '.env'), 'ATTACHMENT_MIN_FREE_BYTES=3579\n');
+    result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '3579');
+
+    await writeFile(resolve(serverDirectory, '.env'), 'ATTACHMENT_MIN_FREE_BYTES=invalid\n');
+    result = run();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /positive integer/iu);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test('direct post-deploy health requires the JSON storage signal', async () => {
@@ -191,5 +298,74 @@ test('environment examples expose every bounded attachment setting', async () =>
     assert.match(values.get('ATTACHMENT_ORPHAN_GRACE_HOURS') ?? '', /^[1-9][0-9]*$/u);
     assert.match(values.get('ATTACHMENT_CONTENT_LOCK_TIMEOUT_MS') ?? '', /^[1-9][0-9]+$/u);
     assert.match(values.get('ATTACHMENT_CLEANUP_POLL_MS') ?? '', /^[1-9][0-9]+$/u);
+  }
+});
+
+test('backup manifest binds the complete allowed tree losslessly and rejects special entries', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-attachment-manifest-contract-'));
+  const bundle = resolve(sandbox, 'bundle');
+  const attachments = resolve(bundle, 'attachments');
+  const parseManifest = (stdout) => stdout.trim().split('\n').map((line) => JSON.parse(line));
+  const manifestByPath = (rows) => new Map(rows.map((row) => [
+    Buffer.from(row.pathBase64, 'base64').toString('utf8'),
+    row,
+  ]));
+
+  try {
+    await mkdir(attachments, { recursive: true });
+    await writeFile(resolve(bundle, 'database.dump'), 'database-v1');
+    await writeFile(resolve(attachments, 'ordinary.png'), 'image-v1');
+    await writeFile(resolve(attachments, 'line\nbreak.png'), 'odd-name');
+
+    const baseline = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.equal(baseline.status, 0, baseline.stderr);
+    const rows = parseManifest(baseline.stdout);
+    const byPath = manifestByPath(rows);
+    assert.deepEqual([...byPath.keys()], [
+      'attachments',
+      'attachments/line\nbreak.png',
+      'attachments/ordinary.png',
+      'database.dump',
+    ]);
+    assert.deepEqual(byPath.get('attachments'), {
+      type: 'directory',
+      pathBase64: Buffer.from('attachments').toString('base64'),
+    });
+    for (const path of ['attachments/line\nbreak.png', 'attachments/ordinary.png', 'database.dump']) {
+      assert.equal(byPath.get(path).type, 'file');
+      assert.match(byPath.get(path).size, /^[1-9][0-9]*$/u);
+      assert.match(byPath.get(path).sha256, /^[a-f0-9]{64}$/u);
+    }
+
+    await writeFile(resolve(attachments, 'ordinary.png'), 'IMAGE-v1');
+    const changed = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.equal(changed.status, 0, changed.stderr);
+    assert.notEqual(changed.stdout, baseline.stdout, 'same-size content mutation must change manifest');
+
+    await writeFile(resolve(attachments, 'extra.png'), 'extra');
+    const extra = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.equal(extra.status, 0, extra.stderr);
+    assert.notEqual(extra.stdout, changed.stdout, 'extra entry must change manifest');
+    await rm(resolve(attachments, 'extra.png'));
+    await rm(resolve(attachments, 'line\nbreak.png'));
+    const missing = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.notEqual(missing.stdout, changed.stdout, 'missing entry must change manifest');
+
+    await symlink('ordinary.png', resolve(attachments, 'link.png'));
+    const symlinked = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.notEqual(symlinked.status, 0);
+    assert.match(symlinked.stderr, /symlink rejected/iu);
+    await rm(resolve(attachments, 'link.png'));
+
+    const fifoPath = resolve(attachments, 'pipe');
+    const fifo = spawnSync('mkfifo', [fifoPath], { encoding: 'utf8' });
+    assert.equal(fifo.status, 0, fifo.stderr);
+    const special = runShellFunction(runbook, 'manifest_jsonl', bundle);
+    assert.notEqual(special.status, 0);
+    assert.match(special.stderr, /non-regular entry rejected/iu);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
   }
 });

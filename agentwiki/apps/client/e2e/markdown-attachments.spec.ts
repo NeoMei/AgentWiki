@@ -74,6 +74,8 @@ let characterPage: PersistedPage;
 let versionEmbedPage: PersistedPage;
 let hiddenPage: PersistedPage;
 let consoleIssues: string[] = [];
+let consoleMessages: string[] = [];
+let sameNameAttachment: AttachmentSummary;
 
 const json = async <T,>(response: APIResponse, operation: string): Promise<T> => {
   const body = await response.text();
@@ -121,6 +123,7 @@ const uploadByApi = async (account: AuthAccount, spaceId: string, name: string) 
 const watchPage = (page: Page) => {
   const externalRequests: string[] = [];
   page.on('console', (message) => {
+    consoleMessages.push(`${message.type()}: ${message.text()}`);
     if (message.type() === 'warning' || message.type() === 'error') {
       consoleIssues.push(`${message.type()}: ${message.text()}`);
     }
@@ -134,6 +137,28 @@ const watchPage = (page: Page) => {
     ) externalRequests.push(request.url());
   });
   return externalRequests;
+};
+
+const expectNoCredentialLeak = async (page: Page, screenshotPaths: string[] = []) => {
+  const surface = await page.evaluate(() => ({
+    document: document.documentElement.outerHTML,
+    visibleText: document.body.innerText,
+    currentUrl: window.location.href,
+    imageUrls: [...document.images].map((image) => image.currentSrc || image.src),
+    resourceUrls: performance.getEntriesByType('resource').map((entry) => entry.name),
+  }));
+  const inspected = [
+    JSON.stringify(surface),
+    consoleMessages.join('\n'),
+    screenshotPaths.join('\n'),
+  ];
+  for (const account of [owner, editor, viewer, outsider]) {
+    if (!account?.access_token) continue;
+    for (const value of inspected) {
+      expect(value).not.toContain(account.access_token);
+      expect(value).not.toContain(`Bearer ${account.access_token}`);
+    }
+  }
 };
 
 const authenticate = async (page: Page, account: AuthAccount) => {
@@ -247,6 +272,7 @@ const cleanupFixtures = async () => {
 test.describe.serial('Markdown attachments and embeds browser acceptance', () => {
   test.beforeEach(() => {
     consoleIssues = [];
+    consoleMessages = [];
   });
 
   test.afterEach(() => {
@@ -314,7 +340,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
 
     versionEmbedPage = await createPage(primarySpaceId, `Version Embed ${runId}`, `# Version embed\n\n![[${targetTitle}#Section]]`);
     versionEmbedPage = await updatePage(versionEmbedPage, `${versionEmbedPage.content}\n\nCurrent root revision.`);
-    await uploadByApi(owner, primarySpaceId, 'same-name.png');
+    sameNameAttachment = await uploadByApi(owner, primarySpaceId, 'same-name.png');
     anchorPage = await updatePage(
       anchorPage,
       `${anchorPage.content}\n\n![[same-name.png]]\n`,
@@ -359,6 +385,43 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       expect([403, 404]).toContain(response.status());
       expect(await response.text()).not.toContain(targetPage.title);
     }
+    const outsiderContent = await api.get(`attachments/${sameNameAttachment.id}/content`, {
+      headers: headers(outsider),
+    });
+    expect([403, 404]).toContain(outsiderContent.status());
+
+    const archived = await json<AttachmentSummary>(await api.post(
+      `spaces/${primarySpaceId}/attachments/${sameNameAttachment.id}/archive`,
+      { headers: headers(owner), data: { expectedUpdatedAt: sameNameAttachment.updatedAt } },
+    ), 'owner archives attachment');
+    expect(archived.status).toBe('archived');
+    const activeAfterArchive = await json<AttachmentList>(await api.get(
+      `spaces/${primarySpaceId}/attachments?status=active&skip=0&take=100`,
+      { headers: headers(owner) },
+    ), 'owner lists active attachments after archive');
+    const archivedAfterArchive = await json<AttachmentList>(await api.get(
+      `spaces/${primarySpaceId}/attachments?status=archived&skip=0&take=100`,
+      { headers: headers(owner) },
+    ), 'owner lists archived attachments after archive');
+    expect(activeAfterArchive.items.map((item) => item.id)).not.toContain(sameNameAttachment.id);
+    expect(archivedAfterArchive.items.map((item) => item.id)).toContain(sameNameAttachment.id);
+    // Archive removes the item from active resolution but retains recoverable bytes.
+    expect((await api.get(`attachments/${sameNameAttachment.id}/content`, {
+      headers: headers(owner),
+    })).status()).toBe(200);
+    sameNameAttachment = await json<AttachmentSummary>(await api.post(
+      `spaces/${primarySpaceId}/attachments/${sameNameAttachment.id}/restore`,
+      { headers: headers(owner), data: { expectedUpdatedAt: archived.updatedAt } },
+    ), 'owner restores attachment');
+    expect(sameNameAttachment.status).toBe('active');
+    const activeAfterRestore = await json<AttachmentList>(await api.get(
+      `spaces/${primarySpaceId}/attachments?status=active&skip=0&take=100`,
+      { headers: headers(owner) },
+    ), 'owner lists active attachments after restore');
+    expect(activeAfterRestore.items.map((item) => item.id)).toContain(sameNameAttachment.id);
+    expect((await api.get(`attachments/${sameNameAttachment.id}/content`, {
+      headers: headers(owner),
+    })).status()).toBe(200);
 
     const viewerSession = await authenticatedPage(browser, viewer);
     try {
@@ -370,6 +433,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(viewerImage).toBeVisible();
       await expect(viewerImage).toHaveAttribute('src', /^blob:/u);
       expect(await viewerImage.evaluate((element) => element.outerHTML)).not.toContain(viewer.access_token);
+      await expectNoCredentialLeak(viewerSession.page);
       expect(viewerSession.externalRequests).toEqual([]);
     } finally {
       await viewerSession.context.close();
@@ -382,12 +446,15 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     try {
       const page = ownerSession.page;
       await page.goto(`/pages/${editorPage.id}/edit`);
+      await expectNoDocumentOverflow(page);
       const content = page.locator('.cm-content[contenteditable="true"]');
       await expect(content).toBeVisible();
       await content.click();
       await page.keyboard.press('Meta+End');
 
       await page.getByRole('button', { name: 'Image attachments' }).click();
+      await expect(page.getByRole('dialog', { name: 'Image attachments' })).toBeVisible();
+      await expectNoDocumentOverflow(page);
       await page.getByLabel('Upload image').setInputFiles({
         name: 'same-name.png', mimeType: 'image/png', buffer: alternatePng,
       });
@@ -445,7 +512,9 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
         expect(markup).not.toContain(owner.access_token);
         expect(markup).not.toMatch(/Authorization|Bearer|\/api\/attachments|\/api\/pages/iu);
       }
-      await page.screenshot({ path: path.join(artifacts, 'owner-attachment-preview.png'), fullPage: true });
+      const ownerScreenshot = path.join(artifacts, 'owner-attachment-preview.png');
+      await page.screenshot({ path: ownerScreenshot, fullPage: true });
+      await expectNoCredentialLeak(page, [ownerScreenshot]);
       expect(ownerSession.externalRequests).toEqual([]);
     } finally {
       await ownerSession.context.close();
@@ -454,6 +523,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     const editorSession = await authenticatedPage(browser, editor);
     try {
       await editorSession.page.goto(`/pages/${editorPage.id}/edit`);
+      await expectNoDocumentOverflow(editorSession.page);
       await expect(editorSession.page.getByRole('button', { name: 'Image attachments' })).toBeVisible();
       await editorSession.page.getByRole('button', { name: 'Image attachments' }).click();
       await editorSession.page.getByLabel('Upload image').setInputFiles({
@@ -465,6 +535,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
         { headers: headers(editor) },
       ), 'editor lists attachments');
       expect(listed.items.map((item) => item.displayName)).toContain('editor-upload.png');
+      await expectNoCredentialLeak(editorSession.page);
       expect(editorSession.externalRequests).toEqual([]);
     } finally {
       await editorSession.context.close();
@@ -478,6 +549,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     try {
       const page = session.page;
       await page.goto(`/pages/${anchorPage.id}#root-heading`);
+      await expectNoDocumentOverflow(page);
       await expect(page.locator('#root-heading')).toBeVisible();
       await expect(page.getByRole('link', { name: 'Same-Space target' })).toHaveAttribute('href', `/pages/${targetPage.id}`);
       await expect(page.getByText('Initial target content.')).toBeVisible();
@@ -509,6 +581,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(dialog).toBeVisible();
       await expect(dialog.getByText('Embedded content is from the current version.')).toBeVisible();
       await expect(dialog.getByText('Refreshed target content.')).toBeVisible();
+      await expectNoDocumentOverflow(page);
 
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`/pages/${editorPage.id}/edit`);
@@ -520,7 +593,9 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.getByLabel('Search attachments')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Close attachment picker' })).toBeVisible();
       await expectNoDocumentOverflow(page);
-      await page.screenshot({ path: path.join(artifacts, 'mobile-attachment-picker.png'), fullPage: true });
+      const mobileScreenshot = path.join(artifacts, 'mobile-attachment-picker.png');
+      await page.screenshot({ path: mobileScreenshot, fullPage: true });
+      await expectNoCredentialLeak(page, [mobileScreenshot]);
       expect(session.externalRequests).toEqual([]);
     } finally {
       await Promise.all(contexts.map((context) => context.close()));

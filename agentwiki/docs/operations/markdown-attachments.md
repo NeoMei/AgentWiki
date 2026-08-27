@@ -96,7 +96,82 @@ an application release swap.
 
 Enter maintenance and stop **all writers** before either half of the backup. The
 commands below assume a production service user named `agentwiki`; adapt identity and
-database URL explicitly, never by sourcing an unreviewed shell file.
+database URL explicitly, never by sourcing an unreviewed shell file. The capture phase
+deliberately leaves writers stopped so it can also be used for a pre-restore rollback
+snapshot.
+
+Define this manifest function in the controlled maintenance shell. It walks the two
+allowed roots only, uses base64 for raw relative pathname bytes, sorts by those bytes,
+records every directory and regular file, and rejects symlinks, devices, sockets,
+FIFOs and any other entry type. Regular files are opened with `O_NOFOLLOW` where the
+platform provides it and are rejected if identity or size changes while hashing.
+
+```bash
+manifest_jsonl() {
+  node --input-type=commonjs - "$1" <<'NODE'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const slash = Buffer.from('/');
+const bundle = Buffer.from(process.argv[2]);
+const join = (left, right) => Buffer.concat([left, slash, right]);
+const rows = [];
+
+function visit(absolute, relative) {
+  const before = fs.lstatSync(absolute, { bigint: true });
+  const encodedPath = relative.toString('base64');
+  if (before.isSymbolicLink()) throw new Error(`symlink rejected: ${encodedPath}`);
+  if (before.isDirectory()) {
+    rows.push({ type: 'directory', pathBase64: encodedPath });
+    const names = fs.readdirSync(absolute, { encoding: 'buffer' }).sort(Buffer.compare);
+    for (const name of names) visit(join(absolute, name), join(relative, name));
+    return;
+  }
+  if (!before.isFile()) throw new Error(`non-regular entry rejected: ${encodedPath}`);
+
+  const noFollow = fs.constants.O_NOFOLLOW ?? 0;
+  const descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | noFollow);
+  try {
+    const opened = fs.fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`file identity changed before hashing: ${encodedPath}`);
+    }
+    const hash = crypto.createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    for (;;) {
+      const count = fs.readSync(descriptor, buffer, 0, buffer.length, position);
+      if (count === 0) break;
+      hash.update(buffer.subarray(0, count));
+      position += count;
+    }
+    const after = fs.fstatSync(descriptor, { bigint: true });
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size) {
+      throw new Error(`file changed while hashing: ${encodedPath}`);
+    }
+    rows.push({
+      type: 'file',
+      pathBase64: encodedPath,
+      size: opened.size.toString(),
+      sha256: hash.digest('hex'),
+    });
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+for (const relative of [Buffer.from('database.dump'), Buffer.from('attachments')]) {
+  visit(join(bundle, relative), relative);
+}
+rows.sort((left, right) => Buffer.compare(
+  Buffer.from(left.pathBase64, 'base64'),
+  Buffer.from(right.pathBase64, 'base64'),
+));
+process.stdout.write(`${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+NODE
+}
+```
+
+Capture the paired state while both services remain stopped:
 
 ```bash
 backup_dir="$(mktemp -d /var/backups/agentwiki/markdown-attachments.XXXXXXXX)"
@@ -104,44 +179,58 @@ sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.s
 pg_dump --format=custom --file="$backup_dir/database.dump" "$DATABASE_URL"
 mkdir -m 0700 "$backup_dir/attachments"
 rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$backup_dir/attachments/"
-(
-  cd "$backup_dir"
-  find database.dump attachments -type f -print0 | LC_ALL=C sort -z |
-    while IFS= read -r -d '' file; do
-      bytes="$(stat -c '%s' -- "$file")"
-      hash="$(sha256sum -- "$file" | awk '{print $1}')"
-      printf '%s  %s  %s\n' "$hash" "$bytes" "$file"
-    done
-) > "$backup_dir/SHA256_PATH_SIZE_MANIFEST"
+manifest_jsonl "$backup_dir" > "$backup_dir/MANIFEST.jsonl"
 pg_restore --list "$backup_dir/database.dump" > /dev/null
-sudo -u agentwiki systemctl --user start agentwiki-api.service agentwiki-worker.service
 ```
 
 Store the manifest with the two snapshots and protect the whole bundle from later
 mutation. A usable backup contains the PostgreSQL custom-format dump, the complete
-attachment snapshot, and the manifest that binds every relative path, byte size and
-SHA-256 digest.
+attachment snapshot, and the manifest that binds entry type, losslessly encoded path,
+file byte size and SHA-256 digest. If this is a backup-only maintenance window, verify
+the bundle first and resume writers explicitly as a separate action:
+
+```bash
+manifest_jsonl "$backup_dir" > "$backup_dir/MANIFEST.recheck.jsonl"
+cmp "$backup_dir/MANIFEST.jsonl" "$backup_dir/MANIFEST.recheck.jsonl"
+sudo -u agentwiki systemctl --user start agentwiki-api.service agentwiki-worker.service
+```
+
+Do **not** run that restart block when the capture is the rollback snapshot for an
+active restore.
 
 ## Coordinated restore and rollback
 
 Restore is one maintenance operation. Never restore files directly into the live root
 while services are running.
 
-1. Stop API and worker and create a fresh coordinated rollback bundle using the
-   procedure above; keep the old live filesystem and database backup until acceptance.
-2. Copy backup attachments into a new narrow staging directory outside the live root,
-   for example `/var/lib/agentwiki/attachments-restore-<run-id>`, mode `0700`.
-3. Rebuild the candidate manifest from `database.dump` plus staged attachments using
-   the exact backup loop. `cmp` it byte-for-byte with
-   `SHA256_PATH_SIZE_MANIFEST`. Any missing, extra, size-mismatched or hash-mismatched
-   file aborts the restore. Run `pg_restore --list database.dump` as an additional
-   format check.
+1. Stop API and worker. Capture a fresh coordinated rollback bundle with the capture
+   commands above, but do not execute the backup-only restart block. Keep its database
+   dump, attachment tree and manifest together until restore acceptance.
+2. Recheck the selected backup before use by writing `MANIFEST.recheck.jsonl` with
+   `manifest_jsonl` and comparing it byte-for-byte with `MANIFEST.jsonl`. This rejects
+   missing/extra entries, changed entry types, symlinks/non-regular entries, size
+   changes and hash mismatches before database mutation.
+3. Create a narrow restore bundle outside the live root. Copy the selected dump and
+   attachments into its exact two-root layout, then compare the same manifest again:
+
+   ```bash
+   restore_bundle="$(mktemp -d /var/lib/agentwiki/attachments-restore.XXXXXXXX)"
+   install -m 0600 "$backup_dir/database.dump" "$restore_bundle/database.dump"
+   mkdir -m 0700 "$restore_bundle/attachments"
+   rsync -a --numeric-ids --delete "$backup_dir/attachments/" "$restore_bundle/attachments/"
+   manifest_jsonl "$restore_bundle" > "$restore_bundle/MANIFEST.candidate.jsonl"
+   cmp "$backup_dir/MANIFEST.jsonl" "$restore_bundle/MANIFEST.candidate.jsonl"
+   pg_restore --list "$restore_bundle/database.dump" > /dev/null
+   ```
+
+   Any manifest or dump check failure aborts while writers remain stopped.
 4. Restore the dump while services remain stopped, then run Prisma migration status
    against the restored database. Validate the staged storage root's canonical path,
    owner, `0700` mode, file hashes and free-space floor.
-5. Preserve the old root by renaming it to a timestamped rollback path, atomically
-   rename the verified staged directory to `/var/lib/agentwiki/attachments`, and keep
-   both the pre-restore database dump and old filesystem root together.
+5. Preserve the old live attachment root at a timestamped rollback path, then
+   atomically rename the verified `restore_bundle/attachments` directory to
+   `/var/lib/agentwiki/attachments`. Keep the pre-restore rollback database dump and
+   old filesystem root as one pair. Never move a root during ordinary deployment.
 6. Before enabling production services, run a one-shot API on a private loopback port
    with the restored database and live attachment path. Require semantic health:
 

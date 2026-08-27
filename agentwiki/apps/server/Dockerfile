@@ -61,6 +61,10 @@ WORKDIR /app/apps/server
 # Generate Prisma client in production
 RUN npx prisma generate
 
+# A fresh named volume inherits this mountpoint's ownership and mode. Keep the
+# runtime non-root while satisfying the storage service's fail-closed 0700 check.
+RUN install -d -o node -g node -m 0700 /var/lib/agentwiki/attachments
+
 USER node
 
 # Expose port

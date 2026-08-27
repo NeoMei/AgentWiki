@@ -90,21 +90,37 @@ cleanup_release() {
 }
 trap cleanup_release EXIT
 
+set_live_attachment_env_value() {
+  local file="\$1" key="\$2" value="\$3"
+  if grep -q "^\${key}=" "\$file"; then
+    sed -i "s|^\${key}=.*|\${key}=\${value}|" "\$file"
+  else
+    printf '%s=%s\n' "\$key" "\$value" >> "\$file"
+  fi
+}
+
+read_attachment_min_free_bytes() {
+  local configured=""
+  if [ -f "\$live_dir/apps/server/.env" ]; then
+    configured="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/apps/server/.env" | tail -n1)"
+  fi
+  if [ -z "\$configured" ] && [ -f "\$live_dir/.env" ]; then
+    configured="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/.env" | tail -n1)"
+  fi
+  if [ -n "\$configured" ]; then
+    attachment_min_free_bytes="\$configured"
+  fi
+  case "\$attachment_min_free_bytes" in
+    ''|*[!0-9]*|0)
+      echo "ATTACHMENT_MIN_FREE_BYTES must be a positive integer." >&2
+      return 1
+      ;;
+  esac
+}
+
 attachment_storage_path="/var/lib/agentwiki/attachments"
 attachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"
-configured_attachment_min_free_bytes="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/apps/server/.env" 2>/dev/null | tail -n1)"
-if [ -z "\$configured_attachment_min_free_bytes" ]; then
-  configured_attachment_min_free_bytes="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$live_dir/.env" | tail -n1)"
-fi
-if [ -n "\$configured_attachment_min_free_bytes" ]; then
-  attachment_min_free_bytes="\$configured_attachment_min_free_bytes"
-fi
-case "\$attachment_min_free_bytes" in
-  ''|*[!0-9]*|0)
-    echo "ATTACHMENT_MIN_FREE_BYTES must be a positive integer." >&2
-    exit 1
-    ;;
-esac
+read_attachment_min_free_bytes
 case "\$attachment_storage_path" in
   "\$live_dir"|"\$live_dir"/*|"\$release_dir"|"\$release_dir"/*|"\$HOME"|"\$HOME"/*|/tmp|/tmp/*)
     echo "Attachment storage must remain outside home, temporary, live, and release trees." >&2
@@ -159,6 +175,23 @@ if [ "\$available_bytes" -lt "\$attachment_min_free_bytes" ]; then
   exit 1
 fi
 
+set_live_attachment_env_value "\$live_dir/.env" ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
+set_live_attachment_env_value "\$live_dir/.env" ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
+attachment_env_file="\$live_dir/.env"
+if [ -f "\$live_dir/apps/server/.env" ]; then
+  set_live_attachment_env_value "\$live_dir/apps/server/.env" ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
+  set_live_attachment_env_value "\$live_dir/apps/server/.env" ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
+  attachment_env_file="\$live_dir/apps/server/.env"
+fi
+verified_attachment_storage_path="\$(sed -n 's/^ATTACHMENT_STORAGE_PATH=//p' "\$attachment_env_file" | tail -n1)"
+verified_attachment_min_free_bytes="\$(sed -n 's/^ATTACHMENT_MIN_FREE_BYTES=//p' "\$attachment_env_file" | tail -n1)"
+if [ "\$verified_attachment_storage_path" != "\$attachment_storage_path" ] || \
+   [ "\$verified_attachment_min_free_bytes" != "\$attachment_min_free_bytes" ]; then
+  echo "Attachment runtime environment does not match the validated storage preflight." >&2
+  exit 1
+fi
+attachment_storage_preflight_complete=1
+
 tar -xzf "\$HOME/${ARCHIVE}" -C "\$release_dir"
 rm -f "\$HOME/${ARCHIVE}"
 install -m 0600 "\$live_dir/.env" "\$release_dir/.env"
@@ -189,10 +222,6 @@ case "\$local_sync_version" in
 esac
 set_env_value .env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
 set_env_value apps/server/.env LOCAL_SYNC_PACKAGE_VERSION "\$local_sync_version"
-set_env_value .env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
-set_env_value apps/server/.env ATTACHMENT_STORAGE_PATH "\$attachment_storage_path"
-set_env_value .env ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
-set_env_value apps/server/.env ATTACHMENT_MIN_FREE_BYTES "\$attachment_min_free_bytes"
 
 ensure_base64_secret() {
   local key="\$1" value

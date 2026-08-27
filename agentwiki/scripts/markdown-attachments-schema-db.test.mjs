@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import {
+  expectedMarkdownTestDatabaseIdentity,
   validateMarkdownTestDatabaseUrl,
   withMarkdownTestDatabase,
 } from './markdown-test-database.mjs';
@@ -79,6 +80,21 @@ test('Markdown database URLs fail closed', () => {
   }
 });
 
+test('Markdown database identity expectations derive from socket and TCP test URLs', () => {
+  assert.deepEqual(
+    expectedMarkdownTestDatabaseIdentity(
+      'postgresql://neomei@/agentwiki_collaboration_test?host=/tmp',
+    ),
+    { database: 'agentwiki_collaboration_test', role: 'neomei', unixSocket: true },
+  );
+  assert.deepEqual(
+    expectedMarkdownTestDatabaseIdentity(
+      'postgresql://ci_markdown@127.0.0.1/ci_markdown_test',
+    ),
+    { database: 'ci_markdown_test', role: 'ci_markdown', unixSocket: false },
+  );
+});
+
 test('attachment migration enforces Space-scoped names, metadata checks, and delete behavior', {
   skip: baseDatabaseUrl ? false : 'MARKDOWN_TEST_DATABASE_URL is not configured',
   timeout: 120_000,
@@ -102,6 +118,7 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
       height: 32,
     };
 
+    const expectedIdentity = expectedMarkdownTestDatabaseIdentity(baseDatabaseUrl);
     try {
       const session = await prisma.$queryRawUnsafe(
         `SELECT current_database() AS database, current_user AS role,
@@ -109,9 +126,9 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
                 inet_server_addr() IS NULL AS unix_socket`,
       );
       assert.equal(session[0].schema, schemaName);
-      assert.equal(session[0].database, 'agentwiki_collaboration_test');
-      assert.equal(session[0].role, 'neomei');
-      assert.equal(session[0].unix_socket, true);
+      assert.equal(session[0].database, expectedIdentity.database);
+      assert.equal(session[0].role, expectedIdentity.role);
+      assert.equal(session[0].unix_socket, expectedIdentity.unixSocket);
       assert.match(session[0].search_path, new RegExp(schemaName, 'u'));
 
       const guards = await prisma.$queryRawUnsafe(

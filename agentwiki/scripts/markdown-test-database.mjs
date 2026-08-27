@@ -44,6 +44,15 @@ export function validateMarkdownTestDatabaseUrl(value) {
   return parsed;
 }
 
+export function expectedMarkdownTestDatabaseIdentity(value) {
+  const parsed = validateMarkdownTestDatabaseUrl(value);
+  return {
+    database: decodeURIComponent(parsed.pathname.replace(/^\//u, '')),
+    role: decodeURIComponent(parsed.username),
+    unixSocket: parsed.searchParams.get('host')?.startsWith('/') ?? false,
+  };
+}
+
 const quoteIdentifier = (value) => {
   if (!SAFE_SCHEMA.test(value)) {
     throw new Error('Refusing unsafe Markdown test schema identifier');
