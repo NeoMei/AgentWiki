@@ -53,8 +53,8 @@ describe('resolveWikiHref', () => {
     expect(resolveWikiHref(parseWikiReference('链接能力测试'), pages)).toBe('/pages/def456');
   });
   it('appends heading and block fragments only after the page resolves', () => {
-    expect(resolveWikiHref(parseWikiReference('MyFirstPage#Heading Name'), pages)).toBe('/pages/abc123#agentwiki:heading:heading-name');
-    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^block-one'), pages)).toBe('/pages/abc123#agentwiki:block:block-one');
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#Heading Name'), pages)).toBe('/pages/abc123#agentwiki:heading:00006800006500006100006400006900006e00006700002000006e00006100006d000065');
+    expect(resolveWikiHref(parseWikiReference('MyFirstPage#^block-one'), pages)).toBe('/pages/abc123#agentwiki:block:00006200006c00006f00006300006b00002d00006f00006e000065');
     expect(resolveWikiHref(parseWikiReference('Missing#Heading'), pages)).toBeNull();
   });
   it('rejects empty and invalid fragments instead of degrading to the whole page', () => {
@@ -69,8 +69,8 @@ describe('resolveWikiHref', () => {
 
     expect(heading).toHaveAttribute('id', 'a---b');
     expect(screen.getByRole('link', { name: 'Standard self' })).toHaveAttribute('href', '#a---b');
-    expect(link).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:a---b');
-    expect(container.querySelector('[id="agentwiki:heading:a---b"]')).toBeInTheDocument();
+    expect(link).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:00006100002000002d000020000062');
+    expect(container.querySelector('[id="agentwiki:heading:00006100002000002d000020000062"]')).toBeInTheDocument();
   });
   it('keeps standard Markdown anchors while adding full-fold Wiki heading and block aliases', () => {
     const unicodePages = [{ id: 'unicode-page', title: 'Straße', slug: 'unicode' }];
@@ -109,12 +109,12 @@ describe('resolveWikiHref', () => {
     expect(container.querySelector(`[id="${decodeURIComponent(standardGermanHref.slice(1))}"]`)).toBeInTheDocument();
     expect(container.querySelector(`[id="${decodeURIComponent(standardGreekHref.slice(1))}"]`)).toBeInTheDocument();
     expect(container.querySelector(`[id="${decodeURIComponent(standardBlockHref.slice(1))}"]`)).toBeInTheDocument();
-    expect(germanHref).toBe('/pages/unicode-page#agentwiki:heading:strasse');
-    expect(greekHref).toBe('/pages/unicode-page#agentwiki:heading:οσ');
-    expect(blockHref).toBe('/pages/unicode-page#agentwiki:block:strasse');
-    expect(container.querySelector('[id="agentwiki:heading:strasse"]')).toBeInTheDocument();
-    expect(container.querySelector('[id="agentwiki:heading:οσ"]')).toBeInTheDocument();
-    expect(container.querySelector('[id="agentwiki:block:strasse"]')).toBeInTheDocument();
+    expect(germanHref).toBe('/pages/unicode-page#agentwiki:heading:000073000074000072000061000073000073000065');
+    expect(greekHref).toBe('/pages/unicode-page#agentwiki:heading:0003bf0003c3');
+    expect(blockHref).toBe('/pages/unicode-page#agentwiki:block:000073000074000072000061000073000073000065');
+    expect(container.querySelector('[id="agentwiki:heading:000073000074000072000061000073000073000065"]')).toBeInTheDocument();
+    expect(container.querySelector('[id="agentwiki:heading:0003bf0003c3"]')).toBeInTheDocument();
+    expect(container.querySelector('[id="agentwiki:block:000073000074000072000061000073000073000065"]')).toBeInTheDocument();
   });
   it('dedupes Wiki heading aliases without colliding with standard heading IDs', () => {
     const { container } = renderMd([
@@ -131,8 +131,63 @@ describe('resolveWikiHref', () => {
       'straße-1',
       'agentwikiheadingstrasse',
     ]);
-    expect(container.querySelectorAll('[id="agentwiki:heading:strasse"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[id="agentwiki:heading:000073000074000072000061000073000073000065"]')).toHaveLength(1);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+  it('keeps lossless Wiki aliases distinct when GitHub slugs collide', () => {
+    const aliasPages = [{ id: 'alias-page', title: 'Alias Page', slug: 'alias-page' }];
+    const { container } = renderMd([
+      '## A.B',
+      '',
+      '## AB',
+      '',
+      '## C++',
+      '',
+      '## C',
+      '',
+      '## !!!',
+      '',
+      '## ???',
+      '',
+      '## Straße',
+      '',
+      '## STRASSE',
+      '',
+      '## ΟΣ',
+      '',
+      '## A.B',
+      '',
+      '[[Alias Page#A.B|Dot]]',
+      '[[Alias Page#AB|Plain AB]]',
+      '[[Alias Page#C++|Plus]]',
+      '[[Alias Page#C|Plain C]]',
+      '[[Alias Page#!!!|Bang]]',
+      '[[Alias Page#???|Question]]',
+      '[[Alias Page#STRASSE|Folded German]]',
+      '[[Alias Page#οσ|Folded Greek]]',
+    ].join('\n'), aliasPages);
+    const expected = [
+      ['Dot', 'agentwiki:heading:00006100002e000062'],
+      ['Plain AB', 'agentwiki:heading:000061000062'],
+      ['Plus', 'agentwiki:heading:00006300002b00002b'],
+      ['Plain C', 'agentwiki:heading:000063'],
+      ['Bang', 'agentwiki:heading:000021000021000021'],
+      ['Question', 'agentwiki:heading:00003f00003f00003f'],
+      ['Folded German', 'agentwiki:heading:000073000074000072000061000073000073000065'],
+      ['Folded Greek', 'agentwiki:heading:0003bf0003c3'],
+    ] as const;
+
+    expect([...container.querySelectorAll('h2')].map((heading) => heading.id)).toEqual([
+      'ab', 'ab-1', 'c', 'c-1', '', '-1', 'straße', 'strasse', 'ος', 'ab-2',
+    ]);
+    for (const [linkName, alias] of expected) {
+      expect(screen.getByRole('link', { name: linkName })).toHaveAttribute('href', `/pages/alias-page#${alias}`);
+      expect(container.querySelector(`[id="${alias}"]`)).toBeInTheDocument();
+    }
+    expect(container.querySelectorAll('[id^="agentwiki:heading:"]')).toHaveLength(expected.length);
+    expect(container.querySelectorAll('[id="agentwiki:heading:00006100002e000062"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[id="agentwiki:heading:000073000074000072000061000073000073000065"]')).toHaveLength(1);
+    expect(new Set(expected.map(([, alias]) => alias)).size).toBe(expected.length);
   });
   it('returns null for unknown names', () => {
     expect(resolveWikiHref(parseWikiReference('不存在'), pages)).toBeNull();
@@ -350,7 +405,7 @@ describe('Markdown rendering', () => {
 
     expect(screen.getByText('marked').tagName).toBe('MARK');
     expect(screen.getByRole('link', { name: 'Shown' })).toHaveAttribute('href', '/pages/abc123');
-    expect(screen.getByRole('link', { name: 'MyFirstPage#Heading Name' })).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:heading-name');
+    expect(screen.getByRole('link', { name: 'MyFirstPage#Heading Name' })).toHaveAttribute('href', '/pages/abc123#agentwiki:heading:00006800006500006100006400006900006e00006700002000006e00006100006d000065');
     expect(container.querySelector('[id="^block-1"]')).toHaveClass('block-anchor');
     expect(container).not.toHaveTextContent('^block-1');
   });

@@ -1,5 +1,4 @@
 import { foldCase } from '@neomei/agentwiki-sync-protocol';
-import { slug } from 'github-slugger';
 import { SKIP, visit } from 'unist-util-visit';
 
 export interface WikiReference {
@@ -55,16 +54,18 @@ export const normalizeMarkdownAttachmentIdentity = (value: string | null | undef
   value?.normalize('NFC').trim().toLocaleLowerCase('und') ?? ''
 );
 
-export const markdownAnchorSlug = (value: string): string => (
-  slug(normalizeMarkdownPageIdentity(value))
+export const markdownWikiIdentityToken = (value: string): string => (
+  Array.from(normalizeMarkdownPageIdentity(value), (character) => (
+    character.codePointAt(0)!.toString(16).padStart(6, '0')
+  )).join('')
 );
 
 export const markdownWikiHeadingAnchorId = (value: string): string => (
-  `agentwiki:heading:${markdownAnchorSlug(value)}`
+  `agentwiki:heading:${markdownWikiIdentityToken(value)}`
 );
 
 export const markdownWikiBlockAnchorId = (value: string): string => (
-  `agentwiki:block:${markdownAnchorSlug(value)}`
+  `agentwiki:block:${markdownWikiIdentityToken(value)}`
 );
 
 export const markdownBlockAnchorId = (value: string): string => `^${value}`;
