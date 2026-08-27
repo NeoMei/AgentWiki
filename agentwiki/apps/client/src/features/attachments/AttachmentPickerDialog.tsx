@@ -41,11 +41,12 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   const [uploading, setUploading] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
   const uploadingRef = useRef(false);
+  const operationRef = useRef(false);
   const busyIdsRef = useRef<Set<string>>(new Set());
   const aliveRef = useRef(true);
   const listSequenceRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
-  const nextLoadAnnouncementRef = useRef<string | null>(null);
+  const skipNextEffectLoadRef = useRef(false);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -63,15 +64,17 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
     return apiErrorMessage(caught, t, fallbackKey);
   }, [t]);
 
-  const load = useCallback(async (skip: number, append: boolean, successAnnouncement?: string) => {
+  const load = useCallback(async (
+    skip: number,
+    append: boolean,
+    successAnnouncement?: string,
+    criteria?: { query: string; status: AttachmentListStatus },
+  ) => {
     const sequence = ++listSequenceRef.current;
     listAbortRef.current?.abort();
     const controller = new AbortController();
     listAbortRef.current = controller;
-    const replacementAnnouncement = append
-      ? null
-      : successAnnouncement ?? nextLoadAnnouncementRef.current;
-    if (!append) nextLoadAnnouncementRef.current = null;
+    const replacementAnnouncement = append ? null : successAnnouncement ?? null;
     if (append) setLoadingMore(true);
     else {
       setLoading(true);
@@ -85,8 +88,8 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
     }
     try {
       const result = await listAttachments(spaceId, {
-        q: query.trim() || undefined,
-        status,
+        q: (criteria?.query ?? query).trim() || undefined,
+        status: criteria?.status ?? status,
         skip,
         take: PAGE_SIZE,
       }, controller.signal);
@@ -109,12 +112,16 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   }, [query, spaceId, status, t, translatedError]);
 
   useEffect(() => {
+    if (skipNextEffectLoadRef.current) {
+      skipNextEffectLoadRef.current = false;
+      return;
+    }
     void load(0, false);
-    return () => listAbortRef.current?.abort();
   }, [load]);
 
   const mutate = async (item: AttachmentSummary, action: 'archive' | 'restore') => {
-    if (busyIdsRef.current.has(item.id)) return;
+    if (operationRef.current) return;
+    operationRef.current = true;
     busyIdsRef.current.add(item.id);
     setBusyIds(new Set(busyIdsRef.current));
     setError(null);
@@ -129,12 +136,9 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
         // Restored files do not belong in the archived result set. Switch to
         // the authoritative active view so insertion is offered only after a
         // successful restore and a filter-truthful reload.
-        nextLoadAnnouncementRef.current = message;
-        setItems([]);
-        setTotal(0);
-        setNextSkip(PAGE_SIZE);
-        setLoading(true);
+        skipNextEffectLoadRef.current = true;
         setStatus('active');
+        await load(0, false, message, { query, status: 'active' });
       } else {
         await load(0, false, message);
       }
@@ -144,6 +148,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
       setError(message);
       setAnnouncement(message);
     } finally {
+      operationRef.current = false;
       busyIdsRef.current.delete(item.id);
       if (aliveRef.current) setBusyIds(new Set(busyIdsRef.current));
     }
@@ -152,7 +157,8 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
-    if (!file || uploadingRef.current) return;
+    if (!file || operationRef.current || uploadingRef.current) return;
+    operationRef.current = true;
     uploadingRef.current = true;
     setUploading(true);
     setUploadProgress(0);
@@ -183,34 +189,43 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
       setAnnouncement(message);
       setUploadProgress(null);
     } finally {
+      operationRef.current = false;
       uploadingRef.current = false;
       if (aliveRef.current) setUploading(false);
     }
   };
 
   const requestClose = () => {
+    if (operationRef.current) return;
     aliveRef.current = false;
     listAbortRef.current?.abort();
     onClose();
   };
 
   const criteriaLocked = uploading || busyIds.size > 0;
+  const insertExisting = (displayName: string) => {
+    if (!operationRef.current) onInsert(displayName);
+  };
 
-  return <ModalDialog labelledBy="attachment-picker-title" onRequestClose={requestClose} closeDisabled={uploading || busyIds.size > 0} returnFocusTo={returnFocusTo} className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+  return <ModalDialog labelledBy="attachment-picker-title" onRequestClose={requestClose} closeDisabled={criteriaLocked} returnFocusTo={returnFocusTo} className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
     <div className="flex items-start justify-between gap-3">
       <div>
         <h2 id="attachment-picker-title" className="text-lg font-semibold">{t('attachment.title')}</h2>
         <p className="mt-1 text-sm text-gray-600">{t('attachment.description')}</p>
       </div>
-      <button type="button" aria-label={t('attachment.close')} onClick={requestClose} disabled={uploading || busyIds.size > 0} className="min-h-10 rounded-lg border px-3 disabled:opacity-50">{t('common.close')}</button>
+      <button type="button" aria-label={t('attachment.close')} onClick={requestClose} disabled={criteriaLocked} className="min-h-10 rounded-lg border px-3 disabled:opacity-50">{t('common.close')}</button>
     </div>
 
     <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
       <label className="text-sm font-medium">{t('attachment.search')}
-        <input data-modal-autofocus type="search" aria-label={t('attachment.search')} value={query} disabled={criteriaLocked} onChange={(event) => setQuery(event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
+        <input data-modal-autofocus type="search" aria-label={t('attachment.search')} value={query} disabled={criteriaLocked} onChange={(event) => {
+          if (!operationRef.current) setQuery(event.target.value);
+        }} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
       </label>
       <label className="text-sm font-medium">{t('attachment.status')}
-        <select aria-label={t('attachment.status')} value={status} disabled={criteriaLocked} onChange={(event) => setStatus(event.target.value as AttachmentListStatus)} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50">
+        <select aria-label={t('attachment.status')} value={status} disabled={criteriaLocked} onChange={(event) => {
+          if (!operationRef.current) setStatus(event.target.value as AttachmentListStatus);
+        }} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50">
           <option value="active">{t('attachment.statusActive')}</option>
           <option value="archived">{t('attachment.statusArchived')}</option>
           <option value="all">{t('attachment.statusAll')}</option>
@@ -220,7 +235,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
 
     <label className="mt-4 flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-dashed px-4 text-sm font-medium">
       {t('attachment.upload')}
-      <input type="file" accept={ACCEPTED_IMAGES} aria-label={t('attachment.upload')} disabled={uploading} onChange={(event) => void handleUpload(event)} className="sr-only" />
+      <input type="file" accept={ACCEPTED_IMAGES} aria-label={t('attachment.upload')} disabled={criteriaLocked} onChange={(event) => void handleUpload(event)} className="sr-only" />
     </label>
 
     {uploadProgress !== null ? <p aria-live="polite" role="status" className="mt-2 text-sm text-blue-700">{t('attachment.uploading', { progress: uploadProgress })}</p> : null}
@@ -235,12 +250,14 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
             <p className="truncate font-medium">{item.displayName}</p>
             <p className="text-xs text-gray-500">{t(item.status === 'active' ? 'attachment.statusActive' : 'attachment.statusArchived')}</p>
           </div>
-          {item.status === 'active' ? <button type="button" disabled={busy || uploading} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => onInsert(item.displayName)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
-          <button type="button" disabled={busy || uploading} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button>
+          {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item.displayName)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
+          <button type="button" disabled={criteriaLocked} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button>
         </li>;
       })}
     </ul> : <p className="mt-5 text-sm text-gray-500">{t('attachment.empty')}</p>}
 
-    {items.length < total ? <button type="button" disabled={loadingMore} onClick={() => void load(nextSkip, true)} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{loadingMore ? t('common.loading') : t('attachment.loadMore')}</button> : null}
+    {items.length < total ? <button type="button" disabled={loadingMore || criteriaLocked} onClick={() => {
+      if (!operationRef.current) void load(nextSkip, true);
+    }} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{loadingMore ? t('common.loading') : t('attachment.loadMore')}</button> : null}
   </ModalDialog>;
 };

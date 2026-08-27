@@ -70,13 +70,18 @@ describe('AttachmentPickerDialog', () => {
   it('switches to the authoritative active filter after restore before allowing insertion', async () => {
     const archived = attachment({ id: 'old', displayName: 'old.png', status: 'archived' });
     const restoredItem = attachment({ id: 'old', displayName: 'old.png', status: 'active', updatedAt: '2026-08-27T02:00:00Z' });
-    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { status: string }) => params.status === 'archived'
-      ? { items: [archived], total: 1, skip: 0, take: 20 }
-      : { items: [restoredItem], total: 1, skip: 0, take: 20 });
+    const activeReload = deferred<{ items: ReturnType<typeof attachment>[]; total: number; skip: number; take: number }>();
+    let activeCalls = 0;
+    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { status: string }) => {
+      if (params.status === 'archived') return { items: [archived], total: 1, skip: 0, take: 20 };
+      activeCalls += 1;
+      if (activeCalls === 1) return { items: [attachment()], total: 1, skip: 0, take: 20 };
+      return activeReload.promise;
+    });
     const restored = deferred<ReturnType<typeof attachment>>();
     mocks.restoreAttachment.mockReturnValue(restored.promise);
     const { onInsert } = renderDialog();
-    await screen.findByRole('listitem', { name: 'old.png' });
+    await screen.findByRole('listitem', { name: 'diagram.png' });
     fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } });
     const archivedRow = await screen.findByRole('listitem', { name: 'old.png' });
     expect(within(archivedRow).queryByRole('button', { name: 'Insert old.png' })).not.toBeInTheDocument();
@@ -85,7 +90,14 @@ describe('AttachmentPickerDialog', () => {
     expect(within(archivedRow).queryByRole('button', { name: 'Insert old.png' })).not.toBeInTheDocument();
     await act(async () => restored.resolve(restoredItem));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Attachment status' })).toHaveValue('active'));
+    await waitFor(() => expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ status: 'active' }), expect.any(AbortSignal)));
+    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Attachment status' })).toBeDisabled();
+    expect(screen.getByLabelText('Upload image')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close attachment picker' })).toBeDisabled();
+    await act(async () => activeReload.resolve({ items: [restoredItem], total: 1, skip: 0, take: 20 }));
     const activeRow = await screen.findByRole('listitem', { name: 'old.png' });
+    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeEnabled();
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Insert old.png' }));
     expect(onInsert).toHaveBeenLastCalledWith('old.png');
   });
@@ -96,24 +108,94 @@ describe('AttachmentPickerDialog', () => {
       displayName: `active-${index + 1}.png`,
     }));
     const shiftedPage = [...firstPage.slice(1), attachment({ id: 'active-21', displayName: 'active-21.png' })];
+    const archivedMutation = deferred<ReturnType<typeof attachment>>();
     const reconciliation = deferred<{ items: ReturnType<typeof attachment>[]; total: number; skip: number; take: number }>();
     mocks.listAttachments
       .mockResolvedValueOnce({ items: firstPage, total: 21, skip: 0, take: 20 })
       .mockReturnValueOnce(reconciliation.promise);
-    mocks.archiveAttachment.mockResolvedValue(attachment({ id: 'active-1', displayName: 'active-1.png', status: 'archived' }));
+    mocks.archiveAttachment.mockReturnValue(archivedMutation.promise);
     renderDialog();
     const row = await screen.findByRole('listitem', { name: 'active-1.png' });
+    expect(screen.getByText('21 attachments found')).toHaveAttribute('aria-live', 'polite');
 
     fireEvent.click(within(row).getByRole('button', { name: 'Archive active-1.png' }));
 
+    const competingRow = screen.getByRole('listitem', { name: 'active-2.png' });
+    const initialLockSnapshot = {
+      insert: (within(competingRow).getByRole('button', { name: 'Insert active-2.png' }) as HTMLButtonElement).disabled,
+      mutation: (within(competingRow).getByRole('button', { name: 'Archive active-2.png' }) as HTMLButtonElement).disabled,
+      upload: (screen.getByLabelText('Upload image') as HTMLInputElement).disabled,
+      loadMore: (screen.getByRole('button', { name: 'Load more' }) as HTMLButtonElement).disabled,
+    };
+    await act(async () => archivedMutation.resolve(attachment({ id: 'active-1', displayName: 'active-1.png', status: 'archived' })));
     await waitFor(() => expect(mocks.listAttachments).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Attachment status' })).toBeDisabled();
+    const reconciliationLockSnapshot = {
+      search: (screen.getByRole('searchbox', { name: 'Search attachments' }) as HTMLInputElement).disabled,
+      status: (screen.getByRole('combobox', { name: 'Attachment status' }) as HTMLSelectElement).disabled,
+      upload: (screen.getByLabelText('Upload image') as HTMLInputElement).disabled,
+      close: (screen.getByRole('button', { name: 'Close attachment picker' }) as HTMLButtonElement).disabled,
+    };
     await act(async () => reconciliation.resolve({ items: shiftedPage, total: 20, skip: 0, take: 20 }));
+    expect(initialLockSnapshot).toEqual({ insert: true, mutation: true, upload: true, loadMore: true });
+    expect(reconciliationLockSnapshot).toEqual({ search: true, status: true, upload: true, close: true });
     expect(await screen.findByRole('listitem', { name: 'active-21.png' })).toBeInTheDocument();
     expect(screen.queryByRole('listitem', { name: 'active-1.png' })).not.toBeInTheDocument();
     expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ status: 'active', skip: 0, take: 20 }), expect.any(AbortSignal));
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('synchronously rejects a second restore while the first restore is pending', async () => {
+    const first = attachment({ id: 'old-a', displayName: 'old-a.png', status: 'archived' });
+    const second = attachment({ id: 'old-b', displayName: 'old-b.png', status: 'archived' });
+    const restore = deferred<ReturnType<typeof attachment>>();
+    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { status: string }) => ({
+      items: params.status === 'archived' ? [first, second] : [],
+      total: params.status === 'archived' ? 2 : 0,
+      skip: 0,
+      take: 20,
+    }));
+    mocks.restoreAttachment.mockReturnValue(restore.promise);
+    renderDialog();
+    await waitFor(() => expect(mocks.listAttachments).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } });
+    const firstButton = within(await screen.findByRole('listitem', { name: 'old-a.png' })).getByRole('button', { name: 'Restore old-a.png' });
+    const secondButton = within(screen.getByRole('listitem', { name: 'old-b.png' })).getByRole('button', { name: 'Restore old-b.png' });
+
+    act(() => {
+      fireEvent.click(firstButton);
+      fireEvent.click(secondButton);
+    });
+    const callCount = mocks.restoreAttachment.mock.calls.length;
+    await act(async () => restore.resolve(attachment({ id: 'old-a', displayName: 'old-a.png', status: 'active' })));
+
+    expect(callCount).toBe(1);
+  });
+
+  it('synchronously rejects upload while a restore is pending', async () => {
+    const archived = attachment({ id: 'old', displayName: 'old.png', status: 'archived' });
+    const restore = deferred<ReturnType<typeof attachment>>();
+    mocks.listAttachments.mockImplementation(async (_spaceId: string, params: { status: string }) => ({
+      items: params.status === 'archived' ? [archived] : [],
+      total: params.status === 'archived' ? 1 : 0,
+      skip: 0,
+      take: 20,
+    }));
+    mocks.restoreAttachment.mockReturnValue(restore.promise);
+    mocks.uploadAttachment.mockResolvedValue(attachment({ id: 'uploaded', displayName: 'new.png' }));
+    renderDialog();
+    await waitFor(() => expect(mocks.listAttachments).toHaveBeenCalled());
+    fireEvent.change(screen.getByRole('combobox', { name: 'Attachment status' }), { target: { value: 'archived' } });
+    const restoreButton = within(await screen.findByRole('listitem', { name: 'old.png' })).getByRole('button', { name: 'Restore old.png' });
+    const input = screen.getByLabelText('Upload image');
+
+    act(() => {
+      fireEvent.click(restoreButton);
+      fireEvent.change(input, { target: { files: [new File(['png'], 'new.png', { type: 'image/png' })] } });
+    });
+    const uploadCount = mocks.uploadAttachment.mock.calls.length;
+    await act(async () => restore.resolve(attachment({ id: 'old', displayName: 'old.png', status: 'active' })));
+
+    expect(uploadCount).toBe(0);
   });
 
   it('uploads only accepted images, announces progress, confirms and inserts the final suffixed server name', async () => {
