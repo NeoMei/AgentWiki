@@ -92,25 +92,18 @@ export class MarkdownResourceService {
     )));
 
     const exactPageRows = pageTargets.length > 0
-      ? await this.prisma.page.findMany({
-          where: {
-            spaceId,
-            deletedAt: null,
-            OR: [
-              { id: { in: pageTargets } },
-              { syncPathKey: { in: pagePathTargets } },
-            ],
-          },
-          select: {
-            id: true,
-            spaceId: true,
-            title: true,
-            slug: true,
-            syncPath: true,
-            syncPathKey: true,
-          },
-          take: MAX_EXACT_PAGE_ROWS,
-        }) as PageRow[]
+      ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
+          SELECT "id", "spaceId", "title", "slug", "syncPath", "syncPathKey"
+          FROM "Page"
+          WHERE "spaceId" = ${spaceId}
+            AND "deletedAt" IS NULL
+            AND (
+              "id" IN (${Prisma.join(pageTargets)})
+              OR markdown_page_identity("syncPath") IN (${Prisma.join(pagePathTargets)})
+            )
+          ORDER BY "id" ASC
+          LIMIT ${MAX_EXACT_PAGE_ROWS}
+        `)
       : [];
     const slugPageRows = titleTargets.length > 0
       ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
@@ -187,7 +180,9 @@ export class MarkdownResourceService {
       const fallbackTarget = withoutMarkdownSuffix(target);
       const tiers: PageRow[][] = [
         scopedExactPages.filter((candidate) => normalizeMarkdownPageIdentity(candidate.id) === target),
-        scopedExactPages.filter((candidate) => pathKey(candidate.syncPath) === targetPathKey),
+        scopedExactPages.filter((candidate) => (
+          normalizeMarkdownPageIdentity(candidate.syncPath) === targetPathKey
+        )),
       ];
       for (const matches of tiers) {
         if (matches.length > 1) return { key: reference.key, status: 'ambiguous' };

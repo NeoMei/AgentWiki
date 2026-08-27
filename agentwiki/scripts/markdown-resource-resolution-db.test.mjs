@@ -65,13 +65,15 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
          FROM pg_indexes
          WHERE schemaname = $1 AND indexname IN (
            'Page_spaceId_slugMarkdownIdentity_idx',
-           'Page_spaceId_titleMarkdownIdentity_idx'
+           'Page_spaceId_titleMarkdownIdentity_idx',
+           'Page_spaceId_syncPathMarkdownIdentity_idx'
          )
          ORDER BY indexname`,
         schemaName,
       );
       assert.deepEqual(indexes.map(({ name }) => name), [
         'Page_spaceId_slugMarkdownIdentity_idx',
+        'Page_spaceId_syncPathMarkdownIdentity_idx',
         'Page_spaceId_titleMarkdownIdentity_idx',
       ]);
       for (const { definition } of indexes) {
@@ -99,6 +101,11 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
           id: `unicode-path_${schemaName}`, spaceId, authorId: userId,
           title: 'Unicode path', slug: `unicode-path-${schemaName}`,
           syncPath: 'Stra\u00dfe/Guide.md', syncPathKey: 'strasse/guide.md',
+        },
+        {
+          id: `trim-path_${schemaName}`, spaceId, authorId: userId,
+          title: 'Trimmed path', slug: `trim-path-${schemaName}`,
+          syncPath: ' Guide.md', syncPathKey: ' guide.md',
         },
         {
           id: `unicode-title_${schemaName}`, spaceId, authorId: userId,
@@ -136,6 +143,7 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'trim-title', kind: 'page', target: 'Trimmed Title' },
         { key: 'trim-slug', kind: 'page', target: 'trim-slug' },
         { key: 'unicode-path', kind: 'page', target: 'Stra\u00dfe/Guide.md' },
+        { key: 'trim-path', kind: 'page', target: ' Guide.md ' },
         { key: 'unicode-title', kind: 'page', target: 'STRASSE' },
         { key: 'unicode-slug', kind: 'page', target: '\u03bf\u03c3' },
         { key: 'nfc-title', kind: 'page', target: 'CAF\u00c9' },
@@ -146,6 +154,7 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'trim-title', status: 'resolved', kind: 'page' },
         { key: 'trim-slug', status: 'resolved', kind: 'page' },
         { key: 'unicode-path', status: 'resolved', kind: 'page' },
+        { key: 'trim-path', status: 'resolved', kind: 'page' },
         { key: 'unicode-title', status: 'resolved', kind: 'page' },
         { key: 'unicode-slug', status: 'resolved', kind: 'page' },
         { key: 'nfc-title', status: 'resolved', kind: 'page' },
@@ -156,7 +165,7 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
 
       const plans = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
-        return Promise.all(['slug', 'title'].map((column) => tx.$queryRawUnsafe(
+        return Promise.all(['slug', 'title', 'syncPath'].map((column) => tx.$queryRawUnsafe(
           `EXPLAIN (FORMAT JSON) SELECT "id" FROM "Page"
            WHERE "spaceId" = $1 AND "deletedAt" IS NULL
              AND markdown_page_identity("${column}") IN ($2)
@@ -167,6 +176,7 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       });
       assert.match(JSON.stringify(plans[0]), /Page_spaceId_slugMarkdownIdentity_idx/u);
       assert.match(JSON.stringify(plans[1]), /Page_spaceId_titleMarkdownIdentity_idx/u);
+      assert.match(JSON.stringify(plans[2]), /Page_spaceId_syncPathMarkdownIdentity_idx/u);
     } finally {
       await prisma.$disconnect();
     }

@@ -160,3 +160,7 @@ CREATE INDEX "Page_spaceId_slugMarkdownIdentity_idx"
 CREATE INDEX "Page_spaceId_titleMarkdownIdentity_idx"
   ON "Page" ("spaceId", markdown_page_identity("title"))
   WHERE "deletedAt" IS NULL;
+
+CREATE INDEX "Page_spaceId_syncPathMarkdownIdentity_idx"
+  ON "Page" ("spaceId", markdown_page_identity("syncPath"))
+  WHERE "deletedAt" IS NULL;
