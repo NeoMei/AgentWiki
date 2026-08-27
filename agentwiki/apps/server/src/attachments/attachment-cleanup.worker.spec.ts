@@ -10,6 +10,7 @@ const DAY_MS = 24 * HOUR_MS;
 
 describe('AttachmentCleanupWorker', () => {
   const roots = new Set<string>();
+  const workers = new Set<AttachmentCleanupWorker>();
   const now = new Date('2026-08-27T12:00:00.000Z');
 
   const configFor = (storagePath: string): AttachmentConfig => ({
@@ -37,6 +38,7 @@ describe('AttachmentCleanupWorker', () => {
       pollMs?: number;
       archived?: Array<Record<string, unknown>>;
       referenceCount?: number;
+      referenceCountFor?: (storageKey: string) => number;
     } = {},
   ) => {
     const events: string[] = [];
@@ -51,8 +53,9 @@ describe('AttachmentCleanupWorker', () => {
     const prisma = {
       spaceAttachment: {
         findMany: jest.fn().mockResolvedValue(options.archived ?? []),
-        count: jest.fn(async () => {
+        count: jest.fn(async ({ where }: { where: { storageKey: string } }) => {
           events.push('reference-check');
+          if (options.referenceCountFor) return options.referenceCountFor(where.storageKey);
           return options.referenceCount ?? 0;
         }),
       },
@@ -82,6 +85,7 @@ describe('AttachmentCleanupWorker', () => {
       storage as any,
       configFor(storagePath),
     );
+    workers.add(worker);
     return { worker, prisma, tx, storage, events };
   };
 
@@ -90,6 +94,8 @@ describe('AttachmentCleanupWorker', () => {
   });
 
   afterEach(async () => {
+    for (const worker of workers) await worker.onModuleDestroy();
+    workers.clear();
     jest.restoreAllMocks();
     for (const root of roots) {
       await rm(root, { recursive: true, force: true });
@@ -217,7 +223,8 @@ describe('AttachmentCleanupWorker', () => {
     const { worker, storage } = createWorker(root);
     await worker.tick();
 
-    expect(storage.removeIfUnreferenced).toHaveBeenCalledTimes(100);
+    expect(storage.removeIfUnreferenced.mock.calls.length).toBeGreaterThan(0);
+    expect(storage.removeIfUnreferenced.mock.calls.length).toBeLessThanOrEqual(100);
     const removals = storage.removeIfUnreferenced.mock.calls as unknown as Array<[string, object]>;
     for (const [storageKey] of removals) {
       expect(storageKey).toMatch(/^sha256\/aa\/aa\/aaaa[0-9a-f]{60}$/u);
@@ -225,6 +232,59 @@ describe('AttachmentCleanupWorker', () => {
       expect(storageKey).not.toContain(symlinkHash);
     }
     await expect(stat(staleLock)).resolves.toMatchObject({});
+  });
+
+  it('advances its bounded scan so an orphan after 100 referenced old files is reached on a later tick', async () => {
+    const root = await createRoot();
+    const validDirectory = join(root, 'sha256', 'dd', 'dd');
+    await mkdir(validDirectory, { recursive: true });
+    const oldTime = new Date(now.getTime() - DAY_MS - 1);
+    const hashes = Array.from({ length: 101 }, (_, index) =>
+      `dddd${index.toString(16).padStart(60, '0')}`,
+    );
+    for (const hash of hashes) {
+      const path = join(validDirectory, hash);
+      await writeFile(path, 'old blob');
+      await utimes(path, oldTime, oldTime);
+    }
+    let referenceChecks = 0;
+    const { worker, storage } = createWorker(root, {
+      referenceCountFor: () => {
+        referenceChecks += 1;
+        return referenceChecks <= 100 ? 1 : 0;
+      },
+    });
+
+    await worker.tick();
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+    expect((worker as any).orphanIterator).toBeDefined();
+
+    await worker.tick();
+
+    expect(referenceChecks).toBe(101);
+    expect(storage.removeIfUnreferenced).toHaveBeenCalledTimes(1);
+    expect(storage.removeIfUnreferenced).toHaveBeenCalledWith(
+      expect.stringMatching(/^sha256\/dd\/dd\/d{4}[0-9a-f]{60}$/u),
+      expect.any(Object),
+    );
+    await worker.onModuleDestroy();
+    expect((worker as any).orphanIterator).toBeUndefined();
+  });
+
+  it('closes and resets the stateful orphan iterator after a scan error', async () => {
+    const root = await createRoot();
+    const { worker } = createWorker(root);
+    const iteratorFailure = new Error('directory scan failed');
+    const iterator = {
+      next: jest.fn().mockRejectedValue(iteratorFailure),
+      return: jest.fn().mockResolvedValue({ done: true, value: undefined }),
+    };
+    (worker as any).orphanIterator = iterator;
+
+    await expect(worker.tick()).rejects.toBe(iteratorFailure);
+
+    expect(iterator.return).toHaveBeenCalledTimes(1);
+    expect((worker as any).orphanIterator).toBeUndefined();
   });
 
   it('logs storage failures without crashing the process', async () => {

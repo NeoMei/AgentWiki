@@ -16,11 +16,65 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const { FormData } = globalThis;
 const baseDatabaseUrl = process.env.MARKDOWN_TEST_DATABASE_URL;
+const dedicatedGate = process.env.MARKDOWN_ATTACHMENTS_DEDICATED_GATE === '1';
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64',
 );
 const RACE_PNG = Buffer.concat([PNG, Buffer.from('race-content')]);
+
+if (dedicatedGate && !baseDatabaseUrl) {
+  throw new Error(
+    'MARKDOWN_TEST_DATABASE_URL is required for the dedicated Markdown attachment gate',
+  );
+}
+
+test('HTTP harness cleanup attempts every resource and preserves the primary failure', async () => {
+  const calls = [];
+  const cleanupErrors = await cleanupAttachmentHarnessResources({
+    app: {},
+    prisma: {},
+    port: 43210,
+    storageRoot: '/tmp/agentwiki-attachment-test-injected',
+  }, {
+    closeApp: async () => { calls.push('app.close'); throw new Error('app close failed'); },
+    disconnectPrisma: async () => {
+      calls.push('prisma.disconnect');
+      throw new Error('disconnect failed');
+    },
+    releasePort: async () => { calls.push('port.release'); throw new Error('port failed'); },
+    removeRoot: async () => { calls.push('root.remove'); throw new Error('remove failed'); },
+    verifyRootRemoved: async () => { calls.push('root.verify'); throw new Error('verify failed'); },
+  });
+
+  assert.deepEqual(calls, [
+    'app.close',
+    'prisma.disconnect',
+    'port.release',
+    'root.remove',
+    'root.verify',
+  ]);
+  assert.equal(cleanupErrors.length, 5);
+  const primary = new Error('primary HTTP assertion failed');
+  assert.equal(errorWithCleanup(primary, cleanupErrors), primary);
+  assert.ok(primary.cause instanceof AggregateError);
+  assert.equal(primary.cause.errors.length, 5);
+});
+
+test('dedicated Markdown attachment gate builds current server output and enables fail-closed mode', async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  assert.equal(
+    packageJson.scripts['test:e2e:markdown-db'],
+    'node -e "if (!process.env.MARKDOWN_TEST_DATABASE_URL) { '
+      + "throw new Error('MARKDOWN_TEST_DATABASE_URL is required for the dedicated Markdown attachment gate'); }\" && "
+      + 'pnpm --filter @agentwiki/server build && '
+      + 'MARKDOWN_ATTACHMENTS_DEDICATED_GATE=1 node --test '
+      + 'scripts/markdown-attachments-schema-db.test.mjs '
+      + 'scripts/markdown-attachments-http-db.test.mjs',
+  );
+});
 
 function createAdminClient(databaseUrl) {
   const administrativeUrl = validateMarkdownTestDatabaseUrl(databaseUrl);
@@ -47,6 +101,8 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
     let baseUrl;
     const counts = new Map();
 
+    let primaryError;
+    let cleanupErrors;
     try {
       Object.assign(process.env, {
         NODE_ENV: 'test',
@@ -361,16 +417,24 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         `Attachment HTTP assertions schema=${schemaName} port=${port} `
         + `statuses=${JSON.stringify(Object.fromEntries([...counts].sort(([a], [b]) => a - b)))}`,
       );
+    } catch (error) {
+      primaryError = error;
     } finally {
-      if (app) await app.close();
-      if (prisma) await prisma.$disconnect();
-      if (port) await assertPortReleased(port);
-      await rm(storageRoot, { recursive: true, force: true });
-      await assert.rejects(stat(storageRoot), (error) => error?.code === 'ENOENT');
+      cleanupErrors = await cleanupAttachmentHarnessResources({
+        app,
+        prisma,
+        port,
+        storageRoot,
+      });
       console.info(
-        `Attachment HTTP cleanup schema=${generatedSchema} tempRootRemoved=true portReleased=${Boolean(port)}`,
+        `Attachment HTTP cleanup schema=${generatedSchema} `
+        + `tempRootRemoved=${cleanupErrors.length === 0} `
+        + `portReleased=${Boolean(port) && cleanupErrors.length === 0} `
+        + `cleanupErrors=${cleanupErrors.length}`,
       );
     }
+    const finalError = errorWithCleanup(primaryError, cleanupErrors);
+    if (finalError) throw finalError;
   });
 
   const admin = createAdminClient(baseDatabaseUrl);
@@ -405,6 +469,62 @@ async function countStoredBlobs(root) {
     }
   }
   return count;
+}
+
+async function cleanupAttachmentHarnessResources(resources, overrides = {}) {
+  const operations = {
+    closeApp: async (app) => app.close(),
+    disconnectPrisma: async (prisma) => prisma.$disconnect(),
+    releasePort: assertPortReleased,
+    removeRoot: async (root) => rm(root, { recursive: true, force: true }),
+    verifyRootRemoved: async (root) => {
+      await assert.rejects(stat(root), (error) => error?.code === 'ENOENT');
+    },
+    ...overrides,
+  };
+  const attempts = [
+    resources.app && (() => operations.closeApp(resources.app)),
+    resources.prisma && (() => operations.disconnectPrisma(resources.prisma)),
+    resources.port && (() => operations.releasePort(resources.port)),
+    () => operations.removeRoot(resources.storageRoot),
+    () => operations.verifyRootRemoved(resources.storageRoot),
+  ].filter(Boolean);
+  const errors = [];
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
+}
+
+function errorWithCleanup(primary, cleanupErrors) {
+  if (primary === undefined) {
+    return cleanupErrors.length > 0
+      ? new AggregateError(cleanupErrors, 'Attachment HTTP harness cleanup failed')
+      : undefined;
+  }
+  if (cleanupErrors.length === 0) return primary;
+  const aggregate = new AggregateError(
+    cleanupErrors,
+    'Attachment HTTP harness cleanup also failed',
+  );
+  if (typeof primary === 'object' && primary !== null) {
+    try {
+      if (primary.cause === undefined) primary.cause = aggregate;
+      else primary.attachmentHarnessCleanupError = aggregate;
+      return primary;
+    } catch {
+      // Preserve the primary value in the AggregateError below when it is frozen.
+    }
+  }
+  return new AggregateError(
+    [primary, ...cleanupErrors],
+    'Attachment HTTP assertion and cleanup failed',
+    { cause: primary },
+  );
 }
 
 async function waitUntil(predicate, timeoutMs = 5_000) {

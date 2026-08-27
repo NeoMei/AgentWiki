@@ -17,6 +17,8 @@ import {
 import { ATTACHMENT_CONFIG } from './attachment.service';
 
 const BATCH_SIZE = 100;
+const ORPHAN_SCAN_VISIT_LIMIT = 100;
+const ORPHAN_DELETE_LIMIT = 100;
 const DEFAULT_POLL_MS = 60 * 60 * 1000;
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const SHARD_PATTERN = /^[0-9a-f]{2}$/u;
@@ -26,6 +28,16 @@ type ArchivedAttachment = {
   contentHash: string;
   storageKey: string;
   archivedAt: Date | null;
+};
+
+type OrphanCandidate = {
+  absolutePath: string;
+  contentHash: string;
+  storageKey: string;
+};
+
+type OrphanScanVisit = {
+  candidate?: OrphanCandidate;
 };
 
 function safeMessage(error: unknown): string {
@@ -53,6 +65,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AttachmentCleanupWorker.name);
   private timer?: NodeJS.Timeout;
   private running = false;
+  private orphanIterator?: AsyncGenerator<OrphanScanVisit, void, void>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -72,9 +85,14 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     void this.safeTick();
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    try {
+      await this.closeOrphanIterator();
+    } catch (error) {
+      this.logger.error(`Attachment orphan iterator close failed: ${safeMessage(error)}`);
+    }
   }
 
   async tick(): Promise<void> {
@@ -130,9 +148,32 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private async cleanupOrphans(cutoff: Date): Promise<void> {
-    const candidates = await this.findOrphanCandidates(cutoff, BATCH_SIZE);
-    for (const candidate of candidates) {
+    let visited = 0;
+    let deletions = 0;
+    while (visited < ORPHAN_SCAN_VISIT_LIMIT && deletions < ORPHAN_DELETE_LIMIT) {
+      this.orphanIterator ??= this.scanOrphanEntries();
+      let next: IteratorResult<OrphanScanVisit, void>;
       try {
+        next = await this.orphanIterator.next();
+      } catch (error) {
+        try {
+          await this.closeOrphanIterator();
+        } catch (closeError) {
+          this.logger.error(
+            `Attachment orphan iterator close failed: ${safeMessage(closeError)}`,
+          );
+        }
+        throw error;
+      }
+      if (next.done) {
+        await this.closeOrphanIterator();
+        break;
+      }
+      visited += 1;
+      const candidate = next.value.candidate;
+      if (!candidate) continue;
+      try {
+        let removed = false;
         await this.storage.withContentLock(candidate.contentHash, async (lease) => {
           const metadata = await lstat(candidate.absolutePath);
           if (
@@ -145,8 +186,10 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
           });
           if (references === 0) {
             await this.storage.removeIfUnreferenced(candidate.storageKey, lease);
+            removed = true;
           }
         });
+        if (removed) deletions += 1;
       } catch (error) {
         this.logger.error(
           `Attachment orphan cleanup failed for ${candidate.storageKey}: ${safeMessage(error)}`,
@@ -169,64 +212,68 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async findOrphanCandidates(
-    cutoff: Date,
-    limit: number,
-  ): Promise<Array<{ absolutePath: string; contentHash: string; storageKey: string }>> {
+  private async *scanOrphanEntries(): AsyncGenerator<OrphanScanVisit, void, void> {
     const root = resolve(this.attachmentConfig.storagePath);
     const algorithmRoot = join(root, 'sha256');
-    const candidates: Array<{
-      absolutePath: string;
-      contentHash: string;
-      storageKey: string;
-    }> = [];
 
-    if (!await this.isSafeDirectory(algorithmRoot)) return candidates;
+    if (!await this.isSafeDirectory(algorithmRoot)) return;
     const firstLevel = await opendir(algorithmRoot);
     for await (const first of firstLevel) {
-      if (candidates.length >= limit) break;
-      if (!first.isDirectory() || first.isSymbolicLink() || !SHARD_PATTERN.test(first.name)) {
-        continue;
-      }
       const firstPath = join(algorithmRoot, first.name);
-      if (!await this.isSafeDirectory(firstPath)) continue;
+      const validFirst = (
+        first.isDirectory()
+        && !first.isSymbolicLink()
+        && SHARD_PATTERN.test(first.name)
+        && await this.isSafeDirectory(firstPath)
+      );
+      yield {};
+      if (!validFirst) continue;
       const secondLevel = await opendir(firstPath);
       for await (const second of secondLevel) {
-        if (candidates.length >= limit) break;
-        if (!second.isDirectory() || second.isSymbolicLink() || !SHARD_PATTERN.test(second.name)) {
-          continue;
-        }
         const secondPath = join(firstPath, second.name);
-        if (!await this.isSafeDirectory(secondPath)) continue;
+        const validSecond = (
+          second.isDirectory()
+          && !second.isSymbolicLink()
+          && SHARD_PATTERN.test(second.name)
+          && await this.isSafeDirectory(secondPath)
+        );
+        yield {};
+        if (!validSecond) continue;
         const blobs = await opendir(secondPath);
         for await (const blob of blobs) {
-          if (candidates.length >= limit) break;
-          if (!blob.isFile() || blob.isSymbolicLink() || !HASH_PATTERN.test(blob.name)) continue;
-          if (blob.name.slice(0, 2) !== first.name || blob.name.slice(2, 4) !== second.name) {
-            continue;
-          }
-          const absolutePath = join(secondPath, blob.name);
-          let metadata;
-          try {
-            metadata = await lstat(absolutePath);
-          } catch (error) {
-            if (isMissing(error)) continue;
-            throw error;
-          }
+          let candidate: OrphanCandidate | undefined;
           if (
-            metadata.isSymbolicLink()
-            || !metadata.isFile()
-            || metadata.mtimeMs > cutoff.getTime()
-          ) continue;
-          candidates.push({
-            absolutePath,
-            contentHash: blob.name,
-            storageKey: `sha256/${first.name}/${second.name}/${blob.name}`,
-          });
+            blob.isFile()
+            && !blob.isSymbolicLink()
+            && HASH_PATTERN.test(blob.name)
+            && blob.name.slice(0, 2) === first.name
+            && blob.name.slice(2, 4) === second.name
+          ) {
+            const absolutePath = join(secondPath, blob.name);
+            let metadata;
+            try {
+              metadata = await lstat(absolutePath);
+            } catch (error) {
+              if (!isMissing(error)) throw error;
+            }
+            if (metadata?.isFile() && !metadata.isSymbolicLink()) {
+              candidate = {
+                absolutePath,
+                contentHash: blob.name,
+                storageKey: `sha256/${first.name}/${second.name}/${blob.name}`,
+              };
+            }
+          }
+          yield candidate ? { candidate } : {};
         }
       }
     }
-    return candidates;
+  }
+
+  private async closeOrphanIterator(): Promise<void> {
+    const iterator = this.orphanIterator;
+    this.orphanIterator = undefined;
+    if (iterator) await iterator.return(undefined);
   }
 
   private async isSafeDirectory(path: string): Promise<boolean> {
