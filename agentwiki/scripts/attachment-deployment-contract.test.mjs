@@ -106,6 +106,68 @@ function assertSafeAttachmentDeployment(deploy) {
   }
 }
 
+function restoreSection(runbook) {
+  const start = runbook.indexOf('## Coordinated restore and rollback');
+  assert.ok(start >= 0, 'missing coordinated restore section');
+  const next = runbook.indexOf('\n## ', start + 4);
+  return runbook.slice(start, next >= 0 ? next : undefined);
+}
+
+function assertSafeRestoreRunbook(runbook) {
+  const restore = restoreSection(runbook);
+  const selectedAssignment = restore.indexOf('selected_backup_dir=');
+  const selectedReadonly = restore.indexOf('readonly selected_backup_dir');
+  const selectedManifest = restore.indexOf('manifest_jsonl "$selected_backup_dir"');
+  const selectedDumpCheck = restore.indexOf('pg_restore --list "$selected_backup_dir/database.dump"');
+  const stopWriters = restore.indexOf('systemctl --user stop agentwiki-api.service agentwiki-worker.service');
+  const rollbackAssignment = restore.indexOf('rollback_dir=');
+
+  assert.ok(selectedAssignment >= 0, 'selected historical backup must be assigned explicitly');
+  assert.ok(selectedReadonly > selectedAssignment, 'selected historical backup must be locked read-only');
+  assert.ok(selectedManifest > selectedReadonly, 'selected historical backup manifest must be verified after locking');
+  assert.ok(selectedDumpCheck > selectedManifest, 'selected historical database dump must be verified before maintenance');
+  assert.ok(stopWriters > selectedDumpCheck, 'writers must stop only after selected backup validation');
+  assert.ok(rollbackAssignment > stopWriters, 'rollback capture must use a later independent directory');
+
+  for (const selectedReference of [
+    'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/"',
+    'cmp "$selected_backup_dir/MANIFEST.jsonl"',
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"',
+  ]) {
+    assert.ok(restore.includes(selectedReference), `restore must use selected historical bundle: ${selectedReference}`);
+  }
+  for (const rollbackReference of [
+    'pg_dump --format=custom --file="$rollback_dir/database.dump"',
+    'rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$rollback_dir/attachments/"',
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+    'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/',
+  ]) {
+    assert.ok(restore.includes(rollbackReference), `rollback must use fresh rollback bundle: ${rollbackReference}`);
+  }
+  assert.doesNotMatch(restore, /\$backup_dir/u, 'restore must not reuse the generic backup capture variable');
+
+  const selectedStage = restore.indexOf('restore_bundle=');
+  const oneShotHealth = restore.indexOf('http://127.0.0.1:13000/api/health');
+  const startWriters = restore.indexOf('systemctl --user start agentwiki-api.service agentwiki-worker.service');
+  const rollbackRestore = restore.lastIndexOf(
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+  );
+  assert.ok(selectedStage > rollbackAssignment, 'selected restore staging must follow rollback capture');
+  assert.doesNotMatch(
+    restore.slice(selectedStage, oneShotHealth),
+    /\$rollback_dir/u,
+    'selected restore staging must not read the rollback bundle',
+  );
+  assert.ok(oneShotHealth > rollbackAssignment, 'one-shot semantic health must follow restore staging');
+  assert.ok(startWriters > oneShotHealth, 'normal writers must not start before one-shot semantic health');
+  assert.ok(rollbackRestore > startWriters, 'failure rollback must remain after normal acceptance');
+  assert.doesNotMatch(
+    restore.slice(rollbackRestore),
+    /\$selected_backup_dir/u,
+    'failure rollback must not read the selected historical bundle',
+  );
+}
+
 const requiredAttachmentEnv = [
   'ATTACHMENT_STORAGE_PATH',
   'ATTACHMENT_MAX_FILE_BYTES',
@@ -367,5 +429,33 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     assert.match(special.stderr, /non-regular entry rejected/iu);
   } finally {
     await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('restore locks the selected historical bundle before capturing an independent rollback pair', async () => {
+  assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
+});
+
+test('restore contract rejects selected and rollback variable mixing', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  for (const [expected, replacement] of [
+    [
+      'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/"',
+      'rsync -a --numeric-ids --delete "$rollback_dir/attachments/"',
+    ],
+    [
+      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"',
+      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+    ],
+    [
+      'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/',
+      'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/" /var/lib/agentwiki/attachments/',
+    ],
+  ]) {
+    assert.ok(runbook.includes(expected), `runbook must expose mutation target: ${expected}`);
+    assert.throws(
+      () => assertSafeRestoreRunbook(runbook.replace(expected, replacement)),
+      /selected historical bundle|fresh rollback bundle|must not read/iu,
+    );
   }
 });

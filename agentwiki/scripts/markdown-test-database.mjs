@@ -48,7 +48,7 @@ export function expectedMarkdownTestDatabaseIdentity(value) {
   const parsed = validateMarkdownTestDatabaseUrl(value);
   return {
     database: decodeURIComponent(parsed.pathname.replace(/^\//u, '')),
-    role: decodeURIComponent(parsed.username),
+    role: parsed.username ? decodeURIComponent(parsed.username) : undefined,
     unixSocket: parsed.searchParams.get('host')?.startsWith('/') ?? false,
   };
 }

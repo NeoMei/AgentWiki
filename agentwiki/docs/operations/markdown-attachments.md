@@ -201,49 +201,98 @@ active restore.
 ## Coordinated restore and rollback
 
 Restore is one maintenance operation. Never restore files directly into the live root
-while services are running.
+while services are running. The operator-selected historical bundle and the fresh
+rollback capture are different immutable pairs. Lock and verify the selected bundle
+*before* stopping writers or allocating the rollback destination:
 
-1. Stop API and worker. Capture a fresh coordinated rollback bundle with the capture
-   commands above, but do not execute the backup-only restart block. Keep its database
-   dump, attachment tree and manifest together until restore acceptance.
-2. Recheck the selected backup before use by writing `MANIFEST.recheck.jsonl` with
-   `manifest_jsonl` and comparing it byte-for-byte with `MANIFEST.jsonl`. This rejects
-   missing/extra entries, changed entry types, symlinks/non-regular entries, size
-   changes and hash mismatches before database mutation.
-3. Create a narrow restore bundle outside the live root. Copy the selected dump and
-   attachments into its exact two-root layout, then compare the same manifest again:
+```bash
+set -euo pipefail
+selected_backup_input="${1:?usage: restore-markdown-attachments /var/backups/agentwiki/markdown-attachments.TIMESTAMP}"
+case "$selected_backup_input" in
+  /var/backups/agentwiki/markdown-attachments.*) ;;
+  *) echo "Refusing backup outside the AgentWiki backup root" >&2; exit 1 ;;
+esac
+test -d "$selected_backup_input"
+test ! -L "$selected_backup_input"
+selected_backup_dir="$(cd -- "$selected_backup_input" && pwd -P)"
+readonly selected_backup_dir
+case "$selected_backup_dir" in
+  /var/backups/agentwiki/markdown-attachments.*) ;;
+  *) echo "Refusing non-canonical selected backup" >&2; exit 1 ;;
+esac
+test -f "$selected_backup_dir/database.dump"
+test -d "$selected_backup_dir/attachments"
+test -f "$selected_backup_dir/MANIFEST.jsonl"
+selected_manifest_check="$(mktemp /var/backups/agentwiki/selected-manifest-check.XXXXXXXX)"
+manifest_jsonl "$selected_backup_dir" > "$selected_manifest_check"
+cmp "$selected_backup_dir/MANIFEST.jsonl" "$selected_manifest_check"
+rm -- "$selected_manifest_check"
+pg_restore --list "$selected_backup_dir/database.dump" > /dev/null
+```
 
-   ```bash
-   restore_bundle="$(mktemp -d /var/lib/agentwiki/attachments-restore.XXXXXXXX)"
-   install -m 0600 "$backup_dir/database.dump" "$restore_bundle/database.dump"
-   mkdir -m 0700 "$restore_bundle/attachments"
-   rsync -a --numeric-ids --delete "$backup_dir/attachments/" "$restore_bundle/attachments/"
-   manifest_jsonl "$restore_bundle" > "$restore_bundle/MANIFEST.candidate.jsonl"
-   cmp "$backup_dir/MANIFEST.jsonl" "$restore_bundle/MANIFEST.candidate.jsonl"
-   pg_restore --list "$restore_bundle/database.dump" > /dev/null
-   ```
+Only after those checks pass, stop both writers and capture a separately named
+rollback pair. This block deliberately does not start either service:
 
-   Any manifest or dump check failure aborts while writers remain stopped.
-4. Restore the dump while services remain stopped, then run Prisma migration status
-   against the restored database. Validate the staged storage root's canonical path,
-   owner, `0700` mode, file hashes and free-space floor.
-5. Preserve the old live attachment root at a timestamped rollback path, then
-   atomically rename the verified `restore_bundle/attachments` directory to
-   `/var/lib/agentwiki/attachments`. Keep the pre-restore rollback database dump and
-   old filesystem root as one pair. Never move a root during ordinary deployment.
-6. Before enabling production services, run a one-shot API on a private loopback port
-   with the restored database and live attachment path. Require semantic health:
+```bash
+sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service
+rollback_dir="$(mktemp -d /var/backups/agentwiki/markdown-attachments-rollback.XXXXXXXX)"
+readonly rollback_dir
+pg_dump --format=custom --file="$rollback_dir/database.dump" "$DATABASE_URL"
+mkdir -m 0700 "$rollback_dir/attachments"
+rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$rollback_dir/attachments/"
+manifest_jsonl "$rollback_dir" > "$rollback_dir/MANIFEST.jsonl"
+pg_restore --list "$rollback_dir/database.dump" > /dev/null
+rollback_manifest_check="$(mktemp /var/backups/agentwiki/rollback-manifest-check.XXXXXXXX)"
+manifest_jsonl "$rollback_dir" > "$rollback_manifest_check"
+cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_manifest_check"
+rm -- "$rollback_manifest_check"
+```
 
-   ```bash
-   response="$(curl -fsS http://127.0.0.1:13000/api/health)"
-   node -e 'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)' "$response"
-   ```
+Stage only the locked selected bundle, compare its complete tree with the selected
+manifest, and restore only its selected database dump. Any failure here leaves normal
+writers stopped:
 
-7. Stop the one-shot process, start the normal API and worker, repeat semantic health,
-   render a known protected image as an authorized viewer, and only then close the
-   maintenance window. If any step fails, stop, restore the paired rollback database
-   and filesystem root, and re-run all verification. Never mix halves from different
-   backup timestamps.
+```bash
+restore_bundle="$(mktemp -d /var/lib/agentwiki/attachments-restore.XXXXXXXX)"
+install -m 0600 "$selected_backup_dir/database.dump" "$restore_bundle/database.dump"
+mkdir -m 0700 "$restore_bundle/attachments"
+rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/" "$restore_bundle/attachments/"
+manifest_jsonl "$restore_bundle" > "$restore_bundle/MANIFEST.candidate.jsonl"
+cmp "$selected_backup_dir/MANIFEST.jsonl" "$restore_bundle/MANIFEST.candidate.jsonl"
+pg_restore --list "$selected_backup_dir/database.dump" > /dev/null
+pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$selected_backup_dir/database.dump"
+```
+
+Run Prisma migration status against the restored database. Validate the staged
+attachment directory's canonical path, owner, `0700` mode, complete manifest and
+free-space floor, then promote it while services remain stopped. Before enabling
+normal services, run a one-shot API on a private loopback port with the restored
+database and live attachment path. Require semantic health; only after it passes may
+the normal writers start:
+
+```bash
+response="$(curl -fsS http://127.0.0.1:13000/api/health)"
+node -e 'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)' "$response"
+sudo -u agentwiki systemctl --user start agentwiki-api.service agentwiki-worker.service
+```
+
+Repeat semantic health with the normal API, render a known protected image as an
+authorized viewer, and only then close maintenance. If any restore, promotion or
+acceptance step fails, stop both services and roll back from the fresh rollback pair,
+never from the selected historical bundle:
+
+```bash
+sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service
+pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"
+sudo install -d -o agentwiki -g agentwiki -m 0700 /var/lib/agentwiki/attachments
+rsync -a --numeric-ids --delete "$rollback_dir/attachments/" /var/lib/agentwiki/attachments/
+manifest_jsonl "$rollback_dir" > "$rollback_dir/MANIFEST.rollback-check.jsonl"
+cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_dir/MANIFEST.rollback-check.jsonl"
+```
+
+Re-run migration status, storage ownership/mode/free-space checks, one-shot semantic
+health and authorized image rendering before starting normal services. Never mix
+database and filesystem halves from different bundle directories.
 
 ## Capacity, cleanup and incidents
 

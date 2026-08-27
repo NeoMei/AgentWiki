@@ -93,6 +93,12 @@ test('Markdown database identity expectations derive from socket and TCP test UR
     ),
     { database: 'ci_markdown_test', role: 'ci_markdown', unixSocket: false },
   );
+  assert.deepEqual(
+    expectedMarkdownTestDatabaseIdentity(
+      'postgresql://localhost/ci_markdown_test',
+    ),
+    { database: 'ci_markdown_test', role: undefined, unixSocket: false },
+  );
 });
 
 test('attachment migration enforces Space-scoped names, metadata checks, and delete behavior', {
@@ -127,7 +133,13 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
       );
       assert.equal(session[0].schema, schemaName);
       assert.equal(session[0].database, expectedIdentity.database);
-      assert.equal(session[0].role, expectedIdentity.role);
+      if (expectedIdentity.role === undefined) {
+        assert.equal(typeof session[0].role, 'string');
+        assert.ok(session[0].role.trim().length > 0, 'current_user must be a non-empty identifier');
+        assert.doesNotMatch(session[0].role, /[\u0000-\u001f\u007f]/u);
+      } else {
+        assert.equal(session[0].role, expectedIdentity.role);
+      }
       assert.equal(session[0].unix_socket, expectedIdentity.unixSocket);
       assert.match(session[0].search_path, new RegExp(schemaName, 'u'));
 

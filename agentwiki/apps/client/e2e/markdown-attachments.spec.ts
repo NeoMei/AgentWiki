@@ -75,6 +75,9 @@ let versionEmbedPage: PersistedPage;
 let hiddenPage: PersistedPage;
 let consoleIssues: string[] = [];
 let consoleMessages: string[] = [];
+let credentialSurfaces: string[] = [];
+let unexpectedExternalRequests: string[] = [];
+const activeBrowserContexts = new Set<BrowserContext>();
 let sameNameAttachment: AttachmentSummary;
 
 const json = async <T,>(response: APIResponse, operation: string): Promise<T> => {
@@ -134,12 +137,15 @@ const watchPage = (page: Page) => {
       url.protocol !== 'blob:'
       && url.protocol !== 'data:'
       && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-    ) externalRequests.push(request.url());
+    ) {
+      externalRequests.push(request.url());
+      unexpectedExternalRequests.push(request.url());
+    }
   });
   return externalRequests;
 };
 
-const expectNoCredentialLeak = async (page: Page, screenshotPaths: string[] = []) => {
+const recordCredentialSurface = async (page: Page) => {
   const surface = await page.evaluate(() => ({
     document: document.documentElement.outerHTML,
     visibleText: document.body.innerText,
@@ -147,18 +153,19 @@ const expectNoCredentialLeak = async (page: Page, screenshotPaths: string[] = []
     imageUrls: [...document.images].map((image) => image.currentSrc || image.src),
     resourceUrls: performance.getEntriesByType('resource').map((entry) => entry.name),
   }));
-  const inspected = [
-    JSON.stringify(surface),
-    consoleMessages.join('\n'),
-    screenshotPaths.join('\n'),
-  ];
+  credentialSurfaces.push(JSON.stringify(surface));
+};
+
+const expectNoCredentialLeakIn = (inspected: string[]) => {
+  const findings: string[] = [];
   for (const account of [owner, editor, viewer, outsider]) {
     if (!account?.access_token) continue;
     for (const value of inspected) {
-      expect(value).not.toContain(account.access_token);
-      expect(value).not.toContain(`Bearer ${account.access_token}`);
+      if (value.includes(account.access_token)) findings.push(`${account.user.email}: raw access token`);
+      if (value.includes(`Bearer ${account.access_token}`)) findings.push(`${account.user.email}: Bearer token`);
     }
   }
+  expect(findings).toEqual([]);
 };
 
 const authenticate = async (page: Page, account: AuthAccount) => {
@@ -169,8 +176,20 @@ const authenticate = async (page: Page, account: AuthAccount) => {
   }, { token: account.access_token, user: account.user });
 };
 
-const authenticatedPage = async (browser: Browser, account: AuthAccount) => {
+const authenticatedPage = async (
+  browser: Browser,
+  account: AuthAccount,
+  closeTimeConsoleFixtures: Array<{ type: 'log' | 'info' | 'debug'; text: string }> = [],
+  closeTimeConsoleSink = consoleMessages,
+) => {
   const context = await browser.newContext();
+  activeBrowserContexts.add(context);
+  context.once('close', () => {
+    for (const fixture of closeTimeConsoleFixtures) {
+      closeTimeConsoleSink.push(`${fixture.type}: ${fixture.text}`);
+    }
+    activeBrowserContexts.delete(context);
+  });
   const page = await context.newPage();
   const externalRequests = watchPage(page);
   await authenticate(page, account);
@@ -273,10 +292,16 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
   test.beforeEach(() => {
     consoleIssues = [];
     consoleMessages = [];
+    credentialSurfaces = [];
+    unexpectedExternalRequests = [];
   });
 
-  test.afterEach(() => {
+  test.afterEach(async () => {
+    await Promise.all([...activeBrowserContexts].map((context) => context.close()));
+    expect(activeBrowserContexts.size).toBe(0);
     expect(consoleIssues).toEqual([]);
+    expect(unexpectedExternalRequests).toEqual([]);
+    expectNoCredentialLeakIn([...credentialSurfaces, ...consoleMessages]);
   });
 
   test.beforeAll(async () => {
@@ -433,7 +458,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(viewerImage).toBeVisible();
       await expect(viewerImage).toHaveAttribute('src', /^blob:/u);
       expect(await viewerImage.evaluate((element) => element.outerHTML)).not.toContain(viewer.access_token);
-      await expectNoCredentialLeak(viewerSession.page);
+      await recordCredentialSurface(viewerSession.page);
       expect(viewerSession.externalRequests).toEqual([]);
     } finally {
       await viewerSession.context.close();
@@ -514,7 +539,8 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       }
       const ownerScreenshot = path.join(artifacts, 'owner-attachment-preview.png');
       await page.screenshot({ path: ownerScreenshot, fullPage: true });
-      await expectNoCredentialLeak(page, [ownerScreenshot]);
+      // Screenshot is layout evidence only; credential checks use inspectable browser surfaces.
+      await recordCredentialSurface(page);
       expect(ownerSession.externalRequests).toEqual([]);
     } finally {
       await ownerSession.context.close();
@@ -535,7 +561,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
         { headers: headers(editor) },
       ), 'editor lists attachments');
       expect(listed.items.map((item) => item.displayName)).toContain('editor-upload.png');
-      await expectNoCredentialLeak(editorSession.page);
+      await recordCredentialSurface(editorSession.page);
       expect(editorSession.externalRequests).toEqual([]);
     } finally {
       await editorSession.context.close();
@@ -595,10 +621,33 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expectNoDocumentOverflow(page);
       const mobileScreenshot = path.join(artifacts, 'mobile-attachment-picker.png');
       await page.screenshot({ path: mobileScreenshot, fullPage: true });
-      await expectNoCredentialLeak(page, [mobileScreenshot]);
+      // Screenshot is layout evidence only; credential checks use inspectable browser surfaces.
+      await recordCredentialSurface(page);
       expect(session.externalRequests).toEqual([]);
     } finally {
       await Promise.all(contexts.map((context) => context.close()));
     }
+  });
+
+  test('final credential scan detects close-time log, info and debug tokens', async ({ browser }) => {
+    const lateConsoleMessages: string[] = [];
+    const lateRecords = (['log', 'info', 'debug'] as const).map((type) => ({
+      type,
+      text: `close-time ${type} fixture ${owner.access_token}`,
+    }));
+    const session = await authenticatedPage(browser, owner, lateRecords, lateConsoleMessages);
+    try {
+      await session.page.goto(`/pages/${anchorPage.id}`);
+      await expect(session.page.getByRole('heading', { name: anchorPage.title })).toBeVisible();
+      await recordCredentialSurface(session.page);
+    } finally {
+      await session.context.close();
+    }
+
+    expect(activeBrowserContexts.size).toBe(0);
+    for (const record of lateRecords) {
+      expect(lateConsoleMessages).toContain(`${record.type}: ${record.text}`);
+    }
+    expect(() => expectNoCredentialLeakIn(lateConsoleMessages)).toThrow();
   });
 });
