@@ -56,6 +56,23 @@ function shellWithoutComments(source) {
   return uncommentedLines(source).join('\n');
 }
 
+function markdownBashBlocks(source) {
+  return [...source.matchAll(/^```bash[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gmu)]
+    .map((match) => match[1])
+    .join('\n');
+}
+
+function exactShellCommandPositions(source, command) {
+  const positions = [];
+  let offset = 0;
+  for (const line of source.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed === command) positions.push(offset + line.indexOf(trimmed));
+    offset += line.length + 1;
+  }
+  return positions;
+}
+
 const deployedShell = (source) => shellWithoutComments(source).replaceAll('\\$', '$');
 
 function extractShellFunction(source, name) {
@@ -131,7 +148,7 @@ function restoreSection(runbook) {
 }
 
 function assertSafeRestoreRunbook(runbook) {
-  const restore = restoreSection(runbook);
+  const restore = shellWithoutComments(markdownBashBlocks(restoreSection(runbook)));
   const selectedAssignment = restore.indexOf('selected_backup_dir=');
   const selectedReadonly = restore.indexOf('readonly selected_backup_dir');
   const selectedManifest = restore.indexOf('manifest_jsonl "$selected_backup_dir"');
@@ -178,6 +195,9 @@ function assertSafeRestoreRunbook(runbook) {
   const oneShotHealth = restore.indexOf('verify_private_api "$live_attachment_root"', promotedManifest);
   const startWriters = restore.indexOf('systemctl --user start agentwiki-api.service agentwiki-worker.service');
   const rollbackStage = restore.indexOf('rollback_restore_bundle=');
+  const stagedRollbackDumpValidation = 'pg_restore --list "$rollback_restore_bundle/database.dump" > /dev/null';
+  const stagedRollbackDumpValidationPositions = exactShellCommandPositions(restore, stagedRollbackDumpValidation);
+  const stagedRollbackDumpValidationIndex = stagedRollbackDumpValidationPositions[0] ?? -1;
   assert.ok(selectedStage > rollbackAssignment, 'selected restore staging must follow rollback capture');
   assert.doesNotMatch(
     restore.slice(selectedStage, rollbackStage),
@@ -191,6 +211,17 @@ function assertSafeRestoreRunbook(runbook) {
   assert.ok(promotedManifest > promoteCandidate, 'the promoted database/filesystem pair must be re-manifested');
   assert.ok(oneShotHealth > promotedManifest, 'private semantic health must follow promoted-pair verification');
   assert.ok(startWriters > oneShotHealth, 'normal writers must not start before one-shot semantic health');
+  assert.equal(
+    stagedRollbackDumpValidationPositions.length,
+    1,
+    'staged rollback dump validation must occur exactly once in restore control flow',
+  );
+  assert.ok(
+    stagedRollbackDumpValidationIndex > rollbackStage
+      && stagedRollbackDumpValidationIndex < restore.indexOf('pg_restore --clean', rollbackStage)
+      && stagedRollbackDumpValidationIndex < startWriters,
+    'staged rollback dump validation must complete before destructive restore or writer start',
+  );
   assert.doesNotMatch(
     restore.slice(selectedStage),
     /rsync[^\n]+(?:\/var\/lib\/agentwiki\/attachments\/|"\$live_attachment_root\/?")/u,
@@ -224,6 +255,34 @@ function assertSafeRestoreRunbook(runbook) {
     'promoted rollback manifest must use the verified staged rollback dump',
   );
   assert.match(rollbackHandler, /manifest_pair_jsonl "\$rollback_restore_bundle\/database\.dump" "\$live_attachment_root"/u);
+  const rollbackDatabaseRestore = exactShellCommandPositions(
+    rollbackHandler,
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"',
+  )[0] ?? -1;
+  const rollbackAttachmentPromotion = exactShellCommandPositions(
+    rollbackHandler,
+    'if ! mv -- "$rollback_restore_bundle/attachments" "$live_attachment_root"; then',
+  )[0] ?? -1;
+  const rollbackPromotedManifest = exactShellCommandPositions(
+    rollbackHandler,
+    'manifest_pair_jsonl "$rollback_restore_bundle/database.dump" "$live_attachment_root" > "$rollback_dir/MANIFEST.promoted-rollback.jsonl"',
+  )[0] ?? -1;
+  const rollbackPrivateHealth = exactShellCommandPositions(
+    rollbackHandler,
+    'verify_private_api "$live_attachment_root"',
+  )[0] ?? -1;
+  assert.ok(
+    rollbackDatabaseRestore >= 0 && rollbackDatabaseRestore < rollbackAttachmentPromotion,
+    'rollback database restore must complete before attachment promotion',
+  );
+  assert.ok(
+    rollbackAttachmentPromotion < rollbackPromotedManifest,
+    'rollback attachment promotion must precede promoted-pair manifest verification',
+  );
+  assert.ok(
+    rollbackPromotedManifest < rollbackPrivateHealth,
+    'rollback promoted-pair manifest verification must precede private health',
+  );
   assert.ok(
     rollbackHandler.indexOf('systemctl --user stop') < rollbackHandler.indexOf('pg_restore'),
     'rollback must stop writers before restoring either half',
@@ -242,6 +301,18 @@ function assertSafeRestoreRunbook(runbook) {
   }
   assert.match(privateProbe, /http:\/\/127\.0\.0\.1:13000\/api\/health/u);
   assert.match(privateProbe, /ss -H -ltn 'sport = :13000'/u, 'private health must reject an occupied port');
+  const privateLaunch = 'start_private_api "$private_attachment_root" >"$one_shot_log" 2>&1 &';
+  const privateLaunchPositions = exactShellCommandPositions(privateProbe, privateLaunch);
+  const privateLaunchIndex = privateLaunchPositions[0] ?? -1;
+  assert.equal(privateLaunchPositions.length, 1, 'verify_private_api must invoke the reviewed private API launcher exactly once with its attachment root');
+  assert.ok(
+    privateLaunchIndex > privateProbe.indexOf('one_shot_log="$(mktemp'),
+    'private health must allocate its log before launching the private API',
+  );
+  assert.ok(
+    privateLaunchIndex < privateProbe.indexOf('one_shot_pid=$!'),
+    'private health must capture the reviewed launcher PID immediately after launch',
+  );
   assert.match(privateProbe, /cleanup_one_shot/u, 'private health must clean up the one-shot API');
   const privateCleanup = extractShellFunction(restore, 'cleanup_one_shot');
   assert.match(privateCleanup, /kill -- "\$one_shot_pid"/u, 'private health must stop the one-shot API');
@@ -517,6 +588,67 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
 
 test('restore locks the selected historical bundle before capturing an independent rollback pair', async () => {
   assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
+});
+
+test('restore contract rejects bypassing the reviewed private API launcher', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const expected = 'start_private_api "$private_attachment_root" >"$one_shot_log" 2>&1 &';
+  const bypass = 'node apps/server/dist/main.js >"$one_shot_log" 2>&1 &';
+  assert.ok(runbook.includes(expected), 'runbook must expose the private launcher mutation target');
+  assert.throws(
+    () => assertSafeRestoreRunbook(runbook.replace(expected, bypass)),
+    /reviewed private API launcher/iu,
+  );
+});
+
+test('restore contract ignores commented command decoys inside executable helpers', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const expected = 'start_private_api "$private_attachment_root" >"$one_shot_log" 2>&1 &';
+  const bypassWithDecoy = `# ${expected}\n  node apps/server/dist/main.js >"$one_shot_log" 2>&1 &`;
+  assert.throws(
+    () => assertSafeRestoreRunbook(runbook.replace(expected, bypassWithDecoy)),
+    /reviewed private API launcher/iu,
+  );
+});
+
+test('restore contract ignores shell no-op command decoys inside executable helpers', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const expected = 'start_private_api "$private_attachment_root" >"$one_shot_log" 2>&1 &';
+  const bypassWithDecoy = `: # ${expected}\n  node apps/server/dist/main.js >"$one_shot_log" 2>&1 &`;
+  assert.throws(
+    () => assertSafeRestoreRunbook(runbook.replace(expected, bypassWithDecoy)),
+    /reviewed private API launcher/iu,
+  );
+});
+
+test('restore contract rejects staging rollback dump validation after writers start', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const validation = 'pg_restore --list "$rollback_restore_bundle/database.dump" > /dev/null';
+  const writerStart = 'sudo -u agentwiki systemctl --user start agentwiki-api.service agentwiki-worker.service';
+  assert.ok(runbook.includes(validation), 'runbook must expose the staged rollback validation mutation target');
+  const writerStartIndex = runbook.lastIndexOf(writerStart);
+  assert.ok(writerStartIndex >= 0, 'runbook must expose the restore writer-start mutation target');
+  const withoutValidation = runbook.replace(validation, ': # staged rollback dump validation accidentally delayed');
+  const shiftedWriterStartIndex = withoutValidation.lastIndexOf(writerStart);
+  const reordered = `${withoutValidation.slice(0, shiftedWriterStartIndex)}${writerStart}\n${validation}${withoutValidation.slice(shiftedWriterStartIndex + writerStart.length)}`;
+  assert.throws(
+    () => assertSafeRestoreRunbook(reordered),
+    /staged rollback dump validation.*before/iu,
+  );
+});
+
+test('restore contract rejects rollback attachment promotion before database restore', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const databaseRestore = 'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"';
+  const attachmentPromotion = 'mv -- "$rollback_restore_bundle/attachments" "$live_attachment_root"';
+  const databaseRestoreIndex = runbook.indexOf(databaseRestore);
+  const attachmentPromotionIndex = runbook.indexOf(attachmentPromotion);
+  assert.ok(databaseRestoreIndex >= 0 && attachmentPromotionIndex > databaseRestoreIndex, 'runbook must expose ordered rollback mutation targets');
+  const reordered = `${runbook.slice(0, databaseRestoreIndex)}${attachmentPromotion}${runbook.slice(databaseRestoreIndex + databaseRestore.length, attachmentPromotionIndex)}${databaseRestore}${runbook.slice(attachmentPromotionIndex + attachmentPromotion.length)}`;
+  assert.throws(
+    () => assertSafeRestoreRunbook(reordered),
+    /rollback database restore.*before.*attachment promotion/iu,
+  );
 });
 
 test('private one-shot executes with the reviewed non-default free-space floor', async () => {
