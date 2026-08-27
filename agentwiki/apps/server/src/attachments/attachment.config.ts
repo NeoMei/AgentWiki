@@ -1,8 +1,14 @@
 import { homedir, tmpdir } from 'node:os';
 import { cwd } from 'node:process';
-import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
 const MIB = 1024n * 1024n;
+const GENERATED_DEVELOPMENT_PATH = resolve(
+  join(tmpdir(), 'agentwiki-development-attachments'),
+);
+const TEST_STORAGE_BASENAME_PATTERN = /^agentwiki-attachment-test-[A-Za-z0-9_-]+$/;
+
+type StoragePathException = 'none' | 'implicit-development' | 'explicit-test';
 
 export interface AttachmentConfig {
   storagePath: string;
@@ -44,7 +50,26 @@ function isWithin(path: string, parent: string): boolean {
   return path === parent || path.startsWith(parent + sep);
 }
 
-function validateStoragePath(value: string, allowGeneratedDevelopmentPath = false): string {
+function permitsTemporaryPath(
+  normalized: string,
+  pathException: StoragePathException,
+): boolean {
+  if (pathException === 'implicit-development') {
+    return normalized === GENERATED_DEVELOPMENT_PATH;
+  }
+  if (pathException === 'explicit-test') {
+    return (
+      resolve(dirname(normalized)) === resolve(tmpdir()) &&
+      TEST_STORAGE_BASENAME_PATTERN.test(basename(normalized))
+    );
+  }
+  return false;
+}
+
+function validateStoragePath(
+  value: string,
+  pathException: StoragePathException = 'none',
+): string {
   if (value !== value.trim() || !isAbsolute(value)) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be an absolute path');
   }
@@ -63,7 +88,7 @@ function validateStoragePath(value: string, allowGeneratedDevelopmentPath = fals
     throw new Error('ATTACHMENT_STORAGE_PATH must be a narrow directory, not a filesystem root');
   }
   if (
-    !allowGeneratedDevelopmentPath &&
+    !permitsTemporaryPath(normalized, pathException) &&
     [resolve(tmpdir()), '/tmp', '/private/tmp', resolve(homedir()), resolve(cwd())].some(
       (parent) => isWithin(normalized, parent),
     )
@@ -98,14 +123,15 @@ export function loadAttachmentConfig(
     throw new Error('ATTACHMENT_STORAGE_PATH is required in production');
   }
 
-  const generatedDevelopmentPath = join(tmpdir(), 'agentwiki-development-attachments');
-  const isExactTestRoot =
-    environment.NODE_ENV === 'test' &&
-    configuredPath !== undefined &&
-    basename(configuredPath).startsWith('agentwiki-attachment-test-');
+  const pathException: StoragePathException =
+    configuredPath === undefined
+      ? 'implicit-development'
+      : environment.NODE_ENV === 'test'
+        ? 'explicit-test'
+        : 'none';
   const storagePath = validateStoragePath(
-    configuredPath ?? generatedDevelopmentPath,
-    configuredPath === undefined || isExactTestRoot,
+    configuredPath ?? GENERATED_DEVELOPMENT_PATH,
+    pathException,
   );
   const retentionDays = positiveSafeInteger(
     environment.ATTACHMENT_RETENTION_DAYS,

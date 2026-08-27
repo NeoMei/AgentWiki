@@ -101,6 +101,36 @@ describe('attachment config', () => {
     }
   });
 
+  it.each([
+    join(homedir(), 'agentwiki-attachment-test-home'),
+    join(cwd(), 'agentwiki-attachment-test-deployment'),
+  ])('does not treat a matching test basename outside tmpdir as a test root: %s', (storagePath) => {
+    expect(() =>
+      loadAttachmentConfig({ NODE_ENV: 'test', ATTACHMENT_STORAGE_PATH: storagePath }),
+    ).toThrow('outside');
+  });
+
+  it.each([
+    join(tmpdir(), 'agentwiki-attachment-test-'),
+    join(tmpdir(), 'agentwiki-attachment-test-invalid.suffix'),
+  ])('rejects a malformed direct test-root basename: %s', (storagePath) => {
+    expect(() =>
+      loadAttachmentConfig({ NODE_ENV: 'test', ATTACHMENT_STORAGE_PATH: storagePath }),
+    ).toThrow('outside');
+  });
+
+  it('accepts only an actual direct mkdtemp test root and cleans that exact root', async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-'));
+    try {
+      expect(
+        loadAttachmentConfig({ NODE_ENV: 'test', ATTACHMENT_STORAGE_PATH: storagePath })
+          .storagePath,
+      ).toBe(storagePath);
+    } finally {
+      await rm(storagePath, { recursive: true, force: true });
+    }
+  });
+
   it('accepts the reviewed narrow production storage path', () => {
     expect(
       loadAttachmentConfig({
