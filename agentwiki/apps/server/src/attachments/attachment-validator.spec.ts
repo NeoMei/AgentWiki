@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import type { AttachmentConfig } from './attachment.config';
-import { validateUploadedImage } from './attachment-validator';
+import { AttachmentValidationError, validateUploadedImage } from './attachment-validator';
 
 type MulterFile = Express.Multer.File;
 
@@ -162,6 +162,8 @@ describe('validateUploadedImage', () => {
     await expect(validateUploadedImage(wrongExtension, config(root))).rejects.toThrow('MIME');
     await expect(validateUploadedImage(wrongDeclaredMime, config(root))).rejects.toThrow('MIME');
     await expect(validateUploadedImage(wrongMagic, config(root))).rejects.toThrow('MIME');
+    await expect(validateUploadedImage(wrongDeclaredMime, config(root)))
+      .rejects.toBeInstanceOf(AttachmentValidationError);
   });
 
   it('rejects SVG even when its declared MIME and extension agree', async () => {

@@ -25,6 +25,15 @@ const ALLOWED_MIME_TYPES = new Set<PreparedAttachment['mimeType']>(
 
 type DetectedFileType = Awaited<ReturnType<typeof FileType.fileTypeFromFile>>;
 
+export class AttachmentValidationError extends Error {
+  readonly code = 'ATTACHMENT_INPUT_INVALID';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AttachmentValidationError';
+  }
+}
+
 function errorWithCause(message: string, cause: unknown): Error {
   const error = new Error(message) as Error & { cause?: unknown };
   error.cause = cause;
@@ -117,13 +126,13 @@ function validateFilename(originalName: string): { displayName: string; nameKey:
     displayName === '..' ||
     hasUnsafeFilenameCharacter(displayName)
   ) {
-    throw new Error('Attachment filename is unsafe');
+    throw new AttachmentValidationError('Attachment filename is unsafe');
   }
   if ([...displayName].length > MAX_FILENAME_CODE_POINTS) {
-    throw new Error('Attachment filename exceeds 200 Unicode code points');
+    throw new AttachmentValidationError('Attachment filename exceeds 200 Unicode code points');
   }
   if (Buffer.byteLength(displayName, 'utf8') > MAX_FILENAME_UTF8_BYTES) {
-    throw new Error('Attachment filename exceeds 512 UTF-8 bytes');
+    throw new AttachmentValidationError('Attachment filename exceeds 512 UTF-8 bytes');
   }
   return { displayName, nameKey: displayName.toLocaleLowerCase('und') };
 }
@@ -148,7 +157,7 @@ export async function validateUploadedImage(
   const { displayName, nameKey } = validateFilename(file.originalname);
   const expectedMime = MIME_BY_EXTENSION.get(extname(displayName).toLowerCase());
   if (!expectedMime || file.mimetype !== expectedMime) {
-    throw new Error('Unsupported attachment image type or MIME disagreement');
+    throw new AttachmentValidationError('Unsupported attachment image type or MIME disagreement');
   }
 
   let handle;
@@ -175,12 +184,14 @@ export async function validateUploadedImage(
       sizeBytes += BigInt(bytes.length);
       if (sizeBytes > config.maxFileBytes) {
         stream.destroy();
-        throw new Error(`Attachment exceeds the ${config.maxFileBytes.toString()} byte limit`);
+        throw new AttachmentValidationError(
+          `Attachment exceeds the ${config.maxFileBytes.toString()} byte limit`,
+        );
       }
       hash.update(bytes);
     }
     if (sizeBytes === 0n) {
-      throw new Error('Attachment image is empty');
+      throw new AttachmentValidationError('Attachment image is empty');
     }
 
     const detected = await detectFileType(file.path);
@@ -189,7 +200,9 @@ export async function validateUploadedImage(
       !ALLOWED_MIME_TYPES.has(detected.mime as PreparedAttachment['mimeType']) ||
       detected.mime !== expectedMime
     ) {
-      throw new Error('Attachment image detected MIME type does not agree with its extension');
+      throw new AttachmentValidationError(
+        'Attachment image detected MIME type does not agree with its extension',
+      );
     }
 
     const headerLength = Math.min(openedMetadata.size, MAX_IMAGE_HEADER_BYTES);
@@ -199,7 +212,9 @@ export async function validateUploadedImage(
     try {
       dimensions = imageSize(header.subarray(0, bytesRead));
     } catch {
-      throw new Error('Attachment image header is malformed or exceeds the bounded header read');
+      throw new AttachmentValidationError(
+        'Attachment image header is malformed or exceeds the bounded header read',
+      );
     }
     const { width, height } = dimensions;
     if (
@@ -210,13 +225,17 @@ export async function validateUploadedImage(
       width <= 0 ||
       height <= 0
     ) {
-      throw new Error('Attachment image dimensions are invalid');
+      throw new AttachmentValidationError('Attachment image dimensions are invalid');
     }
     if (width > config.maxDimension || height > config.maxDimension) {
-      throw new Error(`Attachment image dimension exceeds ${config.maxDimension} pixels`);
+      throw new AttachmentValidationError(
+        `Attachment image dimension exceeds ${config.maxDimension} pixels`,
+      );
     }
     if (BigInt(width) * BigInt(height) > config.maxPixels) {
-      throw new Error(`Attachment image pixel count exceeds ${config.maxPixels.toString()}`);
+      throw new AttachmentValidationError(
+        `Attachment image pixel count exceeds ${config.maxPixels.toString()}`,
+      );
     }
 
     const currentMetadata = await lstat(file.path);

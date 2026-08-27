@@ -185,6 +185,28 @@ describe('AttachmentService', () => {
     );
   });
 
+  it('maps only recognizable client image validation failures to HTTP 400', async () => {
+    const h = harness();
+    jest.mocked(validator.validateUploadedImage).mockRejectedValue(
+      new validator.AttachmentValidationError('Attachment MIME is invalid'),
+    );
+
+    await expect(h.service.upload('space-1', uploadFile(), principal())).rejects.toMatchObject({
+      status: 400,
+      message: 'Attachment MIME is invalid',
+    });
+    expect(h.storage.publish).not.toHaveBeenCalled();
+  });
+
+  it('rethrows validator I/O failures instead of misclassifying them as client input', async () => {
+    const h = harness();
+    const ioFailure = Object.assign(new Error('attachment disk read failed'), { code: 'EIO' });
+    jest.mocked(validator.validateUploadedImage).mockRejectedValue(ioFailure);
+
+    await expect(h.service.upload('space-1', uploadFile(), principal())).rejects.toBe(ioFailure);
+    expect(h.storage.publish).not.toHaveBeenCalled();
+  });
+
   it.each(['admin', 'viewer'] as const)('denies a live human %s before publishing', async (role) => {
     const h = harness();
     await expect(h.service.upload('space-1', uploadFile(), principal(role)))
@@ -299,6 +321,86 @@ describe('AttachmentService', () => {
     });
     expect(h.attachment.aggregate).not.toHaveBeenCalled();
     expect(h.attachment.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'a gap before suffix 3',
+      [
+        row({ contentHash: 'a'.repeat(64) }),
+        row({ id: 'attachment-3', displayName: 'Photo (3).png', nameKey: 'photo (3).png', contentHash: 'c'.repeat(64) }),
+      ],
+      'attachment-3',
+    ],
+    [
+      'multiple gaps before suffix 5',
+      [
+        row({ contentHash: 'a'.repeat(64) }),
+        row({ id: 'attachment-2', displayName: 'Photo (2).png', nameKey: 'photo (2).png', contentHash: 'b'.repeat(64) }),
+        row({ id: 'attachment-5', displayName: 'Photo (5).png', nameKey: 'photo (5).png', contentHash: 'c'.repeat(64) }),
+      ],
+      'attachment-5',
+    ],
+  ])('scans the complete reserved suffix family and reuses same content across %s', async (
+    _label,
+    reserved,
+    expectedId,
+  ) => {
+    const h = harness();
+    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+      ...PNG,
+      contentHash: 'c'.repeat(64),
+    });
+    h.attachment.findMany.mockResolvedValue(reserved);
+
+    await expect(h.service.upload('space-1', uploadFile(), principal())).resolves.toMatchObject({
+      id: expectedId,
+    });
+    expect(h.attachment.aggregate).not.toHaveBeenCalled();
+    expect(h.attachment.create).not.toHaveBeenCalled();
+  });
+
+  it('reserves but does not reuse an archived same-content family suffix', async () => {
+    const h = harness();
+    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+      ...PNG,
+      contentHash: 'c'.repeat(64),
+    });
+    h.attachment.findMany.mockResolvedValue([
+      row({ contentHash: 'a'.repeat(64) }),
+      row({
+        id: 'attachment-3',
+        displayName: 'Photo (3).png',
+        nameKey: 'photo (3).png',
+        contentHash: 'c'.repeat(64),
+        status: 'archived',
+        archivedAt: NOW,
+      }),
+    ]);
+
+    await expect(h.service.upload('space-1', uploadFile(), principal())).resolves.toMatchObject({
+      displayName: 'Photo (2).png',
+    });
+    expect(h.attachment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat unrelated or malformed numeric-looking names as suffix-family matches', async () => {
+    const h = harness();
+    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+      ...PNG,
+      contentHash: 'c'.repeat(64),
+    });
+    h.attachment.findMany.mockResolvedValue([
+      row({ contentHash: 'a'.repeat(64) }),
+      row({ id: 'copy-3', displayName: 'Photo copy (3).png', nameKey: 'photo copy (3).png', contentHash: 'c'.repeat(64) }),
+      row({ id: 'leading-zero', displayName: 'Photo (03).png', nameKey: 'photo (03).png', contentHash: 'c'.repeat(64) }),
+      row({ id: 'malformed', displayName: 'Photo (3x).png', nameKey: 'photo (3x).png', contentHash: 'c'.repeat(64) }),
+    ]);
+
+    await expect(h.service.upload('space-1', uploadFile(), principal())).resolves.toMatchObject({
+      displayName: 'Photo (2).png',
+    });
+    expect(h.attachment.create).toHaveBeenCalledTimes(1);
   });
 
   it.each([

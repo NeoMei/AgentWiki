@@ -1,6 +1,6 @@
 import { unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
@@ -14,7 +14,11 @@ import {
   type AttachmentStorage,
   type StoredAttachment,
 } from './attachment-storage';
-import { validateUploadedImage, type PreparedAttachment } from './attachment-validator';
+import {
+  AttachmentValidationError,
+  validateUploadedImage,
+  type PreparedAttachment,
+} from './attachment-validator';
 
 export const ATTACHMENT_CONFIG = 'ATTACHMENT_CONFIG';
 
@@ -87,6 +91,23 @@ function suffixedName(displayName: string, suffix: number): string {
   return `${boundedStem}${ending}`;
 }
 
+function attachmentFamilySuffix(
+  displayName: string,
+  candidateDisplayName: string,
+): number | undefined {
+  const candidate = candidateDisplayName.normalize('NFC').trim();
+  const candidateExtension = extname(candidate);
+  const candidateStem = candidateExtension
+    ? candidate.slice(0, -candidateExtension.length)
+    : candidate;
+  const match = / \(([1-9][0-9]*)\)$/.exec(candidateStem);
+  if (!match) return undefined;
+  const suffix = Number(match[1]);
+  if (!Number.isSafeInteger(suffix) || suffix < 2) return undefined;
+  const expectedKey = normalizeAttachmentName(suffixedName(displayName, suffix)).nameKey;
+  return normalizeAttachmentName(candidate).nameKey === expectedKey ? suffix : undefined;
+}
+
 function summary(row: AttachmentRow): AttachmentSummary {
   return {
     id: row.id,
@@ -150,10 +171,18 @@ export class AttachmentService {
   ): Promise<AttachmentSummary> {
     try {
       await this.assertWritableHuman(this.prisma, principal, spaceId);
-      const prepared = await validateUploadedImage({
-        ...file,
-        originalname: file.originalname.normalize('NFC').trim(),
-      }, this.config);
+      let prepared: PreparedAttachment;
+      try {
+        prepared = await validateUploadedImage({
+          ...file,
+          originalname: file.originalname.normalize('NFC').trim(),
+        }, this.config);
+      } catch (error) {
+        if (error instanceof AttachmentValidationError) {
+          throw new BadRequestException(error.message);
+        }
+        throw error;
+      }
       const normalized = normalizeAttachmentName(prepared.displayName);
       const normalizedPrepared = {
         ...prepared,
@@ -284,6 +313,19 @@ export class AttachmentService {
         const reservedByKey = new Map(
           reserved.map((item) => [normalizeAttachmentName(item.nameKey).nameKey, item]),
         );
+        const reusableFamilyMatch = reserved
+          .map((item) => ({
+            item,
+            suffix: attachmentFamilySuffix(prepared.displayName, item.displayName),
+          }))
+          .filter((candidate): candidate is typeof candidate & { suffix: number } => (
+            candidate.suffix !== undefined
+            && candidate.item.status === SpaceAttachmentStatus.active
+            && candidate.item.contentHash === prepared.contentHash
+          ))
+          .sort((left, right) => left.suffix - right.suffix)[0];
+        if (reusableFamilyMatch) return reusableFamilyMatch.item;
+
         let displayName = prepared.displayName;
         let nameKey = prepared.nameKey;
         for (let suffix = 2; reservedByKey.has(nameKey); suffix += 1) {
