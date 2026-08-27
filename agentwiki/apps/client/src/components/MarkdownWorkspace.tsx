@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -50,11 +50,32 @@ const mapUploadSelection = (selection: EditorSelection, changes: ChangeDesc) => 
   }),
   selection.mainIndex,
 );
+const changesTouchNonEmptySelection = (selection: EditorSelection, changes: ChangeDesc) => {
+  let touched = false;
+  changes.iterChangedRanges((fromA, toA) => {
+    if (touched) return;
+    for (const range of selection.ranges) {
+      if (range.empty) continue;
+      const intersects = fromA === toA
+        ? fromA >= range.from && fromA <= range.to
+        : fromA < range.to && toA > range.from;
+      if (intersects) {
+        touched = true;
+        return;
+      }
+    }
+  });
+  return touched;
+};
 const uploadAnchors = StateField.define<Map<number, EditorSelection>>({
   create: () => new Map(),
   update: (anchors, transaction) => {
     const next = new Map<number, EditorSelection>();
-    anchors.forEach((selection, id) => next.set(id, mapUploadSelection(selection, transaction.changes)));
+    anchors.forEach((selection, id) => {
+      if (!changesTouchNonEmptySelection(selection, transaction.changes)) {
+        next.set(id, mapUploadSelection(selection, transaction.changes));
+      }
+    });
     for (const effect of transaction.effects) {
       if (effect.is(addUploadAnchor)) next.set(effect.value.id, effect.value.selection);
       if (effect.is(removeUploadAnchor)) next.delete(effect.value);
@@ -131,7 +152,12 @@ const insertUploadedText = (view: EditorView, anchorId: number, selection: Edito
   );
   const rebasedAnchors = new Map<number, EditorSelection>();
   view.state.field(uploadAnchors).forEach((pendingSelection, id) => {
-    if (id !== anchorId) rebasedAnchors.set(id, mapUploadSelection(pendingSelection, changes));
+    if (id === anchorId) return;
+    if (pendingSelection.eq(selection)) {
+      rebasedAnchors.set(id, nextSelection);
+    } else if (!changesTouchNonEmptySelection(pendingSelection, changes)) {
+      rebasedAnchors.set(id, mapUploadSelection(pendingSelection, changes));
+    }
   });
   view.dispatch({
     changes,
@@ -268,11 +294,11 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
   const uploadRunningRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     uploadGenerationRef.current += 1;
   }, [onUploadImages]);
 
-  useEffect(() => () => {
+  useLayoutEffect(() => () => {
     if (!isEdit) return;
     editorViewRef.current = null;
     uploadGenerationRef.current += 1;

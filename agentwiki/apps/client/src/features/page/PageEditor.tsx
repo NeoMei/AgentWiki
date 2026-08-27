@@ -44,6 +44,18 @@ interface TemplateDialogSnapshot {
   pageUpdatedAt: string;
 }
 
+type SaveStatusSource = 'save' | 'template' | 'attachment';
+
+interface AttachmentRuntimeContext {
+  pageId: string | null;
+  spaceId: string | null;
+  revision: string | null;
+  mode: MarkdownMode;
+  saving: boolean;
+  remoteConflict: boolean;
+  authorized: boolean;
+}
+
 const PAGE_TITLE_LIMIT = 200;
 
 const pageRevision = (page: Page) => JSON.stringify([
@@ -52,6 +64,13 @@ const pageRevision = (page: Page) => JSON.stringify([
   page.content,
   page.format,
 ]);
+
+class StaleAttachmentUploadError extends Error {
+  constructor() {
+    super('Attachment upload became stale');
+    this.name = 'StaleAttachmentUploadError';
+  }
+}
 
 export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<MarkdownWorkspaceHandle | null> }> = ({ workspaceRef } = {}) => {
   const { id } = useParams<{ id: string }>();
@@ -73,8 +92,20 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const dismissedRemoteRevisionRef = useRef<string | null>(null);
   const requestControllersRef = useRef(new Set<AbortController>());
   const attachmentControllersRef = useRef(new Set<AbortController>());
+  const attachmentGenerationRef = useRef(0);
+  const attachmentContextRef = useRef<AttachmentRuntimeContext>({
+    pageId: null,
+    spaceId: null,
+    revision: null,
+    mode: 'edit',
+    saving: false,
+    remoteConflict: false,
+    authorized: false,
+  });
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusSourceRef = useRef<SaveStatusSource | null>(null);
+  const statusGenerationRef = useRef(0);
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
@@ -109,10 +140,25 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     && templateCapability.canManage;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
   const attachmentEnabled = page?.capabilities?.canEdit === true
+    && page.id === id
     && page.format === 'markdown'
     && mode === 'edit'
     && !remoteUpdate
     && !saving;
+
+  useLayoutEffect(() => {
+    attachmentContextRef.current = {
+      pageId: page?.id ?? null,
+      spaceId: page?.spaceId ?? null,
+      revision: acceptedSocketRevisionRef.current
+        ?? baselineRevisionRef.current
+        ?? (page ? pageRevision(page) : null),
+      mode,
+      saving,
+      remoteConflict: remoteUpdate !== null,
+      authorized: attachmentEnabled,
+    };
+  }, [attachmentEnabled, mode, page, remoteUpdate, saving]);
 
   activePageIdRef.current = id;
 
@@ -121,12 +167,55 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setIsDirty(dirty);
   }, []);
 
+  const abortAttachmentUploads = useCallback(() => {
+    attachmentGenerationRef.current += 1;
+    attachmentControllersRef.current.forEach((controller) => controller.abort());
+    attachmentControllersRef.current.clear();
+  }, []);
+
+  const clearStatus = useCallback(() => {
+    statusGenerationRef.current += 1;
+    statusSourceRef.current = null;
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = null;
+    setSaveStatus(null);
+  }, []);
+
+  const clearAttachmentStatus = useCallback(() => {
+    if (statusSourceRef.current !== 'attachment') return;
+    clearStatus();
+  }, [clearStatus]);
+
+  const showStatus = useCallback((
+    next: { kind: 'success' | 'error'; text: string },
+    source: SaveStatusSource,
+    duration?: number,
+  ) => {
+    const generation = ++statusGenerationRef.current;
+    statusSourceRef.current = source;
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = null;
+    setSaveStatus(next);
+    if (duration === undefined) return;
+    statusTimerRef.current = setTimeout(() => {
+      if (!mountedRef.current || statusGenerationRef.current !== generation) return;
+      statusSourceRef.current = null;
+      statusTimerRef.current = null;
+      setSaveStatus(null);
+    }, duration);
+  }, []);
+
   const bindWorkspaceRef = useCallback((handle: MarkdownWorkspaceHandle | null) => {
     internalWorkspaceRef.current = handle;
     if (workspaceRef) workspaceRef.current = handle;
   }, [workspaceRef]);
 
   const adoptRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage)) => {
+    const previousPage = pageRef.current;
+    abortAttachmentUploads();
+    if (previousPage && (previousPage.id !== nextPage.id || previousPage.spaceId !== nextPage.spaceId)) {
+      clearAttachmentStatus();
+    }
     pageRef.current = nextPage;
     baselineRevisionRef.current = revision;
     acceptedSocketRevisionRef.current = null;
@@ -137,9 +226,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(false);
-  }, [updateDirty]);
+  }, [abortAttachmentUploads, clearAttachmentStatus, updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
+    abortAttachmentUploads();
     setTemplateDialogSnapshot(null);
     setContent(nextContent);
     contentRef.current = nextContent;
@@ -148,7 +238,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(true);
-  }, [updateDirty]);
+  }, [abortAttachmentUploads, updateDirty]);
 
   const offerRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage), forcePrompt = false) => {
     if (nextPage.id !== activePageIdRef.current) return;
@@ -157,6 +247,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
     if (isDirtyRef.current) {
       if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
+        abortAttachmentUploads();
         setRemoteUpdate({ page: nextPage, revision });
       }
       return;
@@ -166,7 +257,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     } else {
       adoptRemotePage(nextPage, revision);
     }
-  }, [adoptRemoteDraft, adoptRemotePage]);
+  }, [abortAttachmentUploads, adoptRemoteDraft, adoptRemotePage]);
 
   const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
     if (!id) return;
@@ -316,24 +407,21 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       mountedRef.current = false;
       requestControllersRef.current.forEach((controller) => controller.abort());
       requestControllersRef.current.clear();
-      attachmentControllersRef.current.forEach((controller) => controller.abort());
-      attachmentControllersRef.current.clear();
+      abortAttachmentUploads();
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     };
-  }, []);
+  }, [abortAttachmentUploads]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (attachmentEnabled) return;
     setAttachmentPickerOpen(false);
-    attachmentControllersRef.current.forEach((controller) => controller.abort());
-    attachmentControllersRef.current.clear();
-  }, [attachmentEnabled, page?.id, page?.spaceId]);
+    abortAttachmentUploads();
+  }, [abortAttachmentUploads, attachmentEnabled]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAttachmentPickerOpen(false);
-    attachmentControllersRef.current.forEach((controller) => controller.abort());
-    attachmentControllersRef.current.clear();
-  }, [page?.id, page?.spaceId]);
+    abortAttachmentUploads();
+  }, [abortAttachmentUploads, page?.id, page?.spaceId]);
 
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
@@ -371,8 +459,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
-    attachmentControllersRef.current.forEach((controller) => controller.abort());
-    attachmentControllersRef.current.clear();
+    abortAttachmentUploads();
+    clearAttachmentStatus();
     pageRef.current = null;
     baselineRevisionRef.current = null;
     acceptedSocketRevisionRef.current = null;
@@ -391,7 +479,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       return;
     }
     void loadPage(true);
-  }, [id, loadPage, updateDirty]);
+  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, updateDirty]);
 
   // Refresh persisted state on focus and periodically without replacing dirty fields.
   useEffect(() => {
@@ -476,17 +564,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     }, 500);
   }, [id, updateDirty]);
 
-  const handleImageUploadError = useCallback(() => {
-    if (!mountedRef.current || !attachmentEnabled) return;
-    setSaveStatus({ kind: 'error', text: t('attachment.uploadFailed') });
-    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
-    statusTimerRef.current = setTimeout(() => setSaveStatus(null), 5000);
-  }, [attachmentEnabled, t]);
+  const handleImageUploadError = useCallback((error: unknown) => {
+    if (error instanceof StaleAttachmentUploadError || !mountedRef.current || !attachmentEnabled) return;
+    showStatus({ kind: 'error', text: t('attachment.uploadFailed') }, 'attachment', 5000);
+  }, [attachmentEnabled, showStatus, t]);
 
   const handleUploadImages = useCallback(async (files: File[]) => {
     const currentPage = pageRef.current;
     const requestedPageId = id;
-    const generation = routeGenerationRef.current;
+    const routeGeneration = routeGenerationRef.current;
+    const attachmentGeneration = attachmentGenerationRef.current;
     if (
       !attachmentEnabled
       || !requestedPageId
@@ -498,21 +585,34 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     ) throw new Error('Attachment upload is not available');
 
     const requestedSpaceId = currentPage.spaceId;
+    const requestedRevision = acceptedSocketRevisionRef.current
+      ?? baselineRevisionRef.current
+      ?? pageRevision(currentPage);
     const controllers = files.map(() => new AbortController());
     controllers.forEach((controller) => attachmentControllersRef.current.add(controller));
-    try {
-      const uploaded = await Promise.all(files.map((file, index) => (
-        uploadAttachment(requestedSpaceId, file, { signal: controllers[index].signal })
-      )));
-      if (
-        !mountedRef.current
-        || routeGenerationRef.current !== generation
+    const requestIsStale = () => {
+      const currentContext = attachmentContextRef.current;
+      return !mountedRef.current
+        || routeGenerationRef.current !== routeGeneration
+        || attachmentGenerationRef.current !== attachmentGeneration
         || activePageIdRef.current !== requestedPageId
         || pageRef.current?.id !== requestedPageId
         || pageRef.current.spaceId !== requestedSpaceId
         || pageRef.current.capabilities?.canEdit !== true
         || pageRef.current.format !== 'markdown'
-      ) throw new Error('Attachment upload became stale');
+        || currentContext.pageId !== requestedPageId
+        || currentContext.spaceId !== requestedSpaceId
+        || currentContext.revision !== requestedRevision
+        || currentContext.mode !== 'edit'
+        || currentContext.saving
+        || currentContext.remoteConflict
+        || !currentContext.authorized;
+    };
+    try {
+      const uploaded = await Promise.all(files.map((file, index) => (
+        uploadAttachment(requestedSpaceId, file, { signal: controllers[index].signal })
+      )));
+      if (requestIsStale()) throw new StaleAttachmentUploadError();
       const names = uploaded.map((item) => item.displayName);
       if (names.length !== files.length || names.some((name) => typeof name !== 'string' || !name.trim())) {
         throw new Error('Invalid attachment upload result');
@@ -520,11 +620,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       return names;
     } catch (error) {
       controllers.forEach((controller) => controller.abort());
+      if (requestIsStale() && !(error instanceof StaleAttachmentUploadError)) {
+        throw new StaleAttachmentUploadError();
+      }
       throw error;
     } finally {
       controllers.forEach((controller) => attachmentControllersRef.current.delete(controller));
     }
-  }, [attachmentEnabled, id, page?.id, page?.spaceId]);
+  }, [attachmentEnabled, id, page?.id, page?.spaceId, page?.updatedAt]);
 
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT));
@@ -552,8 +655,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const submittedEditRevision = editRevisionRef.current;
     const submittedTitle = title;
     const submittedContent = content;
+    abortAttachmentUploads();
     setSaving(true);
-    setSaveStatus(null);
+    clearStatus();
     try {
       const response = await api.patch(`/pages/${requestedId}`, {
         title: submittedTitle,
@@ -570,15 +674,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       pageRef.current = savedPage;
       baselineRevisionRef.current = pageRevision(savedPage);
       setPage(savedPage);
-      setSaveStatus({ kind: 'success', text: t('editor.saved') });
+      showStatus({ kind: 'success', text: t('editor.saved') }, 'save', 3000);
       if (editRevisionRef.current === submittedEditRevision) updateDirty(false);
-      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
-      statusTimerRef.current = setTimeout(() => setSaveStatus(null), 3000);
     } catch (err: any) {
       if (!mountedRef.current || activePageIdRef.current !== requestedId) return;
-      setSaveStatus({ kind: 'error', text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }) });
-      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
-      statusTimerRef.current = setTimeout(() => setSaveStatus(null), 5000);
+      showStatus({
+        kind: 'error',
+        text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
+      }, 'save', 5000);
       if (err.response?.status === 409) {
         dismissedRemoteRevisionRef.current = null;
         void loadPage(false, true);
@@ -817,7 +920,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           onClose={() => setTemplateDialogSnapshot(null)}
           onSaved={() => {
             setTemplateDialogSnapshot(null);
-            setSaveStatus({ kind: 'success', text: t('pageTemplate.created') });
+            showStatus({ kind: 'success', text: t('pageTemplate.created') }, 'template');
           }}
         />
       ) : null}

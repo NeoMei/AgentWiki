@@ -979,6 +979,44 @@ describe('PageEditor remote update safety', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('save start suppresses an in-flight paste upload even if its request resolves late', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    const save = deferred<{ data: ReturnType<typeof page> }>();
+    attachmentMocks.uploadAttachment.mockImplementation(() => upload.promise);
+    vi.mocked(api.patch).mockImplementation(() => save.promise as any);
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    editContent('Local draft');
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(contentEditorValue()).toBe('Local draft');
+    expect(screen.queryByText('![[late.png]]')).not.toBeInTheDocument();
+    await act(async () => save.resolve({ data: page({ content: 'Local draft', updatedAt: '2026-08-28T10:00:00.000Z' }) }));
+  });
+
+  it('remote conflict suppresses an already in-flight paste upload', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    attachmentMocks.uploadAttachment.mockImplementation(() => upload.promise);
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    editContent('Local draft');
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    await act(async () => socketMock.handlers.get('contentUpdated')?.({
+      content: 'Remote draft', userId: 'remote-socket', version: 16,
+    }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('A newer remote version is available');
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(contentEditorValue()).toBe('Local draft');
+    expect(screen.queryByText('![[late.png]]')).not.toBeInTheDocument();
+  });
+
   it('route A to B aborts an in-flight upload and never inserts into B', async () => {
     const upload = deferred<ReturnType<typeof attachment>>();
     let signal: AbortSignal | undefined;
@@ -1028,6 +1066,105 @@ describe('PageEditor remote update safety', () => {
 
     expect(contentEditorValue()).toBe('Moved content');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('same-page remote revision replacement aborts a pending selected upload', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    queuePages(
+      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({
+        title: 'Refreshed title',
+        content: 'Completely replaced remote content',
+        capabilities: { canEdit: true },
+        updatedAt: '2026-08-28T09:30:00.000Z',
+      }) },
+    );
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(0, 8) }));
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Refreshed title')).toBeInTheDocument();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(contentEditorValue()).toBe('Completely replaced remote content');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('clears an attachment failure when navigating from page A to page B', async () => {
+    attachmentMocks.uploadAttachment.mockRejectedValueOnce(new Error('upload failed'));
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true } }) } as any);
+      return Promise.resolve({ data: page({
+        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true },
+      }) } as any);
+    });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'failed.png', { type: 'image/png' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The image could not be uploaded.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
+
+    expect(screen.queryByText('The image could not be uploaded.')).not.toBeInTheDocument();
+  });
+
+  it('clears an attachment failure when the same page moves to another Space', async () => {
+    attachmentMocks.uploadAttachment.mockRejectedValueOnce(new Error('upload failed'));
+    queuePages(
+      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({
+        title: 'Moved page',
+        content: 'Moved content',
+        spaceId: 'space-2',
+        capabilities: { canEdit: true },
+        updatedAt: '2026-08-28T09:00:00.000Z',
+      }) },
+    );
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'failed.png', { type: 'image/png' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The image could not be uploaded.');
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Moved page')).toBeInTheDocument();
+
+    expect(screen.queryByText('The image could not be uploaded.')).not.toBeInTheDocument();
+  });
+
+  it('does not clear a normal save success when the same page changes Space', async () => {
+    queuePages(
+      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({
+        title: 'Moved page',
+        content: 'Local draft',
+        spaceId: 'space-2',
+        capabilities: { canEdit: true },
+        updatedAt: '2026-08-28T10:30:00.000Z',
+      }) },
+    );
+    vi.mocked(api.patch).mockResolvedValue({
+      data: page({ content: 'Local draft', capabilities: { canEdit: true }, updatedAt: '2026-08-28T10:00:00.000Z' }),
+    } as any);
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    editContent('Local draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved');
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Moved page')).toBeInTheDocument();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Saved');
   });
 
   it('keeps the live workspace usable for a new upload after a Space change', async () => {

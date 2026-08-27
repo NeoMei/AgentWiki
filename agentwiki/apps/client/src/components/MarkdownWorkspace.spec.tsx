@@ -337,6 +337,65 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     await waitFor(() => expect(view.state.doc.toString()).toBe('![[first.png]]![[second.png]]'));
   });
 
+  it('moves a later upload at the same non-empty selection behind the first marker', async () => {
+    const first = deferred<string[]>();
+    const second = deferred<string[]>();
+    const onUploadImages = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const { container } = renderWYS({ initial: 'before target after', onUploadImages });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.range(7, 13) }));
+    const firstFile = new File(['one'], 'first.png', { type: 'image/png' });
+    const secondFile = new File(['two'], 'second.png', { type: 'image/png' });
+
+    dispatchPaste(view.contentDOM, [fileItem(firstFile)]);
+    dispatchPaste(view.contentDOM, [fileItem(secondFile)]);
+    await act(async () => first.resolve(['first.png']));
+    await waitFor(() => expect(onUploadImages).toHaveBeenCalledTimes(2));
+    await act(async () => second.resolve(['second.png']));
+
+    await waitFor(() => expect(view.state.doc.toString()).toBe(
+      'before ![[first.png]]![[second.png]] after',
+    ));
+  });
+
+  it('invalidates a pending non-empty selection when the user edits inside it', async () => {
+    const upload = deferred<string[]>();
+    const onUploadError = vi.fn();
+    const { container } = renderWYS({
+      initial: 'before target after',
+      onUploadImages: () => upload.promise,
+      onUploadError,
+    });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.range(7, 13) }));
+    dispatchPaste(view.contentDOM, [fileItem(new File(['png'], 'late.png', { type: 'image/png' }))]);
+
+    act(() => view.dispatch({ changes: { from: 9, to: 11, insert: 'USER' } }));
+    expect(view.state.doc.toString()).toBe('before taUSERet after');
+    await act(async () => upload.resolve(['late.png']));
+
+    await waitFor(() => expect(onUploadError).toHaveBeenCalledTimes(1));
+    expect(view.state.doc.toString()).toBe('before taUSERet after');
+  });
+
+  it('keeps an empty upload cursor mapped through a nearby edit', async () => {
+    const upload = deferred<string[]>();
+    const { container } = renderWYS({
+      initial: 'left right',
+      onUploadImages: () => upload.promise,
+    });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(5) }));
+    dispatchPaste(view.contentDOM, [fileItem(new File(['png'], 'mapped.png', { type: 'image/png' }))]);
+
+    act(() => view.dispatch({ changes: { from: 0, insert: 'new ' } }));
+    await act(async () => upload.resolve(['mapped.png']));
+
+    await waitFor(() => expect(view.state.doc.toString()).toBe('new left ![[mapped.png]]right'));
+  });
+
   it('suppresses a late upload when preview replaces the editor', async () => {
     const upload = deferred<string[]>();
     const onUploadError = vi.fn();
