@@ -40,6 +40,7 @@ const Harness = ({
   onUploadError,
   pageId,
   spaceId,
+  pages,
 }: any) => {
   const [value, setValue] = useState(initial);
   const [mode, setMode] = useState<MarkdownMode>('edit');
@@ -53,6 +54,7 @@ const Harness = ({
         onChange={(next: string) => { setValue(next); onChange(next); }}
         pageId={pageId}
         spaceId={spaceId}
+        pages={pages}
         onUploadImages={onUploadImages}
         onUploadError={onUploadError}
       />
@@ -160,6 +162,166 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     renderWYS();
     fireEvent.click(screen.getByTestId('mode-toggle'));
     expect(screen.getByTestId('md-preview')).toBeInTheDocument();
+  });
+
+  it('renders syntax-aware Wiki widgets with alias text and preview-equivalent fragments', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: 'target-201',
+        title: 'Page 201',
+        slug: 'page-201',
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: [
+        'active line',
+        '[[Page 201#Heading Name|Visible alias]]',
+        '[[Page 201#^block-one]]',
+      ].join('\n'),
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    const alias = await screen.findByRole('link', { name: 'Visible alias' });
+    expect(alias).toHaveAttribute(
+      'href',
+      '/pages/target-201#agentwiki:heading:00006800006500006100006400006900006e00006700002000006e00006100006d000065',
+    );
+    expect(screen.getByRole('link', { name: 'Page 201#^block-one' })).toHaveAttribute(
+      'href',
+      '/pages/target-201#agentwiki:block:00006200006c00006f00006300006b00002d00006f00006e000065',
+    );
+    expect(container.querySelector('.cm-editor')).toBeInTheDocument();
+    expect(resourceMocks.post).toHaveBeenCalledWith(
+      '/spaces/space-authoritative/markdown/resolve',
+      { references: expect.arrayContaining([
+        expect.objectContaining({ target: 'Page 201', heading: 'Heading Name' }),
+        expect.objectContaining({ target: 'Page 201', blockId: 'block-one' }),
+      ]) },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it('never replaces Wiki-looking text inside inline/fenced code or ordinary Markdown links', async () => {
+    const { container } = renderWYS({
+      initial: [
+        'active line',
+        '[[Real page]]',
+        '`[[Real page]]`',
+        '```md',
+        '[[Real page]]',
+        '```',
+        '[ordinary [[Real page]]](https://example.com)',
+      ].join('\n'),
+      pages: [{ id: 'real', title: 'Real page' }],
+    });
+
+    expect(await screen.findByRole('link', { name: 'Real page' })).toHaveAttribute('href', '/pages/real');
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(1);
+    expect(container.querySelector('.cm-content')).toHaveTextContent('[[Real page]]');
+  });
+
+  it('keeps the active Wiki line as source and restores its widget after the cursor leaves', async () => {
+    const { container } = renderWYS({
+      initial: '[[Target]]\nplain line',
+      pages: [{ id: 'target', title: 'Target' }],
+    });
+    const view = currentEditorView(container);
+
+    expect(screen.queryByRole('link', { name: 'Target' })).not.toBeInTheDocument();
+    expect(view.contentDOM).toHaveTextContent('[[Target]]');
+    act(() => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.line(2).from) }));
+
+    expect(await screen.findByRole('link', { name: 'Target' })).toHaveAttribute('href', '/pages/target');
+  });
+
+  it('does not create widgets for ambiguous or missing authoritative targets', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any, index: number) => ({
+        key: reference.key,
+        status: index === 0 ? 'ambiguous' : 'unresolved',
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: 'active\n[[Ambiguous]]\n[[Missing]]',
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledOnce());
+    expect(container.querySelector('.cm-content')).toHaveTextContent('Ambiguous');
+    expect(container.querySelector('.cm-content')).toHaveTextContent('Missing');
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(0);
+  });
+
+  it('aborts an obsolete resolver and never lets its late result bleed across Space or page identity', async () => {
+    const stale = deferred<any>();
+    resourceMocks.post.mockImplementation((url: string, body: any) => {
+      const reference = body.references[0];
+      if (url.includes('space-a')) return stale.promise;
+      return Promise.resolve({ data: [{
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: 'target-b',
+        title: 'Shared',
+        slug: 'shared',
+      }] });
+    });
+    const renderSnapshot = (spaceId: string, pageId: string) => (
+      <LanguageProvider><MarkdownWorkspace
+        value={'active\n[[Shared]]'}
+        mode="edit"
+        onChange={() => undefined}
+        spaceId={spaceId}
+        pageId={pageId}
+      /></LanguageProvider>
+    );
+    const view = render(renderSnapshot('space-a', 'page-a'));
+    await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(1));
+    const staleSignal = resourceMocks.post.mock.calls[0][2].signal as AbortSignal;
+
+    view.rerender(renderSnapshot('space-b', 'page-b'));
+    expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
+    expect(staleSignal.aborted).toBe(true);
+    await act(async () => stale.resolve({ data: [{
+      key: 'r0', status: 'resolved', kind: 'page', pageId: 'target-a', title: 'Shared', slug: 'shared',
+    }] }));
+
+    expect(screen.getByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
+  });
+
+  it('dedupes a stable resolver snapshot and invalidates it when the page identity changes', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: [{
+        key: body.references[0].key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: 'target',
+        title: 'Target',
+        slug: 'target',
+      }],
+    }));
+    const renderSnapshot = (pageId: string) => (
+      <LanguageProvider><MarkdownWorkspace
+        value={'active\n[[Target]]'}
+        mode="edit"
+        onChange={() => undefined}
+        spaceId="space-a"
+        pageId={pageId}
+      /></LanguageProvider>
+    );
+    const view = render(renderSnapshot('page-a'));
+    expect(await screen.findByRole('link', { name: 'Target' })).toBeInTheDocument();
+
+    view.rerender(renderSnapshot('page-a'));
+    await act(async () => Promise.resolve());
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    view.rerender(renderSnapshot('page-b'));
+    await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(2));
   });
 
   it('passes the authoritative page and Space context into scoped attachment preview rendering', async () => {

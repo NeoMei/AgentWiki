@@ -55,6 +55,31 @@ describe('PageVersionHistory', () => {
     expect(screen.queryByText('旧正文')).not.toBeInTheDocument();
   });
 
+  it('uses the shared modal focus trap, Escape close, inert background and focus restoration', async () => {
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
+    </LanguageProvider></MemoryRouter>);
+    const trigger = await screen.findByRole('button', { name: '预览 v1' });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: '预览 v1' });
+    const close = screen.getByRole('button', { name: '关闭预览' });
+    expect(close).toHaveFocus();
+    expect([...document.body.children].filter((element) => !element.hasAttribute('data-modal-portal')))
+      .toEqual(expect.arrayContaining([expect.objectContaining({})]));
+    expect([...document.body.children].filter((element) => !element.hasAttribute('data-modal-portal'))
+      .every((element) => element.hasAttribute('inert'))).toBe(true);
+
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await act(async () => Promise.resolve());
+    expect(trigger).toHaveFocus();
+    expect([...document.body.children].every((element) => !element.hasAttribute('inert'))).toBe(true);
+  });
+
   it('resolves version-root embeds in the current Space and labels successful dynamic content', async () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === '/pages/page-1') return {

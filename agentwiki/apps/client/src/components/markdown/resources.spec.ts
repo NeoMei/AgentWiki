@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import {
+  collectMarkdownResourceOccurrences,
   collectMarkdownResourceRefs,
   extractMarkdownSection,
   resolveMarkdownResources,
@@ -11,6 +12,30 @@ vi.mock('../../api/client', () => ({
 }));
 
 describe('collectMarkdownResourceRefs', () => {
+  it('returns exact source ranges only for syntax-valid Wiki links', () => {
+    const source = [
+      '[[Real page]]',
+      '`[[Real page]]`',
+      '```md',
+      '[[Real page]]',
+      '```',
+      '[ordinary [[Real page]]](https://example.com)',
+      '[[Real page#Heading|Alias]]',
+      '![[Real page]]',
+    ].join('\n');
+
+    const occurrences = collectMarkdownResourceOccurrences(source);
+
+    expect(occurrences.map(({ from, to, reference }) => ({
+      literal: source.slice(from, to),
+      target: reference.target,
+      heading: reference.heading,
+    }))).toEqual([
+      { literal: '[[Real page]]', target: 'Real page', heading: undefined },
+      { literal: '[[Real page#Heading|Alias]]', target: 'Real page', heading: 'Heading' },
+    ]);
+  });
+
   it('collects explicit AST wiki/embed nodes, preserves fragments and classifies embedded images', () => {
     const refs = collectMarkdownResourceRefs([
       '[[Road Map|Plan]] and [[Road Map#Intro]]',
@@ -57,6 +82,23 @@ describe('collectMarkdownResourceRefs', () => {
 
     expect(() => collectMarkdownResourceRefs(source)).toThrow('Markdown resource limit exceeded');
     expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('allows an explicit editor collection limit and batches 201 references through the 100-item resolver contract', async () => {
+    const source = Array.from({ length: 201 }, (_, index) => `[[Page ${index}]]`).join('\n');
+    const references = collectMarkdownResourceRefs(source, { maxReferences: 250 });
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string }> }).references.map((reference) => ({
+        key: reference.key,
+        status: 'unresolved',
+      })),
+    }));
+
+    const resources = await resolveMarkdownResources('space-editor', references);
+
+    expect(resources).toHaveProperty('size', 201);
+    expect(api.post).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(api.post).mock.calls.map(([, body]) => (body as any).references.length)).toEqual([100, 100, 1]);
   });
 
   it('accepts a 512-character target and rejects a 513-character target locally', () => {

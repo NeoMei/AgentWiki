@@ -420,7 +420,7 @@ const SafeImage = ({ src, alt = '', ...rest }: React.ImgHTMLAttributes<HTMLImage
   );
 };
 
-const TaskIndexContext = createContext<number | null>(null);
+const TaskIndexContext = createContext<{ index: number; label: string } | null>(null);
 
 interface TaskInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   taskInputsEnabled: boolean;
@@ -428,9 +428,16 @@ interface TaskInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 const TaskInput: React.FC<TaskInputProps> = ({ taskInputsEnabled, pendingTaskIndexes, ...props }) => {
-  const taskIndex = useContext(TaskIndexContext);
-  const pending = taskIndex !== null && pendingTaskIndexes.has(taskIndex);
-  return <input {...props} disabled={!taskInputsEnabled || pending} onChange={() => undefined} />;
+  const task = useContext(TaskIndexContext);
+  const pending = task !== null && pendingTaskIndexes.has(task.index);
+  return (
+    <input
+      {...props}
+      aria-label={task?.label || undefined}
+      disabled={!taskInputsEnabled || pending}
+      onChange={() => undefined}
+    />
+  );
 };
 
 export const Markdown: React.FC<MarkdownProps> = ({
@@ -585,8 +592,18 @@ export const Markdown: React.FC<MarkdownProps> = ({
             const rawIndex = node?.properties?.['data-task-index'];
             const index = typeof rawIndex === 'string' || typeof rawIndex === 'number' ? Number(rawIndex) : null;
             return (
-              <TaskIndexContext.Provider value={index}>
-                <li {...props}>{listChildren}</li>
+              <TaskIndexContext.Provider value={index === null ? null : {
+                index,
+                label: tasks[index]?.signature ?? '',
+              }}>
+                <li
+                  {...props}
+                  onClick={(event) => {
+                    if (!taskInputsEnabled || event.target instanceof HTMLInputElement) return;
+                    if ((event.target as Element).closest('a, button, input, select, textarea')) return;
+                    event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
+                  }}
+                >{listChildren}</li>
               </TaskIndexContext.Provider>
             );
           },

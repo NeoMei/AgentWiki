@@ -5,6 +5,7 @@ import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X } from 'lucide-react
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
 import { apiErrorMessage } from '../../api/error-message';
+import { ModalDialog } from '../../components/ModalDialog';
 
 interface PageVersion {
   id: string;
@@ -188,15 +189,17 @@ export const PageVersionHistory: React.FC = () => {
         </div>
       )}
       {previewVersion ? (
-        <div role="dialog" aria-modal="true" aria-label={t('version.previewTitle', { version: previewNumber })} className="fixed inset-0 z-50 overflow-auto bg-black/30 p-4">
-          <div className="mx-auto max-h-[90vh] max-w-3xl overflow-auto rounded-xl bg-white p-6 shadow-xl">
+        <ModalDialog
+          labelledBy="version-preview-title"
+          onRequestClose={() => setPreviewVersionId(null)}
+          className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl bg-white p-6 shadow-xl"
+        >
             <div className="flex items-start justify-between gap-4 border-b pb-4">
-              <div><h2 className="text-xl font-semibold">{t('version.previewTitle', { version: previewNumber })}</h2><p className="mt-1 text-sm text-gray-500">{previewVersion.title}</p></div>
-              <button type="button" aria-label={t('version.closePreview')} onClick={() => setPreviewVersionId(null)} className="rounded p-1 hover:bg-gray-100"><X size={20} /></button>
+              <div><h2 id="version-preview-title" className="text-xl font-semibold">{t('version.previewTitle', { version: previewNumber })}</h2><p className="mt-1 text-sm text-gray-500">{previewVersion.title}</p></div>
+              <button data-modal-autofocus type="button" aria-label={t('version.closePreview')} onClick={() => setPreviewVersionId(null)} className="rounded p-1 hover:bg-gray-100"><X size={20} /></button>
             </div>
             <div className="mt-4"><Markdown mode="version" canEdit={false} pageId={page?.id} spaceId={page?.spaceId}>{previewVersion.content || ''}</Markdown></div>
-          </div>
-        </div>
+        </ModalDialog>
       ) : null}
     </div>
   );

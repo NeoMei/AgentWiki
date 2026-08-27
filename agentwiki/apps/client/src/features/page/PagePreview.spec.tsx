@@ -617,6 +617,41 @@ describe('PagePreview checklist saves', () => {
     expect(scrollIntoViewMock.mock.instances[0]).toBe(heading);
   });
 
+  it('retries once when an embedded hash target mounts asynchronously and disconnects after scrolling', async () => {
+    const embeddedPage = deferred<any>();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url === '/pages/page-1') return Promise.resolve({
+        data: page({ content: '![[Embedded#Late heading]]' }),
+      } as any);
+      if (url === '/pages/embedded') return embeddedPage.promise;
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.post).mockImplementation(async (_url, body) => {
+      const reference = (body as { references: Array<{ key: string }> }).references[0];
+      return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'embedded', title: 'Embedded', slug: 'embedded' }] };
+    });
+    window.history.replaceState(
+      null,
+      '',
+      '/pages/page-1#agentwiki%3Aheading%3A00006c00006100007400006500002000006800006500006100006400006900006e000067',
+    );
+    renderPreview();
+    await screen.findByRole('heading', { name: 'Checklist' });
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    await act(async () => embeddedPage.resolve({ data: { id: 'embedded', content: '## Late heading\n\nArrived.' } }));
+
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledTimes(1));
+    expect(scrollIntoViewMock.mock.instances[0]).toBe(document.getElementById(
+      'agentwiki:heading:00006c00006100007400006500002000006800006500006100006400006900006e000067',
+    ));
+    document.getElementById('agentwiki:heading:00006c00006100007400006500002000006800006500006100006400006900006e000067')
+      ?.append(document.createElement('span'));
+    await act(async () => Promise.resolve());
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+  });
+
   it('scrolls Wiki heading and block aliases plus the exact block on same-page hash changes, then removes its listener', async () => {
     queuePages({ data: page({ content: '## Straße\n\nParagraph ^Block-One' }) });
     const view = renderPreview();

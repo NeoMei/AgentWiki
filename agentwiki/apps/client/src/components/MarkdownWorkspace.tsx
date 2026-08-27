@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -11,6 +11,12 @@ import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { toggleMarkdownTask } from './markdown/tasks';
 import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
+import { canonicalWikiReferenceKey, parseWikiReference } from './markdown/obsidian';
+import {
+  collectMarkdownResourceOccurrences,
+  resolveMarkdownResources,
+  type MarkdownResourceMap,
+} from './markdown/resources';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -221,7 +227,14 @@ class WikiLinkWidget extends WidgetType {
 
 const WIKILINK_RE = /\[\[([^\][]+)\]\]/g;
 
-const buildHiddenMarksPlugin = (pages: PageLinkTarget[]) => ViewPlugin.fromClass(class {
+const EMPTY_RESOURCES: MarkdownResourceMap = new Map();
+const wikiOccurrenceKey = (from: number, to: number, canonicalKey: string) => `${from}:${to}:${canonicalKey}`;
+
+const buildHiddenMarksPlugin = (
+  pages: PageLinkTarget[],
+  allowedReferenceOccurrences: ReadonlySet<string>,
+  authoritativeResources: MarkdownResourceMap | null,
+) => ViewPlugin.fromClass(class {
   decorations: DecorationSet;
   constructor(view: EditorView) {
     this.decorations = this.compute(view);
@@ -266,13 +279,24 @@ const buildHiddenMarksPlugin = (pages: PageLinkTarget[]) => ViewPlugin.fromClass
       WIKILINK_RE.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = WIKILINK_RE.exec(text))) {
-        const pageName = match[1];
-        const href = resolveWikiHref(pageName, pages);
+        const from = doc.line(n).from + match.index;
+        if (from > 0 && doc.sliceString(from - 1, from) === '!') continue;
+        const reference = parseWikiReference(match[1]);
+        const referenceKey = canonicalWikiReferenceKey(reference);
+        const to = from + match[0].length;
+        if (!reference.target || !reference.fragmentValid
+          || !allowedReferenceOccurrences.has(wikiOccurrenceKey(from, to, referenceKey))) continue;
+        const resource = authoritativeResources?.get(referenceKey);
+        const href = resource?.status === 'resolved' && resource.kind === 'page'
+          ? resolveWikiHref(reference, [{ id: resource.pageId, title: resource.title, slug: resource.slug }])
+          : authoritativeResources === null
+            ? resolveWikiHref(reference, pages)
+            : null;
         if (!href) continue;
-        const lineFrom = doc.line(n).from;
+        const visibleName = reference.label ?? match[1].split('|', 1)[0].trim();
         ranges.push(
-          Decoration.replace({ widget: new WikiLinkWidget(pageName, href) })
-            .range(lineFrom + match.index, lineFrom + match.index + match[0].length),
+          Decoration.replace({ widget: new WikiLinkWidget(visibleName, href) })
+            .range(from, to),
         );
       }
     }
@@ -297,6 +321,55 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const uploadOperationRef = useRef(0);
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
   const uploadRunningRef = useRef(false);
+  const editorResourcePlan = useMemo(() => {
+    try {
+      const occurrences = collectMarkdownResourceOccurrences(value);
+      return {
+        occurrences,
+        references: [...new Map(
+          occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
+        ).values()],
+      };
+    } catch {
+      return { occurrences: [], references: [] };
+    }
+  }, [value]);
+  const allowedReferenceOccurrences = useMemo(
+    () => new Set(editorResourcePlan.occurrences.map(({ from, to, reference }) => (
+      wikiOccurrenceKey(from, to, reference.canonicalKey)
+    ))),
+    [editorResourcePlan],
+  );
+  const editorReferences = editorResourcePlan.references;
+  const resolutionIdentity = `${spaceId ?? ''}\u0000${pageId ?? ''}\u0000${value}`;
+  const [resourceSnapshot, setResourceSnapshot] = useState<{
+    identity: string;
+    resources: MarkdownResourceMap;
+  }>({ identity: resolutionIdentity, resources: EMPTY_RESOURCES });
+  const authoritativeResources = spaceId
+    ? resourceSnapshot.identity === resolutionIdentity ? resourceSnapshot.resources : EMPTY_RESOURCES
+    : null;
+
+  useEffect(() => {
+    if (!isEdit || !spaceId || editorReferences.length === 0) {
+      setResourceSnapshot({ identity: resolutionIdentity, resources: EMPTY_RESOURCES });
+      return;
+    }
+    const controller = new AbortController();
+    let current = true;
+    setResourceSnapshot({ identity: resolutionIdentity, resources: EMPTY_RESOURCES });
+    void resolveMarkdownResources(spaceId, editorReferences, controller.signal)
+      .then((resources) => {
+        if (current && !controller.signal.aborted) {
+          setResourceSnapshot({ identity: resolutionIdentity, resources });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+      controller.abort();
+    };
+  }, [editorReferences, isEdit, resolutionIdentity, spaceId]);
 
   useLayoutEffect(() => {
     uploadGenerationRef.current += 1;
@@ -434,7 +507,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             extensions={[
               markdown({ base: markdownLanguage, codeLanguages: languages }),
               syntaxHighlighting(livePreviewStyle),
-              buildHiddenMarksPlugin(pages),
+              buildHiddenMarksPlugin(pages, allowedReferenceOccurrences, authoritativeResources),
               uploadAnchors,
               ...(uploadHandlers ? [uploadHandlers] : []),
               EditorView.lineWrapping,

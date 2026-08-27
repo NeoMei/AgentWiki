@@ -465,7 +465,8 @@ describe('Markdown rendering', () => {
   it('disables viewer tasks and delegates enabled page task changes to source refs', () => {
     const source = '- [ ] First task\n- [x] Second task';
     const viewer = renderMd(source);
-    expect(screen.getAllByRole('checkbox')[0]).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'First task' })).toBeDisabled();
+    fireEvent.click(screen.getByText('First task'));
     viewer.unmount();
 
     const onTaskToggle = vi.fn();
@@ -474,11 +475,18 @@ describe('Markdown rendering', () => {
         <Markdown pages={pages} mode="page" canEdit onTaskToggle={onTaskToggle}>{source}</Markdown>
       </MemoryRouter>,
     );
-    const checkbox = screen.getAllByRole('checkbox')[0];
+    const checkbox = screen.getByRole('checkbox', { name: 'First task' });
     expect(checkbox).toBeEnabled();
     expect(checkbox.closest('li')).toHaveAttribute('data-task-index', '0');
 
     fireEvent.click(checkbox);
+    expect(onTaskToggle).toHaveBeenCalledWith({
+      task: expect.objectContaining({ index: 0, checked: false, signature: 'First task' }),
+      nextChecked: true,
+    });
+
+    onTaskToggle.mockClear();
+    fireEvent.click(screen.getByText('First task'));
     expect(onTaskToggle).toHaveBeenCalledWith({
       task: expect.objectContaining({ index: 0, checked: false, signature: 'First task' }),
       nextChecked: true,

@@ -52,8 +52,7 @@ vi.mock('../attachments/attachmentApi', () => ({
   restoreAttachment: attachmentMocks.restoreAttachment,
 }));
 
-// Per-test queue of page-detail responses. The wiki-link space index fetch is
-// answered separately so it never consumes this queue.
+// Per-test queue of page-detail responses.
 let pageQueue: any[] = [];
 const queuePages = (...responses: any[]) => { pageQueue = responses; };
 
@@ -289,8 +288,8 @@ describe('PageEditor remote update safety', () => {
     expect(screen.queryByText('/pages/page-1:REPLACE')).not.toBeInTheDocument();
   });
 
-  it('clears the A Space index before B resolves its preview wiki-link target', async () => {
-    const indexB = deferred<any>();
+  it('clears the A Space resolver before B resolves its preview wiki-link target', async () => {
+    const resolverB = deferred<any>();
     vi.mocked(api.post).mockImplementation((url: string, body: any) => {
       const response = { data: [{
         key: body.references[0].key,
@@ -300,15 +299,13 @@ describe('PageEditor remote update safety', () => {
         title: 'Shared',
         slug: 'shared',
       }] } as any;
-      return url.includes('space-b') ? indexB.promise.then(() => response) : Promise.resolve(response);
+      return url.includes('space-b') ? resolverB.promise.then(() => response) : Promise.resolve(response);
     });
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({
         id: 'page-2', title: 'Second page', content: '[[Shared]]', spaceId: 'space-b',
       }) } as any);
-      if (url === '/pages?spaceId=space-a&take=200') return Promise.resolve({ data: { data: [{ id: 'target-a', title: 'Shared' }] } } as any);
-      if (url === '/pages?spaceId=space-b&take=200') return indexB.promise;
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
     render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}>
@@ -322,7 +319,7 @@ describe('PageEditor remote update safety', () => {
     expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
 
     expect(screen.queryByRole('link', { name: 'Shared' })).not.toBeInTheDocument();
-    await act(async () => indexB.resolve({ data: { data: [{ id: 'target-b', title: 'Shared' }] } }));
+    await act(async () => resolverB.resolve({}));
     expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
   });
 
@@ -337,9 +334,6 @@ describe('PageEditor remote update safety', () => {
         const next = pageQueue.shift();
         if (!next) return Promise.reject(new Error(`unexpected get ${url}`));
         return Promise.resolve(next);
-      }
-      if (url === '/pages?spaceId=space-1&take=200') {
-        return Promise.resolve({ data: { data: [{ id: 'page-1', title: 'Self preview' }] } } as any);
       }
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
@@ -362,26 +356,28 @@ describe('PageEditor remote update safety', () => {
       expect.anything(),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => String(url).startsWith('/pages?'))).toBe(false);
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
   });
 
-  it('ignores a deferred A Space index after B preview links have resolved', async () => {
-    const oldIndexA = deferred<any>();
-    vi.mocked(api.post).mockImplementation((url: string, body: any) => Promise.resolve({ data: [{
-      key: body.references[0].key,
-      status: 'resolved',
-      kind: 'page',
-      pageId: url.includes('space-a') ? 'stale-target-a' : 'target-b',
-      title: 'Shared',
-      slug: 'shared',
-    }] } as any));
+  it('ignores a deferred A Space resolver after B preview links have resolved', async () => {
+    const oldResolverA = deferred<any>();
+    vi.mocked(api.post).mockImplementation((url: string, body: any) => {
+      const response = { data: [{
+        key: body.references[0].key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: url.includes('space-a') ? 'stale-target-a' : 'target-b',
+        title: 'Shared',
+        slug: 'shared',
+      }] } as any;
+      return url.includes('space-a') ? oldResolverA.promise.then(() => response) : Promise.resolve(response);
+    });
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({
         id: 'page-2', title: 'Second page', content: '[[Shared]]', spaceId: 'space-b',
       }) } as any);
-      if (url === '/pages?spaceId=space-a&take=200') return oldIndexA.promise;
-      if (url === '/pages?spaceId=space-b&take=200') return Promise.resolve({ data: { data: [{ id: 'target-b', title: 'Shared' }] } } as any);
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
     render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}>
@@ -389,16 +385,17 @@ describe('PageEditor remote update safety', () => {
     </MemoryRouter></LanguageProvider>);
 
     await waitFor(() => expect(
-      vi.mocked(api.get).mock.calls.some(([url]) => url === '/pages?spaceId=space-a&take=200'),
+      vi.mocked(api.post).mock.calls.some(([url]) => url === '/spaces/space-a/markdown/resolve'),
     ).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
     expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
 
-    await act(async () => oldIndexA.resolve({ data: { data: [{ id: 'stale-target-a', title: 'Shared' }] } }));
+    await act(async () => oldResolverA.resolve({}));
 
     expect(screen.getByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => String(url).startsWith('/pages?'))).toBe(false);
   });
 
   it('keeps the local draft and its original version token so a save is protected by the server', async () => {

@@ -36,6 +36,12 @@ export interface MarkdownResourceRef {
   blockId?: string;
 }
 
+export interface MarkdownResourceOccurrence {
+  from: number;
+  to: number;
+  reference: MarkdownResourceRef;
+}
+
 export interface MarkdownResourceRequest {
   key: string;
   kind: 'page' | 'attachment';
@@ -224,49 +230,81 @@ const assertBoundedPart = (value: string | undefined): void => {
   }
 };
 
-export function collectMarkdownResourceRefs(source: string): MarkdownResourceRef[] {
+const markdownResourceRefFromNode = (node: MarkdownAstNode): MarkdownResourceRef | null => {
+  if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return null;
+  const properties = node.data?.hProperties ?? {};
+  const target = String(properties['data-markdown-target'] ?? '').trim();
+  if (!target) return null;
+  const headingValue = properties['data-markdown-heading'];
+  const blockValue = properties['data-markdown-block-id'];
+  const heading = typeof headingValue === 'string' && headingValue.trim() ? headingValue.trim() : undefined;
+  const blockId = typeof blockValue === 'string' && blockValue.trim() ? blockValue.trim() : undefined;
+  const fragmentPresent = properties['data-markdown-fragment-present'] === 'true';
+  const fragmentKind = properties['data-markdown-fragment-kind'];
+  const fragmentValid = properties['data-markdown-fragment-valid'] !== 'false';
+  if (!fragmentValid) return null;
+  if (node.type === 'agentWikiEmbed' && fragmentKind === 'block') return null;
+  if (node.type === 'agentWikiImage' && fragmentPresent) return null;
+  assertBoundedPart(target);
+  assertBoundedPart(heading);
+  assertBoundedPart(blockId);
+
+  const wikiReference: WikiReference = {
+    embed: node.type !== 'agentWikiLink',
+    target,
+    label: null,
+    heading: heading ?? null,
+    blockId: blockId ?? null,
+    fragmentPresent,
+    fragmentKind: fragmentKind === 'heading' || fragmentKind === 'block' ? fragmentKind : null,
+    fragmentValid,
+  };
+  return {
+    canonicalKey: canonicalWikiReferenceKey(wikiReference),
+    kind: wikiReferenceKind(wikiReference),
+    target,
+    ...(heading ? { heading } : {}),
+    ...(blockId ? { blockId } : {}),
+  };
+};
+
+export function collectMarkdownResourceOccurrences(source: string): MarkdownResourceOccurrence[] {
+  const tree = resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
+  const occurrences: MarkdownResourceOccurrence[] = [];
+
+  visit(tree as never, (node: MarkdownAstNode) => {
+    if (node.type !== 'agentWikiLink') return;
+    const reference = markdownResourceRefFromNode(node);
+    if (!reference) return;
+    const properties = node.data?.hProperties ?? {};
+    const sourceOffset = properties['data-markdown-source-offset'];
+    const literal = properties['data-markdown-literal'];
+    const from = typeof sourceOffset === 'string' && /^\d+$/u.test(sourceOffset)
+      ? Number(sourceOffset)
+      : -1;
+    if (!Number.isSafeInteger(from) || from < 0 || typeof literal !== 'string') return;
+    const to = from + literal.length;
+    if (source.slice(from, to) !== literal) return;
+    occurrences.push({ from, to, reference });
+  });
+
+  return occurrences;
+}
+
+export function collectMarkdownResourceRefs(
+  source: string,
+  options: { maxReferences?: number } = {},
+): MarkdownResourceRef[] {
+  const maxReferences = options.maxReferences ?? MAX_REFERENCES;
   const tree = resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
   const refs = new Map<string, MarkdownResourceRef>();
 
   visit(tree as never, (node: MarkdownAstNode) => {
-    if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return;
-    const properties = node.data?.hProperties ?? {};
-    const target = String(properties['data-markdown-target'] ?? '').trim();
-    if (!target) return;
-    const headingValue = properties['data-markdown-heading'];
-    const blockValue = properties['data-markdown-block-id'];
-    const heading = typeof headingValue === 'string' && headingValue.trim() ? headingValue.trim() : undefined;
-    const blockId = typeof blockValue === 'string' && blockValue.trim() ? blockValue.trim() : undefined;
-    const fragmentPresent = properties['data-markdown-fragment-present'] === 'true';
-    const fragmentKind = properties['data-markdown-fragment-kind'];
-    const fragmentValid = properties['data-markdown-fragment-valid'] !== 'false';
-    if (!fragmentValid) return;
-    if (node.type === 'agentWikiEmbed' && fragmentKind === 'block') return;
-    if (node.type === 'agentWikiImage' && fragmentPresent) return;
-    assertBoundedPart(target);
-    assertBoundedPart(heading);
-    assertBoundedPart(blockId);
-
-    const reference: WikiReference = {
-      embed: node.type !== 'agentWikiLink',
-      target,
-      label: null,
-      heading: heading ?? null,
-      blockId: blockId ?? null,
-      fragmentPresent,
-      fragmentKind: fragmentKind === 'heading' || fragmentKind === 'block' ? fragmentKind : null,
-      fragmentValid,
-    };
-    const canonicalKey = canonicalWikiReferenceKey(reference);
-    if (!refs.has(canonicalKey)) {
-      refs.set(canonicalKey, {
-        canonicalKey,
-        kind: wikiReferenceKind(reference),
-        target,
-        ...(heading ? { heading } : {}),
-        ...(blockId ? { blockId } : {}),
-      });
-      if (refs.size > MAX_REFERENCES) throw new Error('Markdown resource limit exceeded');
+    const reference = markdownResourceRefFromNode(node);
+    if (!reference) return;
+    if (!refs.has(reference.canonicalKey)) {
+      refs.set(reference.canonicalKey, reference);
+      if (refs.size > maxReferences) throw new Error('Markdown resource limit exceeded');
     }
   });
 
@@ -313,7 +351,6 @@ export async function resolveMarkdownResources(
   if (!Array.isArray(references) || references.length === 0) {
     throw new Error('Invalid Markdown resource request');
   }
-  if (references.length > MAX_REFERENCES) throw new Error('Markdown resource limit exceeded');
   const identities = new Set<string>();
   for (const reference of references) {
     if (!reference || typeof reference !== 'object'
@@ -353,25 +390,29 @@ export async function resolveMarkdownResources(
     ...(reference.heading ? { heading: reference.heading } : {}),
     ...(reference.blockId ? { blockId: reference.blockId } : {}),
   }));
-  const response = await api.post(
-    `/spaces/${encodeURIComponent(spaceId)}/markdown/resolve`,
-    { references: requests },
-    { signal },
-  );
-  if (!Array.isArray(response.data) || response.data.length !== requests.length) {
-    throw new Error('Invalid Markdown resource response');
-  }
-  const byKey = new Map<string, unknown>();
-  for (const item of response.data) {
-    const key = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined;
-    if (typeof key !== 'string' || byKey.has(key)) throw new Error('Invalid Markdown resource response');
-    byKey.set(key, item);
-  }
   const result = new Map<string, ResolvedMarkdownResource>();
-  requests.forEach((request, index) => {
-    if (!byKey.has(request.key)) throw new Error('Invalid Markdown resource response');
-    result.set(references[index].canonicalKey, validateResponseItem(byKey.get(request.key), request));
-  });
+  for (let start = 0; start < requests.length; start += MAX_REFERENCES) {
+    const requestBatch = requests.slice(start, start + MAX_REFERENCES);
+    const response = await api.post(
+      `/spaces/${encodeURIComponent(spaceId)}/markdown/resolve`,
+      { references: requestBatch },
+      { signal },
+    );
+    if (!Array.isArray(response.data) || response.data.length !== requestBatch.length) {
+      throw new Error('Invalid Markdown resource response');
+    }
+    const byKey = new Map<string, unknown>();
+    for (const item of response.data) {
+      const key = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined;
+      if (typeof key !== 'string' || byKey.has(key)) throw new Error('Invalid Markdown resource response');
+      byKey.set(key, item);
+    }
+    requestBatch.forEach((request, batchIndex) => {
+      if (!byKey.has(request.key)) throw new Error('Invalid Markdown resource response');
+      const reference = references[start + batchIndex];
+      result.set(reference.canonicalKey, validateResponseItem(byKey.get(request.key), request));
+    });
+  }
   return result;
 }
 

@@ -336,7 +336,11 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     hiddenPage = await createPage(hiddenSpaceId, `Hidden Target ${runId}`, '# Private\n\nHidden cross-Space content.');
     editorPage = await createPage(primarySpaceId, `Attachment Editor ${runId}`, '# Attachment editor\n\n');
     anchorPage = await createPage(primarySpaceId, `Anchor Root ${runId}`, `# Anchor root\n\n## Root Heading\n\nRoot block ^root-block\n\n[[${targetTitle}|Same-Space target]]\n\n![[${targetTitle}]]`);
-    asyncHeadingPage = await createPage(primarySpaceId, `Async Heading Root ${runId}`, `# Async root\n\n![[${targetTitle}#Later]]`);
+    asyncHeadingPage = await createPage(
+      primarySpaceId,
+      `Async Heading Root ${runId}`,
+      `# Async root\n\n${Array.from({ length: 60 }, (_, index) => `Async spacer ${index}`).join('\n\n')}\n\n![[${targetTitle}#Later]]`,
+    );
 
     let cycleA = await createPage(primarySpaceId, `Cycle A ${runId}`, '# Cycle A\n\nPending');
     const cycleB = await createPage(primarySpaceId, `Cycle B ${runId}`, `# Cycle B\n\n![[${cycleA.title}]]`);
@@ -589,8 +593,16 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.getByText('Initial target content.')).toHaveCount(0);
 
       await page.goto(`/pages/${asyncHeadingPage.id}#later`);
-      await expect(page.locator('#later')).toBeVisible();
+      const asyncTarget = page.locator('#later');
+      await expect(asyncTarget).toBeVisible();
       await expect(page.getByText('Refreshed later content.')).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      const asyncTargetViewport = await asyncTarget.evaluate((element) => ({
+        top: element.getBoundingClientRect().top,
+        viewportHeight: window.innerHeight,
+      }));
+      expect(asyncTargetViewport.top).toBeGreaterThanOrEqual(0);
+      expect(asyncTargetViewport.top).toBeLessThan(asyncTargetViewport.viewportHeight);
 
       await page.goto(`/pages/${cyclePage.id}`);
       await expect(page.getByRole('alert').filter({ hasText: 'A circular embed was stopped.' })).toBeVisible();

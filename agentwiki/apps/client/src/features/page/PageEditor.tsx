@@ -114,7 +114,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const internalWorkspaceRef = useRef<MarkdownWorkspaceHandle | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
-  const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -292,38 +291,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [content]);
 
   useEffect(() => {
-    setSpacePages([]);
-    if (!page?.id || !page.spaceId) return;
-    const requestedPageId = page.id;
-    const requestedSpaceId = page.spaceId;
-    const generation = routeGenerationRef.current;
-    const controller = new AbortController();
-    requestControllersRef.current.add(controller);
-    api.get(`/pages?spaceId=${requestedSpaceId}&take=200`, { signal: controller.signal })
-      .then((res) => {
-        if (
-          mountedRef.current
-          && !controller.signal.aborted
-          && routeGenerationRef.current === generation
-          && activePageIdRef.current === requestedPageId
-        ) setSpacePages(res.data?.data || res.data?.items || []);
-      })
-      .catch(() => {
-        if (
-          mountedRef.current
-          && !controller.signal.aborted
-          && routeGenerationRef.current === generation
-          && activePageIdRef.current === requestedPageId
-        ) setSpacePages([]);
-      })
-      .finally(() => requestControllersRef.current.delete(controller));
-    return () => {
-      controller.abort();
-      requestControllersRef.current.delete(controller);
-    };
-  }, [page?.id, page?.spaceId]);
-
-  useEffect(() => {
     setMoreActionsOpen(false);
     setMoreActionsPosition(null);
     setTemplateDialogSnapshot(null);
@@ -466,7 +433,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     acceptedSocketRevisionRef.current = null;
     dismissedRemoteRevisionRef.current = null;
     setPage(null);
-    setSpacePages([]);
     setTitle('');
     setContent('');
     contentRef.current = '';
@@ -895,7 +861,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onChange={handleContentChange}
             pageId={page.id}
             spaceId={page.spaceId}
-            pages={spacePages}
             onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />

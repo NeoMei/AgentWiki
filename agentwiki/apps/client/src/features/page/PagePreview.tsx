@@ -311,7 +311,23 @@ export const PagePreview: React.FC = () => {
     const spaceId = page.spaceId;
     const generation = routeGenerationRef.current;
 
-    const scrollToCurrentHash = () => {
+    let mutationCount = 0;
+    const observer = new MutationObserver(() => {
+      mutationCount += 1;
+      if (scrollToCurrentHash() || mutationCount >= 100) observer.disconnect();
+    });
+
+    const currentHashTarget = (): string | null => {
+      const encodedTarget = window.location.hash.slice(1);
+      if (!encodedTarget) return null;
+      try {
+        return decodeURIComponent(encodedTarget) || null;
+      } catch {
+        return null;
+      }
+    };
+
+    function scrollToCurrentHash(): boolean {
       const currentPage = pageRef.current;
       if (
         !mountedRef.current
@@ -319,31 +335,37 @@ export const PagePreview: React.FC = () => {
         || routeGenerationRef.current !== generation
         || currentPage?.id !== pageId
         || currentPage.spaceId !== spaceId
-      ) return;
+      ) return false;
 
-      const encodedTarget = window.location.hash.slice(1);
-      if (!encodedTarget) return;
-      let targetId: string;
-      try {
-        targetId = decodeURIComponent(encodedTarget);
-      } catch {
-        return;
-      }
-      if (!targetId) return;
+      const targetId = currentHashTarget();
+      if (!targetId) return false;
 
       const target = document.getElementById(targetId);
       const markdownRoot = markdownRootRef.current;
-      if (!target || !markdownRoot?.contains(target)) return;
+      if (!target || !markdownRoot?.contains(target)) return false;
 
       const scrollIdentity = `${generation}:${window.location.hash}`;
-      if (lastScrolledHashRef.current === scrollIdentity) return;
+      if (lastScrolledHashRef.current === scrollIdentity) return true;
       target.scrollIntoView();
       lastScrolledHashRef.current = scrollIdentity;
+      return true;
+    }
+
+    const armHashScroll = () => {
+      observer.disconnect();
+      mutationCount = 0;
+      if (!currentHashTarget()) return;
+      if (scrollToCurrentHash()) return;
+      const markdownRoot = markdownRootRef.current;
+      if (markdownRoot) observer.observe(markdownRoot, { childList: true, subtree: true });
     };
 
-    scrollToCurrentHash();
-    window.addEventListener('hashchange', scrollToCurrentHash);
-    return () => window.removeEventListener('hashchange', scrollToCurrentHash);
+    armHashScroll();
+    window.addEventListener('hashchange', armHashScroll);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('hashchange', armHashScroll);
+    };
   }, [id, loading, page?.content, page?.id, page?.spaceId]);
 
   const handleDelete = async () => {
