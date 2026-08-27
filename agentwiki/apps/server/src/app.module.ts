@@ -26,6 +26,7 @@ import { HealthController } from './health.controller';
 import { CollaborationWorkflowsModule } from './collaboration-workflows/collaboration-workflows.module';
 import { PageTemplateModule } from './page-templates/page-template.module';
 import { AttachmentModule } from './attachments/attachment.module';
+import { MarkdownResourceModule } from './markdown-resources/markdown-resource.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { AttachmentModule } from './attachments/attachment.module';
     ObsidianModule,
     CollaborationWorkflowsModule,
     AttachmentModule,
+    MarkdownResourceModule,
   ],
   controllers: [HealthController],
 })
