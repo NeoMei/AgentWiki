@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
@@ -16,6 +18,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
+// SECURITY: changing either digest is approval to execute a new Markdown-derived program and requires full executable-code review.
+const REVIEWED_RESTORE_PROGRAM_SHA256 = '35f5daaae0c519b3efd0a8818f78dd833b495901201828e981977ec2899277c8';
+const REVIEWED_MANIFEST_PROGRAM_SHA256 = '62fdf67c4a06ecd6b7263789b36c78168956ca47429dc23b12080822ca161404';
+const UNREVIEWED_RESTORE_PROGRAM = /unreviewed executable restore program/iu;
 
 const uncommentedLines = (source) => source
   .split(/\r?\n/u)
@@ -89,6 +95,82 @@ function extractShellFunction(source, name) {
   return match[0];
 }
 
+const sha256 = (source) => createHash('sha256').update(source).digest('hex');
+
+function assertReviewedRestoreProgram(program) {
+  assert.equal(
+    sha256(program),
+    REVIEWED_RESTORE_PROGRAM_SHA256,
+    'unreviewed executable restore program; updating this fingerprint requires a complete executable-code review',
+  );
+  assert.doesNotMatch(
+    program,
+    /\bcommand\s+-p\b|(?:^|[\n;&|])\s*(?:source|eval)(?:\s|$)|(?:^|[\n;&|])\s*\/(?:bin|sbin|usr\/bin|usr\/sbin)\//u,
+    'reviewed restore program must not contain shell escape commands',
+  );
+}
+
+function restoreProgram(runbook) {
+  const program = shellWithoutComments(markdownBashBlocks(restoreSection(runbook)));
+  assertReviewedRestoreProgram(program);
+  return program;
+}
+
+function reviewedManifestParts(runbook) {
+  const pairMatch = runbook.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
+  assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
+  const wrapper = extractShellFunction(runbook, 'manifest_jsonl');
+  const program = `${pairMatch[0]}\n${wrapper}`;
+  assert.equal(
+    sha256(program),
+    REVIEWED_MANIFEST_PROGRAM_SHA256,
+    'unreviewed executable manifest program; updating this fingerprint requires a complete executable-code review',
+  );
+  const nodeMatch = pairMatch[0].match(/<<'NODE'\n([\s\S]*?)\nNODE\n\}/u);
+  assert.ok(nodeMatch, 'missing reviewed manifest Node program');
+  return { nodeProgram: nodeMatch[1], wrapper };
+}
+
+const shellLiteral = (value) => `'${String(value).replaceAll("'", "'\"'\"'")}'`;
+
+function exactArgvExecutable(directory, name, acceptedCases) {
+  const branches = acceptedCases.map(({ args, event, stdout = '', status = 0, pid = false }, index) => {
+    const condition = [
+      `[[ "$#" -eq ${args.length}`,
+      ...args.map((argument, argumentIndex) => `&& "\${${argumentIndex + 1}-}" == ${shellLiteral(argument)}`),
+      ']]',
+    ].join(' ');
+    const trace = pid
+      ? `printf '%s:%s\\n' ${shellLiteral(event)} "$$" >> "$TRACE_PATH"`
+      : `printf '%s\\n' ${shellLiteral(event)} >> "$TRACE_PATH"`;
+    return `${index === 0 ? 'if' : 'elif'} ${condition}; then
+  ${trace}
+  ${stdout ? `printf '%s' ${shellLiteral(stdout)}` : ':'}
+  exit ${status}`;
+  }).join('\n');
+  return executablePath(directory, name, `#!/bin/bash
+set -u
+if [[ -n "\${BASH_ENV+x}" || -n "\${ENV+x}" || -n "\${CDPATH+x}" || -n "\${NODE_OPTIONS+x}" || -n "\${CONTRACT_SECRET+x}" || -n "\${CONTRACT_SENTINEL_PATH+x}" ]]; then
+  printf 'unexpected:${name}:inherited-environment\\n' >> "$TRACE_PATH"
+  exit 98
+fi
+${branches}
+else
+  printf 'unexpected:${name}' >> "$TRACE_PATH"
+  printf ':%q' "$@" >> "$TRACE_PATH"
+  printf '\\n' >> "$TRACE_PATH"
+  exit 97
+fi
+`);
+}
+
+function runReviewedBash(program, argv, environment) {
+  return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', program, ...argv], {
+    encoding: 'utf8',
+    env: environment,
+  });
+}
+
 function executablePath(directory, name, source) {
   const path = resolve(directory, name);
   writeFileSync(path, source, { mode: 0o700 });
@@ -97,27 +179,49 @@ function executablePath(directory, name, source) {
 }
 
 function assertPrivateApiExecutionTrace(restore) {
+  assertReviewedRestoreProgram(restore);
   const sandbox = mkdtempSync(resolve(tmpdir(), 'agentwiki-private-trace-'));
   const fakeBin = resolve(sandbox, 'bin');
   const tracePath = resolve(sandbox, 'trace');
   const logPath = resolve(sandbox, 'one-shot.log');
+  const releasePath = resolve(sandbox, 'release');
+  const attachmentPath = resolve(sandbox, 'attachments');
   mkdirSync(fakeBin);
-  mkdirSync(resolve(sandbox, 'release'));
-  mkdirSync(resolve(sandbox, 'attachments'));
+  mkdirSync(releasePath);
+  mkdirSync(attachmentPath);
 
   try {
-    executablePath(fakeBin, 'sudo', '#!/bin/bash\nprintf \'safe:%s\\n\' "$$" >> "$TRACE_PATH"\n');
-    executablePath(fakeBin, 'node', `#!/bin/bash
-if test "\${1:-}" = '-e'; then exec ${JSON.stringify(process.execPath)} "$@"; fi
-printf 'bare:%s\\n' "$$" >> "$TRACE_PATH"
-`);
-    executablePath(fakeBin, 'curl', '#!/bin/bash\nprintf \'%s\\n\' \'{"status":"ok","attachmentStorage":"ok"}\'\n');
-    executablePath(fakeBin, 'mktemp', '#!/bin/bash\n: > "$TRACE_LOG_PATH"\nprintf \'%s\\n\' "$TRACE_LOG_PATH"\n');
-    executablePath(fakeBin, 'seq', '#!/bin/bash\nprintf \'1\\n\'\n');
-    executablePath(fakeBin, 'grep', '#!/bin/bash\nexit 1\n');
-    for (const command of ['rm', 'ss']) {
-      executablePath(fakeBin, command, '#!/bin/bash\nexit 0\n');
-    }
+    exactArgvExecutable(fakeBin, 'sudo', [{
+      args: [
+        '-u', 'agentwiki', 'env', 'NODE_ENV=production', 'PORT=13000', 'PROCESS_ROLE=api',
+        'AGENTWIKI_LISTEN_HOST=127.0.0.1', `ATTACHMENT_STORAGE_PATH=${attachmentPath}`,
+        'ATTACHMENT_MIN_FREE_BYTES=4096', 'DATABASE_URL=postgresql://trace',
+        'REDIS_URL=redis://trace', 'JWT_SECRET=trace-jwt',
+        'AGENTWIKI_SERVER_PEPPER=trace-pepper', 'AGENTWIKI_DEPLOYMENT_SEED=trace-seed',
+        'PUBLIC_API_URL=http://127.0.0.1:13000/api', 'node', 'apps/server/dist/main.js',
+      ],
+      event: 'safe',
+      pid: true,
+    }]);
+    const healthProgram = 'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)';
+    exactArgvExecutable(fakeBin, 'node', [{
+      args: ['-e', healthProgram, '{"status":"ok","attachmentStorage":"ok"}'],
+      event: 'health-parse',
+    }]);
+    exactArgvExecutable(fakeBin, 'curl', [{
+      args: ['-fsS', 'http://127.0.0.1:13000/api/health'],
+      event: 'health-request',
+      stdout: '{"status":"ok","attachmentStorage":"ok"}\n',
+    }]);
+    exactArgvExecutable(fakeBin, 'mktemp', [{
+      args: ['/var/tmp/agentwiki-restore-health.XXXXXXXX.log'],
+      event: 'log-allocate',
+      stdout: `${logPath}\n`,
+    }]);
+    exactArgvExecutable(fakeBin, 'seq', [{ args: ['1', '30'], event: 'retry-sequence', stdout: '1\n' }]);
+    exactArgvExecutable(fakeBin, 'grep', [{ args: ['-q', '.'], event: 'port-empty', status: 1 }]);
+    exactArgvExecutable(fakeBin, 'ss', [{ args: ['-H', '-ltn', 'sport = :13000'], event: 'port-check' }]);
+    exactArgvExecutable(fakeBin, 'rm', [{ args: ['--', logPath], event: 'log-remove' }]);
 
     const start = extractShellFunction(restore, 'start_private_api');
     const verify = extractShellFunction(restore, 'verify_private_api');
@@ -139,28 +243,27 @@ AGENTWIKI_SERVER_PEPPER=trace-pepper
 AGENTWIKI_DEPLOYMENT_SEED=trace-seed
 PUBLIC_API_URL=http://127.0.0.1:13000/api
 verify_private_api "$2"`;
-    const result = spawnSync('/bin/bash', ['-c', command, 'contract', resolve(sandbox, 'release'), resolve(sandbox, 'attachments')], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: fakeBin,
-        TRACE_LOG_PATH: logPath,
-        TRACE_PATH: tracePath,
-      },
+    const result = runReviewedBash(command, ['contract', releasePath, attachmentPath], {
+      PATH: fakeBin,
+      TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, `private API trace failed closed: ${result.stderr}`);
     const events = readFileSync(tracePath, 'utf8').trim().split(/\r?\n/u);
+    const oneShotLog = existsSync(logPath) ? readFileSync(logPath, 'utf8') : '';
     const serviceStarts = events.filter((event) => /^(?:safe|bare):/u.test(event));
-    assert.equal(serviceStarts.length, 1, 'private API execution trace must contain exactly one service start');
+    assert.equal(serviceStarts.length, 1, `private API execution trace must contain exactly one service start: ${JSON.stringify({ events, oneShotLog })}`);
     assert.match(serviceStarts[0], /^safe:/u, 'private API execution trace must use the reviewed launcher');
     const safePid = serviceStarts[0].slice('safe:'.length);
     assert.ok(events.includes(`captured:${safePid}`), 'private API execution trace must capture the reviewed launcher PID');
+    assert.equal(events.filter((event) => event === 'health-parse').length, 1, 'health parser must run once with reviewed argv');
+    assert.doesNotMatch(events.join('\n'), /^unexpected:/mu, 'private API trace rejected an argv contract');
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
 }
 
 function assertRollbackExecutionTrace(restore) {
+  assertReviewedRestoreProgram(restore);
   const sandbox = mkdtempSync(resolve(tmpdir(), 'agentwiki-rollback-trace-'));
   const fakeBin = resolve(sandbox, 'bin');
   const tracePath = resolve(sandbox, 'trace');
@@ -169,19 +272,42 @@ function assertRollbackExecutionTrace(restore) {
   mkdirSync(rollbackDirectory);
 
   try {
-    executablePath(fakeBin, 'sudo', '#!/bin/bash\nprintf \'writers-stop\\n\' >> "$TRACE_PATH"\n');
-    executablePath(fakeBin, 'pg_restore', '#!/bin/bash\nprintf \'database-restore\\n\' >> "$TRACE_PATH"\n');
-    executablePath(fakeBin, 'mv', '#!/bin/bash\nprintf \'attachment-promotion\\n\' >> "$TRACE_PATH"\n');
-    for (const command of ['cmp', 'pnpm']) {
-      executablePath(fakeBin, command, '#!/bin/bash\nexit 0\n');
-    }
+    const stagedDump = resolve(rollbackDirectory, 'staged/database.dump');
+    const stagedAttachments = resolve(rollbackDirectory, 'staged/attachments');
+    const liveRoot = resolve(rollbackDirectory, 'live');
+    exactArgvExecutable(fakeBin, 'sudo', [{
+      args: ['-u', 'agentwiki', 'systemctl', '--user', 'stop', 'agentwiki-api.service', 'agentwiki-worker.service'],
+      event: 'writers-stop',
+    }]);
+    exactArgvExecutable(fakeBin, 'pg_restore', [{
+      args: ['--clean', '--if-exists', '--exit-on-error', '--single-transaction', '--dbname=postgresql://trace', stagedDump],
+      event: 'database-restore',
+    }]);
+    exactArgvExecutable(fakeBin, 'mv', [{ args: ['--', stagedAttachments, liveRoot], event: 'attachment-promotion' }]);
+    exactArgvExecutable(fakeBin, 'cmp', [{
+      args: [resolve(rollbackDirectory, 'MANIFEST.jsonl'), resolve(rollbackDirectory, 'MANIFEST.promoted-rollback.jsonl')],
+      event: 'manifest-compare',
+    }]);
+    exactArgvExecutable(fakeBin, 'pnpm', [{
+      args: ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'status'],
+      event: 'migration-status',
+    }]);
 
     const rollback = extractShellFunction(restore, 'rollback_pair');
     const command = `set -euo pipefail
-cleanup_one_shot() { :; }
-validate_attachment_root() { :; }
-manifest_pair_jsonl() { printf 'promoted-manifest\\n' >> "$TRACE_PATH"; }
-verify_private_api() { printf 'private-health\\n' >> "$TRACE_PATH"; }
+cleanup_one_shot() { test "$#" -eq 0; }
+validate_attachment_root() {
+  test "$#" -eq 2 && test "$1" = "$live_attachment_root" && test "$2" = "$live_attachment_root"
+  printf 'root-validation\\n' >> "$TRACE_PATH"
+}
+manifest_pair_jsonl() {
+  test "$#" -eq 2 && test "$1" = "$rollback_restore_bundle/database.dump" && test "$2" = "$live_attachment_root"
+  printf 'promoted-manifest\\n' >> "$TRACE_PATH"
+}
+verify_private_api() {
+  test "$#" -eq 1 && test "$1" = "$live_attachment_root"
+  printf 'private-health\\n' >> "$TRACE_PATH"
+}
 DATABASE_URL=postgresql://trace
 rollback_dir="$1"
 rollback_restore_bundle="$1/staged"
@@ -190,19 +316,24 @@ failed_live_root="$1/failed"
 rollback_live_root="$1/rollback-live"
 ${rollback}
 rollback_pair`;
-    const result = spawnSync('/bin/bash', ['-c', command, 'contract', rollbackDirectory], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: fakeBin,
-        TRACE_PATH: tracePath,
-      },
+    const result = runReviewedBash(command, ['contract', rollbackDirectory], {
+      PATH: fakeBin,
+      TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, `rollback execution trace failed closed: ${result.stderr}`);
     const events = readFileSync(tracePath, 'utf8').trim().split(/\r?\n/u);
     assert.deepEqual(
       events,
-      ['writers-stop', 'database-restore', 'attachment-promotion', 'promoted-manifest', 'private-health'],
+      [
+        'writers-stop',
+        'database-restore',
+        'attachment-promotion',
+        'root-validation',
+        'promoted-manifest',
+        'manifest-compare',
+        'migration-status',
+        'private-health',
+      ],
       'rollback execution trace must restore the database, promote exactly once, verify the pair, and stay private',
     );
   } finally {
@@ -211,53 +342,96 @@ rollback_pair`;
 }
 
 function assertStagingExecutionTrace(restore) {
+  assertReviewedRestoreProgram(restore);
   const sandbox = mkdtempSync(resolve(tmpdir(), 'agentwiki-staging-trace-'));
   const fakeBin = resolve(sandbox, 'bin');
   const tracePath = resolve(sandbox, 'trace');
+  const selectedStage = resolve(sandbox, 'selected-stage');
+  const rollbackStage = resolve(sandbox, 'rollback-stage');
+  const selectedSource = resolve(sandbox, 'selected-source');
+  const rollbackSource = resolve(sandbox, 'rollback-source');
   mkdirSync(fakeBin);
+  mkdirSync(selectedStage);
+  mkdirSync(rollbackStage);
 
   try {
-    executablePath(fakeBin, 'mktemp', `#!/bin/bash
-case "$*" in
-  *attachments-rollback-restore.*) target="$TRACE_SANDBOX/rollback-stage" ;;
-  *) target="$TRACE_SANDBOX/selected-stage" ;;
-esac
-/bin/mkdir -p "$target"
-printf '%s\\n' "$target"
-`);
-    executablePath(fakeBin, 'pg_restore', `#!/bin/bash
-case "$*" in
-  *rollback-stage/database.dump*) printf 'list:rollback\\n' >> "$TRACE_PATH" ;;
-  *) printf 'list:selected\\n' >> "$TRACE_PATH" ;;
-esac
-`);
-    for (const command of ['cmp', 'install', 'mkdir', 'rsync']) {
-      executablePath(fakeBin, command, '#!/bin/bash\nexit 0\n');
-    }
+    exactArgvExecutable(fakeBin, 'mktemp', [
+      {
+        args: ['-d', '/var/lib/agentwiki/attachments-restore.XXXXXXXX'],
+        event: 'stage:selected',
+        stdout: `${selectedStage}\n`,
+      },
+      {
+        args: ['-d', '/var/lib/agentwiki/attachments-rollback-restore.XXXXXXXX'],
+        event: 'stage:rollback',
+        stdout: `${rollbackStage}\n`,
+      },
+    ]);
+    exactArgvExecutable(fakeBin, 'install', [
+      { args: ['-m', '0600', `${selectedSource}/database.dump`, `${selectedStage}/database.dump`], event: 'install:selected' },
+      { args: ['-m', '0600', `${rollbackSource}/database.dump`, `${rollbackStage}/database.dump`], event: 'install:rollback' },
+    ]);
+    exactArgvExecutable(fakeBin, 'mkdir', [
+      { args: ['-m', '0700', `${selectedStage}/attachments`], event: 'mkdir:selected' },
+      { args: ['-m', '0700', `${rollbackStage}/attachments`], event: 'mkdir:rollback' },
+    ]);
+    exactArgvExecutable(fakeBin, 'rsync', [
+      { args: ['-a', '--numeric-ids', '--delete', `${selectedSource}/attachments/`, `${selectedStage}/attachments/`], event: 'rsync:selected' },
+      { args: ['-a', '--numeric-ids', '--delete', `${rollbackSource}/attachments/`, `${rollbackStage}/attachments/`], event: 'rsync:rollback' },
+    ]);
+    exactArgvExecutable(fakeBin, 'cmp', [
+      { args: [`${selectedSource}/MANIFEST.jsonl`, `${selectedStage}/MANIFEST.candidate.jsonl`], event: 'cmp:selected' },
+      { args: [`${rollbackSource}/MANIFEST.jsonl`, `${rollbackStage}/MANIFEST.candidate.jsonl`], event: 'cmp:rollback' },
+    ]);
+    exactArgvExecutable(fakeBin, 'pg_restore', [
+      { args: ['--list', `${selectedStage}/database.dump`], event: 'list:selected' },
+      { args: ['--list', `${rollbackStage}/database.dump`], event: 'list:rollback' },
+    ]);
 
     const stageStart = restore.indexOf('restore_bundle=');
     const stageEnd = restore.indexOf('live_attachment_root=', stageStart);
     assert.ok(stageStart >= 0 && stageEnd > stageStart, 'missing isolated restore staging block');
     const staging = restore.slice(stageStart, stageEnd);
     const command = `set -euo pipefail
-manifest_jsonl() { :; }
+manifest_jsonl() {
+  if test "$#" -eq 1 && test "$1" = "$trace_selected_stage"; then
+    printf 'manifest:selected\\n' >> "$TRACE_PATH"
+  elif test "$#" -eq 1 && test "$1" = "$trace_rollback_stage"; then
+    printf 'manifest:rollback\\n' >> "$TRACE_PATH"
+  else
+    printf 'unexpected:manifest:%q\\n' "$*" >> "$TRACE_PATH"
+    return 97
+  fi
+}
+trace_selected_stage="$1/selected-stage"
+trace_rollback_stage="$1/rollback-stage"
 selected_backup_dir="$1/selected-source"
 rollback_dir="$1/rollback-source"
 ${staging}`;
-    const result = spawnSync('/bin/bash', ['-c', command, 'contract', sandbox], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: fakeBin,
-        TRACE_PATH: tracePath,
-        TRACE_SANDBOX: sandbox,
-      },
+    const result = runReviewedBash(command, ['contract', sandbox], {
+      PATH: fakeBin,
+      TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, `staging execution trace failed closed: ${result.stderr}`);
     const events = readFileSync(tracePath, 'utf8').trim().split(/\r?\n/u);
     assert.deepEqual(
       events,
-      ['list:selected', 'list:rollback'],
+      [
+        'stage:selected',
+        'install:selected',
+        'mkdir:selected',
+        'rsync:selected',
+        'manifest:selected',
+        'cmp:selected',
+        'stage:rollback',
+        'install:rollback',
+        'mkdir:rollback',
+        'rsync:rollback',
+        'manifest:rollback',
+        'cmp:rollback',
+        'list:selected',
+        'list:rollback',
+      ],
       'staging execution trace must validate each staged dump exactly once before live mutation',
     );
   } finally {
@@ -265,29 +439,18 @@ ${staging}`;
   }
 }
 
-function runShellFunction(source, name, argument) {
-  const hereDocMatch = source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^NODE\\n\\}`, 'mu'));
-  const functionSource = hereDocMatch?.[0] ?? extractShellFunction(source, name);
-  return spawnSync('bash', ['-c', `set -euo pipefail\n${functionSource}\n${name} "$1"`, 'contract', argument], {
-    encoding: 'utf8',
-  });
-}
-
 function runManifestFunction(source, dumpPath, attachmentPath) {
-  const pairMatch = source.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
-  assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
-  return spawnSync('bash', ['-c', `set -euo pipefail\n${pairMatch[0]}\nmanifest_pair_jsonl "$1" "$2"`, 'contract', dumpPath, attachmentPath], {
+  const { nodeProgram } = reviewedManifestParts(source);
+  return spawnSync(process.execPath, ['--input-type=commonjs', '-', dumpPath, attachmentPath], {
     encoding: 'utf8',
+    env: {},
+    input: nodeProgram,
   });
 }
 
 function runManifestBundleFunction(source, bundlePath) {
-  const pairMatch = source.match(/^manifest_pair_jsonl\(\) \{[\s\S]*?^NODE\n\}/mu);
-  assert.ok(pairMatch, 'missing executable manifest_pair_jsonl function');
-  const wrapper = extractShellFunction(source, 'manifest_jsonl');
-  return spawnSync('bash', ['-c', `set -euo pipefail\n${pairMatch[0]}\n${wrapper}\nmanifest_jsonl "$1"`, 'contract', bundlePath], {
-    encoding: 'utf8',
-  });
+  reviewedManifestParts(source);
+  return runManifestFunction(source, resolve(bundlePath, 'database.dump'), resolve(bundlePath, 'attachments'));
 }
 
 function assertSafeAttachmentDeployment(deploy) {
@@ -332,7 +495,7 @@ function restoreSection(runbook) {
 }
 
 function assertSafeRestoreRunbook(runbook) {
-  const restore = shellWithoutComments(markdownBashBlocks(restoreSection(runbook)));
+  const restore = restoreProgram(runbook);
   const selectedAssignment = restore.indexOf('selected_backup_dir=');
   const selectedReadonly = restore.indexOf('readonly selected_backup_dir');
   const selectedManifest = restore.indexOf('manifest_jsonl "$selected_backup_dir"');
@@ -774,7 +937,14 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
 });
 
 test('restore locks the selected historical bundle before capturing an independent rollback pair', async () => {
-  assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
+  const previousSecret = process.env.CONTRACT_SECRET;
+  process.env.CONTRACT_SECRET = 'must-not-enter-reviewed-traces';
+  try {
+    assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
+  } finally {
+    if (previousSecret === undefined) delete process.env.CONTRACT_SECRET;
+    else process.env.CONTRACT_SECRET = previousSecret;
+  }
 });
 
 test('restore contract rejects bypassing the reviewed private API launcher', async () => {
@@ -784,7 +954,7 @@ test('restore contract rejects bypassing the reviewed private API launcher', asy
   assert.ok(runbook.includes(expected), 'runbook must expose the private launcher mutation target');
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(expected, bypass)),
-    /reviewed private API launcher/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -794,7 +964,7 @@ test('restore contract ignores commented command decoys inside executable helper
   const bypassWithDecoy = `# ${expected}\n  node apps/server/dist/main.js >"$one_shot_log" 2>&1 &`;
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(expected, bypassWithDecoy)),
-    /reviewed private API launcher/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -804,7 +974,7 @@ test('restore contract ignores shell no-op command decoys inside executable help
   const bypassWithDecoy = `: # ${expected}\n  node apps/server/dist/main.js >"$one_shot_log" 2>&1 &`;
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(expected, bypassWithDecoy)),
-    /reviewed private API launcher/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -817,7 +987,7 @@ test('restore contract rejects an additional bare API process after the reviewed
   assert.ok(runbook.includes(original), 'runbook must expose the private process trace mutation target');
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(original, duplicated)),
-    /private API execution trace/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -828,7 +998,7 @@ test('restore contract rejects a reviewed launcher hidden in an unreachable bran
   assert.ok(runbook.includes(safeLaunch), 'runbook must expose the private branch mutation target');
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(safeLaunch, unreachable)),
-    /private API execution trace/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -844,7 +1014,7 @@ test('restore contract rejects staging rollback dump validation after writers st
   const reordered = `${withoutValidation.slice(0, shiftedWriterStartIndex)}${writerStart}\n${validation}${withoutValidation.slice(shiftedWriterStartIndex + writerStart.length)}`;
   assert.throws(
     () => assertSafeRestoreRunbook(reordered),
-    /staged rollback dump validation.*before/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -855,7 +1025,7 @@ test('restore contract rejects staged rollback validation hidden in an unreachab
   assert.ok(runbook.includes(validation), 'runbook must expose the staged validation branch mutation target');
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(validation, unreachable)),
-    /staging execution trace/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -869,7 +1039,7 @@ test('restore contract rejects rollback attachment promotion before database res
   const reordered = `${runbook.slice(0, databaseRestoreIndex)}${attachmentPromotion}${runbook.slice(databaseRestoreIndex + databaseRestore.length, attachmentPromotionIndex)}${databaseRestore}${runbook.slice(attachmentPromotionIndex + attachmentPromotion.length)}`;
   assert.throws(
     () => assertSafeRestoreRunbook(reordered),
-    /rollback database restore.*before.*attachment promotion/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
 });
 
@@ -880,19 +1050,162 @@ test('restore contract rejects an additional rollback promotion before database 
   assert.ok(runbook.includes(databaseRestore), 'runbook must expose the rollback execution trace mutation target');
   assert.throws(
     () => assertSafeRestoreRunbook(runbook.replace(databaseRestore, `${earlyPromotion}\n  ${databaseRestore}`)),
-    /rollback execution trace/iu,
+    UNREVIEWED_RESTORE_PROGRAM,
   );
+});
+
+test('restore trust boundary rejects an absolute command before it can execute', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-restore-sentinel-'));
+  const sentinel = resolve(sandbox, 'absolute-command-ran');
+  const insertion = `  /bin/echo "$CONTRACT_SECRET" > ${JSON.stringify(sentinel)}\n`;
+  const target = '  private_attachment_root="$1"\n';
+  const previousSecret = process.env.CONTRACT_SECRET;
+  process.env.CONTRACT_SECRET = 'must-not-reach-markdown';
+  try {
+    let rejection;
+    try {
+      assertSafeRestoreRunbook(runbook.replace(target, `${target}${insertion}`));
+    } catch (error) {
+      rejection = error;
+    }
+    assert.equal(existsSync(sentinel), false, 'absolute Markdown command executed before trust validation');
+    assert.match(rejection?.message ?? '', /unreviewed executable restore program/iu);
+  } finally {
+    if (previousSecret === undefined) delete process.env.CONTRACT_SECRET;
+    else process.env.CONTRACT_SECRET = previousSecret;
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('restore trust boundary rejects command-path and dynamic-code shell escapes', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const target = '  private_attachment_root="$1"\n';
+  for (const escapeCommand of [
+    '  command -p echo bypass\n',
+    '  source /dev/null\n',
+    '  eval :\n',
+  ]) {
+    assert.throws(
+      () => assertSafeRestoreRunbook(runbook.replace(target, `${target}${escapeCommand}`)),
+      UNREVIEWED_RESTORE_PROGRAM,
+      escapeCommand.trim(),
+    );
+  }
+});
+
+test('restore trust boundary rejects a malicious health Node payload before execution', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-node-sentinel-'));
+  const sentinel = resolve(sandbox, 'node-payload-ran');
+  const health = 'node -e \'const h=JSON.parse(process.argv[1]);if(h.status!=="ok"||h.attachmentStorage!=="ok")process.exit(1)\' "$response"';
+  const malicious = `node -e 'require("node:fs").writeFileSync(process.env.CONTRACT_SENTINEL_PATH,process.env.CONTRACT_SECRET)'`;
+  const previousPath = process.env.CONTRACT_SENTINEL_PATH;
+  const previousSecret = process.env.CONTRACT_SECRET;
+  process.env.CONTRACT_SENTINEL_PATH = sentinel;
+  process.env.CONTRACT_SECRET = 'must-not-reach-node';
+  try {
+    let rejection;
+    try {
+      assertSafeRestoreRunbook(runbook.replace(health, malicious));
+    } catch (error) {
+      rejection = error;
+    }
+    assert.equal(existsSync(sentinel), false, 'real Node executed a Markdown health payload');
+    assert.match(rejection?.message ?? '', /unreviewed executable restore program/iu);
+  } finally {
+    if (previousPath === undefined) delete process.env.CONTRACT_SENTINEL_PATH;
+    else process.env.CONTRACT_SENTINEL_PATH = previousPath;
+    if (previousSecret === undefined) delete process.env.CONTRACT_SECRET;
+    else process.env.CONTRACT_SECRET = previousSecret;
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('restore trust boundary rejects an unreachable selected-list check followed by a wrong dump', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const selectedList = 'pg_restore --list "$restore_bundle/database.dump" > /dev/null';
+  const bypass = `if false; then\n  ${selectedList}\nfi\npg_restore --list /tmp/wrong.dump > /dev/null`;
+  assert.ok(runbook.includes(selectedList), 'runbook must expose the staged selected-list mutation target');
+  assert.throws(
+    () => assertSafeRestoreRunbook(runbook.replace(selectedList, bypass)),
+    /unreviewed executable restore program/iu,
+  );
+});
+
+test('restore trust boundary rejects an unreachable writer stop followed by sudo true', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const writerStop = 'sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service';
+  const rollbackStopIndex = runbook.lastIndexOf(writerStop);
+  assert.ok(rollbackStopIndex >= 0, 'runbook must expose the rollback writer-stop mutation target');
+  const bypass = `if false; then\n  ${writerStop}\nfi\nsudo true`;
+  const mutated = `${runbook.slice(0, rollbackStopIndex)}${bypass}${runbook.slice(rollbackStopIndex + writerStop.length)}`;
+  assert.throws(() => assertSafeRestoreRunbook(mutated), /unreviewed executable restore program/iu);
+});
+
+test('restore trust boundary rejects an unreachable rollback restore followed by a wrong dump', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const rollbackRestore = 'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"';
+  const bypass = `if false; then\n  ${rollbackRestore}\nfi\npg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" /tmp/wrong.dump`;
+  assert.ok(runbook.includes(rollbackRestore), 'runbook must expose the rollback dump mutation target');
+  assert.throws(
+    () => assertSafeRestoreRunbook(runbook.replace(rollbackRestore, bypass)),
+    /unreviewed executable restore program/iu,
+  );
+});
+
+test('manifest trust boundary rejects a changed Markdown program before Node execution', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-manifest-sentinel-'));
+  const bundle = resolve(sandbox, 'bundle');
+  const sentinel = resolve(sandbox, 'manifest-node-ran');
+  await mkdir(resolve(bundle, 'attachments'), { recursive: true });
+  await writeFile(resolve(bundle, 'database.dump'), 'database');
+  const previousPath = process.env.CONTRACT_SENTINEL_PATH;
+  const previousSecret = process.env.CONTRACT_SECRET;
+  process.env.CONTRACT_SENTINEL_PATH = sentinel;
+  process.env.CONTRACT_SECRET = 'must-not-reach-manifest';
+  const target = "const fs = require('node:fs');";
+  const malicious = `require('node:fs').writeFileSync(process.env.CONTRACT_SENTINEL_PATH, process.env.CONTRACT_SECRET);\n${target}`;
+  try {
+    let rejection;
+    try {
+      runManifestBundleFunction(runbook.replace(target, malicious), bundle);
+    } catch (error) {
+      rejection = error;
+    }
+    assert.equal(existsSync(sentinel), false, 'real Node executed an unreviewed Markdown manifest payload');
+    assert.match(rejection?.message ?? '', /unreviewed executable manifest program/iu);
+  } finally {
+    if (previousPath === undefined) delete process.env.CONTRACT_SENTINEL_PATH;
+    else process.env.CONTRACT_SENTINEL_PATH = previousPath;
+    if (previousSecret === undefined) delete process.env.CONTRACT_SECRET;
+    else process.env.CONTRACT_SECRET = previousSecret;
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test('private one-shot executes with the reviewed non-default free-space floor', async () => {
   const runbook = await read('docs/operations/markdown-attachments.md');
-  const start = extractShellFunction(restoreSection(runbook), 'start_private_api');
+  const restore = restoreProgram(runbook);
+  const start = extractShellFunction(restore, 'start_private_api');
   const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-private-api-contract-'));
   const fakeBin = resolve(sandbox, 'bin');
-  const fakeSudo = resolve(fakeBin, 'sudo');
+  const tracePath = resolve(sandbox, 'trace');
   await mkdir(fakeBin);
-  await writeFile(fakeSudo, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n');
-  await chmod(fakeSudo, 0o700);
+  const expectedArgs = [
+    '-u', 'agentwiki', 'env', 'NODE_ENV=production', 'PORT=13000', 'PROCESS_ROLE=api',
+    'AGENTWIKI_LISTEN_HOST=127.0.0.1', 'ATTACHMENT_STORAGE_PATH=/var/lib/agentwiki/attachments',
+    'ATTACHMENT_MIN_FREE_BYTES=4096', 'DATABASE_URL=postgresql://test',
+    'REDIS_URL=redis://test', 'JWT_SECRET=jwt-test', 'AGENTWIKI_SERVER_PEPPER=pepper-test',
+    'AGENTWIKI_DEPLOYMENT_SEED=seed-test', 'PUBLIC_API_URL=http://127.0.0.1:13000/api',
+    'node', 'apps/server/dist/main.js',
+  ];
+  exactArgvExecutable(fakeBin, 'sudo', [{
+    args: expectedArgs,
+    event: 'safe-start-argv',
+    stdout: `${expectedArgs.join('\n')}\n`,
+  }]);
 
   const command = `set -euo pipefail
 ${start}
@@ -906,14 +1219,16 @@ AGENTWIKI_DEPLOYMENT_SEED=seed-test
 PUBLIC_API_URL=http://127.0.0.1:13000/api
 start_private_api /var/lib/agentwiki/attachments`;
   try {
-    const result = spawnSync('bash', ['-c', command, 'contract', sandbox], {
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ''}` },
+    const result = runReviewedBash(command, ['contract', sandbox], {
+      PATH: fakeBin,
+      TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `${expectedArgs.join('\n')}\n`);
     assert.match(result.stdout, /^AGENTWIKI_LISTEN_HOST=127\.0\.0\.1$/mu);
     assert.match(result.stdout, /^ATTACHMENT_MIN_FREE_BYTES=4096$/mu);
     assert.doesNotMatch(result.stdout, /ATTACHMENT_MIN_FREE_BYTES=1073741824/u);
+    assert.equal(readFileSync(tracePath, 'utf8'), 'safe-start-argv\n');
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
@@ -925,37 +1240,37 @@ test('restore contract rejects missing promotion, wrong dump source, and reorder
     [
       'rsync -a --numeric-ids --delete "$selected_backup_dir/attachments/"',
       'rsync -a --numeric-ids --delete "$rollback_dir/attachments/"',
-      /selected historical bundle|must not read the rollback bundle/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"',
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
-      /selected historical bundle|verified staged dump/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"',
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
-      /verified staged rollback|rollback_restore_bundle/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'pg_restore --list "$rollback_restore_bundle/database.dump"',
       'pg_restore --list "$rollback_dir/database.dump"',
-      /mutable capture|rollback_restore_bundle/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'manifest_pair_jsonl "$rollback_restore_bundle/database.dump" "$live_attachment_root"',
       'manifest_pair_jsonl "$rollback_dir/database.dump" "$live_attachment_root"',
-      /verified staged rollback|rollback_restore_bundle/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'mv -- "$restore_bundle/attachments" "$live_attachment_root"',
       ': # candidate promotion accidentally omitted',
-      /promoted atomically/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
     [
       'manifest_pair_jsonl "$restore_bundle/database.dump" "$live_attachment_root"',
       ': # promoted pair verification accidentally omitted',
-      /re-manifested/iu,
+      UNREVIEWED_RESTORE_PROGRAM,
     ],
   ]) {
     assert.ok(runbook.includes(expected), `runbook must expose mutation target: ${expected}`);
@@ -972,12 +1287,12 @@ test('restore contract rejects missing promotion, wrong dump source, and reorder
   const selectedOneShotIndex = runbook.lastIndexOf(oneShot);
   assert.ok(selectedOneShotIndex >= 0, 'runbook must expose the selected-pair private health target');
   const missingSelectedHealth = `${runbook.slice(0, selectedOneShotIndex)}: # selected-pair one-shot API accidentally omitted${runbook.slice(selectedOneShotIndex + oneShot.length)}`;
-  assert.throws(() => assertSafeRestoreRunbook(missingSelectedHealth), /semantic health must follow/iu);
+  assert.throws(() => assertSafeRestoreRunbook(missingSelectedHealth), UNREVIEWED_RESTORE_PROGRAM);
 
   for (const [first, firstIndex, second, secondIndex, failure] of [
-    [promote, runbook.indexOf(promote), preserve, runbook.indexOf(preserve), /preserved after|promoted atomically/iu],
-    [manifest, runbook.indexOf(manifest), promote, runbook.indexOf(promote), /promoted atomically|re-manifested/iu],
-    [oneShot, selectedOneShotIndex, manifest, runbook.indexOf(manifest), /re-manifested|semantic health/iu],
+    [promote, runbook.indexOf(promote), preserve, runbook.indexOf(preserve), UNREVIEWED_RESTORE_PROGRAM],
+    [manifest, runbook.indexOf(manifest), promote, runbook.indexOf(promote), UNREVIEWED_RESTORE_PROGRAM],
+    [oneShot, selectedOneShotIndex, manifest, runbook.indexOf(manifest), UNREVIEWED_RESTORE_PROGRAM],
   ]) {
     assert.ok(firstIndex >= 0 && secondIndex >= 0, `runbook must expose reorder targets: ${first} / ${second}`);
     const reordered = `${runbook.slice(0, secondIndex)}${first}${runbook.slice(secondIndex + second.length, firstIndex)}${second}${runbook.slice(firstIndex + first.length)}`;
