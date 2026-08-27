@@ -25,6 +25,7 @@ import { McpModule } from './mcp/mcp.module';
 import { HealthController } from './health.controller';
 import { CollaborationWorkflowsModule } from './collaboration-workflows/collaboration-workflows.module';
 import { PageTemplateModule } from './page-templates/page-template.module';
+import { AttachmentModule } from './attachments/attachment.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { PageTemplateModule } from './page-templates/page-template.module';
     OnboardModule,
     ObsidianModule,
     CollaborationWorkflowsModule,
+    AttachmentModule,
   ],
   controllers: [HealthController],
 })
