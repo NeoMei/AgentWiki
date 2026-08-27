@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { EditorSelection } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
@@ -10,6 +12,13 @@ import { PageEditor } from './PageEditor';
 const templateMocks = vi.hoisted(() => ({
   listPageTemplates: vi.fn(),
   createPageTemplate: vi.fn(),
+}));
+
+const attachmentMocks = vi.hoisted(() => ({
+  listAttachments: vi.fn(),
+  uploadAttachment: vi.fn(),
+  archiveAttachment: vi.fn(),
+  restoreAttachment: vi.fn(),
 }));
 
 const socketMock = vi.hoisted(() => {
@@ -35,6 +44,12 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 vi.mock('../page-templates/pageTemplateApi', () => ({
   listPageTemplates: templateMocks.listPageTemplates,
   createPageTemplate: templateMocks.createPageTemplate,
+}));
+vi.mock('../attachments/attachmentApi', () => ({
+  listAttachments: attachmentMocks.listAttachments,
+  uploadAttachment: attachmentMocks.uploadAttachment,
+  archiveAttachment: attachmentMocks.archiveAttachment,
+  restoreAttachment: attachmentMocks.restoreAttachment,
 }));
 
 // Per-test queue of page-detail responses. The wiki-link space index fetch is
@@ -85,6 +100,45 @@ const deferred = <T,>() => {
   });
   return { promise, resolve, reject };
 };
+
+const attachment = (displayName: string, overrides: Record<string, unknown> = {}) => ({
+  id: `attachment-${displayName}`,
+  spaceId: 'space-1',
+  displayName,
+  mimeType: 'image/png',
+  sizeBytes: 3n,
+  width: 10,
+  height: 10,
+  status: 'active' as const,
+  uploadedByUserId: 'user-1',
+  createdAt: '2026-08-28T08:00:00.000Z',
+  updatedAt: '2026-08-28T08:00:00.000Z',
+  archivedAt: null,
+  ...overrides,
+});
+
+const currentEditorView = () => {
+  const editor = document.querySelector('.cm-editor') as HTMLElement | null;
+  if (!editor) throw new Error('CodeMirror editor not found');
+  const view = EditorView.findFromDOM(editor);
+  if (!view) throw new Error('CodeMirror view not found');
+  return view;
+};
+
+const pasteImages = (files: File[]) => {
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+  Object.defineProperty(event, 'clipboardData', {
+    value: {
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      files: [],
+      getData: () => '',
+    },
+  });
+  fireEvent(currentEditorView().contentDOM, event);
+  return event;
+};
+
+const pasteImage = (file: File) => pasteImages([file]);
 
 const renderEditor = (withLanguageSwitcher = false) => render(
   <LanguageProvider>
@@ -141,6 +195,11 @@ describe('PageEditor remote update safety', () => {
     templateMocks.listPageTemplates.mockReset();
     templateMocks.createPageTemplate.mockReset();
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
+    attachmentMocks.listAttachments.mockReset();
+    attachmentMocks.uploadAttachment.mockReset();
+    attachmentMocks.archiveAttachment.mockReset();
+    attachmentMocks.restoreAttachment.mockReset();
+    attachmentMocks.listAttachments.mockResolvedValue({ items: [], total: 0, skip: 0, take: 20 });
     pageQueue = [];
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (typeof url === 'string' && url.includes('spaceId=')) {
@@ -783,5 +842,230 @@ describe('PageEditor remote update safety', () => {
     fireEvent.change(title, { target: { value: '😀'.repeat(201) } });
 
     expect(title).toHaveValue('😀'.repeat(200));
+  });
+
+  it('shows the attachment picker only for an authorized Markdown editor in edit mode', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const first = renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'Image attachments' });
+    expect(trigger).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    first.unmount();
+
+    queuePages({ data: page() });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    cleanup();
+
+    queuePages({ data: page({ format: 'html', capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+  });
+
+  it('inserts an existing attachment at the live selection, closes, restores focus, and marks dirty', async () => {
+    attachmentMocks.listAttachments.mockResolvedValue({
+      items: [attachment('diagram.png')], total: 1, skip: 0, take: 20,
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'Image attachments' });
+    const view = currentEditorView();
+    act(() => view.dispatch({ selection: EditorSelection.range(9, 16) }));
+
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole('button', { name: 'Insert diagram.png' }));
+
+    await waitFor(() => expect(contentEditorValue()).toBe('Original ![[diagram.png]]'));
+    expect(screen.queryByRole('dialog', { name: 'Image attachments' })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('picker upload inserts the final suffixed server name and enables save', async () => {
+    attachmentMocks.uploadAttachment.mockResolvedValue(attachment('diagram-2.png'));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    fireEvent.click(await screen.findByRole('button', { name: 'Image attachments' }));
+    const localFile = new File(['png'], 'diagram.png', { type: 'image/png' });
+
+    fireEvent.change(screen.getByLabelText('Upload image'), { target: { files: [localFile] } });
+
+    await waitFor(() => expect(contentEditorValue()).toBe('![[diagram-2.png]]Original content'));
+    expect(attachmentMocks.uploadAttachment).toHaveBeenCalledWith('space-1', localFile, expect.any(Object));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('paste upload uses the page Space, inserts final names in order, and marks the draft dirty', async () => {
+    attachmentMocks.uploadAttachment
+      .mockResolvedValueOnce(attachment('first-2.png'))
+      .mockResolvedValueOnce(attachment('second.gif', { mimeType: 'image/gif' }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    const first = new File(['one'], 'first.png', { type: 'image/png' });
+    const second = new File(['two'], 'second.gif', { type: 'image/gif' });
+
+    const event = pasteImages([first, second]);
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(contentEditorValue()).toBe('![[first-2.png]]\n![[second.gif]]Original content'));
+    expect(attachmentMocks.uploadAttachment.mock.calls.map(([spaceId, file]) => [spaceId, file])).toEqual([
+      ['space-1', first],
+      ['space-1', second],
+    ]);
+    expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('a partial paste batch failure preserves the whole draft and reports once', async () => {
+    attachmentMocks.uploadAttachment
+      .mockResolvedValueOnce(attachment('first.png'))
+      .mockRejectedValueOnce(new Error('second upload failed'));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+
+    pasteImages([
+      new File(['one'], 'first.png', { type: 'image/png' }),
+      new File(['two'], 'second.png', { type: 'image/png' }),
+    ]);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The image could not be uploaded.');
+    expect(screen.getAllByText('The image could not be uploaded.')).toHaveLength(1);
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('remote conflict removes attachment entry points and refuses a new paste upload', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    editContent('Local draft');
+    await act(async () => socketMock.handlers.get('contentUpdated')?.({
+      content: 'Remote draft', userId: 'remote-socket', version: 15,
+    }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A newer remote version is available');
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    const event = pasteImage(new File(['png'], 'blocked.png', { type: 'image/png' }));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(attachmentMocks.uploadAttachment).not.toHaveBeenCalled();
+    expect(contentEditorValue()).toBe('Local draft');
+  });
+
+  it('mode change aborts an in-flight paste upload and suppresses its late result', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(screen.getByTestId('md-preview')).toHaveTextContent('Original content');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('route A to B aborts an in-flight upload and never inserts into B', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true } }) } as any);
+      return Promise.resolve({ data: page({
+        id: 'page-2', title: 'Second page', content: 'Second content', spaceId: 'space-2', capabilities: { canEdit: true },
+      }) } as any);
+    });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(currentEditorView().state.doc.toString()).toBe('Second content');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('Space change aborts an in-flight upload and preserves the newly adopted page', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    queuePages(
+      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
+    );
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Moved page')).toBeInTheDocument();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png', { spaceId: 'space-1' })));
+
+    expect(contentEditorValue()).toBe('Moved content');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the live workspace usable for a new upload after a Space change', async () => {
+    attachmentMocks.uploadAttachment.mockResolvedValue(attachment('new-space.png', { spaceId: 'space-2' }));
+    queuePages(
+      { data: page({ capabilities: { canEdit: true } }) },
+      { data: page({ title: 'Moved page', content: 'Moved content', spaceId: 'space-2', capabilities: { canEdit: true }, updatedAt: '2026-08-28T09:00:00.000Z' }) },
+    );
+    renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByDisplayValue('Moved page')).toBeInTheDocument();
+    const file = new File(['png'], 'new-space.png', { type: 'image/png' });
+    pasteImage(file);
+
+    await waitFor(() => expect(attachmentMocks.uploadAttachment).toHaveBeenCalledWith(
+      'space-2', file, expect.any(Object),
+    ));
+    await waitFor(() => expect(contentEditorValue()).toBe('![[new-space.png]]Moved content'));
+  });
+
+  it('unmount aborts task-owned uploads and ignores late completion', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const rendered = renderEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+
+    rendered.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png')));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

@@ -1,10 +1,10 @@
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { Range } from '@codemirror/state';
+import { ChangeDesc, EditorSelection, Range, StateEffect, StateField } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { useLanguage } from '../context/LanguageContext';
@@ -20,13 +20,132 @@ interface MarkdownWorkspaceProps {
   onChange: (next: string) => void;
   onModeChange?: (mode: MarkdownMode) => void;
   pages?: PageLinkTarget[];
+  onUploadImages?: (files: File[]) => Promise<string[]>;
+  onUploadError?: (error: unknown) => void;
 }
 
 export interface MarkdownWorkspaceHandle {
   /** Test hook: drive a content change as if the user typed it. */
   simulateChange: (next: string) => void;
   currentValue: () => string;
+  insertText: (text: string) => void;
 }
+
+interface UploadAnchor {
+  id: number;
+  selection: EditorSelection;
+}
+
+const addUploadAnchor = StateEffect.define<UploadAnchor>();
+const removeUploadAnchor = StateEffect.define<number>();
+const replaceUploadAnchors = StateEffect.define<Map<number, EditorSelection>>();
+const mapUploadSelection = (selection: EditorSelection, changes: ChangeDesc) => EditorSelection.create(
+  selection.ranges.map((range) => {
+    if (range.empty) return EditorSelection.cursor(changes.mapPos(range.from, 1), 1);
+    const forward = range.anchor <= range.head;
+    return EditorSelection.range(
+      changes.mapPos(range.anchor, forward ? -1 : 1),
+      changes.mapPos(range.head, forward ? 1 : -1),
+    );
+  }),
+  selection.mainIndex,
+);
+const uploadAnchors = StateField.define<Map<number, EditorSelection>>({
+  create: () => new Map(),
+  update: (anchors, transaction) => {
+    const next = new Map<number, EditorSelection>();
+    anchors.forEach((selection, id) => next.set(id, mapUploadSelection(selection, transaction.changes)));
+    for (const effect of transaction.effects) {
+      if (effect.is(addUploadAnchor)) next.set(effect.value.id, effect.value.selection);
+      if (effect.is(removeUploadAnchor)) next.delete(effect.value);
+      if (effect.is(replaceUploadAnchors)) {
+        next.clear();
+        effect.value.forEach((selection, id) => next.set(id, selection));
+      }
+    }
+    return next;
+  },
+});
+
+const ACCEPTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const ACCEPTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+
+const hasAcceptedExtension = (name: string) => {
+  const normalized = name.trim().toLowerCase();
+  for (const extension of ACCEPTED_IMAGE_EXTENSIONS) {
+    if (normalized.endsWith(extension)) return true;
+  }
+  return false;
+};
+
+const acceptedImageFile = (file: File, itemMime = '') => {
+  const mimeTypes = [itemMime, file.type]
+    .map((mime) => mime.trim().toLowerCase())
+    .filter(Boolean);
+  if (mimeTypes.length > 0) return mimeTypes.every((mime) => ACCEPTED_IMAGE_MIME_TYPES.has(mime));
+  return hasAcceptedExtension(file.name);
+};
+
+const imageFilesFromTransfer = (transfer: DataTransfer | null): File[] => {
+  if (!transfer) return [];
+  const items = Array.from(transfer.items || []);
+  if (items.length > 0) {
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.kind !== 'file') continue;
+      const file = item.getAsFile();
+      if (file && acceptedImageFile(file, item.type)) files.push(file);
+    }
+    return files;
+  }
+  return Array.from(transfer.files || []).filter((file) => acceptedImageFile(file));
+};
+
+const insertAtSelection = (
+  view: EditorView,
+  selection: EditorSelection,
+  text: string,
+  effects?: StateEffect<unknown>,
+) => {
+  const changes = view.state.changes(selection.ranges.map((range) => ({
+    from: range.from,
+    to: range.to,
+    insert: text,
+  })));
+  const nextSelection = EditorSelection.create(
+    selection.ranges.map((range) => EditorSelection.cursor(changes.mapPos(range.to, 1))),
+    selection.mainIndex,
+  );
+  view.dispatch({ changes, selection: nextSelection, effects });
+};
+
+const insertUploadedText = (view: EditorView, anchorId: number, selection: EditorSelection, text: string) => {
+  const changes = view.state.changes(selection.ranges.map((range) => ({
+    from: range.from,
+    to: range.to,
+    insert: text,
+  })));
+  const nextSelection = EditorSelection.create(
+    selection.ranges.map((range) => EditorSelection.cursor(changes.mapPos(range.to, 1))),
+    selection.mainIndex,
+  );
+  const rebasedAnchors = new Map<number, EditorSelection>();
+  view.state.field(uploadAnchors).forEach((pendingSelection, id) => {
+    if (id !== anchorId) rebasedAnchors.set(id, mapUploadSelection(pendingSelection, changes));
+  });
+  view.dispatch({
+    changes,
+    selection: nextSelection,
+    effects: replaceUploadAnchors.of(rebasedAnchors),
+  });
+};
+
+const uploadSelection = (selection: EditorSelection) => EditorSelection.create(
+  selection.ranges.map((range) => (
+    range.empty ? EditorSelection.cursor(range.from, 1) : EditorSelection.range(range.anchor, range.head)
+  )),
+  selection.mainIndex,
+);
 
 // Live-preview formatting: render markdown structure (headings, emphasis,
 // quotes, code) while editing, like Obsidian. Cursor line still shows source.
@@ -133,14 +252,139 @@ const buildHiddenMarksPlugin = (pages: PageLinkTarget[]) => ViewPlugin.fromClass
   }
 }, { decorations: (value) => value.decorations });
 
-export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({ value, mode, onChange, pages = [] }, ref) => {
+export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({
+  value,
+  mode,
+  onChange,
+  pages = [],
+  onUploadImages,
+  onUploadError,
+}, ref) => {
   const { t } = useLanguage();
   const isEdit = mode === 'edit';
+  const editorViewRef = useRef<EditorView | null>(null);
+  const uploadGenerationRef = useRef(0);
+  const uploadOperationRef = useRef(0);
+  const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
+  const uploadRunningRef = useRef(false);
+
+  useEffect(() => {
+    uploadGenerationRef.current += 1;
+  }, [onUploadImages]);
+
+  useEffect(() => () => {
+    if (!isEdit) return;
+    editorViewRef.current = null;
+    uploadGenerationRef.current += 1;
+  }, [isEdit]);
+
+  const insertText = useCallback((text: string) => {
+    const view = editorViewRef.current;
+    if (!view || !text) return;
+    insertAtSelection(view, view.state.selection, text);
+    view.focus();
+  }, []);
 
   useImperativeHandle(ref, () => ({
     simulateChange: (next: string) => onChange(next),
-    currentValue: () => value,
-  }), [onChange, value]);
+    currentValue: () => editorViewRef.current?.state.doc.toString() ?? value,
+    insertText,
+  }), [insertText, onChange, value]);
+
+  const uploadHandlers = useMemo(() => {
+    if (!isEdit || !onUploadImages) return null;
+
+    const reportCurrentFailure = (generation: number, view: EditorView, error: unknown) => {
+      if (uploadGenerationRef.current === generation && editorViewRef.current === view) onUploadError?.(error);
+    };
+
+    const removeAnchor = (view: EditorView, id: number) => {
+      if (editorViewRef.current !== view) return;
+      view.dispatch({ effects: removeUploadAnchor.of(id) });
+    };
+
+    const enqueue = (view: EditorView, files: File[], selection: EditorSelection) => {
+      const id = ++uploadOperationRef.current;
+      const generation = uploadGenerationRef.current;
+      const upload = onUploadImages;
+      view.dispatch({ effects: addUploadAnchor.of({ id, selection }) });
+
+      const run = async () => {
+        if (uploadGenerationRef.current !== generation || editorViewRef.current !== view) {
+          removeAnchor(view, id);
+          return;
+        }
+        try {
+          const names = await upload(files);
+          if (uploadGenerationRef.current !== generation || editorViewRef.current !== view) {
+            removeAnchor(view, id);
+            return;
+          }
+          if (
+            !Array.isArray(names)
+            || names.length !== files.length
+            || names.some((name) => typeof name !== 'string' || !name.trim())
+          ) throw new Error('Invalid image upload result');
+          const anchor = view.state.field(uploadAnchors).get(id);
+          if (!anchor) throw new Error('Image upload position is no longer available');
+          const markers = names.map((name) => `![[${name}]]`).join('\n');
+          insertUploadedText(view, id, anchor, markers);
+          view.focus();
+        } catch (error) {
+          removeAnchor(view, id);
+          reportCurrentFailure(generation, view, error);
+        }
+      };
+
+      const drain = () => {
+        if (uploadRunningRef.current) return;
+        const next = pendingUploadsRef.current.shift();
+        if (!next) return;
+        uploadRunningRef.current = true;
+        void next()
+          .catch(() => undefined)
+          .finally(() => {
+            uploadRunningRef.current = false;
+            drain();
+          });
+      };
+      pendingUploadsRef.current.push(run);
+      drain();
+    };
+
+    const handleAccepted = (
+      view: EditorView,
+      event: ClipboardEvent | DragEvent,
+      selection: EditorSelection | null,
+    ) => {
+      const files = imageFilesFromTransfer(
+        'clipboardData' in event ? event.clipboardData : event.dataTransfer,
+      );
+      if (files.length === 0) return false;
+      event.preventDefault();
+      if (!selection) {
+        onUploadError?.(new Error('Image drop position is not available'));
+        return true;
+      }
+      enqueue(view, files, selection);
+      return true;
+    };
+
+    return EditorView.domEventHandlers({
+      paste: (event, view) => handleAccepted(view, event, uploadSelection(view.state.selection)),
+      dragover: (event) => {
+        if (imageFilesFromTransfer(event.dataTransfer).length === 0) return false;
+        event.preventDefault();
+        return true;
+      },
+      drop: (event, view) => {
+        const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        return handleAccepted(view, event, position === null
+          ? null
+          : EditorSelection.create([EditorSelection.cursor(position, 1)]));
+      },
+    });
+  }, [isEdit, onUploadError, onUploadImages]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
@@ -153,7 +397,18 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           <CodeMirror
             value={value}
             onChange={(next) => onChange(next)}
-            extensions={[markdown({ base: markdownLanguage, codeLanguages: languages }), syntaxHighlighting(livePreviewStyle), buildHiddenMarksPlugin(pages), EditorView.lineWrapping]}
+            onCreateEditor={(view) => {
+              editorViewRef.current = view;
+              uploadGenerationRef.current += 1;
+            }}
+            extensions={[
+              markdown({ base: markdownLanguage, codeLanguages: languages }),
+              syntaxHighlighting(livePreviewStyle),
+              buildHiddenMarksPlugin(pages),
+              uploadAnchors,
+              ...(uploadHandlers ? [uploadHandlers] : []),
+              EditorView.lineWrapping,
+            ]}
             placeholder={t('editor.placeholder')}
             aria-label={t('editor.editMode')}
             basicSetup={{

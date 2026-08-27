@@ -5,13 +5,15 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
-import { Save, ArrowLeft, History, Users, Bot, Ellipsis } from 'lucide-react';
+import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus } from 'lucide-react';
 import { IconButton } from '../../components/IconButton';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { AgentAssistPanel } from './AgentAssistPanel';
+import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
+import { uploadAttachment } from '../attachments/attachmentApi';
 import 'highlight.js/styles/github.css';
 
 interface Page {
@@ -70,12 +72,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const mountedRef = useRef(true);
   const dismissedRemoteRevisionRef = useRef<string | null>(null);
   const requestControllersRef = useRef(new Set<AbortController>());
+  const attachmentControllersRef = useRef(new Set<AbortController>());
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const moreActionsRef = useRef<HTMLDivElement>(null);
   const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const saveAsTemplateItemRef = useRef<HTMLButtonElement>(null);
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null);
+  const internalWorkspaceRef = useRef<MarkdownWorkspaceHandle | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
   const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
@@ -94,6 +99,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
+  const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -102,6 +108,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
+  const attachmentEnabled = page?.capabilities?.canEdit === true
+    && page.format === 'markdown'
+    && mode === 'edit'
+    && !remoteUpdate
+    && !saving;
 
   activePageIdRef.current = id;
 
@@ -109,6 +120,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     isDirtyRef.current = dirty;
     setIsDirty(dirty);
   }, []);
+
+  const bindWorkspaceRef = useCallback((handle: MarkdownWorkspaceHandle | null) => {
+    internalWorkspaceRef.current = handle;
+    if (workspaceRef) workspaceRef.current = handle;
+  }, [workspaceRef]);
 
   const adoptRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage)) => {
     pageRef.current = nextPage;
@@ -300,9 +316,24 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       mountedRef.current = false;
       requestControllersRef.current.forEach((controller) => controller.abort());
       requestControllersRef.current.clear();
+      attachmentControllersRef.current.forEach((controller) => controller.abort());
+      attachmentControllersRef.current.clear();
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (attachmentEnabled) return;
+    setAttachmentPickerOpen(false);
+    attachmentControllersRef.current.forEach((controller) => controller.abort());
+    attachmentControllersRef.current.clear();
+  }, [attachmentEnabled, page?.id, page?.spaceId]);
+
+  useEffect(() => {
+    setAttachmentPickerOpen(false);
+    attachmentControllersRef.current.forEach((controller) => controller.abort());
+    attachmentControllersRef.current.clear();
+  }, [page?.id, page?.spaceId]);
 
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
@@ -340,6 +371,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
+    attachmentControllersRef.current.forEach((controller) => controller.abort());
+    attachmentControllersRef.current.clear();
     pageRef.current = null;
     baselineRevisionRef.current = null;
     acceptedSocketRevisionRef.current = null;
@@ -351,6 +384,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     contentRef.current = '';
     setError(null);
     setRemoteUpdate(null);
+    setAttachmentPickerOpen(false);
     updateDirty(false);
     if (!id) {
       setLoading(false);
@@ -441,6 +475,56 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       }
     }, 500);
   }, [id, updateDirty]);
+
+  const handleImageUploadError = useCallback(() => {
+    if (!mountedRef.current || !attachmentEnabled) return;
+    setSaveStatus({ kind: 'error', text: t('attachment.uploadFailed') });
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(() => setSaveStatus(null), 5000);
+  }, [attachmentEnabled, t]);
+
+  const handleUploadImages = useCallback(async (files: File[]) => {
+    const currentPage = pageRef.current;
+    const requestedPageId = id;
+    const generation = routeGenerationRef.current;
+    if (
+      !attachmentEnabled
+      || !requestedPageId
+      || !currentPage
+      || currentPage.id !== requestedPageId
+      || currentPage.capabilities?.canEdit !== true
+      || currentPage.format !== 'markdown'
+      || files.length === 0
+    ) throw new Error('Attachment upload is not available');
+
+    const requestedSpaceId = currentPage.spaceId;
+    const controllers = files.map(() => new AbortController());
+    controllers.forEach((controller) => attachmentControllersRef.current.add(controller));
+    try {
+      const uploaded = await Promise.all(files.map((file, index) => (
+        uploadAttachment(requestedSpaceId, file, { signal: controllers[index].signal })
+      )));
+      if (
+        !mountedRef.current
+        || routeGenerationRef.current !== generation
+        || activePageIdRef.current !== requestedPageId
+        || pageRef.current?.id !== requestedPageId
+        || pageRef.current.spaceId !== requestedSpaceId
+        || pageRef.current.capabilities?.canEdit !== true
+        || pageRef.current.format !== 'markdown'
+      ) throw new Error('Attachment upload became stale');
+      const names = uploaded.map((item) => item.displayName);
+      if (names.length !== files.length || names.some((name) => typeof name !== 'string' || !name.trim())) {
+        throw new Error('Invalid attachment upload result');
+      }
+      return names;
+    } catch (error) {
+      controllers.forEach((controller) => controller.abort());
+      throw error;
+    } finally {
+      controllers.forEach((controller) => attachmentControllersRef.current.delete(controller));
+    }
+  }, [attachmentEnabled, id, page?.id, page?.spaceId]);
 
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setTitle(truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT));
@@ -642,6 +726,18 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               ) : null}
             </div>
           ) : null}
+          {attachmentEnabled ? (
+            <button
+              ref={attachmentButtonRef}
+              type="button"
+              aria-label={t('attachment.title')}
+              title={t('attachment.title')}
+              onClick={() => setAttachmentPickerOpen(true)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <ImagePlus size={18} />
+            </button>
+          ) : null}
           <IconButton
             label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
@@ -689,7 +785,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <MarkdownWorkspace ref={workspaceRef} value={content} mode={mode} onChange={handleContentChange} pages={spacePages} />
+          <MarkdownWorkspace
+            ref={bindWorkspaceRef}
+            value={content}
+            mode={mode}
+            onChange={handleContentChange}
+            pages={spacePages}
+            onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
+            onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
+          />
         </div>
         {assistOpen && page ? (
           <AgentAssistPanel
@@ -714,6 +818,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           onSaved={() => {
             setTemplateDialogSnapshot(null);
             setSaveStatus({ kind: 'success', text: t('pageTemplate.created') });
+          }}
+        />
+      ) : null}
+
+      {attachmentPickerOpen && attachmentEnabled ? (
+        <AttachmentPickerDialog
+          spaceId={page.spaceId}
+          returnFocusTo={attachmentButtonRef.current}
+          onClose={() => setAttachmentPickerOpen(false)}
+          onInsert={(displayName) => {
+            if (!attachmentEnabled) return;
+            internalWorkspaceRef.current?.insertText(`![[${displayName}]]`);
+            setAttachmentPickerOpen(false);
           }}
         />
       ) : null}
