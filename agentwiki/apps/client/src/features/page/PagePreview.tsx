@@ -311,10 +311,8 @@ export const PagePreview: React.FC = () => {
     const spaceId = page.spaceId;
     const generation = routeGenerationRef.current;
 
-    let mutationCount = 0;
     const observer = new MutationObserver(() => {
-      mutationCount += 1;
-      if (scrollToCurrentHash() || mutationCount >= 100) observer.disconnect();
+      if (scrollToCurrentHash()) observer.disconnect();
     });
 
     const currentHashTarget = (): string | null => {
@@ -353,7 +351,6 @@ export const PagePreview: React.FC = () => {
 
     const armHashScroll = () => {
       observer.disconnect();
-      mutationCount = 0;
       if (!currentHashTarget()) return;
       if (scrollToCurrentHash()) return;
       const markdownRoot = markdownRootRef.current;

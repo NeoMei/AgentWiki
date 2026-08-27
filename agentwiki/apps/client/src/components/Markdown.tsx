@@ -599,8 +599,11 @@ export const Markdown: React.FC<MarkdownProps> = ({
                 <li
                   {...props}
                   onClick={(event) => {
-                    if (!taskInputsEnabled || event.target instanceof HTMLInputElement) return;
-                    if ((event.target as Element).closest('a, button, input, select, textarea')) return;
+                    const target = event.target;
+                    if (!(target instanceof Element)
+                      || target.closest('li[data-task-index]') !== event.currentTarget
+                      || !taskInputsEnabled
+                      || target.closest('a, button, input, select, textarea')) return;
                     event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
                   }}
                 >{listChildren}</li>

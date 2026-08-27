@@ -228,6 +228,7 @@ class WikiLinkWidget extends WidgetType {
 const WIKILINK_RE = /\[\[([^\][]+)\]\]/g;
 
 const EMPTY_RESOURCES: MarkdownResourceMap = new Map();
+const RESOURCE_RESOLUTION_DEBOUNCE_MS = 150;
 const wikiOccurrenceKey = (from: number, to: number, canonicalKey: string) => `${from}:${to}:${canonicalKey}`;
 
 const buildHiddenMarksPlugin = (
@@ -328,7 +329,9 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         occurrences,
         references: [...new Map(
           occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
-        ).values()],
+        ).values()].sort((left, right) => (
+          left.canonicalKey < right.canonicalKey ? -1 : left.canonicalKey > right.canonicalKey ? 1 : 0
+        )),
       };
     } catch {
       return { occurrences: [], references: [] };
@@ -341,7 +344,12 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     [editorResourcePlan],
   );
   const editorReferences = editorResourcePlan.references;
-  const resolutionIdentity = `${spaceId ?? ''}\u0000${pageId ?? ''}\u0000${value}`;
+  const editorReferencesRef = useRef(editorReferences);
+  editorReferencesRef.current = editorReferences;
+  const resolutionScopeIdentity = JSON.stringify([spaceId ?? '', pageId ?? '']);
+  const referenceSetIdentity = JSON.stringify(editorReferences.map((reference) => reference.canonicalKey));
+  const resolutionIdentity = `${resolutionScopeIdentity}:${referenceSetIdentity}`;
+  const previousResolutionScopeRef = useRef<string | null>(null);
   const [resourceSnapshot, setResourceSnapshot] = useState<{
     identity: string;
     resources: MarkdownResourceMap;
@@ -351,25 +359,37 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     : null;
 
   useEffect(() => {
-    if (!isEdit || !spaceId || editorReferences.length === 0) {
+    const scopeChanged = previousResolutionScopeRef.current !== resolutionScopeIdentity;
+    previousResolutionScopeRef.current = resolutionScopeIdentity;
+    const references = editorReferencesRef.current;
+    if (!isEdit || !spaceId || references.length === 0) {
       setResourceSnapshot({ identity: resolutionIdentity, resources: EMPTY_RESOURCES });
       return;
     }
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
+    let debounceTimer: number | null = null;
     let current = true;
     setResourceSnapshot({ identity: resolutionIdentity, resources: EMPTY_RESOURCES });
-    void resolveMarkdownResources(spaceId, editorReferences, controller.signal)
-      .then((resources) => {
-        if (current && !controller.signal.aborted) {
-          setResourceSnapshot({ identity: resolutionIdentity, resources });
-        }
-      })
-      .catch(() => undefined);
+
+    const startResolution = () => {
+      controller = new AbortController();
+      void resolveMarkdownResources(spaceId, references, controller.signal)
+        .then((resources) => {
+          if (current && !controller?.signal.aborted) {
+            setResourceSnapshot({ identity: resolutionIdentity, resources });
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    if (scopeChanged) startResolution();
+    else debounceTimer = window.setTimeout(startResolution, RESOURCE_RESOLUTION_DEBOUNCE_MS);
     return () => {
       current = false;
-      controller.abort();
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      controller?.abort();
     };
-  }, [editorReferences, isEdit, resolutionIdentity, spaceId]);
+  }, [isEdit, resolutionIdentity, resolutionScopeIdentity, spaceId]);
 
   useLayoutEffect(() => {
     uploadGenerationRef.current += 1;

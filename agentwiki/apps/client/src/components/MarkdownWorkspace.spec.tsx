@@ -324,6 +324,95 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(2));
   });
 
+  it('does not restart three resolver batches when ordinary text changes around 201 stable references', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({ key: reference.key, status: 'unresolved' })),
+    }));
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const references = Array.from({ length: 201 }, (_, index) => `[[Page ${index}]]`).join('\n');
+    renderWYS({
+      initial: `active\n${references}`,
+      workspaceRef,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+    await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(3));
+
+    for (const suffix of ['one', 'two', 'three']) {
+      await act(async () => {
+        workspaceRef.current?.simulateChange(`active ${suffix}\n${references}`);
+        await Promise.resolve();
+      });
+    }
+
+    expect(resourceMocks.post).toHaveBeenCalledTimes(3);
+  });
+
+  it('reuses resolution when alias text and offsets change while rebuilding the current widgets', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: 'target',
+        title: 'Target',
+        slug: 'target',
+      })),
+    }));
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    renderWYS({
+      initial: 'active\n[[Target|First alias]]',
+      workspaceRef,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+    expect(await screen.findByRole('link', { name: 'First alias' })).toHaveAttribute('href', '/pages/target');
+
+    await act(async () => {
+      workspaceRef.current?.simulateChange('active changed\nordinary line\n[[Target|Second alias]]');
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('link', { name: 'Second alias' })).toHaveAttribute('href', '/pages/target');
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('debounces a same-page reference-set addition into one resolver request', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target.toLowerCase(),
+        title: reference.target,
+        slug: reference.target.toLowerCase(),
+      })),
+    }));
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    renderWYS({
+      initial: 'active\n[[Target]]',
+      workspaceRef,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+    expect(await screen.findByRole('link', { name: 'Target' })).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        workspaceRef.current?.simulateChange('active\n[[Target]]\n[[Added]]');
+        workspaceRef.current?.simulateChange('active one\n[[Target]]\n[[Added]]');
+        workspaceRef.current?.simulateChange('active two\n[[Target]]\n[[Added]]');
+      });
+      expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+
+      await act(async () => vi.advanceTimersByTimeAsync(250));
+      expect(resourceMocks.post).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('passes the authoritative page and Space context into scoped attachment preview rendering', async () => {
     const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
     const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');

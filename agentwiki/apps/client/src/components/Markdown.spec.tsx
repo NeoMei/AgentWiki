@@ -510,4 +510,69 @@ describe('Markdown rendering', () => {
     );
     expect(screen.getByRole('checkbox')).toBeDisabled();
   });
+
+  it('delegates nested task text only to the nearest editable task', () => {
+    const onTaskToggle = vi.fn();
+    render(
+      <MemoryRouter>
+        <Markdown mode="page" canEdit onTaskToggle={onTaskToggle}>
+          {'- [ ] Parent task\n  - [ ] Child task'}
+        </Markdown>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('Child task'));
+
+    expect(onTaskToggle).toHaveBeenCalledTimes(1);
+    expect(onTaskToggle).toHaveBeenCalledWith({
+      task: expect.objectContaining({ index: 1, signature: 'Child task' }),
+      nextChecked: true,
+    });
+  });
+
+  it('does not fall through from pending nested task text to its editable parent', () => {
+    const onTaskToggle = vi.fn();
+    render(
+      <MemoryRouter>
+        <Markdown mode="editor-preview" pendingTaskIndexes={new Set([1])} onTaskToggle={onTaskToggle}>
+          {'- [ ] Parent task\n  - [ ] Child task'}
+        </Markdown>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'Child task' })).toBeDisabled();
+    fireEvent.click(screen.getByText('Child task'));
+
+    expect(onTaskToggle).not.toHaveBeenCalled();
+  });
+
+  it('keeps nested read-only text inert and direct checkbox, link and button interactions independent', () => {
+    const readOnly = renderMd('- [ ] Parent task\n  - [ ] Child task');
+    fireEvent.click(screen.getByText('Child task'));
+    for (const checkbox of screen.getAllByRole('checkbox')) {
+      expect(checkbox).toBeDisabled();
+      expect(checkbox).not.toBeChecked();
+    }
+    readOnly.unmount();
+
+    const onTaskToggle = vi.fn();
+    render(
+      <MemoryRouter>
+        <Markdown mode="page" canEdit onTaskToggle={onTaskToggle}>
+          {'- [ ] Parent task\n  - [ ] Child task with [reference](https://example.com)\n\n- [ ] Control task\n  > [!note]- Details\n  > Body'}
+        </Markdown>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Child task with reference' }));
+    expect(onTaskToggle).toHaveBeenCalledTimes(1);
+    expect(onTaskToggle).toHaveBeenLastCalledWith({
+      task: expect.objectContaining({ index: 1, signature: 'Child task with reference' }),
+      nextChecked: true,
+    });
+
+    onTaskToggle.mockClear();
+    fireEvent.click(screen.getByRole('link', { name: 'reference' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect(onTaskToggle).not.toHaveBeenCalled();
+  });
 });

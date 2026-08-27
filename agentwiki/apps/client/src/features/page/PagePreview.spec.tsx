@@ -617,7 +617,7 @@ describe('PagePreview checklist saves', () => {
     expect(scrollIntoViewMock.mock.instances[0]).toBe(heading);
   });
 
-  it('retries once when an embedded hash target mounts asynchronously and disconnects after scrolling', async () => {
+  it('keeps observing beyond 100 unrelated mutations until an embedded hash target mounts', async () => {
     const embeddedPage = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
@@ -639,6 +639,18 @@ describe('PagePreview checklist saves', () => {
     renderPreview();
     await screen.findByRole('heading', { name: 'Checklist' });
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    const loading = await screen.findByText('Loading embedded content…');
+    const markdownRoot = loading.closest('.prose');
+    if (!markdownRoot) throw new Error('Markdown root not found');
+    for (let index = 0; index < 101; index += 1) {
+      await act(async () => {
+        const unrelated = document.createElement('span');
+        unrelated.dataset.unrelatedMutation = String(index);
+        markdownRoot.append(unrelated);
+        await Promise.resolve();
+      });
+    }
 
     await act(async () => embeddedPage.resolve({ data: { id: 'embedded', content: '## Late heading\n\nArrived.' } }));
 
