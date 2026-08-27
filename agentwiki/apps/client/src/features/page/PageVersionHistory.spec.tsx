@@ -55,6 +55,33 @@ describe('PageVersionHistory', () => {
     expect(screen.queryByText('旧正文')).not.toBeInTheDocument();
   });
 
+  it('resolves version-root embeds in the current Space and labels successful dynamic content', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-1') return {
+        data: { id: 'page-1', title: '当前页面', spaceId: 'space-1', capabilities: { canEdit: false } },
+      };
+      if (url === '/pages/page-1/versions') return {
+        data: [{ id: 'v1', title: '旧版本', content: '![[Embedded]]', createdAt: '2026-08-19T00:00:00Z' }],
+      };
+      if (url === '/pages/embedded') return { data: { id: 'embedded', content: '当前嵌入内容' } };
+      throw new Error(`unexpected get ${url}`);
+    });
+    vi.mocked(api.post).mockImplementation(async (url, body) => {
+      expect(url).toBe('/spaces/space-1/markdown/resolve');
+      const reference = (body as { references: Array<{ key: string }> }).references[0];
+      return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'embedded', title: 'Embedded', slug: 'embedded' }] };
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <Routes><Route path="/pages/:id/versions" element={<PageVersionHistory />} /></Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '预览 v1' }));
+
+    expect(await screen.findByText('当前嵌入内容')).toBeInTheDocument();
+    expect(screen.getByText('嵌入内容为当前版本。')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/pages/embedded', { signal: expect.any(AbortSignal) });
+  });
+
   it('offers Restore to an editor while keeping historical tasks immutable', async () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
       ? { data: [{ id: 'v1', title: '旧版本', content: '- [ ] 历史任务', createdAt: '2026-08-19T00:00:00Z' }] }

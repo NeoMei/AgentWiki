@@ -9,7 +9,7 @@ export interface WikiReference {
 }
 
 export interface ObsidianPluginOptions {
-  resolvePage: (reference: WikiReference) => string | null;
+  resolvePage?: (reference: WikiReference) => string | null;
 }
 
 interface AstNode {
@@ -22,6 +22,10 @@ interface AstNode {
     agentWikiGenerated?: boolean;
     hName?: string;
     hProperties?: Record<string, unknown>;
+  };
+  position?: {
+    start?: { offset?: number };
+    end?: { offset?: number };
   };
 }
 
@@ -36,6 +40,22 @@ const SKIPPED_NODE_TYPES = new Set([
 const INLINE_OBSIDIAN_PATTERN = /(!?\[\[([^\]\n]+)\]\]|==([^=\n]+)==)/g;
 const BLOCK_ID_PATTERN = /(?:^|\s)\^([\p{L}\p{N}_-]+)\s*$/u;
 const CALLOUT_PATTERN = /^\[!([^\]\s]+)\]([+-])?(?:[ \t]+([^\n]*))?(?:\n|$)/;
+const ATTACHMENT_IMAGE_PATTERN = /\.(?:png|jpe?g|webp|gif)$/iu;
+
+const normalizeIdentityPart = (value: string | null | undefined) => (
+  value?.trim().normalize('NFC').toLocaleLowerCase('und') ?? ''
+);
+
+export const wikiReferenceKind = (reference: WikiReference): 'page' | 'attachment' => (
+  reference.embed && ATTACHMENT_IMAGE_PATTERN.test(reference.target.trim()) ? 'attachment' : 'page'
+);
+
+export const canonicalWikiReferenceKey = (reference: WikiReference): string => JSON.stringify([
+  wikiReferenceKind(reference),
+  normalizeIdentityPart(reference.target),
+  normalizeIdentityPart(reference.heading),
+  normalizeIdentityPart(reference.blockId),
+]);
 
 export function parseWikiReference(raw: string): WikiReference {
   const trimmed = raw.trim();
@@ -144,7 +164,11 @@ function transformBlockAnchors(tree: AstNode): void {
   });
 }
 
-function tokenizeText(value: string, resolvePage: ObsidianPluginOptions['resolvePage']): AstNode[] | null {
+function tokenizeText(
+  node: AstNode,
+  resolvePage?: ObsidianPluginOptions['resolvePage'],
+): AstNode[] | null {
+  const value = node.value ?? '';
   const output: AstNode[] = [];
   let cursor = 0;
   let changed = false;
@@ -164,25 +188,35 @@ function tokenizeText(value: string, resolvePage: ObsidianPluginOptions['resolve
       changed = true;
     } else {
       const reference = parseWikiReference(`${match[1].startsWith('!') ? '!' : ''}${match[2]}`);
-      const href = resolvePage(reference);
-      if (!href) {
-        output.push({ type: 'text', value: match[0] });
-      } else {
-        const fallbackLabel = match[2].split('|', 1)[0];
-        output.push({
-          type: 'link',
-          children: [{ type: 'text', value: reference.label ?? fallbackLabel }],
-          data: {
-            agentWikiGenerated: true,
-            hProperties: {
-              className: ['wiki-link'],
-              'data-wiki-embed': reference.embed ? 'true' : undefined,
-            },
-          },
-          url: href,
-        });
-        changed = true;
-      }
+      const href = resolvePage?.(reference) ?? null;
+      const kind = wikiReferenceKind(reference);
+      const fallbackLabel = match[2].split('|', 1)[0];
+      const startOffset = node.position?.start?.offset;
+      const position = Number.isInteger(startOffset)
+        ? `${startOffset! + match.index}`
+        : `${match.index}`;
+      const properties = {
+        className: [reference.embed ? 'wiki-embed' : 'wiki-link'],
+        'data-markdown-resource-key': canonicalWikiReferenceKey(reference),
+        'data-markdown-resource-kind': kind,
+        'data-markdown-literal': match[0],
+        'data-markdown-target': reference.target,
+        'data-markdown-label': reference.label ?? undefined,
+        'data-markdown-heading': reference.heading ?? undefined,
+        'data-markdown-block-id': reference.blockId ?? undefined,
+        'data-markdown-legacy-href': href ?? undefined,
+        'data-markdown-source-offset': position,
+      };
+      const hName = reference.embed
+        ? kind === 'attachment' ? 'agent-wiki-image' : 'agent-wiki-embed'
+        : 'agent-wiki-link';
+      output.push(generatedNode(
+        reference.embed ? kind === 'attachment' ? 'agentWikiImage' : 'agentWikiEmbed' : 'agentWikiLink',
+        hName,
+        properties,
+        reference.embed ? [] : [{ type: 'text', value: reference.label ?? fallbackLabel }],
+      ));
+      changed = true;
     }
 
     cursor = match.index + match[0].length;
@@ -193,16 +227,47 @@ function tokenizeText(value: string, resolvePage: ObsidianPluginOptions['resolve
   return output;
 }
 
-function transformInlineSyntax(tree: AstNode, resolvePage: ObsidianPluginOptions['resolvePage']): void {
+function transformInlineSyntax(tree: AstNode, resolvePage?: ObsidianPluginOptions['resolvePage']): void {
   visit(tree as never, (node: AstNode, index: number | undefined, parent: AstNode | undefined) => {
     if (node.data?.agentWikiGenerated || SKIPPED_NODE_TYPES.has(node.type)) return SKIP;
     if (node.type !== 'text' || typeof node.value !== 'string' || !parent || index === undefined) return;
 
-    const replacement = tokenizeText(node.value, resolvePage);
+    const replacement = tokenizeText(node, resolvePage);
     if (!replacement) return;
     parent.children?.splice(index, 1, ...replacement);
     return [SKIP, index + replacement.length];
   });
+}
+
+function liftBlockEmbeds(node: AstNode): void {
+  for (const child of node.children ?? []) liftBlockEmbeds(child);
+  if (!node.children) return;
+  const nextChildren: AstNode[] = [];
+  for (const child of node.children) {
+    if (child.type !== 'paragraph' || !child.children?.some((part) => (
+      part.type === 'agentWikiEmbed' || part.type === 'agentWikiImage'
+    ))) {
+      nextChildren.push(child);
+      continue;
+    }
+    let inlineParts: AstNode[] = [];
+    const flushParagraph = () => {
+      if (inlineParts.some((part) => part.type !== 'text' || part.value?.trim())) {
+        nextChildren.push({ ...child, children: inlineParts });
+      }
+      inlineParts = [];
+    };
+    for (const part of child.children) {
+      if (part.type === 'agentWikiEmbed' || part.type === 'agentWikiImage') {
+        flushParagraph();
+        nextChildren.push(part);
+      } else {
+        inlineParts.push(part);
+      }
+    }
+    flushParagraph();
+  }
+  node.children = nextChildren;
 }
 
 export function remarkAgentWikiObsidian(options: ObsidianPluginOptions) {
@@ -211,5 +276,6 @@ export function remarkAgentWikiObsidian(options: ObsidianPluginOptions) {
     annotateTasks(tree);
     transformBlockAnchors(tree);
     transformInlineSyntax(tree, options.resolvePage);
+    liftBlockEmbeds(tree);
   };
 }

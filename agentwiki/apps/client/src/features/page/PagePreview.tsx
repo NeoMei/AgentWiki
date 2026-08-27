@@ -44,7 +44,6 @@ export const PagePreview: React.FC = () => {
   const tRef = useRef(t);
   tRef.current = t;
   const [page, setPage] = useState<Page | null>(null);
-  const [spacePages, setSpacePages] = useState<Array<{ id: string; title?: string; slug?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
@@ -267,7 +266,6 @@ export const PagePreview: React.FC = () => {
     setTaskSaveError(null);
     setPendingTaskIndexes(new Set());
     setRelatedPages([]);
-    setSpacePages([]);
     if (!id) {
       setLoading(false);
       return;
@@ -303,23 +301,6 @@ export const PagePreview: React.FC = () => {
         if (routeIsActive(requestedId, generation)) setRelatedPages([]);
       });
   }, [id]);
-
-  useEffect(() => {
-    setSpacePages([]);
-    if (!page?.id || !page.spaceId) return;
-    const requestedId = page.id;
-    const requestedSpaceId = page.spaceId;
-    const generation = routeGenerationRef.current;
-    api.get(`/pages?spaceId=${requestedSpaceId}&take=200`)
-      .then((res) => {
-        if (routeIsActive(requestedId, generation)) {
-          setSpacePages(res.data?.data || res.data?.items || []);
-        }
-      })
-      .catch(() => {
-        if (routeIsActive(requestedId, generation)) setSpacePages([]);
-      });
-  }, [page?.id, page?.spaceId]);
 
   const handleDelete = async () => {
     if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
@@ -416,7 +397,8 @@ export const PagePreview: React.FC = () => {
               canEdit={page.capabilities?.canEdit === true}
               pendingTaskIndexes={pendingTaskIndexes}
               onTaskToggle={handleTaskToggle}
-              pages={spacePages}
+              pageId={page.id}
+              spaceId={page.spaceId}
             >
               {page.content}
             </Markdown>

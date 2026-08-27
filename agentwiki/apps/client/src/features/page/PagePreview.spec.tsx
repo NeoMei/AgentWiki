@@ -7,7 +7,7 @@ import { LanguageProvider } from '../../context/LanguageContext';
 import { PagePreview } from './PagePreview';
 
 vi.mock('../../api/client', () => ({
-  default: { get: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }));
 
 const source = '- [ ] first task\n- [ ] second task';
@@ -90,6 +90,7 @@ describe('PagePreview checklist saves', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     pageResponses = [];
     vi.mocked(api.get).mockReset();
+    vi.mocked(api.post).mockReset();
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.delete).mockReset();
     vi.mocked(api.get).mockImplementation((url: string) => {
@@ -463,7 +464,7 @@ describe('PagePreview checklist saves', () => {
       <AbaNavigationHarness />
     </MemoryRouter></LanguageProvider>);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/pages?spaceId=space-a&take=200'));
+    expect(await screen.findByRole('heading', { name: 'Page A' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
     expect(await screen.findByRole('link', { name: /Related B/ })).toHaveAttribute('href', '/pages/related-b');
     fireEvent.click(screen.getByRole('button', { name: 'Open first page' }));
@@ -493,7 +494,7 @@ describe('PagePreview checklist saves', () => {
       <NavigationHarness />
     </MemoryRouter></LanguageProvider>);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/pages?spaceId=space-a&take=200'));
+    expect(await screen.findByRole('heading', { name: 'Page A' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
     expect(await screen.findByRole('link', { name: /Related B/ })).toBeInTheDocument();
     await act(async () => oldRelatedA.reject(new Error('stale related failure')));
@@ -501,78 +502,46 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('link', { name: /Related B/ })).toBeInTheDocument();
   });
 
-  it('clears the A Space index before B resolves its own wiki-link target', async () => {
-    const indexB = deferred<any>();
+  it('uses the authoritative Space resolver for wiki links without loading a 200-page index', async () => {
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Page 201]]', spaceId: 'space-a' }) } as any);
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.post).mockImplementation(async (url, body) => {
+      expect(url).toBe('/spaces/space-a/markdown/resolve');
+      const reference = (body as { references: Array<{ key: string }> }).references[0];
+      return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'target-201', title: 'Page 201', slug: 'page-201' }] };
+    });
+    renderPreview();
+
+    expect(await screen.findByRole('link', { name: 'Page 201' })).toHaveAttribute('href', '/pages/target-201');
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/pages?'), expect.anything());
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => String(url).startsWith('/pages?'))).toBe(false);
+  });
+
+  it('clears a stale A resolver before B resolves its own wiki-link target', async () => {
+    const resolverA = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', content: '[[Shared]]', spaceId: 'space-b' }) } as any);
-      if (url === '/pages?spaceId=space-a&take=200') return Promise.resolve({ data: { data: [{ id: 'target-a', title: 'Shared' }] } } as any);
-      if (url === '/pages?spaceId=space-b&take=200') return indexB.promise;
       return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    vi.mocked(api.post).mockImplementation(async (url, body) => {
+      const reference = (body as { references: Array<{ key: string }> }).references[0];
+      if (url === '/spaces/space-a/markdown/resolve') return resolverA.promise;
+      if (url === '/spaces/space-b/markdown/resolve') return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'target-b', title: 'Shared', slug: 'shared' }] };
+      throw new Error(`unexpected post ${url}`);
     });
     render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}>
       <NavigationHarness />
     </MemoryRouter></LanguageProvider>);
 
-    expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-a');
-    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
-    expect(await screen.findByRole('heading', { name: 'Page B' })).toBeInTheDocument();
-
-    expect(screen.queryByRole('link', { name: 'Shared' })).not.toBeInTheDocument();
-    await act(async () => indexB.resolve({ data: { data: [{ id: 'target-b', title: 'Shared' }] } }));
-    expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
-  });
-
-  it('ignores the first A Space-index response after navigating A to B to A', async () => {
-    const firstIndexA = deferred<any>();
-    let indexALoads = 0;
-    vi.mocked(api.get).mockImplementation((url: string) => {
-      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
-      if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Shared]]', spaceId: 'space-a' }) } as any);
-      if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', content: '[[Shared]]', spaceId: 'space-b' }) } as any);
-      if (url === '/pages?spaceId=space-a&take=200') {
-        indexALoads += 1;
-        return indexALoads === 1
-          ? firstIndexA.promise
-          : Promise.resolve({ data: { data: [{ id: 'fresh-target-a', title: 'Shared' }] } } as any);
-      }
-      if (url === '/pages?spaceId=space-b&take=200') return Promise.resolve({ data: { data: [{ id: 'target-b', title: 'Shared' }] } } as any);
-      return Promise.reject(new Error(`unexpected get ${url}`));
-    });
-    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}>
-      <AbaNavigationHarness />
-    </MemoryRouter></LanguageProvider>);
-
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/pages?spaceId=space-a&take=200'));
+    expect(await screen.findByRole('heading', { name: 'Page A' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
     expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
-    fireEvent.click(screen.getByRole('button', { name: 'Open first page' }));
-    expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/fresh-target-a');
-
-    await act(async () => firstIndexA.resolve({ data: { data: [{ id: 'stale-target-a', title: 'Shared' }] } }));
-
-    expect(screen.getByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/fresh-target-a');
-  });
-
-  it('ignores an old Space-index rejection after B wiki links have resolved', async () => {
-    const oldIndexA = deferred<any>();
-    vi.mocked(api.get).mockImplementation((url: string) => {
-      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
-      if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Shared]]', spaceId: 'space-a' }) } as any);
-      if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', content: '[[Shared]]', spaceId: 'space-b' }) } as any);
-      if (url === '/pages?spaceId=space-a&take=200') return oldIndexA.promise;
-      if (url === '/pages?spaceId=space-b&take=200') return Promise.resolve({ data: { data: [{ id: 'target-b', title: 'Shared' }] } } as any);
-      return Promise.reject(new Error(`unexpected get ${url}`));
-    });
-    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}>
-      <NavigationHarness />
-    </MemoryRouter></LanguageProvider>);
-
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/pages?spaceId=space-a&take=200'));
-    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
-    expect(await screen.findByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
-    await act(async () => oldIndexA.reject(new Error('stale index failure')));
+    await act(async () => resolverA.resolve({ data: [{ key: 'r0', status: 'resolved', kind: 'page', pageId: 'target-a', title: 'Shared', slug: 'shared' }] }));
 
     expect(screen.getByRole('link', { name: 'Shared' })).toHaveAttribute('href', '/pages/target-b');
   });

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
@@ -11,6 +11,7 @@ import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
 import 'katex/dist/katex.min.css';
 import { useLanguage } from '../context/LanguageContext';
+import { AttachmentImage } from '../features/attachments/AttachmentImage';
 import { isExternalHref, isInternalPageHref, PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { KATEX_OPTIONS } from './markdown/math';
 import type { MarkdownRenderMode, MarkdownTaskToggle } from './markdown/markdownTypes';
@@ -18,6 +19,17 @@ import { MermaidDiagram } from './markdown/MermaidDiagram';
 import { MAX_MERMAID_SOURCE_CHARS } from './markdown/mermaidSecurity';
 import { remarkAgentWikiObsidian } from './markdown/obsidian';
 import { collectMarkdownTasks } from './markdown/tasks';
+import { EmbeddedMarkdown } from './markdown/EmbeddedMarkdown';
+import {
+  collectMarkdownResourceRefs,
+  createMarkdownTreeState,
+  loadTreeResources,
+  MarkdownRuntimeContext,
+  type MarkdownRenderBranch,
+  type MarkdownResourceMap,
+  type MarkdownResourceState,
+  type ResolvedMarkdownResource,
+} from './markdown/resources';
 
 export const markdownClass = `prose prose-sm min-w-0 max-w-none
   [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
@@ -164,7 +176,137 @@ export interface MarkdownProps {
   canEdit?: boolean;
   pendingTaskIndexes?: ReadonlySet<number>;
   onTaskToggle?: (toggle: MarkdownTaskToggle) => void;
+  spaceId?: string;
+  pageId?: string;
+  internalBranch?: MarkdownRenderBranch;
 }
+
+const emptyResources: MarkdownResourceMap = new Map();
+
+const nodeProperty = (node: HastElementNode | undefined, name: string): string => {
+  const value = node?.properties?.[name];
+  return typeof value === 'string' ? value : '';
+};
+
+const ResourceFallback = ({ literal, status }: { literal: string; status: string }) => (
+  <span role="alert" className="markdown-resource-fallback text-amber-800">
+    <span>{status} </span><code>{literal}</code>
+  </span>
+);
+
+const resourceForNode = (
+  resourceState: MarkdownResourceState,
+  node: HastElementNode | undefined,
+): ResolvedMarkdownResource | null => {
+  if (resourceState.status !== 'ready') return null;
+  return resourceState.resources.get(nodeProperty(node, 'data-markdown-resource-key')) ?? null;
+};
+
+type AgentWikiNodeProps = React.HTMLAttributes<HTMLElement> & ExtraProps;
+
+const AgentWikiLink = ({ node, children: linkChildren }: AgentWikiNodeProps) => {
+  const runtime = useContext(MarkdownRuntimeContext);
+  const { t } = useLanguage();
+  const element = node && isElementNode(node) ? node : undefined;
+  const literal = nodeProperty(element, 'data-markdown-literal');
+  const legacyHref = nodeProperty(element, 'data-markdown-legacy-href');
+  const heading = nodeProperty(element, 'data-markdown-heading') || null;
+  const blockId = nodeProperty(element, 'data-markdown-block-id') || null;
+  if (!runtime?.tree.spaceId) {
+    return legacyHref
+      ? <Link to={legacyHref} target="_blank" rel="noopener noreferrer" className="wiki-link text-blue-600 hover:underline">{linkChildren}</Link>
+      : <>{literal}</>;
+  }
+  const resource = resourceForNode(runtime.resourceState, element);
+  if (!resource) {
+    if (runtime.resourceState.status === 'loading') {
+      return <span role="status" className="text-gray-500">{linkChildren}</span>;
+    }
+    return <ResourceFallback literal={literal} status={t('markdown.resource.failed')} />;
+  }
+  if (resource.status !== 'resolved') {
+    return <ResourceFallback literal={literal} status={t(`markdown.resource.${resource.status}`)} />;
+  }
+  if (resource.kind !== 'page') {
+    return <ResourceFallback literal={literal} status={t('markdown.resource.unresolved')} />;
+  }
+  const href = resolveWikiHref({
+    embed: false,
+    target: resource.pageId,
+    label: null,
+    heading,
+    blockId,
+  }, [{ id: resource.pageId, title: resource.title, slug: resource.slug }]);
+  return <Link to={href!} target="_blank" rel="noopener noreferrer" className="wiki-link text-blue-600 hover:underline">{linkChildren}</Link>;
+};
+
+const AgentWikiImage = ({ node }: AgentWikiNodeProps) => {
+  const runtime = useContext(MarkdownRuntimeContext);
+  const { t } = useLanguage();
+  const element = node && isElementNode(node) ? node : undefined;
+  const literal = nodeProperty(element, 'data-markdown-literal');
+  const label = nodeProperty(element, 'data-markdown-label');
+  const resource = runtime ? resourceForNode(runtime.resourceState, element) : null;
+  if (!runtime?.tree.spaceId || !resource) {
+    if (runtime?.tree.spaceId && runtime.resourceState.status === 'loading') {
+      return <div role="status" className="my-3 text-sm text-gray-500">{t('markdown.resource.loading')}</div>;
+    }
+    const status = runtime?.resourceState.status === 'error'
+      ? t('markdown.resource.failed')
+      : t('markdown.resource.unresolved');
+    return <ResourceFallback literal={literal} status={status} />;
+  }
+  if (resource.status !== 'resolved') {
+    return <ResourceFallback literal={literal} status={t(`markdown.resource.${resource.status}`)} />;
+  }
+  if (resource.kind !== 'attachment') {
+    return <ResourceFallback literal={literal} status={t('markdown.resource.unresolved')} />;
+  }
+  return (
+    <AttachmentImage
+      attachmentId={resource.attachmentId}
+      displayName={resource.displayName}
+      mimeType={resource.mimeType}
+      width={resource.width}
+      height={resource.height}
+      alt={label || resource.displayName}
+      className="markdown-attachment-image h-auto max-w-full rounded-md"
+    />
+  );
+};
+
+const AgentWikiEmbed = ({ node }: AgentWikiNodeProps) => {
+  const runtime = useContext(MarkdownRuntimeContext);
+  const { t } = useLanguage();
+  const element = node && isElementNode(node) ? node : undefined;
+  const literal = nodeProperty(element, 'data-markdown-literal');
+  const resource = runtime ? resourceForNode(runtime.resourceState, element) : null;
+  if (!runtime?.tree.spaceId || !resource) {
+    if (runtime?.tree.spaceId && runtime.resourceState.status === 'loading') {
+      return <div role="status" className="my-3 text-sm text-gray-500">{t('markdown.resource.loading')}</div>;
+    }
+    const status = runtime?.resourceState.status === 'error'
+      ? t('markdown.resource.failed')
+      : t('markdown.resource.unresolved');
+    return <ResourceFallback literal={literal} status={status} />;
+  }
+  if (resource.status !== 'resolved') {
+    return <ResourceFallback literal={literal} status={t(`markdown.resource.${resource.status}`)} />;
+  }
+  if (resource.kind !== 'page') {
+    return <ResourceFallback literal={literal} status={t('markdown.resource.unresolved')} />;
+  }
+  return (
+    <EmbeddedMarkdown
+      literal={literal}
+      label={nodeProperty(element, 'data-markdown-label') || undefined}
+      heading={nodeProperty(element, 'data-markdown-heading') || undefined}
+      blockId={nodeProperty(element, 'data-markdown-block-id') || undefined}
+      sourceOffset={nodeProperty(element, 'data-markdown-source-offset')}
+      resource={resource}
+    />
+  );
+};
 
 const KNOWN_CALLOUT_TYPES = new Set([
   'abstract', 'bug', 'danger', 'error', 'example', 'failure', 'info', 'note',
@@ -254,7 +396,71 @@ export const Markdown: React.FC<MarkdownProps> = ({
   canEdit = false,
   pendingTaskIndexes = new Set<number>(),
   onTaskToggle,
+  spaceId,
+  pageId,
+  internalBranch,
 }) => {
+  const parentRuntime = useContext(MarkdownRuntimeContext);
+  const ownTree = useMemo(
+    () => createMarkdownTreeState(spaceId ?? '', mode),
+    [children, mode, pageId, spaceId],
+  );
+  const tree = parentRuntime?.tree ?? ownTree;
+  const isRootTree = parentRuntime === null;
+  const branch = internalBranch ?? parentRuntime?.branch ?? {
+    depth: 0,
+    documentId: pageId ?? 'root',
+    instanceId: pageId ?? 'root',
+    visitedPageIds: pageId ? new Set([pageId]) : new Set<string>(),
+  };
+  const documentKey = `${branch.documentId}\u0000${children}`;
+  const resourceCollection = useMemo(() => {
+    if (!tree.spaceId) return { references: [], failed: false };
+    try {
+      return { references: collectMarkdownResourceRefs(children), failed: false };
+    } catch {
+      return { references: [], failed: true };
+    }
+  }, [children, tree]);
+  const [resourceSnapshot, setResourceSnapshot] = useState<{
+    key: string;
+    state: MarkdownResourceState;
+  }>({
+    key: documentKey,
+    state: tree.spaceId
+      ? { status: 'loading', resources: emptyResources }
+      : { status: 'ready', resources: emptyResources },
+  });
+  const resourceState = resourceSnapshot.key === documentKey
+    ? resourceSnapshot.state
+    : tree.spaceId
+      ? { status: 'loading' as const, resources: emptyResources }
+      : { status: 'ready' as const, resources: emptyResources };
+
+  useEffect(() => {
+    if (!isRootTree || !tree.spaceId) return;
+    tree.retain();
+    return () => tree.release();
+  }, [isRootTree, tree]);
+
+  useEffect(() => {
+    if (!tree.spaceId) return;
+    if (resourceCollection.failed) {
+      setResourceSnapshot({ key: documentKey, state: { status: 'error', resources: emptyResources } });
+      return;
+    }
+    let current = true;
+    setResourceSnapshot({ key: documentKey, state: { status: 'loading', resources: emptyResources } });
+    void loadTreeResources(tree, documentKey, resourceCollection.references).then((resources) => {
+      if (current) setResourceSnapshot({ key: documentKey, state: { status: 'ready', resources } });
+    }).catch(() => {
+      if (current) setResourceSnapshot({ key: documentKey, state: { status: 'error', resources: emptyResources } });
+    });
+    return () => {
+      current = false;
+    };
+  }, [documentKey, resourceCollection, tree]);
+
   const tasks = useMemo(() => collectMarkdownTasks(children), [children]);
   const taskInputsEnabled = Boolean(
     onTaskToggle && (mode === 'editor-preview' || (mode === 'page' && canEdit)),
@@ -273,7 +479,10 @@ export const Markdown: React.FC<MarkdownProps> = ({
     onTaskToggle({ task, nextChecked: event.target.checked });
   };
 
+  const runtimeValue = useMemo(() => ({ tree, branch, resourceState }), [branch, resourceState, tree]);
+
   return (
+    <MarkdownRuntimeContext.Provider value={runtimeValue}>
     <div className={className ?? markdownClass} onChange={handleChange}>
       <ReactMarkdown
         skipHtml
@@ -334,10 +543,14 @@ export const Markdown: React.FC<MarkdownProps> = ({
             );
           },
           pre: MarkdownPre,
-        }}
+          'agent-wiki-link': AgentWikiLink,
+          'agent-wiki-embed': AgentWikiEmbed,
+          'agent-wiki-image': AgentWikiImage,
+        } as React.ComponentProps<typeof ReactMarkdown>['components']}
       >
         {children}
       </ReactMarkdown>
     </div>
+    </MarkdownRuntimeContext.Provider>
   );
 };
