@@ -5,8 +5,31 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 import { json } from 'express';
 import { randomUUID } from 'crypto';
+import { isIP } from 'node:net';
 
-async function bootstrap() {
+type ApiListenApplication = {
+  listen: (port: string | number, host?: string) => Promise<unknown>;
+};
+
+export function resolveApiListenHost(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (value.length === 0 || value !== value.trim() || isIP(value) === 0) {
+    throw new Error('AGENTWIKI_LISTEN_HOST must be an IPv4 or IPv6 address without whitespace');
+  }
+  return value;
+}
+
+export async function listenApi(
+  app: ApiListenApplication,
+  port: string | number,
+  configuredHost: string | undefined,
+): Promise<void> {
+  const host = resolveApiListenHost(configuredHost);
+  if (host === undefined) await app.listen(port);
+  else await app.listen(port, host);
+}
+
+export async function bootstrap() {
   process.env.PROCESS_ROLE ||= 'api';
   const app = await NestFactory.create(AppModule);
   if (process.env.NODE_ENV === 'production') {
@@ -38,7 +61,7 @@ async function bootstrap() {
   const httpAdapterHost = app.get(HttpAdapterHost);
   app.useGlobalFilters(new AllExceptionsFilter(httpAdapterHost));
 
-  await app.listen(process.env.PORT ?? 3000);
+  await listenApi(app, process.env.PORT ?? 3000, process.env.AGENTWIKI_LISTEN_HOST);
   console.log('Server running on http://localhost:' + (process.env.PORT ?? 3000));
 }
-bootstrap();
+if (require.main === module) void bootstrap();

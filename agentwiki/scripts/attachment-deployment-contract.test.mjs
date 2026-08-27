@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
@@ -156,7 +156,8 @@ function assertSafeRestoreRunbook(runbook) {
   for (const rollbackReference of [
     'pg_dump --format=custom --file="$rollback_dir/database.dump"',
     'rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$rollback_dir/attachments/"',
-    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+    'pg_restore --list "$rollback_restore_bundle/database.dump"',
+    'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"',
     'rsync -a --numeric-ids --delete "$rollback_dir/attachments/" "$rollback_restore_bundle/attachments/"',
     'mv -- "$rollback_restore_bundle/attachments" "$live_attachment_root"',
   ]) {
@@ -204,10 +205,25 @@ function assertSafeRestoreRunbook(runbook) {
   }
 
   const rollbackHandler = extractShellFunction(restore, 'rollback_pair');
+  assert.doesNotMatch(
+    restore,
+    /pg_restore --list "\$rollback_dir\/database\.dump"/u,
+    'rollback dump verification must not reread the mutable capture directory',
+  );
   assert.doesNotMatch(rollbackHandler, /\$selected_backup_dir/u, 'failure rollback must not read the selected bundle');
-  assert.match(rollbackHandler, /pg_restore[^\n]+"\$rollback_dir\/database\.dump"/u);
+  assert.doesNotMatch(
+    rollbackHandler,
+    /pg_restore[^\n]+"\$rollback_dir\/database\.dump"/u,
+    'rollback restore must use the verified staged rollback dump',
+  );
+  assert.match(rollbackHandler, /pg_restore[^\n]+"\$rollback_restore_bundle\/database\.dump"/u);
   assert.match(rollbackHandler, /mv -- "\$rollback_restore_bundle\/attachments" "\$live_attachment_root"/u);
-  assert.match(rollbackHandler, /manifest_pair_jsonl "\$rollback_dir\/database\.dump" "\$live_attachment_root"/u);
+  assert.doesNotMatch(
+    rollbackHandler,
+    /manifest_pair_jsonl "\$rollback_dir\/database\.dump"/u,
+    'promoted rollback manifest must use the verified staged rollback dump',
+  );
+  assert.match(rollbackHandler, /manifest_pair_jsonl "\$rollback_restore_bundle\/database\.dump" "\$live_attachment_root"/u);
   assert.ok(
     rollbackHandler.indexOf('systemctl --user stop') < rollbackHandler.indexOf('pg_restore'),
     'rollback must stop writers before restoring either half',
@@ -216,10 +232,13 @@ function assertSafeRestoreRunbook(runbook) {
   assert.ok(rollbackTrap > rollbackStage && rollbackTrap < databaseRestore, 'paired rollback must guard every live mutation');
 
   const privateProbe = extractShellFunction(restore, 'verify_private_api');
-  assert.match(privateProbe, /exec sudo -u agentwiki env NODE_ENV=production/u);
-  assert.match(privateProbe, /node apps\/server\/dist\/main\.js/u, 'private health must start the built API');
+  const privateStart = extractShellFunction(restore, 'start_private_api');
+  assert.match(privateStart, /exec sudo -u agentwiki env NODE_ENV=production/u);
+  assert.match(privateStart, /AGENTWIKI_LISTEN_HOST=127\.0\.0\.1/u);
+  assert.match(privateStart, /ATTACHMENT_MIN_FREE_BYTES="\$attachment_min_free_bytes"/u);
+  assert.match(privateStart, /node apps\/server\/dist\/main\.js/u, 'private health must start the built API');
   for (const key of ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET', 'AGENTWIKI_SERVER_PEPPER', 'AGENTWIKI_DEPLOYMENT_SEED', 'PUBLIC_API_URL']) {
-    assert.match(privateProbe, new RegExp(`${key}="\\$${key}"`, 'u'), `private health must pass ${key}`);
+    assert.match(privateStart, new RegExp(`${key}="\\$${key}"`, 'u'), `private health must pass ${key}`);
   }
   assert.match(privateProbe, /http:\/\/127\.0\.0\.1:13000\/api\/health/u);
   assert.match(privateProbe, /ss -H -ltn 'sport = :13000'/u, 'private health must reject an occupied port');
@@ -500,6 +519,41 @@ test('restore locks the selected historical bundle before capturing an independe
   assertSafeRestoreRunbook(await read('docs/operations/markdown-attachments.md'));
 });
 
+test('private one-shot executes with the reviewed non-default free-space floor', async () => {
+  const runbook = await read('docs/operations/markdown-attachments.md');
+  const start = extractShellFunction(restoreSection(runbook), 'start_private_api');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-private-api-contract-'));
+  const fakeBin = resolve(sandbox, 'bin');
+  const fakeSudo = resolve(fakeBin, 'sudo');
+  await mkdir(fakeBin);
+  await writeFile(fakeSudo, '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@"\n');
+  await chmod(fakeSudo, 0o700);
+
+  const command = `set -euo pipefail
+${start}
+AGENTWIKI_RELEASE_ROOT="$1"
+attachment_min_free_bytes=4096
+DATABASE_URL=postgresql://test
+REDIS_URL=redis://test
+JWT_SECRET=jwt-test
+AGENTWIKI_SERVER_PEPPER=pepper-test
+AGENTWIKI_DEPLOYMENT_SEED=seed-test
+PUBLIC_API_URL=http://127.0.0.1:13000/api
+start_private_api /var/lib/agentwiki/attachments`;
+  try {
+    const result = spawnSync('bash', ['-c', command, 'contract', sandbox], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ''}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^AGENTWIKI_LISTEN_HOST=127\.0\.0\.1$/mu);
+    assert.match(result.stdout, /^ATTACHMENT_MIN_FREE_BYTES=4096$/mu);
+    assert.doesNotMatch(result.stdout, /ATTACHMENT_MIN_FREE_BYTES=1073741824/u);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test('restore contract rejects missing promotion, wrong dump source, and reordered acceptance', async () => {
   const runbook = await read('docs/operations/markdown-attachments.md');
   for (const [expected, replacement, failure] of [
@@ -512,6 +566,21 @@ test('restore contract rejects missing promotion, wrong dump source, and reorder
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$restore_bundle/database.dump"',
       'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
       /selected historical bundle|verified staged dump/iu,
+    ],
+    [
+      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"',
+      'pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"',
+      /verified staged rollback|rollback_restore_bundle/iu,
+    ],
+    [
+      'pg_restore --list "$rollback_restore_bundle/database.dump"',
+      'pg_restore --list "$rollback_dir/database.dump"',
+      /mutable capture|rollback_restore_bundle/iu,
+    ],
+    [
+      'manifest_pair_jsonl "$rollback_restore_bundle/database.dump" "$live_attachment_root"',
+      'manifest_pair_jsonl "$rollback_dir/database.dump" "$live_attachment_root"',
+      /verified staged rollback|rollback_restore_bundle/iu,
     ],
     [
       'mv -- "$restore_bundle/attachments" "$live_attachment_root"',

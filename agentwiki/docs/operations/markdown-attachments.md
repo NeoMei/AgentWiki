@@ -245,7 +245,6 @@ pg_dump --format=custom --file="$rollback_dir/database.dump" "$DATABASE_URL"
 mkdir -m 0700 "$rollback_dir/attachments"
 rsync -a --numeric-ids --delete /var/lib/agentwiki/attachments/ "$rollback_dir/attachments/"
 manifest_jsonl "$rollback_dir" > "$rollback_dir/MANIFEST.jsonl"
-pg_restore --list "$rollback_dir/database.dump" > /dev/null
 rollback_manifest_check="$(mktemp /var/backups/agentwiki/rollback-manifest-check.XXXXXXXX)"
 manifest_jsonl "$rollback_dir" > "$rollback_manifest_check"
 cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_manifest_check"
@@ -272,6 +271,7 @@ rsync -a --numeric-ids --delete "$rollback_dir/attachments/" "$rollback_restore_
 manifest_jsonl "$rollback_restore_bundle" > "$rollback_restore_bundle/MANIFEST.candidate.jsonl"
 cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_restore_bundle/MANIFEST.candidate.jsonl"
 pg_restore --list "$restore_bundle/database.dump" > /dev/null
+pg_restore --list "$rollback_restore_bundle/database.dump" > /dev/null
 ```
 
 Set the reviewed release root and free-space floor explicitly. These helpers reject a
@@ -284,7 +284,8 @@ stops and reaps that process; it never starts the normal writer units.
 live_attachment_root=/var/lib/agentwiki/attachments
 readonly live_attachment_root
 AGENTWIKI_RELEASE_ROOT="${AGENTWIKI_RELEASE_ROOT:?set the reviewed release root containing apps/server/dist/main.js}"
-ATTACHMENT_MIN_FREE_BYTES="${ATTACHMENT_MIN_FREE_BYTES:?set the reviewed positive free-space floor}"
+attachment_min_free_bytes="${ATTACHMENT_MIN_FREE_BYTES:?set the reviewed positive free-space floor}"
+readonly attachment_min_free_bytes
 : "${REDIS_URL:?load the reviewed production Redis URL into the maintenance shell}"
 : "${JWT_SECRET:?load the reviewed production JWT secret into the maintenance shell}"
 : "${AGENTWIKI_SERVER_PEPPER:?load the reviewed production server pepper into the maintenance shell}"
@@ -301,10 +302,10 @@ validate_attachment_root() {
   test "$(stat -c '%U:%G' -- "$candidate")" = 'agentwiki:agentwiki'
   test "$(stat -c '%a' -- "$candidate")" = '700'
   available_kib="$(df -Pk -- "$candidate" | awk 'NR == 2 { print $4 }')"
-  case "$available_kib:$ATTACHMENT_MIN_FREE_BYTES" in
+  case "$available_kib:$attachment_min_free_bytes" in
     *[!0-9:]*|:*|*:) return 1 ;;
   esac
-  test "$((available_kib * 1024))" -ge "$ATTACHMENT_MIN_FREE_BYTES"
+  test "$((available_kib * 1024))" -ge "$attachment_min_free_bytes"
 }
 
 one_shot_pid=''
@@ -318,6 +319,21 @@ cleanup_one_shot() {
   one_shot_pid=''
 }
 
+start_private_api() {
+  private_attachment_root="$1"
+  cd -- "$AGENTWIKI_RELEASE_ROOT"
+  exec sudo -u agentwiki env NODE_ENV=production PORT=13000 PROCESS_ROLE=api \
+    AGENTWIKI_LISTEN_HOST=127.0.0.1 \
+    ATTACHMENT_STORAGE_PATH="$private_attachment_root" \
+    ATTACHMENT_MIN_FREE_BYTES="$attachment_min_free_bytes" \
+    DATABASE_URL="$DATABASE_URL" \
+    REDIS_URL="$REDIS_URL" JWT_SECRET="$JWT_SECRET" \
+    AGENTWIKI_SERVER_PEPPER="$AGENTWIKI_SERVER_PEPPER" \
+    AGENTWIKI_DEPLOYMENT_SEED="$AGENTWIKI_DEPLOYMENT_SEED" \
+    PUBLIC_API_URL="$PUBLIC_API_URL" \
+    node apps/server/dist/main.js
+}
+
 verify_private_api() {
   private_attachment_root="$1"
   if ss -H -ltn 'sport = :13000' | grep -q .; then
@@ -325,17 +341,7 @@ verify_private_api() {
     return 1
   fi
   one_shot_log="$(mktemp /var/tmp/agentwiki-restore-health.XXXXXXXX.log)"
-  (
-    cd -- "$AGENTWIKI_RELEASE_ROOT"
-    exec sudo -u agentwiki env NODE_ENV=production PORT=13000 PROCESS_ROLE=api \
-      ATTACHMENT_STORAGE_PATH="$private_attachment_root" \
-      DATABASE_URL="$DATABASE_URL" \
-      REDIS_URL="$REDIS_URL" JWT_SECRET="$JWT_SECRET" \
-      AGENTWIKI_SERVER_PEPPER="$AGENTWIKI_SERVER_PEPPER" \
-      AGENTWIKI_DEPLOYMENT_SEED="$AGENTWIKI_DEPLOYMENT_SEED" \
-      PUBLIC_API_URL="$PUBLIC_API_URL" \
-      node apps/server/dist/main.js
-  ) >"$one_shot_log" 2>&1 &
+  start_private_api "$private_attachment_root" >"$one_shot_log" 2>&1 &
   one_shot_pid=$!
   response=''
   for attempt in $(seq 1 30); do
@@ -379,7 +385,7 @@ rollback_pair() {
   cleanup_one_shot
   set -e
   sudo -u agentwiki systemctl --user stop agentwiki-api.service agentwiki-worker.service
-  pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_dir/database.dump"
+  pg_restore --clean --if-exists --exit-on-error --single-transaction --dbname="$DATABASE_URL" "$rollback_restore_bundle/database.dump"
   if test -e "$live_attachment_root"; then
     mv -- "$live_attachment_root" "$failed_live_root"
   fi
@@ -390,7 +396,7 @@ rollback_pair() {
     return 1
   fi
   validate_attachment_root "$live_attachment_root" "$live_attachment_root"
-  manifest_pair_jsonl "$rollback_dir/database.dump" "$live_attachment_root" > "$rollback_dir/MANIFEST.promoted-rollback.jsonl"
+  manifest_pair_jsonl "$rollback_restore_bundle/database.dump" "$live_attachment_root" > "$rollback_dir/MANIFEST.promoted-rollback.jsonl"
   cmp "$rollback_dir/MANIFEST.jsonl" "$rollback_dir/MANIFEST.promoted-rollback.jsonl"
   pnpm --filter @agentwiki/server exec prisma migrate status
   verify_private_api "$live_attachment_root"

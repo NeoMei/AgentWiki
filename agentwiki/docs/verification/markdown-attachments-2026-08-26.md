@@ -56,6 +56,29 @@ production database probe was performed.
   rollback handler restores the fresh rollback database plus a separately staged
   attachment tree and leaves writers stopped. Mutations prove missing promotion,
   wrong dump source, and promotion/manifest/health reordering all fail.
+- Fourth-review API-listen RED failed at compile time because `main.ts` exposed no
+  validated listen-address boundary. GREEN adds an optional IP-literal-only
+  `AGENTWIKI_LISTEN_HOST`; leaving it unset retains the original one-argument Nest
+  `listen(port)` call. The focused 10/10 suite proves exact bootstrap forwarding,
+  loopback binding with a real HTTP socket, and rejection of empty, whitespace,
+  hostname and URL inputs. A second RED caught helper imports invoking bootstrap and
+  polluting process state; the executable entry is now guarded by
+  `require.main === module`, while direct `node dist/main.js` startup remains covered
+  by the browser run. The final isolated browser API was also observed with
+  `lsof` listening only on `TCP 127.0.0.1:3000`, not a wildcard address.
+- Fourth-review deployment RED ran 13 cases with 10 passing and three failing: the
+  rollback still read its mutable capture dump, and the one-shot startup had no
+  executable boundary carrying the reviewed capacity floor. GREEN is 13/13. Every
+  rollback dump list/restore/promoted-pair manifest now uses only
+  `$rollback_restore_bundle/database.dump`; mutations substituting
+  `$rollback_dir/database.dump` fail. A fake-`sudo` executable contract launches the
+  exact one-shot function with `4096` bytes, observes
+  `AGENTWIKI_LISTEN_HOST=127.0.0.1` and
+  `ATTACHMENT_MIN_FREE_BYTES=4096`, and proves no 1 GiB fallback appeared.
+- A fresh self-review mutation then made the contract RED because the capture block
+  still listed `$rollback_dir/database.dump`. That mutable re-read was removed;
+  staged list verification remains, and the 13/13 contract now rejects any such
+  capture-directory list operation.
 - Markdown-core artifact cleanup RED proved a simulated API-cleanup failure left its
   layout directory behind. GREEN uses a `finally` removal and an executable Playwright
   case proves the cleanup error is preserved while the directory is absent. Four exact
@@ -72,16 +95,17 @@ production database probe was performed.
 
 The final joint run used only task-owned local resources:
 
-- Schema: `markdown_test_browser_20260828035503_57354`
-- Attachment root: `/private/tmp/agentwiki-attachment-test-N5ikMzbH`
+- Schema: `markdown_test_browser_20260827203344_69894`
+- Attachment root: `/private/tmp/agentwiki-attachment-test-NA9YaUZv`
 - Redis: loopback port `6387`, AOF enabled, temporary root
-  `/private/tmp/agentwiki-redis-test-h3v5aCpH`
-- API/Vite/Redis PIDs: `57393` / `57429` / `57392`
+  `/private/tmp/agentwiki-redis-test-jqJ6lInl`
+- Playwright output root: `/private/tmp/agentwiki-playwright-test-ZCAfVXCt`
+- API/Vite/Redis PIDs: `69940` / `69970` / `69932`
 - Semantic health:
   `{"status":"ok","database":"ok","redis":"ok","auditPersistence":"ok","attachmentStorage":"ok"}`
 
 With one worker, `markdown-attachments.spec.ts` and `markdown-core.spec.ts` passed 6/6
-in 13.5 seconds. The browser covered scoped resolver and Viewer Blob rendering,
+in 13.2 seconds. The browser covered scoped resolver and Viewer Blob rendering,
 Outsider direct attachment-content denial, a real Owner active-to-archived-to-active
 lifecycle, Owner/Editor picker-paste-coordinate-drop flows, authoritative filename
 suffixes, save/reload source, live page/section refresh, cycles, depth/count/character
@@ -104,15 +128,18 @@ The final trap then proved the exact schema count and all
 `markdown_test_browser_%` schema count were zero, all three orchestration temporary
 roots were absent, and ports `3000`, `5173`, and `6387` had no listeners. Playwright output,
 trace and report directories were removed. This review discarded one setup that
-failed before schema creation on identity-output formatting, one on the empty-authority
-Prisma URL before service start, and two after isolated migration on missing test-only
-tmpdir/startup variables. Every attempt failed closed and was cleaned to the same zero
-schema/port/root/artifact postflight; none is counted as acceptance.
+used unsupported `psql -c` identifier interpolation during cleanup; its one exact
+printed schema was then explicitly dropped and verified absent. A second setup stopped
+after isolated migration because the API's test-only temporary-path guard correctly
+required `TMPDIR=/private/tmp`. It entered neither Playwright nor shared state, and its
+trap removed the exact schema, roots and processes. Neither setup is counted as
+acceptance; the final successful run ended with the same zero schema/port/root/artifact
+postflight.
 
 ## Full repository gates
 
-- `pnpm test:runtime`: 120 passed, 55 environment-gated skips, 0 failed.
-- `pnpm test`: runtime above; server 1,397 passed / 4 skipped; client 994 passed;
+- `pnpm test:runtime`: 121 passed, 55 environment-gated skips, 0 failed.
+- `pnpm test`: runtime above; server 1,407 passed / 4 skipped; client 994 passed;
   sync protocol 42 passed; local-sync 748 passed; 0 failed.
 - `pnpm lint`: passed.
 - `pnpm typecheck`: passed for server, client, sync protocol and local-sync.
@@ -130,17 +157,20 @@ schema/port/root/artifact postflight; none is counted as acceptance.
    historical bundle or execute the backup-only writer restart; and the executable
    manifest binds the complete allowed tree while rejecting special entries.
    Promotion now validates the live/candidate/rollback trees and common device before
-   database mutation; private health refuses an occupied loopback port and passes all
-   required runtime environment explicitly through `sudo`. `bash -n deploy.sh` and the
-   12/12 contract suite re-passed. No further defect was found.
+   database mutation. Rollback list/restore/manifest no longer reread its mutable
+   capture dump. Private health refuses an occupied loopback port and passes all
+   required runtime environment, the loopback host and reviewed free-space floor
+   explicitly through `sudo`. `bash -n deploy.sh` and the 13/13 contract suite
+   re-passed. No further defect was found.
 2. Database, browser and evidence: re-read URL normalization/identity expectations,
    all new role/lifecycle/credential/overflow assertions and cleanup accounting.
    Confirmed generic username-less TCP test identity is not coupled to the local
    socket account, archived content follows the documented recoverable-byte contract,
    every context closes before all-type console and inspectable-surface token scans,
    screenshots carry layout-only claims, failure-path artifact removal is executable,
-   and active versus retained rows are reported separately. Exact schema counts,
-   artifacts and ports remained clean. No further defect was found.
+   and active versus retained rows are reported separately. The actual server socket
+   was loopback-only; exact schema counts, artifacts and ports remained clean. No
+   further defect was found.
 
 ## Release-state separation
 
