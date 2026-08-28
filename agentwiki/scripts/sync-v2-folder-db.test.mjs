@@ -6,7 +6,7 @@ import { withFolderTestDatabase } from './folder-test-database.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const {
-  canonicalBytes, contentHash, treeBatchHashV2, treeConfirmationHashV2,
+  canonicalBytes, contentHash, pathKey, treeBatchHashV2, treeConfirmationHashV2,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
@@ -14,6 +14,21 @@ const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tr
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
+
+const expectSyncCode = async (promise, code) => {
+  await assert.rejects(promise, (error) => {
+    assert.equal(error?.syncCode, code);
+    return true;
+  });
+};
+
+const assertPending = async (promise, message) => {
+  const state = await Promise.race([
+    promise.then(() => 'settled', () => 'settled'),
+    new Promise((resolve) => setTimeout(() => resolve('pending'), 40)),
+  ]);
+  assert.equal(state, 'pending', message);
+};
 
 test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real PostgreSQL', {
   skip: databaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
@@ -333,6 +348,216 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         flowPrincipal, flowSpaceId, session.sessionId,
         { protocolVersion: '2', confirmationHash: flowConfirmationHash, userConfirmed: true },
       ), finalized);
+
+      const crossV1Batch = {
+        protocolVersion: '1', batchIndex: 0, batchHash: 'a'.repeat(64), changes: [],
+      };
+      await expectSyncCode(
+        pushes.upload(flowPrincipal, flowSpaceId, session.sessionId, crossV1Batch),
+        'PUSH_SESSION_NOT_FOUND',
+      );
+      await expectSyncCode(pushes.get(flowPrincipal, flowSpaceId, session.sessionId), 'PUSH_SESSION_NOT_FOUND');
+      await expectSyncCode(pushes.abort(flowPrincipal, flowSpaceId, session.sessionId), 'PUSH_SESSION_NOT_FOUND');
+      await expectSyncCode(
+        pushes.finalize(flowPrincipal, flowSpaceId, session.sessionId, flowConfirmationHash),
+        'PUSH_SESSION_NOT_FOUND',
+      );
+
+      const v1SpaceId = `sync-v1-protocol-space-${suffix}`;
+      await prisma.space.create({ data: { id: v1SpaceId, name: 'Sync v1 protocol', slug: v1SpaceId } });
+      await prisma.spaceMember.create({ data: { userId, spaceId: v1SpaceId, role: 'owner' } });
+      const v1Session = await pushes.create(flowPrincipal, v1SpaceId, {
+        baseRevision: '0', idempotencyKey: `33333333-3333-4333-8333-${suffix.slice(0, 12)}`,
+        capabilitiesHash: await pushes.capabilityHash(), confirmationHash: 'b'.repeat(64),
+        confirmationByteLength: 0, changeCount: 0, totalBodyBytes: 0,
+      });
+      const crossV2Batch = {
+        protocolVersion: '2', batchIndex: 0, batchHash: 'c'.repeat(64), changes: [],
+      };
+      await expectSyncCode(
+        pushes.uploadV2(flowPrincipal, v1SpaceId, v1Session.sessionId, crossV2Batch),
+        'PUSH_SESSION_NOT_FOUND',
+      );
+      await expectSyncCode(pushes.getV2(flowPrincipal, v1SpaceId, v1Session.sessionId), 'PUSH_SESSION_NOT_FOUND');
+      await expectSyncCode(pushes.abortV2(flowPrincipal, v1SpaceId, v1Session.sessionId), 'PUSH_SESSION_NOT_FOUND');
+      await expectSyncCode(pushes.finalizeV2(flowPrincipal, v1SpaceId, v1Session.sessionId, {
+        protocolVersion: '2', confirmationHash: 'b'.repeat(64), userConfirmed: true,
+      }), 'PUSH_SESSION_NOT_FOUND');
+
+      const concurrentSpaceId = `sync-v2-concurrent-space-${suffix}`;
+      await prisma.space.create({ data: {
+        id: concurrentSpaceId, name: 'Sync v2 concurrent', slug: concurrentSpaceId,
+      } });
+      await prisma.spaceMember.create({ data: { userId, spaceId: concurrentSpaceId, role: 'owner' } });
+      const concurrentChanges = [{
+        operation: 'upsert_folder',
+        folder: {
+          folderId: `concurrent-folder-${suffix}`, parentFolderId: null, name: 'Concurrent',
+          path: 'pages/Concurrent', sortOrder: 0, updatedAt: now,
+        },
+      }];
+      const concurrentManifest = {
+        protocolVersion: '2', spaceId: concurrentSpaceId, baseRevision: '0', changes: concurrentChanges,
+      };
+      const concurrentHash = await treeConfirmationHashV2(concurrentManifest);
+      const concurrentSession = await pushes.createV2(flowPrincipal, concurrentSpaceId, {
+        protocolVersion: '2', baseRevision: '0',
+        idempotencyKey: `44444444-4444-4444-8444-${suffix.slice(0, 12)}`,
+        capabilitiesHash: await pushes.capabilityHashV2(), confirmationHash: concurrentHash,
+        confirmationByteLength: canonicalBytes(concurrentManifest).byteLength,
+        changeCount: 1, totalBodyBytes: 0,
+      });
+      const concurrentBatchWithoutHash = {
+        protocolVersion: '2', batchIndex: 0, changes: concurrentChanges,
+      };
+      await pushes.uploadV2(flowPrincipal, concurrentSpaceId, concurrentSession.sessionId, {
+        ...concurrentBatchWithoutHash,
+        batchHash: await treeBatchHashV2(concurrentBatchWithoutHash),
+      });
+      const revisionsBeforeConcurrentFinalize = await prisma.spaceKnowledgeRevision.count({
+        where: { spaceId: concurrentSpaceId },
+      });
+      const concurrentResults = await Promise.all([
+        pushes.finalizeV2(flowPrincipal, concurrentSpaceId, concurrentSession.sessionId, {
+          protocolVersion: '2', confirmationHash: concurrentHash, userConfirmed: true,
+        }),
+        pushes.finalizeV2(flowPrincipal, concurrentSpaceId, concurrentSession.sessionId, {
+          protocolVersion: '2', confirmationHash: concurrentHash, userConfirmed: true,
+        }),
+      ]);
+      assert.deepEqual(concurrentResults[1], concurrentResults[0]);
+      assert.equal(await prisma.spaceKnowledgeRevision.count({
+        where: { spaceId: concurrentSpaceId },
+      }), revisionsBeforeConcurrentFinalize + 1);
+
+      const beforeRowSpaceId = `sync-v2-policy-before-${suffix}`;
+      await prisma.space.create({ data: {
+        id: beforeRowSpaceId, name: 'Sync v2 policy before', slug: beforeRowSpaceId,
+      } });
+      await prisma.spaceMember.create({ data: { userId, spaceId: beforeRowSpaceId, role: 'owner' } });
+      const beforeManifest = { protocolVersion: '2', spaceId: beforeRowSpaceId, baseRevision: '0', changes: [] };
+      const beforeHash = await treeConfirmationHashV2(beforeManifest);
+      const beforeSession = await pushes.createV2(flowPrincipal, beforeRowSpaceId, {
+        protocolVersion: '2', baseRevision: '0',
+        idempotencyKey: `55555555-5555-4555-8555-${suffix.slice(0, 12)}`,
+        capabilitiesHash: await pushes.capabilityHashV2(), confirmationHash: beforeHash,
+        confirmationByteLength: canonicalBytes(beforeManifest).byteLength,
+        changeCount: 0, totalBodyBytes: 0,
+      });
+      await prisma.space.update({ where: { id: beforeRowSpaceId }, data: { deletedAt: new Date() } });
+      await expectSyncCode(pushes.finalizeV2(flowPrincipal, beforeRowSpaceId, beforeSession.sessionId, {
+        protocolVersion: '2', confirmationHash: beforeHash, userConfirmed: true,
+      }), 'SPACE_FORBIDDEN');
+
+      const afterRowSpaceId = `sync-v2-policy-after-${suffix}`;
+      await prisma.space.create({ data: {
+        id: afterRowSpaceId, name: 'Sync v2 policy after', slug: afterRowSpaceId,
+      } });
+      await prisma.spaceMember.create({ data: { userId, spaceId: afterRowSpaceId, role: 'owner' } });
+      const afterManifest = { protocolVersion: '2', spaceId: afterRowSpaceId, baseRevision: '0', changes: [] };
+      const afterHash = await treeConfirmationHashV2(afterManifest);
+      const afterSession = await pushes.createV2(flowPrincipal, afterRowSpaceId, {
+        protocolVersion: '2', baseRevision: '0',
+        idempotencyKey: `66666666-6666-4666-8666-${suffix.slice(0, 12)}`,
+        capabilitiesHash: await pushes.capabilityHashV2(), confirmationHash: afterHash,
+        confirmationByteLength: canonicalBytes(afterManifest).byteLength,
+        changeCount: 0, totalBodyBytes: 0,
+      });
+      const originalSyncLock = tree.lockSyncMutationSpace;
+      let rowAcquiredResolve;
+      let releaseRowResolve;
+      const rowAcquired = new Promise((resolve) => { rowAcquiredResolve = resolve; });
+      const releaseRow = new Promise((resolve) => { releaseRowResolve = resolve; });
+      tree.lockSyncMutationSpace = async (...args) => {
+        const locked = await originalSyncLock.call(tree, ...args);
+        if (args[1] === afterRowSpaceId) {
+          rowAcquiredResolve();
+          await releaseRow;
+        }
+        return locked;
+      };
+      let afterFinalize;
+      let afterDelete;
+      try {
+        afterFinalize = pushes.finalizeV2(flowPrincipal, afterRowSpaceId, afterSession.sessionId, {
+          protocolVersion: '2', confirmationHash: afterHash, userConfirmed: true,
+        });
+        void afterFinalize.catch(() => undefined);
+        await rowAcquired;
+        afterDelete = prisma.space.update({
+          where: { id: afterRowSpaceId }, data: { deletedAt: new Date() },
+        });
+        void afterDelete.catch(() => undefined);
+        await assertPending(afterDelete, 'Space policy update must wait behind the Sync Space row lock');
+        releaseRowResolve();
+        assert.equal((await afterFinalize).status, 'noop');
+        await afterDelete;
+      } finally {
+        releaseRowResolve();
+        tree.lockSyncMutationSpace = originalSyncLock;
+        await Promise.allSettled([afterFinalize, afterDelete].filter(Boolean));
+      }
+
+      const archiveSpaceId = `sync-v2-archive-space-${suffix}`;
+      const archiveFolderId = `sync-v2-archive-folder-${suffix}`;
+      await prisma.space.create({ data: {
+        id: archiveSpaceId, name: 'Sync v2 archive boundary', slug: archiveSpaceId,
+      } });
+      await prisma.spaceMember.create({ data: { userId, spaceId: archiveSpaceId, role: 'owner' } });
+      await prisma.folder.create({ data: {
+        id: archiveFolderId, spaceId: archiveSpaceId, parentId: null,
+        name: 'Archive boundary', nameKey: 'archive boundary',
+        path: 'pages/Archive boundary', pathKey: pathKey('pages/Archive boundary'),
+        sortOrder: 0, createdByUserId: userId, lastModifiedByUserId: userId,
+      } });
+      const archivePages = Array.from({ length: 9_999 }, (_, index) => ({
+        id: `archive-row-${suffix}-${index}`,
+        knowledgeKey: `archive-key-${suffix}-${index}`,
+        title: `Archive ${index}`,
+        slug: `archive-${index}`,
+        content: `# Archive ${index}\n`,
+        folderId: archiveFolderId,
+        spaceId: archiveSpaceId,
+        authorId: userId,
+        sortOrder: index,
+        syncPath: `pages/Archive boundary/Archive ${index}.md`,
+        syncPathKey: pathKey(`pages/Archive boundary/Archive ${index}.md`),
+        lastModifiedByUserId: userId,
+      }));
+      await prisma.page.createMany({ data: archivePages });
+      const queryPrisma = new PrismaClient({
+        datasources: { db: { url: isolatedUrl } },
+        log: [{ emit: 'event', level: 'query' }],
+      });
+      let archiveQueryCount = 0;
+      queryPrisma.$on('query', () => { archiveQueryCount += 1; });
+      try {
+        const queryWriter = new SpaceRevisionWriterService(queryPrisma);
+        const queryTree = new ContentTreeService(
+          queryPrisma, queryWriter, new ReadableSyncPathService(),
+        );
+        const archiveResult = await queryPrisma.$transaction((tx) => queryTree.publishSyncV2Batch(tx, {
+          spaceId: archiveSpaceId,
+          baseRevision: '0',
+          changes: [{
+            operation: 'archive_folder', folderId: archiveFolderId,
+            previousPath: 'pages/Archive boundary',
+          }],
+          actor: { userId }, principal,
+          revisionOrigin: { origin: 'obsidian_sync', createdByUserId: userId },
+        }), { timeout: 120_000 });
+        assert.equal(archiveResult.status, 'published');
+        assert.equal(await queryPrisma.pageVersion.count({
+          where: { page: { spaceId: archiveSpaceId } },
+        }), 9_999);
+        console.log(`recursive_archive_queries=${archiveQueryCount}`);
+        assert.ok(
+          archiveQueryCount <= 80,
+          `recursive 10,000-node archive used ${archiveQueryCount} queries`,
+        );
+      } finally {
+        await queryPrisma.$disconnect();
+      }
     } finally {
       await prisma.$disconnect();
     }

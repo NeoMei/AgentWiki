@@ -16,7 +16,7 @@ describe('SpaceRevisionWriterService', () => {
     expect(locked).toBe(tx);
   });
 
-  it('reads the active Space revision only through the ContentTree lock entrypoint', async () => {
+  it('reads the active Space revision only through the ContentTree advisory-lock entrypoint', async () => {
     const tx = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 7n }) },
@@ -24,6 +24,19 @@ describe('SpaceRevisionWriterService', () => {
     const locked = await service.lockContentTreeSpace(tx as any, 'space-1');
     expect(locked?.contentTreeRevision).toBe(7n);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks the active Space row FOR NO KEY UPDATE after the advisory lock for Sync cutover', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ contentTreeRevision: 7n }]),
+    };
+    const locked = await service.lockSyncSpace(tx as any, 'space-1');
+    expect(locked?.contentTreeRevision).toBe(7n);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]);
   });
 
   it('returns null for a missing/deleted ContentTree Space without changing shared lockSpace errors', async () => {

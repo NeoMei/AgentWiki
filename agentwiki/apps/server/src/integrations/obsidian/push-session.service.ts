@@ -30,10 +30,47 @@ import type { HumanDevicePrincipal } from './human-device.guard';
 import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { ContentTreeService } from '../../content-tree/content-tree.service';
-import { ContentTreeError } from '../../content-tree/content-tree.types';
+import { ContentTreeError, type ContentTreeErrorCode } from '../../content-tree/content-tree.types';
 
 const SESSION_TTL_MS = 900 * 1_000;
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+const CONTENT_TREE_V2_ERROR_MAP: Record<ContentTreeErrorCode, {
+  code: SyncErrorCode;
+  message: string;
+}> = {
+  SPACE_NOT_FOUND: { code: 'SPACE_FORBIDDEN', message: 'Space is not accessible' },
+  FOLDER_NOT_FOUND: { code: 'PAYLOAD_INVALID', message: 'Document tree resource is unavailable' },
+  FOLDER_NAME_CONFLICT: { code: 'PATH_COLLISION', message: 'Document tree path conflicts' },
+  FOLDER_INVALID_NAME: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  FOLDER_CYCLE: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  FOLDER_DEPTH_LIMIT: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  FOLDER_COUNT_LIMIT: { code: 'SPACE_TOO_LARGE', message: 'Document tree limit is exceeded' },
+  FOLDER_MUTATION_LIMIT: { code: 'BATCH_TOO_LARGE', message: 'Document tree mutation limit is exceeded' },
+  FOLDER_PATH_TOO_LONG: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  FOLDER_DELETE_IMPACT_CHANGED: { code: 'BASE_STALE', message: 'Document tree base is stale' },
+  FOLDER_RESTORE_CONFLICT: { code: 'PAGE_ID_CONFLICT', message: 'Document tree resource is unavailable' },
+  MARKDOWN_REFERENCE_AMBIGUOUS: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  CONTENT_TREE_CONFLICT: { code: 'BASE_STALE', message: 'Document tree base is stale' },
+  CONTENT_TREE_CURSOR_INVALID: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  CONTENT_TREE_PAGE_NOT_FOUND: { code: 'PAGE_ID_CONFLICT', message: 'Document tree resource is unavailable' },
+  CONTENT_TREE_INVALID_ACTOR: { code: 'INTERNAL_ERROR', message: 'Sync finalize failed' },
+  CONTENT_TREE_SPACE_FORBIDDEN: { code: 'SPACE_FORBIDDEN', message: 'Space is not accessible' },
+  CONTENT_TREE_SPACE_READ_ONLY: { code: 'SPACE_READ_ONLY', message: 'Space role does not permit publishing' },
+  CONTENT_TREE_PAYLOAD_INVALID: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  CONTENT_TREE_PATH_COLLISION: { code: 'PATH_COLLISION', message: 'Document tree path conflicts' },
+  CONTENT_TREE_ID_CONFLICT: { code: 'PAGE_ID_CONFLICT', message: 'Document tree resource is unavailable' },
+  CONTENT_TREE_TAKE_INVALID: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+  PAGE_PARENT_DEPRECATED: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
+};
+
+const CONTENT_TREE_V1_ERROR_MAP: Record<ContentTreeErrorCode, {
+  code: SyncErrorCode;
+  message: string;
+}> = {
+  ...CONTENT_TREE_V2_ERROR_MAP,
+  CONTENT_TREE_CONFLICT: { code: 'PATH_COLLISION', message: 'Incoming Page path conflicts with the content tree' },
+};
 
 interface AppliedPageChanges {
   applied: Array<{ type: string; payload: Record<string, unknown>; publishedResourceId: string }>;
@@ -73,68 +110,59 @@ export class PushSessionService {
       throw new SyncApiException('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
     }
     await this.assertSessionCreateRate(principal, spaceId);
-    const existing = await this.prisma.pushSession.findUnique({
-      where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
-    });
-    if (existing) {
-      if (
-        existing.userId !== principal.userId
-        || existing.spaceId !== spaceId
-        || existing.baseRevisionId !== input.baseRevision
-        || existing.capabilitiesHash !== input.capabilitiesHash
-        || existing.confirmationHash !== input.confirmationHash
-        || existing.confirmationByteLength !== input.confirmationByteLength
-        || existing.changeCount !== input.changeCount
-        || existing.totalBodyBytes !== BigInt(input.totalBodyBytes)
-      ) {
-        throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'Existing session has different binding fields');
-      }
-      if (existing.credentialId !== principal.credentialId && existing.status !== 'published') {
-        throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
-      }
-      return this.sessionResponse(existing, await this.capabilities());
-    }
-
-    await this.assertPublishable(principal, spaceId);
     const expectedCapabilitiesHash = await this.capabilityHash();
     if (input.capabilitiesHash !== expectedCapabilitiesHash) {
       throw new SyncApiException('CAPABILITIES_CHANGED', 'Server capabilities have changed');
     }
-    const head = await this.prisma.spaceKnowledgeRevision.findFirst({
-      where: { spaceId },
-      orderBy: { sequence: 'desc' },
-    });
-    const headRevision = head?.id ?? '0';
-    if (input.baseRevision !== headRevision) {
-      throw new SyncApiException('BASE_STALE', 'base revision is not the current head');
-    }
-
     try {
-      const session = await this.prisma.pushSession.create({
-        data: {
-          id: randomUUID(),
-          credentialFamilyId: principal.credentialFamilyId,
-          credentialId: principal.credentialId,
-          userId: principal.userId,
-          spaceId,
-          baseRevisionId: input.baseRevision,
-          idempotencyKey: input.idempotencyKey,
-          status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
-          capabilitiesHash: input.capabilitiesHash,
-          confirmationHash: input.confirmationHash,
-          confirmationByteLength: input.confirmationByteLength,
-          changeCount: input.changeCount,
-          totalBodyBytes: BigInt(input.totalBodyBytes),
-          expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-        },
-      });
-      return this.sessionResponse(session, await this.capabilities());
+      return await this.prisma.$transaction(async (tx) => {
+        const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+        await this.assertPublishableInTx(lockedTx, principal, spaceId);
+        await this.assertV1CompatibleInTx(lockedTx, spaceId);
+        const existing = await lockedTx.pushSession.findUnique({
+          where: { credentialFamilyId_idempotencyKey: {
+            credentialFamilyId: principal.credentialFamilyId,
+            idempotencyKey: input.idempotencyKey,
+          } },
+        });
+        if (existing) {
+          this.assertV1IdempotencyBinding(existing, principal, spaceId, input);
+          return this.sessionResponse(existing, await this.capabilities());
+        }
+        const head = await lockedTx.spaceKnowledgeRevision.findFirst({
+          where: { spaceId }, orderBy: { sequence: 'desc' },
+        });
+        if (input.baseRevision !== (head?.id ?? '0')) {
+          throw new SyncApiException('BASE_STALE', 'base revision is not the current head');
+        }
+        const session = await lockedTx.pushSession.create({
+          data: {
+            id: randomUUID(), protocolVersion: '1',
+            credentialFamilyId: principal.credentialFamilyId,
+            credentialId: principal.credentialId, userId: principal.userId, spaceId,
+            baseRevisionId: input.baseRevision, idempotencyKey: input.idempotencyKey,
+            status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
+            capabilitiesHash: input.capabilitiesHash,
+            confirmationHash: input.confirmationHash,
+            confirmationByteLength: input.confirmationByteLength,
+            changeCount: input.changeCount, totalBodyBytes: BigInt(input.totalBodyBytes),
+            expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+          },
+        });
+        return this.sessionResponse(session, await this.capabilities());
+      }, { isolationLevel: 'ReadCommitted' });
     } catch (error: unknown) {
       if ((error as any)?.code === 'P2002') {
         const created = await this.prisma.pushSession.findUnique({
           where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
         });
-        if (created) return this.sessionResponse(created, await this.capabilities());
+        if (created) {
+          this.assertV1IdempotencyBinding(created, principal, spaceId, input);
+          return this.sessionResponse(created, await this.capabilities());
+        }
+      }
+      if (error instanceof ContentTreeError) {
+        throw this.mapContentTreeErrorV1(error);
       }
       throw error;
     }
@@ -186,6 +214,7 @@ export class PushSessionService {
       const session = await this.prisma.pushSession.create({
         data: {
           id: randomUUID(), credentialFamilyId: principal.credentialFamilyId,
+          protocolVersion: '2',
           credentialId: principal.credentialId, userId: principal.userId, spaceId,
           baseRevisionId: input.baseRevision, idempotencyKey: input.idempotencyKey,
           status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
@@ -225,6 +254,7 @@ export class PushSessionService {
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
         throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
       }
+      this.assertV1Session(session);
       this.assertMutable(session);
       const existingBatch = await tx.pushSessionBatch.findUnique({
         where: { sessionId_batchIndex: { sessionId, batchIndex: batch.batchIndex } },
@@ -431,9 +461,18 @@ export class PushSessionService {
     input: { protocolVersion: '2'; confirmationHash: string; userConfirmed: true },
   ) {
     await this.assertFinalizeRate(principal, spaceId);
+    const located = await this.prisma.pushSession.findUnique({
+      where: { id: sessionId },
+      select: { spaceId: true, protocolVersion: true },
+    });
+    if (!located || located.spaceId !== spaceId || located.protocolVersion !== '2') {
+      throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const result = await this.prisma.$transaction(async (tx) => {
+          const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+          await this.assertPublishableV2InTx(lockedTx, principal, spaceId);
           await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
           const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
           if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
@@ -468,7 +507,7 @@ export class PushSessionService {
             computedHash !== session.confirmationHash
             || canonicalBytes(manifest).byteLength !== session.confirmationByteLength
           ) throw this.v2Error('CONFIRMATION_MISMATCH', 'Confirmation does not match staged changes');
-          const published = await this.contentTree.publishSyncV2Batch(tx, {
+          const published = await this.contentTree.publishSyncV2BatchLocked(lockedTx, {
             spaceId, baseRevision: session.baseRevisionId, confirmationHash: session.confirmationHash, changes,
             actor: { userId: principal.userId }, principal,
             revisionOrigin: {
@@ -490,21 +529,7 @@ export class PushSessionService {
       } catch (error) {
         if (this.isSerializationFailure(error) && attempt < 2) continue;
         if (error instanceof ContentTreeError) {
-          if (error.code === 'CONTENT_TREE_SPACE_FORBIDDEN') throw this.v2Error('SPACE_FORBIDDEN', error.message);
-          if (error.code === 'CONTENT_TREE_SPACE_READ_ONLY') throw this.v2Error('SPACE_READ_ONLY', error.message);
-          if (error.code === 'CONTENT_TREE_PAYLOAD_INVALID' || error.code === 'FOLDER_INVALID_NAME') {
-            throw this.v2Error('PAYLOAD_INVALID', error.message);
-          }
-          if (error.code === 'CONTENT_TREE_PATH_COLLISION' || error.code === 'FOLDER_NAME_CONFLICT') {
-            throw this.v2Error('PATH_COLLISION', error.message);
-          }
-          if (error.code === 'CONTENT_TREE_ID_CONFLICT' || error.code === 'FOLDER_RESTORE_CONFLICT'
-            || error.code === 'CONTENT_TREE_PAGE_NOT_FOUND') {
-            throw this.v2Error('PAGE_ID_CONFLICT', error.message);
-          }
-          if (error.code === 'CONTENT_TREE_CONFLICT') throw this.v2Error('BASE_STALE', error.message);
-          if (error.code === 'FOLDER_NOT_FOUND') throw this.v2Error('PAYLOAD_INVALID', error.message);
-          throw this.v2Error('PATH_COLLISION', error.message);
+          throw this.mapContentTreeErrorV2(error);
         }
         throw error;
       }
@@ -514,16 +539,25 @@ export class PushSessionService {
 
   async finalize(principal: HumanDevicePrincipal, spaceId: string, sessionId: string, confirmationHashValue: string) {
     await this.assertFinalizeRate(principal, spaceId);
+    const located = await this.prisma.pushSession.findUnique({
+      where: { id: sessionId },
+      select: { spaceId: true, protocolVersion: true },
+    });
+    if (!located || located.spaceId !== spaceId || located.protocolVersion !== '1') {
+      throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const result = await this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.contentTree.lockPageMutationSpace(tx, spaceId);
-      await this.assertPublishableInTx(tx, principal, spaceId);
+      const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+      await this.assertPublishableInTx(lockedTx, principal, spaceId);
+      await this.assertV1CompatibleInTx(lockedTx, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
         throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
       }
+      this.assertV1Session(session);
       if (session.status === 'published' && session.result) {
         return session.result;
       }
@@ -703,15 +737,7 @@ export class PushSessionService {
           continue;
         }
         if (error instanceof ContentTreeError) {
-          if (error.code === 'FOLDER_NOT_FOUND') {
-            throw new SyncApiException(
-              'PAYLOAD_INVALID',
-              'Incoming Page path does not identify one active Folder in this Space',
-            );
-          }
-          if (error.code === 'CONTENT_TREE_CONFLICT') {
-            throw new SyncApiException('PATH_COLLISION', 'Incoming Page path conflicts with the content tree');
-          }
+          throw this.mapContentTreeErrorV1(error);
         }
         throw error;
       }
@@ -750,6 +776,7 @@ export class PushSessionService {
     if (!session || session.spaceId !== spaceId || session.credentialFamilyId !== principal.credentialFamilyId) {
       throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
     }
+    this.assertV1Session(session);
     if (session.credentialId !== principal.credentialId && session.status !== 'published') {
       throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
     }
@@ -773,6 +800,7 @@ export class PushSessionService {
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
         throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
       }
+      this.assertV1Session(session);
       if (session.status === 'published') {
         throw new SyncApiException('PUSH_SESSION_STATE_INVALID', 'Published session cannot be aborted');
       }
@@ -884,6 +912,35 @@ export class PushSessionService {
     }
   }
 
+  private async assertPublishableV2InTx(tx: any, principal: HumanDevicePrincipal, spaceId: string) {
+    const space = await tx.space.findUnique({
+      where: { id: spaceId },
+      select: { deletedAt: true },
+    });
+    if (!space || space.deletedAt) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
+    if (principal.platformRole === 'super_admin') return;
+    const member = await tx.spaceMember.findUnique({
+      where: { userId_spaceId: { userId: principal.userId, spaceId } },
+    });
+    if (!member) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
+    if (!['editor', 'owner'].includes(member.role)) {
+      throw this.v2Error('SPACE_READ_ONLY', 'Space role does not permit Folder-aware publishing');
+    }
+  }
+
+  private async assertV1CompatibleInTx(tx: any, spaceId: string): Promise<void> {
+    const [activeFolders, placedPages] = await Promise.all([
+      tx.folder.count({ where: { spaceId, deletedAt: null } }),
+      tx.page.count({ where: { spaceId, deletedAt: null, folderId: { not: null } } }),
+    ]);
+    if (activeFolders > 0 || placedPages > 0) {
+      throw new SyncApiException(
+        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        'This Space contains Folder structure and requires Sync Protocol v2',
+      );
+    }
+  }
+
   private assertMutable(session: { status: string; expiresAt: Date }) {
     if (session.expiresAt <= new Date()) {
       throw new SyncApiException('PUSH_SESSION_EXPIRED', 'Push session has expired');
@@ -958,8 +1015,39 @@ export class PushSessionService {
     return capabilitiesHash(this.capabilitiesV2());
   }
 
-  private async assertV2Session(session: { capabilitiesHash?: string | null }) {
-    if (session.capabilitiesHash !== await this.capabilityHashV2()) {
+  private assertV1Session(session: { protocolVersion?: string | null }): void {
+    if (session.protocolVersion !== '1') {
+      throw new SyncApiException('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+  }
+
+  private assertV1IdempotencyBinding(
+    session: any,
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    input: {
+      baseRevision: string; capabilitiesHash: string; confirmationHash: string;
+      confirmationByteLength: number; changeCount: number; totalBodyBytes: number;
+    },
+  ): void {
+    if (
+      session.protocolVersion !== '1'
+      || session.userId !== principal.userId
+      || session.spaceId !== spaceId
+      || session.baseRevisionId !== input.baseRevision
+      || session.capabilitiesHash !== input.capabilitiesHash
+      || session.confirmationHash !== input.confirmationHash
+      || session.confirmationByteLength !== input.confirmationByteLength
+      || session.changeCount !== input.changeCount
+      || session.totalBodyBytes !== BigInt(input.totalBodyBytes)
+    ) throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'Existing session has different binding fields');
+    if (session.credentialId !== principal.credentialId && session.status !== 'published') {
+      throw new SyncApiException('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
+    }
+  }
+
+  private async assertV2Session(session: { protocolVersion?: string | null; capabilitiesHash?: string | null }) {
+    if (session.protocolVersion !== '2' || session.capabilitiesHash !== await this.capabilityHashV2()) {
       throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
     }
   }
@@ -1093,6 +1181,20 @@ export class PushSessionService {
 
   private v2Error(code: SyncErrorCode, message: string): SyncApiException {
     return new SyncApiException(code, message, undefined, '2');
+  }
+
+  private mapContentTreeErrorV2(error: ContentTreeError): SyncApiException {
+    const definition = CONTENT_TREE_V2_ERROR_MAP[error.code];
+    return definition
+      ? this.v2Error(definition.code, definition.message)
+      : this.v2Error('INTERNAL_ERROR', 'Sync finalize failed');
+  }
+
+  private mapContentTreeErrorV1(error: ContentTreeError): SyncApiException {
+    const definition = CONTENT_TREE_V1_ERROR_MAP[error.code];
+    return definition
+      ? new SyncApiException(definition.code, definition.message)
+      : new SyncApiException('INTERNAL_ERROR', 'Sync finalize failed');
   }
 
   private async sessionResponse(session: any, capabilities: SyncCapabilities) {

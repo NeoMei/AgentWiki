@@ -618,6 +618,22 @@ export class ContentTreeService {
     return lockedTx;
   }
 
+  async lockSyncMutationSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    expectedTreeRevision?: bigint,
+  ): Promise<SpaceTreeLockedTransaction> {
+    const lockedTx = await this.revisionWriter.lockSyncSpace(tx, spaceId);
+    if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+    if (
+      expectedTreeRevision !== undefined
+      && lockedTx.contentTreeRevision !== expectedTreeRevision
+    ) {
+      throw new ContentTreeConflict(expectedTreeRevision, lockedTx.contentTreeRevision);
+    }
+    return lockedTx;
+  }
+
   async preparePageMutation(
     lockedTx: SpaceTreeLockedTransaction,
     input: PreparePageMutationInput,
@@ -768,6 +784,11 @@ export class ContentTreeService {
           input.expectedTreeRevision,
         )
         : lockedTx.contentTreeRevision;
+      await this.revisionWriter.finalizeExistingTreeV2Locked(
+        lockedTx,
+        input.spaceId,
+        input.existingSyncRevisionId,
+      );
       return { treeRevision, syncRevisionId: input.existingSyncRevisionId };
     }
     if (input.structural) {
@@ -808,10 +829,6 @@ export class ContentTreeService {
     tx: Prisma.TransactionClient,
     input: PublishSyncV2BatchInput,
   ): Promise<PublishSyncV2BatchResult> {
-    assertActor(input.actor);
-    if (input.changes.length > 100) {
-      throw new ContentTreeError('FOLDER_MUTATION_LIMIT', 'A Sync v2 publish may contain at most 100 changes');
-    }
     const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, input.spaceId);
     if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
     if (input.principal.platformRole !== 'super_admin') {
@@ -823,6 +840,17 @@ export class ContentTreeService {
       if (!['editor', 'owner'].includes(membership.role)) {
         throw new ContentTreeError('CONTENT_TREE_SPACE_READ_ONLY', 'Live Space role does not permit publishing');
       }
+    }
+    return this.publishSyncV2BatchLocked(lockedTx, input);
+  }
+
+  async publishSyncV2BatchLocked(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: PublishSyncV2BatchInput,
+  ): Promise<PublishSyncV2BatchResult> {
+    assertActor(input.actor);
+    if (input.changes.length > 100) {
+      throw new ContentTreeError('FOLDER_MUTATION_LIMIT', 'A Sync v2 publish may contain at most 100 changes');
     }
     const head = await lockedTx.spaceKnowledgeRevision.findFirst({
       where: { spaceId: input.spaceId }, orderBy: { sequence: 'desc' },
@@ -1153,13 +1181,16 @@ export class ContentTreeService {
         pageCount: impact.pageCount, impactHash: impact.impactHash, createdAt: changedAt,
       } });
       const pages = rows.filter((row) => row.kind === 'page');
-      for (const row of pages) {
-        const page = allPages.find((candidate) => candidate.id === row.id)!;
-        await lockedTx.pageVersion.create({ data: {
+      const pageById = new Map(allPages.map((page) => [page.id, page]));
+      if (pages.length > 0) {
+        await lockedTx.pageVersion.createMany({ data: pages.map((row) => {
+          const page = pageById.get(row.id)!;
+          return {
           pageId: page.id, title: page.title, content: page.content, authorId: page.authorId,
           slug: page.slug, format: page.format, parentId: page.parentId, folderId: page.folderId,
           syncPath: page.syncPath, syncPathKey: page.syncPathKey,
-        } });
+          };
+        }) });
       }
       const pageIds = pages.map((row) => row.id);
       const folderIds = rows.filter((row) => row.kind === 'folder').map((row) => row.id);

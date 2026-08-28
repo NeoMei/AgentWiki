@@ -1095,6 +1095,7 @@ model LegacyPageBodyRow {
 
 model PushSession {
   id                     String   @id @default(uuid())
+  protocolVersion        String   @default("1")
   credentialFamilyId     String
   credentialId           String
   userId                 String

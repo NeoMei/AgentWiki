@@ -44,6 +44,7 @@ function makeHarness(options: {
     advanceContentTreeRevision: jest.fn().mockImplementation(async (_tx: any, _spaceId: string, expected: bigint) => expected + 1n),
     advance: jest.fn().mockResolvedValue({ revisionId: 'sync-revision-1', sequence: 1 }),
     advanceStructuralPages: jest.fn().mockResolvedValue({ revisionId: 'sync-structural-1', sequence: 2 }),
+    finalizeExistingTreeV2Locked: jest.fn().mockResolvedValue({ revisionId: 'submission-revision-1' }),
   };
   revisionWriter.advanceLocked = revisionWriter.advance;
   revisionWriter.advanceStructuralPagesLocked = revisionWriter.advanceStructuralPages;
@@ -310,6 +311,75 @@ describe('ContentTreeService create/read core', () => {
   });
 });
 
+describe('ContentTreeService Sync v2 recursive archive query boundary', () => {
+  it('snapshots 9,999 descendant Pages with one set-based PageVersion write', async () => {
+    const folder = {
+      id: 'folder-root', spaceId: 'space-1', parentId: null, name: 'Root', nameKey: 'root',
+      path: 'pages/Root', pathKey: 'pages/root', sortOrder: 0,
+      createdAt: now, updatedAt: now, deletedAt: null, deletionBatchId: null,
+    };
+    const pages = Array.from({ length: 9_999 }, (_, index) => ({
+      id: `page-${index}`, knowledgeKey: `knowledge-${index}`, spaceId: 'space-1',
+      title: `Page ${index}`, content: `# ${index}`, authorId: 'user-1',
+      slug: `page-${index}`, format: 'markdown', parentId: null, folderId: folder.id,
+      syncPath: `pages/Root/Page-${index}.md`, syncPathKey: `pages/root/page-${index}.md`,
+      sortOrder: index, createdAt: now, updatedAt: now, deletedAt: null,
+      deletionBatchId: null,
+    }));
+    const affected = [
+      { kind: 'folder', ...folder, folderId: null, title: null, depth: 0, knowledgeKey: null, content: null, cycle: false },
+      ...pages.map((page) => ({
+        kind: 'page', id: page.id, parentId: null, folderId: folder.id, name: null,
+        title: page.title, path: page.syncPath, pathKey: page.syncPathKey,
+        sortOrder: page.sortOrder, createdAt: page.createdAt, updatedAt: page.updatedAt,
+        depth: 1, knowledgeKey: page.knowledgeKey, content: page.content, cycle: false,
+      })),
+    ];
+    const tx: any = Object.assign({
+      $queryRaw: jest.fn().mockResolvedValue(affected),
+      $executeRaw: jest.fn().mockResolvedValueOnce(pages.length).mockResolvedValueOnce(1),
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'revision-1', sequence: 1, revisionContentHash: 'a'.repeat(64),
+          pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+        }),
+      },
+      syncRevisionFolderRow: { count: jest.fn().mockResolvedValue(0) },
+      folder: { findMany: jest.fn().mockResolvedValue([folder]), count: jest.fn() },
+      page: { findMany: jest.fn().mockResolvedValue(pages), count: jest.fn(), findUnique: jest.fn() },
+      pageVersion: {
+        create: jest.fn().mockResolvedValue({}),
+        createMany: jest.fn().mockResolvedValue({ count: pages.length }),
+      },
+      contentDeletionBatch: { create: jest.fn(async ({ data }: any) => data) },
+      changeSet: {
+        create: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      changeItem: { create: jest.fn().mockResolvedValue({}) },
+      pagePathAlias: { createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
+    }, { contentTreeRevision: 0n });
+    const revisionWriter: any = {
+      advanceContentTreeRevision: jest.fn().mockResolvedValue(1n),
+      advanceStructuralPagesLocked: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
+    };
+    const service = new ContentTreeService({} as any, revisionWriter, {} as any);
+
+    await expect(service.publishSyncV2BatchLocked(tx, {
+      spaceId: 'space-1', baseRevision: '0',
+      changes: [{ operation: 'archive_folder', folderId: folder.id, previousPath: folder.path }],
+      actor: { userId: 'user-1' }, principal: { userId: 'user-1', platformRole: 'user' },
+      revisionOrigin: { origin: 'obsidian_sync', createdByUserId: 'user-1' },
+    })).resolves.toMatchObject({ status: 'published', revision: 'revision-1' });
+
+    expect(tx.pageVersion.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.pageVersion.createMany.mock.calls[0][0].data).toHaveLength(9_999);
+    expect(tx.pageVersion.create).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+  }, 30_000);
+});
+
 describe('ContentTreeService Page placement and concurrency', () => {
   it('owns the Page mutation lock and decimal tree-revision comparison', async () => {
     const { service, tx, revisionWriter } = makeHarness({ treeRevision: 7n });
@@ -440,6 +510,9 @@ describe('ContentTreeService Page placement and concurrency', () => {
     } as any);
 
     expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledWith(tx, 'space-1', 0n);
+    expect(revisionWriter.finalizeExistingTreeV2Locked).toHaveBeenCalledWith(
+      tx, 'space-1', 'submission-revision-1',
+    );
     expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
     expect(revisionWriter.advance).not.toHaveBeenCalled();
     expect(result).toEqual({ treeRevision: 1n, syncRevisionId: 'submission-revision-1' });

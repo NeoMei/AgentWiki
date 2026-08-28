@@ -15,7 +15,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
-import { ContentTreeConflict } from '../../content-tree/content-tree.types';
+import { ContentTreeConflict, ContentTreeError } from '../../content-tree/content-tree.types';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -94,6 +94,32 @@ export class SpaceRevisionWriterService {
       where: { id: spaceId, deletedAt: null },
       select: { contentTreeRevision: true },
     });
+    if (!space) return null;
+    Object.defineProperty(lockedTx, 'contentTreeRevision', {
+      configurable: true,
+      enumerable: false,
+      value: space.contentTreeRevision,
+    });
+    return lockedTx as SpaceTreeLockedTransaction;
+  }
+
+  /**
+   * Sync cutover takes the Space row only after the shared advisory lock.
+   * NO KEY UPDATE serializes mutable Space policy/tree state while remaining
+   * compatible with foreign-key KEY SHARE checks.
+   */
+  async lockSyncSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+  ): Promise<SpaceTreeLockedTransaction | null> {
+    const lockedTx = await this.lockSpace(tx, spaceId);
+    const rows = await tx.$queryRaw<Array<{ contentTreeRevision: bigint }>>(Prisma.sql`
+      SELECT "contentTreeRevision"
+      FROM "Space"
+      WHERE "id" = ${spaceId} AND "deletedAt" IS NULL
+      FOR NO KEY UPDATE
+    `);
+    const space = rows[0];
     if (!space) return null;
     Object.defineProperty(lockedTx, 'contentTreeRevision', {
       configurable: true,
@@ -431,6 +457,42 @@ export class SpaceRevisionWriterService {
     origin: RevisionOrigin & { origin: 'migration' },
   ): Promise<RevisionWriteResult> {
     return this.advanceStructuralPagesLockedInternal(tx, spaceId, changes, origin, true);
+  }
+
+  async finalizeExistingTreeV2Locked(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    revisionId: string,
+  ): Promise<RevisionWriteResult> {
+    const revision = await tx.spaceKnowledgeRevision.findFirst({
+      where: { id: revisionId, spaceId },
+      select: {
+        id: true,
+        sequence: true,
+        parentRevisionId: true,
+        revisionContentHash: true,
+        pageCount: true,
+        revisionManifestByteLength: true,
+        revisionBodyBytes: true,
+      },
+    });
+    if (!revision) {
+      throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The bound Sync revision is not available');
+    }
+    return this.finalizeTreeV2IfRequired(
+      tx,
+      spaceId,
+      revision.id,
+      revision.parentRevisionId,
+      {
+        revisionId: revision.id,
+        sequence: revision.sequence,
+        revisionContentHash: revision.revisionContentHash ?? EMPTY_REVISION_HASH,
+        pageCount: revision.pageCount ?? 0n,
+        revisionManifestByteLength: revision.revisionManifestByteLength ?? 0n,
+        revisionBodyBytes: revision.revisionBodyBytes ?? 0n,
+      },
+    );
   }
 
   private async advanceStructuralPagesLockedInternal(

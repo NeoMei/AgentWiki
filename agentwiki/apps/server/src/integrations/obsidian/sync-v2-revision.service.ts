@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   canonicalBytes,
   canonicalTreeRevisionManifestV2,
+  contentHash,
+  normalizeMarkdown,
   pathKey,
   treeRevisionContentHashV2,
   type SyncFolderV2,
@@ -61,6 +63,16 @@ function samePage(left: SyncPageV2 | undefined, right: SyncPageV2): boolean {
     && left.title === right.title
     && left.contentHash === right.contentHash
     && left.updatedAt === right.updatedAt;
+}
+
+function revisionGone(): SyncApiException {
+  return new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 @Injectable()
@@ -204,42 +216,124 @@ export class SyncV2RevisionService {
     if (revision.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
     }
-    const [folderRows, pageRows] = await Promise.all([
-      this.prisma.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),
-      this.prisma.syncRevisionPageRow.findMany({
-        where: { revisionId: revision.id }, include: { content: true },
-      }),
-    ]);
-    const manifest = canonicalTreeRevisionManifestV2({
-      protocolVersion: '2',
-      spaceId,
-      folders: folderRows.map((folder) => ({
-        folderId: folder.folderId, parentFolderId: folder.parentFolderId,
-        name: folder.name, path: folder.path, sortOrder: folder.sortOrder,
-        updatedAt: folder.updatedAt.toISOString(),
-      })),
-      pages: pageRows.map((page) => ({
-        pageId: page.pageId, folderId: page.folderId, path: page.path,
-        title: page.title, body: page.content.body, contentHash: page.contentHash,
-        updatedAt: page.updatedAt.toISOString(),
-      })),
-    });
-    const folderIds = new Set(manifest.folders.map((folder) => folder.folderId));
-    if (manifest.pages.some((page) => page.folderId !== null && !folderIds.has(page.folderId))) {
-      throw new SyncApiException('REVISION_GONE', 'Page revision references a missing Folder', undefined, '2');
-    }
-    const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
-    return {
-      revision: revision.id,
-      sequence: revision.sequence,
-      publishedAt: revision.createdAt.toISOString(),
-      manifest,
-      revisionContentHash: await treeRevisionContentHashV2(manifest),
-      revisionManifestByteLength: empty ? 0 : canonicalBytes(manifest).byteLength,
-      revisionBodyBytes: manifest.pages.reduce(
+    try {
+      const [folderRows, pageRows] = await Promise.all([
+        this.prisma.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),
+        this.prisma.syncRevisionPageRow.findMany({
+          where: { revisionId: revision.id }, include: { content: true },
+        }),
+      ]);
+      if (
+        folderRows.some((folder) => folder.pathKey !== pathKey(folder.path))
+        || pageRows.some((page) => page.pathKey !== pathKey(page.path))
+      ) throw revisionGone();
+      const manifest = canonicalTreeRevisionManifestV2({
+        protocolVersion: '2',
+        spaceId,
+        folders: folderRows.map((folder) => ({
+          folderId: folder.folderId, parentFolderId: folder.parentFolderId,
+          name: folder.name, path: folder.path, sortOrder: folder.sortOrder,
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        pages: pageRows.map((page) => ({
+          pageId: page.pageId, folderId: page.folderId, path: page.path,
+          title: page.title, body: page.content.body, contentHash: page.contentHash,
+          updatedAt: page.updatedAt.toISOString(),
+        })),
+      });
+      const folderIds = new Set(manifest.folders.map((folder) => folder.folderId));
+      for (const folder of manifest.folders) folderDepth(folder, new Map(manifest.folders.map((item) => [item.folderId, item])));
+      if (manifest.pages.some((page) => page.folderId !== null && !folderIds.has(page.folderId))) throw revisionGone();
+      for (let index = 0; index < pageRows.length; index += 1) {
+        const row = pageRows[index]!;
+        const body = normalizeMarkdown(row.content.body);
+        if (
+          body !== row.content.body
+          || await contentHash(body) !== row.contentHash
+          || Buffer.byteLength(body, 'utf8') !== row.content.byteLength
+        ) throw revisionGone();
+      }
+      const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
+      const calculatedHash = empty ? EMPTY_HASH : await treeRevisionContentHashV2(manifest);
+      const manifestBytes = empty ? 0 : canonicalBytes(manifest).byteLength;
+      const bodyBytes = manifest.pages.reduce(
         (total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0,
-      ),
-    };
+      );
+      if (revision.schemaVersion === 'content-tree@2') {
+        if (
+          revision.revisionContentHash !== calculatedHash
+          || revision.pageCount !== BigInt(manifest.pages.length)
+          || revision.revisionManifestByteLength !== BigInt(manifestBytes)
+          || revision.revisionBodyBytes !== BigInt(bodyBytes)
+        ) throw revisionGone();
+        const [sidecarRow, deltaRows] = await Promise.all([
+          this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
+          this.prisma.syncRevisionTreeDeltaRow.findMany({
+            where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
+          }),
+        ]);
+        const sidecar = record(sidecarRow?.sidecar);
+        const migration = record(sidecar?.spaceFolderMigration);
+        const v2 = record(migration?.v2Revision);
+        if (
+          v2?.protocolVersion !== '2'
+          || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
+          || v2.folderCount !== String(manifest.folders.length)
+          || v2.pageCount !== String(manifest.pages.length)
+          || v2.revisionContentHash !== calculatedHash
+          || v2.revisionManifestByteLength !== String(manifestBytes)
+          || v2.revisionBodyBytes !== String(bodyBytes)
+          || v2.treeDeltaCount !== String(deltaRows.length)
+        ) throw revisionGone();
+        this.assertTreeDeltaContract(deltaRows, manifest);
+      }
+      return {
+        revision: revision.id,
+        sequence: revision.sequence,
+        publishedAt: revision.createdAt.toISOString(),
+        manifest,
+        revisionContentHash: calculatedHash,
+        revisionManifestByteLength: manifestBytes,
+        revisionBodyBytes: bodyBytes,
+      };
+    } catch {
+      throw revisionGone();
+    }
+  }
+
+  private assertTreeDeltaContract(rows: Array<{
+    ordinal: number; operation: string; folderId: string | null; pageId: string | null;
+    previousPath: string | null; contentHash: string | null;
+  }>, manifest: TreeRevisionContentManifestV2): void {
+    const folderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
+    const pageById = new Map(manifest.pages.map((page) => [page.pageId, page]));
+    const rank = new Map([
+      ['archive_page', 0], ['archive_folder', 1], ['upsert_folder', 2], ['upsert_page', 3],
+    ]);
+    let previousRank = -1;
+    const folderOrdinal = new Map<string, number>();
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index]!;
+      const currentRank = rank.get(row.operation);
+      if (row.ordinal !== index || currentRank === undefined || currentRank < previousRank) throw revisionGone();
+      previousRank = currentRank;
+      if (row.operation === 'archive_page') {
+        if (!row.pageId || row.folderId || !row.previousPath || row.contentHash || pageById.has(row.pageId)) throw revisionGone();
+      } else if (row.operation === 'archive_folder') {
+        if (!row.folderId || row.pageId || !row.previousPath || row.contentHash || folderById.has(row.folderId)) throw revisionGone();
+      } else if (row.operation === 'upsert_folder') {
+        if (!row.folderId || row.pageId || row.previousPath || row.contentHash || !folderById.has(row.folderId)) throw revisionGone();
+        folderOrdinal.set(row.folderId, row.ordinal);
+      } else {
+        const page = row.pageId ? pageById.get(row.pageId) : undefined;
+        if (!page || row.folderId || row.previousPath || row.contentHash !== page.contentHash) throw revisionGone();
+      }
+    }
+    for (const [folderId, ordinal] of folderOrdinal) {
+      const parentId = folderById.get(folderId)?.parentFolderId;
+      const parentOrdinal = parentId ? folderOrdinal.get(parentId) : undefined;
+      if (parentOrdinal !== undefined && parentOrdinal >= ordinal) throw revisionGone();
+    }
   }
 
   private deltaItems(from: TreeRevisionContentManifestV2, to: TreeRevisionContentManifestV2): TreeDeltaItemV2[] {

@@ -6,6 +6,7 @@ import {
   treeBatchHashV2,
   treeConfirmationHashV2,
 } from '@neomei/agentwiki-sync-protocol';
+import { ContentTreeError, type ContentTreeErrorCode } from '../../content-tree/content-tree.types';
 
 describe('PushSessionService graph lifecycle', () => {
   it('indexes finalized page changes before enqueueing a graph refresh', async () => {
@@ -417,8 +418,8 @@ describe('PushSessionService graph lifecycle', () => {
       }],
     };
     const confirmation = await confirmationHash(manifest);
-    const session = {
-      id: 'session-1', spaceId: 'space-1', credentialId: 'credential-1',
+    const session: any = {
+      id: 'session-1', protocolVersion: '1', spaceId: 'space-1', credentialId: 'credential-1',
       status: 'ready_to_finalize', result: null, baseRevisionId: 'sync-1',
       confirmationHash: confirmation,
       confirmationByteLength: canonicalBytes(manifest).byteLength,
@@ -444,10 +445,12 @@ describe('PushSessionService graph lifecycle', () => {
         findUnique: jest.fn().mockResolvedValue(revision),
       },
       page: {
+        count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn().mockResolvedValue({
           spaceId: 'space-1', deletedAt: null, deletionBatchId: null,
         }),
       },
+      folder: { count: jest.fn().mockResolvedValue(0) },
       changeSet: {
         create: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
         update: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
@@ -466,7 +469,7 @@ describe('PushSessionService graph lifecycle', () => {
       }),
     };
     const contentTree = {
-      lockPageMutationSpace: jest.fn().mockImplementation(async (value: any) =>
+      lockSyncMutationSpace: jest.fn().mockImplementation(async (value: any) =>
         Object.assign(value, { contentTreeRevision: 7n })),
       advancePageMutation: jest.fn().mockResolvedValue({
         treeRevision: 8n, syncRevisionId: revision.id,
@@ -498,7 +501,7 @@ describe('PushSessionService graph lifecycle', () => {
       principal, 'space-1', 'session-1', confirmation,
     )).resolves.toMatchObject({ status: 'published', revision: 'sync-2' });
 
-    expect(contentTree.lockPageMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
     expect(tx.changeSet.create.mock.invocationCallOrder[0])
       .toBeLessThan(service.applyPageChanges.mock.invocationCallOrder[0]);
     expect(service.applyPageChanges).toHaveBeenCalledWith(
@@ -523,6 +526,218 @@ describe('PushSessionService Sync Protocol v2', () => {
     userId: 'user-1', platformRole: 'super_admin' as const,
     credentialId: 'credential-1', credentialFamilyId: 'family-1',
   };
+
+  it('persists an explicit protocol version for both v1 and v2 sessions', async () => {
+    const created: any[] = [];
+    const prisma: any = {
+      pushSession: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn(async ({ data }: any) => {
+          created.push(data);
+          return { ...data, expiresAt: data.expiresAt, result: null };
+        }),
+      },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      folder: { count: jest.fn().mockResolvedValue(0) },
+      page: { count: jest.fn().mockResolvedValue(0) },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    prisma.$transaction = jest.fn((callback: any) => callback(prisma));
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 0n })),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const v1Hash = await service.capabilityHash();
+    const v2Hash = await service.capabilityHashV2();
+
+    await service.create(principal, 'space-1', {
+      baseRevision: '0', idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      capabilitiesHash: v1Hash, confirmationHash: 'a'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    });
+    await service.createV2(principal, 'space-1', {
+      protocolVersion: '2', baseRevision: '0',
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+      capabilitiesHash: v2Hash, confirmationHash: 'b'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    });
+
+    expect(created.map((row) => row.protocolVersion)).toEqual(['1', '2']);
+  });
+
+  it('checks the v1 Folder gate under the Space lock before session creation', async () => {
+    const tx: any = {
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      folder: { count: jest.fn().mockResolvedValue(1) },
+      page: { count: jest.fn().mockResolvedValue(0) },
+      pushSession: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({
+        id: 'session-created', protocolVersion: '1', status: 'ready_to_finalize', result: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      }) },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 0n })),
+    };
+    const prisma: any = {
+      ...tx,
+      $transaction: jest.fn((callback: any) => callback(tx)),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+
+    await expect(service.create(principal, 'space-1', {
+      baseRevision: '0', idempotencyKey: '33333333-3333-4333-8333-333333333333',
+      capabilitiesHash: await service.capabilityHash(), confirmationHash: 'a'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    })).rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+
+    expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(tx.pushSession.create).not.toHaveBeenCalled();
+  });
+
+  it('revalidates every v1 idempotency binding after a create uniqueness race', async () => {
+    const raced = {
+      id: 'session-raced', protocolVersion: '1', userId: 'user-1', spaceId: 'space-1',
+      credentialId: 'credential-1', credentialFamilyId: 'family-1', baseRevisionId: '0',
+      idempotencyKey: '77777777-7777-4777-8777-777777777777',
+      capabilitiesHash: 'wrong-capabilities', confirmationHash: 'a'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0n,
+      status: 'ready_to_finalize', result: null, expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      pushSession: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' })),
+      },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+      folder: { count: jest.fn().mockResolvedValue(0) },
+      page: { count: jest.fn().mockResolvedValue(0) },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+    };
+    const prisma: any = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue(raced) },
+      $transaction: jest.fn((callback: any) => callback(tx)),
+    };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async () => Object.assign(tx, { contentTreeRevision: 0n })),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+
+    await expect(service.create(principal, 'space-1', {
+      baseRevision: '0', idempotencyKey: raced.idempotencyKey,
+      capabilitiesHash: await service.capabilityHash(), confirmationHash: raced.confirmationHash,
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    })).rejects.toMatchObject({ syncCode: 'IDEMPOTENCY_MISMATCH' });
+  });
+
+  it('maps a missing v1 create Space to the non-enumerating Sync error envelope', async () => {
+    const prisma: any = {
+      $transaction: jest.fn((callback: any) => callback({})),
+    };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn().mockRejectedValue(new ContentTreeError(
+        'SPACE_NOT_FOUND',
+        'secret-space-id belongs to another Space',
+      )),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+
+    const failure = await service.create(principal, 'secret-space-id', {
+      baseRevision: '0', idempotencyKey: '88888888-8888-4888-8888-888888888888',
+      capabilitiesHash: await service.capabilityHash(), confirmationHash: 'a'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ syncCode: 'SPACE_FORBIDDEN' });
+    expect(failure.getStatus()).toBe(403);
+    expect(JSON.stringify(failure.getResponse())).not.toContain('secret-space-id');
+    expect(JSON.stringify(failure.getResponse())).not.toContain('another Space');
+  });
+
+  it.each([
+    ['v1 get rejects v2', 'get', '2', '1'],
+    ['v2 get rejects v1', 'getV2', '1', '2'],
+    ['v1 abort rejects v2', 'abort', '2', '1'],
+    ['v2 abort rejects v1', 'abortV2', '1', '2'],
+  ])('%s', async (_label, method, storedProtocol, responseProtocol) => {
+    const session: any = {
+      id: '11111111-1111-4111-8111-111111111111', protocolVersion: storedProtocol,
+      spaceId: 'space-1', credentialId: 'credential-1', credentialFamilyId: 'family-1',
+      status: 'uploading', result: null, batches: [],
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      pushSessionChange: { deleteMany: jest.fn() },
+      pushSessionBatch: { deleteMany: jest.fn() },
+    };
+    const prisma: any = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      $transaction: jest.fn((callback: any) => callback(tx)),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, {}, {}, undefined, undefined);
+    session.capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service[method](principal, 'space-1', session.id)).rejects.toMatchObject({
+      syncCode: 'PUSH_SESSION_NOT_FOUND',
+      response: expect.objectContaining({ protocolVersion: responseProtocol }),
+    });
+    expect(tx.pushSession.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['v1 upload rejects v2', 'upload', '2', '1'],
+    ['v2 upload rejects v1', 'uploadV2', '1', '2'],
+  ])('%s', async (_label, method, storedProtocol, responseProtocol) => {
+    const session: any = {
+      id: '11111111-1111-4111-8111-111111111111', protocolVersion: storedProtocol,
+      spaceId: 'space-1', credentialId: 'credential-1', status: 'uploading',
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      pushSessionBatch: { findUnique: jest.fn() },
+      pushSessionChange: { findMany: jest.fn(), createMany: jest.fn() },
+    };
+    const service: any = new (PushSessionService as any)(
+      { $transaction: (callback: any) => callback(tx) }, {}, {}, {}, undefined, undefined,
+    );
+    session.capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service[method](principal, 'space-1', session.id, {
+      protocolVersion: responseProtocol, batchIndex: 0, batchHash: 'a'.repeat(64), changes: [],
+    })).rejects.toMatchObject({
+      syncCode: 'PUSH_SESSION_NOT_FOUND',
+      response: expect.objectContaining({ protocolVersion: responseProtocol }),
+    });
+    expect(tx.pushSessionBatch.findUnique).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['v1 finalize rejects v2', 'finalize', '2', '1'],
+    ['v2 finalize rejects v1', 'finalizeV2', '1', '2'],
+  ])('%s', async (_label, method, storedProtocol, responseProtocol) => {
+    const prisma: any = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue({
+        id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+        protocolVersion: storedProtocol,
+      }) },
+      $transaction: jest.fn(),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, {}, {}, undefined, undefined);
+    const input = method === 'finalizeV2'
+      ? { protocolVersion: '2', confirmationHash: 'a'.repeat(64), userConfirmed: true }
+      : 'a'.repeat(64);
+
+    await expect(service[method](principal, 'space-1', '11111111-1111-4111-8111-111111111111', input))
+      .rejects.toMatchObject({
+        syncCode: 'PUSH_SESSION_NOT_FOUND',
+        response: expect.objectContaining({ protocolVersion: responseProtocol }),
+      });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 
   it('rejects a Space Admin before creating a Folder-aware push session', async () => {
     const prisma: any = {
@@ -572,7 +787,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     const batch = { ...withoutHash, batchHash: await treeBatchHashV2(withoutHash) };
     const createMany = jest.fn().mockResolvedValue({ count: 2 });
     const session = {
-      id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+      id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
       credentialId: 'credential-1', status: 'uploading', expiresAt: new Date(Date.now() + 60_000),
       receivedBatchCount: 0, receivedChangeCount: 0, receivedBodyBytes: 0n,
       changeCount: 2, totalBodyBytes: 7n,
@@ -619,7 +834,7 @@ describe('PushSessionService Sync Protocol v2', () => {
       revisionBodyBytes: '0', changeSetId: 'change-set-1',
     };
     const session = {
-      id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+      id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
       credentialId: 'credential-1', status: 'ready_to_finalize', result: null,
       baseRevisionId: 'rev-1', confirmationHash: confirmation,
       confirmationByteLength: canonicalBytes(manifest).byteLength,
@@ -637,8 +852,17 @@ describe('PushSessionService Sync Protocol v2', () => {
       }]) },
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue({ id: 'rev-1', sequence: 1 }) },
     };
-    const contentTree = { publishSyncV2Batch: jest.fn().mockResolvedValue(published) };
-    const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 7n })),
+      publishSyncV2BatchLocked: jest.fn().mockResolvedValue(published),
+      publishSyncV2Batch: jest.fn(),
+    };
+    const prisma: any = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue({
+        id: session.id, spaceId: 'space-1', protocolVersion: '2',
+      }) },
+      $transaction: jest.fn((callback: any) => callback(tx)),
+    };
     const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
     (session as any).capabilitiesHash = await service.capabilityHashV2();
 
@@ -646,14 +870,129 @@ describe('PushSessionService Sync Protocol v2', () => {
       protocolVersion: '2', confirmationHash: confirmation, userConfirmed: true,
     })).resolves.toEqual(published);
 
-    expect(contentTree.publishSyncV2Batch).toHaveBeenCalledTimes(1);
-    expect(contentTree.publishSyncV2Batch).toHaveBeenCalledWith(tx, expect.objectContaining({
+    expect(prisma.pushSession.findUnique).toHaveBeenCalledWith({
+      where: { id: session.id }, select: { spaceId: true, protocolVersion: true },
+    });
+    expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(contentTree.lockSyncMutationSpace.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.$executeRaw.mock.invocationCallOrder[0]);
+    expect(contentTree.publishSyncV2BatchLocked).toHaveBeenCalledTimes(1);
+    expect(contentTree.publishSyncV2BatchLocked).toHaveBeenCalledWith(tx, expect.objectContaining({
       spaceId: 'space-1', baseRevision: 'rev-1', changes,
       actor: { userId: 'user-1' },
     }));
+    expect(contentTree.publishSyncV2Batch).not.toHaveBeenCalled();
     expect(tx.pushSession.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: session.id }, data: expect.objectContaining({ status: 'published', result: published }),
     }));
+  });
+
+  it.each<[ContentTreeErrorCode | 'UNKNOWN', string, number, string]>([
+    ['SPACE_NOT_FOUND', 'SPACE_FORBIDDEN', 403, 'Space is not accessible'],
+    ['FOLDER_NOT_FOUND', 'PAYLOAD_INVALID', 400, 'Document tree resource is unavailable'],
+    ['FOLDER_NAME_CONFLICT', 'PATH_COLLISION', 409, 'Document tree path conflicts'],
+    ['FOLDER_INVALID_NAME', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['FOLDER_CYCLE', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['FOLDER_DEPTH_LIMIT', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['FOLDER_COUNT_LIMIT', 'SPACE_TOO_LARGE', 409, 'Document tree limit is exceeded'],
+    ['FOLDER_MUTATION_LIMIT', 'BATCH_TOO_LARGE', 413, 'Document tree mutation limit is exceeded'],
+    ['FOLDER_PATH_TOO_LONG', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['FOLDER_DELETE_IMPACT_CHANGED', 'BASE_STALE', 409, 'Document tree base is stale'],
+    ['FOLDER_RESTORE_CONFLICT', 'PAGE_ID_CONFLICT', 409, 'Document tree resource is unavailable'],
+    ['MARKDOWN_REFERENCE_AMBIGUOUS', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['CONTENT_TREE_CONFLICT', 'BASE_STALE', 409, 'Document tree base is stale'],
+    ['CONTENT_TREE_CURSOR_INVALID', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['CONTENT_TREE_PAGE_NOT_FOUND', 'PAGE_ID_CONFLICT', 409, 'Document tree resource is unavailable'],
+    ['CONTENT_TREE_INVALID_ACTOR', 'INTERNAL_ERROR', 500, 'Sync finalize failed'],
+    ['CONTENT_TREE_SPACE_FORBIDDEN', 'SPACE_FORBIDDEN', 403, 'Space is not accessible'],
+    ['CONTENT_TREE_SPACE_READ_ONLY', 'SPACE_READ_ONLY', 403, 'Space role does not permit publishing'],
+    ['CONTENT_TREE_PAYLOAD_INVALID', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['CONTENT_TREE_PATH_COLLISION', 'PATH_COLLISION', 409, 'Document tree path conflicts'],
+    ['CONTENT_TREE_ID_CONFLICT', 'PAGE_ID_CONFLICT', 409, 'Document tree resource is unavailable'],
+    ['CONTENT_TREE_TAKE_INVALID', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['PAGE_PARENT_DEPRECATED', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
+    ['UNKNOWN', 'INTERNAL_ERROR', 500, 'Sync finalize failed'],
+  ])('maps ContentTree %s to stable v2 %s/%i without leaking identifiers', async (
+    contentTreeCode, syncCode, status, message,
+  ) => {
+    const changes = [{
+      operation: 'upsert_folder' as const,
+      folder: {
+        folderId: 'folder-1', parentFolderId: null, name: 'Folder', path: 'pages/Folder',
+        sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+      },
+    }];
+    const manifest = { protocolVersion: '2' as const, spaceId: 'space-1', baseRevision: 'rev-1', changes };
+    const hash = await treeConfirmationHashV2(manifest);
+    const session: any = {
+      id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2',
+      spaceId: 'space-1', credentialId: 'credential-1', status: 'ready_to_finalize',
+      result: null, baseRevisionId: 'rev-1', confirmationHash: hash,
+      confirmationByteLength: canonicalBytes(manifest).byteLength,
+      receivedBatchCount: 1, receivedChangeCount: 1, changeCount: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      pushSessionBatch: { findMany: jest.fn().mockResolvedValue([{ batchIndex: 0 }]) },
+      pushSessionChange: { findMany: jest.fn().mockResolvedValue([{
+        operation: 'upsert_folder', pageId: 'folder:folder-1', path: 'pages/Folder', title: 'Folder',
+        body: JSON.stringify({ parentFolderId: null, sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' }),
+      }]) },
+    };
+    const treeError = new ContentTreeError(
+      contentTreeCode === 'UNKNOWN' ? 'CONTENT_TREE_INVALID_ACTOR' : contentTreeCode,
+      'secret-id belongs to another Space',
+    );
+    if (contentTreeCode === 'UNKNOWN') Object.defineProperty(treeError, 'code', { value: 'UNKNOWN' });
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 0n })),
+      publishSyncV2BatchLocked: jest.fn().mockRejectedValue(treeError),
+    };
+    const prisma: any = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue({
+        id: session.id, spaceId: 'space-1', protocolVersion: '2',
+      }) },
+      $transaction: (callback: any) => callback(tx),
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    session.capabilitiesHash = await service.capabilityHashV2();
+
+    const failure = await service.finalizeV2(principal, 'space-1', session.id, {
+      protocolVersion: '2', confirmationHash: hash, userConfirmed: true,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      syncCode,
+      response: { protocolVersion: '2', error: expect.objectContaining({ code: syncCode, message }) },
+    });
+    expect(failure.getStatus()).toBe(status);
+    expect(JSON.stringify(failure.getResponse())).not.toContain('secret-id');
+    expect(JSON.stringify(failure.getResponse())).not.toContain('another Space');
+  });
+
+  it.each([
+    ['SPACE_NOT_FOUND', 'SPACE_FORBIDDEN', 403],
+    ['FOLDER_NOT_FOUND', 'PAYLOAD_INVALID', 400],
+    ['CONTENT_TREE_CONFLICT', 'PATH_COLLISION', 409],
+    ['CONTENT_TREE_INVALID_ACTOR', 'INTERNAL_ERROR', 500],
+  ] as const)('maps v1 ContentTree %s to a stable non-enumerating error', (
+    contentTreeCode, syncCode, status,
+  ) => {
+    const service: any = new (PushSessionService as any)({}, {}, {}, {}, undefined, undefined);
+    const failure = service.mapContentTreeErrorV1(new ContentTreeError(
+      contentTreeCode,
+      'secret-id belongs to another Space',
+    ));
+    expect(failure).toMatchObject({
+      syncCode,
+      response: { protocolVersion: '1', error: expect.objectContaining({ code: syncCode }) },
+    });
+    expect(failure.getStatus()).toBe(status);
+    expect(JSON.stringify(failure.getResponse())).not.toContain('secret-id');
+    expect(JSON.stringify(failure.getResponse())).not.toContain('another Space');
   });
 
   it('returns an already published v2 result idempotently without replaying ContentTree', async () => {
@@ -662,13 +1001,21 @@ describe('PushSessionService Sync Protocol v2', () => {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 8n }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue({
-        id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+        id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
         credentialId: 'credential-1', status: 'published', result,
       }) },
     };
-    const contentTree = { publishSyncV2Batch: jest.fn() };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 8n })),
+      publishSyncV2Batch: jest.fn(), publishSyncV2BatchLocked: jest.fn(),
+    };
     const service: any = new (PushSessionService as any)(
-      { $transaction: (callback: any) => callback(tx) }, {}, contentTree, {}, undefined, undefined,
+      {
+        pushSession: { findUnique: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1', protocolVersion: '2',
+        }) },
+        $transaction: (callback: any) => callback(tx),
+      }, {}, contentTree, {}, undefined, undefined,
     );
     const publishedSession = await tx.pushSession.findUnique();
     publishedSession.capabilitiesHash = await service.capabilityHashV2();
@@ -676,7 +1023,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     await expect(service.finalizeV2(principal, 'space-1', publishedSession.id, {
       protocolVersion: '2', confirmationHash: 'a'.repeat(64), userConfirmed: true,
     })).resolves.toEqual(result);
-    expect(contentTree.publishSyncV2Batch).not.toHaveBeenCalled();
+    expect(contentTree.publishSyncV2BatchLocked).not.toHaveBeenCalled();
   });
 
   it('rolls back a mixed invalid batch without publishing the v2 session', async () => {
@@ -685,7 +1032,7 @@ describe('PushSessionService Sync Protocol v2', () => {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 7n }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue({
-        id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+        id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
         credentialId: 'credential-1', status: 'ready_to_finalize', result: null,
         baseRevisionId: 'rev-1', confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
         receivedBatchCount: 1, receivedChangeCount: 1, changeCount: 1,
@@ -695,8 +1042,17 @@ describe('PushSessionService Sync Protocol v2', () => {
       pushSessionChange: { findMany: jest.fn().mockResolvedValue([]) },
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue({ id: 'rev-1' }) },
     };
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 7n })),
+      publishSyncV2BatchLocked: jest.fn(),
+    };
     const service: any = new (PushSessionService as any)(
-      { $transaction: (callback: any) => callback(tx) }, {}, { publishSyncV2Batch: jest.fn() }, {}, undefined, undefined,
+      {
+        pushSession: { findUnique: jest.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1', protocolVersion: '2',
+        }) },
+        $transaction: (callback: any) => callback(tx),
+      }, {}, contentTree, {}, undefined, undefined,
     );
     const invalidSession = await tx.pushSession.findUnique();
     invalidSession.capabilitiesHash = await service.capabilityHashV2();

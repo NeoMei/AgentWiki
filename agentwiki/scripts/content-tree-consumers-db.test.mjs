@@ -29,6 +29,7 @@ const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tr
 const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
 const { ReviewService } = requireFromServer('./dist/review/review.service.js');
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
+const { SyncV2RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v2-revision.service.js');
 const { KnowledgeSubmissionService } = requireFromServer('./dist/knowledge-pipeline/knowledge-submission.service.js');
 const { SourceService } = requireFromServer('./dist/knowledge-pipeline/source.service.js');
 const { McpService } = requireFromServer('./dist/mcp/mcp.service.js');
@@ -102,6 +103,14 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       );
       const pushes = new PushSessionService(
         prisma, {}, contentTree, search, undefined, graph,
+      );
+      const syncV2Revisions = new SyncV2RevisionService(
+        prisma,
+        {
+          encode: (payload) => Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url'),
+          decode: (cursor) => JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')),
+        },
+        { capabilitiesV2: () => ({ maxResponseBytes: 16 * 1024 * 1024 }) },
       );
       const knowledgeSubmissions = new KnowledgeSubmissionService(
         prisma, reviews, authorization, writer,
@@ -455,101 +464,29 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
         });
 
-        await t.test('Obsidian v1 finalize atomically creates, moves, archives, and restores Folder-aware Pages', async () => {
-          const spaceId = await createSpace('obsidian-finalize');
-          const projectFolder = await seedFolder(spaceId, 'Project');
-          const archiveFolder = await seedFolder(spaceId, 'Archive');
-          const knowledgeKey = `obsidian-page-${suffix}`;
-          const finalize = async (label, changes) => {
-            const staged = await stagePush(spaceId, label, changes);
-            return pushes.finalize(
-              devicePrincipal, spaceId, staged.sessionId, staged.hash,
-            );
-          };
-
-          const createdResult = await finalize('obsidian-create', [{
-            operation: 'upsert', pageId: knowledgeKey,
-            path: 'pages/Project/Obsidian.md', title: 'Obsidian', body: '# Obsidian',
-          }]);
-          let persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
-          assert.equal(persisted.parentId, null);
-          assert.equal(persisted.folderId, projectFolder.id);
-          assert.equal(persisted.syncPath, 'pages/Project/Obsidian.md');
-          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
-          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
-          assert.equal((await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
-            where: { id: createdResult.revision },
-          })).origin, 'obsidian_sync');
-
-          await finalize('obsidian-move', [{
-            operation: 'upsert', pageId: knowledgeKey,
-            path: 'pages/Archive/Obsidian renamed.md',
-            title: 'Obsidian renamed', body: '# Obsidian renamed',
-          }]);
-          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
-          assert.equal(persisted.parentId, null);
-          assert.equal(persisted.folderId, archiveFolder.id);
-          assert.equal(persisted.syncPath, 'pages/Archive/Obsidian renamed.md');
-          assert.equal((await prisma.pagePathAlias.findFirstOrThrow({
-            where: { pageId: persisted.id, pathKey: pathKey('pages/Project/Obsidian.md') },
-          })).path, 'pages/Project/Obsidian.md');
-          assert.equal((await prisma.pageVersion.findFirstOrThrow({
-            where: { pageId: persisted.id }, orderBy: { createdAt: 'desc' },
-          })).folderId, projectFolder.id);
-          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 2n);
-          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
-
-          await finalize('obsidian-archive', [{
-            operation: 'archive', pageId: knowledgeKey,
-            previousPath: 'pages/Archive/Obsidian renamed.md',
-          }]);
-          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
-          assert.ok(persisted.deletedAt);
-          assert.equal(persisted.folderId, archiveFolder.id);
-          assert.equal((await prisma.pageVersion.findFirstOrThrow({
-            where: { pageId: persisted.id }, orderBy: { createdAt: 'desc' },
-          })).folderId, archiveFolder.id);
-          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 3n);
-          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 3);
-
-          const restoredResult = await finalize('obsidian-restore', [{
-            operation: 'upsert', pageId: knowledgeKey,
-            path: 'pages/Archive/Obsidian renamed.md',
-            title: 'Obsidian renamed', body: '# Restored',
-          }]);
-          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
-          assert.equal(persisted.deletedAt, null);
-          assert.equal(persisted.parentId, null);
-          assert.equal(persisted.folderId, archiveFolder.id);
-          assert.equal(persisted.syncPath, 'pages/Archive/Obsidian renamed.md');
-          const versions = await prisma.pageVersion.findMany({ where: { pageId: persisted.id } });
-          assert.ok(versions.length >= 3);
-          assert.ok(versions.every((version) => version.folderId !== null));
-          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 4n);
-          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 4);
-          assert.equal((await prisma.syncRevisionPageRow.findFirstOrThrow({
-            where: { revisionId: restoredResult.revision, pageId: knowledgeKey },
-          })).folderId, archiveFolder.id);
-
-          const stablePageCount = await prisma.page.count({ where: { spaceId } });
-          const stableVersionCount = await prisma.pageVersion.count({ where: { pageId: persisted.id } });
-          const stableAliasCount = await prisma.pagePathAlias.count({ where: { pageId: persisted.id } });
-          const rejected = await stagePush(spaceId, 'obsidian-reject', [{
+        await t.test('Obsidian v1 rejects active Folders before any finalize write', async () => {
+          const spaceId = await createSpace('obsidian-v1-upgrade');
+          const folder = await seedFolder(spaceId, 'Project');
+          const staged = await stagePush(spaceId, 'obsidian-v1-upgrade', [{
             operation: 'upsert', pageId: `obsidian-rejected-${suffix}`,
-            path: 'pages/Missing/Rejected.md', title: 'Rejected', body: '# Rejected',
+            path: 'pages/Project/Rejected.md', title: 'Rejected', body: '# Rejected',
           }]);
+          const stable = {
+            pages: await prisma.page.count({ where: { spaceId } }),
+            revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }),
+            changeSets: await prisma.changeSet.count({ where: { spaceId } }),
+          };
           await expectCode(
-            pushes.finalize(devicePrincipal, spaceId, rejected.sessionId, rejected.hash),
-            'PAYLOAD_INVALID',
+            pushes.finalize(devicePrincipal, spaceId, staged.sessionId, staged.hash),
+            'SYNC_PROTOCOL_UPGRADE_REQUIRED',
           );
+          assert.equal(await prisma.folder.count({ where: { id: folder.id, deletedAt: null } }), 1);
+          assert.equal(await prisma.page.count({ where: { spaceId } }), stable.pages);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), stable.revisions);
+          assert.equal(await prisma.changeSet.count({ where: { spaceId } }), stable.changeSets);
           assert.equal((await prisma.pushSession.findUniqueOrThrow({
-            where: { id: rejected.sessionId },
+            where: { id: staged.sessionId },
           })).status, 'ready_to_finalize');
-          assert.equal(await prisma.page.count({ where: { spaceId } }), stablePageCount);
-          assert.equal(await prisma.pageVersion.count({ where: { pageId: persisted.id } }), stableVersionCount);
-          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: persisted.id } }), stableAliasCount);
-          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 4n);
-          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 4);
         });
 
         await t.test('Obsidian rejects a real Folder-deletion-batch Page before Page, alias, ChangeSet, or revision writes', async () => {
@@ -603,7 +540,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.pushSession.findUniqueOrThrow({ where: { id: staged.sessionId } })).status, 'ready_to_finalize');
         });
 
-        await t.test('Obsidian finalize waiting behind a writer observes the committed head before its no-op branch', async () => {
+        await t.test('Obsidian v1 finalize waiting behind a writer observes the committed Folder gate', async () => {
           const spaceId = await createSpace('obsidian-writer-first');
           const created = await pages.create({
             title: 'Would be no-op', content: '# Would be no-op', spaceId,
@@ -645,12 +582,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           }, { timeout: 120_000 });
           await writerLocked;
 
-          const originalLockPageMutationSpace = contentTree.lockPageMutationSpace;
+          const originalLockSyncMutationSpace = contentTree.lockSyncMutationSpace;
           let finalizeEnteredResolve;
           const finalizeEntered = new Promise((resolve) => { finalizeEnteredResolve = resolve; });
-          contentTree.lockPageMutationSpace = async (...args) => {
+          contentTree.lockSyncMutationSpace = async (...args) => {
             finalizeEnteredResolve();
-            return originalLockPageMutationSpace.call(contentTree, ...args);
+            return originalLockSyncMutationSpace.call(contentTree, ...args);
           };
           let finalizePromise;
           try {
@@ -665,315 +602,15 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             );
             releaseWriterResolve();
             await writerTransaction;
-            await expectCode(finalizePromise, 'BASE_STALE');
+            await expectCode(finalizePromise, 'SYNC_PROTOCOL_UPGRADE_REQUIRED');
           } finally {
             releaseWriterResolve();
-            contentTree.lockPageMutationSpace = originalLockPageMutationSpace;
+            contentTree.lockSyncMutationSpace = originalLockSyncMutationSpace;
           }
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 2n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
           assert.equal((await prisma.pushSession.findUniqueOrThrow({ where: { id: staged.sessionId } })).status, 'ready_to_finalize');
           assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: created.id } })).content, '# Would be no-op');
-        });
-
-        await t.test('real Obsidian ChangeSets revert create, update, and archive with complete Page snapshots', async () => {
-          const finalize = async (spaceId, label, changes) => {
-            const staged = await stagePush(spaceId, label, changes);
-            return pushes.finalize(
-              devicePrincipal, spaceId, staged.sessionId, staged.hash,
-            );
-          };
-          const revisionState = async (spaceId) => ({
-            tree: (await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision,
-            sync: await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }),
-          });
-
-          const createSpaceId = await createSpace('obsidian-revert-create');
-          const createFolder = await seedFolder(createSpaceId, 'Created');
-          const createKnowledgeKey = `obsidian-revert-created-${suffix}`;
-          const createdResult = await finalize(createSpaceId, 'obsidian-revert-create', [{
-            operation: 'upsert',
-            pageId: createKnowledgeKey,
-            path: 'pages/Created/Created by Obsidian.md',
-            title: 'Created by Obsidian',
-            body: '# Created by Obsidian',
-          }]);
-          assert.ok(createdResult.changeSetId);
-          let createdPage = await prisma.page.findUniqueOrThrow({
-            where: { knowledgeKey: createKnowledgeKey },
-          });
-          assert.equal(createdPage.folderId, createFolder.id);
-          assert.equal(createdPage.syncPath, 'pages/Created/Created by Obsidian.md');
-          assert.equal(createdPage.content, '# Created by Obsidian');
-          assert.equal(createdPage.sourceChangeSetId, createdResult.changeSetId);
-          assert.equal(createdPage.lastChangeSetId, createdResult.changeSetId);
-          assert.deepEqual(await revisionState(createSpaceId), { tree: 1n, sync: 1 });
-
-          await reviews.revert(createdResult.changeSetId, '1');
-          createdPage = await prisma.page.findUniqueOrThrow({ where: { id: createdPage.id } });
-          assert.ok(createdPage.deletedAt);
-          assert.equal(createdPage.folderId, createFolder.id);
-          assert.equal(createdPage.syncPath, 'pages/Created/Created by Obsidian.md');
-          assert.equal(createdPage.sourceChangeSetId, createdResult.changeSetId);
-          assert.equal(createdPage.lastChangeSetId, createdResult.changeSetId);
-          const createdRevertVersion = await prisma.pageVersion.findFirstOrThrow({
-            where: { pageId: createdPage.id }, orderBy: { createdAt: 'desc' },
-          });
-          assert.equal(createdRevertVersion.folderId, createFolder.id);
-          assert.equal(createdRevertVersion.syncPath, 'pages/Created/Created by Obsidian.md');
-          assert.equal(createdRevertVersion.content, '# Created by Obsidian');
-          assert.equal(createdRevertVersion.slug, createdPage.slug);
-          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: createdPage.id } }), 0);
-          assert.deepEqual(await revisionState(createSpaceId), { tree: 2n, sync: 2 });
-          assert.equal((await prisma.changeSet.findUniqueOrThrow({
-            where: { id: createdResult.changeSetId },
-          })).status, 'reverted');
-
-          const updateSpaceId = await createSpace('obsidian-revert-update');
-          const updateOldFolder = await seedFolder(updateSpaceId, 'Old');
-          const updateNewFolder = await seedFolder(updateSpaceId, 'New');
-          const updateCreated = await pages.create({
-            title: 'Original title', content: '# Original body', spaceId: updateSpaceId,
-            folderId: updateOldFolder.id, expectedTreeRevision: '0',
-          }, principal);
-          const updateBefore = await prisma.page.findUniqueOrThrow({
-            where: { id: updateCreated.id },
-          });
-          const updateResult = await finalize(updateSpaceId, 'obsidian-revert-update', [{
-            operation: 'upsert',
-            pageId: updateBefore.knowledgeKey,
-            path: 'pages/New/Renamed by Obsidian.md',
-            title: 'Renamed by Obsidian',
-            body: '# Updated body',
-          }]);
-          let updatedPage = await prisma.page.findUniqueOrThrow({ where: { id: updateBefore.id } });
-          assert.equal(updatedPage.folderId, updateNewFolder.id);
-          assert.equal(updatedPage.syncPath, 'pages/New/Renamed by Obsidian.md');
-          assert.equal(updatedPage.content, '# Updated body');
-          assert.equal(updatedPage.sourceChangeSetId, updateBefore.sourceChangeSetId);
-          assert.equal(updatedPage.lastChangeSetId, updateResult.changeSetId);
-          const updateSnapshot = await prisma.pageVersion.findFirstOrThrow({
-            where: { pageId: updateBefore.id }, orderBy: { createdAt: 'desc' },
-          });
-          assert.equal(updateSnapshot.slug, updateBefore.slug);
-          assert.equal(updateSnapshot.folderId, updateOldFolder.id);
-          assert.equal(updateSnapshot.syncPath, updateBefore.syncPath);
-          assert.deepEqual(await revisionState(updateSpaceId), { tree: 2n, sync: 2 });
-
-          const stalePageState = {
-            title: updatedPage.title,
-            content: updatedPage.content,
-            folderId: updatedPage.folderId,
-            syncPath: updatedPage.syncPath,
-            sourceChangeSetId: updatedPage.sourceChangeSetId,
-            lastChangeSetId: updatedPage.lastChangeSetId,
-          };
-          const staleAliases = await prisma.pagePathAlias.findMany({
-            where: { pageId: updatedPage.id }, orderBy: { path: 'asc' },
-          });
-          const staleVersions = await prisma.pageVersion.count({ where: { pageId: updatedPage.id } });
-          await expectCode(reviews.revert(updateResult.changeSetId, '1'), 'CONTENT_TREE_CONFLICT');
-          updatedPage = await prisma.page.findUniqueOrThrow({ where: { id: updatedPage.id } });
-          assert.deepEqual({
-            title: updatedPage.title,
-            content: updatedPage.content,
-            folderId: updatedPage.folderId,
-            syncPath: updatedPage.syncPath,
-            sourceChangeSetId: updatedPage.sourceChangeSetId,
-            lastChangeSetId: updatedPage.lastChangeSetId,
-          }, stalePageState);
-          assert.deepEqual(await prisma.pagePathAlias.findMany({
-            where: { pageId: updatedPage.id }, orderBy: { path: 'asc' },
-          }), staleAliases);
-          assert.equal(await prisma.pageVersion.count({ where: { pageId: updatedPage.id } }), staleVersions);
-          assert.deepEqual(await revisionState(updateSpaceId), { tree: 2n, sync: 2 });
-          assert.equal((await prisma.changeSet.findUniqueOrThrow({
-            where: { id: updateResult.changeSetId },
-          })).status, 'published');
-
-          await reviews.revert(updateResult.changeSetId, '2');
-          updatedPage = await prisma.page.findUniqueOrThrow({ where: { id: updatedPage.id } });
-          assert.equal(updatedPage.title, updateBefore.title);
-          assert.equal(updatedPage.slug, updateBefore.slug);
-          assert.equal(updatedPage.content, updateBefore.content);
-          assert.equal(updatedPage.format, updateBefore.format);
-          assert.equal(updatedPage.folderId, updateOldFolder.id);
-          assert.equal(updatedPage.parentId, null);
-          assert.equal(updatedPage.syncPath, updateBefore.syncPath);
-          assert.equal(updatedPage.deletedAt, null);
-          assert.equal(updatedPage.sourceChangeSetId, updateBefore.sourceChangeSetId);
-          assert.equal(updatedPage.lastChangeSetId, updateBefore.lastChangeSetId);
-          const updateAliases = (await prisma.pagePathAlias.findMany({
-            where: { pageId: updatedPage.id }, orderBy: { path: 'asc' },
-          })).map((alias) => alias.path);
-          assert.deepEqual(updateAliases, [
-            'pages/New/Renamed by Obsidian.md',
-            'pages/Old/Original title.md',
-          ]);
-          assert.deepEqual(await revisionState(updateSpaceId), { tree: 3n, sync: 3 });
-
-          const archiveSpaceId = await createSpace('obsidian-revert-archive');
-          const archiveFolder = await seedFolder(archiveSpaceId, 'Archive');
-          const archiveCreated = await pages.create({
-            title: 'Archive original', content: '# Archive original', spaceId: archiveSpaceId,
-            folderId: archiveFolder.id, expectedTreeRevision: '0',
-          }, principal);
-          const archiveBefore = await prisma.page.findUniqueOrThrow({
-            where: { id: archiveCreated.id },
-          });
-          const archiveResult = await finalize(archiveSpaceId, 'obsidian-revert-archive', [{
-            operation: 'archive',
-            pageId: archiveBefore.knowledgeKey,
-            previousPath: archiveBefore.syncPath,
-          }]);
-          let archivedPage = await prisma.page.findUniqueOrThrow({ where: { id: archiveBefore.id } });
-          assert.ok(archivedPage.deletedAt);
-          assert.equal(archivedPage.folderId, archiveFolder.id);
-          assert.equal(archivedPage.sourceChangeSetId, archiveBefore.sourceChangeSetId);
-          assert.equal(archivedPage.lastChangeSetId, archiveResult.changeSetId);
-          assert.deepEqual(await revisionState(archiveSpaceId), { tree: 2n, sync: 2 });
-
-          await reviews.revert(archiveResult.changeSetId, '2');
-          archivedPage = await prisma.page.findUniqueOrThrow({ where: { id: archivedPage.id } });
-          assert.equal(archivedPage.deletedAt, null);
-          assert.equal(archivedPage.title, archiveBefore.title);
-          assert.equal(archivedPage.content, archiveBefore.content);
-          assert.equal(archivedPage.folderId, archiveFolder.id);
-          assert.equal(archivedPage.syncPath, archiveBefore.syncPath);
-          assert.equal(archivedPage.sourceChangeSetId, archiveBefore.sourceChangeSetId);
-          assert.equal(archivedPage.lastChangeSetId, archiveBefore.lastChangeSetId);
-          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: archivedPage.id } }), 0);
-          assert.deepEqual(await revisionState(archiveSpaceId), { tree: 3n, sync: 3 });
-
-          const restoredSpaceId = await createSpace('obsidian-revert-restored-archive');
-          const restoredOldFolder = await seedFolder(restoredSpaceId, 'Original');
-          const restoredNewFolder = await seedFolder(restoredSpaceId, 'Restored');
-          const restoredCreated = await pages.create({
-            title: 'Archived before restore', content: '# Archived before restore', spaceId: restoredSpaceId,
-            folderId: restoredOldFolder.id, expectedTreeRevision: '0',
-          }, principal);
-          const restoredArchiveResult = await finalize(restoredSpaceId, 'obsidian-restored-archive', [{
-            operation: 'archive',
-            pageId: restoredCreated.knowledgeKey,
-            previousPath: restoredCreated.syncPath,
-          }]);
-          const restoredBefore = await prisma.page.findUniqueOrThrow({ where: { id: restoredCreated.id } });
-          assert.ok(restoredBefore.deletedAt);
-          assert.equal(restoredBefore.lastChangeSetId, restoredArchiveResult.changeSetId);
-          const restoredResult = await finalize(restoredSpaceId, 'obsidian-restored-upsert', [{
-            operation: 'upsert',
-            pageId: restoredCreated.knowledgeKey,
-            path: 'pages/Restored/Active after restore.md',
-            title: 'Active after restore',
-            body: '# Active after restore',
-          }]);
-          let restoredPage = await prisma.page.findUniqueOrThrow({ where: { id: restoredCreated.id } });
-          assert.equal(restoredPage.deletedAt, null);
-          assert.equal(restoredPage.folderId, restoredNewFolder.id);
-          assert.equal(restoredPage.syncPath, 'pages/Restored/Active after restore.md');
-          assert.equal(restoredPage.sourceChangeSetId, restoredBefore.sourceChangeSetId);
-          assert.equal(restoredPage.lastChangeSetId, restoredResult.changeSetId);
-          const restoredChangeSet = await prisma.changeSet.findUniqueOrThrow({
-            where: { id: restoredResult.changeSetId }, include: { items: true },
-          });
-          assert.equal(restoredChangeSet.items.length, 1);
-          assert.equal(restoredChangeSet.items[0].type, 'update_page');
-          assert.equal(restoredChangeSet.items[0].payload.before.restoredFromArchive, true);
-          assert.equal(restoredChangeSet.items[0].payload.before.slug, restoredBefore.slug);
-          assert.equal(restoredChangeSet.items[0].payload.before.folderId, restoredOldFolder.id);
-          assert.equal(restoredChangeSet.items[0].payload.before.syncPath, restoredBefore.syncPath);
-          assert.equal(restoredChangeSet.items[0].payload.before.deletedAt, restoredBefore.deletedAt.toISOString());
-          assert.equal(restoredChangeSet.items[0].payload.before.sourceChangeSetId, restoredBefore.sourceChangeSetId);
-          assert.equal(restoredChangeSet.items[0].payload.before.lastChangeSetId, restoredBefore.lastChangeSetId);
-          assert.deepEqual(await revisionState(restoredSpaceId), { tree: 3n, sync: 3 });
-
-          const restoredStaleState = restoredPage;
-          const restoredStaleVersions = await prisma.pageVersion.count({ where: { pageId: restoredPage.id } });
-          const restoredStaleAliases = await prisma.pagePathAlias.findMany({
-            where: { pageId: restoredPage.id }, orderBy: { path: 'asc' },
-          });
-          await expectCode(reviews.revert(restoredResult.changeSetId, '2'), 'CONTENT_TREE_CONFLICT');
-          assert.deepEqual(await prisma.page.findUniqueOrThrow({ where: { id: restoredPage.id } }), restoredStaleState);
-          assert.equal(await prisma.pageVersion.count({ where: { pageId: restoredPage.id } }), restoredStaleVersions);
-          assert.deepEqual(await prisma.pagePathAlias.findMany({
-            where: { pageId: restoredPage.id }, orderBy: { path: 'asc' },
-          }), restoredStaleAliases);
-          assert.equal((await prisma.changeSet.findUniqueOrThrow({
-            where: { id: restoredResult.changeSetId },
-          })).status, 'published');
-
-          await reviews.revert(restoredResult.changeSetId, '3');
-          restoredPage = await prisma.page.findUniqueOrThrow({ where: { id: restoredPage.id } });
-          assert.equal(restoredPage.title, restoredBefore.title);
-          assert.equal(restoredPage.slug, restoredBefore.slug);
-          assert.equal(restoredPage.content, restoredBefore.content);
-          assert.equal(restoredPage.folderId, restoredOldFolder.id);
-          assert.equal(restoredPage.parentId, null);
-          assert.equal(restoredPage.syncPath, restoredBefore.syncPath);
-          assert.equal(restoredPage.deletedAt?.toISOString(), restoredBefore.deletedAt.toISOString());
-          assert.equal(restoredPage.deletionBatchId, restoredBefore.deletionBatchId);
-          assert.equal(restoredPage.sourceChangeSetId, restoredBefore.sourceChangeSetId);
-          assert.equal(restoredPage.lastChangeSetId, restoredBefore.lastChangeSetId);
-          assert.equal((await prisma.pagePathAlias.findFirstOrThrow({
-            where: { pageId: restoredPage.id, pathKey: pathKey('pages/Restored/Active after restore.md') },
-          })).path, 'pages/Restored/Active after restore.md');
-          assert.equal(await prisma.pagePathAlias.count({
-            where: { pageId: restoredPage.id, pathKey: pathKey(restoredBefore.syncPath) },
-          }), 1);
-          const restoredRevertVersion = await prisma.pageVersion.findFirstOrThrow({
-            where: { pageId: restoredPage.id }, orderBy: { createdAt: 'desc' },
-          });
-          assert.equal(restoredRevertVersion.folderId, restoredNewFolder.id);
-          assert.equal(restoredRevertVersion.syncPath, 'pages/Restored/Active after restore.md');
-          assert.deepEqual(await revisionState(restoredSpaceId), { tree: 4n, sync: 4 });
-
-          const collisionSpaceId = await createSpace('obsidian-revert-collision');
-          const collisionOldFolder = await seedFolder(collisionSpaceId, 'Old');
-          const collisionNewFolder = await seedFolder(collisionSpaceId, 'New');
-          const collisionCreated = await pages.create({
-            title: 'Collision original', content: '# Original', spaceId: collisionSpaceId,
-            folderId: collisionOldFolder.id, expectedTreeRevision: '0',
-          }, principal);
-          const collisionBefore = await prisma.page.findUniqueOrThrow({
-            where: { id: collisionCreated.id },
-          });
-          await finalize(collisionSpaceId, 'obsidian-revert-collision-archive', [{
-            operation: 'archive',
-            pageId: collisionBefore.knowledgeKey,
-            previousPath: collisionBefore.syncPath,
-          }]);
-          const collisionResult = await finalize(collisionSpaceId, 'obsidian-revert-collision-restore', [{
-            operation: 'upsert',
-            pageId: collisionBefore.knowledgeKey,
-            path: 'pages/New/Collision moved.md',
-            title: 'Collision moved',
-            body: '# Moved',
-          }]);
-          await pages.create({
-            title: 'Collision original', content: '# Blocker', spaceId: collisionSpaceId,
-            folderId: collisionOldFolder.id, expectedTreeRevision: '3',
-          }, principal);
-          const collisionPage = await prisma.page.findUniqueOrThrow({
-            where: { id: collisionBefore.id },
-          });
-          const collisionVersions = await prisma.pageVersion.count({
-            where: { pageId: collisionBefore.id },
-          });
-          const collisionAliases = await prisma.pagePathAlias.findMany({
-            where: { pageId: collisionBefore.id }, orderBy: { path: 'asc' },
-          });
-          await expectCode(reviews.revert(collisionResult.changeSetId, '4'), 'CONTENT_TREE_CONFLICT');
-          assert.deepEqual(await prisma.page.findUniqueOrThrow({
-            where: { id: collisionBefore.id },
-          }), collisionPage);
-          assert.equal(await prisma.pageVersion.count({ where: { pageId: collisionBefore.id } }), collisionVersions);
-          assert.deepEqual(await prisma.pagePathAlias.findMany({
-            where: { pageId: collisionBefore.id }, orderBy: { path: 'asc' },
-          }), collisionAliases);
-          assert.equal((await prisma.changeSet.findUniqueOrThrow({
-            where: { id: collisionResult.changeSetId },
-          })).status, 'published');
-          assert.deepEqual(await revisionState(collisionSpaceId), { tree: 4n, sync: 4 });
         });
 
         await t.test('Review publish commits Page placement once and rolls claim/Page/revisions back on a structural writer failure', async () => {
@@ -2005,6 +1642,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
         await t.test('Review submission publish binds Folder placement to one prebuilt Sync revision and rolls it back with tree CAS failure', async () => {
           const spaceId = await createSpace('review-submission');
           const folder = await seedFolder(spaceId, 'Imported');
+          const emptyFolder = await seedFolder(spaceId, 'Empty');
           const makeSubmissionSet = async (title) => {
             const changeSet = await prisma.changeSet.create({ data: {
               title,
@@ -2054,6 +1692,28 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             where: { revisionId: submission.appliedRevisionId, pageId: page.knowledgeKey },
           });
           assert.equal(revisionRow.folderId, folder.id);
+          const [headV2, snapshotV2, deltaV2] = await Promise.all([
+            syncV2Revisions.head(spaceId),
+            syncV2Revisions.snapshot(spaceId, submission.appliedRevisionId, undefined, 100),
+            syncV2Revisions.delta(spaceId, '0', undefined, 100),
+          ]);
+          assert.equal(headV2.revision, submission.appliedRevisionId);
+          assert.equal(headV2.folderCount, '2');
+          assert.equal(headV2.pageCount, '1');
+          assert.deepEqual(snapshotV2.folders.map((item) => item.folderId).sort(), [
+            emptyFolder.id, folder.id,
+          ].sort());
+          assert.deepEqual(snapshotV2.pages.map((item) => item.pageId), [page.knowledgeKey]);
+          assert.equal(snapshotV2.revisionContentHash, headV2.revisionContentHash);
+          assert.equal(deltaV2.toRevisionContentHash, headV2.revisionContentHash);
+          assert.deepEqual(deltaV2.items.map((item) => item.operation), [
+            'upsert_folder', 'upsert_folder', 'upsert_page',
+          ]);
+          const sidecar = await prisma.legacyRevisionSidecar.findUniqueOrThrow({
+            where: { revisionId: submission.appliedRevisionId },
+          });
+          assert.equal(sidecar.sidecar.spaceFolderMigration.v2Revision.folderCount, '2');
+          assert.equal(sidecar.sidecar.spaceFolderMigration.v2Revision.treeDeltaCount, '3');
 
           const rollback = await makeSubmissionSet('Submission rollback');
           const originalAdvanceTree = writer.advanceContentTreeRevision;
