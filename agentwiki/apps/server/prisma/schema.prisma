@@ -397,7 +397,7 @@ model Page {
   parentId  String?
   children  Page[]  @relation("PageChildren")
   folderId  String?
-  folder    Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folder    Folder? @relation(fields: [folderId, spaceId], references: [id, spaceId], onDelete: NoAction)
   sortOrder Int     @default(0)
 
   space    Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
@@ -411,7 +411,7 @@ model Page {
   pathAliases PagePathAlias[]
 
   deletionBatchId String?
-  deletionBatch   ContentDeletionBatch? @relation(fields: [deletionBatchId], references: [id], onDelete: SetNull)
+  deletionBatch   ContentDeletionBatch? @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
 
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -448,6 +448,7 @@ model Page {
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
   @@unique([spaceId, syncPathKey])
+  @@unique([id, spaceId])
   @@index([sourceId, sourceVersionId])
   @@index([sourceTemplateId, sourceTemplateVersion])
   @@index([spaceId, deletedAt, sortOrder])
@@ -480,10 +481,10 @@ model Folder {
   pages               Page[]
   createdByUser       User?                  @relation("FolderCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByAgent      Agent?                 @relation("FolderCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  sourceChangeSet     ChangeSet?             @relation("FolderOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  sourceChangeSet     ChangeSet?             @relation("FolderOriginChangeSet", fields: [sourceChangeSetId, spaceId], references: [id, spaceId], onDelete: NoAction)
   lastModifiedByUser  User?                  @relation("FolderLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
   lastModifiedByAgent Agent?                 @relation("FolderLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
-  deletionBatch       ContentDeletionBatch?  @relation(fields: [deletionBatchId], references: [id], onDelete: SetNull)
+  deletionBatch       ContentDeletionBatch?  @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
   rootDeletionBatches ContentDeletionBatch[] @relation("ContentDeletionBatchRootFolder")
 
   @@unique([id, spaceId])
@@ -502,7 +503,7 @@ model PagePathAlias {
   expiresAt DateTime?
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  page  Page  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  page  Page  @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Cascade)
 
   @@unique([spaceId, pathKey, pageId])
   @@index([spaceId, pathKey, expiresAt])
@@ -523,10 +524,11 @@ model ContentDeletionBatch {
   restoredAt          DateTime?
 
   space      Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  rootFolder Folder   @relation("ContentDeletionBatchRootFolder", fields: [rootFolderId], references: [id], onDelete: Cascade)
+  rootFolder Folder   @relation("ContentDeletionBatchRootFolder", fields: [rootFolderId, spaceId], references: [id, spaceId], onDelete: Cascade)
   folders    Folder[]
   pages      Page[]
 
+  @@unique([id, spaceId])
   @@index([spaceId, restoredAt, createdAt(sort: Desc)])
   @@index([rootFolderId, createdAt(sort: Desc)])
 }
@@ -834,6 +836,7 @@ model ChangeSet {
 
   humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
 
+  @@unique([id, spaceId])
   @@index([spaceId, status, createdAt])
 }
 

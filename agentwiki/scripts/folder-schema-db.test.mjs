@@ -84,6 +84,156 @@ test('Folder harness creates and removes only generated schemas', {
   assert.equal(await countFolderTestSchemas(baseDatabaseUrl), before);
 });
 
+test('Folder Space-scoped relations reject cross-Space targets', {
+  skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const suffix = schemaName.replace('folder_test_', '');
+    const ids = Object.fromEntries([
+      'user', 'spaceA', 'spaceB', 'changeA', 'changeB', 'folderA', 'folderB',
+      'pageA', 'pageB', 'batchB',
+    ].map((name) => [name, `${name}_${suffix}`]));
+    try {
+      await prisma.user.create({
+        data: { id: ids.user, email: `${ids.user}@folder-relations.test` },
+      });
+      await prisma.space.createMany({ data: [
+        { id: ids.spaceA, name: 'Space A', slug: ids.spaceA },
+        { id: ids.spaceB, name: 'Space B', slug: ids.spaceB },
+      ] });
+      await prisma.changeSet.createMany({ data: [
+        { id: ids.changeA, title: 'Change A', spaceId: ids.spaceA },
+        { id: ids.changeB, title: 'Change B', spaceId: ids.spaceB },
+      ] });
+      await prisma.folder.createMany({ data: [
+        {
+          id: ids.folderA,
+          spaceId: ids.spaceA,
+          name: 'Folder A',
+          nameKey: 'folder a',
+          path: 'pages/Folder A',
+          pathKey: 'pages/folder a',
+          sourceChangeSetId: ids.changeA,
+        },
+        {
+          id: ids.folderB,
+          spaceId: ids.spaceB,
+          name: 'Folder B',
+          nameKey: 'folder b',
+          path: 'pages/Folder B',
+          pathKey: 'pages/folder b',
+          sourceChangeSetId: ids.changeB,
+        },
+      ] });
+      await prisma.page.createMany({ data: [
+        {
+          id: ids.pageA,
+          title: 'Page A',
+          slug: ids.pageA,
+          spaceId: ids.spaceA,
+          authorId: ids.user,
+          folderId: ids.folderA,
+          syncPath: 'pages/Folder A/Page A.md',
+          syncPathKey: 'pages/folder a/page a.md',
+        },
+        {
+          id: ids.pageB,
+          title: 'Page B',
+          slug: ids.pageB,
+          spaceId: ids.spaceB,
+          authorId: ids.user,
+          folderId: ids.folderB,
+          syncPath: 'pages/Folder B/Page B.md',
+          syncPathKey: 'pages/folder b/page b.md',
+        },
+      ] });
+      await prisma.contentDeletionBatch.create({ data: {
+        id: ids.batchB,
+        spaceId: ids.spaceB,
+        rootFolderId: ids.folderB,
+        deletedByUserId: ids.user,
+        deletedTreeRevision: 1n,
+        folderCount: 1,
+        pageCount: 1,
+        impactHash: 'b'.repeat(64),
+      } });
+
+      await assert.rejects(
+        prisma.folder.update({
+          where: { id: ids.folderA },
+          data: { sourceChangeSetId: ids.changeB },
+        }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.page.update({ where: { id: ids.pageA }, data: { folderId: ids.folderB } }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.pagePathAlias.create({ data: {
+          spaceId: ids.spaceA,
+          pageId: ids.pageB,
+          path: 'pages/Wrong Space.md',
+          pathKey: 'pages/wrong space.md',
+        } }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.contentDeletionBatch.create({ data: {
+          spaceId: ids.spaceA,
+          rootFolderId: ids.folderB,
+          deletedByUserId: ids.user,
+          deletedTreeRevision: 2n,
+          folderCount: 1,
+          pageCount: 0,
+          impactHash: 'c'.repeat(64),
+        } }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.folder.update({
+          where: { id: ids.folderA },
+          data: { deletionBatchId: ids.batchB },
+        }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.page.update({
+          where: { id: ids.pageA },
+          data: { deletionBatchId: ids.batchB },
+        }),
+        /foreign key|constraint/iu,
+      );
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('upsert_page tree deltas reject a NULL contentHash', {
+  skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    try {
+      await assert.rejects(
+        prisma.syncRevisionTreeDeltaRow.create({ data: {
+          revisionId: 'revision_missing_hash',
+          ordinal: 0,
+          operation: 'upsert_page',
+          pageId: 'page_missing_hash',
+        } }),
+        /check|constraint/iu,
+      );
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('Folder migration enforces hierarchy, aliases, deletion batches, revisions, and cascades', {
   skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
   timeout: 120_000,

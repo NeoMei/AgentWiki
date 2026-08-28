@@ -89,6 +89,9 @@ CREATE INDEX "Folder_deletionBatchId_idx" ON "Folder"("deletionBatchId");
 CREATE INDEX "Folder_sourceChangeSetId_idx" ON "Folder"("sourceChangeSetId");
 CREATE UNIQUE INDEX "Folder_id_spaceId_key" ON "Folder"("id", "spaceId");
 
+CREATE UNIQUE INDEX "Page_id_spaceId_key" ON "Page"("id", "spaceId");
+CREATE UNIQUE INDEX "ChangeSet_id_spaceId_key" ON "ChangeSet"("id", "spaceId");
+
 CREATE UNIQUE INDEX "PagePathAlias_spaceId_pathKey_pageId_key"
   ON "PagePathAlias"("spaceId", "pathKey", "pageId");
 CREATE INDEX "PagePathAlias_spaceId_pathKey_expiresAt_idx"
@@ -100,6 +103,8 @@ CREATE INDEX "ContentDeletionBatch_spaceId_restoredAt_createdAt_idx"
   ON "ContentDeletionBatch"("spaceId", "restoredAt", "createdAt" DESC);
 CREATE INDEX "ContentDeletionBatch_rootFolderId_createdAt_idx"
   ON "ContentDeletionBatch"("rootFolderId", "createdAt" DESC);
+CREATE UNIQUE INDEX "ContentDeletionBatch_id_spaceId_key"
+  ON "ContentDeletionBatch"("id", "spaceId");
 
 CREATE INDEX "Page_spaceId_folderId_deletedAt_sortOrder_id_idx"
   ON "Page"("spaceId", "folderId", "deletedAt", "sortOrder", "id");
@@ -158,7 +163,7 @@ ALTER TABLE "SyncRevisionTreeDeltaRow" ADD CONSTRAINT "SyncRevisionTreeDeltaRow_
   );
 ALTER TABLE "SyncRevisionTreeDeltaRow" ADD CONSTRAINT "SyncRevisionTreeDeltaRow_content_hash_check"
   CHECK (
-    ("operation" = 'upsert_page' AND "contentHash" ~ '^[0-9a-f]{64}$')
+    ("operation" = 'upsert_page' AND "contentHash" IS NOT NULL AND "contentHash" ~ '^[0-9a-f]{64}$')
     OR
     ("operation" <> 'upsert_page' AND "contentHash" IS NULL)
   );
@@ -172,7 +177,7 @@ ALTER TABLE "Folder" ADD CONSTRAINT "Folder_createdByUserId_fkey"
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_createdByAgentId_fkey"
   FOREIGN KEY ("createdByAgentId") REFERENCES "Agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_sourceChangeSetId_fkey"
-  FOREIGN KEY ("sourceChangeSetId") REFERENCES "ChangeSet"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  FOREIGN KEY ("sourceChangeSetId", "spaceId") REFERENCES "ChangeSet"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_lastModifiedByUserId_fkey"
   FOREIGN KEY ("lastModifiedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_lastModifiedByAgentId_fkey"
@@ -181,18 +186,18 @@ ALTER TABLE "Folder" ADD CONSTRAINT "Folder_lastModifiedByAgentId_fkey"
 ALTER TABLE "PagePathAlias" ADD CONSTRAINT "PagePathAlias_spaceId_fkey"
   FOREIGN KEY ("spaceId") REFERENCES "Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "PagePathAlias" ADD CONSTRAINT "PagePathAlias_pageId_fkey"
-  FOREIGN KEY ("pageId") REFERENCES "Page"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("pageId", "spaceId") REFERENCES "Page"("id", "spaceId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "ContentDeletionBatch" ADD CONSTRAINT "ContentDeletionBatch_spaceId_fkey"
   FOREIGN KEY ("spaceId") REFERENCES "Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ContentDeletionBatch" ADD CONSTRAINT "ContentDeletionBatch_rootFolderId_fkey"
-  FOREIGN KEY ("rootFolderId") REFERENCES "Folder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("rootFolderId", "spaceId") REFERENCES "Folder"("id", "spaceId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_deletionBatchId_fkey"
-  FOREIGN KEY ("deletionBatchId") REFERENCES "ContentDeletionBatch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  FOREIGN KEY ("deletionBatchId", "spaceId") REFERENCES "ContentDeletionBatch"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 ALTER TABLE "Page" ADD CONSTRAINT "Page_folderId_fkey"
-  FOREIGN KEY ("folderId") REFERENCES "Folder"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  FOREIGN KEY ("folderId", "spaceId") REFERENCES "Folder"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 ALTER TABLE "Page" ADD CONSTRAINT "Page_deletionBatchId_fkey"
-  FOREIGN KEY ("deletionBatchId") REFERENCES "ContentDeletionBatch"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  FOREIGN KEY ("deletionBatchId", "spaceId") REFERENCES "ContentDeletionBatch"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 
 COMMIT;
