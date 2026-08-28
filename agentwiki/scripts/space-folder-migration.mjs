@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { lstat, open, rename, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+  canonicalBytes,
+  canonicalTreeRevisionManifestV2,
   foldCase,
   pathKey,
+  treeRevisionContentHashV2,
   validatePortableDirectoryPath,
   validatePortableMarkdownPath,
 } from '../packages/sync-protocol/dist/esm/index.js';
@@ -197,6 +200,15 @@ function normalizeInputHash(snapshot) {
       pathKey: folder.pathKey,
       deletedAt: iso(folder.deletedAt),
     })),
+    pathAliases: [...(snapshot.pathAliases ?? [])].sort(sortById).map((alias) => ({
+      id: alias.id,
+      spaceId: alias.spaceId,
+      pageId: alias.pageId,
+      path: alias.path,
+      pathKey: alias.pathKey,
+      createdAt: iso(alias.createdAt),
+      expiresAt: iso(alias.expiresAt),
+    })),
   };
   return sha256(JSON.stringify(canonical));
 }
@@ -213,24 +225,36 @@ function reject(rejections, code, message, details = {}) {
   rejections.push({ code, message, ...details });
 }
 
-function graphDepth(id, rowsById, parentFor, rejections, codes, visiting = new Set(), memo = new Map()) {
+function graphDepth(id, rowsById, parentFor, rejections, codes, memo = new Map()) {
   if (memo.has(id)) return memo.get(id);
-  if (visiting.has(id)) {
-    reject(rejections, codes.cycle, `Cycle detected at ${id}`, { id });
-    return Number.POSITIVE_INFINITY;
+  const chain = [];
+  const chainIndex = new Map();
+  let cursor = id;
+  let baseDepth = 0;
+  while (true) {
+    if (memo.has(cursor)) {
+      baseDepth = memo.get(cursor);
+      break;
+    }
+    if (chainIndex.has(cursor)) {
+      reject(rejections, codes.cycle, `Cycle detected at ${cursor}`, { id: cursor });
+      baseDepth = Number.POSITIVE_INFINITY;
+      break;
+    }
+    const row = rowsById.get(cursor);
+    if (!row) break;
+    chainIndex.set(cursor, chain.length);
+    chain.push(cursor);
+    const parentId = parentFor(row);
+    if (!parentId) break;
+    cursor = parentId;
   }
-  const row = rowsById.get(id);
-  if (!row) return 0;
-  const parentId = parentFor(row);
-  if (!parentId) {
-    memo.set(id, 1);
-    return 1;
+  let depth = baseDepth;
+  for (let index = chain.length - 1; index >= 0; index -= 1) {
+    depth = Number.isFinite(depth) ? depth + 1 : depth;
+    memo.set(chain[index], depth);
   }
-  visiting.add(id);
-  const depth = graphDepth(parentId, rowsById, parentFor, rejections, codes, visiting, memo) + 1;
-  visiting.delete(id);
-  memo.set(id, depth);
-  return depth;
+  return memo.get(id) ?? 0;
 }
 
 function validateExistingFolders(snapshot, activeFolders, allFoldersById, rejections) {
@@ -265,7 +289,6 @@ function validateExistingFolders(snapshot, activeFolders, allFoldersById, reject
       (entry) => entry.parentId,
       rejections,
       { cycle: 'FOLDER_CYCLE' },
-      new Set(),
       depths,
     );
     if (depth > maximumFolderDepth) {
@@ -329,23 +352,74 @@ function allocatePagePath(page, directory, occupied) {
   return null;
 }
 
+function emptyPlanCounts() {
+  return {
+    activePages: 0,
+    deletedPagesSkipped: 0,
+    existingActiveFolders: 0,
+    foldersToCreate: 0,
+    pagesMoved: 0,
+    aliasesToCreate: 0,
+    aliasesCreated: 0,
+    aliasesReused: 0,
+    aliasesRefreshed: 0,
+    aliasesPruned: 0,
+    pageVersionsToBackfill: 0,
+    affectedNodes: 0,
+  };
+}
+
+function completedMigrationEvidence(completedBatch, batchKey) {
+  const sidecar = completedBatch?.sidecar;
+  const migration = sidecar && typeof sidecar === 'object' && !Array.isArray(sidecar)
+    ? sidecar.spaceFolderMigration
+    : null;
+  if (
+    !completedBatch?.revisionId
+    || !migration
+    || typeof migration !== 'object'
+    || Array.isArray(migration)
+    || migration.version !== 1
+    || migration.status !== 'completed'
+    || migration.batchKey !== batchKey
+    || !/^[0-9a-f]{64}$/u.test(migration.inputHash ?? '')
+  ) return null;
+  return { revisionId: completedBatch.revisionId, inputHash: migration.inputHash };
+}
+
 export function buildSpaceFolderMigrationPlan(snapshot) {
   const batchKey = migrationBatchKey(snapshot.spaceId);
   if (snapshot.completedBatch) {
+    const evidence = completedMigrationEvidence(snapshot.completedBatch, batchKey);
+    if (!evidence) {
+      const report = {
+        version: 1,
+        status: 'rejected',
+        spaceId: snapshot.spaceId,
+        batchKey,
+        revisionId: snapshot.completedBatch.revisionId ?? null,
+        inputHash: null,
+        counts: emptyPlanCounts(),
+        transformations: [], collisions: [],
+        rejections: [{
+          code: 'MIGRATION_BATCH_EVIDENCE_INVALID',
+          message: 'Completed migration revision evidence is missing or malformed',
+        }],
+        folders: [], pages: [], aliases: [], pageVersionBackfills: [],
+        aliasRetention: [], aliasResolutions: [],
+      };
+      throw new SpaceFolderMigrationPreflightError(report);
+    }
     return {
       version: 1,
       status: 'completed',
       spaceId: snapshot.spaceId,
       batchKey,
-      revisionId: snapshot.completedBatch.revisionId,
-      inputHash: snapshot.completedBatch.inputHash ?? null,
-      counts: {
-        activePages: 0, deletedPagesSkipped: 0, existingActiveFolders: 0,
-        foldersToCreate: 0, pagesMoved: 0, aliasesToCreate: 0,
-        pageVersionsToBackfill: 0, affectedNodes: 0,
-      },
+      revisionId: evidence.revisionId,
+      inputHash: evidence.inputHash,
+      counts: emptyPlanCounts(),
       transformations: [], collisions: [], rejections: [], folders: [], pages: [],
-      aliases: [], pageVersionBackfills: [],
+      aliases: [], pageVersionBackfills: [], aliasRetention: [], aliasResolutions: [],
     };
   }
 
@@ -422,9 +496,50 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
       (entry) => entry.parentId,
       rejections,
       { cycle: 'LEGACY_PAGE_CYCLE' },
-      new Set(),
       currentPageDepths,
     );
+  }
+  const overDepthPage = activePages.find((page) => (
+    (currentPageDepths.get(page.id) ?? 0) > maximumFolderDepth + 1
+    && !rejections.some((entry) => entry.code === 'LEGACY_PAGE_CYCLE')
+  ));
+  if (overDepthPage) {
+    reject(rejections, 'FOLDER_DEPTH_LIMIT', 'Legacy translation exceeds 32 Folder levels', {
+      pageId: overDepthPage.id, depth: `>${maximumFolderDepth}`,
+    });
+  }
+  if (rejections.some((entry) => entry.code === 'LEGACY_PAGE_CYCLE' || entry.code === 'FOLDER_DEPTH_LIMIT')) {
+    const inputHash = normalizeInputHash(snapshot);
+    const report = {
+      version: 1,
+      status: 'rejected',
+      spaceId: snapshot.spaceId,
+      batchKey,
+      revisionId: null,
+      inputHash,
+      counts: {
+        ...emptyPlanCounts(),
+        activePages: activePages.length,
+        deletedPagesSkipped: deletedPages.length,
+        existingActiveFolders: activeFolders.length,
+      },
+      transformations,
+      collisions,
+      rejections,
+      folders: [],
+      pages: activePages.map((page) => ({
+        ...page,
+        oldFolderId: page.folderId,
+        oldSyncPath: page.syncPath,
+        oldSyncPathKey: page.syncPathKey,
+        needsMove: false,
+      })),
+      aliases: [],
+      pageVersionBackfills: [],
+      aliasRetention: [],
+      aliasResolutions: [],
+    };
+    throw new SpaceFolderMigrationPreflightError(report);
   }
 
   const requiredSources = [...requiredFolderSourceIds]
@@ -616,6 +731,24 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     });
   }
 
+  const existingAliases = [...(snapshot.pathAliases ?? [])].sort(sortById);
+  for (const alias of existingAliases) {
+    const owner = allPagesById.get(alias.pageId);
+    if (!owner || alias.spaceId !== snapshot.spaceId || owner.spaceId !== snapshot.spaceId) {
+      reject(rejections, 'PAGE_ALIAS_INVALID', 'Page path alias has a missing or cross-Space owner', {
+        aliasId: alias.id, pageId: alias.pageId,
+      });
+      continue;
+    }
+    try {
+      const portable = validatePortableMarkdownPath(alias.path);
+      if (portable.key !== alias.pathKey) {
+        reject(rejections, 'PAGE_ALIAS_INVALID', 'Page path alias key is inconsistent', { aliasId: alias.id });
+      }
+    } catch (error) {
+      reject(rejections, 'PAGE_ALIAS_INVALID', error.message, { aliasId: alias.id });
+    }
+  }
   const aliases = plannedPages
     .filter((page) => page.syncPath !== page.oldSyncPath)
     .map((page) => ({
@@ -623,7 +756,83 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
       spaceId: snapshot.spaceId,
       path: page.oldSyncPath,
       pathKey: pathKey(page.oldSyncPath),
-    }));
+    }))
+    .map((alias) => {
+      const existing = existingAliases.find((entry) => (
+        entry.pageId === alias.pageId && entry.pathKey === alias.pathKey
+      ));
+      return {
+        ...alias,
+        action: !existing
+          ? 'created'
+          : existing.expiresAt === null && existing.path === alias.path
+            ? 'reused'
+            : 'refreshed',
+        existingAliasId: existing?.id ?? null,
+      };
+    });
+
+  const effectiveAliasesByPage = new Map();
+  for (const alias of existingAliases) {
+    if (!effectiveAliasesByPage.has(alias.pageId)) effectiveAliasesByPage.set(alias.pageId, []);
+    effectiveAliasesByPage.get(alias.pageId).push({ ...alias, planned: false });
+  }
+  for (const alias of aliases) {
+    if (!effectiveAliasesByPage.has(alias.pageId)) effectiveAliasesByPage.set(alias.pageId, []);
+    const entries = effectiveAliasesByPage.get(alias.pageId);
+    const existingIndex = entries.findIndex((entry) => entry.pathKey === alias.pathKey);
+    const effective = {
+      id: alias.existingAliasId ?? `planned:${alias.pageId}:${alias.pathKey}`,
+      spaceId: alias.spaceId,
+      pageId: alias.pageId,
+      path: alias.path,
+      pathKey: alias.pathKey,
+      createdAt: null,
+      expiresAt: null,
+      planned: true,
+    };
+    if (existingIndex >= 0) entries.splice(existingIndex, 1, effective);
+    else entries.push(effective);
+  }
+  const aliasRetention = [];
+  const retainedAliases = [];
+  for (const [pageId, entries] of [...effectiveAliasesByPage].sort(([left], [right]) => compareBytes(left, right))) {
+    const sorted = [...entries].sort((left, right) => (
+      Number(right.planned) - Number(left.planned)
+      || (iso(right.createdAt) ?? '').localeCompare(iso(left.createdAt) ?? '')
+      || compareBytes(right.id, left.id)
+    ));
+    retainedAliases.push(...sorted.slice(0, 20));
+    const prunedAliasIds = sorted.slice(20)
+      .filter((entry) => !entry.planned)
+      .map((entry) => entry.id)
+      .sort(compareBytes);
+    if (prunedAliasIds.length > 0) aliasRetention.push({ pageId, prunedAliasIds });
+  }
+  const currentPagesByPath = new Map();
+  for (const page of plannedPages) {
+    if (!currentPagesByPath.has(page.syncPathKey)) currentPagesByPath.set(page.syncPathKey, []);
+    currentPagesByPath.get(page.syncPathKey).push(page.id);
+  }
+  const aliasesByPath = new Map();
+  for (const alias of retainedAliases) {
+    if (!aliasesByPath.has(alias.pathKey)) aliasesByPath.set(alias.pathKey, []);
+    aliasesByPath.get(alias.pathKey).push(alias);
+  }
+  const aliasResolutions = [];
+  for (const [aliasPathKey, entries] of aliasesByPath) {
+    const currentPageIds = [...(currentPagesByPath.get(aliasPathKey) ?? [])].sort(compareBytes);
+    const aliasPageIds = [...new Set(entries.map((entry) => entry.pageId))].sort(compareBytes);
+    if (currentPageIds.length === 0 && aliasPageIds.length < 2) continue;
+    aliasResolutions.push({
+      path: [...entries].sort((left, right) => compareBytes(left.path, right.path))[0].path,
+      pathKey: aliasPathKey,
+      currentPageIds,
+      aliasPageIds,
+      resolution: currentPageIds.length > 0 ? 'current-page' : 'ambiguous-alias',
+    });
+  }
+  aliasResolutions.sort((left, right) => compareBytes(left.pathKey, right.pathKey));
 
   const pageVersionBackfills = [];
   for (const version of versions) {
@@ -650,6 +859,10 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
   }
 
   const inputHash = normalizeInputHash(snapshot);
+  const aliasesCreated = aliases.filter((alias) => alias.action === 'created').length;
+  const aliasesReused = aliases.filter((alias) => alias.action === 'reused').length;
+  const aliasesRefreshed = aliases.filter((alias) => alias.action === 'refreshed').length;
+  const aliasesPruned = aliasRetention.reduce((sum, entry) => sum + entry.prunedAliasIds.length, 0);
   const report = {
     version: 1,
     status: rejections.length === 0 ? 'ready' : 'rejected',
@@ -663,7 +876,11 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
       existingActiveFolders: activeFolders.length,
       foldersToCreate: plannedFolders.length,
       pagesMoved,
-      aliasesToCreate: aliases.length,
+      aliasesToCreate: aliasesCreated,
+      aliasesCreated,
+      aliasesReused,
+      aliasesRefreshed,
+      aliasesPruned,
       pageVersionsToBackfill: pageVersionBackfills.length,
       affectedNodes,
     },
@@ -674,18 +891,11 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     pages: plannedPages,
     aliases,
     pageVersionBackfills,
+    aliasRetention,
+    aliasResolutions,
   };
   if (rejections.length > 0) throw new SpaceFolderMigrationPreflightError(report);
   return report;
-}
-
-function completedInputHash(sidecar) {
-  const value = sidecar?.sidecar;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const migration = value.spaceFolderMigration;
-  return migration && typeof migration === 'object' && !Array.isArray(migration)
-    ? migration.inputHash ?? null
-    : null;
 }
 
 async function findCompletedBatch(tx, spaceId) {
@@ -696,7 +906,7 @@ async function findCompletedBatch(tx, spaceId) {
   });
   if (!revision) return null;
   const sidecar = await tx.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } });
-  return { revisionId: revision.id, inputHash: completedInputHash(sidecar) };
+  return { revisionId: revision.id, sidecar: sidecar?.sidecar ?? null };
 }
 
 async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
@@ -705,7 +915,7 @@ async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
     return {
       spaceId,
       contentTreeRevision: knownContentTreeRevision ?? 0n,
-      pages: [], pageVersions: [], folders: [], referencedPages: [], referencedFolders: [],
+      pages: [], pageVersions: [], folders: [], pathAliases: [], referencedPages: [], referencedFolders: [],
       completedBatch,
     };
   }
@@ -725,9 +935,10 @@ async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
       rejections: [{ code: 'SPACE_NOT_FOUND', message: 'Space does not exist or is deleted' }],
     });
   }
-  const [pages, folders] = await Promise.all([
+  const [pages, folders, pathAliases] = await Promise.all([
     tx.page.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
     tx.folder.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
+    tx.pagePathAlias.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
   ]);
   const pageVersions = pages.length === 0 ? [] : await tx.pageVersion.findMany({
     where: { pageId: { in: pages.map((page) => page.id) } },
@@ -757,6 +968,7 @@ async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
     pages,
     pageVersions,
     folders,
+    pathAliases,
     referencedPages,
     referencedFolders,
     completedBatch: null,
@@ -786,18 +998,182 @@ function appliedCounts(plan, overrides = {}) {
     existingActiveFolders: plan.counts.existingActiveFolders,
     foldersCreated: overrides.foldersCreated ?? plan.counts.foldersToCreate,
     pagesMoved: overrides.pagesMoved ?? plan.counts.pagesMoved,
-    aliasesCreated: overrides.aliasesCreated ?? plan.counts.aliasesToCreate,
+    aliasesCreated: overrides.aliasesCreated ?? plan.counts.aliasesCreated,
+    aliasesReused: overrides.aliasesReused ?? plan.counts.aliasesReused,
+    aliasesRefreshed: overrides.aliasesRefreshed ?? plan.counts.aliasesRefreshed,
+    aliasesPruned: overrides.aliasesPruned ?? plan.counts.aliasesPruned,
     pageVersionsBackfilled: overrides.pageVersionsBackfilled ?? plan.counts.pageVersionsToBackfill,
     affectedNodes: overrides.affectedNodes ?? plan.counts.affectedNodes,
   };
 }
 
+async function persistInitialTreeRevisionV2(tx, spaceId, revisionId, plan) {
+  const activePageIds = plan.pages.map((page) => page.knowledgeKey);
+  await tx.syncRevisionPageRow.deleteMany({
+    where: {
+      revisionId,
+      ...(activePageIds.length > 0 ? { pageId: { notIn: activePageIds } } : {}),
+    },
+  });
+  if (plan.pages.length > 0) {
+    await tx.$executeRawUnsafe(`
+      UPDATE "SyncRevisionPageRow" row
+      SET "folderId" = input."folderId",
+          "path" = input."path",
+          "pathKey" = input."pathKey",
+          "title" = input."title",
+          "updatedAt" = input."updatedAt"
+      FROM jsonb_to_recordset($1::jsonb) AS input(
+        "pageId" text, "folderId" text, "path" text, "pathKey" text,
+        "title" text, "updatedAt" timestamptz
+      )
+      WHERE row."revisionId" = $2 AND row."pageId" = input."pageId"
+    `, JSON.stringify(plan.pages.map((page) => ({
+      pageId: page.knowledgeKey,
+      folderId: page.folderId,
+      path: page.syncPath,
+      pathKey: page.syncPathKey,
+      title: page.title,
+      updatedAt: iso(page.updatedAt),
+    }))), revisionId);
+  }
+
+  const folders = await tx.folder.findMany({
+    where: { spaceId, deletedAt: null },
+    orderBy: { id: 'asc' },
+  });
+  if (folders.length > 0) {
+    await tx.syncRevisionFolderRow.createMany({ data: folders.map((folder) => ({
+      revisionId,
+      folderId: folder.id,
+      parentFolderId: folder.parentId,
+      name: folder.name,
+      path: folder.path,
+      pathKey: folder.pathKey,
+      sortOrder: folder.sortOrder,
+      updatedAt: folder.updatedAt,
+    })) });
+  }
+  const pageRows = await tx.syncRevisionPageRow.findMany({
+    where: { revisionId },
+    include: { content: true },
+  });
+  const manifest = canonicalTreeRevisionManifestV2({
+    protocolVersion: '2',
+    spaceId,
+    folders: folders.map((folder) => ({
+      folderId: folder.id,
+      parentFolderId: folder.parentId,
+      name: folder.name,
+      path: folder.path,
+      sortOrder: folder.sortOrder,
+      updatedAt: folder.updatedAt.toISOString(),
+    })),
+    pages: pageRows.map((page) => ({
+      pageId: page.pageId,
+      folderId: page.folderId,
+      path: page.path,
+      title: page.title,
+      body: page.content.body,
+      contentHash: page.contentHash,
+      updatedAt: page.updatedAt.toISOString(),
+    })),
+  });
+  const revisionContentHash = await treeRevisionContentHashV2(manifest);
+  const revisionManifestByteLength = canonicalBytes(manifest).byteLength;
+  const revisionBodyBytes = manifest.pages.reduce(
+    (sum, page) => sum + encoder.encode(page.body).byteLength,
+    0,
+  );
+  const deltaRows = [
+    ...manifest.folders.map((folder) => ({
+      operation: 'upsert_folder',
+      folderId: folder.folderId,
+      pageId: null,
+      previousPath: null,
+      contentHash: null,
+    })),
+    ...manifest.pages.map((page) => ({
+      operation: 'upsert_page',
+      folderId: null,
+      pageId: page.pageId,
+      previousPath: null,
+      contentHash: page.contentHash,
+    })),
+  ];
+  if (deltaRows.length > 0) {
+    await tx.syncRevisionTreeDeltaRow.createMany({
+      data: deltaRows.map((row, ordinal) => ({ revisionId, ordinal, ...row })),
+    });
+  }
+  await tx.spaceKnowledgeRevision.update({
+    where: { id: revisionId },
+    data: {
+      schemaVersion: 'content-tree@2',
+      recipeVersion: 'space-folders-v1',
+      revisionContentHash,
+      pageCount: BigInt(manifest.pages.length),
+      revisionBodyBytes: BigInt(revisionBodyBytes),
+      revisionManifestByteLength: BigInt(revisionManifestByteLength),
+    },
+  });
+  const sidecarRow = await tx.legacyRevisionSidecar.findUnique({ where: { revisionId } });
+  const sidecar = sidecarRow?.sidecar
+    && typeof sidecarRow.sidecar === 'object'
+    && !Array.isArray(sidecarRow.sidecar)
+    ? sidecarRow.sidecar
+    : {};
+  const migration = sidecar.spaceFolderMigration
+    && typeof sidecar.spaceFolderMigration === 'object'
+    && !Array.isArray(sidecar.spaceFolderMigration)
+    ? sidecar.spaceFolderMigration
+    : {};
+  await tx.legacyRevisionSidecar.upsert({
+    where: { revisionId },
+    create: {
+      revisionId,
+      sidecar: {
+        ...sidecar,
+        spaceFolderMigration: {
+          ...migration,
+          v2Revision: {
+            protocolVersion: '2',
+            manifestSchema: 'TreeRevisionContentManifestV2',
+            folderCount: String(manifest.folders.length),
+            pageCount: String(manifest.pages.length),
+            revisionContentHash,
+            revisionManifestByteLength: String(revisionManifestByteLength),
+            revisionBodyBytes: String(revisionBodyBytes),
+            treeDeltaCount: String(deltaRows.length),
+          },
+        },
+      },
+    },
+    update: {
+      sidecar: {
+        ...sidecar,
+        spaceFolderMigration: {
+          ...migration,
+          v2Revision: {
+            protocolVersion: '2',
+            manifestSchema: 'TreeRevisionContentManifestV2',
+            folderCount: String(manifest.folders.length),
+            pageCount: String(manifest.pages.length),
+            revisionContentHash,
+            revisionManifestByteLength: String(revisionManifestByteLength),
+            revisionBodyBytes: String(revisionBodyBytes),
+            treeDeltaCount: String(deltaRows.length),
+          },
+        },
+      },
+    },
+  });
+}
+
 export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
   if (!spaceId) throw new TypeError('spaceId is required');
-  if (
-    options.expectedInputHash !== undefined
-    && !/^[0-9a-f]{64}$/u.test(options.expectedInputHash)
-  ) {
+  if (options.expectedInputHash === undefined) throw new TypeError('expectedInputHash is required');
+  if (!/^[0-9a-f]{64}$/u.test(options.expectedInputHash)) {
     throw new TypeError('expectedInputHash must be a lowercase SHA-256 digest');
   }
   const SpaceRevisionWriterService = await loadRevisionWriter();
@@ -819,24 +1195,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       spaceId,
       lockedTx.contentTreeRevision,
     ));
-    if (plan.status === 'completed') {
-      return {
-        version: 1,
-        status: 'completed',
-        spaceId,
-        batchKey: plan.batchKey,
-        inputHash: plan.inputHash,
-        revisionId: plan.revisionId,
-        treeRevision: lockedTx.contentTreeRevision.toString(),
-        counts: {
-          activePages: 0, deletedPagesSkipped: 0, existingActiveFolders: 0,
-          foldersCreated: 0, pagesMoved: 0, aliasesCreated: 0,
-          pageVersionsBackfilled: 0, affectedNodes: 0,
-        },
-        transformations: [], collisions: [],
-      };
-    }
-    if (options.expectedInputHash && options.expectedInputHash !== plan.inputHash) {
+    if (options.expectedInputHash !== plan.inputHash) {
       throw new SpaceFolderMigrationPreflightError({
         ...operatorReport(plan),
         status: 'rejected',
@@ -847,6 +1206,24 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
           actualInputHash: plan.inputHash,
         }],
       });
+    }
+    if (plan.status === 'completed') {
+      return {
+        ...operatorReport(plan),
+        version: 1,
+        status: 'completed',
+        spaceId,
+        batchKey: plan.batchKey,
+        inputHash: plan.inputHash,
+        revisionId: plan.revisionId,
+        treeRevision: lockedTx.contentTreeRevision.toString(),
+        counts: {
+          activePages: 0, deletedPagesSkipped: 0, existingActiveFolders: 0,
+          foldersCreated: 0, pagesMoved: 0, aliasesCreated: 0, aliasesReused: 0,
+          aliasesRefreshed: 0, aliasesPruned: 0,
+          pageVersionsBackfilled: 0, affectedNodes: 0,
+        },
+      };
     }
 
     if (plan.folders.length > 0) {
@@ -872,14 +1249,46 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
     }
 
     if (plan.aliases.length > 0) {
+      const aliasChangedAt = new Date();
       await lockedTx.$executeRawUnsafe(`
         INSERT INTO "PagePathAlias" ("id", "spaceId", "pageId", "path", "pathKey", "createdAt", "expiresAt")
-        SELECT input."id", input."spaceId", input."pageId", input."path", input."pathKey", CURRENT_TIMESTAMP, NULL
+        SELECT input."id", input."spaceId", input."pageId", input."path", input."pathKey", input."createdAt", NULL
         FROM jsonb_to_recordset($1::jsonb) AS input(
-          "id" text, "spaceId" text, "pageId" text, "path" text, "pathKey" text
+          "id" text, "spaceId" text, "pageId" text, "path" text, "pathKey" text, "createdAt" timestamptz
         )
-        ON CONFLICT ("spaceId", "pathKey", "pageId") DO UPDATE SET "expiresAt" = NULL
-      `, JSON.stringify(plan.aliases.map((alias) => ({ id: randomUUID(), ...alias }))));
+        ON CONFLICT ("spaceId", "pathKey", "pageId") DO UPDATE SET
+          "path" = EXCLUDED."path",
+          "createdAt" = EXCLUDED."createdAt",
+          "expiresAt" = NULL
+      `, JSON.stringify(plan.aliases.map((alias) => ({
+        id: randomUUID(),
+        spaceId: alias.spaceId,
+        pageId: alias.pageId,
+        path: alias.path,
+        pathKey: alias.pathKey,
+        createdAt: aliasChangedAt.toISOString(),
+      }))));
+      const aliasPageIds = [...new Set(plan.aliases.map((alias) => alias.pageId))].sort(compareBytes);
+      await lockedTx.$executeRawUnsafe(`
+        DELETE FROM "PagePathAlias" alias
+        USING (
+          SELECT ranked."id"
+          FROM (
+            SELECT candidate."id",
+                   ROW_NUMBER() OVER (
+                     PARTITION BY candidate."pageId"
+                     ORDER BY candidate."createdAt" DESC, candidate."id" DESC
+                   ) AS ordinal
+            FROM "PagePathAlias" candidate
+            WHERE candidate."spaceId" = $1
+              AND candidate."pageId" IN (
+                SELECT value FROM jsonb_array_elements_text($2::jsonb)
+              )
+          ) ranked
+          WHERE ranked.ordinal > 20
+        ) excess
+        WHERE alias."id" = excess."id"
+      `, spaceId, JSON.stringify(aliasPageIds));
     }
 
     const pageUpdates = plan.pages.filter((page) => page.needsMove);
@@ -930,7 +1339,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       && !Array.isArray(latestSidecar.sidecar)
       ? latestSidecar.sidecar
       : {};
-    const revisionPages = latestRevision ? pageUpdates : plan.pages;
+    const revisionPages = plan.pages;
     const revision = await writer.advanceStructuralPagesLocked(
       lockedTx,
       spaceId,
@@ -949,6 +1358,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
           ...latestSidecarValue,
           spaceFolderMigration: {
             version: 1,
+            status: 'completed',
             batchKey: plan.batchKey,
             inputHash: plan.inputHash,
             foldersCreated: plan.counts.foldersToCreate,
@@ -959,12 +1369,14 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
         },
       },
     );
+    await persistInitialTreeRevisionV2(lockedTx, spaceId, revision.revisionId, plan);
     const newTreeRevision = await writer.advanceContentTreeRevision(
       lockedTx,
       spaceId,
       lockedTx.contentTreeRevision,
     );
-    return {
+    const result = {
+      ...operatorReport(plan),
       version: 1,
       status: 'applied',
       spaceId,
@@ -973,13 +1385,41 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       revisionId: revision.revisionId,
       treeRevision: newTreeRevision.toString(),
       counts: appliedCounts(plan),
-      transformations: plan.transformations,
-      collisions: plan.collisions,
     };
+    if (options.persistReport) await options.persistReport(result);
+    return result;
   }, { isolationLevel: 'ReadCommitted', maxWait: 10_000, timeout: 30 * 60_000 });
 }
 
-function operatorReport(plan) {
+export function operatorReport(plan) {
+  const pathChanges = [...(plan.pages ?? [])].sort(sortById).map((page) => ({
+    pageId: page.id,
+    oldFolderId: Object.hasOwn(page, 'oldFolderId') ? page.oldFolderId : page.folderId ?? null,
+    newFolderId: page.folderId ?? null,
+    oldPath: page.oldSyncPath ?? page.syncPath,
+    newPath: page.syncPath,
+    changed: Boolean(page.needsMove || (page.oldSyncPath ?? page.syncPath) !== page.syncPath),
+  }));
+  const plannedFolders = [...(plan.folders ?? [])].sort((left, right) => (
+    left.depth - right.depth || sortById(left, right)
+  )).map((folder) => ({
+    folderId: folder.id,
+    sourcePageId: folder.sourcePageId,
+    parentFolderId: folder.parentId,
+    name: folder.name,
+    path: folder.path,
+    sortOrder: folder.sortOrder,
+  }));
+  const plannedAliases = [...(plan.aliases ?? [])].sort((left, right) => (
+    compareBytes(left.pageId, right.pageId) || compareBytes(left.pathKey, right.pathKey)
+  )).map((alias) => ({
+    pageId: alias.pageId,
+    path: alias.path,
+    pathKey: alias.pathKey,
+    action: alias.action,
+    existingAliasId: alias.existingAliasId,
+  }));
+  const aliasResolutions = plan.aliasResolutions ?? [];
   return {
     version: plan.version,
     status: plan.status,
@@ -991,6 +1431,17 @@ function operatorReport(plan) {
     counts: plan.counts,
     transformations: plan.transformations,
     collisions: plan.collisions,
+    pathChanges,
+    plannedFolders,
+    plannedAliases,
+    aliasRetention: plan.aliasRetention ?? [],
+    aliasResolutions,
+    conversionSummary: {
+      transformedFolderNames: plan.transformations?.length ?? 0,
+      folderNameCollisions: plan.collisions?.length ?? 0,
+      aliasAmbiguities: aliasResolutions.filter((entry) => entry.resolution === 'ambiguous-alias').length,
+      aliasCurrentPathShadows: aliasResolutions.filter((entry) => entry.resolution === 'current-page').length,
+    },
     rejections: plan.rejections ?? [],
   };
 }
@@ -1005,7 +1456,7 @@ function databaseUrl(env = process.env) {
   return value;
 }
 
-function parseArguments(argv) {
+export function parseArguments(argv) {
   const args = {
     mode: null, spaceId: null, reportPath: null, expectedInputHash: null,
   };
@@ -1029,39 +1480,131 @@ function parseArguments(argv) {
   if (args.mode === 'apply' && !/^[0-9a-f]{64}$/u.test(args.expectedInputHash ?? '')) {
     throw new Error('--expected-input-hash <sha256> is required for apply');
   }
+  if (args.mode === 'apply' && !args.reportPath) {
+    throw new Error('--report <new-path> is required for apply');
+  }
   if (args.mode === 'dry-run' && args.expectedInputHash) {
     throw new Error('--expected-input-hash is only valid with --apply');
   }
   return args;
 }
 
+export async function reserveReportTarget(reportPath) {
+  const target = resolve(reportPath);
+  const parent = dirname(target);
+  const parentStat = await lstat(parent);
+  if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
+    throw new Error('Report parent must be an existing, non-symlink directory');
+  }
+  let reservation;
+  let created = false;
+  let reservedIdentity;
+  try {
+    reservation = await open(target, 'wx', 0o600);
+    created = true;
+    await reservation.writeFile(`${JSON.stringify({
+      version: 1,
+      status: 'reserved',
+      reportPath: target,
+    }, null, 2)}\n`, 'utf8');
+    await reservation.sync();
+    await reservation.close();
+    reservation = null;
+    const reservedStat = await lstat(target, { bigint: true });
+    reservedIdentity = { device: reservedStat.dev, inode: reservedStat.ino };
+  } catch (error) {
+    if (reservation) await reservation.close().catch(() => {});
+    if (created) await rm(target, { force: true }).catch(() => {});
+    throw error;
+  }
+  return {
+    path: target,
+    async write(report) {
+      const temporary = resolve(parent, `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`);
+      let handle;
+      let writtenIdentity;
+      try {
+        handle = await open(temporary, 'wx', 0o600);
+        await handle.writeFile(`${JSON.stringify(report, null, 2)}\n`, 'utf8');
+        await handle.sync();
+        const writtenStat = await handle.stat({ bigint: true });
+        writtenIdentity = { device: writtenStat.dev, inode: writtenStat.ino };
+        await handle.close();
+        handle = null;
+        const currentTarget = await lstat(target, { bigint: true }).catch(() => null);
+        if (
+          !currentTarget
+          || currentTarget.dev !== reservedIdentity.device
+          || currentTarget.ino !== reservedIdentity.inode
+        ) {
+          throw new Error('Reserved report target identity changed before final write');
+        }
+        await rename(temporary, target);
+        const finalTarget = await lstat(target, { bigint: true });
+        if (finalTarget.dev !== writtenIdentity.device || finalTarget.ino !== writtenIdentity.inode) {
+          throw new Error('Final report target identity changed after atomic write');
+        }
+        reservedIdentity = writtenIdentity;
+        const directoryHandle = await open(parent, 'r');
+        try {
+          await directoryHandle.sync();
+        } finally {
+          await directoryHandle.close();
+        }
+      } catch (error) {
+        if (handle) await handle.close().catch(() => {});
+        await rm(temporary, { force: true }).catch(() => {});
+        throw error;
+      }
+    },
+  };
+}
+
 async function main() {
   const args = parseArguments(process.argv.slice(2));
+  const reportTarget = args.reportPath ? await reserveReportTarget(args.reportPath) : null;
   const requireFromServer = createRequire(resolve(root, 'apps/server/package.json'));
   const { PrismaClient } = requireFromServer('@prisma/client');
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
   let report;
   try {
-    report = operatorReport(args.mode === 'dry-run'
-      ? await preflightSpaceFolderMigration(prisma, args.spaceId)
+    report = args.mode === 'dry-run'
+      ? operatorReport(await preflightSpaceFolderMigration(prisma, args.spaceId))
       : await migrateSpaceFolders(prisma, args.spaceId, {
         expectedInputHash: args.expectedInputHash,
-      }));
+        persistReport: (value) => reportTarget.write(value),
+      });
   } catch (error) {
-    if (!(error instanceof SpaceFolderMigrationPreflightError)) throw error;
-    report = operatorReport(error.report);
-    if (args.reportPath) {
-      await writeFile(resolve(args.reportPath), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-    }
+    report = error instanceof SpaceFolderMigrationPreflightError
+      ? operatorReport(error.report)
+      : {
+        version: 1,
+        status: 'rejected',
+        spaceId: args.spaceId,
+        batchKey: migrationBatchKey(args.spaceId),
+        inputHash: args.expectedInputHash,
+        revisionId: null,
+        treeRevision: null,
+        counts: emptyPlanCounts(),
+        transformations: [], collisions: [], pathChanges: [], plannedFolders: [], plannedAliases: [],
+        aliasRetention: [], aliasResolutions: [],
+        conversionSummary: {
+          transformedFolderNames: 0, folderNameCollisions: 0,
+          aliasAmbiguities: 0, aliasCurrentPathShadows: 0,
+        },
+        rejections: [{
+          code: 'MIGRATION_EXECUTION_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        }],
+      };
+    if (reportTarget) await reportTarget.write(report);
     console.error(JSON.stringify(report, null, 2));
     process.exitCode = 1;
     return;
   } finally {
     await prisma.$disconnect();
   }
-  if (args.reportPath) {
-    await writeFile(resolve(args.reportPath), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
-  }
+  if (reportTarget && args.mode === 'dry-run') await reportTarget.write(report);
   console.log(JSON.stringify(report, null, 2));
 }
 

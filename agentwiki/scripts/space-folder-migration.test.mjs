@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
   SpaceFolderMigrationPreflightError,
   buildSpaceFolderMigrationPlan,
   legacyFolderId,
+  operatorReport,
+  reserveReportTarget,
   sanitizeLegacyFolderName,
 } from './space-folder-migration.mjs';
 
@@ -54,6 +59,7 @@ function snapshot(overrides = {}) {
     pages: [],
     pageVersions: [],
     folders: [],
+    pathAliases: [],
     referencedPages: [],
     referencedFolders: [],
     completedBatch: null,
@@ -210,6 +216,14 @@ test('counts existing active Folders toward 10,000 and validates their graph bef
     folders: [{ ...folders[0], parentId: 'foreign-folder' }],
     referencedFolders: [{ ...folders[1], id: 'foreign-folder', spaceId: 'space-2' }],
   }), 'FOLDER_CROSS_SPACE');
+
+  assert.equal(buildSpaceFolderMigrationPlan(snapshot({ folders })).status, 'ready');
+  expectPreflightCode(snapshot({
+    folders: [...folders, {
+      ...folders[0], id: 'existing-10000', name: 'existing-10000', nameKey: 'existing-10000',
+      path: 'pages/existing-10000', pathKey: 'pages/existing-10000',
+    }],
+  }), 'FOLDER_COUNT_LIMIT');
 });
 
 test('preserves Page and Folder basename coexistence and ignores deleted current Pages', () => {
@@ -230,7 +244,12 @@ test('a completed batch is a strict no-op before inspecting later malformed rows
     pages: [page('bad', 'bad', 'missing')],
     completedBatch: {
       revisionId: 'revision-complete',
-      inputHash: 'a'.repeat(64),
+      sidecar: { spaceFolderMigration: {
+        version: 1,
+        status: 'completed',
+        batchKey: 'space-folders-v1:space-1',
+        inputHash: 'a'.repeat(64),
+      } },
     },
   }));
   assert.equal(plan.status, 'completed');
@@ -238,6 +257,213 @@ test('a completed batch is a strict no-op before inspecting later malformed rows
   assert.equal(plan.counts.foldersToCreate, 0);
   assert.deepEqual(plan.pages, []);
   assert.deepEqual(plan.rejections, []);
+});
+
+test('completed migration evidence fails closed unless the complete sidecar contract is valid', () => {
+  const valid = {
+    revisionId: 'revision-complete',
+    sidecar: { spaceFolderMigration: {
+      version: 1,
+      status: 'completed',
+      batchKey: 'space-folders-v1:space-1',
+      inputHash: 'a'.repeat(64),
+    } },
+  };
+  const invalid = [
+    { revisionId: valid.revisionId, sidecar: null },
+    { revisionId: valid.revisionId, sidecar: [] },
+    { revisionId: valid.revisionId, sidecar: {} },
+    { ...valid, sidecar: { spaceFolderMigration: { ...valid.sidecar.spaceFolderMigration, version: 2 } } },
+    { ...valid, sidecar: { spaceFolderMigration: { ...valid.sidecar.spaceFolderMigration, status: 'running' } } },
+    { ...valid, sidecar: { spaceFolderMigration: { ...valid.sidecar.spaceFolderMigration, batchKey: 'wrong' } } },
+    { ...valid, sidecar: { spaceFolderMigration: { ...valid.sidecar.spaceFolderMigration, inputHash: 'not-a-hash' } } },
+  ];
+  for (const completedBatch of invalid) {
+    expectPreflightCode(snapshot({
+      pages: [page('bad', 'bad', 'missing')],
+      completedBatch,
+    }), 'MIGRATION_BATCH_EVIDENCE_INVALID');
+  }
+});
+
+test('plans existing alias reuse, ambiguity, current-path shadowing, and deterministic retention', () => {
+  const historical = Array.from({ length: 20 }, (_, index) => ({
+    id: `history-${String(index).padStart(2, '0')}`,
+    spaceId: 'space-1',
+    pageId: 'child',
+    path: `pages/history-${index}.md`,
+    pathKey: `pages/history-${index}.md`,
+    createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
+    expiresAt: null,
+  }));
+  const plan = buildSpaceFolderMigrationPlan(snapshot({
+    pages: [
+      page('root', 'root'),
+      page('child', 'child', 'root'),
+      page('current', 'current', null, {
+        syncPath: 'pages/current.md', syncPathKey: 'pages/current.md',
+      }),
+    ],
+    pathAliases: [
+      ...historical,
+      {
+        id: 'ambiguous', spaceId: 'space-1', pageId: 'current',
+        path: 'pages/child.md', pathKey: 'pages/child.md',
+        createdAt: new Date('2026-07-01T00:00:00.000Z'), expiresAt: null,
+      },
+      {
+        id: 'shadowed', spaceId: 'space-1', pageId: 'root',
+        path: 'pages/current.md', pathKey: 'pages/current.md',
+        createdAt: new Date('2026-07-02T00:00:00.000Z'), expiresAt: null,
+      },
+    ],
+  }));
+
+  assert.deepEqual(plan.aliases.map(({ pageId, path, action }) => ({ pageId, path, action })), [
+    { pageId: 'child', path: 'pages/child.md', action: 'created' },
+  ]);
+  assert.deepEqual(plan.aliasRetention, [{
+    pageId: 'child',
+    prunedAliasIds: ['history-00'],
+  }]);
+  assert.deepEqual(plan.aliasResolutions, [
+    {
+      path: 'pages/child.md', pathKey: 'pages/child.md', currentPageIds: [],
+      aliasPageIds: ['child', 'current'], resolution: 'ambiguous-alias',
+    },
+    {
+      path: 'pages/current.md', pathKey: 'pages/current.md', currentPageIds: ['current'],
+      aliasPageIds: ['root'], resolution: 'current-page',
+    },
+  ]);
+  assert.equal(plan.counts.aliasesCreated, 1);
+  assert.equal(plan.counts.aliasesReused, 0);
+  assert.equal(plan.counts.aliasesRefreshed, 0);
+  assert.equal(plan.counts.aliasesPruned, 1);
+
+  const reused = buildSpaceFolderMigrationPlan(snapshot({
+    pages: [page('root', 'root'), page('child', 'child', 'root')],
+    pathAliases: [{
+      id: 'reuse', spaceId: 'space-1', pageId: 'child',
+      path: 'pages/child.md', pathKey: 'pages/child.md',
+      createdAt: date, expiresAt: null,
+    }],
+  }));
+  assert.equal(reused.aliases[0].action, 'reused');
+  assert.equal(reused.counts.aliasesReused, 1);
+
+  const refreshed = buildSpaceFolderMigrationPlan(snapshot({
+    pages: [page('root', 'root'), page('child', 'child', 'root')],
+    pathAliases: [{
+      id: 'refresh', spaceId: 'space-1', pageId: 'child',
+      path: 'pages/CHILD.md', pathKey: 'pages/child.md',
+      createdAt: date, expiresAt: date,
+    }],
+  }));
+  assert.equal(refreshed.aliases[0].action, 'refreshed');
+  assert.equal(refreshed.counts.aliasesRefreshed, 1);
+});
+
+test('operator report contains stable per-Page paths and planned Folder/alias detail', () => {
+  const plan = buildSpaceFolderMigrationPlan(snapshot({
+    pages: [page('root', 'root'), page('z-child', 'z', 'root'), page('a-root', 'a')],
+  }));
+  const report = operatorReport(plan);
+  assert.deepEqual(report.pathChanges.map(({ pageId, oldPath, newPath, changed }) => ({
+    pageId, oldPath, newPath, changed,
+  })), [
+    { pageId: 'a-root', oldPath: 'pages/a.md', newPath: 'pages/a.md', changed: false },
+    { pageId: 'root', oldPath: 'pages/root.md', newPath: 'pages/root.md', changed: false },
+    { pageId: 'z-child', oldPath: 'pages/z.md', newPath: 'pages/root/z.md', changed: true },
+  ]);
+  assert.deepEqual(report.plannedFolders.map(({ sourcePageId, path }) => ({ sourcePageId, path })), [
+    { sourcePageId: 'root', path: 'pages/root' },
+  ]);
+  assert.deepEqual(report.plannedAliases.map(({ pageId, path, action }) => ({ pageId, path, action })), [
+    { pageId: 'z-child', path: 'pages/z.md', action: 'created' },
+  ]);
+  assert.deepEqual(report.conversionSummary, {
+    transformedFolderNames: 0,
+    folderNameCollisions: 0,
+    aliasAmbiguities: 0,
+    aliasCurrentPathShadows: 0,
+  });
+});
+
+test('a worst-order 10,000 Page chain returns structured preflight rejection instead of RangeError', () => {
+  const pages = Array.from({ length: 10_000 }, (_, index) => page(
+    `deep-${String(index).padStart(5, '0')}`,
+    `n${index}`,
+    index === 9_999 ? null : `deep-${String(index + 1).padStart(5, '0')}`,
+  ));
+  assert.throws(
+    () => buildSpaceFolderMigrationPlan(snapshot({ pages })),
+    (error) => error instanceof SpaceFolderMigrationPreflightError
+      && error.report.rejections.some((entry) => entry.code === 'FOLDER_DEPTH_LIMIT'),
+  );
+});
+
+test('an over-depth cycle is still reported as a cycle by iterative graph validation', () => {
+  const pages = Array.from({ length: 100 }, (_, index) => page(
+    `cycle-${String(index).padStart(3, '0')}`,
+    `cycle-${index}`,
+    `cycle-${String((index + 1) % 100).padStart(3, '0')}`,
+  ));
+  expectPreflightCode(snapshot({ pages }), 'LEGACY_PAGE_CYCLE');
+});
+
+test('rejection operator reports retain stable Page path and partial conversion detail', () => {
+  let rejection;
+  try {
+    buildSpaceFolderMigrationPlan(snapshot({
+      pages: [page('root', 'root'), page('orphan', 'orphan', 'missing')],
+    }));
+  } catch (error) {
+    rejection = error;
+  }
+  assert.ok(rejection instanceof SpaceFolderMigrationPreflightError);
+  const report = operatorReport(rejection.report);
+  assert.equal(report.status, 'rejected');
+  assert.deepEqual(report.pathChanges.map(({ pageId, oldPath, newPath }) => ({
+    pageId, oldPath, newPath,
+  })), [
+    { pageId: 'orphan', oldPath: 'pages/orphan.md', newPath: 'pages/orphan.md' },
+    { pageId: 'root', oldPath: 'pages/root.md', newPath: 'pages/root.md' },
+  ]);
+  assert.ok(report.rejections.some((entry) => entry.code === 'LEGACY_PAGE_ORPHAN'));
+});
+
+test('reserved report writes fail closed if the exclusively reserved target identity changes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'agentwiki-folder-report-identity-'));
+  const target = join(directory, 'report.json');
+  try {
+    const reservation = await reserveReportTarget(target);
+    assert.equal((await stat(target)).mode & 0o777, 0o600);
+    await rm(target);
+    await writeFile(target, 'replacement-must-survive', { mode: 0o600 });
+    await assert.rejects(
+      () => reservation.write({ status: 'applied' }),
+      /identity changed/,
+    );
+    assert.equal(await readFile(target, 'utf8'), 'replacement-must-survive');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('one report reservation can replace its own atomic output after a later transaction failure', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'agentwiki-folder-report-rewrite-'));
+  const target = join(directory, 'report.json');
+  try {
+    const reservation = await reserveReportTarget(target);
+    await reservation.write({ status: 'applied' });
+    await reservation.write({ status: 'rejected', rejections: ['commit failed'] });
+    assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), {
+      status: 'rejected', rejections: ['commit failed'],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('already backfilled PageVersion rows are preserved while mismatches fail closed', () => {

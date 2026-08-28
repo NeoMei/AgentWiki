@@ -15,18 +15,28 @@ The command creates a companion Folder for every legacy parent Page, moves activ
 
 ## 1. Record identity and create a backup
 
-Use operator-controlled paths and do not place credentials in the report or shell history.
+Use an operator-controlled backup parent and do not place credentials in the report or shell history. Every attempt gets a new mode-`0700` directory; the command fails rather than reusing any existing target.
 
 ```bash
+folder_backup_parent='/operator-controlled/agentwiki-backups'
+test -d "$folder_backup_parent" && test ! -L "$folder_backup_parent"
+folder_backup_id="space-folders-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+folder_backup_dir="$folder_backup_parent/$folder_backup_id"
+(umask 077 && mkdir -m 700 -- "$folder_backup_dir") || exit 1
+folder_backup_dump="$folder_backup_dir/database.dump"
+folder_backup_hash="$folder_backup_dir/database.dump.sha256"
+folder_backup_list="$folder_backup_dir/database.dump.list"
+for folder_backup_target in "$folder_backup_dump" "$folder_backup_hash" "$folder_backup_list"; do
+  test ! -e "$folder_backup_target" && test ! -L "$folder_backup_target" || exit 1
+done
+
 psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c \
   'SELECT current_database(), current_user, inet_server_addr(), inet_server_port(), now();'
 
-pg_dump --dbname "$DATABASE_URL" --format=custom --file agentwiki-before-space-folders.dump
-shasum -a 256 agentwiki-before-space-folders.dump \
-  > agentwiki-before-space-folders.dump.sha256
-shasum -a 256 -c agentwiki-before-space-folders.dump.sha256
-pg_restore --list agentwiki-before-space-folders.dump \
-  > agentwiki-before-space-folders.dump.list
+pg_dump --dbname "$DATABASE_URL" --format=custom --file "$folder_backup_dump"
+shasum -a 256 "$folder_backup_dump" > "$folder_backup_hash"
+(cd "$folder_backup_dir" && shasum -a 256 -c "$(basename "$folder_backup_hash")")
+pg_restore --list "$folder_backup_dump" > "$folder_backup_list"
 ```
 
 Backup verification is not complete after `pg_dump` exits successfully. Restore the dump into a disposable verification database approved for this operation, run the same pre-count queries there, and retain the restore log and counts. Drop that disposable verification database only after the verification record has been retained.
@@ -60,16 +70,17 @@ Also retain `prisma migrate status` output and confirm the additive `20260828120
 
 ## 3. Read-only preflight
 
-Create a report directory with restricted permissions. `--report` refuses to overwrite an existing file.
+Create a unique report directory with restricted permissions. Do not reuse a prior directory or filename; `--report` reserves its target before opening the database and refuses to overwrite an existing file.
 
 ```bash
-install -d -m 700 migration-reports
+folder_report_dir="migration-reports/$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+(umask 077 && mkdir -m 700 -- "$folder_report_dir") || exit 1
 DATABASE_URL="$DATABASE_URL" pnpm migrate:space-folders:dry-run -- \
   --space '<space-id>' \
-  --report 'migration-reports/<space-id>-dry-run.json'
+  --report "$folder_report_dir/<space-id>-dry-run.json"
 ```
 
-The report contains the input snapshot hash, planned Folder/Page/version/alias counts, every title transformation, deterministic sibling collision allocation, and all rejection codes. Legacy sanitization normalizes NFC, folds each consecutive forbidden-character run to one space, collapses whitespace, cleans trailing dots/spaces, handles reserved device names, and hashes any UTF-8 truncation. Preflight is zero-write. Do not apply if it reports a cycle, orphan, cross-Space reference, Folder/path/depth/count/mutation limit, existing-tree inconsistency, or Page/PageVersion placement conflict.
+The report contains the input snapshot hash, stable per-Page old/new paths, planned Folders and aliases, alias reuse/refresh/pruning and resolution effects, every title transformation, deterministic sibling collision allocation, conversion summaries, and all rejection codes. Existing aliases are part of the reviewed input hash. Legacy sanitization normalizes NFC, folds each consecutive forbidden-character run to one space, collapses whitespace, cleans trailing dots/spaces, handles reserved device names, and hashes any UTF-8 truncation. Preflight is zero-write. Do not apply if it reports a cycle, orphan, cross-Space reference, Folder/path/depth/count/mutation limit, existing-tree inconsistency, invalid alias evidence, or Page/PageVersion placement conflict.
 
 Review sanitized names and ` (2)`, ` (3)` allocations with the Space owner. Retain the exact report and its SHA-256 digest with the backup verification evidence.
 
@@ -81,11 +92,11 @@ With all legacy writers still stopped, run:
 DATABASE_URL="$DATABASE_URL" pnpm migrate:space-folders:apply -- \
   --space '<space-id>' \
   --expected-input-hash '<inputHash-from-reviewed-dry-run>' \
-  --report 'migration-reports/<space-id>-apply.json'
-shasum -a 256 migration-reports/<space-id>-*.json
+  --report "$folder_report_dir/<space-id>-apply.json"
+shasum -a 256 "$folder_report_dir"/<space-id>-*.json
 ```
 
-Apply repeats preflight after taking the Space advisory lock and rejects `MIGRATION_INPUT_CHANGED` unless the locked input matches the reviewed dry-run hash. Folder creation, old-path aliases, Page placement/path changes, historical PageVersion placement, the migration revision/batch key, and `contentTreeRevision` advancement commit in one transaction. Any failure leaves none of those writes behind.
+Apply repeats preflight after taking the Space advisory lock and rejects `MIGRATION_INPUT_CHANGED` unless the locked input matches the reviewed dry-run hash, including on a completed-key retry. Folder creation, ContentTree-compatible alias upsert/20-entry retention, Page placement/path changes, historical PageVersion placement, the complete first v2 Folder/Page snapshot and deterministic tree delta, the migration revision/batch evidence, and `contentTreeRevision` advancement commit in one transaction. The required apply report target is exclusively reserved before any database write and the final report is persisted before the transaction may commit; a report persistence failure rolls back the database transaction.
 
 Run a second apply command with the same expected input hash and a new report filename. It must return `status: "completed"` with zero created/moved/backfilled counts and the same completed revision ID. The completed batch key is checked before rescanning later rows, so this verification remains a strict no-op.
 
@@ -98,6 +109,18 @@ SELECT "id", "migrationBatchId", "origin", "sequence", "createdAt"
 FROM "SpaceKnowledgeRevision"
 WHERE "spaceId" = :'space_id'
   AND "migrationBatchId" = 'space-folders-v1:' || :'space_id';
+
+SELECT revision."id",
+       COUNT(DISTINCT folder_row."folderId") AS snapshot_folders,
+       COUNT(DISTINCT page_row."pageId") AS snapshot_pages,
+       COUNT(DISTINCT delta_row."ordinal") AS tree_delta_rows
+FROM "SpaceKnowledgeRevision" revision
+LEFT JOIN "SyncRevisionFolderRow" folder_row ON folder_row."revisionId" = revision."id"
+LEFT JOIN "SyncRevisionPageRow" page_row ON page_row."revisionId" = revision."id"
+LEFT JOIN "SyncRevisionTreeDeltaRow" delta_row ON delta_row."revisionId" = revision."id"
+WHERE revision."spaceId" = :'space_id'
+  AND revision."migrationBatchId" = 'space-folders-v1:' || :'space_id'
+GROUP BY revision."id";
 
 SELECT COUNT(*) AS unresolved_active_legacy_children
 FROM "Page"

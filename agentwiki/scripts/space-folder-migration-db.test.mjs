@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import {
+  TreeRevisionContentManifestV2Schema,
+  canonicalBytes,
+  pathKey,
+  treeRevisionContentHashV2,
+} from '../packages/sync-protocol/dist/esm/index.js';
 
 import { withFolderTestDatabase } from './folder-test-database.mjs';
 import {
@@ -18,6 +29,7 @@ const rootDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const skip = databaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is required';
+const execFileAsync = promisify(execFile);
 
 async function seedUserAndSpace(prisma, label) {
   const userId = randomUUID();
@@ -134,6 +146,10 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
       );
 
       await assert.rejects(
+        () => migrateSpaceFolders(prisma, seeded.spaceId),
+        /expectedInputHash is required/,
+      );
+      await assert.rejects(
         () => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: '0'.repeat(64) }),
         (error) => error instanceof SpaceFolderMigrationPreflightError
           && error.report.rejections.some((entry) => entry.code === 'MIGRATION_INPUT_CHANGED'),
@@ -152,6 +168,9 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
       assert.equal(applied.counts.foldersCreated, 2);
       assert.equal(applied.counts.pagesMoved, 2);
       assert.equal(applied.counts.aliasesCreated, 2);
+      assert.equal(applied.counts.aliasesReused, 0);
+      assert.equal(applied.counts.aliasesRefreshed, 0);
+      assert.equal(applied.counts.aliasesPruned, 0);
       assert.equal(applied.counts.pageVersionsBackfilled, 2);
 
       const folders = await prisma.folder.findMany({
@@ -232,21 +251,79 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
       assert.deepEqual(migrationSidecar.sidecar.memories, [{ id: 'preserved-memory-evidence' }]);
       assert.equal(migrationSidecar.sidecar.customEvidence, 'preserved-sidecar');
       assert.equal(migrationSidecar.sidecar.spaceFolderMigration.inputHash, dryRun.inputHash);
-      assert.equal((await prisma.syncRevisionPageRow.count({ where: { revisionId: revision.id } })), 3);
-      assert.deepEqual(
-        (await prisma.syncRevisionPageRow.findMany({
-          where: { revisionId: revision.id }, orderBy: { pageId: 'asc' },
-          select: { pageId: true, folderId: true },
-        })).map(({ pageId, folderId }) => ({ pageId, folderId })),
-        [root, child, grandchild]
-          .map((entry) => ({
-            pageId: entry.knowledgeKey,
-            folderId: entry.id === root.id
-              ? null
-              : legacyFolderId(seeded.spaceId, entry.parentId),
-          }))
-          .sort((left, right) => left.pageId.localeCompare(right.pageId)),
-      );
+      assert.equal(migrationSidecar.sidecar.spaceFolderMigration.status, 'completed');
+      assert.equal(migrationSidecar.sidecar.spaceFolderMigration.v2Revision.protocolVersion, '2');
+      assert.equal(revision.schemaVersion, 'content-tree@2');
+      const revisionFolders = await prisma.syncRevisionFolderRow.findMany({
+        where: { revisionId: revision.id }, orderBy: { path: 'asc' },
+      });
+      assert.deepEqual(revisionFolders.map(({ folderId, parentFolderId, path }) => ({
+        folderId, parentFolderId, path,
+      })), [
+        { folderId: legacyFolderId(seeded.spaceId, root.id), parentFolderId: null, path: 'pages/项目' },
+        {
+          folderId: legacyFolderId(seeded.spaceId, child.id),
+          parentFolderId: legacyFolderId(seeded.spaceId, root.id),
+          path: 'pages/项目/周报',
+        },
+      ]);
+      const revisionPages = await prisma.syncRevisionPageRow.findMany({
+        where: { revisionId: revision.id }, orderBy: { pathKey: 'asc' }, include: { content: true },
+      });
+      assert.equal(revisionPages.length, 3);
+      assert.deepEqual(revisionPages.map(({ pageId, folderId, path, content: body }) => ({
+        pageId, folderId, path, body: body.body,
+      })), [
+        {
+          pageId: root.knowledgeKey, folderId: null, path: 'pages/项目.md', body: root.content,
+        },
+        {
+          pageId: child.knowledgeKey, folderId: legacyFolderId(seeded.spaceId, root.id),
+          path: 'pages/项目/周报.md', body: child.content,
+        },
+        {
+          pageId: grandchild.knowledgeKey, folderId: legacyFolderId(seeded.spaceId, child.id),
+          path: 'pages/项目/周报/第35周.md', body: grandchild.content,
+        },
+      ]);
+      const manifest = TreeRevisionContentManifestV2Schema.parse({
+        protocolVersion: '2',
+        spaceId: seeded.spaceId,
+        folders: revisionFolders.map((folder) => ({
+          folderId: folder.folderId,
+          parentFolderId: folder.parentFolderId,
+          name: folder.name,
+          path: folder.path,
+          sortOrder: folder.sortOrder,
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        pages: revisionPages.map((pageRow) => ({
+          pageId: pageRow.pageId,
+          folderId: pageRow.folderId,
+          path: pageRow.path,
+          title: pageRow.title,
+          body: pageRow.content.body,
+          contentHash: pageRow.contentHash,
+          updatedAt: pageRow.updatedAt.toISOString(),
+        })),
+      });
+      assert.equal(revision.revisionContentHash, await treeRevisionContentHashV2(manifest));
+      assert.equal(revision.revisionManifestByteLength, BigInt(canonicalBytes(manifest).byteLength));
+      assert.equal(migrationSidecar.sidecar.spaceFolderMigration.v2Revision.folderCount, '2');
+      assert.equal(migrationSidecar.sidecar.spaceFolderMigration.v2Revision.pageCount, '3');
+      const treeDelta = await prisma.syncRevisionTreeDeltaRow.findMany({
+        where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
+      });
+      assert.deepEqual(treeDelta.map(({ operation, folderId, pageId, contentHash }) => ({
+        operation, folderId, pageId, contentHash,
+      })), [
+        ...revisionFolders.map((folder) => ({
+          operation: 'upsert_folder', folderId: folder.folderId, pageId: null, contentHash: null,
+        })),
+        ...revisionPages.map((pageRow) => ({
+          operation: 'upsert_page', folderId: null, pageId: pageRow.pageId, contentHash: pageRow.contentHash,
+        })),
+      ]);
 
       const later = await createPage(prisma, seeded, {
         id: 'later-malformed', title: 'later', parentId: 'missing-parent',
@@ -258,13 +335,29 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
           id: 'later-root', title: 'later', syncPath: 'pages/later.md',
         });
       });
-      const second = await migrateSpaceFolders(prisma, seeded.spaceId);
+      await assert.rejects(
+        () => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: 'f'.repeat(64) }),
+        (error) => error instanceof SpaceFolderMigrationPreflightError
+          && error.report.rejections.some((entry) => entry.code === 'MIGRATION_INPUT_CHANGED'),
+      );
+      const second = await migrateSpaceFolders(prisma, seeded.spaceId, {
+        expectedInputHash: dryRun.inputHash,
+      });
       assert.equal(second.status, 'completed');
       assert.equal(second.counts.foldersCreated, 0);
       assert.equal(second.counts.pagesMoved, 0);
       assert.equal((await prisma.page.findUnique({ where: { id: later.id } })).folderId, null);
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: seeded.spaceId } }), 2);
       assert.equal((await prisma.space.findUnique({ where: { id: seeded.spaceId } })).contentTreeRevision, 1n);
+
+      const savedSidecar = migrationSidecar.sidecar;
+      await prisma.legacyRevisionSidecar.delete({ where: { revisionId: revision.id } });
+      await assert.rejects(
+        () => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: dryRun.inputHash }),
+        (error) => error instanceof SpaceFolderMigrationPreflightError
+          && error.report.rejections.some((entry) => entry.code === 'MIGRATION_BATCH_EVIDENCE_INVALID'),
+      );
+      await prisma.legacyRevisionSidecar.create({ data: { revisionId: revision.id, sidecar: savedSidecar } });
 
       const rollbackSeeded = await seedUserAndSpace(prisma, 'RollbackTree');
       const rollbackRoot = await createPage(prisma, rollbackSeeded, {
@@ -289,8 +382,11 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
         BEFORE UPDATE ON "Page"
         FOR EACH ROW EXECUTE FUNCTION "reject_rollback_page_update"()
       `);
+      const rollbackDryRun = await preflightSpaceFolderMigration(prisma, rollbackSeeded.spaceId);
       await assert.rejects(
-        () => migrateSpaceFolders(prisma, rollbackSeeded.spaceId),
+        () => migrateSpaceFolders(prisma, rollbackSeeded.spaceId, {
+          expectedInputHash: rollbackDryRun.inputHash,
+        }),
         /forced Task 6 rollback/,
       );
       assert.equal(await prisma.folder.count({ where: { spaceId: rollbackSeeded.spaceId } }), 0);
@@ -330,6 +426,179 @@ test('real PostgreSQL preflight rejects cross-Space and orphan legacy parents wi
       assert.equal(await prisma.folder.count({ where: { spaceId: first.spaceId } }), 0);
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: first.spaceId } }), 0);
     } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('real PostgreSQL alias planning applies ContentTree upsert/retention and reruns without mutation', {
+  skip,
+  timeout: 180_000,
+}, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    try {
+      const seeded = await seedUserAndSpace(prisma, 'AliasTree');
+      const root = await createPage(prisma, seeded, {
+        id: 'alias-root', title: 'Root', syncPath: 'pages/Root.md',
+      });
+      const child = await createPage(prisma, seeded, {
+        id: 'alias-child', title: 'Child', parentId: root.id, syncPath: 'pages/Child.md',
+      });
+      const current = await createPage(prisma, seeded, {
+        id: 'alias-current', title: 'Current', syncPath: 'pages/Current.md',
+      });
+      await prisma.pagePathAlias.createMany({ data: [
+        ...Array.from({ length: 20 }, (_, index) => ({
+          id: `history-${String(index).padStart(2, '0')}`,
+          spaceId: seeded.spaceId,
+          pageId: child.id,
+          path: `pages/history-${index}.md`,
+          pathKey: pathKey(`pages/history-${index}.md`),
+          createdAt: new Date(`2026-08-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
+        })),
+        {
+          id: 'ambiguous-existing', spaceId: seeded.spaceId, pageId: current.id,
+          path: child.syncPath, pathKey: child.syncPathKey,
+          createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        },
+        {
+          id: 'shadowed-existing', spaceId: seeded.spaceId, pageId: root.id,
+          path: current.syncPath, pathKey: current.syncPathKey,
+          createdAt: new Date('2026-07-02T00:00:00.000Z'),
+        },
+      ] });
+
+      const dryRun = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+      assert.equal(dryRun.counts.aliasesCreated, 1);
+      assert.equal(dryRun.counts.aliasesPruned, 1);
+      assert.deepEqual(dryRun.aliasRetention, [{ pageId: child.id, prunedAliasIds: ['history-00'] }]);
+      assert.deepEqual(dryRun.aliasResolutions.map(({ pathKey: key, resolution }) => ({ key, resolution })), [
+        { key: child.syncPathKey, resolution: 'ambiguous-alias' },
+        { key: current.syncPathKey, resolution: 'current-page' },
+      ]);
+
+      const applied = await migrateSpaceFolders(prisma, seeded.spaceId, {
+        expectedInputHash: dryRun.inputHash,
+      });
+      assert.equal(applied.counts.aliasesCreated, 1);
+      assert.equal(applied.counts.aliasesPruned, 1);
+      assert.equal(await prisma.pagePathAlias.count({ where: { pageId: child.id } }), 20);
+      assert.equal(await prisma.pagePathAlias.count({ where: { id: 'history-00' } }), 0);
+      assert.deepEqual(
+        (await prisma.pagePathAlias.findMany({
+          where: { spaceId: seeded.spaceId, pathKey: child.syncPathKey },
+          orderBy: { pageId: 'asc' }, select: { pageId: true },
+        })).map((alias) => alias.pageId),
+        [child.id, current.id].sort(),
+      );
+      const beforeRerun = await prisma.pagePathAlias.findMany({
+        where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' },
+      });
+      const rerun = await migrateSpaceFolders(prisma, seeded.spaceId, {
+        expectedInputHash: dryRun.inputHash,
+      });
+      assert.equal(rerun.status, 'completed');
+      assert.deepEqual(
+        await prisma.pagePathAlias.findMany({
+          where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' },
+        }),
+        beforeRerun,
+      );
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('CLI apply reserves a required report before writes and persists it before commit', {
+  skip,
+  timeout: 180_000,
+}, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    const sandbox = await mkdtemp(join(tmpdir(), 'agentwiki-folder-report-'));
+    const script = resolve(rootDirectory, 'scripts/space-folder-migration.mjs');
+    try {
+      const seedTree = async (label) => {
+        const seeded = await seedUserAndSpace(prisma, label);
+        const rootPage = await createPage(prisma, seeded, {
+          title: 'Root', syncPath: `pages/${label}-Root.md`,
+        });
+        await createPage(prisma, seeded, {
+          title: 'Child', parentId: rootPage.id, syncPath: `pages/${label}-Child.md`,
+        });
+        const dryRun = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+        return { ...seeded, dryRun };
+      };
+      const runApply = (seeded, extra = []) => execFileAsync(process.execPath, [
+        script,
+        '--apply',
+        '--space', seeded.spaceId,
+        '--expected-input-hash', seeded.dryRun.inputHash,
+        ...extra,
+      ], { env: { ...process.env, DATABASE_URL: schemaUrl } });
+      const assertNoWrites = async (spaceId) => {
+        assert.equal(await prisma.folder.count({ where: { spaceId } }), 0);
+        assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 0);
+        assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 0n);
+      };
+
+      const missingReport = await seedTree('MissingReport');
+      await assert.rejects(() => runApply(missingReport), /--report/);
+      await assertNoWrites(missingReport.spaceId);
+
+      const existingReport = await seedTree('ExistingReport');
+      const existingPath = join(sandbox, 'existing.json');
+      await writeFile(existingPath, 'do-not-overwrite', { mode: 0o600 });
+      await assert.rejects(() => runApply(existingReport, ['--report', existingPath]), /EEXIST|already exists/iu);
+      assert.equal(await readFile(existingPath, 'utf8'), 'do-not-overwrite');
+      await assertNoWrites(existingReport.spaceId);
+
+      const missingDirectory = await seedTree('MissingDirectory');
+      await assert.rejects(
+        () => runApply(missingDirectory, ['--report', join(sandbox, 'missing', 'report.json')]),
+        /ENOENT|directory/iu,
+      );
+      await assertNoWrites(missingDirectory.spaceId);
+
+      const unwritable = await seedTree('UnwritableReport');
+      const unwritableDirectory = join(sandbox, 'unwritable');
+      await mkdir(unwritableDirectory, { mode: 0o700 });
+      await chmod(unwritableDirectory, 0o500);
+      await assert.rejects(
+        () => runApply(unwritable, ['--report', join(unwritableDirectory, 'report.json')]),
+        /EACCES|permission/iu,
+      );
+      await assertNoWrites(unwritable.spaceId);
+      await chmod(unwritableDirectory, 0o700);
+
+      const finalWriteFailure = await seedTree('FinalWriteFailure');
+      await assert.rejects(
+        () => migrateSpaceFolders(prisma, finalWriteFailure.spaceId, {
+          expectedInputHash: finalWriteFailure.dryRun.inputHash,
+          persistReport: async () => { throw new Error('forced final report failure'); },
+        }),
+        /forced final report failure/,
+      );
+      await assertNoWrites(finalWriteFailure.spaceId);
+
+      const successful = await seedTree('SuccessfulReport');
+      const reportPath = join(sandbox, 'applied.json');
+      const successfulCommand = await runApply(successful, ['--report', reportPath]);
+      const report = JSON.parse(await readFile(reportPath, 'utf8'));
+      const stdoutReport = JSON.parse(successfulCommand.stdout);
+      assert.equal(report.status, 'applied');
+      assert.equal(report.inputHash, successful.dryRun.inputHash);
+      assert.equal(report.pathChanges.length, 2);
+      assert.equal(report.plannedFolders.length, 1);
+      assert.deepEqual(stdoutReport.pathChanges, report.pathChanges);
+      assert.deepEqual(stdoutReport.plannedFolders, report.plannedFolders);
+      assert.deepEqual(stdoutReport.plannedAliases, report.plannedAliases);
+      assert.equal(await prisma.folder.count({ where: { spaceId: successful.spaceId } }), 1);
+    } finally {
+      await chmod(join(sandbox, 'unwritable'), 0o700).catch(() => {});
+      await rm(sandbox, { recursive: true, force: true });
       await prisma.$disconnect();
     }
   });
