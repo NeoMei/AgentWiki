@@ -87,12 +87,18 @@ describe('SpaceRevisionWriterService', () => {
       },
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'rev-1', spaceId: 'space-1', sequence: 1, parentRevisionId: null,
+          schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue(createdRevision),
         update: jest.fn().mockResolvedValue({}),
       },
       syncRevisionPageRow: {
         findMany: jest.fn().mockResolvedValue([{
           pageId: '11111111-1111-4111-8111-111111111111',
+          folderId: null,
           path: 'Guide.md',
           title: 'Guide',
           contentHash: '66a045b452102c59d840ec097d59d9467e13a3f34f6494e539ffd32c1bb35f18',
@@ -104,6 +110,8 @@ describe('SpaceRevisionWriterService', () => {
       syncRevisionDeltaRow: {
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([]) },
+      syncRevisionTreeDeltaRow: { findMany: jest.fn().mockResolvedValue([]) },
       legacyRevisionSidecar: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
@@ -173,6 +181,7 @@ describe('SpaceRevisionWriterService', () => {
     });
     const settled = changes.map((change) => ({
       pageId: change.pageId,
+      folderId: null,
       path: change.path,
       title: change.title,
       contentHash: hash,
@@ -193,11 +202,18 @@ describe('SpaceRevisionWriterService', () => {
       $queryRaw: jest.fn().mockResolvedValue([{ bytes: BigInt(Buffer.byteLength(body) * changes.length) }]),
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'rev-bulk', spaceId: 'space-1', sequence: 1, parentRevisionId: null,
+          schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({ id: 'rev-bulk', sequence: 1 }),
         update: jest.fn().mockResolvedValue({}),
       },
       syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue(settled) },
       syncRevisionDeltaRow: { createMany: jest.fn().mockResolvedValue({ count: changes.length }) },
+      syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([]) },
+      syncRevisionTreeDeltaRow: { findMany: jest.fn().mockResolvedValue([]) },
       legacyRevisionSidecar: { findUnique: jest.fn().mockResolvedValue(null) },
       legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue(extras) },
       legacyPageBodyRow: { findMany: jest.fn().mockResolvedValue([{ contentHash: hash, body }]) },
@@ -221,7 +237,9 @@ describe('SpaceRevisionWriterService', () => {
     ] as jest.Mock[];
     const queryCount = queryFunctions.reduce((count, query) => count + query.mock.calls.length, 0);
     expect(result.pageCount).toBe(10_000n);
-    expect(queryCount).toBeLessThanOrEqual(20);
+    // Full-chain and persisted-marker integrity add a fixed query budget, not a
+    // per-Page query. The 10k boundary must remain constant-sized.
+    expect(queryCount).toBeLessThanOrEqual(24);
   }, 20_000);
 
   function emptyStructuralTransaction() {
@@ -237,6 +255,104 @@ describe('SpaceRevisionWriterService', () => {
       legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
+
+  function v2FinalizerTransaction(current: any, parent: any = null) {
+    const revisions = new Map<string, any>([[current.id, current]]);
+    if (parent) revisions.set(parent.id, parent);
+    return {
+      folder: { findMany: jest.fn().mockResolvedValue([]) },
+      spaceKnowledgeRevision: {
+        findUnique: jest.fn(async ({ where }: any) => revisions.get(where.id) ?? null),
+        findMany: jest.fn(async ({ where }: any) => [...revisions.values()]
+          .filter((revision) => revision.spaceId === where.spaceId && revision.sequence < where.sequence.lt)
+          .sort((left, right) => right.sequence - left.sequence)),
+      },
+      syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([]) },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([]) },
+      legacyRevisionSidecar: { findUnique: jest.fn().mockResolvedValue(null) },
+      syncRevisionTreeDeltaRow: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  const fallback = {
+    revisionId: 'rev-2', sequence: 2, revisionContentHash: '0'.repeat(64),
+    pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+  };
+
+  it.each([
+    ['missing parent', null],
+    ['self parent', {
+      id: 'rev-2', spaceId: 'space-1', sequence: 2, parentRevisionId: 'rev-2',
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+    }],
+    ['cross-Space parent', {
+      id: 'rev-1', spaceId: 'space-2', sequence: 1, parentRevisionId: null,
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+    }],
+    ['wrong predecessor sequence', {
+      id: 'rev-1', spaceId: 'space-1', sequence: 0, parentRevisionId: null,
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+    }],
+  ])('fails the writer finalizer closed for a %s', async (_label, parent) => {
+    const current = {
+      id: 'rev-2', spaceId: 'space-1', sequence: 2, parentRevisionId: 'rev-1',
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+    };
+    if (parent?.id === 'rev-2') current.parentRevisionId = 'rev-2';
+    const tx = v2FinalizerTransaction(current, parent);
+
+    await expect((service as any).finalizeTreeV2IfRequired(
+      tx, 'space-1', 'rev-2', current.parentRevisionId, fallback,
+    )).rejects.toMatchObject({ code: 'CONTENT_TREE_REVISION_GONE' });
+  });
+
+  it('rejects an incomplete parent identified only by a non-schema v2 marker', async () => {
+    const current = {
+      id: 'rev-2', spaceId: 'space-1', sequence: 2, parentRevisionId: 'rev-1',
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+    };
+    const parent = {
+      id: 'rev-1', spaceId: 'space-1', sequence: 1, parentRevisionId: null,
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'space-folders-v1', migrationBatchId: null,
+    };
+    const tx = v2FinalizerTransaction(current, parent);
+
+    await expect((service as any).finalizeTreeV2IfRequired(
+      tx, 'space-1', 'rev-2', 'rev-1', fallback,
+    )).rejects.toMatchObject({ code: 'CONTENT_TREE_REVISION_GONE' });
+  });
+
+  it.each([
+    ['initial revision', {
+      current: {
+        id: 'rev-1', spaceId: 'space-1', sequence: 1, parentRevisionId: null,
+        schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+      }, parent: null, fallback: { ...fallback, revisionId: 'rev-1', sequence: 1 },
+    }],
+    ['exact marker-free legacy predecessor', {
+      current: {
+        id: 'rev-2', spaceId: 'space-1', sequence: 2, parentRevisionId: 'rev-1',
+        schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+      },
+      parent: {
+        id: 'rev-1', spaceId: 'space-1', sequence: 1, parentRevisionId: null,
+        schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+      },
+      fallback,
+    }],
+  ])('keeps the legal Folder-free %s chain compatible', async (_label, value) => {
+    const tx = v2FinalizerTransaction(value.current, value.parent);
+
+    await expect((service as any).finalizeTreeV2IfRequired(
+      tx, 'space-1', value.current.id, value.current.parentRevisionId, value.fallback,
+    )).resolves.toBe(value.fallback);
+    const chainQuery = tx.spaceKnowledgeRevision.findMany.mock.calls[0][0];
+    expect(chainQuery.select).toEqual(expect.objectContaining({
+      id: true, spaceId: true, sequence: true, parentRevisionId: true,
+    }));
+    expect(chainQuery.select).not.toHaveProperty('snapshot');
+    expect(chainQuery.select).not.toHaveProperty('delta');
+  });
 
   it('keeps automatic v2 finalization enabled even if external origin metadata names the migration defer flag', async () => {
     const finalize = jest.spyOn(service as any, 'finalizeTreeV2IfRequired')

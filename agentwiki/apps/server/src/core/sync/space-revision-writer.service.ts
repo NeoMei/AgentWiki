@@ -9,14 +9,23 @@ import {
   revisionContentHash as computeRevisionContentHash,
   treeRevisionDeltaV2,
   treeRevisionContentHashV2,
+  validatePortableDirectoryPath,
+  validatePortableMarkdownPath,
   type RevisionContentManifest,
   type SyncFolderV2,
   type SyncPageV2,
+  type TreeDeltaItemV2,
+  type TreeRevisionContentManifestV2,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
 import { ContentTreeConflict, ContentTreeError } from '../../content-tree/content-tree.types';
+import {
+  hasCompleteRevisionChain,
+  REVISION_V2_SCALAR_SELECT,
+  revisionShouldBeV2,
+} from './revision-v2-integrity';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -478,7 +487,7 @@ export class SpaceRevisionWriterService {
       },
     });
     if (!revision) {
-      throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The bound Sync revision is not available');
+      throw new ContentTreeError('CONTENT_TREE_REVISION_GONE', 'Revision is not available');
     }
     return this.finalizeTreeV2IfRequired(
       tx,
@@ -808,17 +817,98 @@ export class SpaceRevisionWriterService {
     parentRevisionId: string | null,
     fallback: RevisionWriteResult,
   ): Promise<RevisionWriteResult> {
-    const [folders, pages, parent] = await Promise.all([
+    const [folders, pages, revision, currentFolderRows, currentSidecarRow, currentDeltaRows] = await Promise.all([
       tx.folder.findMany({ where: { spaceId, deletedAt: null } }),
       tx.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
-      parentRevisionId ? tx.spaceKnowledgeRevision.findUnique({
-        where: { id: parentRevisionId }, select: { schemaVersion: true },
-      }) : null,
+      tx.spaceKnowledgeRevision.findUnique({
+        where: { id: revisionId }, select: REVISION_V2_SCALAR_SELECT,
+      }),
+      tx.syncRevisionFolderRow.findMany({ where: { revisionId } }),
+      tx.legacyRevisionSidecar.findUnique({ where: { revisionId } }),
+      tx.syncRevisionTreeDeltaRow.findMany({ where: { revisionId }, select: { ordinal: true } }),
     ]);
-    const useV2 = folders.length > 0
-      || pages.some((page) => page.folderId != null)
-      || parent?.schemaVersion === 'content-tree@2';
+    if (!revision || revision.spaceId !== spaceId || revision.parentRevisionId !== parentRevisionId) {
+      throw this.invalidRevisionChain();
+    }
+    const ancestors = await tx.spaceKnowledgeRevision.findMany({
+      where: { spaceId, sequence: { lt: revision.sequence } },
+      orderBy: { sequence: 'desc' },
+      select: REVISION_V2_SCALAR_SELECT,
+    });
+    if (!hasCompleteRevisionChain(revision, ancestors)) throw this.invalidRevisionChain();
+    const ancestorById = new Map(ancestors.map((ancestor) => [ancestor.id, ancestor]));
+    const parent = parentRevisionId ? ancestorById.get(parentRevisionId) ?? null : null;
+    const grandparent = parent?.parentRevisionId
+      ? ancestorById.get(parent.parentRevisionId) ?? null
+      : null;
+    const [parentFolders, parentPages, parentSidecarRow, parentDeltaRows] = parent ? await Promise.all([
+      tx.syncRevisionFolderRow.findMany({ where: { revisionId: parent.id } }),
+      tx.syncRevisionPageRow.findMany({ where: { revisionId: parent.id }, include: { content: true } }),
+      tx.legacyRevisionSidecar.findUnique({ where: { revisionId: parent.id } }),
+      tx.syncRevisionTreeDeltaRow.findMany({ where: { revisionId: parent.id }, orderBy: { ordinal: 'asc' } }),
+    ]) : [[], [], null, []];
+    const [grandparentFolders, grandparentPages, grandparentSidecarRow, grandparentDeltaRows] = grandparent
+      ? await Promise.all([
+        tx.syncRevisionFolderRow.findMany({ where: { revisionId: grandparent.id } }),
+        tx.syncRevisionPageRow.findMany({ where: { revisionId: grandparent.id }, include: { content: true } }),
+        tx.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparent.id } }),
+        tx.syncRevisionTreeDeltaRow.findMany({ where: { revisionId: grandparent.id }, select: { ordinal: true } }),
+      ])
+      : [[], [], null, []];
+    const grandparentShouldBeV2 = !!grandparent && revisionShouldBeV2({
+      schemaVersion: grandparent.schemaVersion,
+      recipeVersion: grandparent.recipeVersion,
+      sidecar: grandparentSidecarRow?.sidecar,
+      folderRowCount: grandparentFolders.length,
+      hasPlacedPage: grandparentPages.some((page) => page.folderId !== null),
+      treeDeltaRowCount: grandparentDeltaRows.length,
+      migrationBatchId: grandparent.migrationBatchId,
+    });
+    const parentShouldBeV2 = !!parent && revisionShouldBeV2({
+      schemaVersion: parent.schemaVersion,
+      recipeVersion: parent.recipeVersion,
+      sidecar: parentSidecarRow?.sidecar,
+      folderRowCount: parentFolders.length,
+      hasPlacedPage: parentPages.some((page) => page.folderId !== null),
+      treeDeltaRowCount: parentDeltaRows.length,
+      migrationBatchId: parent.migrationBatchId,
+      parentShouldBeV2: grandparentShouldBeV2,
+    });
+    const useV2 = revisionShouldBeV2({
+      schemaVersion: revision.schemaVersion,
+      recipeVersion: revision.recipeVersion,
+      sidecar: currentSidecarRow?.sidecar,
+      folderRowCount: Math.max(folders.length, currentFolderRows.length),
+      hasPlacedPage: pages.some((page) => page.folderId !== null),
+      treeDeltaRowCount: currentDeltaRows.length,
+      migrationBatchId: revision.migrationBatchId,
+      parentShouldBeV2,
+    });
     if (!useV2) return fallback;
+
+    const grandparentManifest = grandparent && grandparentShouldBeV2
+      ? await this.assertCompleteV2Parent(
+        spaceId,
+        grandparent,
+        grandparentFolders,
+        grandparentPages,
+        grandparentSidecarRow,
+        grandparentDeltaRows.length,
+      )
+      : null;
+    const parentManifest = parent && parentShouldBeV2
+      ? await this.assertCompleteV2Parent(
+        spaceId,
+        parent,
+        parentFolders,
+        parentPages,
+        parentSidecarRow,
+        parentDeltaRows.length,
+      )
+      : null;
+    if (parentManifest) {
+      this.assertStoredTreeDelta(parentDeltaRows, treeRevisionDeltaV2(grandparentManifest, parentManifest));
+    }
 
     const manifest = canonicalTreeRevisionManifestV2({
       protocolVersion: '2',
@@ -857,33 +947,6 @@ export class SpaceRevisionWriterService {
       });
     }
 
-    const [parentFolders, parentPages] = parentRevisionId && parent?.schemaVersion === 'content-tree@2' ? await Promise.all([
-      tx.syncRevisionFolderRow.findMany({ where: { revisionId: parentRevisionId } }),
-      tx.syncRevisionPageRow.findMany({ where: { revisionId: parentRevisionId }, include: { content: true } }),
-    ]) : [[], []];
-    const parentManifest = parent?.schemaVersion === 'content-tree@2'
-      ? canonicalTreeRevisionManifestV2({
-        protocolVersion: '2',
-        spaceId,
-        folders: parentFolders.map((folder): SyncFolderV2 => ({
-          folderId: folder.folderId,
-          parentFolderId: folder.parentFolderId,
-          name: folder.name,
-          path: folder.path,
-          sortOrder: folder.sortOrder,
-          updatedAt: folder.updatedAt.toISOString(),
-        })),
-        pages: parentPages.map((page): SyncPageV2 => ({
-          pageId: page.pageId,
-          folderId: page.folderId,
-          path: page.path,
-          title: page.title,
-          body: page.content.body,
-          contentHash: page.contentHash,
-          updatedAt: page.updatedAt.toISOString(),
-        })),
-      })
-      : null;
     const deltaRows = treeRevisionDeltaV2(parentManifest, manifest).map((item) => {
       if (item.operation === 'archive_page') {
         return { operation: item.operation, folderId: null, pageId: item.pageId, previousPath: item.previousPath, contentHash: null };
@@ -919,9 +982,8 @@ export class SpaceRevisionWriterService {
         revisionBodyBytes,
       },
     });
-    const sidecarRow = await tx.legacyRevisionSidecar.findUnique({ where: { revisionId } });
-    const sidecar = sidecarRow?.sidecar && typeof sidecarRow.sidecar === 'object' && !Array.isArray(sidecarRow.sidecar)
-      ? sidecarRow.sidecar as Prisma.InputJsonObject : {};
+    const sidecar = currentSidecarRow?.sidecar && typeof currentSidecarRow.sidecar === 'object' && !Array.isArray(currentSidecarRow.sidecar)
+      ? currentSidecarRow.sidecar as Prisma.InputJsonObject : {};
     const migrationValue = sidecar.spaceFolderMigration;
     const migration = migrationValue && typeof migrationValue === 'object' && !Array.isArray(migrationValue)
       ? migrationValue as Prisma.InputJsonObject : {};
@@ -960,6 +1022,180 @@ export class SpaceRevisionWriterService {
       revisionManifestByteLength,
       revisionBodyBytes,
     };
+  }
+
+  private invalidRevisionChain(): ContentTreeError {
+    return new ContentTreeError(
+      'CONTENT_TREE_REVISION_GONE',
+      'Revision is not available',
+    );
+  }
+
+  private assertStoredTreeDelta(
+    rows: Array<{
+      ordinal: number;
+      operation: string;
+      folderId: string | null;
+      pageId: string | null;
+      previousPath: string | null;
+      contentHash: string | null;
+    }>,
+    expectedItems: TreeDeltaItemV2[],
+  ): void {
+    const expectedRows = expectedItems.map((item, ordinal) => {
+      if (item.operation === 'archive_page') return {
+        ordinal, operation: item.operation, folderId: null, pageId: item.pageId,
+        previousPath: item.previousPath, contentHash: null,
+      };
+      if (item.operation === 'archive_folder') return {
+        ordinal, operation: item.operation, folderId: item.folderId, pageId: null,
+        previousPath: item.previousPath, contentHash: null,
+      };
+      if (item.operation === 'upsert_folder') return {
+        ordinal, operation: item.operation, folderId: item.folder.folderId, pageId: null,
+        previousPath: null, contentHash: null,
+      };
+      return {
+        ordinal, operation: item.operation, folderId: null, pageId: item.page.pageId,
+        previousPath: null, contentHash: item.page.contentHash,
+      };
+    });
+    if (rows.length !== expectedRows.length) throw this.invalidRevisionChain();
+    for (let index = 0; index < rows.length; index += 1) {
+      const actual = rows[index]!;
+      const expected = expectedRows[index]!;
+      if (
+        actual.ordinal !== expected.ordinal
+        || actual.operation !== expected.operation
+        || actual.folderId !== expected.folderId
+        || actual.pageId !== expected.pageId
+        || actual.previousPath !== expected.previousPath
+        || actual.contentHash !== expected.contentHash
+      ) throw this.invalidRevisionChain();
+    }
+  }
+
+  private async assertCompleteV2Parent(
+    spaceId: string,
+    revision: {
+      schemaVersion: string;
+      recipeVersion: string;
+      revisionContentHash: string;
+      pageCount: bigint;
+      revisionManifestByteLength: bigint;
+      revisionBodyBytes: bigint;
+    },
+    folderRows: Array<{
+      folderId: string;
+      parentFolderId: string | null;
+      name: string;
+      path: string;
+      pathKey: string;
+      sortOrder: number;
+      updatedAt: Date;
+    }>,
+    pageRows: Array<{
+      pageId: string;
+      folderId: string | null;
+      path: string;
+      pathKey: string;
+      title: string;
+      contentHash: string;
+      updatedAt: Date;
+      content: { body: string; byteLength: number };
+    }>,
+    sidecarRow: { sidecar: unknown } | null,
+    deltaCount: number,
+  ): Promise<TreeRevisionContentManifestV2> {
+    try {
+      for (const folder of folderRows) {
+        const portable = validatePortableDirectoryPath(folder.path);
+        if (portable.path !== folder.path || portable.key !== folder.pathKey) throw this.invalidRevisionChain();
+      }
+      for (const page of pageRows) {
+        const portable = validatePortableMarkdownPath(page.path);
+        const body = normalizeMarkdown(page.content.body);
+        if (
+          portable.path !== page.path
+          || portable.key !== page.pathKey
+          || body !== page.content.body
+          || await contentHash(body) !== page.contentHash
+          || Buffer.byteLength(body, 'utf8') !== page.content.byteLength
+        ) throw this.invalidRevisionChain();
+      }
+      const manifest = canonicalTreeRevisionManifestV2({
+        protocolVersion: '2',
+        spaceId,
+        folders: folderRows.map((folder): SyncFolderV2 => ({
+          folderId: folder.folderId,
+          parentFolderId: folder.parentFolderId,
+          name: folder.name,
+          path: folder.path,
+          sortOrder: folder.sortOrder,
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        pages: pageRows.map((page): SyncPageV2 => ({
+          pageId: page.pageId,
+          folderId: page.folderId,
+          path: page.path,
+          title: page.title,
+          body: page.content.body,
+          contentHash: page.contentHash,
+          updatedAt: page.updatedAt.toISOString(),
+        })),
+      });
+      const folderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
+      for (const folder of manifest.folders) {
+        let current = folder;
+        const seen = new Set<string>();
+        while (current.parentFolderId !== null) {
+          if (seen.has(current.folderId)) throw this.invalidRevisionChain();
+          seen.add(current.folderId);
+          const parent = folderById.get(current.parentFolderId);
+          if (!parent) throw this.invalidRevisionChain();
+          current = parent;
+        }
+      }
+      if (manifest.pages.some((page) => page.folderId !== null && !folderById.has(page.folderId))) {
+        throw this.invalidRevisionChain();
+      }
+      const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
+      const revisionContentHash = empty ? EMPTY_REVISION_HASH : await treeRevisionContentHashV2(manifest);
+      const revisionManifestByteLength = BigInt(empty ? 0 : canonicalBytes(manifest).byteLength);
+      const revisionBodyBytes = BigInt(manifest.pages.reduce(
+        (total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0,
+      ));
+      const sidecar = sidecarRow?.sidecar && typeof sidecarRow.sidecar === 'object' && !Array.isArray(sidecarRow.sidecar)
+        ? sidecarRow.sidecar as Record<string, unknown>
+        : null;
+      const migrationValue = sidecar?.spaceFolderMigration;
+      const migration = migrationValue && typeof migrationValue === 'object' && !Array.isArray(migrationValue)
+        ? migrationValue as Record<string, unknown>
+        : null;
+      const v2Value = migration?.v2Revision;
+      const v2 = v2Value && typeof v2Value === 'object' && !Array.isArray(v2Value)
+        ? v2Value as Record<string, unknown>
+        : null;
+      if (
+        revision.schemaVersion !== 'content-tree@2'
+        || revision.recipeVersion !== 'space-folders-v1'
+        || revision.revisionContentHash !== revisionContentHash
+        || revision.pageCount !== BigInt(manifest.pages.length)
+        || revision.revisionManifestByteLength !== revisionManifestByteLength
+        || revision.revisionBodyBytes !== revisionBodyBytes
+        || v2?.protocolVersion !== '2'
+        || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
+        || v2.folderCount !== String(manifest.folders.length)
+        || v2.pageCount !== String(manifest.pages.length)
+        || v2.revisionContentHash !== revisionContentHash
+        || v2.revisionManifestByteLength !== String(revisionManifestByteLength)
+        || v2.revisionBodyBytes !== String(revisionBodyBytes)
+        || v2.treeDeltaCount !== String(deltaCount)
+      ) throw this.invalidRevisionChain();
+      return manifest;
+    } catch {
+      throw this.invalidRevisionChain();
+    }
   }
 
   private async legacyContentHash(

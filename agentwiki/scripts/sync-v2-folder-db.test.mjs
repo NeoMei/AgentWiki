@@ -12,6 +12,7 @@ const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
+const { SyncV2RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v2-revision.service.js');
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 
@@ -497,6 +498,38 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         tree.lockSyncMutationSpace = originalSyncLock;
         await Promise.allSettled([afterFinalize, afterDelete].filter(Boolean));
       }
+
+      const immutableReader = new SyncV2RevisionService(
+        prisma,
+        {
+          encode: (payload) => Buffer.from(JSON.stringify(payload)).toString('base64url'),
+          decode: (value) => JSON.parse(Buffer.from(value, 'base64url').toString('utf8')),
+        },
+        { capabilitiesV2: () => ({ maxResponseBytes: 4 * 1024 * 1024 }) },
+      );
+      const chainHead = await prisma.spaceKnowledgeRevision.findFirst({
+        where: { spaceId }, orderBy: { sequence: 'desc' },
+      });
+      assert.ok(chainHead?.parentRevisionId, 'real v2 chain needs a parent for integrity coverage');
+      await immutableReader.snapshot(spaceId, chainHead.id, undefined, 100);
+      const chainParent = await prisma.spaceKnowledgeRevision.findUnique({
+        where: { id: chainHead.parentRevisionId },
+      });
+      assert.ok(chainParent);
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: chainParent.id }, data: { parentRevisionId: chainParent.id },
+      });
+      try {
+        await expectSyncCode(
+          immutableReader.snapshot(spaceId, chainHead.id, undefined, 100),
+          'REVISION_GONE',
+        );
+      } finally {
+        await prisma.spaceKnowledgeRevision.update({
+          where: { id: chainParent.id }, data: { parentRevisionId: chainParent.parentRevisionId },
+        });
+      }
+      await immutableReader.snapshot(spaceId, chainHead.id, undefined, 100);
 
       const archiveSpaceId = `sync-v2-archive-space-${suffix}`;
       const archiveFolderId = `sync-v2-archive-folder-${suffix}`;

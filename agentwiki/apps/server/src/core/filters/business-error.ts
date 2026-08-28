@@ -65,6 +65,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   FOLDER_MUTATION_LIMIT: { status: HttpStatus.BAD_REQUEST, message: 'Folder mutation limit exceeded' },
   FOLDER_PATH_TOO_LONG: { status: HttpStatus.BAD_REQUEST, message: 'Folder path is too long' },
   CONTENT_TREE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Content tree changed; reload before retrying' },
+  CONTENT_TREE_REVISION_GONE: { status: HttpStatus.GONE, message: 'Revision is not available' },
   CONTENT_TREE_CURSOR_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Content tree cursor is invalid' },
   CONTENT_TREE_PAGE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Page not found' },
   CONTENT_TREE_INVALID_ACTOR: { status: HttpStatus.BAD_REQUEST, message: 'Content tree actor is invalid' },
@@ -106,6 +107,7 @@ function errorNameFor(status: HttpStatus): string {
   return status === HttpStatus.UNAUTHORIZED ? 'Unauthorized'
     : status === HttpStatus.FORBIDDEN ? 'Forbidden'
     : status === HttpStatus.NOT_FOUND ? 'Not Found'
+    : status === HttpStatus.GONE ? 'Gone'
     : status === HttpStatus.CONFLICT ? 'Conflict'
     : status === HttpStatus.TOO_MANY_REQUESTS ? 'Too Many Requests'
     : status === HttpStatus.PAYLOAD_TOO_LARGE ? 'Payload Too Large'

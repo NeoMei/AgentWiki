@@ -17,6 +17,11 @@ import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
+import {
+  hasCompleteRevisionChain,
+  REVISION_V2_SCALAR_SELECT,
+  revisionShouldBeV2,
+} from '../../core/sync/revision-v2-integrity';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -186,9 +191,11 @@ export class SyncV2RevisionService {
     }
     const revision = revisionRef === 'current'
       ? await this.prisma.spaceKnowledgeRevision.findFirst({
-        where: { spaceId }, orderBy: { sequence: 'desc' },
+        where: { spaceId }, orderBy: { sequence: 'desc' }, select: REVISION_V2_SCALAR_SELECT,
       })
-      : await this.prisma.spaceKnowledgeRevision.findUnique({ where: { id: revisionRef } });
+      : await this.prisma.spaceKnowledgeRevision.findUnique({
+        where: { id: revisionRef }, select: REVISION_V2_SCALAR_SELECT,
+      });
     if (!revision) {
       if (revisionRef === 'current') return this.loadRevision(spaceId, '0');
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
@@ -197,53 +204,90 @@ export class SyncV2RevisionService {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
     }
     try {
-      const [immutable, sidecarRow, deltaRows, parentRevision] = await Promise.all([
+      const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
         this.rebuildImmutableManifest(spaceId, revision.id),
         this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
         this.prisma.syncRevisionTreeDeltaRow.findMany({
           where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
         }),
-        revision.parentRevisionId
-          ? this.prisma.spaceKnowledgeRevision.findUnique({ where: { id: revision.parentRevisionId } })
-          : null,
+        this.prisma.spaceKnowledgeRevision.findMany({
+          where: { spaceId, sequence: { lt: revision.sequence } },
+          orderBy: { sequence: 'desc' },
+          select: REVISION_V2_SCALAR_SELECT,
+        }),
       ]);
+      if (!hasCompleteRevisionChain(revision, ancestors)) throw revisionGone();
+      const ancestorById = new Map(ancestors.map((ancestor) => [ancestor.id, ancestor]));
+      const parentRevision = revision.parentRevisionId
+        ? ancestorById.get(revision.parentRevisionId) ?? null
+        : null;
       const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
-      const sidecar = record(sidecarRow?.sidecar);
-      const migration = record(sidecar?.spaceFolderMigration);
-      const hasSidecarMarker = !!migration && Object.prototype.hasOwnProperty.call(migration, 'v2Revision');
-      const shouldBeV2 = revision.schemaVersion === 'content-tree@2'
-        || revision.recipeVersion === 'space-folders-v1'
-        || hasSidecarMarker
-        || immutable.folderRowCount > 0
-        || immutable.hasPlacedPage
-        || deltaRows.length > 0
-        || (typeof revision.migrationBatchId === 'string' && revision.migrationBatchId.startsWith('space-folders-v1:'))
-        || parentRevision?.schemaVersion === 'content-tree@2';
+      const parentEvidence = parentRevision ? await Promise.all([
+        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
+        this.rebuildImmutableManifest(spaceId, parentRevision.id),
+        this.prisma.syncRevisionTreeDeltaRow.findMany({
+          where: { revisionId: parentRevision.id }, orderBy: { ordinal: 'asc' },
+        }),
+      ]) : null;
+      const grandparentRevision = parentRevision?.parentRevisionId
+        ? ancestorById.get(parentRevision.parentRevisionId) ?? null
+        : null;
+      const grandparentEvidence = grandparentRevision ? await Promise.all([
+        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparentRevision.id } }),
+        this.rebuildImmutableManifest(spaceId, grandparentRevision.id),
+        this.prisma.syncRevisionTreeDeltaRow.findMany({
+          where: { revisionId: grandparentRevision.id }, select: { ordinal: true },
+        }),
+      ]) : null;
+      const grandparentShouldBeV2 = !!grandparentRevision && !!grandparentEvidence && revisionShouldBeV2({
+        schemaVersion: grandparentRevision.schemaVersion,
+        recipeVersion: grandparentRevision.recipeVersion,
+        sidecar: grandparentEvidence[0]?.sidecar,
+        folderRowCount: grandparentEvidence[1].folderRowCount,
+        hasPlacedPage: grandparentEvidence[1].hasPlacedPage,
+        treeDeltaRowCount: grandparentEvidence[2].length,
+        migrationBatchId: grandparentRevision.migrationBatchId,
+      });
+      const parentShouldBeV2 = !!parentRevision && !!parentEvidence && revisionShouldBeV2({
+        schemaVersion: parentRevision.schemaVersion,
+        recipeVersion: parentRevision.recipeVersion,
+        sidecar: parentEvidence[0]?.sidecar,
+        folderRowCount: parentEvidence[1].folderRowCount,
+        hasPlacedPage: parentEvidence[1].hasPlacedPage,
+        treeDeltaRowCount: parentEvidence[2].length,
+        migrationBatchId: parentRevision.migrationBatchId,
+        parentShouldBeV2: grandparentShouldBeV2,
+      });
+      const shouldBeV2 = revisionShouldBeV2({
+        schemaVersion: revision.schemaVersion,
+        recipeVersion: revision.recipeVersion,
+        sidecar: sidecarRow?.sidecar,
+        folderRowCount: immutable.folderRowCount,
+        hasPlacedPage: immutable.hasPlacedPage,
+        treeDeltaRowCount: deltaRows.length,
+        migrationBatchId: revision.migrationBatchId,
+        parentShouldBeV2,
+      });
       if (shouldBeV2) {
         this.assertV2Metadata(revision, immutable, sidecarRow, deltaRows.length);
         let parentManifest: TreeRevisionContentManifestV2 | null = null;
-        if (parentRevision) {
-          if (parentRevision.spaceId !== spaceId) throw revisionGone();
-          const [parentSidecarRow, parentImmutable, parentDeltaRows] = await Promise.all([
-            this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
-            this.rebuildImmutableManifest(spaceId, parentRevision.id),
-            this.prisma.syncRevisionTreeDeltaRow.findMany({
-              where: { revisionId: parentRevision.id }, select: { ordinal: true },
-            }),
-          ]);
-          const parentSidecar = record(parentSidecarRow?.sidecar);
-          const parentMigration = record(parentSidecar?.spaceFolderMigration);
-          const parentHasV2Marker = parentRevision.schemaVersion === 'content-tree@2'
-            || parentRevision.recipeVersion === 'space-folders-v1'
-            || (!!parentMigration && Object.prototype.hasOwnProperty.call(parentMigration, 'v2Revision'))
-            || parentImmutable.folderRowCount > 0
-            || parentImmutable.hasPlacedPage
-            || parentDeltaRows.length > 0
-            || (typeof parentRevision.migrationBatchId === 'string' && parentRevision.migrationBatchId.startsWith('space-folders-v1:'));
-          if (parentHasV2Marker) {
-            this.assertV2Metadata(parentRevision, parentImmutable, parentSidecarRow, parentDeltaRows.length);
-            parentManifest = parentImmutable.manifest;
+        if (parentRevision && parentEvidence && parentShouldBeV2) {
+          this.assertV2Metadata(parentRevision, parentEvidence[1], parentEvidence[0], parentEvidence[2].length);
+          parentManifest = parentEvidence[1].manifest;
+          let grandparentManifest: TreeRevisionContentManifestV2 | null = null;
+          if (grandparentRevision && grandparentEvidence && grandparentShouldBeV2) {
+            this.assertV2Metadata(
+              grandparentRevision,
+              grandparentEvidence[1],
+              grandparentEvidence[0],
+              grandparentEvidence[2].length,
+            );
+            grandparentManifest = grandparentEvidence[1].manifest;
           }
+          this.assertTreeDeltaContract(
+            parentEvidence[2],
+            treeRevisionDeltaV2(grandparentManifest, parentManifest),
+          );
         }
         this.assertTreeDeltaContract(deltaRows, treeRevisionDeltaV2(parentManifest, manifest));
       }

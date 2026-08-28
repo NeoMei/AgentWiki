@@ -44,6 +44,8 @@ Snapshot cursors bind the Space and immutable revision. Delta cursors additional
 
 An explicit unavailable immutable revision returns `REVISION_GONE`. `current` on a Space with no revision returns revision `0`, empty arrays, empty hash, and zero metrics.
 
+Persisted revisions form one strict Space-local chain. Sequence `1` has a null `parentRevisionId`; every later revision points to the same-Space revision at exactly `sequence - 1`, which is the head held by the writer when the revision is created. Readers validate the complete stored ancestor chain with one set-based lookup before serving an immutable revision. Missing, cross-Space, self, future, skipped, cyclic, or otherwise inconsistent links return the same non-enumerating `REVISION_GONE` response. Any v2 marker on the current revision or its immediate parent—including schema, recipe, sidecar, Folder/Page placement, tree delta, or migration evidence—requires the complete v2 metadata and canonical parent-to-current delta contract; a partial marker cannot downgrade to legacy reconstruction.
+
 ## Push sessions
 
 | Method | Path | Result |

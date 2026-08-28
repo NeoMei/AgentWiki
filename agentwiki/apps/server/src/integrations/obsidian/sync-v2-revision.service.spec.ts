@@ -119,6 +119,9 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
     spaceKnowledgeRevision: {
       findFirst: jest.fn(async () => revisions.get('rev-2')),
       findUnique: jest.fn(async ({ where }: any) => revisions.get(where.id) ?? null),
+      findMany: jest.fn(async ({ where }: any) => [...revisions.values()]
+        .filter((revision) => revision.spaceId === where.spaceId && revision.sequence < where.sequence.lt)
+        .sort((left, right) => right.sequence - left.sequence)),
     },
     syncRevisionFolderRow: {
       findMany: jest.fn(async ({ where }: any) => foldersByRevision.get(where.revisionId) ?? []),
@@ -139,6 +142,16 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
     service: new SyncV2RevisionService(prisma, cursors as any, capabilities as any),
     cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
   };
+}
+
+function replaceWithInitialV2Delta(state: Awaited<ReturnType<typeof fixture>>, revisionId = 'rev-2') {
+  const bodyHash = state.pagesByRevision.get(revisionId)![0].contentHash;
+  state.deltaRows.set(revisionId, [
+    { ordinal: 0, operation: 'upsert_folder', folderId: 'root', pageId: null, previousPath: null, contentHash: null },
+    { ordinal: 1, operation: 'upsert_folder', folderId: 'child', pageId: null, previousPath: null, contentHash: null },
+    { ordinal: 2, operation: 'upsert_page', folderId: null, pageId: 'page-1', previousPath: null, contentHash: bodyHash },
+  ]);
+  state.sidecars.get(revisionId)!.sidecar.spaceFolderMigration.v2Revision.treeDeltaCount = '3';
 }
 
 describe('SyncV2RevisionService', () => {
@@ -317,6 +330,153 @@ describe('SyncV2RevisionService', () => {
 
     const revisionId = _label.includes('reordered') ? 'rev-1' : 'rev-2';
     await expect(state.service.snapshot('space-1', revisionId, undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
+  it('propagates a parent recipe-only v2 marker even when the parent schema marker was removed', async () => {
+    const state = await fixture();
+    const current = state.revisions.get('rev-2');
+    current.schemaVersion = 'knowledge-bundle@1';
+    current.recipeVersion = 'none';
+    current.migrationBatchId = null;
+    state.sidecars.delete('rev-2');
+    state.foldersByRevision.set('rev-2', []);
+    state.pagesByRevision.get('rev-2')![0].folderId = null;
+    state.deltaRows.set('rev-2', []);
+    const parent = state.revisions.get('rev-1');
+    parent.schemaVersion = 'knowledge-bundle@1';
+    parent.migrationBatchId = null;
+    state.sidecars.delete('rev-1');
+    state.foldersByRevision.set('rev-1', []);
+    state.pagesByRevision.set('rev-1', []);
+    state.deltaRows.set('rev-1', []);
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
+  it.each([
+    ['missing parent row', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.delete('rev-1');
+      replaceWithInitialV2Delta(state);
+    }],
+    ['null parent on a non-initial sequence', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.get('rev-2').parentRevisionId = null;
+      replaceWithInitialV2Delta(state);
+    }],
+    ['self parent', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.get('rev-2').parentRevisionId = 'rev-2';
+      state.deltaRows.set('rev-2', []);
+      state.sidecars.get('rev-2')!.sidecar.spaceFolderMigration.v2Revision.treeDeltaCount = '0';
+    }],
+    ['wrong older predecessor', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.set('rev-old', {
+        id: 'rev-old', spaceId: 'space-1', sequence: 0, schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none', parentRevisionId: null, origin: 'change_set', migrationBatchId: null,
+        createdAt: at('2026-08-27T00:00:00.000Z'),
+      });
+      state.revisions.get('rev-2').parentRevisionId = 'rev-old';
+      replaceWithInitialV2Delta(state);
+    }],
+    ['same-sequence predecessor', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.set('rev-peer', {
+        id: 'rev-peer', spaceId: 'space-1', sequence: 2, schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none', parentRevisionId: null, origin: 'change_set', migrationBatchId: null,
+        createdAt: at('2026-08-29T00:00:00.000Z'),
+      });
+      state.revisions.get('rev-2').parentRevisionId = 'rev-peer';
+      replaceWithInitialV2Delta(state);
+    }],
+    ['future predecessor', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.set('rev-future', {
+        id: 'rev-future', spaceId: 'space-1', sequence: 3, schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none', parentRevisionId: null, origin: 'change_set', migrationBatchId: null,
+        createdAt: at('2026-08-30T00:00:00.000Z'),
+      });
+      state.revisions.get('rev-2').parentRevisionId = 'rev-future';
+      replaceWithInitialV2Delta(state);
+    }],
+    ['cross-Space predecessor', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.get('rev-1').spaceId = 'space-2';
+    }],
+  ])('rejects an invalid immutable revision chain with %s', async (_label, mutate) => {
+    const state = await fixture();
+    mutate(state);
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
+  it('accepts a first v2 revision whose exact predecessor is a marker-free legacy revision', async () => {
+    const state = await fixture();
+    const parent = state.revisions.get('rev-1');
+    parent.schemaVersion = 'knowledge-bundle@1';
+    parent.recipeVersion = 'none';
+    parent.migrationBatchId = null;
+    state.sidecars.delete('rev-1');
+    state.foldersByRevision.set('rev-1', []);
+    state.pagesByRevision.set('rev-1', []);
+    state.deltaRows.set('rev-1', []);
+    replaceWithInitialV2Delta(state);
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .resolves.toEqual(expect.objectContaining({ revision: 'rev-2', folderCount: '2', pageCount: '1' }));
+  });
+
+  it('accepts an initial v2 revision with a null parent', async () => {
+    const state = await fixture();
+
+    await expect(state.service.snapshot('space-1', 'rev-1', undefined, 100))
+      .resolves.toEqual(expect.objectContaining({ revision: 'rev-1', sequence: 1 }));
+    const chainQuery = (state.service as any).prisma.spaceKnowledgeRevision.findMany.mock.calls[0][0];
+    expect(chainQuery.select).toEqual(expect.objectContaining({
+      id: true, spaceId: true, sequence: true, parentRevisionId: true,
+    }));
+    expect(chainQuery.select).not.toHaveProperty('snapshot');
+    expect(chainQuery.select).not.toHaveProperty('delta');
+  });
+
+  it('rejects a child whose v2 parent has a same-count corrupted stored delta', async () => {
+    const state = await fixture();
+    state.deltaRows.get('rev-1')![0].folderId = 'wrong-root';
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
+  it('rejects a child whose v2 parent has an invalid parent chain', async () => {
+    const state = await fixture();
+    state.revisions.get('rev-1').parentRevisionId = 'rev-2';
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
+  it('rejects a deep marker-free chain with a missing ancestor link', async () => {
+    const state = await fixture();
+    for (const revisionId of ['rev-1', 'rev-2']) {
+      const revision = state.revisions.get(revisionId);
+      revision.schemaVersion = 'knowledge-bundle@1';
+      revision.recipeVersion = 'none';
+      revision.migrationBatchId = null;
+      state.sidecars.delete(revisionId);
+      state.foldersByRevision.set(revisionId, []);
+      state.pagesByRevision.set(revisionId, []);
+      state.deltaRows.set(revisionId, []);
+    }
+    state.revisions.get('rev-2').parentRevisionId = 'missing-deep-parent';
+    state.revisions.set('rev-3', {
+      id: 'rev-3', spaceId: 'space-1', sequence: 3, parentRevisionId: 'rev-2',
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+      createdAt: at('2026-08-30T00:00:00.000Z'),
+    });
+    state.revisions.set('rev-4', {
+      id: 'rev-4', spaceId: 'space-1', sequence: 4, parentRevisionId: 'rev-3',
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', migrationBatchId: null,
+      createdAt: at('2026-08-31T00:00:00.000Z'),
+    });
+
+    await expect(state.service.snapshot('space-1', 'rev-4', undefined, 100))
       .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
   });
 

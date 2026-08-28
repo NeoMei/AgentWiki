@@ -901,6 +901,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     ['FOLDER_RESTORE_CONFLICT', 'PAGE_ID_CONFLICT', 409, 'Document tree resource is unavailable'],
     ['MARKDOWN_REFERENCE_AMBIGUOUS', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
     ['CONTENT_TREE_CONFLICT', 'BASE_STALE', 409, 'Document tree base is stale'],
+    ['CONTENT_TREE_REVISION_GONE' as ContentTreeErrorCode, 'REVISION_GONE', 410, 'Revision is not available'],
     ['CONTENT_TREE_CURSOR_INVALID', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
     ['CONTENT_TREE_PAGE_NOT_FOUND', 'PAGE_ID_CONFLICT', 409, 'Document tree resource is unavailable'],
     ['CONTENT_TREE_INVALID_ACTOR', 'INTERNAL_ERROR', 500, 'Sync finalize failed'],

@@ -52,6 +52,7 @@ const CONTENT_TREE_V2_ERROR_MAP: Record<ContentTreeErrorCode, {
   FOLDER_RESTORE_CONFLICT: { code: 'PAGE_ID_CONFLICT', message: 'Document tree resource is unavailable' },
   MARKDOWN_REFERENCE_AMBIGUOUS: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   CONTENT_TREE_CONFLICT: { code: 'BASE_STALE', message: 'Document tree base is stale' },
+  CONTENT_TREE_REVISION_GONE: { code: 'REVISION_GONE', message: 'Revision is not available' },
   CONTENT_TREE_CURSOR_INVALID: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   CONTENT_TREE_PAGE_NOT_FOUND: { code: 'PAGE_ID_CONFLICT', message: 'Document tree resource is unavailable' },
   CONTENT_TREE_INVALID_ACTOR: { code: 'INTERNAL_ERROR', message: 'Sync finalize failed' },
