@@ -33,6 +33,21 @@ export interface PageChange {
   previousPath?: string;
 }
 
+export type StructuralPageChange =
+  | {
+    operation: 'upsert';
+    pageId: string;
+    folderId: string | null;
+    path: string;
+    title: string;
+    body: string;
+  }
+  | {
+    operation: 'archive';
+    pageId: string;
+    previousPath?: string;
+  };
+
 export interface RevisionOrigin {
   origin: 'web_editor' | 'change_set' | 'obsidian_sync' | 'migration';
   createdByUserId?: string | null;
@@ -143,8 +158,8 @@ export class SpaceRevisionWriterService {
       // Copy the parent's normalized page rows in the database without ever
       // reading full bodies into Node memory.
       await tx.$executeRaw`
-        INSERT INTO "SyncRevisionPageRow" ("revisionId", "pageId", "path", "pathKey", "title", "contentHash", "updatedAt")
-        SELECT ${created.id}, "pageId", "path", "pathKey", "title", "contentHash", "updatedAt"
+        INSERT INTO "SyncRevisionPageRow" ("revisionId", "pageId", "folderId", "path", "pathKey", "title", "contentHash", "updatedAt")
+        SELECT ${created.id}, "pageId", "folderId", "path", "pathKey", "title", "contentHash", "updatedAt"
         FROM "SyncRevisionPageRow" WHERE "revisionId" = ${parentRevisionId}
       `;
       await tx.$executeRaw`
@@ -366,6 +381,309 @@ export class SpaceRevisionWriterService {
     };
   }
 
+  async advanceStructuralPages(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    changes: StructuralPageChange[],
+    origin: RevisionOrigin,
+  ): Promise<RevisionWriteResult> {
+    await this.lockSpace(tx, spaceId);
+
+    const latest = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true, sequence: true },
+    });
+    const parentRevisionId = latest?.id ?? null;
+    const sequence = (latest?.sequence ?? 0) + 1;
+    const created = await tx.spaceKnowledgeRevision.create({
+      data: {
+        spaceId,
+        sequence,
+        parentRevisionId,
+        schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none',
+        contentHash: EMPTY_REVISION_HASH,
+        revisionContentHash: EMPTY_REVISION_HASH,
+        snapshot: Prisma.JsonNull,
+        delta: Prisma.JsonNull,
+        pageCount: 0n,
+        revisionBodyBytes: 0n,
+        revisionManifestByteLength: 0n,
+        origin: origin.origin,
+        createdByUserId: origin.createdByUserId ?? null,
+        humanDeviceCredentialId: origin.humanDeviceCredentialId ?? null,
+        sourceChangeSetId: origin.sourceChangeSetId ?? null,
+        migrationBatchId: origin.migrationBatchId ?? null,
+      },
+    });
+
+    if (parentRevisionId) {
+      await tx.$executeRaw`
+        INSERT INTO "SyncRevisionPageRow" (
+          "revisionId", "pageId", "folderId", "path", "pathKey", "title", "contentHash", "updatedAt"
+        )
+        SELECT
+          ${created.id}, "pageId", "folderId", "path", "pathKey", "title", "contentHash", "updatedAt"
+        FROM "SyncRevisionPageRow"
+        WHERE "revisionId" = ${parentRevisionId}
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "LegacyRevisionPageExtra" (
+          "revisionId", "pageId", "ordinal", "extra", "legacyBodyHash"
+        )
+        SELECT ${created.id}, "pageId", "ordinal", "extra", "legacyBodyHash"
+        FROM "LegacyRevisionPageExtra"
+        WHERE "revisionId" = ${parentRevisionId}
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "LegacyRevisionSidecar" ("revisionId", "sidecar")
+        SELECT ${created.id}, "sidecar"
+        FROM "LegacyRevisionSidecar"
+        WHERE "revisionId" = ${parentRevisionId}
+      `;
+      await tx.spaceKnowledgeRevision.update({
+        where: { id: parentRevisionId },
+        data: { supersededAt: new Date() },
+      });
+    }
+
+    if (origin.legacySidecarOverride) {
+      await tx.legacyRevisionSidecar.upsert({
+        where: { revisionId: created.id },
+        create: { revisionId: created.id, sidecar: origin.legacySidecarOverride },
+        update: { sidecar: origin.legacySidecarOverride },
+      });
+    }
+
+    const changedAt = new Date();
+    const prepared = await Promise.all(changes.map(async (change, ordinal) => {
+      if (change.operation === 'archive') {
+        return {
+          ordinal,
+          operation: change.operation,
+          pageId: change.pageId,
+          folderId: null,
+          path: null,
+          pathKey: null,
+          title: null,
+          body: null,
+          contentHash: null,
+          byteLength: null,
+          previousPath: change.previousPath ?? null,
+          updatedAt: changedAt.toISOString(),
+        };
+      }
+      const body = normalizeMarkdown(change.body);
+      return {
+        ordinal,
+        operation: change.operation,
+        pageId: change.pageId,
+        folderId: change.folderId,
+        path: change.path,
+        pathKey: pathKey(change.path),
+        title: change.title,
+        body,
+        contentHash: await contentHash(body),
+        byteLength: new TextEncoder().encode(body).byteLength,
+        previousPath: null,
+        updatedAt: changedAt.toISOString(),
+      };
+    }));
+
+    if (prepared.length > 0) {
+      const payload = JSON.stringify(prepared);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "SyncPageContentRow" ("contentHash", "body", "byteLength")
+        SELECT DISTINCT ON (change."contentHash")
+          change."contentHash", change."body", change."byteLength"
+        FROM jsonb_to_recordset(${payload}::jsonb) AS change(
+          "operation" text, "contentHash" text, "body" text, "byteLength" integer
+        )
+        WHERE change."operation" = 'upsert'
+        ORDER BY change."contentHash"
+        ON CONFLICT ("contentHash") DO NOTHING
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "LegacyPageBodyRow" ("contentHash", "body")
+        SELECT DISTINCT ON (change."contentHash")
+          change."contentHash", to_jsonb(change."body")
+        FROM jsonb_to_recordset(${payload}::jsonb) AS change(
+          "operation" text, "contentHash" text, "body" text
+        )
+        WHERE change."operation" = 'upsert'
+        ORDER BY change."contentHash"
+        ON CONFLICT ("contentHash") DO NOTHING
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "SyncRevisionDeltaRow" (
+          "revisionId", "ordinal", "operation", "pageId", "previousPath", "contentHash"
+        )
+        SELECT
+          ${created.id}, change."ordinal", change."operation", change."pageId",
+          CASE
+            WHEN change."operation" = 'archive'
+              THEN COALESCE(change."previousPath", prior."path")
+            ELSE NULL
+          END,
+          change."contentHash"
+        FROM jsonb_to_recordset(${payload}::jsonb) AS change(
+          "ordinal" integer,
+          "operation" text,
+          "pageId" text,
+          "previousPath" text,
+          "contentHash" text
+        )
+        LEFT JOIN "SyncRevisionPageRow" prior
+          ON prior."revisionId" = ${created.id}
+          AND prior."pageId" = change."pageId"
+        ORDER BY change."ordinal"
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        DELETE FROM "SyncRevisionPageRow" row
+        USING jsonb_to_recordset(${payload}::jsonb) AS change("pageId" text)
+        WHERE row."revisionId" = ${created.id}
+          AND row."pageId" = change."pageId"
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "SyncRevisionPageRow" (
+          "revisionId", "pageId", "folderId", "path", "pathKey", "title", "contentHash", "updatedAt"
+        )
+        SELECT
+          ${created.id}, change."pageId", change."folderId", change."path", change."pathKey",
+          change."title", change."contentHash", change."updatedAt"
+        FROM jsonb_to_recordset(${payload}::jsonb) AS change(
+          "operation" text,
+          "pageId" text,
+          "folderId" text,
+          "path" text,
+          "pathKey" text,
+          "title" text,
+          "contentHash" text,
+          "updatedAt" timestamptz
+        )
+        WHERE change."operation" = 'upsert'
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        DELETE FROM "LegacyRevisionPageExtra" extra
+        USING jsonb_to_recordset(${payload}::jsonb) AS change("operation" text, "pageId" text)
+        WHERE extra."revisionId" = ${created.id}
+          AND extra."pageId" = change."pageId"
+          AND change."operation" = 'archive'
+      `);
+      await tx.$executeRaw(Prisma.sql`
+        WITH input AS (
+          SELECT *
+          FROM jsonb_to_recordset(${payload}::jsonb) AS change(
+            "ordinal" integer,
+            "operation" text,
+            "pageId" text,
+            "path" text,
+            "title" text,
+            "contentHash" text,
+            "updatedAt" text
+          )
+          WHERE change."operation" = 'upsert'
+        ), maximum AS (
+          SELECT COALESCE(MAX("ordinal"), -1)::integer AS value
+          FROM "LegacyRevisionPageExtra"
+          WHERE "revisionId" = ${created.id}
+        ), planned AS (
+          SELECT
+            input.*,
+            existing."extra" AS "existingExtra",
+            CASE
+              WHEN jsonb_typeof(existing."extra"->'order') = 'number'
+                THEN ((existing."extra"->>'order')::numeric)::integer
+              WHEN existing."pageId" IS NOT NULL THEN existing."ordinal"
+              ELSE maximum.value + ROW_NUMBER() OVER (
+                PARTITION BY (existing."pageId" IS NULL)
+                ORDER BY input."ordinal"
+              )::integer
+            END AS "legacyOrdinal"
+          FROM input
+          CROSS JOIN maximum
+          LEFT JOIN "LegacyRevisionPageExtra" existing
+            ON existing."revisionId" = ${created.id}
+            AND existing."pageId" = input."pageId"
+        )
+        INSERT INTO "LegacyRevisionPageExtra" (
+          "revisionId", "pageId", "ordinal", "extra", "legacyBodyHash"
+        )
+        SELECT
+          ${created.id}, planned."pageId", planned."legacyOrdinal",
+          COALESCE(planned."existingExtra", '{}'::jsonb) || jsonb_build_object(
+            'spaceId', ${spaceId},
+            'title', planned."title",
+            'order', planned."legacyOrdinal",
+            'metadata', COALESCE(planned."existingExtra"->'metadata', 'null'::jsonb),
+            'artifactIds', COALESCE(planned."existingExtra"->'artifactIds', '[]'::jsonb),
+            'legacyBodyHash', planned."contentHash",
+            'contentHash', planned."contentHash",
+            'path', planned."path",
+            'updatedAt', planned."updatedAt"
+          ),
+          planned."contentHash"
+        FROM planned
+        ORDER BY planned."ordinal"
+        ON CONFLICT ("revisionId", "pageId") DO UPDATE SET
+          "ordinal" = EXCLUDED."ordinal",
+          "extra" = EXCLUDED."extra",
+          "legacyBodyHash" = EXCLUDED."legacyBodyHash"
+      `);
+    }
+
+    const settled = await tx.syncRevisionPageRow.findMany({
+      where: { revisionId: created.id },
+      select: { pageId: true, path: true, title: true, contentHash: true },
+      orderBy: { pageId: 'asc' },
+    });
+    const pageCount = settled.length;
+    const manifest: RevisionContentManifest = {
+      protocolVersion: '1',
+      spaceId,
+      pages: settled.map((page) => ({
+        pageId: page.pageId,
+        path: page.path,
+        title: page.title,
+        contentHash: page.contentHash,
+      })),
+    };
+    const revisionManifestBytes = pageCount === 0 ? new Uint8Array() : canonicalBytes(manifest);
+    const revisionContentHash = pageCount === 0
+      ? EMPTY_REVISION_HASH
+      : await computeRevisionContentHash(manifest);
+    const bodyAggregate = await tx.$queryRaw<Array<{ bytes: bigint }>>`
+      SELECT COALESCE(SUM(content."byteLength"), 0) AS bytes
+      FROM "SyncRevisionPageRow" row
+      JOIN "SyncPageContentRow" content ON content."contentHash" = row."contentHash"
+      WHERE row."revisionId" = ${created.id}
+    `;
+    const revisionBodyBytes = bodyAggregate[0]?.bytes ?? 0n;
+    const legacyContentHash = await this.legacyContentHash(tx, spaceId, created.id);
+
+    await tx.spaceKnowledgeRevision.update({
+      where: { id: created.id },
+      data: {
+        contentHash: legacyContentHash,
+        revisionContentHash,
+        snapshot: Prisma.JsonNull,
+        delta: Prisma.JsonNull,
+        pageCount: BigInt(pageCount),
+        revisionBodyBytes,
+        revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
+      },
+    });
+    return {
+      revisionId: created.id,
+      sequence,
+      revisionContentHash,
+      pageCount: BigInt(pageCount),
+      revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
+      revisionBodyBytes,
+    };
+  }
+
   private async legacyContentHash(
     tx: Prisma.TransactionClient,
     spaceId: string,
@@ -385,17 +703,19 @@ export class SpaceRevisionWriterService {
       where: { revisionId },
       orderBy: { ordinal: 'asc' },
     });
+    const bodyHashes = [...new Set(extras.map((extra) => extra.legacyBodyHash))];
+    const bodyRows = bodyHashes.length === 0 ? [] : await tx.legacyPageBodyRow.findMany({
+      where: { contentHash: { in: bodyHashes } },
+    });
+    const bodies = new Map(bodyRows.map((row) => [row.contentHash, row.body]));
     for (const extra of extras) {
       const value = extra.extra as Record<string, unknown>;
-      const bodyRow = await tx.legacyPageBodyRow.findUnique({
-        where: { contentHash: extra.legacyBodyHash },
-      });
       stream.appendPage({
         pageId: extra.pageId,
         spaceId,
         path: (value.path as string) ?? '',
         title: (value.title as string) ?? '',
-        body: (bodyRow?.body as string) ?? '',
+        body: (bodies.get(extra.legacyBodyHash) as string) ?? '',
         order: (value.order as number) ?? 0,
         metadata: (value.metadata as { parentId: string } | null) ?? null,
         artifactIds: (value.artifactIds as string[]) ?? [],

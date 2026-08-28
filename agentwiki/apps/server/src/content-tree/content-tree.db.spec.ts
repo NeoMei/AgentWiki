@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { ContentTreeService } from './content-tree.service';
 
 const rootUpdatedAt = new Date('2026-08-28T08:00:00.000Z');
@@ -56,11 +55,6 @@ describe('ContentTree lifecycle database planning boundary', () => {
   it('hashes the complete affected set in byte-stable identifier order', async () => {
     const rows = [pageRow('page-z'), folderRow('folder-root', 0), pageRow('page-a')];
     const { service } = impactHarness(rows);
-    const expectedHash = createHash('sha256').update([
-      'folder:folder-root',
-      'page:page-a',
-      'page:page-z',
-    ].join('\n'), 'utf8').digest('hex');
 
     await expect((service as any).deleteImpact({
       spaceId: 'space-1', folderId: 'folder-root',
@@ -69,8 +63,25 @@ describe('ContentTree lifecycle database planning boundary', () => {
       rootUpdatedAt,
       folderCount: 1,
       pageCount: 2,
-      impactHash: expectedHash,
+      impactHash: '1a93411c2ce51e2154cbb48d6a827b513e87e17634c58b31648c521591db894b',
     });
+  });
+
+  it('changes the impact hash when an affected Page version changes without changing its identity', async () => {
+    const originalRows = [folderRow('folder-root', 0), pageRow('page-a')];
+    const changedRows = originalRows.map((row) => row.id === 'page-a'
+      ? { ...row, updatedAt: new Date('2026-08-28T08:00:01.000Z') }
+      : row);
+    const original = await (impactHarness(originalRows).service as any).deleteImpact({
+      spaceId: 'space-1', folderId: 'folder-root',
+    });
+    const changed = await (impactHarness(changedRows).service as any).deleteImpact({
+      spaceId: 'space-1', folderId: 'folder-root',
+    });
+
+    expect(changed.folderCount).toBe(original.folderCount);
+    expect(changed.pageCount).toBe(original.pageCount);
+    expect(changed.impactHash).not.toBe(original.impactHash);
   });
 
   it('rejects the 10,001st affected object before issuing any write', async () => {

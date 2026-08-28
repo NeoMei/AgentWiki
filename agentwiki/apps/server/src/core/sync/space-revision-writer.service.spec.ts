@@ -139,4 +139,70 @@ describe('SpaceRevisionWriterService', () => {
       }),
     }));
   });
+
+  it('advances 10,000 structural Page changes with a bounded database query budget', async () => {
+    const body = '# Body\n';
+    const hash = await contentHash(body);
+    const changes = Array.from({ length: 10_000 }, (_, index) => {
+      const pageId = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+      return {
+        operation: 'upsert' as const,
+        pageId,
+        folderId: 'folder-1',
+        path: `pages/Bulk/Page-${index}.md`,
+        title: `Page ${index}`,
+        body,
+      };
+    });
+    const settled = changes.map((change) => ({
+      pageId: change.pageId,
+      path: change.path,
+      title: change.title,
+      contentHash: hash,
+    }));
+    const extras = changes.map((change, ordinal) => ({
+      revisionId: 'rev-bulk',
+      pageId: change.pageId,
+      ordinal,
+      legacyBodyHash: hash,
+      extra: {
+        spaceId: 'space-1', title: change.title, path: change.path, order: ordinal,
+        metadata: null, artifactIds: [], legacyBodyHash: hash,
+        contentHash: hash, updatedAt: '2026-08-28T00:00:00.000Z',
+      },
+    }));
+    const tx: any = {
+      $executeRaw: jest.fn().mockResolvedValue(10_000),
+      $queryRaw: jest.fn().mockResolvedValue([{ bytes: BigInt(Buffer.byteLength(body) * changes.length) }]),
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'rev-bulk', sequence: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue(settled) },
+      syncRevisionDeltaRow: { createMany: jest.fn().mockResolvedValue({ count: changes.length }) },
+      legacyRevisionSidecar: { findUnique: jest.fn().mockResolvedValue(null) },
+      legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue(extras) },
+      legacyPageBodyRow: { findMany: jest.fn().mockResolvedValue([{ contentHash: hash, body }]) },
+    };
+
+    const result = await (service as any).advanceStructuralPages(
+      tx,
+      'space-1',
+      changes,
+      { origin: 'web_editor', createdByUserId: 'user-1' },
+    );
+
+    const queryFunctions = [
+      tx.$executeRaw, tx.$queryRaw,
+      ...Object.values(tx).flatMap((delegate: any) => (
+        delegate && typeof delegate === 'object'
+          ? Object.values(delegate).filter((value: any) => jest.isMockFunction(value))
+          : []
+      )),
+    ] as jest.Mock[];
+    const queryCount = queryFunctions.reduce((count, query) => count + query.mock.calls.length, 0);
+    expect(result.pageCount).toBe(10_000n);
+    expect(queryCount).toBeLessThanOrEqual(20);
+  }, 20_000);
 });

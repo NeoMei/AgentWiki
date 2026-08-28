@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
+  canonicalBytes,
   validatePortableDirectoryPath,
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
@@ -9,6 +10,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ReadableSyncPathService } from '../core/sync/readable-sync-path.service';
 import {
   SpaceRevisionWriterService,
+  type StructuralPageChange,
   type SpaceTreeLockedTransaction,
 } from '../core/sync/space-revision-writer.service';
 import { normalizeFolderName } from './folder-name';
@@ -44,6 +46,7 @@ const MAX_FOLDER_DEPTH = 32;
 const MAX_ACTIVE_FOLDERS = 10_000n;
 const MAX_MUTATION_NODES = 10_000;
 const MAX_PAGE_ALIASES = 20;
+const MUTATION_TRANSACTION_TIMEOUT_MS = 120_000;
 
 interface TreeCursor {
   v: 1;
@@ -60,6 +63,10 @@ interface AncestorRow {
   parentId: string | null;
   path: string;
   depth: number;
+}
+
+interface CycleAwareAncestorRow extends AncestorRow {
+  cycle: boolean;
 }
 
 interface AffectedTreeRow {
@@ -146,13 +153,20 @@ function affectedImpact(rows: readonly AffectedTreeRow[]): {
   pageCount: number;
   impactHash: string;
 } {
-  const identifiers = rows
-    .map((row) => `${row.kind}:${row.id}`)
-    .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  const objects = rows
+    .map((row) => ({
+      kind: row.kind,
+      id: row.id,
+      version: row.updatedAt.toISOString(),
+    }))
+    .sort((left, right) => {
+      const kind = Buffer.from(left.kind).compare(Buffer.from(right.kind));
+      return kind || Buffer.from(left.id).compare(Buffer.from(right.id));
+    });
   return {
     folderCount: rows.filter((row) => row.kind === 'folder').length,
     pageCount: rows.filter((row) => row.kind === 'page').length,
-    impactHash: createHash('sha256').update(identifiers.join('\n'), 'utf8').digest('hex'),
+    impactHash: createHash('sha256').update(canonicalBytes({ objects })).digest('hex'),
   };
 }
 
@@ -487,6 +501,7 @@ export class ContentTreeService {
       const root = this.requireAffectedFolder(rows, input.folderId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
       assertMutationLimit(rows);
+      await this.loadActiveAncestors(lockedTx, input.spaceId, root.id);
 
       const parent = root.parentId === null
         ? null
@@ -506,8 +521,9 @@ export class ContentTreeService {
         normalized.nameKey,
       );
       await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
+      const currentById = new Map(rows.map((row) => [row.id, row]));
       const changedFolders = plans.folders.filter((plan) => {
-        const current = rows.find((row) => row.kind === 'folder' && row.id === plan.id)!;
+        const current = currentById.get(plan.id)!;
         return plan.id === root.id
           || current.parentId !== plan.parentId
           || current.name !== plan.name
@@ -515,7 +531,7 @@ export class ContentTreeService {
           || current.pathKey !== plan.pathKey;
       });
       const changedPages = plans.pages.filter((plan) => {
-        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        const current = currentById.get(plan.id)!;
         return current.folderId !== plan.folderId
           || current.path !== plan.path
           || current.pathKey !== plan.pathKey;
@@ -548,7 +564,7 @@ export class ContentTreeService {
           updatedAt: changedAt,
         },
       };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   async moveNode(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
@@ -569,12 +585,16 @@ export class ContentTreeService {
       const rows = await this.loadActiveSubtree(tx, input.spaceId, input.folderId);
       const root = this.requireAffectedFolder(rows, input.folderId);
       assertMutationLimit(rows);
+      await this.loadActiveAncestors(tx, input.spaceId, root.id);
       return {
         treeRevision: space.contentTreeRevision,
         rootUpdatedAt: root.updatedAt,
         ...affectedImpact(rows),
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      timeout: MUTATION_TRANSACTION_TIMEOUT_MS,
+    });
   }
 
   async deleteFolder(input: DeleteFolderInput): Promise<DeletedFolderResult> {
@@ -585,6 +605,7 @@ export class ContentTreeService {
       const root = this.requireAffectedFolder(rows, input.folderId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
       assertMutationLimit(rows);
+      await this.loadActiveAncestors(lockedTx, input.spaceId, root.id);
       const impact = affectedImpact(rows);
       if (impact.impactHash !== input.expectedImpactHash) {
         throw new ContentTreeError(
@@ -612,29 +633,41 @@ export class ContentTreeService {
       });
       const pageIds = rows.filter((row) => row.kind === 'page').map((row) => row.id);
       const folderIds = rows.filter((row) => row.kind === 'folder').map((row) => row.id);
-      const pageUpdate = pageIds.length === 0
-        ? { count: 0 }
-        : await lockedTx.page.updateMany({
-          where: { spaceId: input.spaceId, id: { in: pageIds }, deletedAt: null },
-          data: {
-            deletedAt,
-            deletionBatchId: batchId,
-            lastModifiedByUserId: input.actor.userId ?? null,
-            lastModifiedByAgentId: input.actor.agentId ?? null,
-            lastModifiedAt: deletedAt,
-          },
-        });
-      const folderUpdate = await lockedTx.folder.updateMany({
-        where: { spaceId: input.spaceId, id: { in: folderIds }, deletedAt: null },
-        data: {
-          deletedAt,
-          deletionBatchId: batchId,
-          lastModifiedByUserId: input.actor.userId ?? null,
-          lastModifiedByAgentId: input.actor.agentId ?? null,
-          lastModifiedAt: deletedAt,
-        },
-      });
-      if (pageUpdate.count !== pageIds.length || folderUpdate.count !== folderIds.length) {
+      const pageUpdateCount = pageIds.length === 0 ? 0 : await lockedTx.$executeRaw(Prisma.sql`
+        UPDATE "Page" target
+        SET
+          "deletedAt" = batch."createdAt",
+          "deletionBatchId" = batch."id",
+          "lastModifiedByUserId" = ${input.actor.userId ?? null},
+          "lastModifiedByAgentId" = ${input.actor.agentId ?? null},
+          "lastModifiedAt" = batch."createdAt"
+        FROM "ContentDeletionBatch" batch
+        WHERE batch."id" = ${batchId}
+          AND batch."spaceId" = ${input.spaceId}
+          AND target."spaceId" = batch."spaceId"
+          AND target."deletedAt" IS NULL
+          AND target."id" IN (
+            SELECT value FROM jsonb_array_elements_text(${JSON.stringify(pageIds)}::jsonb)
+          )
+      `);
+      const folderUpdateCount = await lockedTx.$executeRaw(Prisma.sql`
+        UPDATE "Folder" target
+        SET
+          "deletedAt" = batch."createdAt",
+          "deletionBatchId" = batch."id",
+          "lastModifiedByUserId" = ${input.actor.userId ?? null},
+          "lastModifiedByAgentId" = ${input.actor.agentId ?? null},
+          "lastModifiedAt" = batch."createdAt"
+        FROM "ContentDeletionBatch" batch
+        WHERE batch."id" = ${batchId}
+          AND batch."spaceId" = ${input.spaceId}
+          AND target."spaceId" = batch."spaceId"
+          AND target."deletedAt" IS NULL
+          AND target."id" IN (
+            SELECT value FROM jsonb_array_elements_text(${JSON.stringify(folderIds)}::jsonb)
+          )
+      `);
+      if (pageUpdateCount !== pageIds.length || folderUpdateCount !== folderIds.length) {
         throw new ContentTreeConflict(input.expectedTreeRevision, input.expectedTreeRevision);
       }
       const revisions = await this.advanceMutationRevisions(
@@ -658,7 +691,7 @@ export class ContentTreeService {
           createdAt: batch.createdAt,
         },
       };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   async restoreDeletionBatch(
@@ -682,6 +715,9 @@ export class ContentTreeService {
           rootFolderId: true,
           folderCount: true,
           pageCount: true,
+          impactHash: true,
+          folders: { select: { id: true } },
+          pages: { select: { id: true } },
         },
       });
       if (!batch) {
@@ -720,6 +756,17 @@ export class ContentTreeService {
       ) {
         throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
       }
+      const expectedFolderIds = batch.folders.map((folder) => folder.id).sort();
+      const expectedPageIds = batch.pages.map((page) => page.id).sort();
+      const actualFolderIds = folders.map((folder) => folder.id).sort();
+      const actualPageIds = pages.map((page) => page.id).sort();
+      if (
+        JSON.stringify(expectedFolderIds) !== JSON.stringify(actualFolderIds)
+        || JSON.stringify(expectedPageIds) !== JSON.stringify(actualPageIds)
+        || !actualFolderIds.includes(batch.rootFolderId)
+      ) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
+      }
       const deletedAtValues = [...folders, ...pages].map((record) => record.deletedAt?.getTime());
       if (
         deletedAtValues.some((value) => value === undefined)
@@ -730,6 +777,44 @@ export class ContentTreeService {
       }
       const root = folders.find((folder) => folder.id === batch.rootFolderId);
       if (!root) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch root is missing');
+
+      const activeFolderCount = await lockedTx.folder.count({
+        where: { spaceId: input.spaceId, deletedAt: null },
+      });
+      if (BigInt(activeFolderCount) + BigInt(folders.length) > MAX_ACTIVE_FOLDERS) {
+        throw new ContentTreeError('FOLDER_COUNT_LIMIT', 'A Space may contain at most 10,000 active Folders');
+      }
+
+      const folderById = new Map(folders.map((folder) => [folder.id, folder]));
+      const depths = new Map<string, number>([[root.id, 0]]);
+      if (root.parentId && folderById.has(root.parentId)) {
+        throw new ContentTreeError('FOLDER_CYCLE', 'The Folder tree contains a cycle');
+      }
+      for (const folder of folders) {
+        if (depths.has(folder.id)) continue;
+        const chain: typeof folders = [];
+        const trail = new Set<string>();
+        let current: typeof folder | undefined = folder;
+        while (current && !depths.has(current.id)) {
+          if (trail.has(current.id)) {
+            throw new ContentTreeError('FOLDER_CYCLE', 'The Folder tree contains a cycle');
+          }
+          trail.add(current.id);
+          chain.push(current);
+          if (!current.parentId || !folderById.has(current.parentId)) {
+            throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch Folder tree is disconnected');
+          }
+          current = folderById.get(current.parentId);
+        }
+        if (!current) {
+          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch Folder tree is disconnected');
+        }
+        let depth = depths.get(current.id)!;
+        for (const entry of chain.reverse()) {
+          depth += 1;
+          depths.set(entry.id, depth);
+        }
+      }
 
       const targetParentId = strategy.kind === 'root' ? null : root.parentId;
       const targetParent = targetParentId === null
@@ -744,17 +829,6 @@ export class ContentTreeService {
         lockedTx, input.spaceId, targetParentId, restoreNameKey, root.id, true,
       );
 
-      const depths = new Map<string, number>([[root.id, 0]]);
-      let remaining = folders.filter((folder) => folder.id !== root.id);
-      while (remaining.length > 0) {
-        const next = remaining.filter((folder) => folder.parentId && depths.has(folder.parentId));
-        if (next.length === 0) {
-          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch Folder tree is disconnected');
-        }
-        for (const folder of next) depths.set(folder.id, depths.get(folder.parentId!)! + 1);
-        const accepted = new Set(next.map((folder) => folder.id));
-        remaining = remaining.filter((folder) => !accepted.has(folder.id));
-      }
       const parentDepth = targetParentId === null
         ? 0
         : (await this.loadActiveAncestors(lockedTx, input.spaceId, targetParentId)).length;
@@ -796,6 +870,9 @@ export class ContentTreeService {
           content: page.content,
         })),
       ];
+      if (affectedImpact(rows).impactHash !== batch.impactHash) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
+      }
       const plans = this.planSubtreePaths(
         rows,
         root.id,
@@ -806,8 +883,9 @@ export class ContentTreeService {
       );
       await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
       const restoredAt = new Date();
+      const currentById = new Map(rows.map((row) => [row.id, row]));
       const changedPages = plans.pages.filter((plan) => {
-        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        const current = currentById.get(plan.id)!;
         return current.path !== plan.path || current.pathKey !== plan.pathKey;
       });
       await this.insertPageAliases(lockedTx, input.spaceId, rows, changedPages, restoredAt);
@@ -847,7 +925,7 @@ export class ContentTreeService {
           updatedAt: restoredAt,
         },
       };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   private async moveFolder(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
@@ -857,6 +935,7 @@ export class ContentTreeService {
       const root = this.requireAffectedFolder(rows, input.nodeId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
       assertMutationLimit(rows);
+      await this.loadActiveAncestors(lockedTx, input.spaceId, root.id);
       const target = input.targetFolderId === null
         ? null
         : await this.activeFolder(lockedTx, input.spaceId, input.targetFolderId);
@@ -894,8 +973,9 @@ export class ContentTreeService {
       );
       const rootPlan = plans.folders.find((plan) => plan.id === root.id)!;
       rootPlan.sortOrder = ordering.nodeSortOrder;
+      const currentById = new Map(rows.map((row) => [row.id, row]));
       const changedFolders = plans.folders.filter((plan) => {
-        const current = rows.find((row) => row.kind === 'folder' && row.id === plan.id)!;
+        const current = currentById.get(plan.id)!;
         return plan.id === root.id
           || current.parentId !== plan.parentId
           || current.name !== plan.name
@@ -906,7 +986,7 @@ export class ContentTreeService {
       await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
       const changedAt = new Date();
       const changedPages = plans.pages.filter((plan) => {
-        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        const current = currentById.get(plan.id)!;
         return current.path !== plan.path || current.pathKey !== plan.pathKey;
       });
       await this.insertPageAliases(lockedTx, input.spaceId, rows, changedPages, changedAt);
@@ -936,7 +1016,7 @@ export class ContentTreeService {
           sortOrder: rootPlan.sortOrder, updatedAt: changedAt,
         },
       };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   private async movePage(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
@@ -956,6 +1036,12 @@ export class ContentTreeService {
         : await this.activeFolder(lockedTx, input.spaceId, input.targetFolderId);
       if (input.targetFolderId !== null && !target) {
         throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
+      if (page.folderId !== null) {
+        await this.loadActiveAncestors(lockedTx, input.spaceId, page.folderId);
+      }
+      if (input.targetFolderId !== null && input.targetFolderId !== page.folderId) {
+        await this.loadActiveAncestors(lockedTx, input.spaceId, input.targetFolderId);
       }
       const ordering = await this.planSiblingOrders(
         lockedTx, input.spaceId, 'page', page.id, page.folderId,
@@ -1021,7 +1107,7 @@ export class ContentTreeService {
           sortOrder: plan.sortOrder, updatedAt: changedAt,
         },
       };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   private async lockMutationSpace(
@@ -1042,12 +1128,12 @@ export class ContentTreeService {
     spaceId: string,
     rootFolderId: string,
   ): Promise<AffectedTreeRow[]> {
-    return tx.$queryRaw<AffectedTreeRow[]>(Prisma.sql`
+    const rows = await tx.$queryRaw<Array<AffectedTreeRow & { cycle: boolean }>>(Prisma.sql`
       WITH RECURSIVE folder_subtree AS (
         SELECT
           folder."id", folder."parentId", folder."name", folder."path", folder."pathKey",
           folder."sortOrder", folder."createdAt", folder."updatedAt",
-          0::int AS depth, ARRAY[folder."id"]::text[] AS trail
+          0::int AS depth, ARRAY[folder."id"]::text[] AS trail, FALSE AS cycle
         FROM "Folder" folder
         WHERE folder."id" = ${rootFolderId}
           AND folder."spaceId" = ${spaceId}
@@ -1056,13 +1142,14 @@ export class ContentTreeService {
         SELECT
           child."id", child."parentId", child."name", child."path", child."pathKey",
           child."sortOrder", child."createdAt", child."updatedAt",
-          parent.depth + 1, parent.trail || child."id"
+          parent.depth + 1, parent.trail || child."id",
+          child."id" = ANY(parent.trail) AS cycle
         FROM "Folder" child
         JOIN folder_subtree parent ON child."parentId" = parent."id"
         WHERE child."spaceId" = ${spaceId}
           AND child."deletedAt" IS NULL
           AND cardinality(parent.trail) <= ${MAX_MUTATION_NODES}
-          AND NOT child."id" = ANY(parent.trail)
+          AND NOT parent.cycle
       ), affected AS (
         SELECT
           'folder'::text AS kind,
@@ -1078,7 +1165,8 @@ export class ContentTreeService {
           subtree."updatedAt",
           subtree.depth,
           NULL::text AS "knowledgeKey",
-          NULL::text AS content
+          NULL::text AS content,
+          subtree.cycle
         FROM folder_subtree subtree
         UNION ALL
         SELECT
@@ -1095,19 +1183,25 @@ export class ContentTreeService {
           page."updatedAt",
           subtree.depth + 1,
           page."knowledgeKey",
-          page."content"
+          page."content",
+          FALSE AS cycle
         FROM "Page" page
         JOIN folder_subtree subtree ON page."folderId" = subtree."id"
         WHERE page."spaceId" = ${spaceId}
           AND page."deletedAt" IS NULL
+          AND NOT subtree.cycle
       )
       SELECT
         kind, "id", "parentId", "folderId", name, title, path, "pathKey",
-        "sortOrder", "createdAt", "updatedAt", depth, "knowledgeKey", content
+        "sortOrder", "createdAt", "updatedAt", depth, "knowledgeKey", content, cycle
       FROM affected
       ORDER BY CASE kind WHEN 'folder' THEN 0 ELSE 1 END, depth, "id"
-      LIMIT ${MAX_MUTATION_NODES + 1}
+      LIMIT ${MAX_MUTATION_NODES + 2}
     `);
+    if (rows.some((row) => row.cycle)) {
+      throw new ContentTreeError('FOLDER_CYCLE', 'The Folder tree contains a cycle');
+    }
+    return rows;
   }
 
   private requireAffectedFolder(
@@ -1138,29 +1232,32 @@ export class ContentTreeService {
     spaceId: string,
     folderId: string,
   ): Promise<AncestorRow[]> {
-    const ancestors = await tx.$queryRaw<AncestorRow[]>(Prisma.sql`
+    const ancestors = await tx.$queryRaw<CycleAwareAncestorRow[]>(Prisma.sql`
       WITH RECURSIVE ancestors AS (
         SELECT folder."id", folder."parentId", folder."path", 1::int AS depth,
-               ARRAY[folder."id"]::text[] AS trail
+               ARRAY[folder."id"]::text[] AS trail, FALSE AS cycle
         FROM "Folder" folder
         WHERE folder."id" = ${folderId}
           AND folder."spaceId" = ${spaceId}
           AND folder."deletedAt" IS NULL
         UNION ALL
         SELECT parent."id", parent."parentId", parent."path", child.depth + 1,
-               child.trail || parent."id"
+               child.trail || parent."id", parent."id" = ANY(child.trail) AS cycle
         FROM "Folder" parent
         JOIN ancestors child ON parent."id" = child."parentId"
         WHERE parent."spaceId" = ${spaceId}
           AND parent."deletedAt" IS NULL
-          AND child.depth <= ${MAX_FOLDER_DEPTH}
-          AND NOT parent."id" = ANY(child.trail)
+          AND cardinality(child.trail) <= ${MAX_MUTATION_NODES}
+          AND NOT child.cycle
       )
-      SELECT "id", "parentId", "path", depth
+      SELECT "id", "parentId", "path", depth, cycle
       FROM ancestors
       ORDER BY depth ASC
-      LIMIT ${MAX_FOLDER_DEPTH + 1}
+      LIMIT ${MAX_MUTATION_NODES + 2}
     `);
+    if (ancestors.some((ancestor) => ancestor.cycle)) {
+      throw new ContentTreeError('FOLDER_CYCLE', 'The Folder tree contains a cycle');
+    }
     if (ancestors.length > MAX_FOLDER_DEPTH) {
       throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
     }
@@ -1307,8 +1404,9 @@ export class ContentTreeService {
     plans: readonly PageMutationPlan[],
     createdAt: Date,
   ): Promise<void> {
+    const currentById = new Map(rows.map((row) => [row.id, row]));
     const aliases = plans.flatMap((plan) => {
-      const current = rows.find((row) => row.kind === 'page' && row.id === plan.id);
+      const current = currentById.get(plan.id);
       if (!current || (current.path === plan.path && current.pathKey === plan.pathKey)) return [];
       return [{
         id: randomUUID(),
@@ -1320,7 +1418,26 @@ export class ContentTreeService {
       }];
     });
     if (aliases.length > 0) {
-      await tx.pagePathAlias.createMany({ data: aliases, skipDuplicates: true });
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "PagePathAlias" (
+          "id", "spaceId", "pageId", "path", "pathKey", "createdAt", "expiresAt"
+        )
+        SELECT
+          alias."id", alias."spaceId", alias."pageId", alias."path", alias."pathKey",
+          alias."createdAt", NULL
+        FROM jsonb_to_recordset(${JSON.stringify(aliases)}::jsonb) AS alias(
+          "id" text,
+          "spaceId" text,
+          "pageId" text,
+          "path" text,
+          "pathKey" text,
+          "createdAt" timestamptz
+        )
+        ON CONFLICT ("spaceId", "pathKey", "pageId") DO UPDATE SET
+          "path" = EXCLUDED."path",
+          "createdAt" = EXCLUDED."createdAt",
+          "expiresAt" = NULL
+      `);
     }
   }
 
@@ -1554,14 +1671,16 @@ export class ContentTreeService {
     rows: readonly AffectedTreeRow[],
     plans: readonly PageMutationPlan[],
   ) {
+    const currentById = new Map(rows.map((row) => [row.id, row]));
     return plans.map((plan) => {
-      const current = rows.find((row) => row.kind === 'page' && row.id === plan.id);
+      const current = currentById.get(plan.id);
       if (!current?.knowledgeKey || current.title === null || current.content === null) {
         throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page revision identity is incomplete');
       }
       return {
         operation: 'upsert' as const,
         pageId: current.knowledgeKey,
+        folderId: plan.folderId,
         path: plan.path,
         title: current.title,
         body: current.content,
@@ -1573,20 +1692,13 @@ export class ContentTreeService {
     tx: SpaceTreeLockedTransaction,
     spaceId: string,
     expectedTreeRevision: bigint,
-    pageChanges: Array<{
-      operation: 'upsert' | 'archive';
-      pageId: string;
-      path?: string;
-      title?: string;
-      body?: string;
-      previousPath?: string;
-    }>,
+    pageChanges: StructuralPageChange[],
     actor: ContentTreeActor,
   ): Promise<{ treeRevision: bigint; syncRevisionId: string }> {
     const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
       tx, spaceId, expectedTreeRevision,
     );
-    const syncRevision = await this.revisionWriter.advance(
+    const syncRevision = await this.revisionWriter.advanceStructuralPages(
       tx, spaceId, pageChanges, mutationOrigin(actor),
     );
     return { treeRevision, syncRevisionId: syncRevision.revisionId };

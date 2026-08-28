@@ -429,6 +429,7 @@ describe('ContentTreeService lifecycle mutations', () => {
       })),
       advanceContentTreeRevision: jest.fn().mockResolvedValue(1n),
       advance: jest.fn().mockResolvedValue({ revisionId: 'sync-1' }),
+      advanceStructuralPages: jest.fn().mockResolvedValue({ revisionId: 'sync-1' }),
     };
     const syncPaths: any = { allocate: jest.fn() };
     return {
@@ -447,21 +448,36 @@ describe('ContentTreeService lifecycle mutations', () => {
       now: changedAt,
     });
 
-    expect(tx.pagePathAlias.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({
-        spaceId: 'space-1', pageId: 'page-1', path: page.path, pathKey: page.pathKey,
-      })],
-      skipDuplicates: true,
-    });
-    expect(tx.pagePathAlias.createMany.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.$executeRaw.mock.invocationCallOrder[0],
-    );
+    const rawSql = tx.$executeRaw.mock.calls.map(([query]: any[]) =>
+      Array.isArray(query?.strings) ? query.strings.join(' ') : '');
+    const aliasUpsert = rawSql.findIndex((sql: string) => sql.includes('INSERT INTO "PagePathAlias"'));
+    const pageUpdate = rawSql.findIndex((sql: string) => sql.includes('UPDATE "Page"'));
+    expect(aliasUpsert).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[aliasUpsert][0].values)).toContain(page.path);
+    expect(pageUpdate).toBeGreaterThan(aliasUpsert);
     expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
-    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advanceStructuralPages).toHaveBeenCalledTimes(1);
     expect(result).toEqual(expect.objectContaining({
       treeRevision: 1n,
       folder: expect.objectContaining({ id: 'folder-root', path: 'pages/新项目' }),
     }));
+  });
+
+  it('refreshes a reused Page alias with one upsert before any structural path write', async () => {
+    const { service, tx } = lifecycleHarness();
+
+    await (service as any).renameFolder({
+      spaceId: 'space-1', folderId: 'folder-root', name: '新项目',
+      expectedTreeRevision: 0n, expectedUpdatedAt: now,
+      actor: { userId: 'user-1' },
+    });
+
+    const rawSql = tx.$executeRaw.mock.calls.map(([query]: any[]) =>
+      Array.isArray(query?.strings) ? query.strings.join(' ') : '');
+    const aliasUpsert = rawSql.findIndex((sql: string) => sql.includes('INSERT INTO "PagePathAlias"'));
+    const pageUpdate = rawSql.findIndex((sql: string) => sql.includes('UPDATE "Page"'));
+    expect(aliasUpsert).toBeGreaterThanOrEqual(0);
+    expect(pageUpdate).toBeGreaterThan(aliasUpsert);
   });
 
   it('persists the target timestamp when a normalized rename keeps the same path', async () => {
@@ -475,7 +491,7 @@ describe('ContentTreeService lifecycle mutations', () => {
 
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
-    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advanceStructuralPages).toHaveBeenCalledTimes(1);
   });
 
   it('rejects stale Folder updatedAt before aliases or structural writes', async () => {
@@ -505,6 +521,7 @@ describe('ContentTreeService lifecycle mutations', () => {
     const { service, tx } = lifecycleHarness([root]);
     tx.$queryRaw
       .mockReset()
+      .mockResolvedValueOnce([root])
       .mockResolvedValueOnce([root])
       .mockResolvedValueOnce(Array.from({ length: 32 }, (_, depth) => ({ depth })));
 
@@ -562,12 +579,13 @@ describe('ContentTreeService lifecycle mutations', () => {
     expect(syncPaths.allocate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       spaceId: 'space-1', directory: 'pages/目标', title: '进度', excludePageId: 'page-1',
     }), expect.any(Set));
-    expect(tx.pagePathAlias.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ pageId: 'page-1', path: page.path })],
-      skipDuplicates: true,
-    });
+    const aliasPayload = tx.$executeRaw.mock.calls
+      .map(([query]: any[]) => query)
+      .find((query: any) => Array.isArray(query?.strings)
+        && query.strings.join(' ').includes('INSERT INTO "PagePathAlias"'));
+    expect(JSON.stringify(aliasPayload?.values)).toContain(page.path);
     expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
-    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advanceStructuralPages).toHaveBeenCalledTimes(1);
     expect(result.node).toEqual(expect.objectContaining({
       id: 'page-1', folderId: 'folder-target', path: 'pages/目标/进度 (2).md',
     }));
@@ -591,5 +609,33 @@ describe('ContentTreeService lifecycle mutations', () => {
       })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_RESTORE_CONFLICT' }));
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects restore when active plus restoring Folders would exceed the Space cap', async () => {
+    const deletedAt = new Date('2026-08-28T02:00:00.000Z');
+    const deletedRoot = { ...root, deletedAt, deletionBatchId: 'batch-1' };
+    const deletedChild = { ...child, deletedAt, deletionBatchId: 'batch-1' };
+    const { service, tx, revisionWriter } = lifecycleHarness([deletedRoot, deletedChild]);
+    tx.folder.count = jest.fn().mockResolvedValue(10_000);
+    tx.folder.findMany.mockImplementation(({ where }: any) => Promise.resolve(
+      where.deletionBatchId ? [deletedRoot, deletedChild] : [],
+    ));
+    tx.page.findMany.mockResolvedValue([]);
+    tx.contentDeletionBatch.findFirst.mockResolvedValue({
+      id: 'batch-1', rootFolderId: root.id, folderCount: 2, pageCount: 0,
+      impactHash: 'ceed93e2f001cc6f668bd6ca31e104548fa1e406a5514ecda3af3a757242dbee',
+      folders: [{ id: root.id }, { id: child.id }], pages: [],
+    });
+    tx.contentDeletionBatch.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect((service as any).restoreDeletionBatch({
+      spaceId: 'space-1', deletionBatchId: 'batch-1',
+      strategy: { kind: 'original' }, expectedTreeRevision: 0n,
+      actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_COUNT_LIMIT' }));
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
   });
 });
