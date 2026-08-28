@@ -65,6 +65,13 @@ describe('KnowledgeSubmissionService', () => {
   const auth = {
     assertSpaceAccess: jest.fn(),
     assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined),
+    lockLiveAgentWriteAccessAcrossSpaceBoundary: jest.fn(async (
+      _tx: unknown,
+      _principal: unknown,
+      _spaceId: string,
+      _requiredScopes: string[],
+      acquireSpaceAdvisory: () => Promise<unknown>,
+    ) => acquireSpaceAdvisory()),
   } as any;
   const revisionWriter = {
     lockContentTreeSpace: jest.fn(async (tx: any) => Object.assign(tx, {
@@ -107,9 +114,9 @@ describe('KnowledgeSubmissionService', () => {
     const result = await service.submit('space-1', { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' }, Buffer.from('{}'), 'idem-1', true);
     expect(result.status).toBe('pending_review');
     expect(result.changeSetId).toBe('cs-1');
-    expect(auth.assertLiveAgentWriteAccess).toHaveBeenCalledWith(
+    expect(auth.lockLiveAgentWriteAccessAcrossSpaceBoundary).toHaveBeenCalledWith(
       tx, expect.objectContaining({ agentId: 'agent-1', credentialId: 'cred-1' }),
-      'space-1', ['pages:write'],
+      'space-1', ['pages:write'], expect.any(Function),
     );
     expect(tx.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -123,7 +130,7 @@ describe('KnowledgeSubmissionService', () => {
     const tx = makeTx({ latestRevision: { id: '0', sequence: 0 } });
     const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
-    auth.assertLiveAgentWriteAccess.mockRejectedValueOnce(
+    auth.lockLiveAgentWriteAccessAcrossSpaceBoundary.mockRejectedValueOnce(
       Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
     );
 
@@ -200,7 +207,7 @@ describe('KnowledgeSubmissionService', () => {
     expect(tx.space.findUnique).not.toHaveBeenCalled();
   });
 
-  it('locks live Agent authorization before the shared Space lock and then compiles one locked snapshot', async () => {
+  it('revalidates live Agent authorization across the shared Space lock before compiling one snapshot', async () => {
     const events: string[] = [];
     const tx = makeTx({ latestRevision: { id: 'rev-1', sequence: 1 }, contentTreeRevision: 23n });
     tx.spaceKnowledgeRevision.findFirst.mockImplementation(async () => {
@@ -219,8 +226,17 @@ describe('KnowledgeSubmissionService', () => {
     };
     const orderedAuth = {
       ...auth,
-      assertLiveAgentWriteAccess: jest.fn(async () => {
-        events.push('authorization');
+      lockLiveAgentWriteAccessAcrossSpaceBoundary: jest.fn(async (
+        _tx: unknown,
+        _principal: unknown,
+        _spaceId: string,
+        _requiredScopes: string[],
+        acquireSpaceAdvisory: () => Promise<unknown>,
+      ) => {
+        events.push('authorization-preflight');
+        const locked = await acquireSpaceAdvisory();
+        events.push('authorization-final');
+        return locked;
       }),
     };
     const service = new (KnowledgeSubmissionService as any)(
@@ -239,8 +255,12 @@ describe('KnowledgeSubmissionService', () => {
     );
 
     expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(tx, 'space-1');
-    expect(events).toEqual(expect.arrayContaining(['authorization', 'lock', 'sync-head']));
-    expect(events.indexOf('authorization')).toBeLessThan(events.indexOf('lock'));
+    expect(events).toEqual(expect.arrayContaining([
+      'authorization-preflight', 'lock', 'authorization-final', 'sync-head',
+    ]));
+    expect(events.indexOf('authorization-preflight')).toBeLessThan(events.indexOf('lock'));
+    expect(events.indexOf('lock')).toBeLessThan(events.indexOf('authorization-final'));
+    expect(events.indexOf('authorization-final')).toBeLessThan(events.indexOf('sync-head'));
     expect(events.indexOf('lock')).toBeLessThan(events.indexOf('sync-head'));
     expect(tx.space.findUnique).not.toHaveBeenCalled();
     expect(tx.changeSet.create.mock.calls[0][0].data.items.create[0].payload)

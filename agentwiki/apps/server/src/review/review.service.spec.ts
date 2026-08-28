@@ -95,6 +95,7 @@ describe('ReviewService approval boundaries', () => {
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
+  revisionWriter.advanceLocked = revisionWriter.advance;
   const contentTree = {
     lockPageMutationSpace: jest.fn(),
     placePage: jest.fn(),
@@ -1585,6 +1586,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   const syncPaths = { allocate: jest.fn() } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
+  revisionWriter.advanceLocked = revisionWriter.advance;
   const service = new ReviewService(
     prisma,
     search,
@@ -1917,6 +1919,7 @@ describe('ReviewService readable page paths', () => {
     lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
+  revisionWriter.advanceLocked = revisionWriter.advance;
   const syncPaths = {
     allocate: jest.fn(),
   } as any;
@@ -2308,6 +2311,7 @@ describe('ReviewService page revert ordering and audit', () => {
     lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
+  revisionWriter.advanceLocked = revisionWriter.advance;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const contentTree = makeReviewContentTree(revisionWriter, syncPaths) as any;
@@ -2523,6 +2527,7 @@ describe('ReviewService archive audit and provenance', () => {
     lockSpace: jest.fn().mockImplementation(async (tx: unknown) => tx),
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
+  revisionWriter.advanceLocked = revisionWriter.advance;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const service = new ReviewService(

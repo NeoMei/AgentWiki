@@ -558,7 +558,7 @@ export class ContentTreeService {
       const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
         lockedTx, input.spaceId, input.expectedTreeRevision,
       );
-      const syncRevision = await this.revisionWriter.advance(lockedTx, input.spaceId, [], {
+      const syncRevision = await this.revisionWriter.advanceLocked(lockedTx, input.spaceId, [], {
         origin: input.actor.agentId ? 'change_set' : 'web_editor',
         createdByUserId: input.actor.userId ?? null,
       });
@@ -775,7 +775,7 @@ export class ContentTreeService {
         input.revisionOrigin,
       );
     }
-    const syncRevision = await this.revisionWriter.advance(
+    const syncRevision = await this.revisionWriter.advanceLocked(
       lockedTx,
       input.spaceId,
       input.changes.map((change) => change.operation === 'archive'
@@ -2039,7 +2039,7 @@ export class ContentTreeService {
     const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
       tx, spaceId, expectedTreeRevision,
     );
-    const syncRevision = await this.revisionWriter.advanceStructuralPages(
+    const syncRevision = await this.revisionWriter.advanceStructuralPagesLocked(
       tx, spaceId, pageChanges, { ...mutationOrigin(actor), ...revisionOrigin },
     );
     return { treeRevision, syncRevisionId: syncRevision.revisionId };

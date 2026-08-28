@@ -60,8 +60,8 @@ test('5000 pages and 100 MiB body metrics advance through the bounded writer', {
         body,
       }));
       const result = await prisma.$transaction(async (tx) => {
-        await writer.lockSpace(tx, spaceId);
-        return writer.advance(tx, spaceId, changes, { origin: 'migration' });
+        const lockedTx = await writer.lockSpace(tx, spaceId);
+        return writer.advanceLocked(lockedTx, spaceId, changes, { origin: 'migration' });
       }, { timeout: 120_000 });
       assert.equal(result.pageCount, 5000n);
       assert.equal(result.revisionBodyBytes, BigInt(bodyBytes * 5000));

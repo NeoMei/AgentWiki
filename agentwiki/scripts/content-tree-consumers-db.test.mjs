@@ -21,6 +21,7 @@ const {
   scopesForAgentAccessRole,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
+const { AgentService } = requireFromServer('./dist/core/agent/agent.service.js');
 const { PageService } = requireFromServer('./dist/core/page/page.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
@@ -296,8 +297,8 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
 
-          const originalAdvance = writer.advanceStructuralPages;
-          writer.advanceStructuralPages = async () => {
+          const originalAdvance = writer.advanceStructuralPagesLocked;
+          writer.advanceStructuralPagesLocked = async () => {
             throw new Error('forced structural revision failure');
           };
           try {
@@ -306,7 +307,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
               folderId: folder.id, expectedTreeRevision: '1',
             }, principal), /forced structural revision failure/u);
           } finally {
-            writer.advanceStructuralPages = originalAdvance;
+            writer.advanceStructuralPagesLocked = originalAdvance;
           }
           assert.equal(await prisma.page.count({ where: { spaceId, title: 'Must roll back' } }), 0);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
@@ -637,7 +638,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
               lastModifiedByUserId: userId,
             } });
             await writer.advanceContentTreeRevision(lockedTx, spaceId, 1n);
-            await writer.advance(lockedTx, spaceId, [], {
+            await writer.advanceLocked(lockedTx, spaceId, [], {
               origin: 'web_editor',
               createdByUserId: userId,
             });
@@ -1003,14 +1004,14 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
 
           const rollbackSet = await makeChangeSet('Review rollback');
-          const originalAdvance = writer.advanceStructuralPages;
-          writer.advanceStructuralPages = async () => {
+          const originalAdvance = writer.advanceStructuralPagesLocked;
+          writer.advanceStructuralPagesLocked = async () => {
             throw new Error('forced review structural revision failure');
           };
           try {
             await assert.rejects(reviews.publish(rollbackSet.id), /forced review structural revision failure/u);
           } finally {
-            writer.advanceStructuralPages = originalAdvance;
+            writer.advanceStructuralPagesLocked = originalAdvance;
           }
           assert.equal(await prisma.page.count({ where: { spaceId, title: 'Review rollback' } }), 0);
           assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: rollbackSet.id } })).status, 'approved');
@@ -1019,7 +1020,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
         });
 
-        await t.test('live Agent authorization rows always precede the Space advisory lock without the former two-transaction deadlock', async () => {
+        await t.test('real Folder writer and real Source Agent proposal serialize without the Space-row/advisory deadlock', async () => {
           const spaceId = await createSpace('agent-lock-order');
           const agentId = `lock-order-agent-${suffix}`;
           const grantId = `lock-order-grant-${suffix}`;
@@ -1054,81 +1055,333 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             authorizationSpaceId: spaceId,
             agentRole: 'editor',
             scopes: scopesForAgentAccessRole('editor'),
-            testLane: 'proposal',
           };
-          const blockerPrincipal = { ...proposalPrincipal, testLane: 'blocker' };
-          const bundle = {
-            schemaVersion: 'knowledge-bundle@1',
-            recipeVersion: 'lock-order',
-            spaceId,
-            baseRevision: '0',
-            pages: [{
-              pageId: `lock-order-page-${suffix}`,
-              spaceId,
-              path: '/lock-order.md',
-              title: 'Lock order proposal',
-              body: '# Lock order proposal',
-              artifactIds: [],
-              contentHash: 'lock-order-content-hash',
-              updatedAt: new Date().toISOString(),
-            }],
-            memories: [],
-            relations: [],
-            provenance: [],
-            deletions: [],
-          };
-          const originalLiveAuthorization = authorization.assertLiveAgentWriteAccess;
-          let blockerLockedResolve;
-          let proposalAuthorizationEnteredResolve;
-          const blockerLocked = new Promise((resolve) => { blockerLockedResolve = resolve; });
-          const proposalAuthorizationEntered = new Promise((resolve) => {
-            proposalAuthorizationEnteredResolve = resolve;
+          const source = await sources.create(spaceId, principal, {
+            type: 'text',
+            name: 'Lock order Source',
+            content: '# Lock order Source',
           });
-          authorization.assertLiveAgentWriteAccess = async (...args) => {
-            if (args[1]?.testLane === 'proposal') proposalAuthorizationEnteredResolve();
-            return originalLiveAuthorization.call(authorization, ...args);
+          const run = await sources.createRun(
+            source.id,
+            proposalPrincipal,
+            `lock-order-run-${suffix}`,
+          );
+          const workerId = `lock-order-worker-${suffix}`;
+          await prisma.ingestRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'reserved', stage: 'reserved', leaseOwner: workerId,
+              leaseExpiresAt: new Date(Date.now() + 60_000),
+            },
+          });
+
+          const originalAdvanceTree = writer.advanceContentTreeRevision;
+          let structuralAtSpaceRowResolve;
+          let releaseStructuralResolve;
+          const structuralAtSpaceRow = new Promise((resolve) => {
+            structuralAtSpaceRowResolve = resolve;
+          });
+          const releaseStructural = new Promise((resolve) => {
+            releaseStructuralResolve = resolve;
+          });
+          writer.advanceContentTreeRevision = async (...args) => {
+            if (args[1] === spaceId) {
+              structuralAtSpaceRowResolve();
+              await releaseStructural;
+            }
+            return originalAdvanceTree.call(writer, ...args);
           };
-          let timeoutId;
+
+          let folderPromise;
+          let proposalPromise;
+          let releaseCalled = false;
+          const release = () => {
+            if (releaseCalled) return;
+            releaseCalled = true;
+            releaseStructuralResolve();
+          };
+          const originalLockContentTreeSpace = writer.lockContentTreeSpace;
           try {
-            const blockerTransaction = prisma.$transaction(async (tx) => {
-              await originalLiveAuthorization.call(
-                authorization,
-                tx,
-                blockerPrincipal,
-                spaceId,
-                ['pages:write'],
-              );
-              blockerLockedResolve();
-              await proposalAuthorizationEntered;
-              const lockedTx = await writer.lockContentTreeSpace(tx, spaceId);
-              assert.ok(lockedTx);
-            }, { timeout: 120_000 });
-            await blockerLocked;
-            const submissionPromise = knowledgeSubmissions.submit(
+            folderPromise = contentTree.createFolder({
               spaceId,
-              proposalPrincipal,
-              Buffer.from(JSON.stringify(bundle)),
-              `lock-order-${suffix}`,
-              true,
-            );
-            void submissionPromise.catch(() => proposalAuthorizationEnteredResolve());
-            const timeout = new Promise((_, reject) => {
-              timeoutId = setTimeout(() => reject(new Error('Lock-order concurrency test timed out')), 10_000);
+              parentId: null,
+              name: 'Structural writer',
+              expectedTreeRevision: 0n,
+              actor: { userId },
             });
-            const [, submission] = await Promise.race([
-              Promise.all([blockerTransaction, submissionPromise]),
-              timeout,
-            ]);
-            assert.equal(submission.status, 'pending_review');
-            assert.ok(submission.changeSetId);
-            assert.equal(await prisma.changeSet.count({
-              where: { id: submission.changeSetId, status: 'pending_review' },
-            }), 1);
+            void folderPromise.catch(() => undefined);
+            await structuralAtSpaceRow;
+
+            let proposalAtAdvisoryResolve;
+            const proposalAtAdvisory = new Promise((resolve) => {
+              proposalAtAdvisoryResolve = resolve;
+            });
+            writer.lockContentTreeSpace = async (...args) => {
+              if (args[1] === spaceId) proposalAtAdvisoryResolve();
+              return originalLockContentTreeSpace.call(writer, ...args);
+            };
+            proposalPromise = sources.processRun(run.id, workerId);
+            void proposalPromise.catch(() => proposalAtAdvisoryResolve());
+            await proposalAtAdvisory;
+            await assertPending(
+              proposalPromise,
+              'Source proposal must wait for the real Folder writer advisory lock',
+            );
+
+            release();
+            const [folder] = await Promise.all([folderPromise, proposalPromise]);
+            assert.equal(folder.treeRevision, 1n);
+            assert.equal((await prisma.space.findUniqueOrThrow({
+              where: { id: spaceId },
+            })).contentTreeRevision, 1n);
+            assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+            assert.equal((await prisma.ingestRun.findUniqueOrThrow({
+              where: { id: run.id },
+            })).status, 'completed');
+            const produced = await prisma.changeSet.findUniqueOrThrow({
+              where: { runId: run.id }, include: { items: true },
+            });
+            assert.equal(produced.status, 'pending_review');
+            assert.ok(produced.items.length > 0);
+            assert.ok(produced.items
+              .filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type))
+              .every((item) => item.payload.expectedTreeRevision === '1'));
           } finally {
-            if (timeoutId) clearTimeout(timeoutId);
-            proposalAuthorizationEnteredResolve();
-            authorization.assertLiveAgentWriteAccess = originalLiveAuthorization;
+            release();
+            writer.advanceContentTreeRevision = originalAdvanceTree;
+            writer.lockContentTreeSpace = originalLockContentTreeSpace;
+            await Promise.allSettled([folderPromise, proposalPromise].filter(Boolean));
           }
+        });
+
+        await t.test('revoked Source Agent cannot create a proposal or acquire the Space advisory lock', async () => {
+          const spaceId = await createSpace('agent-revoked-before-proposal');
+          const agentId = `revoked-proposal-agent-${suffix}`;
+          const grantId = `revoked-proposal-grant-${suffix}`;
+          const credentialId = `revoked-proposal-credential-${suffix}`;
+          await prisma.agent.create({ data: {
+            id: agentId, name: 'Revoked proposal agent', ownerId: userId,
+            status: 'active', approvalMode: 'always-review',
+          } });
+          await prisma.agentGrant.create({ data: {
+            id: grantId, agentId, spaceId, role: 'editor',
+          } });
+          await prisma.agentCredential.create({ data: {
+            id: credentialId,
+            name: 'Revoked proposal credential',
+            prefix: `revoke_${suffix.slice(0, 8)}`,
+            keyHash: `revoked-proposal-key-${suffix}`,
+            agentId,
+            authorizationId: grantId,
+          } });
+          const agentPrincipal = {
+            userId,
+            platformRole: 'user',
+            agentId,
+            credentialId,
+            authorizationId: grantId,
+            authorizationSpaceId: spaceId,
+            agentRole: 'editor',
+            scopes: scopesForAgentAccessRole('editor'),
+          };
+          const source = await sources.create(spaceId, principal, {
+            type: 'text', name: 'Revoked Source', content: '# Revoked Source',
+          });
+          const run = await sources.createRun(
+            source.id,
+            agentPrincipal,
+            `revoked-proposal-run-${suffix}`,
+          );
+          const workerId = `revoked-proposal-worker-${suffix}`;
+          await prisma.ingestRun.update({
+            where: { id: run.id },
+            data: {
+              status: 'reserved', stage: 'reserved', leaseOwner: workerId,
+              leaseExpiresAt: new Date(Date.now() + 60_000),
+            },
+          });
+
+          const originalFetch = sources.fetch;
+          const originalLockContentTreeSpace = writer.lockContentTreeSpace;
+          let fetchEnteredResolve;
+          let releaseFetchResolve;
+          const fetchEntered = new Promise((resolve) => { fetchEnteredResolve = resolve; });
+          const releaseFetch = new Promise((resolve) => { releaseFetchResolve = resolve; });
+          let advisoryCalls = 0;
+          sources.fetch = async (...args) => {
+            fetchEnteredResolve();
+            await releaseFetch;
+            return originalFetch.call(sources, ...args);
+          };
+          writer.lockContentTreeSpace = async (...args) => {
+            if (args[1] === spaceId) advisoryCalls += 1;
+            return originalLockContentTreeSpace.call(writer, ...args);
+          };
+          let processPromise;
+          try {
+            processPromise = sources.processRun(run.id, workerId);
+            void processPromise.catch(() => undefined);
+            await fetchEntered;
+            await new AgentService(prisma).revokeCredential(userId, agentId, credentialId);
+            releaseFetchResolve();
+            await assert.rejects(processPromise, /Run requester is no longer authorized/u);
+          } finally {
+            releaseFetchResolve();
+            sources.fetch = originalFetch;
+            writer.lockContentTreeSpace = originalLockContentTreeSpace;
+            await Promise.allSettled([processPromise].filter(Boolean));
+          }
+          assert.equal(advisoryCalls, 0);
+          assert.equal(await prisma.changeSet.count({ where: { runId: run.id } }), 0);
+          assert.equal(await prisma.page.count({ where: { spaceId } }), 0);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 0);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 0n);
+          assert.equal((await prisma.ingestRun.findUniqueOrThrow({ where: { id: run.id } })).status, 'failed');
+        });
+
+        await t.test('Space policy downgrade commits at the advisory boundary and prevents Agent auto-publish', async () => {
+          const spaceId = await createSpace('agent-policy-boundary');
+          await prisma.space.update({
+            where: { id: spaceId },
+            data: { approvalPolicy: 'scoped-auto-publish' },
+          });
+          const agentId = `policy-agent-${suffix}`;
+          const grantId = `policy-grant-${suffix}`;
+          const credentialId = `policy-credential-${suffix}`;
+          await prisma.agent.create({ data: {
+            id: agentId,
+            name: 'Policy boundary agent',
+            ownerId: userId,
+            status: 'active',
+            approvalMode: 'scoped-auto-publish',
+            memoryEnabled: true,
+          } });
+          await prisma.agentGrant.create({ data: {
+            id: grantId, agentId, spaceId, role: 'publisher',
+          } });
+          await prisma.agentCredential.create({ data: {
+            id: credentialId,
+            name: 'Policy boundary credential',
+            prefix: `policy_${suffix.slice(0, 8)}`,
+            keyHash: `policy-boundary-key-${suffix}`,
+            agentId,
+            authorizationId: grantId,
+          } });
+          const agentPrincipal = {
+            userId,
+            platformRole: 'user',
+            agentId,
+            credentialId,
+            authorizationId: grantId,
+            authorizationSpaceId: spaceId,
+            agentRole: 'publisher',
+            scopes: scopesForAgentAccessRole('publisher'),
+          };
+
+          const originalAdvanceTree = writer.advanceContentTreeRevision;
+          let structuralAtSpaceRowResolve;
+          let releaseStructuralResolve;
+          const structuralAtSpaceRow = new Promise((resolve) => {
+            structuralAtSpaceRowResolve = resolve;
+          });
+          const releaseStructural = new Promise((resolve) => {
+            releaseStructuralResolve = resolve;
+          });
+          writer.advanceContentTreeRevision = async (...args) => {
+            if (args[1] === spaceId) {
+              structuralAtSpaceRowResolve();
+              await releaseStructural;
+            }
+            return originalAdvanceTree.call(writer, ...args);
+          };
+          let releaseCalled = false;
+          const release = () => {
+            if (releaseCalled) return;
+            releaseCalled = true;
+            releaseStructuralResolve();
+          };
+          const originalLockSpace = writer.lockSpace;
+          let folderPromise;
+          let proposalPromise;
+          let policyPromise;
+          try {
+            folderPromise = contentTree.createFolder({
+              spaceId,
+              parentId: null,
+              name: 'Policy structural writer',
+              expectedTreeRevision: 0n,
+              actor: { userId },
+            });
+            void folderPromise.catch(() => undefined);
+            await structuralAtSpaceRow;
+
+            let autoPublishAtAdvisoryResolve;
+            const autoPublishAtAdvisory = new Promise((resolve) => {
+              autoPublishAtAdvisoryResolve = resolve;
+            });
+            writer.lockSpace = async (...args) => {
+              if (args[1] === spaceId) autoPublishAtAdvisoryResolve();
+              return originalLockSpace.call(writer, ...args);
+            };
+            proposalPromise = reviews.propose(
+              agentPrincipal,
+              spaceId,
+              'Policy boundary proposal',
+              {
+                type: 'upsert_space_memory',
+                payload: {
+                  knowledgeKey: `policy-memory-${suffix}`,
+                  key: 'policy-boundary',
+                  value: 'must remain reviewed',
+                  scope: 'space',
+                  pageIds: [],
+                  artifactIds: [],
+                  contentHash: `policy-memory-hash-${suffix}`,
+                },
+              },
+            );
+            void proposalPromise.catch(() => autoPublishAtAdvisoryResolve());
+            await autoPublishAtAdvisory;
+
+            policyPromise = prisma.space.update({
+              where: { id: spaceId },
+              data: { approvalPolicy: 'always-review' },
+            });
+            const policyCommittedBeforeRelease = await Promise.race([
+              policyPromise.then(() => true),
+              new Promise((resolve) => setTimeout(() => resolve(false), 500)),
+            ]);
+            release();
+            const settled = await Promise.allSettled([folderPromise, proposalPromise, policyPromise]);
+            assert.equal(
+              policyCommittedBeforeRelease,
+              true,
+              'Space policy update must not wait behind a live Agent Space row lock before advisory acquisition',
+            );
+            assert.ok(settled.every((result) => result.status === 'fulfilled'),
+              `Policy boundary operations must not deadlock: ${settled.map((result) => (
+                result.status === 'fulfilled'
+                  ? 'fulfilled'
+                  : `rejected:${result.reason?.code ?? result.reason?.message ?? String(result.reason)}`
+              )).join(',')}`);
+            const proposal = settled[1].value;
+            assert.equal(proposal.autoPublished, false);
+            assert.equal(proposal.status, 'pending_review');
+          } finally {
+            release();
+            writer.advanceContentTreeRevision = originalAdvanceTree;
+            writer.lockSpace = originalLockSpace;
+            await Promise.allSettled([folderPromise, proposalPromise, policyPromise].filter(Boolean));
+          }
+          assert.equal(await prisma.agentMemory.count({ where: { spaceId } }), 0);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).approvalPolicy, 'always-review');
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+          const changeSet = await prisma.changeSet.findFirstOrThrow({
+            where: { spaceId, title: 'Policy boundary proposal' }, include: { items: true },
+          });
+          assert.equal(changeSet.status, 'pending_review');
+          assert.ok(changeSet.items.every((item) => item.status === 'pending'));
         });
 
         await t.test('real KnowledgeSubmission producer captures tree CAS and publishes through Review', async () => {

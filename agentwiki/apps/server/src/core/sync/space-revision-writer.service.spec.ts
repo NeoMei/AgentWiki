@@ -61,7 +61,7 @@ describe('SpaceRevisionWriterService', () => {
     );
   });
 
-  it('advances a revision with normalized rows, delta and bigint metrics', async () => {
+  it('advances a locked revision without reacquiring the Space advisory lock', async () => {
     const createdRevision: any = {
       id: 'rev-1', sequence: 1, revisionContentHash: 'x', pageCount: 1n,
       revisionBodyBytes: 6n, revisionManifestByteLength: 100n,
@@ -118,7 +118,7 @@ describe('SpaceRevisionWriterService', () => {
       },
     };
     const body = 'Hello\n';
-    const result = await service.advance(tx as any, 'space-1', [{
+    const result = await service.advanceLocked(tx as any, 'space-1', [{
       operation: 'upsert',
       pageId: '11111111-1111-4111-8111-111111111111',
       path: 'Guide.md',
@@ -128,6 +128,7 @@ describe('SpaceRevisionWriterService', () => {
 
     expect(result.sequence).toBe(1);
     expect(result.pageCount).toBe(1n);
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
     expect(tx.syncRevisionPageRow.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { revisionId_pageId: { revisionId: 'rev-1', pageId: '11111111-1111-4111-8111-111111111111' } },
       create: expect.objectContaining({

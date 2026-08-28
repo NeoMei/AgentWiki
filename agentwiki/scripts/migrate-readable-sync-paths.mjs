@@ -128,7 +128,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
       body: page.content,
     }));
 
-    const revision = await writer.advance(tx, spaceId, changes, {
+    const revision = await writer.advanceLocked(lockedTx, spaceId, changes, {
       origin: 'migration',
       migrationBatchId: batchId,
     });

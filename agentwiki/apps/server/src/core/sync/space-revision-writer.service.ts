@@ -66,6 +66,13 @@ export type SpaceTreeLockedTransaction = SpaceLockedTransaction & {
 export class SpaceRevisionWriterService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * This advisory lock is the first Space-scoped lock for every structural
+   * writer. Callers must not lock/update the Space row before this method.
+   * Live Agent callers use the authorization boundary helper so their
+   * non-Space authorization rows are locked first and Space is revalidated
+   * only after this advisory lock has been acquired.
+   */
   async lockSpace(
     tx: Prisma.TransactionClient,
     spaceId: string,
@@ -97,6 +104,8 @@ export class SpaceRevisionWriterService {
     spaceId: string,
     expected: bigint,
   ): Promise<bigint> {
+    // The transaction must already hold lockSpace(spaceId); this Space CAS is
+    // intentionally later in the global advisory -> Space-row order.
     const result = await tx.space.updateMany({
       where: { id: spaceId, deletedAt: null, contentTreeRevision: expected },
       data: { contentTreeRevision: { increment: 1n } },
@@ -117,11 +126,16 @@ export class SpaceRevisionWriterService {
     changes: PageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
-    // All revision creation paths share one transaction-scoped advisory lock.
-    // Some callers also lock explicitly; re-entering the same advisory lock in
-    // the same transaction is safe and keeps page/review callers serialized.
-    await this.lockSpace(tx, spaceId);
+    const lockedTx = await this.lockSpace(tx, spaceId);
+    return this.advanceLocked(lockedTx, spaceId, changes, origin);
+  }
 
+  async advanceLocked(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: PageChange[],
+    origin: RevisionOrigin,
+  ): Promise<RevisionWriteResult> {
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },
@@ -387,8 +401,16 @@ export class SpaceRevisionWriterService {
     changes: StructuralPageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
-    await this.lockSpace(tx, spaceId);
+    const lockedTx = await this.lockSpace(tx, spaceId);
+    return this.advanceStructuralPagesLocked(lockedTx, spaceId, changes, origin);
+  }
 
+  async advanceStructuralPagesLocked(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: StructuralPageChange[],
+    origin: RevisionOrigin,
+  ): Promise<RevisionWriteResult> {
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },

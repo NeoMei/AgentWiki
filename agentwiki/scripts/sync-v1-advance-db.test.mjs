@@ -54,8 +54,8 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
       await prisma.space.create({ data: { id: spaceId, name: 'S', slug: `s-${randomUUID().slice(0, 8)}` } });
 
       const rev1 = await prisma.$transaction(async (tx) => {
-        await writer.lockSpace(tx, spaceId);
-        return writer.advance(tx, spaceId, [
+        const lockedTx = await writer.lockSpace(tx, spaceId);
+        return writer.advanceLocked(lockedTx, spaceId, [
           { operation: 'upsert', pageId: pageA, path: 'a.md', title: 'A', body: 'A\n' },
           { operation: 'upsert', pageId: pageB, path: 'b.md', title: 'B', body: 'BB\n' },
         ], { origin: 'web_editor' });
@@ -64,8 +64,8 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
       assert.equal(rev1.revisionBodyBytes, 5n); // 'A\n' = 2 bytes, 'BB\n' = 3 bytes
 
       const rev2 = await prisma.$transaction(async (tx) => {
-        await writer.lockSpace(tx, spaceId);
-        return writer.advance(tx, spaceId, [
+        const lockedTx = await writer.lockSpace(tx, spaceId);
+        return writer.advanceLocked(lockedTx, spaceId, [
           { operation: 'archive', pageId: pageA, previousPath: 'a.md' },
         ], { origin: 'web_editor' });
       });

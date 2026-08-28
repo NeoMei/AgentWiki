@@ -8,7 +8,11 @@ import {
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
 import { Prisma } from '@prisma/client';
-import { lockLiveAgentAuthorization } from './live-agent-authorization';
+import {
+  lockLiveAgentAuthorization,
+  lockLiveAgentAuthorizationAcrossSpaceBoundary,
+  type LockedAgentAuthorization,
+} from './live-agent-authorization';
 
 export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
@@ -237,23 +241,37 @@ export class AuthorizationService {
       agentId: principal.agentId,
       credentialId: principal.credentialId,
     }, spaceId);
-    const now = new Date();
-    const authorized = !!state &&
-      !state.user.deletedAt &&
-      !state.user.lockedAt &&
-      state.agent.status === 'active' &&
-      !state.agent.revokedAt &&
-      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
-      !state.space.deletedAt &&
-      !state.credential.revokedAt &&
-      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
-      state.credential.authorizationId === state.grant.id &&
-      principal.authorizationId === state.grant.id &&
-      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId) &&
-      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
-    if (!authorized) {
+    if (!state || !this.isLiveAgentWriteAuthorized(state, principal, spaceId, requiredScopes)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is no longer valid');
     }
+  }
+
+  async lockLiveAgentWriteAccessAcrossSpaceBoundary<T>(
+    db: Prisma.TransactionClient,
+    principal: Principal,
+    spaceId: string,
+    requiredScopes: string[],
+    acquireSpaceAdvisory: () => Promise<T>,
+  ): Promise<T> {
+    if (!principal.agentId) return acquireSpaceAdvisory();
+    if (!principal.credentialId) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is unavailable');
+    }
+    const locked = await lockLiveAgentAuthorizationAcrossSpaceBoundary(
+      db,
+      {
+        ownerId: principal.userId,
+        agentId: principal.agentId,
+        credentialId: principal.credentialId,
+      },
+      spaceId,
+      (state) => this.isLiveAgentWriteAuthorized(state, principal, spaceId, requiredScopes),
+      acquireSpaceAdvisory,
+    );
+    if (!locked) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is no longer valid');
+    }
+    return locked.spaceLock;
   }
 
   async getAccessibleSpaceIds(principalInput: PrincipalInput, requiredScope = 'spaces:read'): Promise<string[]> {
@@ -340,6 +358,27 @@ export class AuthorizationService {
     if (grantRole && !agentRoleAllowsScope(grantRole, requiredScope)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', `Agent role is not granted scope ${requiredScope} in this space`);
     }
+  }
+
+  private isLiveAgentWriteAuthorized(
+    state: LockedAgentAuthorization,
+    principal: Principal,
+    spaceId: string,
+    requiredScopes: string[],
+  ): boolean {
+    const now = new Date();
+    return !state.user.deletedAt &&
+      !state.user.lockedAt &&
+      state.agent.status === 'active' &&
+      !state.agent.revokedAt &&
+      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
+      !state.space.deletedAt &&
+      !state.credential.revokedAt &&
+      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
+      state.credential.authorizationId === state.grant.id &&
+      principal.authorizationId === state.grant.id &&
+      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId) &&
+      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
   }
 }
 

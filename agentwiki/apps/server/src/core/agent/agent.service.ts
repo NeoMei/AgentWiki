@@ -602,14 +602,21 @@ export class AgentService {
     spaceId: string,
     lockMembership: boolean,
   ): Promise<void> {
-    // Keep the same explicit lock order used by Agent write critical points:
-    // owner -> Agent -> Space -> membership -> Grant -> Credential.
+    // Match the live-write prefix before touching Space:
+    // owner -> Agent -> Grant -> Space -> membership. A live structural writer
+    // may insert AgentCredential -> Space advisory between Grant and Space, but
+    // the shared owner/Agent prefix serializes these mutation paths first.
     await tx.$queryRaw(Prisma.sql`
       SELECT "id" FROM "User" WHERE "id" = ${actorUserId} FOR UPDATE
     `);
     await tx.$queryRaw(Prisma.sql`
       SELECT "id" FROM "Agent"
       WHERE "id" = ${agentId} AND "ownerId" = ${actorUserId}
+      FOR UPDATE
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id" FROM "AgentGrant"
+      WHERE "agentId" = ${agentId} AND "spaceId" = ${spaceId}
       FOR UPDATE
     `);
     await tx.$queryRaw(Prisma.sql`
@@ -622,11 +629,6 @@ export class AgentService {
         FOR UPDATE
       `);
     }
-    await tx.$queryRaw(Prisma.sql`
-      SELECT "id" FROM "AgentGrant"
-      WHERE "agentId" = ${agentId} AND "spaceId" = ${spaceId}
-      FOR UPDATE
-    `);
   }
 
 }

@@ -317,11 +317,12 @@ describe('SourceService safety and idempotency', () => {
     },
   );
 
-  it('locks every live Agent policy row in deterministic order for the proposal transaction', async () => {
+  it('crosses the Space advisory boundary before locking the authoritative Space row', async () => {
     const lockEvents: string[] = [];
     const authorizationPrisma = {
       $queryRaw: jest.fn(async (query: any) => {
-        lockEvents.push(query.strings.join(''));
+        const sql = query.strings.join('');
+        lockEvents.push(`lock:${/FROM\s+"([^"]+)"/u.exec(sql)?.[1]}`);
         return [{ id: 'locked' }];
       }),
       agent: { findUnique: jest.fn().mockImplementation(async ({ select }: any) => (
@@ -338,18 +339,33 @@ describe('SourceService safety and idempotency', () => {
       }) },
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, approvalPolicy: 'always-review' }) },
     } as any;
+    const lockedTx = Object.assign(authorizationPrisma, { contentTreeRevision: 0n });
+    const revisionWriter = {
+      lockContentTreeSpace: jest.fn(async () => {
+        lockEvents.push('space-advisory');
+        return lockedTx;
+      }),
+    };
     const authorizationService = new SourceService(
-      authorizationPrisma, config, {} as any, {} as any, {} as any,
+      authorizationPrisma, config, {} as any, {} as any, revisionWriter as any,
     );
 
-    await expect((authorizationService as any).assertRequesterStillAuthorized({
+    await expect((authorizationService as any).lockRequesterContentTreeSpace({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-    }, authorizationPrisma, true)).resolves.toEqual(scopesForAgentAccessRole('editor'));
+    }, authorizationPrisma)).resolves.toMatchObject({
+      lockedTx,
+      currentScopes: scopesForAgentAccessRole('editor'),
+    });
 
-    expect(lockEvents).toHaveLength(5);
-    expect(lockEvents.map((sql) => /FROM\s+"([^"]+)"/u.exec(sql)?.[1]))
-      .toEqual(['User', 'Agent', 'Space', 'AgentGrant', 'AgentCredential']);
+    expect(lockEvents).toEqual([
+      'lock:User',
+      'lock:Agent',
+      'lock:AgentGrant',
+      'lock:AgentCredential',
+      'space-advisory',
+      'lock:Space',
+    ]);
   });
 
   it('allows a queued publisher run when credential and grant remain authorized', async () => {

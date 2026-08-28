@@ -45,6 +45,8 @@ function makeHarness(options: {
     advance: jest.fn().mockResolvedValue({ revisionId: 'sync-revision-1', sequence: 1 }),
     advanceStructuralPages: jest.fn().mockResolvedValue({ revisionId: 'sync-structural-1', sequence: 2 }),
   };
+  revisionWriter.advanceLocked = revisionWriter.advance;
+  revisionWriter.advanceStructuralPagesLocked = revisionWriter.advanceStructuralPages;
   const syncPaths: any = {
     allocate: jest.fn(),
   };
@@ -559,6 +561,7 @@ describe('ContentTreeService Page placement and concurrency', () => {
       }),
       advance: jest.fn().mockResolvedValue({ revisionId: 'rev', sequence: 1 }),
     };
+    revisionWriter.advanceLocked = revisionWriter.advance;
     const service = new ContentTreeService(prisma, revisionWriter, { allocate: jest.fn() } as any);
     const input = {
       spaceId: 'space-1', parentId: null, name: '项目', expectedTreeRevision: 0n,
@@ -639,6 +642,8 @@ describe('ContentTreeService lifecycle mutations', () => {
       advance: jest.fn().mockResolvedValue({ revisionId: 'sync-1' }),
       advanceStructuralPages: jest.fn().mockResolvedValue({ revisionId: 'sync-1' }),
     };
+    revisionWriter.advanceLocked = revisionWriter.advance;
+    revisionWriter.advanceStructuralPagesLocked = revisionWriter.advanceStructuralPages;
     const syncPaths: any = { allocate: jest.fn() };
     return {
       service: new ContentTreeService(prisma, revisionWriter, syncPaths),

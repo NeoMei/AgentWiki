@@ -19,7 +19,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
     import('./migrate-readable-sync-paths.mjs'),
   ]);
   const originalLockSpace = SpaceRevisionWriterService.prototype.lockSpace;
-  const originalAdvance = SpaceRevisionWriterService.prototype.advance;
+  const originalAdvanceLocked = SpaceRevisionWriterService.prototype.advanceLocked;
   const title = `p-${'f'.repeat(64)}`;
   const page = {
     id: 'internal-page-1',
@@ -65,7 +65,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
 
   try {
     SpaceRevisionWriterService.prototype.lockSpace = async (transaction) => transaction;
-    SpaceRevisionWriterService.prototype.advance = async () => {
+    SpaceRevisionWriterService.prototype.advanceLocked = async () => {
       revisionCount += 1;
       if (revisionCount > 1) {
         const error = new Error('duplicate migration revision');
@@ -91,7 +91,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
     assert.equal(revisionCount, 1);
   } finally {
     SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;
-    SpaceRevisionWriterService.prototype.advance = originalAdvance;
+    SpaceRevisionWriterService.prototype.advanceLocked = originalAdvanceLocked;
   }
 });
 
@@ -104,7 +104,7 @@ test('completed migration batch no-ops before scanning pages added later', async
     import('./migrate-readable-sync-paths.mjs'),
   ]);
   const originalLockSpace = SpaceRevisionWriterService.prototype.lockSpace;
-  const originalAdvance = SpaceRevisionWriterService.prototype.advance;
+  const originalAdvanceLocked = SpaceRevisionWriterService.prototype.advanceLocked;
   const batchId = 'readable-sync-path-v1:space-completed';
   const page = {
     id: 'internal-page-later',
@@ -176,7 +176,7 @@ test('completed migration batch no-ops before scanning pages added later', async
       events.push('lock');
       return transaction;
     };
-    SpaceRevisionWriterService.prototype.advance = async () => {
+    SpaceRevisionWriterService.prototype.advanceLocked = async () => {
       events.push('advance');
       const error = new Error('duplicate migration revision');
       error.code = 'P2002';
@@ -201,7 +201,7 @@ test('completed migration batch no-ops before scanning pages added later', async
     assert.equal(revisions.length, before.revisions);
   } finally {
     SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;
-    SpaceRevisionWriterService.prototype.advance = originalAdvance;
+    SpaceRevisionWriterService.prototype.advanceLocked = originalAdvanceLocked;
   }
 });
 

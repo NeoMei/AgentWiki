@@ -11,6 +11,7 @@ import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.s
 import { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
 import {
   ReadableSyncPathService,
+  type SpaceLockedTransaction,
 } from '../core/sync/readable-sync-path.service';
 import { ContentTreeService } from '../content-tree/content-tree.service';
 import { ContentTreeError } from '../content-tree/content-tree.types';
@@ -25,6 +26,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import {
   lockLiveAgentAuthorization,
+  lockLiveAgentAuthorizationAcrossSpaceBoundary,
   type LockedAgentAuthorization,
 } from '../core/authorization/live-agent-authorization';
 
@@ -246,20 +248,73 @@ export class ReviewService {
     const liveAutoPublishContext = autoPublishContext
       ? { ...autoPublishContext, ownerId: autoPublishContext.ownerId ?? authorId }
       : null;
+    const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted');
+    const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
+    const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
+    const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
+    const requestedTreeRevisions = Array.from(new Set(pageItems.flatMap((item) => {
+      const payload = item.payload as any;
+      const value = payload.expectedTreeRevision ?? payload.changes?.expectedTreeRevision;
+      const changes = payload.changes ?? {};
+      const structural = item.type === 'create_page'
+        || item.type === 'archive_page'
+        || changes.title !== undefined
+        || changes.folderId !== undefined;
+      if (value === undefined) {
+        if (structural) {
+          throw new ContentTreeError(
+            'CONTENT_TREE_CONFLICT',
+            'Every structural Page review item must carry an expected content-tree revision',
+          );
+        }
+        return [];
+      }
+      if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+        throw new ContentTreeError(
+          'CONTENT_TREE_CONFLICT',
+          'The review proposal carries an invalid content-tree revision',
+        );
+      }
+      return [value];
+    })));
+    if (requestedTreeRevisions.length > 1) {
+      throw new ContentTreeError(
+        'CONTENT_TREE_CONFLICT',
+        'The review proposal mixes content-tree revisions',
+      );
+    }
+    const requestedTreeRevision = requestedTreeRevisions[0] === undefined
+      ? undefined
+      : BigInt(requestedTreeRevisions[0]);
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
+      const acquireSpaceMutationLock = () => pageItems.length > 0
+        ? this.requireContentTree().lockPageMutationSpace(
+          tx,
+          changeSet.spaceId,
+          requestedTreeRevision,
+        )
+        : this.revisionWriter.lockSpace(tx, changeSet.spaceId);
+      let lockedTx: Prisma.TransactionClient;
       if (liveAutoPublishContext) {
         const requiredScopes = this.requiredScopesForItems(changeSet.items);
-        const remainsAuthorized = changeSet.createdByAgentId === liveAutoPublishContext.agentId &&
-          !!requiredScopes &&
-          await this.hasLiveAgentAutoPublishAccess(
+        const lockedAuthorization = changeSet.createdByAgentId === liveAutoPublishContext.agentId &&
+          !!liveAutoPublishContext.ownerId &&
+          !!requiredScopes
+          ? await lockLiveAgentAuthorizationAcrossSpaceBoundary(
             tx,
-            liveAutoPublishContext,
+            {
+              ownerId: liveAutoPublishContext.ownerId,
+              agentId: liveAutoPublishContext.agentId,
+              credentialId: liveAutoPublishContext.credentialId,
+            },
             changeSet.spaceId,
-            requiredScopes,
-          );
-        if (!remainsAuthorized) {
+            (state) => this.hasAgentAutoPublishAccess(state, requiredScopes),
+            acquireSpaceMutationLock,
+          )
+          : null;
+        if (!lockedAuthorization) {
           const demoted = await tx.changeSet.updateMany({
             where: { id, status: 'approved' },
             data: { status: 'pending_review', reviewedAt: null },
@@ -273,6 +328,9 @@ export class ReviewService {
           });
           return { pageIds: [], authorizationLost: true };
         }
+        lockedTx = lockedAuthorization.spaceLock;
+      } else {
+        lockedTx = await acquireSpaceMutationLock();
       }
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: 'approved' },
@@ -282,51 +340,6 @@ export class ReviewService {
       const pageIds: string[] = [];
       const pageIdBySourcePath = new Map<string, string>();
       const pageIdByKnowledgeKey = new Map<string, string>();
-      const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted');
-      const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
-      const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
-      const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
-      const requestedTreeRevisions = Array.from(new Set(pageItems.flatMap((item) => {
-        const payload = item.payload as any;
-        const value = payload.expectedTreeRevision ?? payload.changes?.expectedTreeRevision;
-        const changes = payload.changes ?? {};
-        const structural = item.type === 'create_page'
-          || item.type === 'archive_page'
-          || changes.title !== undefined
-          || changes.folderId !== undefined;
-        if (value === undefined) {
-          if (structural) {
-            throw new ContentTreeError(
-              'CONTENT_TREE_CONFLICT',
-              'Every structural Page review item must carry an expected content-tree revision',
-            );
-          }
-          return [];
-        }
-        if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/u.test(value)) {
-          throw new ContentTreeError(
-            'CONTENT_TREE_CONFLICT',
-            'The review proposal carries an invalid content-tree revision',
-          );
-        }
-        return [value];
-      })));
-      if (requestedTreeRevisions.length > 1) {
-        throw new ContentTreeError(
-          'CONTENT_TREE_CONFLICT',
-          'The review proposal mixes content-tree revisions',
-        );
-      }
-      const requestedTreeRevision = requestedTreeRevisions[0] === undefined
-        ? undefined
-        : BigInt(requestedTreeRevisions[0]);
-      const lockedTx = pageItems.length > 0
-        ? await this.requireContentTree().lockPageMutationSpace(
-          tx,
-          changeSet.spaceId,
-          requestedTreeRevision,
-        )
-        : await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
       const expectedTreeRevision = pageItems.length > 0
         ? requestedTreeRevision ?? (lockedTx as any).contentTreeRevision
         : 0n;
@@ -958,7 +971,12 @@ export class ReviewService {
         : undefined;
       const submission = await tx.knowledgeSubmission?.findUnique({ where: { changeSetId: id } });
       if (submission) {
-        const revision = await this.createKnowledgeRevision(tx, changeSet.spaceId, submission, id);
+        const revision = await this.createKnowledgeRevision(
+          lockedTx as SpaceLockedTransaction,
+          changeSet.spaceId,
+          submission,
+          id,
+        );
         if (pageIds.length > 0) {
           await this.requireContentTree().advancePageMutation(lockedTx as any, {
             spaceId: changeSet.spaceId,
@@ -1017,12 +1035,17 @@ export class ReviewService {
         // Relation/Memory-only changesets still advance the authoritative
         // revision sequence: they inherit parent page rows and produce an empty
         // sync v1 Delta with the same revisionContentHash.
-        await this.revisionWriter.advance(tx, changeSet.spaceId, [], {
-          origin: 'change_set',
-          sourceChangeSetId: id,
-          createdByUserId: changeSet.createdByUserId,
-          legacySidecarOverride,
-        });
+        await this.revisionWriter.advanceLocked(
+          lockedTx as SpaceLockedTransaction,
+          changeSet.spaceId,
+          [],
+          {
+            origin: 'change_set',
+            sourceChangeSetId: id,
+            createdByUserId: changeSet.createdByUserId,
+            legacySidecarOverride,
+          },
+        );
       }
       return { pageIds: Array.from(new Set(pageIds)), authorizationLost: false };
       });
@@ -1081,22 +1104,6 @@ export class ReviewService {
     return state;
   }
 
-  private async hasLiveAgentAutoPublishAccess(
-    db: PrismaService | Prisma.TransactionClient,
-    context: AgentAutoPublishContext,
-    spaceId: string,
-    requiredScopes: string[],
-  ): Promise<boolean> {
-    if (!context.ownerId) return false;
-    const state = await lockLiveAgentAuthorization(db, {
-      ownerId: context.ownerId,
-      agentId: context.agentId,
-      credentialId: context.credentialId,
-    }, spaceId);
-    if (!state) return false;
-    return this.hasAgentAutoPublishAccess(state, requiredScopes);
-  }
-
   private hasAgentAutoPublishAccess(
     state: LockedAgentAuthorization,
     requiredScopes: string[],
@@ -1118,12 +1125,11 @@ export class ReviewService {
   }
 
   private async createKnowledgeRevision(
-    tx: Prisma.TransactionClient,
+    tx: SpaceLockedTransaction,
     spaceId: string,
     submission: { id: string; bundle: unknown; schemaVersion: string; recipeVersion: string; contentHash: string },
     changeSetId: string,
   ): Promise<SpaceKnowledgeRevision> {
-    await this.revisionWriter.lockSpace(tx, spaceId);
     const bundle = submission.bundle as NormalizedKnowledgeBundle;
     const submittedPagesById = new Map(bundle.pages.map((page) => [page.pageId, page]));
     const submittedPagesByPath = new Map(bundle.pages.map((page) => [page.path, page]));
@@ -1927,11 +1933,21 @@ export class ReviewService {
           },
         });
       } else if (hasNonPageRevert) {
-        await this.revisionWriter.advance(tx, changeSet.spaceId, [], {
-          origin: 'change_set',
+        const origin = {
+          origin: 'change_set' as const,
           sourceChangeSetId: id,
           legacySidecarOverride,
-        });
+        };
+        if (hasPageRevert) {
+          await this.revisionWriter.advanceLocked(
+            lockedTx as SpaceLockedTransaction,
+            changeSet.spaceId,
+            [],
+            origin,
+          );
+        } else {
+          await this.revisionWriter.advance(tx, changeSet.spaceId, [], origin);
+        }
       }
       return pageIds;
     });

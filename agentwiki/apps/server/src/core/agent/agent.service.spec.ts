@@ -389,6 +389,24 @@ describe('AgentService grant scope validation', () => {
     });
   });
 
+  it('locks an existing Grant before Space for every Grant mutation', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    prisma.agentGrant.upsert.mockResolvedValue({ id: 'grant-1', role: 'editor' });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'editor');
+
+    const lockedTables = prisma.$queryRaw.mock.calls.map(([query]: any[]) => (
+      /FROM\s+"([^"]+)"/u.exec(query.strings.join(' '))?.[1]
+    ));
+    expect(lockedTables).toEqual([
+      'User', 'Agent', 'AgentGrant', 'Space', 'SpaceMember',
+    ]);
+  });
+
   it('enables publisher switches without letting lower grant roles turn them off', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null,

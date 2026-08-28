@@ -435,7 +435,7 @@ test('ContentTree production advisory lock serializes create, commit, and rollba
             pathKey: 'pages/rolled back',
           } });
           await writer.advanceContentTreeRevision(locked, rollbackSpaceId, 0n);
-          await writer.advance(locked, rollbackSpaceId, [], { origin: 'web_editor', createdByUserId: userId });
+          await writer.advanceLocked(locked, rollbackSpaceId, [], { origin: 'web_editor', createdByUserId: userId });
           signalStarted();
           await hold;
           throw new Error('force rollback');
