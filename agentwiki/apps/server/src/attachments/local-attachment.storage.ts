@@ -5,7 +5,7 @@ import {
   lstat,
   mkdir,
   open,
-  readdir,
+  opendir,
   rmdir,
   rename,
   statfs,
@@ -14,6 +14,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import type { OnModuleDestroy } from '@nestjs/common';
 import type { AttachmentConfig } from './attachment.config';
 import type {
   AttachmentStorage,
@@ -26,6 +27,17 @@ const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 const TEMP_SIDECAR_NAME_PATTERN = /^(upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp)\.(lease|reclaim)$/;
 const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
+const TEMP_CLEANUP_VISIT_LIMIT = 100;
+const TEMP_CLEANUP_DELETE_LIMIT = 100;
+
+interface TempDirectoryCursor {
+  read(): Promise<{ name: string } | null>;
+  close(): Promise<void>;
+}
+
+interface TempCleanupBudget {
+  physicalDeletes: number;
+}
 
 interface ReservationLeaseRecord {
   version: 1;
@@ -73,6 +85,7 @@ interface LocalAttachmentStorageDependencies {
     stage: 'after-claim' | 'before-unlink',
     tempPath: string,
   ) => Promise<void> | void;
+  openTempDirectory?: (path: string) => Promise<TempDirectoryCursor>;
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
@@ -236,7 +249,7 @@ async function writeReservation(handle: FileHandle, reservedBytes: bigint): Prom
   }
 }
 
-export class LocalAttachmentStorage implements AttachmentStorage {
+export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestroy {
   private readonly root: string;
   private readonly tempRoot: string;
   private readonly lockRoot: string;
@@ -252,6 +265,10 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     delayMs: number,
   ) => NodeJS.Timeout;
   private readonly cancelInterval: (timer: NodeJS.Timeout) => void;
+  private tempCleanupCursor?: TempDirectoryCursor;
+  private tempCleanupTail: Promise<void> = Promise.resolve();
+  private tempCleanupDestroyed = false;
+  private tempCleanupDestroyPromise?: Promise<void>;
 
   constructor(
     private readonly config: AttachmentConfig,
@@ -421,26 +438,19 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     if (!Number.isFinite(cutoff.getTime())) {
       throw new Error('Attachment temp reservation cutoff must be a valid date');
     }
-    await this.ensureBaseDirectories();
-    let removed = 0;
-    for (const entry of await readdir(this.tempRoot, { withFileTypes: true })) {
-      if (!TEMP_NAME_PATTERN.test(entry.name)) continue;
-      if (await this.cleanupExpiredTempReservation(join(this.tempRoot, entry.name), cutoff)) {
-        removed += 1;
-      }
-    }
-    for (const entry of await readdir(this.tempRoot, { withFileTypes: true })) {
-      const match = TEMP_SIDECAR_NAME_PATTERN.exec(entry.name);
-      if (!match) continue;
-      const [, tempName, sidecarKind] = match;
-      if (await this.cleanupOrphanedReservationSidecar(
-        join(this.tempRoot, entry.name),
-        join(this.tempRoot, tempName),
-        sidecarKind as 'lease' | 'reclaim',
-        cutoff,
-      )) removed += 1;
-    }
-    return removed;
+    if (this.tempCleanupDestroyed) return 0;
+    const cleanup = this.tempCleanupTail.then(() => {
+      if (this.tempCleanupDestroyed) return 0;
+      return this.runTempCleanupBatch(cutoff);
+    });
+    this.tempCleanupTail = cleanup.then(() => undefined, () => undefined);
+    return cleanup;
+  }
+
+  onModuleDestroy(): Promise<void> {
+    this.tempCleanupDestroyed = true;
+    this.tempCleanupDestroyPromise ??= this.finishTempCleanupDestroy();
+    return this.tempCleanupDestroyPromise;
   }
 
   async publish(
@@ -819,9 +829,95 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     if (cleanupError) throw cleanupError;
   }
 
+  private async finishTempCleanupDestroy(): Promise<void> {
+    await this.tempCleanupTail;
+    await this.closeTempCleanupCursor();
+  }
+
+  private async closeTempCleanupCursor(): Promise<void> {
+    const cursor = this.tempCleanupCursor;
+    this.tempCleanupCursor = undefined;
+    await cursor?.close();
+  }
+
+  private async runTempCleanupBatch(cutoff: Date): Promise<number> {
+    const budget: TempCleanupBudget = { physicalDeletes: 0 };
+    let visited = 0;
+    let removed = 0;
+    try {
+      await this.ensureBaseDirectories();
+      this.tempCleanupCursor ??= await (
+        this.dependencies.openTempDirectory
+        ?? ((path: string) => opendir(path))
+      )(this.tempRoot);
+      while (
+        visited < TEMP_CLEANUP_VISIT_LIMIT
+        && budget.physicalDeletes < TEMP_CLEANUP_DELETE_LIMIT
+      ) {
+        const entry = await this.tempCleanupCursor.read();
+        if (!entry) {
+          await this.closeTempCleanupCursor();
+          break;
+        }
+        visited += 1;
+        if (await this.cleanupTempDirectoryEntry(entry.name, cutoff, budget)) {
+          removed += 1;
+        }
+      }
+      return removed;
+    } catch (error) {
+      try {
+        await this.closeTempCleanupCursor();
+      } catch (cleanupError) {
+        attachCleanupCause(error, cleanupError);
+      }
+      throw error;
+    }
+  }
+
+  private async cleanupTempDirectoryEntry(
+    name: string,
+    cutoff: Date,
+    budget: TempCleanupBudget,
+  ): Promise<boolean> {
+    if (TEMP_NAME_PATTERN.test(name)) {
+      return this.cleanupExpiredTempReservation(
+        join(this.tempRoot, name),
+        cutoff,
+        budget,
+      );
+    }
+    const match = TEMP_SIDECAR_NAME_PATTERN.exec(name);
+    if (!match) return false;
+    const [, tempName, sidecarKind] = match;
+    return this.cleanupOrphanedReservationSidecar(
+      join(this.tempRoot, name),
+      join(this.tempRoot, tempName),
+      sidecarKind as 'lease' | 'reclaim',
+      cutoff,
+      budget,
+    );
+  }
+
+  private async unlinkWithinTempCleanupBudget(
+    path: string,
+    budget: TempCleanupBudget,
+  ): Promise<'deleted' | 'missing' | 'exhausted'> {
+    if (budget.physicalDeletes >= TEMP_CLEANUP_DELETE_LIMIT) return 'exhausted';
+    try {
+      await unlink(path);
+      budget.physicalDeletes += 1;
+      return 'deleted';
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return 'missing';
+      throw error;
+    }
+  }
+
   private async cleanupExpiredTempReservation(
     tempPath: string,
     cutoff: Date,
+    budget: TempCleanupBudget,
   ): Promise<boolean> {
     const cutoffMs = cutoff.getTime();
     const initialTemp = await this.lstatBigInt(tempPath);
@@ -854,7 +950,11 @@ export class LocalAttachmentStorage implements AttachmentStorage {
           || !currentLease
           || !sameBigIntFile(currentLease, lease.metadata)
         ) return false;
-        await unlink(leasePath);
+        const leaseRemoval = await this.unlinkWithinTempCleanupBudget(leasePath, budget);
+        if (leaseRemoval !== 'deleted') {
+          await this.syncDirectory(this.tempRoot);
+          return false;
+        }
       } else {
         let claimHandle: FileHandle;
         try {
@@ -919,9 +1019,11 @@ export class LocalAttachmentStorage implements AttachmentStorage {
         : Number(finalTemp.mtimeMs) > cutoffMs
     ) return false;
 
-    await unlink(tempPath);
-    await unlink(reclaimPath);
+    const tempRemoval = await this.unlinkWithinTempCleanupBudget(tempPath, budget);
+    if (tempRemoval !== 'deleted') return false;
+    const reclaimRemoval = await this.unlinkWithinTempCleanupBudget(reclaimPath, budget);
     await this.syncDirectory(this.tempRoot);
+    if (reclaimRemoval === 'exhausted') return true;
     return true;
   }
 
@@ -930,6 +1032,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
     tempPath: string,
     sidecarKind: 'lease' | 'reclaim',
     cutoff: Date,
+    budget: TempCleanupBudget,
   ): Promise<boolean> {
     if (await this.lstatBigInt(tempPath)) return false;
     const initialSidecar = await this.lstatBigInt(sidecarPath);
@@ -961,12 +1064,8 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       || Number(finalSidecar.mtimeMs) > cutoff.getTime()
     ) return false;
 
-    try {
-      await unlink(sidecarPath);
-    } catch (error) {
-      if (isNodeError(error, 'ENOENT')) return false;
-      throw error;
-    }
+    const sidecarRemoval = await this.unlinkWithinTempCleanupBudget(sidecarPath, budget);
+    if (sidecarRemoval !== 'deleted') return false;
     await this.syncDirectory(this.tempRoot);
     return true;
   }

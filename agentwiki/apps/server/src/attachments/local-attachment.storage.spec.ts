@@ -68,6 +68,14 @@ async function reservedBytes(
   return reservation;
 }
 
+function fakeDirectory(names: string[], onClose: () => void = () => undefined) {
+  let index = 0;
+  return {
+    read: async () => names[index] ? { name: names[index++] } : null,
+    close: async () => { onClose(); },
+  };
+}
+
 describe('attachment config', () => {
   it('fails closed in production when the storage path is missing', () => {
     expect(() => loadAttachmentConfig({ NODE_ENV: 'production' })).toThrow(
@@ -474,6 +482,152 @@ describe('LocalAttachmentStorage', () => {
 
     expect(removed).toBe(1);
     await expect(access(`${reservation.path}.reclaim`)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('limits one persistent directory cursor to 100 visits and 100 physical deletes per tick', async () => {
+    const root = await makeRoot();
+    const tempRoot = join(root, '.tmp');
+    await mkdir(tempRoot, { recursive: true, mode: 0o700 });
+    const names = Array.from({ length: 101 }, (_, index) =>
+      `upload-00000000-0000-4000-8000-${String(index).padStart(12, '0')}.tmp.reclaim`);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    for (const name of names) {
+      const path = join(tempRoot, name);
+      await writeFile(path, '{broken', { mode: 0o600 });
+      await utimes(path, old, old);
+    }
+    let opens = 0;
+    let closes = 0;
+    const storage = new LocalAttachmentStorage(config(root), {
+      openTempDirectory: async () => {
+        opens += 1;
+        return fakeDirectory(opens === 1 ? names : [], () => { closes += 1; });
+      },
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(100);
+    await expect(access(join(tempRoot, names[100]))).resolves.toBeUndefined();
+    expect(closes).toBe(0);
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(1);
+    await expect(access(join(tempRoot, names[100]))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(closes).toBe(1);
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
+    expect(opens).toBe(2);
+    expect(closes).toBe(2);
+  });
+
+  it('counts unknown and symlink entries as visits in the merged temp and sidecar scan', async () => {
+    const root = await makeRoot();
+    const tempRoot = join(root, '.tmp');
+    await mkdir(tempRoot, { recursive: true, mode: 0o700 });
+    const liveTemp = 'upload-11111111-1111-4111-8111-111111111111.tmp';
+    await writeFile(join(tempRoot, liveTemp), 'live', { mode: 0o600 });
+    await writeFile(join(tempRoot, `${liveTemp}.lease`), '{fresh', { mode: 0o600 });
+    await writeFile(join(tempRoot, `${liveTemp}.reclaim`), '{fresh', { mode: 0o600 });
+    const outside = join(root, 'outside');
+    const symlinkName = 'upload-22222222-2222-4222-8222-222222222222.tmp.lease';
+    await writeFile(outside, 'outside');
+    await symlink(outside, join(tempRoot, symlinkName));
+    const targetName = 'upload-33333333-3333-4333-8333-333333333333.tmp.lease';
+    await writeFile(join(tempRoot, targetName), '{broken', { mode: 0o600 });
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await utimes(join(tempRoot, targetName), old, old);
+    const entries = [
+      ...Array.from({ length: 96 }, (_, index) => `unknown-${index}`),
+      liveTemp,
+      `${liveTemp}.lease`,
+      `${liveTemp}.reclaim`,
+      symlinkName,
+      targetName,
+    ];
+    const storage = new LocalAttachmentStorage(config(root), {
+      openTempDirectory: async () => fakeDirectory(entries),
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
+    await expect(access(join(tempRoot, targetName))).resolves.toBeUndefined();
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(1);
+    await expect(access(join(tempRoot, targetName))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(outside, 'utf8')).toBe('outside');
+  });
+
+  it('serializes concurrent cleanup calls and closes a faulted directory cursor', async () => {
+    const root = await makeRoot();
+    let releaseRead!: () => void;
+    const readGate = new Promise<void>((resolve) => { releaseRead = resolve; });
+    const failure = new Error('directory read failed');
+    let opens = 0;
+    let closes = 0;
+    let signalFirstOpen!: () => void;
+    const firstOpened = new Promise<void>((resolve) => { signalFirstOpen = resolve; });
+    const storage = new LocalAttachmentStorage(config(root), {
+      openTempDirectory: async () => {
+        opens += 1;
+        if (opens === 1) signalFirstOpen();
+        if (opens > 1) return fakeDirectory([], () => { closes += 1; });
+        let reads = 0;
+        return {
+          read: async () => {
+            reads += 1;
+            if (reads === 1) {
+              await readGate;
+              return { name: 'unknown' };
+            }
+            throw failure;
+          },
+          close: async () => { closes += 1; },
+        };
+      },
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    const first = storage.cleanupExpiredTempReservations(cutoff);
+    const second = storage.cleanupExpiredTempReservations(cutoff);
+    let openTimeout: NodeJS.Timeout | undefined;
+    await Promise.race([
+      firstOpened,
+      new Promise<never>((_resolve, reject) => {
+        openTimeout = setTimeout(() => reject(new Error('temp directory did not open')), 1_000);
+      }),
+    ]).finally(() => { if (openTimeout) clearTimeout(openTimeout); });
+    const opensBeforeRelease = opens;
+    releaseRead();
+
+    const outcomes = await Promise.allSettled([first, second]);
+    expect(opensBeforeRelease).toBe(1);
+    expect(outcomes[0]).toEqual({ status: 'rejected', reason: failure });
+    expect(outcomes[1]).toEqual({ status: 'fulfilled', value: 0 });
+    expect(opens).toBe(2);
+    expect(closes).toBe(2);
+  });
+
+  it('closes a retained temp cursor on destroy and never reopens it', async () => {
+    const root = await makeRoot();
+    let opens = 0;
+    let closes = 0;
+    const storage = new LocalAttachmentStorage(config(root), {
+      openTempDirectory: async () => {
+        opens += 1;
+        return fakeDirectory(
+          Array.from({ length: 100 }, (_, index) => `unknown-${index}`),
+          () => { closes += 1; },
+        );
+      },
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    await storage.cleanupExpiredTempReservations(cutoff);
+    expect(closes).toBe(0);
+    await (storage as any).onModuleDestroy();
+    expect(closes).toBe(1);
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
+    expect(opens).toBe(1);
   });
 
   it.each([
