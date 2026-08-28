@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
+import { ContentTreeError } from '../../content-tree/content-tree.types';
 
 const encoder = new TextEncoder();
 const fallbackBasename = '未命名文章';
@@ -26,6 +27,18 @@ export interface ReadableSyncPathInput {
   title: string;
   excludePageId?: string;
 }
+
+export interface ResolvePagePathInput {
+  spaceId: string;
+  path: string;
+}
+
+export type ResolvePagePathResult =
+  | { kind: 'current'; pageId: string; path: string }
+  | { kind: 'alias'; pageId: string; path: string }
+  | { kind: 'not-found' };
+
+type PagePathLookupClient = Pick<Prisma.TransactionClient, 'page' | 'pagePathAlias'>;
 
 function truncateUtf8(value: string, maximumBytes: number): string {
   let result = '';
@@ -92,5 +105,62 @@ export class ReadableSyncPathService {
         return { path: candidate.path, pathKey: candidate.key };
       }
     }
+  }
+
+  async resolvePagePath(
+    tx: PagePathLookupClient,
+    input: ResolvePagePathInput,
+  ): Promise<ResolvePagePathResult> {
+    let portable: { path: string; key: string };
+    try {
+      const normalized = input.path.normalize('NFC');
+      const rooted = normalized.toLocaleLowerCase('en-US').startsWith('pages/')
+        ? normalized
+        : `pages/${normalized}`;
+      const markdownPath = rooted.toLocaleLowerCase('en-US').endsWith('.md')
+        ? rooted
+        : `${rooted}.md`;
+      portable = validatePortablePath(markdownPath);
+    } catch {
+      return { kind: 'not-found' };
+    }
+
+    const current = await tx.page.findFirst({
+      where: {
+        spaceId: input.spaceId,
+        syncPathKey: portable.key,
+        deletedAt: null,
+      },
+      select: { id: true, syncPath: true },
+    });
+    if (current) {
+      return { kind: 'current', pageId: current.id, path: current.syncPath };
+    }
+
+    const aliases = await tx.pagePathAlias.findMany({
+      where: {
+        spaceId: input.spaceId,
+        pathKey: portable.key,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        page: { spaceId: input.spaceId, deletedAt: null },
+      },
+      select: {
+        path: true,
+        page: { select: { id: true, syncPath: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const candidates = new Map<string, string>();
+    for (const alias of aliases) candidates.set(alias.page.id, alias.page.syncPath);
+    if (candidates.size === 0) return { kind: 'not-found' };
+    if (candidates.size > 1) {
+      throw new ContentTreeError(
+        'MARKDOWN_REFERENCE_AMBIGUOUS',
+        'The historical Page path resolves to multiple active Pages',
+        { candidatePageIds: [...candidates.keys()].sort() },
+      );
+    }
+    const [pageId, path] = candidates.entries().next().value as [string, string];
+    return { kind: 'alias', pageId, path };
   }
 }

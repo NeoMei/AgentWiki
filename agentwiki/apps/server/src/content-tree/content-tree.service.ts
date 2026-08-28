@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { validatePortableDirectoryPath } from '@neomei/agentwiki-sync-protocol';
+import {
+  validatePortableDirectoryPath,
+  validatePortablePath,
+} from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { ReadableSyncPathService } from '../core/sync/readable-sync-path.service';
 import {
@@ -18,15 +22,28 @@ import {
   type ContentTreePageNode,
   type CreateFolderInput,
   type CreatedFolderResult,
+  type DeleteFolderInput,
+  type DeleteImpactInput,
+  type DeleteImpactResult,
+  type DeletedFolderResult,
   type ListChildrenInput,
+  type MovedTreeNodeResult,
+  type MoveTreeNodeInput,
   type PlacePageInput,
   type PlacedPageResult,
+  type RenamedFolderResult,
+  type RenameFolderInput,
+  type RestoreDeletionBatchInput,
+  type RestoredDeletionBatchResult,
+  type RestoreStrategy,
 } from './content-tree.types';
 
 const DEFAULT_TAKE = 100;
 const MAX_TAKE = 200;
 const MAX_FOLDER_DEPTH = 32;
 const MAX_ACTIVE_FOLDERS = 10_000n;
+const MAX_MUTATION_NODES = 10_000;
+const MAX_PAGE_ALIASES = 20;
 
 interface TreeCursor {
   v: 1;
@@ -43,6 +60,144 @@ interface AncestorRow {
   parentId: string | null;
   path: string;
   depth: number;
+}
+
+interface AffectedTreeRow {
+  kind: 'folder' | 'page';
+  id: string;
+  parentId: string | null;
+  folderId: string | null;
+  name: string | null;
+  title: string | null;
+  path: string;
+  pathKey: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+  depth: number;
+  knowledgeKey: string | null;
+  content: string | null;
+}
+
+interface FolderMutationPlan {
+  id: string;
+  parentId: string | null;
+  name: string;
+  nameKey: string;
+  path: string;
+  pathKey: string;
+  sortOrder: number;
+  depth: number;
+  deletedAt: Date | null;
+  deletionBatchId: string | null;
+}
+
+interface PageMutationPlan {
+  id: string;
+  folderId: string | null;
+  path: string;
+  pathKey: string;
+  sortOrder: number;
+  deletedAt: Date | null;
+  deletionBatchId: string | null;
+}
+
+interface OrderedSibling {
+  id: string;
+  sortOrder: number;
+  createdAt: Date;
+}
+
+function sameInstant(expected: Date, actual: Date): boolean {
+  return expected instanceof Date
+    && actual instanceof Date
+    && !Number.isNaN(expected.getTime())
+    && expected.getTime() === actual.getTime();
+}
+
+function assertExpectedUpdatedAt(expected: Date, actual: Date): void {
+  if (!sameInstant(expected, actual)) throw new ContentTreeConflict(expected, actual);
+}
+
+function portableDirectoryPath(value: string): { path: string; key: string } {
+  try {
+    return validatePortableDirectoryPath(value);
+  } catch (error) {
+    throw new ContentTreeError(
+      error instanceof RangeError ? 'FOLDER_PATH_TOO_LONG' : 'FOLDER_INVALID_NAME',
+      error instanceof Error ? error.message : 'Invalid Folder path',
+    );
+  }
+}
+
+function portablePagePath(value: string): { path: string; key: string } {
+  try {
+    return validatePortablePath(value);
+  } catch (error) {
+    throw new ContentTreeError(
+      'FOLDER_PATH_TOO_LONG',
+      error instanceof Error ? error.message : 'Invalid Page path',
+    );
+  }
+}
+
+function affectedImpact(rows: readonly AffectedTreeRow[]): {
+  folderCount: number;
+  pageCount: number;
+  impactHash: string;
+} {
+  const identifiers = rows
+    .map((row) => `${row.kind}:${row.id}`)
+    .sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  return {
+    folderCount: rows.filter((row) => row.kind === 'folder').length,
+    pageCount: rows.filter((row) => row.kind === 'page').length,
+    impactHash: createHash('sha256').update(identifiers.join('\n'), 'utf8').digest('hex'),
+  };
+}
+
+function assertMutationLimit(rows: readonly unknown[]): void {
+  if (rows.length > MAX_MUTATION_NODES) {
+    throw new ContentTreeError(
+      'FOLDER_MUTATION_LIMIT',
+      'A recursive content-tree mutation may affect at most 10,000 objects',
+    );
+  }
+}
+
+function parseRestoreStrategy(value: unknown): RestoreStrategy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Restore strategy is invalid');
+  }
+  const candidate = value as Record<string, unknown>;
+  const keys = Object.keys(candidate).sort();
+  if (
+    (candidate.kind === 'original' || candidate.kind === 'root')
+    && keys.length === 1
+    && keys[0] === 'kind'
+  ) return { kind: candidate.kind };
+  if (
+    candidate.kind === 'rename-root'
+    && typeof candidate.name === 'string'
+    && keys.length === 2
+    && keys[0] === 'kind'
+    && keys[1] === 'name'
+  ) return { kind: 'rename-root', name: candidate.name };
+  throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Restore strategy is invalid');
+}
+
+function mutationOrigin(actor: ContentTreeActor) {
+  return {
+    origin: actor.agentId ? 'change_set' as const : 'web_editor' as const,
+    createdByUserId: actor.userId ?? null,
+  };
+}
+
+function basename(path: string): string {
+  const offset = path.lastIndexOf('/');
+  const value = offset >= 0 ? path.slice(offset + 1) : path;
+  if (!value) throw new ContentTreeError('FOLDER_PATH_TOO_LONG', 'Page path has no basename');
+  return value;
 }
 
 function assertActor(actor: ContentTreeActor): void {
@@ -321,5 +476,1119 @@ export class ContentTreeService {
       syncPath: allocated.path,
       syncPathKey: allocated.pathKey,
     };
+  }
+
+  async renameFolder(input: RenameFolderInput): Promise<RenamedFolderResult> {
+    assertActor(input.actor);
+    const normalized = normalizeFolderName(input.name);
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+      const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.folderId);
+      const root = this.requireAffectedFolder(rows, input.folderId);
+      assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
+      assertMutationLimit(rows);
+
+      const parent = root.parentId === null
+        ? null
+        : await this.activeFolder(lockedTx, input.spaceId, root.parentId);
+      if (root.parentId !== null && !parent) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
+      await this.assertSiblingNameAvailable(
+        lockedTx, input.spaceId, root.parentId, normalized.nameKey, root.id,
+      );
+      const plans = this.planSubtreePaths(
+        rows,
+        root.id,
+        root.parentId,
+        parent?.path ?? 'pages',
+        normalized.name,
+        normalized.nameKey,
+      );
+      await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
+      const changedFolders = plans.folders.filter((plan) => {
+        const current = rows.find((row) => row.kind === 'folder' && row.id === plan.id)!;
+        return plan.id === root.id
+          || current.parentId !== plan.parentId
+          || current.name !== plan.name
+          || current.path !== plan.path
+          || current.pathKey !== plan.pathKey;
+      });
+      const changedPages = plans.pages.filter((plan) => {
+        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        return current.folderId !== plan.folderId
+          || current.path !== plan.path
+          || current.pathKey !== plan.pathKey;
+      });
+      const changedAt = new Date();
+      await this.insertPageAliases(lockedTx, input.spaceId, rows, changedPages, changedAt);
+      await this.applyFolderPlans(
+        lockedTx, input.spaceId, changedFolders, input.actor, changedAt, { kind: 'active' },
+      );
+      await this.applyPagePlans(
+        lockedTx, input.spaceId, changedPages, input.actor, changedAt, { kind: 'active' },
+      );
+      await this.trimPageAliases(lockedTx, input.spaceId, changedPages.map((plan) => plan.id));
+      const revisions = await this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        this.pageUpserts(rows, changedPages),
+        input.actor,
+      );
+      const rootPlan = plans.folders.find((plan) => plan.id === root.id)!;
+      return {
+        ...revisions,
+        folder: {
+          id: root.id,
+          parentId: rootPlan.parentId,
+          name: rootPlan.name,
+          path: rootPlan.path,
+          pathKey: rootPlan.pathKey,
+          updatedAt: changedAt,
+        },
+      };
+    });
+  }
+
+  async moveNode(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
+    assertActor(input.actor);
+    return input.kind === 'folder'
+      ? this.moveFolder(input)
+      : this.movePage(input);
+  }
+
+  async deleteImpact(input: DeleteImpactInput): Promise<DeleteImpactResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      const space = await tx.space.findUnique({
+        where: { id: input.spaceId, deletedAt: null },
+        select: { contentTreeRevision: true },
+      });
+      if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+      const rows = await this.loadActiveSubtree(tx, input.spaceId, input.folderId);
+      const root = this.requireAffectedFolder(rows, input.folderId);
+      assertMutationLimit(rows);
+      return {
+        treeRevision: space.contentTreeRevision,
+        rootUpdatedAt: root.updatedAt,
+        ...affectedImpact(rows),
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async deleteFolder(input: DeleteFolderInput): Promise<DeletedFolderResult> {
+    assertActor(input.actor);
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+      const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.folderId);
+      const root = this.requireAffectedFolder(rows, input.folderId);
+      assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
+      assertMutationLimit(rows);
+      const impact = affectedImpact(rows);
+      if (impact.impactHash !== input.expectedImpactHash) {
+        throw new ContentTreeError(
+          'FOLDER_DELETE_IMPACT_CHANGED',
+          'The Folder subtree changed after the deletion preview',
+          { expected: input.expectedImpactHash, actual: impact.impactHash },
+        );
+      }
+
+      const deletedAt = new Date();
+      const batchId = randomUUID();
+      const batch = await lockedTx.contentDeletionBatch.create({
+        data: {
+          id: batchId,
+          spaceId: input.spaceId,
+          rootFolderId: root.id,
+          deletedByUserId: input.actor.userId ?? null,
+          deletedByAgentId: input.actor.agentId ?? null,
+          deletedTreeRevision: input.expectedTreeRevision,
+          folderCount: impact.folderCount,
+          pageCount: impact.pageCount,
+          impactHash: impact.impactHash,
+          createdAt: deletedAt,
+        },
+      });
+      const pageIds = rows.filter((row) => row.kind === 'page').map((row) => row.id);
+      const folderIds = rows.filter((row) => row.kind === 'folder').map((row) => row.id);
+      const pageUpdate = pageIds.length === 0
+        ? { count: 0 }
+        : await lockedTx.page.updateMany({
+          where: { spaceId: input.spaceId, id: { in: pageIds }, deletedAt: null },
+          data: {
+            deletedAt,
+            deletionBatchId: batchId,
+            lastModifiedByUserId: input.actor.userId ?? null,
+            lastModifiedByAgentId: input.actor.agentId ?? null,
+            lastModifiedAt: deletedAt,
+          },
+        });
+      const folderUpdate = await lockedTx.folder.updateMany({
+        where: { spaceId: input.spaceId, id: { in: folderIds }, deletedAt: null },
+        data: {
+          deletedAt,
+          deletionBatchId: batchId,
+          lastModifiedByUserId: input.actor.userId ?? null,
+          lastModifiedByAgentId: input.actor.agentId ?? null,
+          lastModifiedAt: deletedAt,
+        },
+      });
+      if (pageUpdate.count !== pageIds.length || folderUpdate.count !== folderIds.length) {
+        throw new ContentTreeConflict(input.expectedTreeRevision, input.expectedTreeRevision);
+      }
+      const revisions = await this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        rows.filter((row) => row.kind === 'page').map((row) => ({
+          operation: 'archive' as const,
+          pageId: row.knowledgeKey!,
+          previousPath: row.path,
+        })),
+        input.actor,
+      );
+      return {
+        ...revisions,
+        batch: {
+          id: batch.id,
+          folderCount: batch.folderCount,
+          pageCount: batch.pageCount,
+          impactHash: batch.impactHash,
+          createdAt: batch.createdAt,
+        },
+      };
+    });
+  }
+
+  async restoreDeletionBatch(
+    input: RestoreDeletionBatchInput,
+  ): Promise<RestoredDeletionBatchResult> {
+    const strategy = parseRestoreStrategy(input.strategy);
+    assertActor(input.actor);
+    const renamed = strategy.kind === 'rename-root'
+      ? normalizeFolderName(strategy.name)
+      : null;
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+      const batch = await lockedTx.contentDeletionBatch.findFirst({
+        where: {
+          id: input.deletionBatchId,
+          spaceId: input.spaceId,
+          restoredAt: null,
+        },
+        select: {
+          id: true,
+          rootFolderId: true,
+          folderCount: true,
+          pageCount: true,
+        },
+      });
+      if (!batch) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Deletion batch not found');
+      }
+      if (batch.folderCount + batch.pageCount > MAX_MUTATION_NODES) {
+        throw new ContentTreeError(
+          'FOLDER_MUTATION_LIMIT',
+          'A recursive content-tree mutation may affect at most 10,000 objects',
+        );
+      }
+      const [folders, pages] = await Promise.all([
+        lockedTx.folder.findMany({
+          where: { spaceId: input.spaceId, deletionBatchId: batch.id },
+          select: {
+            id: true, parentId: true, name: true, nameKey: true,
+            path: true, pathKey: true, sortOrder: true,
+            createdAt: true, updatedAt: true, deletedAt: true, deletionBatchId: true,
+          },
+          take: MAX_MUTATION_NODES + 1,
+        }),
+        lockedTx.page.findMany({
+          where: { spaceId: input.spaceId, deletionBatchId: batch.id },
+          select: {
+            id: true, folderId: true, title: true, syncPath: true, syncPathKey: true,
+            sortOrder: true, createdAt: true, updatedAt: true,
+            knowledgeKey: true, content: true, deletedAt: true, deletionBatchId: true,
+          },
+          take: MAX_MUTATION_NODES + 1,
+        }),
+      ]);
+      if (
+        folders.length !== batch.folderCount
+        || pages.length !== batch.pageCount
+        || folders.length + pages.length > MAX_MUTATION_NODES
+      ) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
+      }
+      const deletedAtValues = [...folders, ...pages].map((record) => record.deletedAt?.getTime());
+      if (
+        deletedAtValues.some((value) => value === undefined)
+        || new Set(deletedAtValues).size !== 1
+        || [...folders, ...pages].some((record) => record.deletionBatchId !== batch.id)
+      ) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
+      }
+      const root = folders.find((folder) => folder.id === batch.rootFolderId);
+      if (!root) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch root is missing');
+
+      const targetParentId = strategy.kind === 'root' ? null : root.parentId;
+      const targetParent = targetParentId === null
+        ? null
+        : await this.activeFolder(lockedTx, input.spaceId, targetParentId);
+      if (targetParentId !== null && !targetParent) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Restore parent is not active');
+      }
+      const restoreName = renamed?.name ?? root.name;
+      const restoreNameKey = renamed?.nameKey ?? root.nameKey;
+      await this.assertSiblingNameAvailable(
+        lockedTx, input.spaceId, targetParentId, restoreNameKey, root.id, true,
+      );
+
+      const depths = new Map<string, number>([[root.id, 0]]);
+      let remaining = folders.filter((folder) => folder.id !== root.id);
+      while (remaining.length > 0) {
+        const next = remaining.filter((folder) => folder.parentId && depths.has(folder.parentId));
+        if (next.length === 0) {
+          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch Folder tree is disconnected');
+        }
+        for (const folder of next) depths.set(folder.id, depths.get(folder.parentId!)! + 1);
+        const accepted = new Set(next.map((folder) => folder.id));
+        remaining = remaining.filter((folder) => !accepted.has(folder.id));
+      }
+      const parentDepth = targetParentId === null
+        ? 0
+        : (await this.loadActiveAncestors(lockedTx, input.spaceId, targetParentId)).length;
+      const maximumRelativeDepth = Math.max(...depths.values());
+      if (parentDepth + 1 + maximumRelativeDepth > MAX_FOLDER_DEPTH) {
+        throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
+      }
+      const rows: AffectedTreeRow[] = [
+        ...folders.map((folder) => ({
+          kind: 'folder' as const,
+          id: folder.id,
+          parentId: folder.parentId,
+          folderId: null,
+          name: folder.name,
+          title: null,
+          path: folder.path,
+          pathKey: folder.pathKey,
+          sortOrder: folder.sortOrder,
+          createdAt: folder.createdAt,
+          updatedAt: folder.updatedAt,
+          depth: depths.get(folder.id)!,
+          knowledgeKey: null,
+          content: null,
+        })),
+        ...pages.map((page) => ({
+          kind: 'page' as const,
+          id: page.id,
+          parentId: null,
+          folderId: page.folderId,
+          name: null,
+          title: page.title,
+          path: page.syncPath,
+          pathKey: page.syncPathKey,
+          sortOrder: page.sortOrder,
+          createdAt: page.createdAt,
+          updatedAt: page.updatedAt,
+          depth: (page.folderId ? depths.get(page.folderId) ?? MAX_FOLDER_DEPTH : MAX_FOLDER_DEPTH) + 1,
+          knowledgeKey: page.knowledgeKey,
+          content: page.content,
+        })),
+      ];
+      const plans = this.planSubtreePaths(
+        rows,
+        root.id,
+        targetParentId,
+        targetParent?.path ?? 'pages',
+        restoreName,
+        restoreNameKey,
+      );
+      await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
+      const restoredAt = new Date();
+      const changedPages = plans.pages.filter((plan) => {
+        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        return current.path !== plan.path || current.pathKey !== plan.pathKey;
+      });
+      await this.insertPageAliases(lockedTx, input.spaceId, rows, changedPages, restoredAt);
+      await this.applyFolderPlans(
+        lockedTx, input.spaceId, plans.folders, input.actor, restoredAt,
+        { kind: 'restore', batchId: batch.id },
+      );
+      await this.applyPagePlans(
+        lockedTx, input.spaceId, plans.pages, input.actor, restoredAt,
+        { kind: 'restore', batchId: batch.id },
+      );
+      await this.trimPageAliases(lockedTx, input.spaceId, changedPages.map((plan) => plan.id));
+      const marked = await lockedTx.contentDeletionBatch.updateMany({
+        where: { id: batch.id, spaceId: input.spaceId, restoredAt: null },
+        data: { restoredAt },
+      });
+      if (marked.count !== 1) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch was already restored');
+      }
+      const revisions = await this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        this.pageUpserts(rows, plans.pages),
+        input.actor,
+      );
+      const rootPlan = plans.folders.find((plan) => plan.id === root.id)!;
+      return {
+        ...revisions,
+        batchId: batch.id,
+        folder: {
+          id: root.id,
+          parentId: rootPlan.parentId,
+          name: rootPlan.name,
+          path: rootPlan.path,
+          pathKey: rootPlan.pathKey,
+          updatedAt: restoredAt,
+        },
+      };
+    });
+  }
+
+  private async moveFolder(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+      const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.nodeId);
+      const root = this.requireAffectedFolder(rows, input.nodeId);
+      assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
+      assertMutationLimit(rows);
+      const target = input.targetFolderId === null
+        ? null
+        : await this.activeFolder(lockedTx, input.spaceId, input.targetFolderId);
+      if (input.targetFolderId !== null && !target) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
+      const subtreeIds = new Set(rows.filter((row) => row.kind === 'folder').map((row) => row.id));
+      if (input.targetFolderId !== null && subtreeIds.has(input.targetFolderId)) {
+        throw new ContentTreeError('FOLDER_CYCLE', 'A Folder cannot move into itself or its descendant');
+      }
+      const targetAncestors = input.targetFolderId === null
+        ? []
+        : await this.loadActiveAncestors(lockedTx, input.spaceId, input.targetFolderId);
+      const maximumRelativeDepth = Math.max(...rows
+        .filter((row) => row.kind === 'folder')
+        .map((row) => row.depth));
+      if (targetAncestors.length + 1 + maximumRelativeDepth > MAX_FOLDER_DEPTH) {
+        throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
+      }
+      await this.assertSiblingNameAvailable(
+        lockedTx, input.spaceId, input.targetFolderId,
+        normalizeFolderName(root.name!).nameKey, root.id,
+      );
+      const ordering = await this.planSiblingOrders(
+        lockedTx, input.spaceId, 'folder', root.id, root.parentId,
+        input.targetFolderId, input.beforeId,
+      );
+      const plans = this.planSubtreePaths(
+        rows,
+        root.id,
+        input.targetFolderId,
+        target?.path ?? 'pages',
+        root.name!,
+        normalizeFolderName(root.name!).nameKey,
+      );
+      const rootPlan = plans.folders.find((plan) => plan.id === root.id)!;
+      rootPlan.sortOrder = ordering.nodeSortOrder;
+      const changedFolders = plans.folders.filter((plan) => {
+        const current = rows.find((row) => row.kind === 'folder' && row.id === plan.id)!;
+        return plan.id === root.id
+          || current.parentId !== plan.parentId
+          || current.name !== plan.name
+          || current.path !== plan.path
+          || current.pathKey !== plan.pathKey
+          || current.sortOrder !== plan.sortOrder;
+      });
+      await this.assertPathPlansAvailable(lockedTx, input.spaceId, rows, plans.folders, plans.pages);
+      const changedAt = new Date();
+      const changedPages = plans.pages.filter((plan) => {
+        const current = rows.find((row) => row.kind === 'page' && row.id === plan.id)!;
+        return current.path !== plan.path || current.pathKey !== plan.pathKey;
+      });
+      await this.insertPageAliases(lockedTx, input.spaceId, rows, changedPages, changedAt);
+      await this.applyFolderPlans(
+        lockedTx, input.spaceId, changedFolders, input.actor, changedAt, { kind: 'active' },
+      );
+      await this.applyPagePlans(
+        lockedTx, input.spaceId, changedPages, input.actor, changedAt, { kind: 'active' },
+      );
+      await this.applySiblingOrders(
+        lockedTx, input.spaceId, 'folder', ordering.orders.filter((order) => order.id !== root.id),
+        input.actor, changedAt,
+      );
+      await this.trimPageAliases(lockedTx, input.spaceId, changedPages.map((plan) => plan.id));
+      const revisions = await this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        this.pageUpserts(rows, changedPages),
+        input.actor,
+      );
+      return {
+        ...revisions,
+        node: {
+          kind: 'folder', id: root.id, parentId: rootPlan.parentId,
+          path: rootPlan.path, pathKey: rootPlan.pathKey,
+          sortOrder: rootPlan.sortOrder, updatedAt: changedAt,
+        },
+      };
+    });
+  }
+
+  private async movePage(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+      const page = await lockedTx.page.findFirst({
+        where: { id: input.nodeId, spaceId: input.spaceId, deletedAt: null },
+        select: {
+          id: true, folderId: true, title: true, syncPath: true, syncPathKey: true,
+          sortOrder: true, createdAt: true, updatedAt: true, knowledgeKey: true, content: true,
+        },
+      });
+      if (!page) throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Page not found');
+      assertExpectedUpdatedAt(input.expectedUpdatedAt, page.updatedAt);
+      const target = input.targetFolderId === null
+        ? null
+        : await this.activeFolder(lockedTx, input.spaceId, input.targetFolderId);
+      if (input.targetFolderId !== null && !target) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
+      const ordering = await this.planSiblingOrders(
+        lockedTx, input.spaceId, 'page', page.id, page.folderId,
+        input.targetFolderId, input.beforeId,
+      );
+      let nextPath = { path: page.syncPath, pathKey: page.syncPathKey };
+      if (page.folderId !== input.targetFolderId) {
+        const occupiedRows = await lockedTx.page.findMany({
+          where: { spaceId: input.spaceId },
+          select: { id: true, syncPathKey: true },
+        });
+        const occupied = new Set(occupiedRows
+          .filter((candidate) => candidate.id !== page.id)
+          .map((candidate) => candidate.syncPathKey));
+        nextPath = await this.syncPaths.allocate(lockedTx, {
+          spaceId: input.spaceId,
+          directory: target?.path ?? 'pages',
+          title: page.title,
+          excludePageId: page.id,
+        }, occupied);
+      }
+      const currentRow: AffectedTreeRow = {
+        kind: 'page', id: page.id, parentId: null, folderId: page.folderId,
+        name: null, title: page.title, path: page.syncPath, pathKey: page.syncPathKey,
+        sortOrder: page.sortOrder, createdAt: page.createdAt, updatedAt: page.updatedAt,
+        depth: 0, knowledgeKey: page.knowledgeKey, content: page.content,
+      };
+      const plan: PageMutationPlan = {
+        id: page.id,
+        folderId: input.targetFolderId,
+        path: nextPath.path,
+        pathKey: nextPath.pathKey,
+        sortOrder: ordering.nodeSortOrder,
+        deletedAt: null,
+        deletionBatchId: null,
+      };
+      const changedAt = new Date();
+      await this.insertPageAliases(lockedTx, input.spaceId, [currentRow], [plan], changedAt);
+      await this.applyPagePlans(
+        lockedTx, input.spaceId, [plan], input.actor, changedAt, { kind: 'active' },
+      );
+      await this.applySiblingOrders(
+        lockedTx, input.spaceId, 'page', ordering.orders.filter((order) => order.id !== page.id),
+        input.actor, changedAt,
+      );
+      await this.trimPageAliases(
+        lockedTx,
+        input.spaceId,
+        page.syncPathKey === plan.pathKey ? [] : [page.id],
+      );
+      const revisions = await this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        this.pageUpserts([currentRow], [plan]),
+        input.actor,
+      );
+      return {
+        ...revisions,
+        node: {
+          kind: 'page', id: page.id, folderId: plan.folderId,
+          path: plan.path, pathKey: plan.pathKey,
+          sortOrder: plan.sortOrder, updatedAt: changedAt,
+        },
+      };
+    });
+  }
+
+  private async lockMutationSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    expectedTreeRevision: bigint,
+  ): Promise<SpaceTreeLockedTransaction> {
+    const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
+    if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+    if (lockedTx.contentTreeRevision !== expectedTreeRevision) {
+      throw new ContentTreeConflict(expectedTreeRevision, lockedTx.contentTreeRevision);
+    }
+    return lockedTx;
+  }
+
+  private async loadActiveSubtree(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    rootFolderId: string,
+  ): Promise<AffectedTreeRow[]> {
+    return tx.$queryRaw<AffectedTreeRow[]>(Prisma.sql`
+      WITH RECURSIVE folder_subtree AS (
+        SELECT
+          folder."id", folder."parentId", folder."name", folder."path", folder."pathKey",
+          folder."sortOrder", folder."createdAt", folder."updatedAt",
+          0::int AS depth, ARRAY[folder."id"]::text[] AS trail
+        FROM "Folder" folder
+        WHERE folder."id" = ${rootFolderId}
+          AND folder."spaceId" = ${spaceId}
+          AND folder."deletedAt" IS NULL
+        UNION ALL
+        SELECT
+          child."id", child."parentId", child."name", child."path", child."pathKey",
+          child."sortOrder", child."createdAt", child."updatedAt",
+          parent.depth + 1, parent.trail || child."id"
+        FROM "Folder" child
+        JOIN folder_subtree parent ON child."parentId" = parent."id"
+        WHERE child."spaceId" = ${spaceId}
+          AND child."deletedAt" IS NULL
+          AND cardinality(parent.trail) <= ${MAX_MUTATION_NODES}
+          AND NOT child."id" = ANY(parent.trail)
+      ), affected AS (
+        SELECT
+          'folder'::text AS kind,
+          subtree."id",
+          subtree."parentId",
+          NULL::text AS "folderId",
+          subtree."name",
+          NULL::text AS title,
+          subtree."path" AS path,
+          subtree."pathKey" AS "pathKey",
+          subtree."sortOrder",
+          subtree."createdAt",
+          subtree."updatedAt",
+          subtree.depth,
+          NULL::text AS "knowledgeKey",
+          NULL::text AS content
+        FROM folder_subtree subtree
+        UNION ALL
+        SELECT
+          'page'::text AS kind,
+          page."id",
+          NULL::text AS "parentId",
+          page."folderId",
+          NULL::text AS name,
+          page."title",
+          page."syncPath" AS path,
+          page."syncPathKey" AS "pathKey",
+          page."sortOrder",
+          page."createdAt",
+          page."updatedAt",
+          subtree.depth + 1,
+          page."knowledgeKey",
+          page."content"
+        FROM "Page" page
+        JOIN folder_subtree subtree ON page."folderId" = subtree."id"
+        WHERE page."spaceId" = ${spaceId}
+          AND page."deletedAt" IS NULL
+      )
+      SELECT
+        kind, "id", "parentId", "folderId", name, title, path, "pathKey",
+        "sortOrder", "createdAt", "updatedAt", depth, "knowledgeKey", content
+      FROM affected
+      ORDER BY CASE kind WHEN 'folder' THEN 0 ELSE 1 END, depth, "id"
+      LIMIT ${MAX_MUTATION_NODES + 1}
+    `);
+  }
+
+  private requireAffectedFolder(
+    rows: readonly AffectedTreeRow[],
+    folderId: string,
+  ): AffectedTreeRow & { kind: 'folder' } {
+    const root = rows.find((row) => row.kind === 'folder' && row.id === folderId);
+    if (!root) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+    return root as AffectedTreeRow & { kind: 'folder' };
+  }
+
+  private async activeFolder(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    folderId: string,
+  ) {
+    return tx.folder.findFirst({
+      where: { id: folderId, spaceId, deletedAt: null },
+      select: {
+        id: true, parentId: true, name: true, nameKey: true,
+        path: true, pathKey: true, sortOrder: true, createdAt: true, updatedAt: true,
+      },
+    });
+  }
+
+  private async loadActiveAncestors(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    folderId: string,
+  ): Promise<AncestorRow[]> {
+    const ancestors = await tx.$queryRaw<AncestorRow[]>(Prisma.sql`
+      WITH RECURSIVE ancestors AS (
+        SELECT folder."id", folder."parentId", folder."path", 1::int AS depth,
+               ARRAY[folder."id"]::text[] AS trail
+        FROM "Folder" folder
+        WHERE folder."id" = ${folderId}
+          AND folder."spaceId" = ${spaceId}
+          AND folder."deletedAt" IS NULL
+        UNION ALL
+        SELECT parent."id", parent."parentId", parent."path", child.depth + 1,
+               child.trail || parent."id"
+        FROM "Folder" parent
+        JOIN ancestors child ON parent."id" = child."parentId"
+        WHERE parent."spaceId" = ${spaceId}
+          AND parent."deletedAt" IS NULL
+          AND child.depth <= ${MAX_FOLDER_DEPTH}
+          AND NOT parent."id" = ANY(child.trail)
+      )
+      SELECT "id", "parentId", "path", depth
+      FROM ancestors
+      ORDER BY depth ASC
+      LIMIT ${MAX_FOLDER_DEPTH + 1}
+    `);
+    if (ancestors.length > MAX_FOLDER_DEPTH) {
+      throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
+    }
+    return ancestors;
+  }
+
+  private async assertSiblingNameAvailable(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    parentId: string | null,
+    nameKey: string,
+    excludeFolderId: string,
+    restore = false,
+  ): Promise<void> {
+    const duplicate = await tx.folder.findFirst({
+      where: {
+        spaceId,
+        parentId,
+        nameKey,
+        deletedAt: null,
+        id: { not: excludeFolderId },
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ContentTreeError(
+        restore ? 'FOLDER_RESTORE_CONFLICT' : 'FOLDER_NAME_CONFLICT',
+        'A sibling Folder already uses this portable name',
+      );
+    }
+  }
+
+  private planSubtreePaths(
+    rows: readonly AffectedTreeRow[],
+    rootFolderId: string,
+    rootParentId: string | null,
+    parentPath: string,
+    rootName: string,
+    rootNameKey: string,
+  ): { folders: FolderMutationPlan[]; pages: PageMutationPlan[] } {
+    const folderRows = rows
+      .filter((row): row is AffectedTreeRow & { kind: 'folder' } => row.kind === 'folder')
+      .sort((left, right) => left.depth - right.depth || left.id.localeCompare(right.id));
+    const folderPlans: FolderMutationPlan[] = [];
+    const byId = new Map<string, FolderMutationPlan>();
+    for (const row of folderRows) {
+      const isRoot = row.id === rootFolderId;
+      const parentPlan = isRoot ? null : (row.parentId ? byId.get(row.parentId) : undefined);
+      if (!isRoot && !parentPlan) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Folder subtree is disconnected');
+      }
+      const normalized = isRoot
+        ? { name: rootName, nameKey: rootNameKey }
+        : normalizeFolderName(row.name!);
+      const portable = portableDirectoryPath(
+        `${isRoot ? parentPath : parentPlan!.path}/${normalized.name}`,
+      );
+      const plan: FolderMutationPlan = {
+        id: row.id,
+        parentId: isRoot ? rootParentId : row.parentId,
+        name: normalized.name,
+        nameKey: normalized.nameKey,
+        path: portable.path,
+        pathKey: portable.key,
+        sortOrder: row.sortOrder,
+        depth: row.depth,
+        deletedAt: null,
+        deletionBatchId: null,
+      };
+      folderPlans.push(plan);
+      byId.set(plan.id, plan);
+    }
+    const pagePlans = rows
+      .filter((row): row is AffectedTreeRow & { kind: 'page' } => row.kind === 'page')
+      .map((row): PageMutationPlan => {
+        const folder = row.folderId ? byId.get(row.folderId) : null;
+        if (!folder) {
+          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Page is outside the affected Folder subtree');
+        }
+        const portable = portablePagePath(`${folder.path}/${basename(row.path)}`);
+        return {
+          id: row.id,
+          folderId: row.folderId,
+          path: portable.path,
+          pathKey: portable.key,
+          sortOrder: row.sortOrder,
+          deletedAt: null,
+          deletionBatchId: null,
+        };
+      });
+    const folderKeys = new Set(folderPlans.map((plan) => plan.pathKey));
+    if (folderKeys.size !== folderPlans.length) {
+      throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'Folder paths collide after the mutation');
+    }
+    const pageKeys = new Set(pagePlans.map((plan) => plan.pathKey));
+    if (pageKeys.size !== pagePlans.length) {
+      throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page paths collide after the mutation');
+    }
+    return { folders: folderPlans, pages: pagePlans };
+  }
+
+  private async assertPathPlansAvailable(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    rows: readonly AffectedTreeRow[],
+    folders: readonly FolderMutationPlan[],
+    pages: readonly PageMutationPlan[],
+  ): Promise<void> {
+    const affectedFolderIds = rows.filter((row) => row.kind === 'folder').map((row) => row.id);
+    const affectedPageIds = rows.filter((row) => row.kind === 'page').map((row) => row.id);
+    const [folderConflicts, pageConflicts] = await Promise.all([
+      folders.length === 0 ? [] : tx.folder.findMany({
+        where: {
+          spaceId,
+          deletedAt: null,
+          id: { notIn: affectedFolderIds },
+          pathKey: { in: folders.map((plan) => plan.pathKey) },
+        },
+        select: { id: true },
+        take: 1,
+      }),
+      pages.length === 0 ? [] : tx.page.findMany({
+        where: {
+          spaceId,
+          id: { notIn: affectedPageIds },
+          syncPathKey: { in: pages.map((plan) => plan.pathKey) },
+        },
+        select: { id: true },
+        take: 1,
+      }),
+    ]);
+    if (folderConflicts.length > 0) {
+      throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'A Folder path is already occupied');
+    }
+    if (pageConflicts.length > 0) {
+      throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'A Page path is already occupied');
+    }
+  }
+
+  private async insertPageAliases(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    rows: readonly AffectedTreeRow[],
+    plans: readonly PageMutationPlan[],
+    createdAt: Date,
+  ): Promise<void> {
+    const aliases = plans.flatMap((plan) => {
+      const current = rows.find((row) => row.kind === 'page' && row.id === plan.id);
+      if (!current || (current.path === plan.path && current.pathKey === plan.pathKey)) return [];
+      return [{
+        id: randomUUID(),
+        spaceId,
+        pageId: current.id,
+        path: current.path,
+        pathKey: current.pathKey,
+        createdAt,
+      }];
+    });
+    if (aliases.length > 0) {
+      await tx.pagePathAlias.createMany({ data: aliases, skipDuplicates: true });
+    }
+  }
+
+  private async trimPageAliases(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    pageIds: readonly string[],
+  ): Promise<void> {
+    const uniquePageIds = [...new Set(pageIds)].sort();
+    if (uniquePageIds.length === 0) return;
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM "PagePathAlias" alias
+      USING (
+        SELECT ranked."id"
+        FROM (
+          SELECT candidate."id",
+                 ROW_NUMBER() OVER (
+                   PARTITION BY candidate."pageId"
+                   ORDER BY candidate."createdAt" DESC, candidate."id" DESC
+                 ) AS ordinal
+          FROM "PagePathAlias" candidate
+          WHERE candidate."spaceId" = ${spaceId}
+            AND candidate."pageId" IN (
+              SELECT value
+              FROM jsonb_array_elements_text(${JSON.stringify(uniquePageIds)}::jsonb)
+            )
+        ) ranked
+        WHERE ranked.ordinal > ${MAX_PAGE_ALIASES}
+      ) excess
+      WHERE alias."id" = excess."id"
+    `);
+  }
+
+  private async applyFolderPlans(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    plans: readonly FolderMutationPlan[],
+    actor: ContentTreeActor,
+    changedAt: Date,
+    guard: { kind: 'active' } | { kind: 'restore'; batchId: string },
+  ): Promise<void> {
+    const depths = [...new Set(plans.map((plan) => plan.depth))].sort((left, right) => left - right);
+    for (const depth of depths) {
+      const group = plans.filter((plan) => plan.depth === depth);
+      if (group.length === 0) continue;
+      const predicate = guard.kind === 'active'
+        ? Prisma.sql`AND target."deletedAt" IS NULL`
+        : Prisma.sql`
+          AND target."deletedAt" IS NOT NULL
+          AND target."deletionBatchId" = ${guard.batchId}
+        `;
+      const updated = await tx.$executeRaw(Prisma.sql`
+        UPDATE "Folder" target
+        SET
+          "parentId" = plan."parentId",
+          "name" = plan."name",
+          "nameKey" = plan."nameKey",
+          "path" = plan."path",
+          "pathKey" = plan."pathKey",
+          "sortOrder" = plan."sortOrder",
+          "deletedAt" = plan."deletedAt",
+          "deletionBatchId" = plan."deletionBatchId",
+          "lastModifiedByUserId" = ${actor.userId ?? null},
+          "lastModifiedByAgentId" = ${actor.agentId ?? null},
+          "lastModifiedAt" = ${changedAt},
+          "updatedAt" = ${changedAt}
+        FROM jsonb_to_recordset(${JSON.stringify(group)}::jsonb) AS plan(
+          "id" text,
+          "parentId" text,
+          "name" text,
+          "nameKey" text,
+          "path" text,
+          "pathKey" text,
+          "sortOrder" integer,
+          "deletedAt" timestamptz,
+          "deletionBatchId" text
+        )
+        WHERE target."id" = plan."id"
+          AND target."spaceId" = ${spaceId}
+          ${predicate}
+      `);
+      if (updated < group.length) {
+        throw new ContentTreeConflict(changedAt, changedAt);
+      }
+    }
+  }
+
+  private async applyPagePlans(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    plans: readonly PageMutationPlan[],
+    actor: ContentTreeActor,
+    changedAt: Date,
+    guard: { kind: 'active' } | { kind: 'restore'; batchId: string },
+  ): Promise<void> {
+    if (plans.length === 0) return;
+    const predicate = guard.kind === 'active'
+      ? Prisma.sql`AND target."deletedAt" IS NULL`
+      : Prisma.sql`
+        AND target."deletedAt" IS NOT NULL
+        AND target."deletionBatchId" = ${guard.batchId}
+      `;
+    const updated = await tx.$executeRaw(Prisma.sql`
+      UPDATE "Page" target
+      SET
+        "folderId" = plan."folderId",
+        "syncPath" = plan."path",
+        "syncPathKey" = plan."pathKey",
+        "sortOrder" = plan."sortOrder",
+        "deletedAt" = plan."deletedAt",
+        "deletionBatchId" = plan."deletionBatchId",
+        "lastModifiedByUserId" = ${actor.userId ?? null},
+        "lastModifiedByAgentId" = ${actor.agentId ?? null},
+        "lastModifiedAt" = ${changedAt},
+        "updatedAt" = ${changedAt}
+      FROM jsonb_to_recordset(${JSON.stringify(plans)}::jsonb) AS plan(
+        "id" text,
+        "folderId" text,
+        "path" text,
+        "pathKey" text,
+        "sortOrder" integer,
+        "deletedAt" timestamptz,
+        "deletionBatchId" text
+      )
+      WHERE target."id" = plan."id"
+        AND target."spaceId" = ${spaceId}
+        ${predicate}
+    `);
+    if (updated < plans.length) {
+      throw new ContentTreeConflict(changedAt, changedAt);
+    }
+  }
+
+  private async planSiblingOrders(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    kind: 'folder' | 'page',
+    nodeId: string,
+    sourceParentId: string | null,
+    targetParentId: string | null,
+    beforeId?: string,
+  ): Promise<{ orders: Array<{ id: string; sortOrder: number }>; nodeSortOrder: number }> {
+    const load = async (parentId: string | null): Promise<OrderedSibling[]> => (
+      kind === 'folder'
+        ? tx.folder.findMany({
+          where: { spaceId, parentId, deletedAt: null },
+          select: { id: true, sortOrder: true, createdAt: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        })
+        : tx.page.findMany({
+          where: { spaceId, folderId: parentId, deletedAt: null },
+          select: { id: true, sortOrder: true, createdAt: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        })
+    );
+    const sameParent = sourceParentId === targetParentId;
+    const source = await load(sourceParentId);
+    const target = sameParent ? source : await load(targetParentId);
+    const targetWithoutNode = target.filter((sibling) => sibling.id !== nodeId);
+    let insertion = targetWithoutNode.length;
+    if (beforeId !== undefined) {
+      insertion = targetWithoutNode.findIndex((sibling) => sibling.id === beforeId);
+      if (insertion < 0) {
+        throw new ContentTreeError(
+          kind === 'folder' ? 'FOLDER_NOT_FOUND' : 'CONTENT_TREE_PAGE_NOT_FOUND',
+          `${kind === 'folder' ? 'Folder' : 'Page'} ordering target not found`,
+        );
+      }
+    }
+    const inserted = [
+      ...targetWithoutNode.slice(0, insertion),
+      { id: nodeId, sortOrder: 0, createdAt: new Date(0) },
+      ...targetWithoutNode.slice(insertion),
+    ];
+    const orders = sameParent
+      ? inserted.map((sibling, sortOrder) => ({ id: sibling.id, sortOrder }))
+      : [
+        ...source.filter((sibling) => sibling.id !== nodeId)
+          .map((sibling, sortOrder) => ({ id: sibling.id, sortOrder })),
+        ...inserted.map((sibling, sortOrder) => ({ id: sibling.id, sortOrder })),
+      ];
+    return {
+      orders,
+      nodeSortOrder: orders.find((order) => order.id === nodeId)!.sortOrder,
+    };
+  }
+
+  private async applySiblingOrders(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    kind: 'folder' | 'page',
+    orders: readonly { id: string; sortOrder: number }[],
+    actor: ContentTreeActor,
+    changedAt: Date,
+  ): Promise<void> {
+    if (orders.length === 0) return;
+    const payload = JSON.stringify(orders);
+    const updated = kind === 'folder'
+      ? await tx.$executeRaw(Prisma.sql`
+        UPDATE "Folder" target
+        SET
+          "sortOrder" = plan."sortOrder",
+          "lastModifiedByUserId" = ${actor.userId ?? null},
+          "lastModifiedByAgentId" = ${actor.agentId ?? null},
+          "lastModifiedAt" = ${changedAt},
+          "updatedAt" = ${changedAt}
+        FROM jsonb_to_recordset(${payload}::jsonb) AS plan("id" text, "sortOrder" integer)
+        WHERE target."id" = plan."id"
+          AND target."spaceId" = ${spaceId}
+          AND target."deletedAt" IS NULL
+      `)
+      : await tx.$executeRaw(Prisma.sql`
+        UPDATE "Page" target
+        SET
+          "sortOrder" = plan."sortOrder",
+          "lastModifiedByUserId" = ${actor.userId ?? null},
+          "lastModifiedByAgentId" = ${actor.agentId ?? null},
+          "lastModifiedAt" = ${changedAt},
+          "updatedAt" = ${changedAt}
+        FROM jsonb_to_recordset(${payload}::jsonb) AS plan("id" text, "sortOrder" integer)
+        WHERE target."id" = plan."id"
+          AND target."spaceId" = ${spaceId}
+          AND target."deletedAt" IS NULL
+      `);
+    if (updated < orders.length) {
+      throw new ContentTreeConflict(changedAt, changedAt);
+    }
+  }
+
+  private pageUpserts(
+    rows: readonly AffectedTreeRow[],
+    plans: readonly PageMutationPlan[],
+  ) {
+    return plans.map((plan) => {
+      const current = rows.find((row) => row.kind === 'page' && row.id === plan.id);
+      if (!current?.knowledgeKey || current.title === null || current.content === null) {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page revision identity is incomplete');
+      }
+      return {
+        operation: 'upsert' as const,
+        pageId: current.knowledgeKey,
+        path: plan.path,
+        title: current.title,
+        body: current.content,
+      };
+    });
+  }
+
+  private async advanceMutationRevisions(
+    tx: SpaceTreeLockedTransaction,
+    spaceId: string,
+    expectedTreeRevision: bigint,
+    pageChanges: Array<{
+      operation: 'upsert' | 'archive';
+      pageId: string;
+      path?: string;
+      title?: string;
+      body?: string;
+      previousPath?: string;
+    }>,
+    actor: ContentTreeActor,
+  ): Promise<{ treeRevision: bigint; syncRevisionId: string }> {
+    const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
+      tx, spaceId, expectedTreeRevision,
+    );
+    const syncRevision = await this.revisionWriter.advance(
+      tx, spaceId, pageChanges, mutationOrigin(actor),
+    );
+    return { treeRevision, syncRevisionId: syncRevision.revisionId };
   }
 }

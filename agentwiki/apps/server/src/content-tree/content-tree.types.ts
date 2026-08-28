@@ -3,9 +3,14 @@ export type ContentTreeErrorCode =
   | 'FOLDER_NOT_FOUND'
   | 'FOLDER_NAME_CONFLICT'
   | 'FOLDER_INVALID_NAME'
+  | 'FOLDER_CYCLE'
   | 'FOLDER_DEPTH_LIMIT'
   | 'FOLDER_COUNT_LIMIT'
+  | 'FOLDER_MUTATION_LIMIT'
   | 'FOLDER_PATH_TOO_LONG'
+  | 'FOLDER_DELETE_IMPACT_CHANGED'
+  | 'FOLDER_RESTORE_CONFLICT'
+  | 'MARKDOWN_REFERENCE_AMBIGUOUS'
   | 'CONTENT_TREE_CONFLICT'
   | 'CONTENT_TREE_CURSOR_INVALID'
   | 'CONTENT_TREE_PAGE_NOT_FOUND'
@@ -54,6 +59,100 @@ export interface MoveTreeNodeInput {
   beforeId?: string;
   expectedTreeRevision: bigint;
   expectedUpdatedAt: Date;
+  actor: ContentTreeActor;
+}
+
+export interface RenameFolderInput {
+  spaceId: string;
+  folderId: string;
+  name: string;
+  expectedTreeRevision: bigint;
+  expectedUpdatedAt: Date;
+  actor: ContentTreeActor;
+}
+
+export interface DeleteImpactInput {
+  spaceId: string;
+  folderId: string;
+}
+
+export interface DeleteImpactResult {
+  treeRevision: bigint;
+  rootUpdatedAt: Date;
+  folderCount: number;
+  pageCount: number;
+  impactHash: string;
+}
+
+export interface DeleteFolderInput extends DeleteImpactInput {
+  expectedTreeRevision: bigint;
+  expectedUpdatedAt: Date;
+  expectedImpactHash: string;
+  actor: ContentTreeActor;
+}
+
+export type RestoreStrategy =
+  | { kind: 'original' }
+  | { kind: 'root' }
+  | { kind: 'rename-root'; name: string };
+
+export interface RestoreDeletionBatchInput {
+  spaceId: string;
+  deletionBatchId: string;
+  strategy: RestoreStrategy;
+  expectedTreeRevision: bigint;
+  actor: ContentTreeActor;
+}
+
+export interface ContentTreeMutationResult {
+  treeRevision: bigint;
+  syncRevisionId: string;
+}
+
+export interface RenamedFolderResult extends ContentTreeMutationResult {
+  folder: {
+    id: string;
+    parentId: string | null;
+    name: string;
+    path: string;
+    pathKey: string;
+    updatedAt: Date;
+  };
+}
+
+export interface MovedTreeNodeResult extends ContentTreeMutationResult {
+  node: {
+    kind: 'folder' | 'page';
+    id: string;
+    parentId?: string | null;
+    folderId?: string | null;
+    path: string;
+    pathKey: string;
+    sortOrder: number;
+    updatedAt: Date;
+  };
+}
+
+export interface DeletedFolderResult extends ContentTreeMutationResult {
+  batch: {
+    id: string;
+    folderCount: number;
+    pageCount: number;
+    impactHash: string;
+    createdAt: Date;
+  };
+}
+
+export interface RestoredDeletionBatchResult extends ContentTreeMutationResult {
+  batchId: string;
+  folder: {
+    id: string;
+    parentId: string | null;
+    name: string;
+    path: string;
+    pathKey: string;
+    updatedAt: Date;
+  };
 }
 
 export interface PlacePageInput {

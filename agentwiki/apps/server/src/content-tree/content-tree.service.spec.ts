@@ -365,3 +365,231 @@ describe('ContentTreeService Page placement and concurrency', () => {
     expect(rejection.reason).toBeInstanceOf(ContentTreeConflict);
   });
 });
+
+describe('ContentTreeService lifecycle mutations', () => {
+  const changedAt = new Date('2026-08-28T01:00:00.000Z');
+  const root = {
+    kind: 'folder', id: 'folder-root', parentId: null, folderId: null,
+    name: '项目', title: null, path: 'pages/项目', pathKey: 'pages/项目',
+    sortOrder: 0, createdAt: now, updatedAt: now, depth: 0,
+    knowledgeKey: null, content: null,
+  };
+  const child = {
+    kind: 'folder', id: 'folder-child', parentId: 'folder-root', folderId: null,
+    name: '周报', title: null, path: 'pages/项目/周报', pathKey: 'pages/项目/周报',
+    sortOrder: 0, createdAt: now, updatedAt: now, depth: 1,
+    knowledgeKey: null, content: null,
+  };
+  const page = {
+    kind: 'page', id: 'page-1', parentId: null, folderId: 'folder-child',
+    name: null, title: '进度', path: 'pages/项目/周报/进度.md', pathKey: 'pages/项目/周报/进度.md',
+    sortOrder: 0, createdAt: now, updatedAt: now, depth: 2,
+    knowledgeKey: 'knowledge-page-1', content: '# 进度',
+  };
+
+  function lifecycleHarness(affected = [root, child, page]) {
+    const folderById = new Map<string, any>([
+      ['folder-root', root], ['folder-child', child],
+      ['folder-target', { ...root, id: 'folder-target', name: '目标', path: 'pages/目标', pathKey: 'pages/目标' }],
+    ]);
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue(affected),
+      $executeRaw: jest.fn().mockResolvedValue(affected.length),
+      folder: {
+        findFirst: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(
+          where.id ? folderById.get(where.id) ?? null : null,
+        )),
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: affected.filter((row) => row.kind === 'folder').length }),
+      },
+      page: {
+        findFirst: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(
+          where.id === 'page-1'
+            ? { ...page, syncPath: page.path, syncPathKey: page.pathKey }
+            : null,
+        )),
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: affected.filter((row) => row.kind === 'page').length }),
+      },
+      pagePathAlias: {
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      contentDeletionBatch: {
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'batch-1', ...data })),
+        findFirst: jest.fn(),
+        updateMany: jest.fn(),
+      },
+    };
+    const prisma: any = {
+      $transaction: jest.fn((callback: (transaction: any) => unknown) => callback(tx)),
+    };
+    const revisionWriter: any = {
+      lockContentTreeSpace: jest.fn().mockImplementation(async (transaction: any) => Object.assign(transaction, {
+        contentTreeRevision: 0n,
+      })),
+      advanceContentTreeRevision: jest.fn().mockResolvedValue(1n),
+      advance: jest.fn().mockResolvedValue({ revisionId: 'sync-1' }),
+    };
+    const syncPaths: any = { allocate: jest.fn() };
+    return {
+      service: new ContentTreeService(prisma, revisionWriter, syncPaths),
+      prisma, tx, revisionWriter, syncPaths, folderById,
+    };
+  }
+
+  it('renames a complete Folder subtree, records Page aliases first, and advances each revision once', async () => {
+    const { service, tx, revisionWriter } = lifecycleHarness();
+
+    const result = await (service as any).renameFolder({
+      spaceId: 'space-1', folderId: 'folder-root', name: '新项目',
+      expectedTreeRevision: 0n, expectedUpdatedAt: now,
+      actor: { userId: 'user-1' },
+      now: changedAt,
+    });
+
+    expect(tx.pagePathAlias.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        spaceId: 'space-1', pageId: 'page-1', path: page.path, pathKey: page.pathKey,
+      })],
+      skipDuplicates: true,
+    });
+    expect(tx.pagePathAlias.createMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$executeRaw.mock.invocationCallOrder[0],
+    );
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(expect.objectContaining({
+      treeRevision: 1n,
+      folder: expect.objectContaining({ id: 'folder-root', path: 'pages/新项目' }),
+    }));
+  });
+
+  it('persists the target timestamp when a normalized rename keeps the same path', async () => {
+    const { service, tx, revisionWriter } = lifecycleHarness([root]);
+
+    await (service as any).renameFolder({
+      spaceId: 'space-1', folderId: 'folder-root', name: root.name,
+      expectedTreeRevision: 0n, expectedUpdatedAt: now,
+      actor: { userId: 'user-1' },
+    });
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects stale Folder updatedAt before aliases or structural writes', async () => {
+    const { service, tx } = lifecycleHarness([{ ...root, updatedAt: changedAt }]);
+
+    await expect((service as any).renameFolder({
+      spaceId: 'space-1', folderId: 'folder-root', name: '新项目',
+      expectedTreeRevision: 0n, expectedUpdatedAt: now,
+      actor: { userId: 'user-1' },
+    })).rejects.toBeInstanceOf(ContentTreeConflict);
+    expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('rejects moving a Folder into itself or its descendant', async () => {
+    const { service, tx } = lifecycleHarness();
+
+    await expect((service as any).moveNode({
+      spaceId: 'space-1', kind: 'folder', nodeId: 'folder-root',
+      targetFolderId: 'folder-child', expectedTreeRevision: 0n,
+      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_CYCLE' }));
+    expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a move to depth 33 before aliases or structural writes', async () => {
+    const { service, tx } = lifecycleHarness([root]);
+    tx.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce([root])
+      .mockResolvedValueOnce(Array.from({ length: 32 }, (_, depth) => ({ depth })));
+
+    await expect((service as any).moveNode({
+      spaceId: 'space-1', kind: 'folder', nodeId: 'folder-root',
+      targetFolderId: 'folder-target', expectedTreeRevision: 0n,
+      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_DEPTH_LIMIT' }));
+    expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('validates every rewritten descendant path before writing', async () => {
+    const { service, tx, folderById } = lifecycleHarness();
+    const longPortableTarget = `pages/${Array.from({ length: 4 }, () => 'a'.repeat(250)).join('/')}`;
+    folderById.set('folder-target', {
+      ...folderById.get('folder-target'),
+      path: longPortableTarget,
+      pathKey: longPortableTarget,
+    });
+
+    await expect((service as any).moveNode({
+      spaceId: 'space-1', kind: 'folder', nodeId: 'folder-root',
+      targetFolderId: 'folder-target', expectedTreeRevision: 0n,
+      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_PATH_TOO_LONG' }));
+    expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('does not disclose a cross-Space move target', async () => {
+    const { service, tx, folderById } = lifecycleHarness();
+    folderById.delete('folder-target');
+
+    await expect((service as any).moveNode({
+      spaceId: 'space-1', kind: 'folder', nodeId: 'folder-root',
+      targetFolderId: 'folder-target', expectedTreeRevision: 0n,
+      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+    expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
+  });
+
+  it('moves a Page with deterministic allocation, old-path aliasing, and direct-sibling ordering', async () => {
+    const { service, tx, syncPaths, revisionWriter } = lifecycleHarness([page]);
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/目标/进度 (2).md', pathKey: 'pages/目标/进度 (2).md',
+    });
+
+    const result = await (service as any).moveNode({
+      spaceId: 'space-1', kind: 'page', nodeId: 'page-1',
+      targetFolderId: 'folder-target', expectedTreeRevision: 0n,
+      expectedUpdatedAt: now, actor: { agentId: 'agent-1' },
+    });
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      spaceId: 'space-1', directory: 'pages/目标', title: '进度', excludePageId: 'page-1',
+    }), expect.any(Set));
+    expect(tx.pagePathAlias.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ pageId: 'page-1', path: page.path })],
+      skipDuplicates: true,
+    });
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(result.node).toEqual(expect.objectContaining({
+      id: 'page-1', folderId: 'folder-target', path: 'pages/目标/进度 (2).md',
+    }));
+  });
+
+  it('rejects an invalid or ambiguous restore strategy object before opening a transaction', async () => {
+    const { service, prisma } = lifecycleHarness();
+    const invalid = [
+      {},
+      { kind: 'original', name: 'unexpected' },
+      { kind: 'root', name: 'unexpected' },
+      { kind: 'rename-root' },
+      { kind: 'rename-root', name: 'Renamed', extra: true },
+      { kind: 'unknown' },
+    ];
+
+    for (const strategy of invalid) {
+      await expect((service as any).restoreDeletionBatch({
+        spaceId: 'space-1', deletionBatchId: 'batch-1', strategy,
+        expectedTreeRevision: 0n, actor: { userId: 'user-1' },
+      })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_RESTORE_CONFLICT' }));
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});

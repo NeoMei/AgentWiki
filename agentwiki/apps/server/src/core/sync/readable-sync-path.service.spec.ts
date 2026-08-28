@@ -233,4 +233,75 @@ describe('ReadableSyncPathService', () => {
     });
     expect(tx.page.findMany).not.toHaveBeenCalled();
   });
+
+  describe('resolvePagePath', () => {
+    const resolverTx = {
+      page: { findFirst: jest.fn() },
+      pagePathAlias: { findMany: jest.fn() },
+    };
+
+    beforeEach(() => {
+      resolverTx.page.findFirst.mockReset();
+      resolverTx.pagePathAlias.findMany.mockReset();
+    });
+
+    it('returns the active current Page before consulting conflicting aliases', async () => {
+      resolverTx.page.findFirst.mockResolvedValue({
+        id: 'page-current', syncPath: 'pages/Guide.md',
+      });
+
+      await expect((service as any).resolvePagePath(resolverTx, {
+        spaceId: 'space-1', path: 'PAGES/gUiDe',
+      })).resolves.toEqual({
+        kind: 'current', pageId: 'page-current', path: 'pages/Guide.md',
+      });
+      expect(resolverTx.page.findFirst).toHaveBeenCalledWith({
+        where: {
+          spaceId: 'space-1',
+          syncPathKey: pathKey('pages/Guide.md'),
+          deletedAt: null,
+        },
+        select: { id: true, syncPath: true },
+      });
+      expect(resolverTx.pagePathAlias.findMany).not.toHaveBeenCalled();
+    });
+
+    it('returns one active same-Space alias and distinguishes it from a current path', async () => {
+      resolverTx.page.findFirst.mockResolvedValue(null);
+      resolverTx.pagePathAlias.findMany.mockResolvedValue([{
+        path: 'pages/Old.md',
+        page: { id: 'page-moved', syncPath: 'pages/New.md' },
+      }]);
+
+      await expect((service as any).resolvePagePath(resolverTx, {
+        spaceId: 'space-1', path: 'pages/Old.md',
+      })).resolves.toEqual({
+        kind: 'alias', pageId: 'page-moved', path: 'pages/New.md',
+      });
+    });
+
+    it('returns not-found without leaking deleted or cross-Space alias targets', async () => {
+      resolverTx.page.findFirst.mockResolvedValue(null);
+      resolverTx.pagePathAlias.findMany.mockResolvedValue([]);
+
+      await expect((service as any).resolvePagePath(resolverTx, {
+        spaceId: 'space-1', path: '../other-space/Secret.md',
+      })).resolves.toEqual({ kind: 'not-found' });
+      await expect((service as any).resolvePagePath(resolverTx, {
+        spaceId: 'space-1', path: 'pages/Deleted.md',
+      })).resolves.toEqual({ kind: 'not-found' });
+    });
+
+    it('returns MARKDOWN_REFERENCE_AMBIGUOUS for aliases owned by multiple active Pages', async () => {
+      resolverTx.page.findFirst.mockResolvedValue(null);
+      resolverTx.pagePathAlias.findMany.mockResolvedValue([
+        { path: 'pages/Old.md', page: { id: 'page-a', syncPath: 'pages/A.md' } },
+        { path: 'pages/Old.md', page: { id: 'page-b', syncPath: 'pages/B.md' } },
+      ]);
+
+      await expect((service as any).resolvePagePath(resolverTx, {
+        spaceId: 'space-1', path: 'pages/Old.md',
+      })).rejects.toEqual(expect.objectContaining({ code: 'MARKDOWN_REFERENCE_AMBIGUOUS' }));
+    });
+  });
 });
