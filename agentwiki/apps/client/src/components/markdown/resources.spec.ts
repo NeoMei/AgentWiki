@@ -136,6 +136,24 @@ describe('collectMarkdownResourceRefs', () => {
 
   it.each([
     [
+      'entity-decoded sibling resource nodes',
+      '[[Good&#93;&#93; &#91;&#91;Bad]] [[After]]',
+      ['[[Good]]', '[[Bad]]', '[[After]]'],
+      ['[[After]]'],
+    ],
+    [
+      'entity-decoded resource prefix with trailing content',
+      '[[Good&#93;&#93; trailing]]',
+      ['[[Good]]'],
+      [],
+    ],
+  ])('keeps a candidate raw when its isolated AST contains %s', (_kind, source, fullAst, expected) => {
+    expect(fullAstWikiLiterals(source)).toEqual(fullAst);
+    expect(collectedWikiLiterals(source)).toEqual(expected);
+  });
+
+  it.each([
+    [
       'type-7 tag after paragraph text',
       'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[after]]',
       ['[[valid in paragraph]]', '[[after]]'],

@@ -471,6 +471,45 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(currentEditorView(container).state.doc.toString()).toBe(source);
   });
 
+  it('keeps an entity-injected multi-resource candidate raw and resolves only the following link', async () => {
+    const source = 'active\n[[Good&#93;&#93; &#91;&#91;Bad]] [[After]]';
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target,
+        title: reference.target,
+        slug: reference.target,
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: source,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(await screen.findByRole('link', { name: 'After' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Good' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Bad' })).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(1);
+    expect(currentEditorView(container).state.doc.toString()).toBe(source);
+  });
+
+  it('keeps an entity-decoded resource prefix with trailing content raw without resolver I/O', () => {
+    const source = 'active\n[[Good&#93;&#93; trailing]]';
+    const { container } = renderWYS({
+      initial: source,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(resourceMocks.post).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(0);
+    expect(currentEditorView(container).state.doc.toString()).toBe(source);
+  });
+
   it.each([
     ['type-7 tag after paragraph text', 'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[outside]]', ['valid in paragraph', 'outside']],
     ['quoted type-6 HTML dedent', '> <div>\n> [[inside]]\n[[outside]]', ['outside']],

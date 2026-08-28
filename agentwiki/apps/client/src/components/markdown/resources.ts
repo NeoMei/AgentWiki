@@ -985,10 +985,19 @@ const parseMarkdownResourceCandidates = (source: string): ParsedMarkdownResource
     const resourceNodes: MarkdownAstNode[] = [];
     visit(tree as never, (node: MarkdownAstNode) => {
       if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return;
-      const sourceOffset = node.data?.hProperties?.['data-markdown-source-offset'];
-      if (sourceOffset === '0') resourceNodes.push(node);
+      resourceNodes.push(node);
     });
-    if (resourceNodes.length === 1) parsed.push({ candidate, node: resourceNodes[0] });
+    if (resourceNodes.length !== 1) continue;
+    const node = resourceNodes[0];
+    if (node.data?.hProperties?.['data-markdown-source-offset'] !== '0') continue;
+    const rootChildren = tree.children ?? [];
+    const coversWholeCandidate = node.type === 'agentWikiLink'
+      ? rootChildren.length === 1
+        && rootChildren[0].type === 'paragraph'
+        && rootChildren[0].children?.length === 1
+        && rootChildren[0].children[0] === node
+      : rootChildren.length === 1 && rootChildren[0] === node;
+    if (coversWholeCandidate) parsed.push({ candidate, node });
   }
   return parsed;
 };
