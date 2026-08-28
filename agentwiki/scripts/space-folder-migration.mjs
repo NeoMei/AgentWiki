@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, open, rename, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
@@ -157,6 +158,8 @@ function migrationBatchKey(spaceId) {
 }
 
 function normalizeInputHash(snapshot) {
+  const asOf = new Date(snapshot.asOf);
+  if (Number.isNaN(asOf.getTime())) throw new TypeError('Migration snapshot asOf is required');
   const fieldsForPage = (page) => ({
     id: page.id,
     knowledgeKey: page.knowledgeKey,
@@ -208,6 +211,7 @@ function normalizeInputHash(snapshot) {
       pathKey: alias.pathKey,
       createdAt: iso(alias.createdAt),
       expiresAt: iso(alias.expiresAt),
+      unexpiredAtSnapshot: alias.expiresAt === null || new Date(alias.expiresAt) > asOf,
     })),
   };
   return sha256(JSON.stringify(canonical));
@@ -423,6 +427,9 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     };
   }
 
+  const asOf = new Date(snapshot.asOf);
+  if (Number.isNaN(asOf.getTime())) throw new TypeError('Migration snapshot asOf is required');
+
   const rejections = [];
   const transformations = [];
   const collisions = [];
@@ -517,6 +524,7 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
       batchKey,
       revisionId: null,
       inputHash,
+      asOf: asOf.toISOString(),
       counts: {
         ...emptyPlanCounts(),
         activePages: activePages.length,
@@ -794,6 +802,7 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     if (existingIndex >= 0) entries.splice(existingIndex, 1, effective);
     else entries.push(effective);
   }
+  const plannedAliasPageIds = new Set(aliases.map((alias) => alias.pageId));
   const aliasRetention = [];
   const retainedAliases = [];
   for (const [pageId, entries] of [...effectiveAliasesByPage].sort(([left], [right]) => compareBytes(left, right))) {
@@ -802,8 +811,9 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
       || (iso(right.createdAt) ?? '').localeCompare(iso(left.createdAt) ?? '')
       || compareBytes(right.id, left.id)
     ));
-    retainedAliases.push(...sorted.slice(0, 20));
-    const prunedAliasIds = sorted.slice(20)
+    const retainedCount = plannedAliasPageIds.has(pageId) ? 20 : sorted.length;
+    retainedAliases.push(...sorted.slice(0, retainedCount));
+    const prunedAliasIds = sorted.slice(retainedCount)
       .filter((entry) => !entry.planned)
       .map((entry) => entry.id)
       .sort(compareBytes);
@@ -815,7 +825,10 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     currentPagesByPath.get(page.syncPathKey).push(page.id);
   }
   const aliasesByPath = new Map();
-  for (const alias of retainedAliases) {
+  for (const alias of retainedAliases.filter((entry) => (
+    (entry.expiresAt === null || new Date(entry.expiresAt) > asOf)
+    && activePagesById.has(entry.pageId)
+  ))) {
     if (!aliasesByPath.has(alias.pathKey)) aliasesByPath.set(alias.pathKey, []);
     aliasesByPath.get(alias.pathKey).push(alias);
   }
@@ -870,6 +883,7 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
     batchKey,
     revisionId: null,
     inputHash,
+    asOf: asOf.toISOString(),
     counts: {
       activePages: activePages.length,
       deletedPagesSkipped: deletedPages.length,
@@ -935,6 +949,9 @@ async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
       rejections: [{ code: 'SPACE_NOT_FOUND', message: 'Space does not exist or is deleted' }],
     });
   }
+  const [{ asOf }] = await tx.$queryRawUnsafe(
+    'SELECT statement_timestamp() AS "asOf"',
+  );
   const [pages, folders, pathAliases] = await Promise.all([
     tx.page.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
     tx.folder.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
@@ -964,6 +981,7 @@ async function loadSpaceSnapshot(tx, spaceId, knownContentTreeRevision) {
   ]);
   return {
     spaceId,
+    asOf,
     contentTreeRevision: space.contentTreeRevision,
     pages,
     pageVersions,
@@ -1178,7 +1196,9 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
   }
   const SpaceRevisionWriterService = await loadRevisionWriter();
   const writer = new SpaceRevisionWriterService(prisma);
-  return prisma.$transaction(async (tx) => {
+  let stableReport = null;
+  try {
+    return await prisma.$transaction(async (tx) => {
     const lockedTx = await writer.lockContentTreeSpace(tx, spaceId);
     if (!lockedTx) {
       throw new SpaceFolderMigrationPreflightError({
@@ -1195,6 +1215,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       spaceId,
       lockedTx.contentTreeRevision,
     ));
+    stableReport = operatorReport(plan);
     if (options.expectedInputHash !== plan.inputHash) {
       throw new SpaceFolderMigrationPreflightError({
         ...operatorReport(plan),
@@ -1388,10 +1409,26 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
     };
     if (options.persistReport) await options.persistReport(result);
     return result;
-  }, { isolationLevel: 'ReadCommitted', maxWait: 10_000, timeout: 30 * 60_000 });
+    }, { isolationLevel: 'ReadCommitted', maxWait: 10_000, timeout: 30 * 60_000 });
+  } catch (error) {
+    if (error instanceof SpaceFolderMigrationPreflightError || !stableReport) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new SpaceFolderMigrationPreflightError({
+      ...stableReport,
+      status: 'rejected',
+      rejections: [
+        ...(stableReport.rejections ?? []),
+        { code: 'MIGRATION_EXECUTION_FAILED', message },
+      ],
+    });
+    wrapped.message = `${wrapped.message}: ${message}`;
+    wrapped.cause = error;
+    throw wrapped;
+  }
 }
 
 export function operatorReport(plan) {
+  if (plan?.reportType === 'space-folder-migration-operator@1') return plan;
   const pathChanges = [...(plan.pages ?? [])].sort(sortById).map((page) => ({
     pageId: page.id,
     oldFolderId: Object.hasOwn(page, 'oldFolderId') ? page.oldFolderId : page.folderId ?? null,
@@ -1421,11 +1458,13 @@ export function operatorReport(plan) {
   }));
   const aliasResolutions = plan.aliasResolutions ?? [];
   return {
+    reportType: 'space-folder-migration-operator@1',
     version: plan.version,
     status: plan.status,
     spaceId: plan.spaceId,
     batchKey: plan.batchKey,
     inputHash: plan.inputHash,
+    snapshotAsOf: plan.asOf ?? plan.snapshotAsOf ?? null,
     revisionId: plan.revisionId ?? null,
     treeRevision: plan.treeRevision ?? null,
     counts: plan.counts,
@@ -1492,119 +1531,167 @@ export function parseArguments(argv) {
 export async function reserveReportTarget(reportPath) {
   const target = resolve(reportPath);
   const parent = dirname(target);
-  const parentStat = await lstat(parent);
+  const parentStat = await lstat(parent, { bigint: true });
   if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
     throw new Error('Report parent must be an existing, non-symlink directory');
   }
-  let reservation;
-  let created = false;
-  let reservedIdentity;
+  const identity = (stat) => ({ device: stat.dev, inode: stat.ino });
+  const sameIdentity = (left, right) => (
+    left.device === right.device && left.inode === right.inode
+  );
+  const parentIdentity = identity(parentStat);
+  let parentHandle;
+  let reportHandle;
+  let reportIdentity;
+  let closed = false;
+
+  const assertPathIdentity = async () => {
+    const currentParent = await lstat(parent, { bigint: true }).catch(() => null);
+    const currentTarget = await lstat(target, { bigint: true }).catch(() => null);
+    if (
+      !currentParent
+      || !currentParent.isDirectory()
+      || currentParent.isSymbolicLink()
+      || !sameIdentity(identity(currentParent), parentIdentity)
+      || !currentTarget
+      || currentTarget.isSymbolicLink()
+      || !sameIdentity(identity(currentTarget), reportIdentity)
+    ) throw new Error('Reserved report target or parent identity changed');
+  };
+
+  const writeThroughReservation = async (report) => {
+    if (closed) throw new Error('Report reservation is closed');
+    const content = Buffer.from(`${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    await reportHandle.truncate(0);
+    let offset = 0;
+    while (offset < content.length) {
+      const { bytesWritten } = await reportHandle.write(
+        content,
+        offset,
+        content.length - offset,
+        offset,
+      );
+      if (bytesWritten === 0) throw new Error('Report reservation write made no progress');
+      offset += bytesWritten;
+    }
+    await reportHandle.sync();
+    await assertPathIdentity();
+  };
+
   try {
-    reservation = await open(target, 'wx', 0o600);
-    created = true;
-    await reservation.writeFile(`${JSON.stringify({
+    parentHandle = await open(parent, (
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
+    ));
+    const openedParent = await parentHandle.stat({ bigint: true });
+    if (!sameIdentity(identity(openedParent), parentIdentity)) {
+      throw new Error('Report parent identity changed before reservation');
+    }
+    reportHandle = await open(target, (
+      constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW
+    ), 0o600);
+    await reportHandle.chmod(0o600);
+    const openedReport = await reportHandle.stat({ bigint: true });
+    if (!openedReport.isFile()) throw new Error('Report reservation is not a regular file');
+    reportIdentity = identity(openedReport);
+    await writeThroughReservation({
       version: 1,
       status: 'reserved',
       reportPath: target,
-    }, null, 2)}\n`, 'utf8');
-    await reservation.sync();
-    await reservation.close();
-    reservation = null;
-    const reservedStat = await lstat(target, { bigint: true });
-    reservedIdentity = { device: reservedStat.dev, inode: reservedStat.ino };
+    });
+    await parentHandle.sync();
   } catch (error) {
-    if (reservation) await reservation.close().catch(() => {});
-    if (created) await rm(target, { force: true }).catch(() => {});
+    await reportHandle?.close().catch(() => {});
+    await parentHandle?.close().catch(() => {});
+    if (reportIdentity) {
+      const currentTarget = await lstat(target, { bigint: true }).catch(() => null);
+      if (currentTarget && sameIdentity(identity(currentTarget), reportIdentity)) {
+        await unlink(target).catch(() => {});
+      }
+    }
     throw error;
   }
   return {
     path: target,
-    async write(report) {
-      const temporary = resolve(parent, `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`);
-      let handle;
-      let writtenIdentity;
+    write: writeThroughReservation,
+    async close() {
+      if (closed) return;
+      closed = true;
       try {
-        handle = await open(temporary, 'wx', 0o600);
-        await handle.writeFile(`${JSON.stringify(report, null, 2)}\n`, 'utf8');
-        await handle.sync();
-        const writtenStat = await handle.stat({ bigint: true });
-        writtenIdentity = { device: writtenStat.dev, inode: writtenStat.ino };
-        await handle.close();
-        handle = null;
-        const currentTarget = await lstat(target, { bigint: true }).catch(() => null);
-        if (
-          !currentTarget
-          || currentTarget.dev !== reservedIdentity.device
-          || currentTarget.ino !== reservedIdentity.inode
-        ) {
-          throw new Error('Reserved report target identity changed before final write');
-        }
-        await rename(temporary, target);
-        const finalTarget = await lstat(target, { bigint: true });
-        if (finalTarget.dev !== writtenIdentity.device || finalTarget.ino !== writtenIdentity.inode) {
-          throw new Error('Final report target identity changed after atomic write');
-        }
-        reservedIdentity = writtenIdentity;
-        const directoryHandle = await open(parent, 'r');
-        try {
-          await directoryHandle.sync();
-        } finally {
-          await directoryHandle.close();
-        }
-      } catch (error) {
-        if (handle) await handle.close().catch(() => {});
-        await rm(temporary, { force: true }).catch(() => {});
-        throw error;
+        await reportHandle.close();
+      } finally {
+        await parentHandle.close();
       }
     },
   };
 }
 
+function executionFailureReport(args, error) {
+  if (error instanceof SpaceFolderMigrationPreflightError) return operatorReport(error.report);
+  return operatorReport({
+    version: 1,
+    status: 'rejected',
+    spaceId: args?.spaceId ?? null,
+    batchKey: args?.spaceId ? migrationBatchKey(args.spaceId) : null,
+    inputHash: args?.expectedInputHash ?? null,
+    revisionId: null,
+    treeRevision: null,
+    counts: emptyPlanCounts(),
+    transformations: [], collisions: [], pages: [], folders: [], aliases: [],
+    aliasRetention: [], aliasResolutions: [],
+    rejections: [{
+      code: 'MIGRATION_EXECUTION_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    }],
+  });
+}
+
 async function main() {
-  const args = parseArguments(process.argv.slice(2));
-  const reportTarget = args.reportPath ? await reserveReportTarget(args.reportPath) : null;
-  const requireFromServer = createRequire(resolve(root, 'apps/server/package.json'));
-  const { PrismaClient } = requireFromServer('@prisma/client');
-  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
+  let args;
+  let reportTarget;
+  let prisma;
   let report;
   try {
+    args = parseArguments(process.argv.slice(2));
+    reportTarget = args.reportPath ? await reserveReportTarget(args.reportPath) : null;
+    const requireFromServer = createRequire(resolve(root, 'apps/server/package.json'));
+    const { PrismaClient } = requireFromServer('@prisma/client');
+    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
     report = args.mode === 'dry-run'
       ? operatorReport(await preflightSpaceFolderMigration(prisma, args.spaceId))
       : await migrateSpaceFolders(prisma, args.spaceId, {
         expectedInputHash: args.expectedInputHash,
         persistReport: (value) => reportTarget.write(value),
       });
-  } catch (error) {
-    report = error instanceof SpaceFolderMigrationPreflightError
-      ? operatorReport(error.report)
-      : {
-        version: 1,
-        status: 'rejected',
-        spaceId: args.spaceId,
-        batchKey: migrationBatchKey(args.spaceId),
-        inputHash: args.expectedInputHash,
-        revisionId: null,
-        treeRevision: null,
-        counts: emptyPlanCounts(),
-        transformations: [], collisions: [], pathChanges: [], plannedFolders: [], plannedAliases: [],
-        aliasRetention: [], aliasResolutions: [],
-        conversionSummary: {
-          transformedFolderNames: 0, folderNameCollisions: 0,
-          aliasAmbiguities: 0, aliasCurrentPathShadows: 0,
-        },
-        rejections: [{
-          code: 'MIGRATION_EXECUTION_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-        }],
-      };
     if (reportTarget) await reportTarget.write(report);
+  } catch (error) {
+    report = executionFailureReport(args, error);
+    if (reportTarget) {
+      try {
+        await reportTarget.write(report);
+      } catch (reportError) {
+        console.error(JSON.stringify({
+          ...report,
+          reportPersistenceError: reportError instanceof Error
+            ? reportError.message
+            : String(reportError),
+        }, null, 2));
+        process.exitCode = 1;
+        return;
+      }
+    }
     console.error(JSON.stringify(report, null, 2));
     process.exitCode = 1;
     return;
   } finally {
-    await prisma.$disconnect();
+    await prisma?.$disconnect().catch((error) => {
+      console.error(`Prisma disconnect failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    });
+    await reportTarget?.close().catch((error) => {
+      console.error(`Report reservation close failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    });
   }
-  if (reportTarget && args.mode === 'dry-run') await reportTarget.write(report);
   console.log(JSON.stringify(report, null, 2));
 }
 

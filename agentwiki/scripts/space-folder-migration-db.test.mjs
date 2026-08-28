@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -22,6 +22,7 @@ import {
   legacyFolderId,
   migrateSpaceFolders,
   preflightSpaceFolderMigration,
+  reserveReportTarget,
 } from './space-folder-migration.mjs';
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
@@ -448,6 +449,16 @@ test('real PostgreSQL alias planning applies ContentTree upsert/retention and re
       const current = await createPage(prisma, seeded, {
         id: 'alias-current', title: 'Current', syncPath: 'pages/Current.md',
       });
+      const deleted = await createPage(prisma, seeded, {
+        id: 'alias-deleted', title: 'Deleted', syncPath: 'pages/Deleted.md',
+        deletedAt: new Date('2026-08-20T00:00:00.000Z'),
+      });
+      const pastOwner = await createPage(prisma, seeded, {
+        id: 'alias-past-owner', title: 'PastOwner', syncPath: 'pages/PastOwner.md',
+      });
+      const equalOwner = await createPage(prisma, seeded, {
+        id: 'alias-equal-owner', title: 'EqualOwner', syncPath: 'pages/EqualOwner.md',
+      });
       await prisma.pagePathAlias.createMany({ data: [
         ...Array.from({ length: 20 }, (_, index) => ({
           id: `history-${String(index).padStart(2, '0')}`,
@@ -467,6 +478,29 @@ test('real PostgreSQL alias planning applies ContentTree upsert/retention and re
           path: current.syncPath, pathKey: current.syncPathKey,
           createdAt: new Date('2026-07-02T00:00:00.000Z'),
         },
+        {
+          id: 'future-duplicate', spaceId: seeded.spaceId, pageId: root.id,
+          path: child.syncPath, pathKey: child.syncPathKey,
+          createdAt: new Date('2026-07-03T00:00:00.000Z'),
+          expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        },
+        {
+          id: 'deleted-owner-duplicate', spaceId: seeded.spaceId, pageId: deleted.id,
+          path: child.syncPath, pathKey: child.syncPathKey,
+          createdAt: new Date('2026-07-04T00:00:00.000Z'),
+        },
+        {
+          id: 'past-duplicate', spaceId: seeded.spaceId, pageId: pastOwner.id,
+          path: child.syncPath, pathKey: child.syncPathKey,
+          createdAt: new Date('2026-07-05T00:00:00.000Z'),
+          expiresAt: new Date('2020-01-01T00:00:00.000Z'),
+        },
+        {
+          id: 'equal-or-past-duplicate', spaceId: seeded.spaceId, pageId: equalOwner.id,
+          path: child.syncPath, pathKey: child.syncPathKey,
+          createdAt: new Date('2026-07-06T00:00:00.000Z'),
+          expiresAt: new Date('2026-08-28T00:00:00.000Z'),
+        },
       ] });
 
       const dryRun = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
@@ -477,6 +511,19 @@ test('real PostgreSQL alias planning applies ContentTree upsert/retention and re
         { key: child.syncPathKey, resolution: 'ambiguous-alias' },
         { key: current.syncPathKey, resolution: 'current-page' },
       ]);
+      assert.deepEqual(
+        dryRun.aliasResolutions.find((entry) => entry.pathKey === child.syncPathKey).aliasPageIds,
+        [child.id, current.id, root.id].sort(),
+      );
+      await prisma.pagePathAlias.update({
+        where: { id: 'future-duplicate' },
+        data: { path: 'pages/ExpiredOther.md', pathKey: pathKey('pages/ExpiredOther.md') },
+      });
+      assert.notEqual((await preflightSpaceFolderMigration(prisma, seeded.spaceId)).inputHash, dryRun.inputHash);
+      await prisma.pagePathAlias.update({
+        where: { id: 'future-duplicate' },
+        data: { path: child.syncPath, pathKey: child.syncPathKey },
+      });
 
       const applied = await migrateSpaceFolders(prisma, seeded.spaceId, {
         expectedInputHash: dryRun.inputHash,
@@ -487,11 +534,25 @@ test('real PostgreSQL alias planning applies ContentTree upsert/retention and re
       assert.equal(await prisma.pagePathAlias.count({ where: { id: 'history-00' } }), 0);
       assert.deepEqual(
         (await prisma.pagePathAlias.findMany({
-          where: { spaceId: seeded.spaceId, pathKey: child.syncPathKey },
+          where: {
+            spaceId: seeded.spaceId,
+            pathKey: child.syncPathKey,
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date('2026-08-29T00:00:00.000Z') } },
+            ],
+            page: { deletedAt: null },
+          },
           orderBy: { pageId: 'asc' }, select: { pageId: true },
         })).map((alias) => alias.pageId),
-        [child.id, current.id].sort(),
+        [child.id, current.id, root.id].sort(),
       );
+      assert.equal(await prisma.pagePathAlias.count({
+        where: { id: { in: [
+          'future-duplicate', 'past-duplicate',
+          'equal-or-past-duplicate', 'deleted-owner-duplicate',
+        ] } },
+      }), 4);
       const beforeRerun = await prisma.pagePathAlias.findMany({
         where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' },
       });
@@ -531,11 +592,11 @@ test('CLI apply reserves a required report before writes and persists it before 
         const dryRun = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
         return { ...seeded, dryRun };
       };
-      const runApply = (seeded, extra = []) => execFileAsync(process.execPath, [
+      const runApply = (seeded, extra = [], expectedInputHash = seeded.dryRun.inputHash) => execFileAsync(process.execPath, [
         script,
         '--apply',
         '--space', seeded.spaceId,
-        '--expected-input-hash', seeded.dryRun.inputHash,
+        '--expected-input-hash', expectedInputHash,
         ...extra,
       ], { env: { ...process.env, DATABASE_URL: schemaUrl } });
       const assertNoWrites = async (spaceId) => {
@@ -579,9 +640,107 @@ test('CLI apply reserves a required report before writes and persists it before 
           expectedInputHash: finalWriteFailure.dryRun.inputHash,
           persistReport: async () => { throw new Error('forced final report failure'); },
         }),
-        /forced final report failure/,
+        (error) => error instanceof SpaceFolderMigrationPreflightError
+          && error.report.pathChanges.length === 2
+          && error.report.plannedFolders.length === 1
+          && error.report.plannedAliases.length === 1
+          && error.report.rejections.some((entry) => entry.message.includes('forced final report failure')),
       );
       await assertNoWrites(finalWriteFailure.spaceId);
+
+      const wrongHash = await seedTree('WrongHashReport');
+      const wrongHashPath = join(sandbox, 'wrong-hash.json');
+      await assert.rejects(() => runApply(
+        wrongHash,
+        ['--report', wrongHashPath],
+        '0'.repeat(64),
+      ));
+      const wrongHashReport = JSON.parse(await readFile(wrongHashPath, 'utf8'));
+      assert.equal(wrongHashReport.status, 'rejected');
+      assert.equal(wrongHashReport.pathChanges.length, 2);
+      assert.equal(wrongHashReport.plannedFolders.length, 1);
+      assert.equal(wrongHashReport.plannedAliases.length, 1);
+      await assertNoWrites(wrongHash.spaceId);
+
+      const parentReplacement = await seedTree('ParentReplacement');
+      const reportParent = join(sandbox, 'replace-parent');
+      const movedReportParent = join(sandbox, 'replace-parent-moved');
+      await mkdir(reportParent, { mode: 0o700 });
+      const replacedPath = join(reportParent, 'apply.json');
+      const reservation = await reserveReportTarget(replacedPath);
+      try {
+        await assert.rejects(
+          () => migrateSpaceFolders(prisma, parentReplacement.spaceId, {
+            expectedInputHash: parentReplacement.dryRun.inputHash,
+            persistReport: async (value) => {
+              await rename(reportParent, movedReportParent);
+              await mkdir(reportParent, { mode: 0o700 });
+              await writeFile(replacedPath, 'other-target-must-survive', { mode: 0o600 });
+              await reservation.write(value);
+            },
+          }),
+          (error) => error instanceof SpaceFolderMigrationPreflightError
+            && error.report.pathChanges.length === 2
+            && error.report.rejections.some((entry) => entry.message.includes('identity changed')),
+        );
+        assert.equal(await readFile(replacedPath, 'utf8'), 'other-target-must-survive');
+        await assertNoWrites(parentReplacement.spaceId);
+      } finally {
+        await reservation.close();
+      }
+
+      const invalidDatabaseReportPath = join(sandbox, 'invalid-database.json');
+      await assert.rejects(() => execFileAsync(process.execPath, [
+        script,
+        '--apply', '--space', wrongHash.spaceId,
+        '--expected-input-hash', wrongHash.dryRun.inputHash,
+        '--report', invalidDatabaseReportPath,
+      ], { env: { ...process.env, DATABASE_URL: 'not-a-postgresql-url' } }));
+      const invalidDatabaseReport = JSON.parse(await readFile(invalidDatabaseReportPath, 'utf8'));
+      assert.equal(invalidDatabaseReport.status, 'rejected');
+      assert.notEqual(invalidDatabaseReport.status, 'reserved');
+      assert.ok(invalidDatabaseReport.rejections.some((entry) => entry.code === 'MIGRATION_EXECUTION_FAILED'));
+
+      const prismaConnectionReportPath = join(sandbox, 'prisma-connection.json');
+      await assert.rejects(() => execFileAsync(process.execPath, [
+        script,
+        '--apply', '--space', wrongHash.spaceId,
+        '--expected-input-hash', wrongHash.dryRun.inputHash,
+        '--report', prismaConnectionReportPath,
+      ], {
+        env: {
+          ...process.env,
+          DATABASE_URL: 'postgresql://neomei@127.0.0.1:1/agentwiki_folder_test?connect_timeout=1',
+        },
+      }));
+      const prismaConnectionReport = JSON.parse(await readFile(prismaConnectionReportPath, 'utf8'));
+      assert.equal(prismaConnectionReport.status, 'rejected');
+      assert.notEqual(prismaConnectionReport.status, 'reserved');
+      assert.ok(prismaConnectionReport.rejections.some((entry) => entry.code === 'MIGRATION_EXECUTION_FAILED'));
+
+      const preflightRejected = await seedTree('PreflightRejectedReport');
+      await prisma.pagePathAlias.create({ data: {
+        id: randomUUID(),
+        spaceId: preflightRejected.spaceId,
+        pageId: (await prisma.page.findFirstOrThrow({
+          where: { spaceId: preflightRejected.spaceId }, orderBy: { id: 'asc' },
+        })).id,
+        path: 'pages/invalid?.md',
+        pathKey: 'pages/invalid?.md',
+      } });
+      const preflightRejectedPath = join(sandbox, 'preflight-rejected.json');
+      await assert.rejects(() => execFileAsync(process.execPath, [
+        script,
+        '--dry-run', '--space', preflightRejected.spaceId,
+        '--report', preflightRejectedPath,
+      ], { env: { ...process.env, DATABASE_URL: schemaUrl } }));
+      const preflightRejectedReport = JSON.parse(await readFile(preflightRejectedPath, 'utf8'));
+      assert.equal(preflightRejectedReport.status, 'rejected');
+      assert.equal(preflightRejectedReport.pathChanges.length, 2);
+      assert.equal(preflightRejectedReport.plannedFolders.length, 1);
+      assert.equal(preflightRejectedReport.plannedAliases.length, 1);
+      assert.ok(preflightRejectedReport.rejections.some((entry) => entry.code === 'PAGE_ALIAS_INVALID'));
+      await assertNoWrites(preflightRejected.spaceId);
 
       const successful = await seedTree('SuccessfulReport');
       const reportPath = join(sandbox, 'applied.json');

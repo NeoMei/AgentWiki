@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -55,6 +55,7 @@ function version(id, pageId, parentId, overrides = {}) {
 function snapshot(overrides = {}) {
   return {
     spaceId: 'space-1',
+    asOf: date,
     contentTreeRevision: 0n,
     pages: [],
     pageVersions: [],
@@ -364,6 +365,62 @@ test('plans existing alias reuse, ambiguity, current-path shadowing, and determi
   assert.equal(refreshed.counts.aliasesRefreshed, 1);
 });
 
+test('alias resolution uses one asOf for future, equal, past, and deleted-owner aliases without omitting retention evidence from the hash', () => {
+  const pages = [
+    page('root', 'root'),
+    page('child', 'child', 'root'),
+    page('active-owner', 'active-owner'),
+    page('future-owner', 'future-owner'),
+    page('equal-owner', 'equal-owner'),
+    page('past-owner', 'past-owner'),
+    page('deleted-owner', 'deleted-owner', null, { deletedAt: date }),
+  ];
+  const pathAliases = [
+    {
+      id: 'active-duplicate', spaceId: 'space-1', pageId: 'active-owner',
+      path: 'pages/child.md', pathKey: 'pages/child.md', createdAt: date, expiresAt: null,
+    },
+    {
+      id: 'future-duplicate', spaceId: 'space-1', pageId: 'future-owner',
+      path: 'pages/child.md', pathKey: 'pages/child.md', createdAt: date,
+      expiresAt: new Date('2026-08-29T00:00:00.000Z'),
+    },
+    {
+      id: 'equal-duplicate', spaceId: 'space-1', pageId: 'equal-owner',
+      path: 'pages/child.md', pathKey: 'pages/child.md', createdAt: date, expiresAt: date,
+    },
+    {
+      id: 'past-duplicate', spaceId: 'space-1', pageId: 'past-owner',
+      path: 'pages/child.md', pathKey: 'pages/child.md', createdAt: date,
+      expiresAt: new Date('2026-08-27T00:00:00.000Z'),
+    },
+    {
+      id: 'deleted-duplicate', spaceId: 'space-1', pageId: 'deleted-owner',
+      path: 'pages/child.md', pathKey: 'pages/child.md', createdAt: date, expiresAt: null,
+    },
+  ];
+  const plan = buildSpaceFolderMigrationPlan(snapshot({ pages, pathAliases }));
+  assert.equal(operatorReport(plan).snapshotAsOf, date.toISOString());
+  assert.deepEqual(plan.aliasResolutions, [{
+    path: 'pages/child.md', pathKey: 'pages/child.md', currentPageIds: [],
+    aliasPageIds: ['active-owner', 'child', 'future-owner'], resolution: 'ambiguous-alias',
+  }]);
+
+  const changedExpiredEvidence = buildSpaceFolderMigrationPlan(snapshot({
+    pages,
+    pathAliases: pathAliases.map((alias) => alias.id === 'past-duplicate'
+      ? { ...alias, path: 'pages/expired-other.md', pathKey: 'pages/expired-other.md' }
+      : alias),
+  }));
+  assert.notEqual(changedExpiredEvidence.inputHash, plan.inputHash);
+
+  const afterFutureExpiry = buildSpaceFolderMigrationPlan(snapshot({
+    asOf: new Date('2026-08-30T00:00:00.000Z'), pages, pathAliases,
+  }));
+  assert.deepEqual(afterFutureExpiry.aliasResolutions[0].aliasPageIds, ['active-owner', 'child']);
+  assert.notEqual(afterFutureExpiry.inputHash, plan.inputHash);
+});
+
 test('operator report contains stable per-Page paths and planned Folder/alias detail', () => {
   const plan = buildSpaceFolderMigrationPlan(snapshot({
     pages: [page('root', 'root'), page('z-child', 'z', 'root'), page('a-root', 'a')],
@@ -388,6 +445,11 @@ test('operator report contains stable per-Page paths and planned Folder/alias de
     aliasAmbiguities: 0,
     aliasCurrentPathShadows: 0,
   });
+  const twice = operatorReport(report);
+  assert.equal(twice.pathChanges.length, 3);
+  assert.equal(twice.plannedFolders.length, 1);
+  assert.equal(twice.plannedAliases.length, 1);
+  assert.deepEqual(twice, report);
 });
 
 test('a worst-order 10,000 Page chain returns structured preflight rejection instead of RangeError', () => {
@@ -446,6 +508,7 @@ test('reserved report writes fail closed if the exclusively reserved target iden
       /identity changed/,
     );
     assert.equal(await readFile(target, 'utf8'), 'replacement-must-survive');
+    await reservation.close?.();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -456,11 +519,39 @@ test('one report reservation can replace its own atomic output after a later tra
   const target = join(directory, 'report.json');
   try {
     const reservation = await reserveReportTarget(target);
+    const original = await stat(target, { bigint: true });
     await reservation.write({ status: 'applied' });
     await reservation.write({ status: 'rejected', rejections: ['commit failed'] });
+    const final = await stat(target, { bigint: true });
+    assert.equal(final.dev, original.dev);
+    assert.equal(final.ino, original.ino);
     assert.deepEqual(JSON.parse(await readFile(target, 'utf8')), {
       status: 'rejected', rejections: ['commit failed'],
     });
+    await reservation.close?.();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('report writes remain bound to the original file when the parent path is renamed or replaced by a symlink', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'agentwiki-folder-report-parent-'));
+  const parent = join(directory, 'reports');
+  const movedParent = join(directory, 'moved-reports');
+  const target = join(parent, 'report.json');
+  try {
+    await mkdir(parent, { mode: 0o700 });
+    const reservation = await reserveReportTarget(target);
+    await rename(parent, movedParent);
+    await mkdir(parent, { mode: 0o700 });
+    await writeFile(target, 'other-target-must-survive', { mode: 0o600 });
+    await assert.rejects(() => reservation.write({ status: 'applied' }), /identity changed/);
+    assert.equal(await readFile(target, 'utf8'), 'other-target-must-survive');
+    await rm(parent, { recursive: true });
+    await symlink(movedParent, parent, 'dir');
+    await assert.rejects(() => reservation.write({ status: 'rejected' }), /identity changed/);
+    assert.equal(JSON.parse(await readFile(join(movedParent, 'report.json'), 'utf8')).status, 'rejected');
+    await reservation.close?.();
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
