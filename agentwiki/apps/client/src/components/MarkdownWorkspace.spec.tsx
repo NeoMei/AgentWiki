@@ -385,6 +385,19 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(1);
   });
 
+  it('keeps an over-budget candidate and every following link raw without resolver I/O', () => {
+    const source = `active\n[[Target|${'x'.repeat(32_768)}]] [[Good]]`;
+    const { container } = renderWYS({
+      initial: source,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(resourceMocks.post).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(0);
+    expect(currentEditorView(container).state.doc.toString()).toBe(source);
+  });
+
   it('reuses resolution when alias text and offsets change while rebuilding the current widgets', async () => {
     resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
       data: body.references.map((reference: any) => ({

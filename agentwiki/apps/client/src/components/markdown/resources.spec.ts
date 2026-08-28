@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import {
   collectMarkdownResourceOccurrences,
   collectMarkdownResourceRefs,
+  editorMarkdownResourceParser,
   extractMarkdownSection,
   resolveMarkdownResources,
 } from './resources';
@@ -10,6 +11,8 @@ import {
 vi.mock('../../api/client', () => ({
   default: { post: vi.fn() },
 }));
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('collectMarkdownResourceRefs', () => {
   it('returns exact source ranges only for syntax-valid Wiki links', () => {
@@ -20,6 +23,16 @@ describe('collectMarkdownResourceRefs', () => {
       '[[Real page]]',
       '```',
       '[ordinary [[Real page]]](https://example.com)',
+      '[ordinary](https://example.com/[[Real page]])',
+      '[reference [[Real page]]][target]',
+      '[target]: https://example.com/[[Real page]]',
+      '',
+      '    [[Real page]]',
+      '',
+      '~~~md',
+      '[[Real page]]',
+      '~~~',
+      '``[[Real page]]``',
       '[[Real page#Heading|Alias]]',
       '![[Real page]]',
     ].join('\n');
@@ -36,11 +49,32 @@ describe('collectMarkdownResourceRefs', () => {
     ]);
   });
 
+  it('handles CRLF, escapes, unterminated code and nested brackets without candidate injection', () => {
+    const valid = '[[CRLF page]]\r\n\\[[Escaped]]\r\n[[Page#Heading|Alias with | pipes]]';
+    expect(collectMarkdownResourceOccurrences(valid).map(({ from, to }) => valid.slice(from, to))).toEqual([
+      '[[CRLF page]]',
+      '[[Page#Heading|Alias with | pipes]]',
+    ]);
+
+    expect(collectMarkdownResourceOccurrences('```md\r\n[[fenced]]\r\n[[still fenced]]')).toEqual([]);
+    expect(collectMarkdownResourceOccurrences('`unterminated [[inline]]\r\n[[still inline]]')).toEqual([]);
+    expect(collectMarkdownResourceOccurrences('<!--\r\n[[commented]]\r\n[[still commented]]')).toEqual([]);
+    expect(collectMarkdownResourceOccurrences(
+      '[[Outer [nested] target]] [[Page|Alias [nested]]] [[broken ] delimiter]]',
+    )).toEqual([]);
+
+    const htmlBlock = '<script>\r\n[[scripted]]\r\n</script>\r\n\r\n[[After HTML]]';
+    expect(collectMarkdownResourceOccurrences(htmlBlock).map(({ from, to }) => htmlBlock.slice(from, to))).toEqual([
+      '[[After HTML]]',
+    ]);
+  });
+
   it('bounds synchronous collection and resolution for a near-200k stored document', async () => {
     const firstHundred = Array.from({ length: 100 }, (_, index) => `[[Page ${index}]]`).join(' ');
     const source = `${firstHundred} ${'[[Page 0]] '.repeat(15_000)}`.padEnd(199_000, 'x');
     expect(source.length).toBe(199_000);
 
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
     const occurrences = collectMarkdownResourceOccurrences(source);
     const references = [...new Map(
       occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
@@ -54,10 +88,51 @@ describe('collectMarkdownResourceRefs', () => {
 
     expect(occurrences).toHaveLength(256);
     expect(references).toHaveLength(100);
+    expect(parseSpy.mock.calls.reduce((sum, [input]) => sum + input.length, 0)).toBeLessThanOrEqual(32_768);
+    expect(parseSpy).not.toHaveBeenCalledWith(source);
     expect(source.slice(occurrences[255].from, occurrences[255].to)).toBe('[[Page 0]]');
     await expect(resolveMarkdownResources('space-editor', references)).resolves.toHaveProperty('size', 100);
     expect(api.post).toHaveBeenCalledTimes(1);
     expect((vi.mocked(api.post).mock.calls[0][1] as any).references).toHaveLength(100);
+    parseSpy.mockRestore();
+  });
+
+  it('bounds expensive parsing and requests for 30,001 unique links in 180,005 characters', async () => {
+    const source = Array.from(
+      { length: 30_001 },
+      (_, index) => `[[${String.fromCodePoint(0x4e00 + index)}]]`,
+    ).join(' ');
+    expect(source.length).toBe(180_005);
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
+
+    const occurrences = collectMarkdownResourceOccurrences(source);
+    const references = [...new Map(
+      occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
+    ).values()];
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
+        key,
+        status: 'unresolved',
+      })),
+    }));
+
+    expect(occurrences).toHaveLength(100);
+    expect(references).toHaveLength(100);
+    expect(parseSpy.mock.calls.reduce((sum, [input]) => sum + input.length, 0)).toBeLessThanOrEqual(32_768);
+    expect(parseSpy).not.toHaveBeenCalledWith(source);
+    await expect(resolveMarkdownResources('space-editor', references)).resolves.toHaveProperty('size', 100);
+    expect(api.post).toHaveBeenCalledTimes(1);
+    parseSpy.mockRestore();
+  });
+
+  it('degrades an over-budget candidate and all following links to raw source without parsing or I/O', () => {
+    const source = `[[Target|${'x'.repeat(32_768)}]] [[Good]]`;
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
+
+    expect(collectMarkdownResourceOccurrences(source)).toEqual([]);
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    parseSpy.mockRestore();
   });
 
   it('collects explicit AST wiki/embed nodes, preserves fragments and classifies embedded images', () => {

@@ -3,7 +3,7 @@ import { toString } from 'mdast-util-to-string';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { EXIT, visit } from 'unist-util-visit';
+import { visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
   canonicalWikiReferenceKey,
@@ -16,7 +16,9 @@ import {
 
 const MAX_REFERENCES = 100;
 const MAX_EDITOR_WIKI_OCCURRENCES = 256;
+const MAX_EDITOR_CANDIDATE_PARSE_CHARS = 32_768;
 const MAX_REFERENCE_CHARS = 512;
+const RAW_HTML_BLOCK_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
 
 // Mirrors validator.js `isLength`, which class-validator's MaxLength delegates
 // to: surrogate pairs and BMP presentation-selector sequences each count as a
@@ -225,6 +227,316 @@ const resourceParser = unified()
   .use(remarkGfm)
   .use(remarkAgentWikiObsidian({}) as never);
 
+export const editorMarkdownResourceParser = {
+  parse(source: string): MarkdownAstNode {
+    return resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
+  },
+};
+
+interface MarkdownResourceCandidate {
+  from: number;
+  to: number;
+  literal: string;
+}
+
+interface ParsedMarkdownResourceCandidate {
+  candidate: MarkdownResourceCandidate;
+  node: MarkdownAstNode;
+}
+
+const markerRunEnd = (source: string, start: number, end: number, marker: string): number => {
+  let cursor = start;
+  while (cursor < end && source[cursor] === marker) cursor += 1;
+  return cursor;
+};
+
+const findTokenBefore = (source: string, token: string, start: number, end: number): number => {
+  for (let cursor = start; cursor + token.length <= end; cursor += 1) {
+    if (source.startsWith(token, cursor)) return cursor;
+  }
+  return -1;
+};
+
+const findAsciiCaseInsensitiveTokenBefore = (
+  source: string,
+  token: string,
+  start: number,
+  end: number,
+): number => {
+  for (let cursor = start; cursor + token.length <= end; cursor += 1) {
+    let matches = true;
+    for (let tokenIndex = 0; tokenIndex < token.length; tokenIndex += 1) {
+      const sourceCode = source.charCodeAt(cursor + tokenIndex);
+      const foldedSourceCode = sourceCode >= 65 && sourceCode <= 90 ? sourceCode + 32 : sourceCode;
+      if (foldedSourceCode !== token.charCodeAt(tokenIndex)) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return cursor;
+  }
+  return -1;
+};
+
+const rawHtmlBlockTagAt = (source: string, start: number, end: number): string | null => {
+  if (source[start] !== '<' || source[start + 1] === '/') return null;
+  let cursor = start + 1;
+  while (cursor < end && cursor - start <= 10 && /[A-Za-z]/u.test(source[cursor])) cursor += 1;
+  if (cursor === start + 1 || cursor - start > 10) return null;
+  const boundary = source[cursor];
+  if (boundary !== undefined && boundary !== '>' && boundary !== '/' && boundary !== ' ' && boundary !== '\t') {
+    return null;
+  }
+  const tag = source.slice(start + 1, cursor).toLocaleLowerCase('en-US');
+  return RAW_HTML_BLOCK_TAGS.has(tag) ? tag : null;
+};
+
+const closingFenceAt = (
+  source: string,
+  start: number,
+  end: number,
+  marker: string,
+  minimumLength: number,
+): boolean => {
+  const runEnd = markerRunEnd(source, start, end, marker);
+  if (runEnd - start < minimumLength) return false;
+  for (let cursor = runEnd; cursor < end; cursor += 1) {
+    if (source[cursor] !== ' ' && source[cursor] !== '\t') return false;
+  }
+  return true;
+};
+
+const skipHtmlTag = (source: string, start: number, end: number): number => {
+  const next = source[start + 1];
+  if (!next || !/[A-Za-z!/?]/u.test(next)) return start + 1;
+  let quote: '"' | "'" | null = null;
+  let cursor = start + 1;
+  while (cursor < end) {
+    const character = source[cursor];
+    if (quote !== null) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '>') {
+      return cursor + 1;
+    }
+    cursor += 1;
+  }
+  return end;
+};
+
+const skipLinkDestination = (source: string, start: number, end: number): number => {
+  let depth = 0;
+  let cursor = start;
+  while (cursor < end) {
+    if (source[cursor] === '\\' && cursor + 1 < end) {
+      cursor += 2;
+      continue;
+    }
+    if (source[cursor] === '(') depth += 1;
+    else if (source[cursor] === ')') {
+      depth -= 1;
+      if (depth === 0) return cursor + 1;
+    }
+    cursor += 1;
+  }
+  return end;
+};
+
+const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandidate[] => {
+  const candidates: MarkdownResourceCandidate[] = [];
+  let candidateCharacters = 0;
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+  let inlineTicks = 0;
+  let bracketDepth = 0;
+  let inHtmlComment = false;
+  let rawHtmlBlockTag: string | null = null;
+  let lineStart = 0;
+
+  while (lineStart < source.length) {
+    let lineEnd = lineStart;
+    while (lineEnd < source.length && source[lineEnd] !== '\n' && source[lineEnd] !== '\r') lineEnd += 1;
+
+    let firstContent = lineStart;
+    let indentation = 0;
+    while (firstContent < lineEnd && source[firstContent] === ' ' && indentation < 4) {
+      firstContent += 1;
+      indentation += 1;
+    }
+    const indentedCode = indentation >= 4 || source[firstContent] === '\t';
+    const startedInsideFence = fence !== null;
+    let rawHtmlBlockLine = false;
+
+    if (rawHtmlBlockTag !== null) {
+      rawHtmlBlockLine = true;
+      if (findAsciiCaseInsensitiveTokenBefore(
+        source,
+        `</${rawHtmlBlockTag}`,
+        firstContent,
+        lineEnd,
+      ) !== -1) rawHtmlBlockTag = null;
+    } else if (fence === null && inlineTicks === 0 && indentation <= 3) {
+      const openingTag = rawHtmlBlockTagAt(source, firstContent, lineEnd);
+      if (openingTag !== null) {
+        rawHtmlBlockLine = true;
+        if (findAsciiCaseInsensitiveTokenBefore(source, `</${openingTag}`, firstContent, lineEnd) === -1) {
+          rawHtmlBlockTag = openingTag;
+        }
+      }
+    }
+
+    if (!rawHtmlBlockLine && fence !== null) {
+      if (indentation <= 3 && source[firstContent] === fence.marker
+        && closingFenceAt(source, firstContent, lineEnd, fence.marker, fence.length)) {
+        fence = null;
+      }
+    } else if (!rawHtmlBlockLine && inlineTicks === 0 && !indentedCode
+      && (source[firstContent] === '`' || source[firstContent] === '~')) {
+      const marker = source[firstContent] as '`' | '~';
+      const runEnd = markerRunEnd(source, firstContent, lineEnd, marker);
+      if (runEnd - firstContent >= 3) fence = { marker, length: runEnd - firstContent };
+      else firstContent = lineStart;
+    } else if (!rawHtmlBlockLine && (!indentedCode || inlineTicks !== 0)) {
+      firstContent = lineStart;
+    }
+
+    const fenceLine = rawHtmlBlockLine || startedInsideFence || fence !== null;
+    if (!fenceLine && (!indentedCode || inlineTicks !== 0)) {
+      let cursor = firstContent;
+      while (cursor < lineEnd) {
+        if (inHtmlComment) {
+          const commentEnd = findTokenBefore(source, '-->', cursor, lineEnd);
+          if (commentEnd === -1) {
+            cursor = lineEnd;
+            continue;
+          }
+          inHtmlComment = false;
+          cursor = commentEnd + 3;
+          continue;
+        }
+        if (source.startsWith('<!--', cursor)) {
+          inHtmlComment = true;
+          cursor += 4;
+          continue;
+        }
+
+        const character = source[cursor];
+        if (character === '`') {
+          const runEnd = markerRunEnd(source, cursor, lineEnd, '`');
+          const runLength = runEnd - cursor;
+          if (inlineTicks === 0) inlineTicks = runLength;
+          else if (runLength === inlineTicks) inlineTicks = 0;
+          cursor = runEnd;
+          continue;
+        }
+        if (inlineTicks !== 0) {
+          cursor += 1;
+          continue;
+        }
+        if (character === '\\' && cursor + 1 < lineEnd) {
+          cursor += 2;
+          continue;
+        }
+        if (character === '<') {
+          cursor = skipHtmlTag(source, cursor, lineEnd);
+          continue;
+        }
+        if (character === '[' && source[cursor + 1] === '[') {
+          let close = cursor + 2;
+          let validShape = true;
+          while (close < lineEnd) {
+            if (source[close] === '[') {
+              validShape = false;
+              break;
+            }
+            if (source[close] === ']') {
+              if (source[close + 1] === ']') break;
+              validShape = false;
+              break;
+            }
+            close += 1;
+          }
+          if (!validShape || close >= lineEnd || source[close + 1] !== ']') {
+            const recovery = findTokenBefore(source, ']]', close, lineEnd);
+            cursor = recovery !== -1 ? recovery + 2 : lineEnd;
+            continue;
+          }
+          const to = close + 2;
+          const embed = cursor > lineStart && source[cursor - 1] === '!';
+          const from = embed ? cursor - 1 : cursor;
+          if (bracketDepth === 0) {
+            const literalLength = to - from;
+            const separatorLength = candidates.length === 0 ? 0 : 1;
+            if (candidateCharacters + separatorLength + literalLength > MAX_EDITOR_CANDIDATE_PARSE_CHARS) {
+              return candidates;
+            }
+            candidates.push({ from, to, literal: source.slice(from, to) });
+            candidateCharacters += separatorLength + literalLength;
+            if (candidates.length >= MAX_EDITOR_WIKI_OCCURRENCES) return candidates;
+          }
+          cursor = to;
+          continue;
+        }
+        if (character === '[') bracketDepth += 1;
+        else if (character === ']' && bracketDepth > 0) {
+          bracketDepth -= 1;
+          if (bracketDepth === 0) {
+            if (source[cursor + 1] === '(') {
+              cursor = skipLinkDestination(source, cursor + 1, lineEnd);
+              continue;
+            }
+            if (source[cursor + 1] === ':') {
+              cursor = lineEnd;
+              continue;
+            }
+          }
+        }
+        cursor += 1;
+      }
+    }
+
+    if (lineEnd >= source.length) break;
+    lineStart = lineEnd + (source[lineEnd] === '\r' && source[lineEnd + 1] === '\n' ? 2 : 1);
+  }
+
+  return candidates;
+};
+
+const parseMarkdownResourceCandidates = (source: string): ParsedMarkdownResourceCandidate[] => {
+  const candidates = scanMarkdownResourceCandidates(source);
+  if (candidates.length === 0) return [];
+  const mappings = new Map<number, MarkdownResourceCandidate>();
+  let syntheticSource = '';
+  for (const candidate of candidates) {
+    if (syntheticSource) syntheticSource += '\n';
+    mappings.set(syntheticSource.length, candidate);
+    syntheticSource += candidate.literal;
+  }
+  if (syntheticSource.length > MAX_EDITOR_CANDIDATE_PARSE_CHARS) {
+    throw new Error('Markdown resource candidate budget exceeded');
+  }
+
+  const tree = editorMarkdownResourceParser.parse(syntheticSource);
+  const parsed: ParsedMarkdownResourceCandidate[] = [];
+  const consumed = new Set<number>();
+  visit(tree as never, (node: MarkdownAstNode) => {
+    if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return;
+    const properties = node.data?.hProperties ?? {};
+    const sourceOffset = properties['data-markdown-source-offset'];
+    const literal = properties['data-markdown-literal'];
+    const syntheticFrom = typeof sourceOffset === 'string' && /^\d+$/u.test(sourceOffset)
+      ? Number(sourceOffset)
+      : -1;
+    const candidate = mappings.get(syntheticFrom);
+    if (!candidate || consumed.has(syntheticFrom) || literal !== candidate.literal
+      || syntheticSource.slice(syntheticFrom, syntheticFrom + candidate.literal.length) !== candidate.literal
+      || source.slice(candidate.from, candidate.to) !== candidate.literal) return;
+    consumed.add(syntheticFrom);
+    parsed.push({ candidate, node });
+  });
+  return parsed;
+};
+
 const assertBoundedPart = (value: string | undefined): void => {
   if (value !== undefined && validatorDtoStringLength(value) > MAX_REFERENCE_CHARS) {
     throw new Error('Markdown resource reference is too long');
@@ -270,30 +582,19 @@ const markdownResourceRefFromNode = (node: MarkdownAstNode): MarkdownResourceRef
 };
 
 export function collectMarkdownResourceOccurrences(source: string): MarkdownResourceOccurrence[] {
-  const tree = resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
   const occurrences: MarkdownResourceOccurrence[] = [];
   const uniqueReferences = new Set<string>();
 
-  visit(tree as never, (node: MarkdownAstNode) => {
-    if (node.type !== 'agentWikiLink') return;
-    if (occurrences.length >= MAX_EDITOR_WIKI_OCCURRENCES) return EXIT;
+  for (const { candidate, node } of parseMarkdownResourceCandidates(source)) {
+    if (node.type !== 'agentWikiLink') continue;
     const reference = markdownResourceRefFromNode(node);
-    if (!reference) return;
+    if (!reference) continue;
     if (!uniqueReferences.has(reference.canonicalKey)) {
-      if (uniqueReferences.size >= MAX_REFERENCES) return EXIT;
+      if (uniqueReferences.size >= MAX_REFERENCES) break;
       uniqueReferences.add(reference.canonicalKey);
     }
-    const properties = node.data?.hProperties ?? {};
-    const sourceOffset = properties['data-markdown-source-offset'];
-    const literal = properties['data-markdown-literal'];
-    const from = typeof sourceOffset === 'string' && /^\d+$/u.test(sourceOffset)
-      ? Number(sourceOffset)
-      : -1;
-    if (!Number.isSafeInteger(from) || from < 0 || typeof literal !== 'string') return;
-    const to = from + literal.length;
-    if (source.slice(from, to) !== literal) return;
-    occurrences.push({ from, to, reference });
-  });
+    occurrences.push({ from: candidate.from, to: candidate.to, reference });
+  }
 
   return occurrences;
 }
@@ -303,17 +604,16 @@ export function collectMarkdownResourceRefs(
   options: { maxReferences?: number } = {},
 ): MarkdownResourceRef[] {
   const maxReferences = options.maxReferences ?? MAX_REFERENCES;
-  const tree = resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
   const refs = new Map<string, MarkdownResourceRef>();
 
-  visit(tree as never, (node: MarkdownAstNode) => {
+  for (const { node } of parseMarkdownResourceCandidates(source)) {
     const reference = markdownResourceRefFromNode(node);
-    if (!reference) return;
+    if (!reference) continue;
     if (!refs.has(reference.canonicalKey)) {
       refs.set(reference.canonicalKey, reference);
       if (refs.size > maxReferences) throw new Error('Markdown resource limit exceeded');
     }
-  });
+  }
 
   return [...refs.values()];
 }
