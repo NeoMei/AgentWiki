@@ -15,6 +15,7 @@ import { canonicalWikiReferenceKey, parseWikiReference } from './markdown/obsidi
 import {
   collectMarkdownResourceOccurrences,
   resolveMarkdownResources,
+  type MarkdownResourceOccurrence,
   type MarkdownResourceMap,
 } from './markdown/resources';
 
@@ -225,15 +226,12 @@ class WikiLinkWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-const WIKILINK_RE = /\[\[([^\][]+)\]\]/g;
-
 const EMPTY_RESOURCES: MarkdownResourceMap = new Map();
 const RESOURCE_RESOLUTION_DEBOUNCE_MS = 150;
-const wikiOccurrenceKey = (from: number, to: number, canonicalKey: string) => `${from}:${to}:${canonicalKey}`;
 
 const buildHiddenMarksPlugin = (
   pages: PageLinkTarget[],
-  allowedReferenceOccurrences: ReadonlySet<string>,
+  referenceOccurrences: readonly MarkdownResourceOccurrence[],
   authoritativeResources: MarkdownResourceMap | null,
 ) => ViewPlugin.fromClass(class {
   decorations: DecorationSet;
@@ -272,34 +270,29 @@ const buildHiddenMarksPlugin = (
         return undefined;
       },
     });
-    // Wiki-links: replace [[Name]] with a resolved link on non-active lines.
+    // Wiki-links: only inspect the bounded, syntax-aware AST occurrences.
     const doc = view.state.doc;
-    for (let n = 1; n <= doc.lines; n += 1) {
-      if (activeLines.has(n)) continue;
-      const text = doc.line(n).text;
-      WIKILINK_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = WIKILINK_RE.exec(text))) {
-        const from = doc.line(n).from + match.index;
-        if (from > 0 && doc.sliceString(from - 1, from) === '!') continue;
-        const reference = parseWikiReference(match[1]);
-        const referenceKey = canonicalWikiReferenceKey(reference);
-        const to = from + match[0].length;
-        if (!reference.target || !reference.fragmentValid
-          || !allowedReferenceOccurrences.has(wikiOccurrenceKey(from, to, referenceKey))) continue;
-        const resource = authoritativeResources?.get(referenceKey);
-        const href = resource?.status === 'resolved' && resource.kind === 'page'
-          ? resolveWikiHref(reference, [{ id: resource.pageId, title: resource.title, slug: resource.slug }])
-          : authoritativeResources === null
-            ? resolveWikiHref(reference, pages)
-            : null;
-        if (!href) continue;
-        const visibleName = reference.label ?? match[1].split('|', 1)[0].trim();
-        ranges.push(
-          Decoration.replace({ widget: new WikiLinkWidget(visibleName, href) })
-            .range(from, to),
-        );
-      }
+    for (const occurrence of referenceOccurrences) {
+      const { from, to } = occurrence;
+      if (from < 0 || from >= to || to > doc.length || activeLines.has(doc.lineAt(from).number)) continue;
+      const literal = doc.sliceString(from, to);
+      if (!literal.startsWith('[[') || !literal.endsWith(']]')) continue;
+      const rawReference = literal.slice(2, -2);
+      const reference = parseWikiReference(rawReference);
+      const referenceKey = canonicalWikiReferenceKey(reference);
+      if (!reference.target || !reference.fragmentValid || referenceKey !== occurrence.reference.canonicalKey) continue;
+      const resource = authoritativeResources?.get(referenceKey);
+      const href = resource?.status === 'resolved' && resource.kind === 'page'
+        ? resolveWikiHref(reference, [{ id: resource.pageId, title: resource.title, slug: resource.slug }])
+        : authoritativeResources === null
+          ? resolveWikiHref(reference, pages)
+          : null;
+      if (!href) continue;
+      const visibleName = reference.label ?? rawReference.split('|', 1)[0].trim();
+      ranges.push(
+        Decoration.replace({ widget: new WikiLinkWidget(visibleName, href) })
+          .range(from, to),
+      );
     }
     return Decoration.set(ranges, true);
   }
@@ -337,12 +330,6 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       return { occurrences: [], references: [] };
     }
   }, [value]);
-  const allowedReferenceOccurrences = useMemo(
-    () => new Set(editorResourcePlan.occurrences.map(({ from, to, reference }) => (
-      wikiOccurrenceKey(from, to, reference.canonicalKey)
-    ))),
-    [editorResourcePlan],
-  );
   const editorReferences = editorResourcePlan.references;
   const editorReferencesRef = useRef(editorReferences);
   editorReferencesRef.current = editorReferences;
@@ -527,7 +514,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             extensions={[
               markdown({ base: markdownLanguage, codeLanguages: languages }),
               syntaxHighlighting(livePreviewStyle),
-              buildHiddenMarksPlugin(pages, allowedReferenceOccurrences, authoritativeResources),
+              buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
               uploadAnchors,
               ...(uploadHandlers ? [uploadHandlers] : []),
               EditorView.lineWrapping,

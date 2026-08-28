@@ -324,19 +324,30 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(2));
   });
 
-  it('does not restart three resolver batches when ordinary text changes around 201 stable references', async () => {
+  it('bounds 201 unique references to one resolver request and leaves overflow as source', async () => {
     resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
-      data: body.references.map((reference: any) => ({ key: reference.key, status: 'unresolved' })),
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target.toLowerCase().replaceAll(' ', '-'),
+        title: reference.target,
+        slug: reference.target.toLowerCase().replaceAll(' ', '-'),
+      })),
     }));
     const workspaceRef = createRef<MarkdownWorkspaceHandle>();
-    const references = Array.from({ length: 201 }, (_, index) => `[[Page ${index}]]`).join('\n');
-    renderWYS({
+    const references = Array.from({ length: 201 }, (_, index) => `[[Page ${index}]]`).join(' ');
+    const { container } = renderWYS({
       initial: `active\n${references}`,
       workspaceRef,
       pageId: 'page-editor',
       spaceId: 'space-authoritative',
     });
-    await waitFor(() => expect(resourceMocks.post).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole('link', { name: 'Page 0' })).toHaveAttribute('href', '/pages/page-0');
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(100);
+    expect(screen.queryByRole('link', { name: 'Page 100' })).not.toBeInTheDocument();
+    expect(currentEditorView(container).state.doc.toString()).toContain('[[Page 100]]');
 
     for (const suffix of ['one', 'two', 'three']) {
       await act(async () => {
@@ -345,7 +356,33 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
       });
     }
 
-    expect(resourceMocks.post).toHaveBeenCalledTimes(3);
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('widgetizes only the first 256 duplicate occurrences and keeps later aliases raw', async () => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: 'target',
+        title: 'Target',
+        slug: 'target',
+      })),
+    }));
+    const references = Array.from({ length: 258 }, (_, index) => `[[Target|Alias ${index}]]`).join(' ');
+    const { container } = renderWYS({
+      initial: `active\n${references}`,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(await screen.findByRole('link', { name: 'Alias 0' })).toHaveAttribute('href', '/pages/target');
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(256);
+    expect(screen.queryByRole('link', { name: 'Alias 256' })).not.toBeInTheDocument();
+    expect(currentEditorView(container).state.doc.toString()).toContain('[[Target|Alias 256]]');
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(1);
   });
 
   it('reuses resolution when alias text and offsets change while rebuilding the current widgets', async () => {

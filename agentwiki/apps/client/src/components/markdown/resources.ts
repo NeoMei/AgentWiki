@@ -3,7 +3,7 @@ import { toString } from 'mdast-util-to-string';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-import { visit } from 'unist-util-visit';
+import { EXIT, visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
   canonicalWikiReferenceKey,
@@ -15,6 +15,7 @@ import {
 } from './obsidian';
 
 const MAX_REFERENCES = 100;
+const MAX_EDITOR_WIKI_OCCURRENCES = 256;
 const MAX_REFERENCE_CHARS = 512;
 
 // Mirrors validator.js `isLength`, which class-validator's MaxLength delegates
@@ -271,11 +272,17 @@ const markdownResourceRefFromNode = (node: MarkdownAstNode): MarkdownResourceRef
 export function collectMarkdownResourceOccurrences(source: string): MarkdownResourceOccurrence[] {
   const tree = resourceParser.runSync(resourceParser.parse(source)) as MarkdownAstNode;
   const occurrences: MarkdownResourceOccurrence[] = [];
+  const uniqueReferences = new Set<string>();
 
   visit(tree as never, (node: MarkdownAstNode) => {
     if (node.type !== 'agentWikiLink') return;
+    if (occurrences.length >= MAX_EDITOR_WIKI_OCCURRENCES) return EXIT;
     const reference = markdownResourceRefFromNode(node);
     if (!reference) return;
+    if (!uniqueReferences.has(reference.canonicalKey)) {
+      if (uniqueReferences.size >= MAX_REFERENCES) return EXIT;
+      uniqueReferences.add(reference.canonicalKey);
+    }
     const properties = node.data?.hProperties ?? {};
     const sourceOffset = properties['data-markdown-source-offset'];
     const literal = properties['data-markdown-literal'];
@@ -351,6 +358,7 @@ export async function resolveMarkdownResources(
   if (!Array.isArray(references) || references.length === 0) {
     throw new Error('Invalid Markdown resource request');
   }
+  if (references.length > MAX_REFERENCES) throw new Error('Markdown resource limit exceeded');
   const identities = new Set<string>();
   for (const reference of references) {
     if (!reference || typeof reference !== 'object'
@@ -391,28 +399,24 @@ export async function resolveMarkdownResources(
     ...(reference.blockId ? { blockId: reference.blockId } : {}),
   }));
   const result = new Map<string, ResolvedMarkdownResource>();
-  for (let start = 0; start < requests.length; start += MAX_REFERENCES) {
-    const requestBatch = requests.slice(start, start + MAX_REFERENCES);
-    const response = await api.post(
-      `/spaces/${encodeURIComponent(spaceId)}/markdown/resolve`,
-      { references: requestBatch },
-      { signal },
-    );
-    if (!Array.isArray(response.data) || response.data.length !== requestBatch.length) {
-      throw new Error('Invalid Markdown resource response');
-    }
-    const byKey = new Map<string, unknown>();
-    for (const item of response.data) {
-      const key = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined;
-      if (typeof key !== 'string' || byKey.has(key)) throw new Error('Invalid Markdown resource response');
-      byKey.set(key, item);
-    }
-    requestBatch.forEach((request, batchIndex) => {
-      if (!byKey.has(request.key)) throw new Error('Invalid Markdown resource response');
-      const reference = references[start + batchIndex];
-      result.set(reference.canonicalKey, validateResponseItem(byKey.get(request.key), request));
-    });
+  const response = await api.post(
+    `/spaces/${encodeURIComponent(spaceId)}/markdown/resolve`,
+    { references: requests },
+    { signal },
+  );
+  if (!Array.isArray(response.data) || response.data.length !== requests.length) {
+    throw new Error('Invalid Markdown resource response');
   }
+  const byKey = new Map<string, unknown>();
+  for (const item of response.data) {
+    const key = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined;
+    if (typeof key !== 'string' || byKey.has(key)) throw new Error('Invalid Markdown resource response');
+    byKey.set(key, item);
+  }
+  requests.forEach((request, index) => {
+    if (!byKey.has(request.key)) throw new Error('Invalid Markdown resource response');
+    result.set(references[index].canonicalKey, validateResponseItem(byKey.get(request.key), request));
+  });
   return result;
 }
 
