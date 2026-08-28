@@ -130,6 +130,8 @@ model User {
   pageTemplatesUpdated          PageTemplate[]                @relation("PageTemplateUpdatedBy")
   pageTemplateVersionsCreated   PageTemplateVersion[]         @relation("PageTemplateVersionCreatedBy")
   attachmentsUploaded           SpaceAttachment[]             @relation("AttachmentUploadedBy")
+  foldersCreated                Folder[]                      @relation("FolderCreatedByUser")
+  foldersLastModified           Folder[]                      @relation("FolderLastModifiedByUser")
   lockedAt                      DateTime?
   mustChangePassword            Boolean                       @default(false)
   authVersion                   Int                           @default(0)
@@ -183,15 +185,19 @@ model SecurityAuditEvent {
 }
 
 model Space {
-  id             String  @id @default(cuid())
-  name           String
-  slug           String  @unique
-  description    String?
-  visibility     String  @default("private")
-  approvalPolicy String  @default("always-review")
+  id                  String  @id @default(cuid())
+  name                String
+  slug                String  @unique
+  description         String?
+  visibility          String  @default("private")
+  approvalPolicy      String  @default("always-review")
+  contentTreeRevision BigInt  @default(0)
 
-  members SpaceMember[]
-  pages   Page[]
+  members                SpaceMember[]
+  pages                  Page[]
+  folders                Folder[]
+  pagePathAliases        PagePathAlias[]
+  contentDeletionBatches ContentDeletionBatch[]
 
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
@@ -280,21 +286,23 @@ model Agent {
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId String
 
-  credentials       AgentCredential[]
-  grants            AgentGrant[]
-  auditEvents       AgentAuditEvent[]
-  securityEvents    SecurityAuditEvent[]
-  createdSources    Source[]
-  requestedRuns     IngestRun[]
-  createdChangeSets ChangeSet[]
-  memories          AgentMemory[]
-  createdPages      Page[]               @relation("PageCreatedByAgent")
-  modifiedPages     Page[]               @relation("PageLastModifiedByAgent")
-  createdRelations  KnowledgeRelation[]  @relation("RelationCreatedByAgent")
+  credentials                AgentCredential[]
+  grants                     AgentGrant[]
+  auditEvents                AgentAuditEvent[]
+  securityEvents             SecurityAuditEvent[]
+  createdSources             Source[]
+  requestedRuns              IngestRun[]
+  createdChangeSets          ChangeSet[]
+  memories                   AgentMemory[]
+  createdPages               Page[]                     @relation("PageCreatedByAgent")
+  modifiedPages              Page[]                     @relation("PageLastModifiedByAgent")
+  createdRelations           KnowledgeRelation[]        @relation("RelationCreatedByAgent")
   collaborationRoleBindings  CollaborationRoleBinding[]
   collaborationAssignedTasks CollaborationRunTask[]
   collaborationAttempts      CollaborationTaskAttempt[]
   collaborationEvents        CollaborationRunEvent[]    @relation("CollaborationEventAgent")
+  foldersCreated             Folder[]                   @relation("FolderCreatedByAgent")
+  foldersLastModified        Folder[]                   @relation("FolderLastModifiedByAgent")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -388,6 +396,8 @@ model Page {
   parent    Page?   @relation("PageChildren", fields: [parentId], references: [id], onDelete: SetNull)
   parentId  String?
   children  Page[]  @relation("PageChildren")
+  folderId  String?
+  folder    Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   sortOrder Int     @default(0)
 
   space    Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
@@ -397,7 +407,11 @@ model Page {
 
   tags Tag[]
 
-  versions PageVersion[]
+  versions    PageVersion[]
+  pathAliases PagePathAlias[]
+
+  deletionBatchId String?
+  deletionBatch   ContentDeletionBatch? @relation(fields: [deletionBatchId], references: [id], onDelete: SetNull)
 
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -437,6 +451,84 @@ model Page {
   @@index([sourceId, sourceVersionId])
   @@index([sourceTemplateId, sourceTemplateVersion])
   @@index([spaceId, deletedAt, sortOrder])
+  @@index([spaceId, folderId, deletedAt, sortOrder, id])
+}
+
+model Folder {
+  id                    String    @id @default(cuid())
+  spaceId               String
+  parentId              String?
+  name                  String
+  nameKey               String
+  path                  String
+  pathKey               String
+  sortOrder             Int       @default(0)
+  createdByUserId       String?
+  createdByAgentId      String?
+  sourceChangeSetId     String?
+  lastModifiedByUserId  String?
+  lastModifiedByAgentId String?
+  lastModifiedAt        DateTime  @default(now())
+  deletionBatchId       String?
+  deletedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  space               Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parent              Folder?                @relation("FolderChildren", fields: [parentId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  children            Folder[]               @relation("FolderChildren")
+  pages               Page[]
+  createdByUser       User?                  @relation("FolderCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByAgent      Agent?                 @relation("FolderCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  sourceChangeSet     ChangeSet?             @relation("FolderOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  lastModifiedByUser  User?                  @relation("FolderLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+  lastModifiedByAgent Agent?                 @relation("FolderLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  deletionBatch       ContentDeletionBatch?  @relation(fields: [deletionBatchId], references: [id], onDelete: SetNull)
+  rootDeletionBatches ContentDeletionBatch[] @relation("ContentDeletionBatchRootFolder")
+
+  @@unique([id, spaceId])
+  @@index([spaceId, parentId, deletedAt, sortOrder, id])
+  @@index([deletionBatchId])
+  @@index([sourceChangeSetId])
+}
+
+model PagePathAlias {
+  id        String    @id @default(cuid())
+  spaceId   String
+  pageId    String
+  path      String
+  pathKey   String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  page  Page  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, pathKey, pageId])
+  @@index([spaceId, pathKey, expiresAt])
+  @@index([pageId, createdAt(sort: Desc)])
+}
+
+model ContentDeletionBatch {
+  id                  String    @id @default(cuid())
+  spaceId             String
+  rootFolderId        String
+  deletedByUserId     String?
+  deletedByAgentId    String?
+  deletedTreeRevision BigInt
+  folderCount         Int
+  pageCount           Int
+  impactHash          String
+  createdAt           DateTime  @default(now())
+  restoredAt          DateTime?
+
+  space      Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  rootFolder Folder   @relation("ContentDeletionBatchRootFolder", fields: [rootFolderId], references: [id], onDelete: Cascade)
+  folders    Folder[]
+  pages      Page[]
+
+  @@index([spaceId, restoredAt, createdAt(sort: Desc)])
+  @@index([rootFolderId, createdAt(sort: Desc)])
 }
 
 model PageTemplate {
@@ -518,6 +610,7 @@ model PageVersion {
   slug             String?
   format           String?
   parentId         String?
+  folderId         String?
   syncPath         String?
   syncPathKey      String?
   migrationBatchId String?
@@ -727,6 +820,7 @@ model ChangeSet {
   knowledgeRevisions      SpaceKnowledgeRevision[] @relation("ChangeSetKnowledgeRevision")
   originPages             Page[]                  @relation("PageOriginChangeSet")
   changedPages            Page[]                  @relation("PageLastChangeSet")
+  originFolders           Folder[]                @relation("FolderOriginChangeSet")
   relations               KnowledgeRelation[]
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
@@ -917,6 +1011,7 @@ model SyncPageContentRow {
 model SyncRevisionPageRow {
   revisionId  String
   pageId      String
+  folderId    String?
   path        String
   pathKey     String
   title       String
@@ -927,6 +1022,35 @@ model SyncRevisionPageRow {
 
   @@id([revisionId, pageId])
   @@unique([revisionId, pathKey])
+}
+
+model SyncRevisionFolderRow {
+  revisionId     String
+  folderId       String
+  parentFolderId String?
+  name           String
+  path           String
+  pathKey        String
+  sortOrder      Int
+  updatedAt      DateTime
+
+  @@id([revisionId, folderId])
+  @@unique([revisionId, pathKey])
+  @@index([revisionId, sortOrder, folderId])
+}
+
+model SyncRevisionTreeDeltaRow {
+  revisionId   String
+  ordinal      Int
+  operation    String
+  folderId     String?
+  pageId       String?
+  previousPath String?
+  contentHash  String?
+
+  @@id([revisionId, ordinal])
+  @@unique([revisionId, folderId])
+  @@unique([revisionId, pageId])
 }
 
 model SyncRevisionDeltaRow {
