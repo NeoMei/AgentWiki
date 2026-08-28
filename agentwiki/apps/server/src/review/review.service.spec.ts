@@ -36,6 +36,11 @@ function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
       });
       return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
     }),
+    prepareExactPageMutation: jest.fn(async (_tx: any, input: any) => ({
+      folderId: input.folderId ?? null,
+      syncPath: input.syncPath,
+      syncPathKey: pathKey(input.syncPath),
+    })),
     advancePageMutation: jest.fn(async (tx: any, input: any) => {
       if (!input.existingSyncRevisionId) {
         await revisionWriter.advance(tx, input.spaceId, input.changes, {
@@ -94,6 +99,7 @@ describe('ReviewService approval boundaries', () => {
     lockPageMutationSpace: jest.fn(),
     placePage: jest.fn(),
     preparePageMutation: jest.fn(),
+    prepareExactPageMutation: jest.fn(),
     advancePageMutation: jest.fn(),
     mapLegacyPageParent: jest.fn(),
   } as any;
@@ -130,6 +136,11 @@ describe('ReviewService approval boundaries', () => {
       });
       return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
     });
+    contentTree.prepareExactPageMutation.mockImplementation(async (_tx: any, input: any) => ({
+      folderId: input.folderId ?? null,
+      syncPath: input.syncPath,
+      syncPathKey: pathKey(input.syncPath),
+    }));
     contentTree.advancePageMutation.mockImplementation(async (tx: any, input: any) => {
       if (!input.existingSyncRevisionId) {
         await revisionWriter.advance(tx, input.spaceId, input.changes, {
@@ -192,17 +203,46 @@ describe('ReviewService approval boundaries', () => {
       items: [], approvals: [], space: {}, run: null,
     });
 
-    await expect(service.revert('cs-stale-revert')).rejects.toMatchObject({
+    await expect(service.revert('cs-stale-revert', '0')).rejects.toMatchObject({
       businessCode: 'CHANGESET_INVALID_STATE',
       statusCode: 409,
     });
+  });
+
+  it('rejects a structural Page publication that omits the caller tree revision', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-missing-tree-cas', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'create', type: 'create_page', status: 'accepted',
+        payload: { title: 'No CAS', content: '# No CAS' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      page: {
+        create: jest.fn().mockResolvedValue({ id: 'page-1' }),
+        findUnique: jest.fn().mockResolvedValue({ title: 'No CAS', content: '# No CAS', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-missing-tree-cas')).rejects.toMatchObject({
+      businessCode: 'CONTENT_TREE_CONFLICT',
+    });
+    expect(tx.page.create).not.toHaveBeenCalled();
   });
 
   it('publishes only explicitly accepted items', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-1', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
       items: [
-        { id: 'accepted', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'ok' } },
+        { id: 'accepted', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'ok', expectedTreeRevision: '0' } },
         { id: 'pending', type: 'create_page', status: 'pending', payload: { title: 'B', content: 'no' } },
         { id: 'rejected', type: 'create_page', status: 'rejected', payload: { title: 'C', content: 'no' } },
       ], approvals: [], space: {}, run: null,
@@ -373,7 +413,7 @@ describe('ReviewService approval boundaries', () => {
       id: 'cs-restore', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
       items: [{
         id: 'restore', type: 'create_page', status: 'accepted',
-        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Restored', content: 'new' },
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Restored', content: 'new', expectedTreeRevision: '0' },
       }],
       approvals: [], space: {}, run: null,
     });
@@ -439,7 +479,7 @@ describe('ReviewService approval boundaries', () => {
         id: 'restore-readable', type: 'create_page', status: 'accepted',
         payload: {
           sourceId: 'source-1', sourcePath: '/legacy-source.md', sourceVersionId: 'version-2',
-          title: 'Readable restored', content: 'new',
+          title: 'Readable restored', content: 'new', expectedTreeRevision: '0',
         },
       }],
       approvals: [], space: {}, run: null,
@@ -506,7 +546,7 @@ describe('ReviewService approval boundaries', () => {
       id: 'cs-restore-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
       items: [{
         id: 'restore-race', type: 'create_page', status: 'accepted',
-        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Racing restore', content: 'new' },
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', sourceVersionId: 'version-2', title: 'Racing restore', content: 'new', expectedTreeRevision: '0' },
       }],
       approvals: [], space: {}, run: null,
     });
@@ -539,7 +579,7 @@ describe('ReviewService approval boundaries', () => {
       id: 'cs-duplicate', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
       items: [{
         id: 'duplicate', type: 'create_page', status: 'accepted',
-        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Duplicate', content: 'new' },
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Duplicate', content: 'new', expectedTreeRevision: '0' },
       }],
       approvals: [], space: {}, run: null,
     });
@@ -558,7 +598,7 @@ describe('ReviewService approval boundaries', () => {
       id: 'cs-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
       items: [{
         id: 'race', type: 'create_page', status: 'accepted',
-        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Racing', content: 'new' },
+        payload: { sourceId: 'source-1', sourcePath: 'docs/a.md', title: 'Racing', content: 'new', expectedTreeRevision: '0' },
       }],
       approvals: [], space: {}, run: null,
     });
@@ -776,7 +816,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    await expect(service.revert('cs-old', '0')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
     expect(tx.page.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         id: 'page-1',
@@ -816,7 +856,7 @@ describe('ReviewService approval boundaries', () => {
       changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
-    await service.revert('cs-1');
+    await service.revert('cs-1', '0');
     expect(tx.page.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
@@ -870,12 +910,12 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await service.revert('cs-restore');
+    await service.revert('cs-restore', '0');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'page-1', sourceChangeSetId: 'cs-restore', lastChangeSetId: 'cs-restore' }),
       data: expect.objectContaining({
-        title: 'Archived title', content: 'Archived body', parentId: 'parent-old',
+        title: 'Archived title', content: 'Archived body', parentId: null,
         folderId: 'folder-old', deletedAt: archivedAt,
         sourceChangeSetId: 'cs-old', lastChangeSetId: 'cs-old', lastModifiedAt: priorModifiedAt,
         syncPath: 'pages/Archived title.md', syncPathKey: pathKey('pages/Archived title.md'),
@@ -887,7 +927,10 @@ describe('ReviewService approval boundaries', () => {
   });
 
   it.each([
-    ['update_page', { before: { title: 'Before' } }, null],
+    ['update_page', { before: {
+      title: 'Before', slug: 'before', content: 'Before body', format: 'markdown',
+      folderId: null, syncPath: 'pages/Before.md', syncPathKey: pathKey('pages/Before.md'),
+    } }, null],
     ['archive_page', { before: { deletedAt: null } }, { not: null }],
   ])('reverts an unchanged %s item owned by the published change set', async (type, payload, deletedAt) => {
     const publishedAt = new Date('2026-07-27T08:00:00.000Z');
@@ -914,7 +957,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-1')).resolves.toMatchObject({ id: 'cs-1' });
+    await expect(service.revert('cs-1', '0')).resolves.toMatchObject({ id: 'cs-1' });
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         id: 'page-1',
@@ -957,7 +1000,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    await expect(service.revert('cs-old', '0')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
     if (type === 'create_relation') {
       expect(tx.knowledgeRelation.deleteMany).toHaveBeenCalledWith({
         where: {
@@ -991,7 +1034,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-1')).resolves.toMatchObject({ id: 'cs-1' });
+    await expect(service.revert('cs-1', '0')).resolves.toMatchObject({ id: 'cs-1' });
     expect(tx.knowledgeRelation.deleteMany).toHaveBeenCalledWith({
       where: {
         id: 'relation-1',
@@ -1084,7 +1127,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-update-relation')).resolves.toMatchObject({ id: 'cs-update-relation' });
+    await expect(service.revert('cs-update-relation', '0')).resolves.toMatchObject({ id: 'cs-update-relation' });
     const { id: _id, ...restored } = before;
     expect(tx.knowledgeRelation.updateMany).toHaveBeenCalledWith({
       where: {
@@ -1131,7 +1174,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-memory')).resolves.toMatchObject({ id: 'cs-memory' });
+    await expect(service.revert('cs-memory', '0')).resolves.toMatchObject({ id: 'cs-memory' });
     expect(tx.agentMemory.updateMany).toHaveBeenNthCalledWith(1, {
       where: { id: 'memory-created', spaceId: 'space-1', updatedAt: { lte: publishedAt } },
       data: expect.objectContaining({ status: 'archived', deletedAt: expect.any(Date) }),
@@ -1221,7 +1264,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-1')).resolves.toMatchObject({ id: 'cs-1' });
+    await expect(service.revert('cs-1', '0')).resolves.toMatchObject({ id: 'cs-1' });
     expect(tx.knowledgeRelation.createMany).toHaveBeenCalledWith({
       data: { ...before, id: 'relation-1' },
       skipDuplicates: true,
@@ -1268,7 +1311,7 @@ describe('ReviewService approval boundaries', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    await expect(service.revert('cs-old', '0')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
     expect(evidenceState.targetRelationId).toBe('relation-2');
     expect(tx.changeItem.update).not.toHaveBeenCalled();
   });
@@ -1363,7 +1406,7 @@ describe('ReviewService approval boundaries', () => {
       }
     });
 
-    await expect(service.revert('cs-old')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    await expect(service.revert('cs-old', '0')).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
     expect(tx.page.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.changeItem.update).toHaveBeenCalledTimes(1);
     expect(state).toEqual(initialState);
@@ -1372,7 +1415,7 @@ describe('ReviewService approval boundaries', () => {
   it('publishes an Agent page update with prior state captured for rollback', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-update', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
-      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', changes: { title: 'After', content: 'New' } } }],
+      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', expectedTreeRevision: '0', changes: { title: 'After', content: 'New' } } }],
       approvals: [], space: {}, run: null,
     });
     (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-1' }) };
@@ -1404,7 +1447,7 @@ describe('ReviewService approval boundaries', () => {
     const updatedAt = new Date('2026-08-19T10:00:00Z');
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-page-race', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
-      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString(), changes: { title: 'After' } } }],
+      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString(), expectedTreeRevision: '0', changes: { title: 'After' } } }],
       approvals: [], space: {}, run: null,
     });
     const tx = {
@@ -1502,7 +1545,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('reviewPublish accepts pending items, approves and publishes in one call', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-1', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
-      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x' } }],
+      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     });
     prisma.page.create.mockResolvedValue({ id: 'page-1' });
@@ -1582,7 +1625,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-auto', status: 'approved' });
     const autoChangeSet = {
       id: 'cs-auto', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
-      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x' } }],
+      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     };
     prisma.changeSet.findUnique
@@ -1594,7 +1637,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'publisher',
         scopes: scopesForAgentAccessRole('publisher'),
       },
-      'space-1', 'Auto', { type: 'create_page', payload: { title: 'A', content: 'x' } },
+      'space-1', 'Auto', { type: 'create_page', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } },
     );
     expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'approved' }),
@@ -1652,7 +1695,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     prisma.changeSet.findUnique.mockImplementation(async () => ({
       id: 'cs-race', status: state.changeSetStatus, spaceId: 'space-1',
       createdByUserId: null, createdByAgentId: 'agent-1',
-      items: [{ id: 'i1', type: 'create_page', status: state.itemStatus, payload: { title: 'A', content: 'x' } }],
+      items: [{ id: 'i1', type: 'create_page', status: state.itemStatus, payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     }));
     prisma.changeSet.updateMany.mockImplementation(async ({ where, data }: any) => {
@@ -1681,7 +1724,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
         userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'publisher',
         scopes: scopesForAgentAccessRole('publisher'),
       },
-      'space-1', 'Race', { type: 'create_page', payload: { title: 'A', content: 'x' } },
+      'space-1', 'Race', { type: 'create_page', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } },
     );
 
     expect(result).toMatchObject({ status: 'pending_review', autoPublished: false });
@@ -1891,6 +1934,7 @@ describe('ReviewService readable page paths', () => {
         title: 'Setup',
         content: '# Setup\n\nBody',
         sourcePath: 'guides/Setup.md',
+        expectedTreeRevision: '0',
       },
     }];
     tx.page.findUnique.mockResolvedValue({
@@ -1928,6 +1972,7 @@ describe('ReviewService readable page paths', () => {
         title: 'Guide',
         content: '# Guide\n\nBody',
         sourcePath: '/not-portable.md',
+        expectedTreeRevision: '0',
       },
     }];
 
@@ -1954,6 +1999,7 @@ describe('ReviewService readable page paths', () => {
       status: 'accepted',
       payload: {
         pageId: 'page-1',
+        expectedTreeRevision: '0',
         changes: { title: 'New' },
       },
     }];
@@ -2044,7 +2090,7 @@ describe('ReviewService readable page paths', () => {
       id: 'create-1',
       type: 'create_page',
       status: 'accepted',
-      payload: { title: 'Title', content: '# Title\n\nBody' },
+      payload: { title: 'Title', content: '# Title\n\nBody', expectedTreeRevision: '0' },
     }];
     syncPaths.allocate.mockResolvedValue({
       path: 'pages/Title.md',
@@ -2081,7 +2127,7 @@ describe('ReviewService readable page paths', () => {
       id: 'create-1',
       type: 'create_page',
       status: 'accepted',
-      payload: { title: 'Guide', content: '# Guide\n\nBody' },
+      payload: { title: 'Guide', content: '# Guide\n\nBody', expectedTreeRevision: '0' },
     }];
     tx.knowledgeSubmission = {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -2108,6 +2154,7 @@ describe('ReviewService readable page paths', () => {
       status: 'accepted',
       payload: {
         pageId: 'page-1',
+        expectedTreeRevision: '0',
         changes: { title: 'A <> B' },
       },
     }];
@@ -2172,7 +2219,7 @@ describe('ReviewService readable page paths', () => {
       id: 'create-1',
       type: 'create_page',
       status: 'accepted',
-      payload: { title: 'Guide', content: '' },
+      payload: { title: 'Guide', content: '', expectedTreeRevision: '0' },
     }];
 
     await service.publish('cs-1');
@@ -2201,22 +2248,102 @@ describe('ReviewService page revert ordering and audit', () => {
   } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
+  const contentTree = makeReviewContentTree(revisionWriter, syncPaths) as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
     syncPaths,
     graphMaintenance,
-    makeReviewContentTree(revisionWriter, syncPaths) as any,
+    contentTree,
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
+  it('reverts title and Folder placement through one ContentTree CAS boundary without restoring parentId', async () => {
+    const publishedAt = new Date('2026-08-20T00:01:00.000Z');
+    const updatedAt = new Date('2026-08-20T00:00:30.000Z');
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'New title', content: 'New body', authorId: 'user-1', slug: 'new-title',
+      format: 'markdown', parentId: null, folderId: 'folder-new', sortOrder: 3,
+      createdAt: new Date('2026-08-19T00:00:00.000Z'), updatedAt,
+      syncPath: 'pages/New/New title.md', syncPathKey: pathKey('pages/New/New title.md'),
+      sourceChangeSetId: 'cs-before', lastChangeSetId: 'cs-1', deletedAt: null,
+    };
+    const before = {
+      title: 'Old title', slug: 'old-title', content: 'Old body', format: 'markdown',
+      parentId: 'legacy-page-parent', folderId: 'folder-old',
+      sourceChangeSetId: 'cs-before', createdByAgentId: null,
+      lastChangeSetId: 'cs-before', lastModifiedByUserId: 'user-1',
+      lastModifiedByAgentId: null, lastModifiedAt: updatedAt,
+      sourceId: null, sourceVersionId: null, sourcePath: null,
+      syncPath: 'pages/Old/Old title.md', syncPathKey: pathKey('pages/Old/Old title.md'),
+    };
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-1', status: 'published', spaceId: 'space-1', publishedAt,
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'item-1', type: 'update_page', status: 'published',
+        publishedResourceId: 'page-1', payload: { before },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const restored = {
+      ...current, ...before, parentId: null, deletedAt: null,
+      syncPathKey: pathKey(before.syncPath),
+    };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn().mockResolvedValue({}) },
+      page: {
+        findFirst: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(restored),
+        findMany: jest.fn().mockResolvedValue([restored]),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    contentTree.advancePageMutation.mockResolvedValueOnce({
+      treeRevision: 9n, syncRevisionId: 'revision-1',
+    });
+
+    await service.revert('cs-1', '8');
+
+    expect(contentTree.lockPageMutationSpace).toHaveBeenCalledWith(tx, 'space-1', 8n);
+    expect(contentTree.prepareExactPageMutation).toHaveBeenCalledWith(tx, expect.objectContaining({
+      pageId: 'page-1', title: 'Old title', folderId: 'folder-old',
+      syncPath: 'pages/Old/Old title.md',
+    }));
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        parentId: null, folderId: 'folder-old',
+        syncPath: 'pages/Old/Old title.md', syncPathKey: pathKey('pages/Old/Old title.md'),
+      }),
+    }));
+    expect(contentTree.advancePageMutation).toHaveBeenCalledTimes(1);
+    expect(contentTree.advancePageMutation).toHaveBeenCalledWith(tx, expect.objectContaining({
+      expectedTreeRevision: 8n,
+      structural: true,
+      changes: [expect.objectContaining({
+        operation: 'upsert', pageId: 'knowledge-1', folderId: 'folder-old',
+        path: 'pages/Old/Old title.md',
+      })],
+    }));
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['create_page', {}, null],
-    ['update_page', { before: { title: 'Before', content: 'Old', syncPath: 'guides/Before.md' } }, null],
+    ['update_page', { before: {
+      title: 'Before', slug: 'before', content: 'Old', format: 'markdown',
+      folderId: 'folder-1', syncPath: 'guides/Before.md',
+      syncPathKey: pathKey('guides/Before.md'),
+    } }, null],
     ['archive_page', { before: { deletedAt: null } }, new Date('2026-08-20T00:00:00.000Z')],
   ])('locks and snapshots the current Page before reverting %s', async (type, payload, deletedAt) => {
     const publishedAt = new Date('2026-08-20T00:01:00.000Z');
@@ -2278,7 +2405,7 @@ describe('ReviewService page revert ordering and audit', () => {
     prisma.changeSet.findUnique.mockResolvedValue(changeSet);
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await service.revert('cs-1');
+    await service.revert('cs-1', '0');
 
     expect(tx.changeSet.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
       revisionWriter.lockSpace.mock.invocationCallOrder[0],
@@ -2371,7 +2498,7 @@ describe('ReviewService archive audit and provenance', () => {
       createdByUserId: null, createdByAgentId: 'agent-archive',
       items: [{
         id: 'item-archive', type: 'archive_page', status: 'accepted',
-        payload: { pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString() },
+        payload: { pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(), expectedTreeRevision: '0' },
       }], approvals: [], space: {}, run: null,
     };
     (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'agent-owner' }) };
@@ -2419,6 +2546,7 @@ describe('ReviewService archive audit and provenance', () => {
       where: { id: 'item-archive' },
       data: { payload: {
         pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(),
+        expectedTreeRevision: '0',
         before: {
           lastChangeSetId: originalPage.lastChangeSetId,
           lastModifiedByUserId: originalPage.lastModifiedByUserId,
@@ -2448,7 +2576,7 @@ describe('ReviewService archive audit and provenance', () => {
     const changeSet = {
       id: 'cs-archive', status: 'approved', spaceId: 'space-1',
       createdByUserId: 'user-archive', createdByAgentId: null,
-      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1' } }],
+      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1', expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     };
     let committed = {
@@ -2562,16 +2690,17 @@ describe('ReviewService archive audit and provenance', () => {
     prisma.changeSet.findUnique.mockResolvedValue(changeSet);
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await service.revert('cs-archive');
+    await service.revert('cs-archive', '0');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: {
+      data: expect.objectContaining({
         lastChangeSetId: originalPage.lastChangeSetId,
         lastModifiedByUserId: originalPage.lastModifiedByUserId,
         lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
         lastModifiedAt: originalModifiedAt,
         deletedAt: null,
-      },
+        parentId: null,
+      }),
     }));
     expect(tx.page.updateMany.mock.calls[0][0].data.lastChangeSetId).toBe('cs-before');
     expect(tx.page.updateMany.mock.calls[0][0].data.lastModifiedByUserId).toBe('user-before');
@@ -2656,9 +2785,12 @@ describe('ReviewService archive audit and provenance', () => {
     };
     prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
 
-    await service.revert('cs-archive');
+    await service.revert('cs-archive', '0');
 
-    expect(tx.page.updateMany.mock.calls[0][0].data).toEqual(expectedData);
+    expect(tx.page.updateMany.mock.calls[0][0].data).toMatchObject({
+      ...expectedData,
+      parentId: null,
+    });
   });
 
   it.each([
@@ -2745,7 +2877,7 @@ describe('ReviewService archive audit and provenance', () => {
       return result;
     });
 
-    await expect(service.revert('cs-archive')).rejects.toMatchObject({
+    await expect(service.revert('cs-archive', '0')).rejects.toMatchObject({
       businessCode: 'CHANGESET_INVALID_STATE',
       message: 'Archived page prior state is invalid',
     });

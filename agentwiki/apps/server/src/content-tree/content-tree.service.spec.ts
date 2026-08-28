@@ -347,6 +347,63 @@ describe('ContentTreeService Page placement and concurrency', () => {
     });
   });
 
+  it('maps an exact external path only to root or one active same-Space Folder and records an alias', async () => {
+    const { service, tx, syncPaths } = makeHarness();
+    tx.folder.findMany.mockResolvedValue([
+      { id: 'folder-1', path: 'pages/项目', pathKey: 'pages/项目' },
+    ]);
+    tx.page.findFirst.mockResolvedValue(null);
+    tx.$executeRaw.mockResolvedValue(1);
+
+    const placement = await (service as any).prepareExactPageMutation(tx, {
+      spaceId: 'space-1', pageId: 'page-1', title: '新标题',
+      syncPath: 'pages/项目/新标题.md',
+      current: {
+        title: '旧标题', folderId: null, syncPath: 'pages/旧标题.md',
+        syncPathKey: 'pages/旧标题.md', sortOrder: 0,
+        createdAt: now, updatedAt: now, knowledgeKey: 'knowledge-1', content: '# old',
+      },
+    });
+
+    expect(placement).toEqual({
+      folderId: 'folder-1', syncPath: 'pages/项目/新标题.md',
+      syncPathKey: 'pages/项目/新标题.md',
+    });
+    expect(tx.folder.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null, pathKey: 'pages/项目' },
+      select: { id: true, path: true, pathKey: true }, take: 2,
+    });
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.$executeRaw.mock.calls.some(([query]: any[]) =>
+      Array.isArray(query?.strings) && query.strings.join(' ').includes('INSERT INTO "PagePathAlias"')))
+      .toBe(true);
+  });
+
+  it('fails closed for an unmapped, ambiguous, or conflicting exact external path', async () => {
+    const { service, tx } = makeHarness();
+    const input = {
+      spaceId: 'space-1', pageId: 'page-1', title: 'Weekly', syncPath: 'pages/team/Weekly.md',
+    };
+
+    tx.folder.findMany.mockResolvedValue([]);
+    await expect((service as any).prepareExactPageMutation(tx, input))
+      .rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+
+    tx.folder.findMany.mockResolvedValue([
+      { id: 'folder-1', path: 'pages/team', pathKey: 'pages/team' },
+      { id: 'folder-2', path: 'pages/team', pathKey: 'pages/team' },
+    ]);
+    await expect((service as any).prepareExactPageMutation(tx, input))
+      .rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+
+    tx.folder.findMany.mockResolvedValue([
+      { id: 'folder-1', path: 'pages/team', pathKey: 'pages/team' },
+    ]);
+    tx.page.findFirst.mockResolvedValue({ id: 'page-2' });
+    await expect((service as any).prepareExactPageMutation(tx, input))
+      .rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CONFLICT' }));
+  });
+
   it('advances contentTreeRevision only for structural Page changes while always advancing Sync', async () => {
     const { service, tx, revisionWriter } = makeHarness();
     const change = {

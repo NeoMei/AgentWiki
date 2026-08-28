@@ -2,7 +2,7 @@ import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, R
 import { Request } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { AuthorizationService } from '../core/authorization/authorization.service';
-import { ChangeItemDecisionDto, ReviewDecisionDto } from '../core/dto/review.dto';
+import { ChangeItemDecisionDto, RevertChangeSetDto, ReviewDecisionDto } from '../core/dto/review.dto';
 import { ReviewService } from './review.service';
 
 @Controller()
@@ -71,10 +71,10 @@ export class ReviewController {
   }
 
   @Post('change-sets/:id/revert')
-  async revert(@Param('id') id: string, @Req() req: Request) {
+  async revert(@Param('id') id: string, @Req() req: Request, @Body() dto: RevertChangeSetDto) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.revert(id);
+    return this.review.revert(id, dto.expectedTreeRevision);
   }
 
   private assertHuman(req: Request) {

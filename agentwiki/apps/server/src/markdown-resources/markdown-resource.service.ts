@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { pathKey, validatePortablePath } from '@neomei/agentwiki-sync-protocol';
 import { Prisma } from '@prisma/client';
 import { normalizeAttachmentName } from '../attachments/attachment.service';
+import { ContentTreeError } from '../content-tree/content-tree.types';
 import {
   AuthorizationService,
   type Principal,
@@ -152,13 +153,23 @@ export class MarkdownResourceService {
     const attachmentTargets = unique(attachmentReferences.map((reference) => (
       normalizeAttachmentName(reference.target).nameKey
     )));
-    const sourceIdentity = sourcePageId
-      ? normalizeMarkdownPageIdentity(sourcePageId)
-      : null;
-    const exactIdTargets = unique([
-      ...pageTargets,
-      ...(sourceIdentity ? [sourceIdentity] : []),
-    ]);
+    const exactIdTargets = pageTargets;
+
+    const sourcePage = sourcePageId
+      ? await this.prisma.page.findFirst({
+          where: { id: sourcePageId, spaceId, deletedAt: null },
+          select: {
+            id: true, spaceId: true, title: true, slug: true, folderId: true,
+            syncPath: true, syncPathKey: true,
+          },
+        }) as PageRow | null
+      : undefined;
+    if (
+      sourcePageId
+      && (!sourcePage || sourcePage.id !== sourcePageId || sourcePage.spaceId !== spaceId)
+    ) {
+      throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Source Page not found');
+    }
 
     const exactPageRows = pageTargets.length > 0
       ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
@@ -175,9 +186,6 @@ export class MarkdownResourceService {
         `)
       : [];
     const scopedExactPages = exactPageRows.filter((page) => page.spaceId === spaceId);
-    const sourcePage = sourceIdentity
-      ? scopedExactPages.find((page) => normalizeMarkdownPageIdentity(page.id) === sourceIdentity)
-      : undefined;
     const resolvedPathTargets = unique(pageReferences.flatMap((reference) => (
       referencePathKeys(reference.target, sourcePage?.syncPath)
     )));
@@ -277,16 +285,6 @@ export class MarkdownResourceService {
       if (exactIdMatches.length > 1) return ambiguousPageResult(reference.key, exactIdMatches);
       if (exactIdMatches.length === 1) return pageResult(reference.key, exactIdMatches[0]);
 
-      const pathTargets = referencePathKeys(reference.target, sourcePage?.syncPath);
-      for (const targetPathKey of pathTargets) {
-        const currentMatches = scopedExactPages.filter((candidate) => (
-          normalizeMarkdownPageIdentity(candidate.syncPath) === targetPathKey
-        ));
-        if (currentMatches.length > 1) return ambiguousPageResult(reference.key, currentMatches);
-        if (currentMatches.length === 1) return pageResult(reference.key, currentMatches[0]);
-      }
-      if (exactQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
-
       const qualified = reference.target.trim().includes('/');
       if (!qualified) {
         if (titleQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
@@ -315,7 +313,18 @@ export class MarkdownResourceService {
         });
         if (slugMatches.length > 1) return ambiguousPageResult(reference.key, slugMatches);
         if (slugMatches.length === 1) return pageResult(reference.key, slugMatches[0]);
+        return { key: reference.key, status: 'unresolved' };
       }
+
+      const pathTargets = referencePathKeys(reference.target, sourcePage?.syncPath);
+      for (const targetPathKey of pathTargets) {
+        const currentMatches = scopedExactPages.filter((candidate) => (
+          normalizeMarkdownPageIdentity(candidate.syncPath) === targetPathKey
+        ));
+        if (currentMatches.length > 1) return ambiguousPageResult(reference.key, currentMatches);
+        if (currentMatches.length === 1) return pageResult(reference.key, currentMatches[0]);
+      }
+      if (exactQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
 
       if (aliasQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
       for (const targetPathKey of pathTargets) {

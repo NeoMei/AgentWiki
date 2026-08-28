@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
 import { BusinessException } from '../filters/business-error';
@@ -359,71 +359,13 @@ export class PageService {
    * parent assignment creates a cycle.
    */
   async reorder(
-    spaceId: string,
-    items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
+    _spaceId: string,
+    _items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
   ) {
-    if (process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true') {
-      throw new ContentTreeError(
-        'PAGE_PARENT_DEPRECATED',
-        'Legacy Page parent ordering is disabled',
-      );
-    }
-    if (items.length === 0) return this.findHierarchy(spaceId);
-
-    await this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
-      const ids = items.map((item) => item.id);
-      const existing = await lockedTx.page.findMany({
-        where: { id: { in: ids }, spaceId, deletedAt: null },
-        select: { id: true },
-      });
-      if (existing.length !== ids.length) {
-        throw new BadRequestException('Some pages do not belong to this space');
-      }
-
-      const spacePages = await lockedTx.page.findMany({
-        where: { spaceId, deletedAt: null },
-        select: { id: true, parentId: true },
-      });
-      const parentOf = new Map(spacePages.map((page) => [page.id, page.parentId]));
-      for (const item of items) parentOf.set(item.id, item.parentId);
-
-      for (const parentId of parentOf.values()) {
-        if (parentId !== null && !parentOf.has(parentId)) {
-          throw new BadRequestException('Parent pages must belong to this space');
-        }
-      }
-
-      // Cycle check uses the complete persisted hierarchy plus this batch.
-      for (const [pageId, parentId] of parentOf) {
-        let cursor: string | null = parentId;
-        const seen = new Set<string>([pageId]);
-        while (cursor) {
-          if (seen.has(cursor)) throw new BadRequestException('Page hierarchy cannot contain a cycle');
-          seen.add(cursor);
-          cursor = parentOf.get(cursor) ?? null;
-        }
-      }
-
-      const updatedCount = await lockedTx.$executeRaw`
-        UPDATE "Page" AS page
-        SET "parentId" = item."parentId",
-            "sortOrder" = item."sortOrder",
-            "updatedAt" = statement_timestamp()
-        FROM jsonb_to_recordset(${JSON.stringify(items)}::jsonb)
-          AS item("id" text, "parentId" text, "sortOrder" integer)
-        WHERE page."id" = item."id"
-          AND page."spaceId" = ${spaceId}
-          AND page."deletedAt" IS NULL
-      `;
-      if (updatedCount !== items.length) {
-        throw new BusinessException(
-          'RESOURCE_CONFLICT',
-          'Page hierarchy changed while it was being reordered',
-        );
-      }
-    });
-    return this.findHierarchy(spaceId);
+    throw new ContentTreeError(
+      'PAGE_PARENT_DEPRECATED',
+      'Legacy Page parent ordering is disabled; use content-tree/move',
+    );
   }
 
   async update(id: string, data: UpdatePageDto, userId?: string) {
@@ -583,18 +525,16 @@ export class PageService {
     }));
   }
 
-  async restoreVersion(pageId: string, versionId: string, expectedTreeRevision?: string) {
+  async restoreVersion(pageId: string, versionId: string, expectedTreeRevision: string) {
     const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.contentTree.lockPageMutationSpace(
         tx,
         visiblePage.spaceId,
-        expectedTreeRevision === undefined ? undefined : BigInt(expectedTreeRevision),
+        BigInt(expectedTreeRevision),
       );
-      const treeRevision = expectedTreeRevision === undefined
-        ? lockedTx.contentTreeRevision
-        : BigInt(expectedTreeRevision);
+      const treeRevision = BigInt(expectedTreeRevision);
       const version = await tx.pageVersion.findFirst({
         where: { id: versionId, pageId },
       });
@@ -704,10 +644,12 @@ export class PageService {
     return restored;
   }
 
-  async remove(id: string) {
+  async remove(id: string, expectedUpdatedAt: string, expectedTreeRevision: string) {
     const existing = await this.findOne(id);
+    const expectedVersion = new Date(expectedUpdatedAt);
+    const expectedTree = BigInt(expectedTreeRevision);
     const page = await this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.contentTree.lockPageMutationSpace(tx, existing.spaceId);
+      const lockedTx = await this.contentTree.lockPageMutationSpace(tx, existing.spaceId, expectedTree);
       const current = await tx.page.findUnique({
         where: { id, spaceId: existing.spaceId, deletedAt: null },
         select: {
@@ -745,7 +687,7 @@ export class PageService {
           id: current.id,
           spaceId: current.spaceId,
           deletedAt: null,
-          updatedAt: current.updatedAt,
+          updatedAt: expectedVersion,
         },
         data: { deletedAt: new Date() },
       });
@@ -761,7 +703,7 @@ export class PageService {
       }
       await this.contentTree.advancePageMutation(lockedTx, {
         spaceId: current.spaceId,
-        expectedTreeRevision: lockedTx.contentTreeRevision,
+        expectedTreeRevision: expectedTree,
         structural: true,
         changes: [{
           operation: 'archive',

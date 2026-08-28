@@ -40,6 +40,7 @@ import {
   type PlacePageInput,
   type PlacedPageResult,
   type PreparePageMutationInput,
+  type PrepareExactPageMutationInput,
   type AdvancePageMutationInput,
   type RenamedFolderResult,
   type RenameFolderInput,
@@ -662,6 +663,90 @@ export class ContentTreeService {
       folderId: input.folderId,
       syncPath: allocated.path,
       syncPathKey: allocated.pathKey,
+    };
+  }
+
+  async prepareExactPageMutation(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: PrepareExactPageMutationInput,
+  ): Promise<PlacedPageResult> {
+    const requested = portablePagePath(input.syncPath);
+    const separator = requested.path.lastIndexOf('/');
+    const directory = separator < 0 ? '' : requested.path.slice(0, separator);
+    let resolvedFolder: { id: string; path: string; pathKey: string } | null = null;
+    if (directory !== '' && directory !== 'pages') {
+      const normalizedDirectory = portableDirectoryPath(directory);
+      const candidates = await lockedTx.folder.findMany({
+        where: {
+          spaceId: input.spaceId,
+          deletedAt: null,
+          pathKey: normalizedDirectory.key,
+        },
+        select: { id: true, path: true, pathKey: true },
+        take: 2,
+      });
+      if (candidates.length !== 1) {
+        throw new ContentTreeError(
+          'FOLDER_NOT_FOUND',
+          'Page path does not identify one active Folder in this Space',
+        );
+      }
+      [resolvedFolder] = candidates;
+    }
+    if (
+      input.folderId !== undefined
+      && input.folderId !== (resolvedFolder?.id ?? null)
+    ) {
+      throw new ContentTreeError(
+        'FOLDER_NOT_FOUND',
+        'Page path does not match the requested active Folder',
+      );
+    }
+    const conflict = await lockedTx.page.findFirst({
+      where: {
+        spaceId: input.spaceId,
+        syncPathKey: requested.key,
+        id: { not: input.pageId },
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new ContentTreeError(
+        'CONTENT_TREE_CONFLICT',
+        'Page path is already used by another Page',
+      );
+    }
+    const folderId = resolvedFolder?.id ?? null;
+    if (input.current && (
+      input.current.folderId !== folderId
+      || input.current.syncPath !== requested.path
+      || input.current.syncPathKey !== requested.key
+    )) {
+      const currentRow: AffectedTreeRow = {
+        kind: 'page', id: input.pageId, parentId: null,
+        folderId: input.current.folderId, name: null, title: input.current.title,
+        path: input.current.syncPath, pathKey: input.current.syncPathKey,
+        sortOrder: input.current.sortOrder, createdAt: input.current.createdAt,
+        updatedAt: input.current.updatedAt, depth: 0,
+        knowledgeKey: input.current.knowledgeKey, content: input.current.content,
+      };
+      const plan: PageMutationPlan = {
+        id: input.pageId,
+        folderId,
+        path: requested.path,
+        pathKey: requested.key,
+        sortOrder: input.current.sortOrder,
+        deletedAt: null,
+        deletionBatchId: null,
+      };
+      const changedAt = new Date();
+      await this.insertPageAliases(lockedTx, input.spaceId, [currentRow], [plan], changedAt);
+      await this.trimPageAliases(lockedTx, input.spaceId, [input.pageId]);
+    }
+    return {
+      folderId,
+      syncPath: requested.path,
+      syncPathKey: requested.key,
     };
   }
 

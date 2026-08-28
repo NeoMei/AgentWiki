@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Lo
 import { Request } from 'express';
 import { PageService } from './page.service';
 import {
+  ArchivePageDto,
   CreatePageDto,
   ReorderPagesDto,
   RestorePageVersionDto,
@@ -145,12 +146,11 @@ export class PageController {
     const user = req.user as any;
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
-      const current = await this.pageService.findOne(id);
       const { expectedUpdatedAt, expectedTreeRevision, ...changes } = dto;
       return this.review.propose(user, page.spaceId, `Proposed update: ${id}`, {
         type: 'update_page', payload: {
           pageId: id,
-          expectedUpdatedAt: expectedUpdatedAt || current.updatedAt.toISOString(),
+          expectedUpdatedAt,
           ...(expectedTreeRevision === undefined ? {} : { expectedTreeRevision }),
           changes,
         },
@@ -160,17 +160,16 @@ export class PageController {
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: Request) {
+  async remove(@Param('id') id: string, @Body() dto: ArchivePageDto, @Req() req: Request) {
     const user = req.user as any;
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
-      const current = await this.pageService.findOne(id);
       return this.review.propose(user, page.spaceId, `Proposed delete: ${id}`, {
         type: 'archive_page',
-        payload: { pageId: id, expectedUpdatedAt: current.updatedAt.toISOString() },
+        payload: { pageId: id, ...dto },
       });
     }
     this.logger.log('Removing page: ' + id);
-    return this.pageService.remove(id);
+    return this.pageService.remove(id, dto.expectedUpdatedAt, dto.expectedTreeRevision);
   }
 }

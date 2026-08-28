@@ -68,7 +68,15 @@ describe('ReviewController stale action errors', () => {
     ['publish', 'stale-publish'],
     ['revert', 'stale-revert'],
   ])('returns HTTP 409 + CHANGESET_INVALID_STATE for a stale %s', async (action, id) => {
-    const response = await fetch(`${baseUrl}/change-sets/${id}/${action}`, { method: 'POST' });
+    const response = await fetch(`${baseUrl}/change-sets/${id}/${action}`, {
+      method: 'POST',
+      ...(action === 'revert'
+        ? {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ expectedTreeRevision: '0' }),
+        }
+        : {}),
+    });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({

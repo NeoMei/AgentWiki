@@ -14,9 +14,10 @@ import { SpaceRevisionWriterService } from '../../core/sync/space-revision-write
 import { PushSessionService } from './push-session.service';
 import { SearchModule } from '../../core/search/search.module';
 import { KnowledgeGraphModule } from '../../knowledge-graph/knowledge-graph.module';
+import { ContentTreeModule } from '../../content-tree/content-tree.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule],
+  imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule],
   providers: [
     ObsidianCryptoService,
     HumanDeviceGuard,

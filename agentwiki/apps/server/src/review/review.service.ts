@@ -289,7 +289,20 @@ export class ReviewService {
       const requestedTreeRevisions = Array.from(new Set(pageItems.flatMap((item) => {
         const payload = item.payload as any;
         const value = payload.expectedTreeRevision ?? payload.changes?.expectedTreeRevision;
-        if (value === undefined) return [];
+        const changes = payload.changes ?? {};
+        const structural = item.type === 'create_page'
+          || item.type === 'archive_page'
+          || changes.title !== undefined
+          || changes.folderId !== undefined;
+        if (value === undefined) {
+          if (structural) {
+            throw new ContentTreeError(
+              'CONTENT_TREE_CONFLICT',
+              'Every structural Page review item must carry an expected content-tree revision',
+            );
+          }
+          return [];
+        }
         if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/u.test(value)) {
           throw new ContentTreeError(
             'CONTENT_TREE_CONFLICT',
@@ -1382,7 +1395,14 @@ export class ReviewService {
     return `pages/${slug}.md`;
   }
 
-  async revert(id: string) {
+  async revert(id: string, expectedTreeRevision: string) {
+    if (!/^(?:0|[1-9]\d*)$/u.test(expectedTreeRevision)) {
+      throw new ContentTreeError(
+        'CONTENT_TREE_CONFLICT',
+        'The revert request carries an invalid content-tree revision',
+      );
+    }
+    const requestedTreeRevision = BigInt(expectedTreeRevision);
     const changeSet = await this.get(id);
     if (changeSet.status !== 'published') {
       throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
@@ -1409,12 +1429,11 @@ export class ReviewService {
             || typeof before.title !== 'string'
             || typeof before.content !== 'string'
             || typeof before.format !== 'string'
-            || (before.parentId !== null && typeof before.parentId !== 'string')
-            || (
-              Object.prototype.hasOwnProperty.call(before, 'folderId')
-              && before.folderId !== null
-              && typeof before.folderId !== 'string'
-            )
+            || !Object.prototype.hasOwnProperty.call(before, 'folderId')
+            || (before.folderId !== null && typeof before.folderId !== 'string')
+            || typeof before.syncPath !== 'string'
+            || typeof before.syncPathKey !== 'string'
+            || pathKey(before.syncPath) !== before.syncPathKey
             || !deletedAt
             || !lastModifiedAt
           ) {
@@ -1424,7 +1443,10 @@ export class ReviewService {
             title: before.title,
             content: before.content,
             format: before.format,
-            parentId: before.parentId,
+            parentId: null,
+            folderId: before.folderId,
+            syncPath: before.syncPath,
+            syncPathKey: before.syncPathKey,
             deletedAt,
             sourceChangeSetId: before.sourceChangeSetId,
             createdByAgentId: before.createdByAgentId,
@@ -1436,22 +1458,6 @@ export class ReviewService {
             sourceVersionId: before.sourceVersionId,
             sourcePath: before.sourcePath,
           };
-          if (Object.prototype.hasOwnProperty.call(before, 'folderId')) {
-            restoredState.folderId = before.folderId;
-          }
-          const hasSyncPath = Object.prototype.hasOwnProperty.call(before, 'syncPath');
-          const hasSyncPathKey = Object.prototype.hasOwnProperty.call(before, 'syncPathKey');
-          if (hasSyncPath || hasSyncPathKey) {
-            if (
-              typeof before.syncPath !== 'string'
-              || typeof before.syncPathKey !== 'string'
-              || pathKey(before.syncPath) !== before.syncPathKey
-            ) {
-              throw new BusinessException('CHANGESET_INVALID_STATE', 'Restored page prior state is invalid');
-            }
-            restoredState.syncPath = before.syncPath;
-            restoredState.syncPathKey = before.syncPathKey;
-          }
           restoredPageRestores.set(item.id, restoredState);
         }
       }
@@ -1495,15 +1501,19 @@ export class ReviewService {
       const hasPageRevert = changeSet.items.some(
         (item) => pageItemTypes.has(item.type) && item.publishedResourceId,
       );
-      if (hasPageRevert) {
-        await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
-      }
+      const lockedTx = hasPageRevert
+        ? await this.requireContentTree().lockPageMutationSpace(
+          tx,
+          changeSet.spaceId,
+          requestedTreeRevision,
+        )
+        : tx;
       const snapshotPage = async (where: Prisma.PageWhereInput, itemType: string) => {
-        const page = await tx.page.findFirst({ where });
+        const page = await lockedTx.page.findFirst({ where });
         if (!page) {
           throw new BusinessException('CHANGESET_CONFLICT', `Cannot revert ${itemType}: the published resource was changed later`);
         }
-        await tx.pageVersion.create({
+        await lockedTx.pageVersion.create({
           data: {
             pageId: page.id,
             title: page.title,
@@ -1517,8 +1527,78 @@ export class ReviewService {
             syncPathKey: page.syncPathKey,
           },
         });
+        return page;
       };
       const pageIds: string[] = [];
+      let structuralPageRevert = false;
+      const currentPlacement = (page: any) => ({
+        title: page.title,
+        folderId: page.folderId ?? null,
+        syncPath: page.syncPath,
+        syncPathKey: page.syncPathKey,
+        sortOrder: page.sortOrder ?? 0,
+        createdAt: page.createdAt ?? page.updatedAt,
+        updatedAt: page.updatedAt,
+        knowledgeKey: page.knowledgeKey,
+        content: page.content,
+      });
+      const prepareExact = async (
+        page: any,
+        target: { title: string; folderId: string | null; syncPath: string },
+      ) => this.requireContentTree().prepareExactPageMutation(lockedTx as any, {
+        spaceId: changeSet.spaceId,
+        pageId: page.id,
+        title: target.title,
+        folderId: target.folderId,
+        syncPath: target.syncPath,
+        current: currentPlacement(page),
+      });
+      const sanitizeUpdateBefore = (before: any) => {
+        if (
+          typeof before !== 'object'
+          || before === null
+          || Array.isArray(before)
+          || typeof before.title !== 'string'
+          || typeof before.slug !== 'string'
+          || typeof before.content !== 'string'
+          || typeof before.format !== 'string'
+          || !Object.prototype.hasOwnProperty.call(before, 'folderId')
+          || (before.folderId !== null && typeof before.folderId !== 'string')
+          || typeof before.syncPath !== 'string'
+          || typeof before.syncPathKey !== 'string'
+          || pathKey(before.syncPath) !== before.syncPathKey
+        ) {
+          throw new ContentTreeError(
+            'PAGE_PARENT_DEPRECATED',
+            'The prior Page state cannot be mapped safely to a Folder',
+          );
+        }
+        const restored: Record<string, unknown> = {
+          title: before.title,
+          slug: before.slug,
+          content: before.content,
+          format: before.format,
+          parentId: null,
+          folderId: before.folderId,
+          syncPath: before.syncPath,
+          syncPathKey: before.syncPathKey,
+        };
+        for (const key of [
+          'sourceChangeSetId', 'createdByAgentId', 'lastChangeSetId',
+          'lastModifiedByUserId', 'lastModifiedByAgentId', 'sourceId',
+          'sourceVersionId', 'sourcePath',
+        ]) {
+          if (Object.prototype.hasOwnProperty.call(before, key)) restored[key] = before[key];
+        }
+        if (Object.prototype.hasOwnProperty.call(before, 'lastModifiedAt')) {
+          const lastModifiedAt = parseValidDate(before.lastModifiedAt);
+          if (!lastModifiedAt) {
+            throw new BusinessException('CHANGESET_INVALID_STATE', 'Update Page prior state is invalid');
+          }
+          restored.lastModifiedAt = lastModifiedAt;
+        }
+        return restored;
+      };
       for (const item of changeSet.items) {
         if (!item.publishedResourceId) continue;
         if (item.type === 'create_page') {
@@ -1530,13 +1610,32 @@ export class ReviewService {
             deletedAt: null,
             updatedAt: { lte: publishedAt },
           };
-          await snapshotPage(where, item.type);
+          const page = await snapshotPage(where, item.type);
           const restoredState = restoredPageRestores.get(item.id);
-          const reverted = await tx.page.updateMany({
+          const target = restoredState
+            ? {
+              title: restoredState.title as string,
+              folderId: restoredState.folderId as string | null,
+              syncPath: restoredState.syncPath as string,
+            }
+            : {
+              title: page.title,
+              folderId: page.folderId ?? null,
+              syncPath: page.syncPath,
+            };
+          const placement = await prepareExact(page, target);
+          const reverted = await lockedTx.page.updateMany({
             where,
-            data: restoredState ?? { deletedAt: new Date() },
+            data: {
+              ...(restoredState ?? { deletedAt: new Date() }),
+              parentId: null,
+              folderId: placement.folderId,
+              syncPath: placement.syncPath,
+              syncPathKey: placement.syncPathKey,
+            },
           });
           this.assertRevertMutation(reverted.count, item.type);
+          structuralPageRevert = true;
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'update_page') {
           const payload = item.payload as any;
@@ -1548,12 +1647,36 @@ export class ReviewService {
             deletedAt: null,
             updatedAt: { lte: publishedAt },
           };
-          await snapshotPage(where, item.type);
-          const reverted = await tx.page.updateMany({
+          const page = await snapshotPage(where, item.type);
+          const restoredState = sanitizeUpdateBefore(payload.before);
+          const structural = page.parentId !== null
+            || page.title !== restoredState.title
+            || (page.folderId ?? null) !== restoredState.folderId
+            || page.syncPath !== restoredState.syncPath
+            || page.syncPathKey !== restoredState.syncPathKey;
+          const placement = structural
+            ? await prepareExact(page, {
+              title: restoredState.title as string,
+              folderId: restoredState.folderId as string | null,
+              syncPath: restoredState.syncPath as string,
+            })
+            : {
+              folderId: page.folderId ?? null,
+              syncPath: page.syncPath,
+              syncPathKey: page.syncPathKey,
+            };
+          const reverted = await lockedTx.page.updateMany({
             where,
-            data: payload.before,
+            data: {
+              ...restoredState,
+              parentId: null,
+              folderId: placement.folderId,
+              syncPath: placement.syncPath,
+              syncPathKey: placement.syncPathKey,
+            },
           });
           this.assertRevertMutation(reverted.count, item.type);
+          structuralPageRevert ||= structural;
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'archive_page') {
           const where = {
@@ -1563,13 +1686,25 @@ export class ReviewService {
             deletedAt: { not: null },
             updatedAt: { lte: publishedAt },
           };
-          await snapshotPage(where, item.type);
+          const page = await snapshotPage(where, item.type);
           const restoredState = archiveRestores.get(item.id)!;
-          const reverted = await tx.page.updateMany({
+          const placement = await prepareExact(page, {
+            title: page.title,
+            folderId: page.folderId ?? null,
+            syncPath: page.syncPath,
+          });
+          const reverted = await lockedTx.page.updateMany({
             where,
-            data: restoredState,
+            data: {
+              ...restoredState,
+              parentId: null,
+              folderId: placement.folderId,
+              syncPath: placement.syncPath,
+              syncPathKey: placement.syncPathKey,
+            },
           });
           this.assertRevertMutation(reverted.count, item.type);
+          structuralPageRevert = true;
           pageIds.push(item.publishedResourceId);
         } else if (item.type === 'upsert_space_memory') {
           const payload = item.payload as any;
@@ -1673,14 +1808,40 @@ export class ReviewService {
         ? await this.buildLegacySidecar(tx, changeSet.spaceId)
         : undefined;
       if (pageIds.length > 0) {
-        const pages = await tx.page.findMany({
+        const pages = await lockedTx.page.findMany({
           where: { id: { in: pageIds } },
-          select: { knowledgeKey: true, syncPath: true, title: true, content: true, deletedAt: true },
+          select: {
+            knowledgeKey: true, folderId: true, syncPath: true,
+            title: true, content: true, deletedAt: true,
+          },
         });
-        await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
-          ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
-          : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
-        ), { origin: 'change_set', sourceChangeSetId: id, legacySidecarOverride });
+        await this.requireContentTree().advancePageMutation(lockedTx as any, {
+          spaceId: changeSet.spaceId,
+          expectedTreeRevision: requestedTreeRevision,
+          structural: structuralPageRevert,
+          changes: pages.map((page) => page.deletedAt
+            ? {
+              operation: 'archive' as const,
+              pageId: page.knowledgeKey,
+              previousPath: page.syncPath,
+            }
+            : {
+              operation: 'upsert' as const,
+              pageId: page.knowledgeKey,
+              folderId: page.folderId ?? null,
+              path: page.syncPath,
+              title: page.title,
+              body: page.content,
+            }),
+          actor: changeSet.createdByAgentId
+            ? { agentId: changeSet.createdByAgentId }
+            : { userId: changeSet.createdByUserId ?? undefined },
+          revisionOrigin: {
+            origin: 'change_set',
+            sourceChangeSetId: id,
+            legacySidecarOverride,
+          },
+        });
       } else if (hasNonPageRevert) {
         await this.revisionWriter.advance(tx, changeSet.spaceId, [], {
           origin: 'change_set',

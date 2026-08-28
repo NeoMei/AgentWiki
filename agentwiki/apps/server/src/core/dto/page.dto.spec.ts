@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';
-import { CreatePageDto, RestorePageVersionDto, UpdatePageDto } from './page.dto';
+import { ArchivePageDto, CreatePageDto, RestorePageVersionDto, UpdatePageDto } from './page.dto';
 
 const productionPipe = new ValidationPipe({
   whitelist: true,
@@ -92,10 +92,10 @@ describe('UpdatePageDto', () => {
 });
 
 describe('RestorePageVersionDto', () => {
-  it('preserves the legacy empty body while accepting only a decimal tree revision', async () => {
+  it('requires a caller-provided decimal tree revision and rejects unknown fields', async () => {
     await expect(productionPipe.transform({}, {
       type: 'body', metatype: RestorePageVersionDto,
-    })).resolves.toBeDefined();
+    })).rejects.toMatchObject({ status: 400 });
     await expect(productionPipe.transform({ expectedTreeRevision: '12' }, {
       type: 'body', metatype: RestorePageVersionDto,
     })).resolves.toMatchObject({ expectedTreeRevision: '12' });
@@ -104,6 +104,23 @@ describe('RestorePageVersionDto', () => {
     })).rejects.toMatchObject({ status: 400 });
     await expect(productionPipe.transform({ expectedTreeRevision: '12', extra: true }, {
       type: 'body', metatype: RestorePageVersionDto,
+    })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('ArchivePageDto', () => {
+  it('requires both Page and tree CAS values and rejects unknown fields', async () => {
+    const valid = {
+      expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '12',
+    };
+    await expect(productionPipe.transform(valid, {
+      type: 'body', metatype: ArchivePageDto,
+    })).resolves.toMatchObject(valid);
+    await expect(productionPipe.transform({ expectedUpdatedAt: valid.expectedUpdatedAt }, {
+      type: 'body', metatype: ArchivePageDto,
+    })).rejects.toMatchObject({ status: 400 });
+    await expect(productionPipe.transform({ ...valid, recursive: true }, {
+      type: 'body', metatype: ArchivePageDto,
     })).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -9,6 +9,7 @@ import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { BusinessException } from '../core/filters/business-error';
 import { AllExceptionsFilter } from '../core/filters/all-exceptions.filter';
+import { AuthorizationService } from '../core/authorization/authorization.service';
 import { ContentTreeController } from './content-tree.controller';
 import {
   ContentTreeListQueryDto,
@@ -169,7 +170,7 @@ describe('ContentTreeController HTTP contract', () => {
     }));
   });
 
-  it('allows every reader to preview delete impact but reserves delete/restore for Owner and Admin', async () => {
+  it('allows every reader to preview delete impact and uses the exact Owner/Editor policy for delete/restore', async () => {
     tree.deleteImpact.mockResolvedValue({ treeRevision: 8n, rootUpdatedAt: new Date('2026-08-28T00:00:00.000Z'), folderCount: 1, pageCount: 2, impactHash: 'c'.repeat(64) });
     tree.deleteFolder.mockResolvedValue({ treeRevision: 9n, syncRevisionId: 'sync-9', batch: { id: 'batch-1' } });
     tree.restoreDeletionBatch.mockResolvedValue({ treeRevision: 10n, syncRevisionId: 'sync-10', batchId: 'batch-1', folder: { id: 'folder-1' } });
@@ -186,10 +187,10 @@ describe('ContentTreeController HTTP contract', () => {
       1, request.user, 'space-1', ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
     );
     expect(authorization.assertSpaceAccess).toHaveBeenNthCalledWith(
-      2, request.user, 'space-1', ['owner', 'admin'], 'pages:write',
+      2, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
     );
     expect(authorization.assertSpaceAccess).toHaveBeenNthCalledWith(
-      3, request.user, 'space-1', ['owner', 'admin'], 'pages:write',
+      3, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
     );
     expect(tree.restoreDeletionBatch).toHaveBeenCalledWith(expect.objectContaining({
       spaceId: 'space-1', deletionBatchId: 'batch-1', strategy: { kind: 'original' },
@@ -197,7 +198,7 @@ describe('ContentTreeController HTTP contract', () => {
     }));
   });
 
-  it('fails closed before mutations when Viewer or Editor authorization is denied', async () => {
+  it('fails closed before mutations when Viewer or Admin authorization is denied', async () => {
     authorization.assertSpaceAccess
       .mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'))
       .mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED'));
@@ -217,8 +218,52 @@ describe('ContentTreeController HTTP contract', () => {
       1, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
     );
     expect(authorization.assertSpaceAccess).toHaveBeenNthCalledWith(
-      2, request.user, 'space-1', ['owner', 'admin'], 'pages:write',
+      2, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
     );
+  });
+
+  it('allows Editor delete/restore but rejects Space Admin even though legacy policy expands Editor to Admin', async () => {
+    const memberRole = jest.fn(({ where }: any) => Promise.resolve({
+      role: where.userId_spaceId.userId === 'editor-1' ? 'editor' : 'admin',
+      space: { deletedAt: null },
+    }));
+    const exactAuthorization = new AuthorizationService({
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: memberRole },
+    } as any);
+    const exactTree = {
+      deleteFolder: jest.fn().mockResolvedValue({ treeRevision: 2n }),
+      restoreDeletionBatch: jest.fn().mockResolvedValue({ treeRevision: 3n }),
+    } as any;
+    const exactController = new ContentTreeController(exactTree, exactAuthorization);
+    const deleteBody = {
+      expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '1',
+      expectedImpactHash: 'e'.repeat(64),
+    };
+    const restoreBody = {
+      deletionBatchId: 'batch-1', expectedTreeRevision: '2', mode: 'original' as const,
+    };
+
+    await expect(exactController.deleteFolder(
+      { user: { userId: 'admin-1', platformRole: 'user' } } as any,
+      'space-1', 'folder-1', deleteBody,
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    await expect(exactController.restoreFolder(
+      { user: { userId: 'admin-1', platformRole: 'user' } } as any,
+      'space-1', 'folder-1', restoreBody,
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(exactTree.deleteFolder).not.toHaveBeenCalled();
+    expect(exactTree.restoreDeletionBatch).not.toHaveBeenCalled();
+
+    await expect(exactController.deleteFolder(
+      { user: { userId: 'editor-1', platformRole: 'user' } } as any,
+      'space-1', 'folder-1', deleteBody,
+    )).resolves.toMatchObject({ treeRevision: '2' });
+    await expect(exactController.restoreFolder(
+      { user: { userId: 'editor-1', platformRole: 'user' } } as any,
+      'space-1', 'folder-1', restoreBody,
+    )).resolves.toMatchObject({ treeRevision: '3' });
   });
 
   it('exposes stable ContentTree errors as business HTTP errors with safe details', () => {

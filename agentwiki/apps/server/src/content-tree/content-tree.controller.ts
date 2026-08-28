@@ -13,6 +13,7 @@ import {
 import type { Request } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
+import { BusinessException } from '../core/filters/business-error';
 import {
   AuthorizationService,
   type Principal,
@@ -31,7 +32,7 @@ import { ContentTreeService } from './content-tree.service';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const EDIT_ROLES = ['owner', 'editor'] as const;
-const DELETE_ROLES = ['owner', 'admin'] as const;
+const DELETE_ROLES = ['owner', 'editor'] as const;
 
 function decimalTreeRevision<T extends { treeRevision: bigint }>(result: T) {
   return { ...result, treeRevision: result.treeRevision.toString() };
@@ -184,7 +185,12 @@ export class ContentTreeController {
     scope: string,
   ): Promise<Principal> {
     const principal = request.user as Principal;
-    await this.authorization.assertSpaceAccess(principal, spaceId, roles, scope);
+    const access = await this.authorization.assertSpaceAccess(principal, spaceId, roles, scope);
+    const accessRole = String(access.role) as 'owner' | 'admin' | 'editor' | 'viewer';
+    const isSuperAdmin = 'isSuperAdmin' in access && access.isSuperAdmin === true;
+    if (!roles.includes(accessRole) && !isSuperAdmin) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to modify Folders in this space');
+    }
     return principal;
   }
 }

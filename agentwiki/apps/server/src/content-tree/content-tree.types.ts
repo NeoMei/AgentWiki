@@ -269,12 +269,22 @@ export interface PreparePageMutationInput extends PlacePageInput {
   };
 }
 
+export interface PrepareExactPageMutationInput {
+  spaceId: string;
+  pageId: string;
+  title: string;
+  syncPath: string;
+  /** Omit to resolve the Folder from the exact path (used by Sync v1). */
+  folderId?: string | null;
+  current?: PreparePageMutationInput['current'];
+}
+
 export interface AdvancePageMutationInput {
   spaceId: string;
   expectedTreeRevision: bigint;
   structural: boolean;
   changes: StructuralPageChange[];
   actor: ContentTreeActor;
-  revisionOrigin?: Partial<Omit<RevisionOrigin, 'origin' | 'createdByUserId'>>;
+  revisionOrigin?: Partial<RevisionOrigin>;
   existingSyncRevisionId?: string;
 }

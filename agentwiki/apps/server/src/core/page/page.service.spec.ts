@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
 import { PageService } from './page.service';
 import { PrismaService } from '../../database/prisma.service';
 import { SearchService } from '../search/search.service';
@@ -950,7 +949,7 @@ describe('PageService', () => {
         id: 'page-1', spaceId: 'space-1', authorId: 'user-1', knowledgeKey: 'key-1', syncPath: 'pages/p-1.md',
       });
 
-      await service.remove('page-1');
+      await service.remove('page-1', '2026-08-20T00:00:00.000Z', '0');
 
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
       expect(mockSearch.deletePageIndex.mock.invocationCallOrder[0])
@@ -1000,7 +999,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1');
+      await service.restoreVersion('page-1', 'version-1', '0');
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
@@ -1081,7 +1080,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1');
+      await service.restoreVersion('page-1', 'version-1', '0');
 
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
         spaceId: 'space-1',
@@ -1153,7 +1152,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1');
+      await service.restoreVersion('page-1', 'version-1', '0');
 
       expect(mockPrisma.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
@@ -1227,7 +1226,7 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.restoreVersion('page-1', 'version-1');
+      await service.restoreVersion('page-1', 'version-1', '0');
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -1331,7 +1330,7 @@ describe('PageService', () => {
         committed.revisions += 1;
       });
 
-      await expect(service.restoreVersion('page-1', 'version-1')).rejects.toMatchObject({
+      await expect(service.restoreVersion('page-1', 'version-1', '0')).rejects.toMatchObject({
         statusCode: 409,
         businessCode: 'RESOURCE_CONFLICT',
       });
@@ -1375,7 +1374,9 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(archived);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
-      await expect(service.remove('page-1')).resolves.toEqual({
+      await expect(service.remove(
+        'page-1', current.updatedAt.toISOString(), '0',
+      )).resolves.toEqual({
         ...archived,
         path: archived.syncPath,
       });
@@ -1441,7 +1442,9 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.remove('page-1')).rejects.toMatchObject({
+      await expect(service.remove(
+        'page-1', current.updatedAt.toISOString(), '0',
+      )).rejects.toMatchObject({
         statusCode: 409,
         businessCode: 'RESOURCE_CONFLICT',
       });
@@ -1454,9 +1457,9 @@ describe('PageService', () => {
       expect(mockSearch.deletePageIndex).not.toHaveBeenCalled();
     });
 
-    it('rejects the legacy Page-parent reorder contract unless the migration flag is explicit', async () => {
+    it('rejects the legacy Page-parent reorder contract even when create compatibility is enabled', async () => {
       const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
-      delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
       try {
         await expect(service.reorder('space-1', [
           { id: 'page-1', parentId: null, sortOrder: 0 },
@@ -1470,32 +1473,11 @@ describe('PageService', () => {
   });
 });
 
-describe('page ordering', () => {
+describe('page hierarchy reads', () => {
   let service: PageService;
-  const previousLegacyParentFlag = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
-
-  beforeAll(() => {
-    process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
-  });
-
-  afterAll(() => {
-    if (previousLegacyParentFlag === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
-    else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previousLegacyParentFlag;
-  });
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockPrisma.$transaction.mockImplementation(async (arg: any) =>
-      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
-    );
-    mockPrisma.$executeRaw.mockImplementation(async (_query: unknown, payload: string) =>
-      JSON.parse(payload).length,
-    );
-    mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
-    mockSyncPaths.allocate.mockResolvedValue({
-      path: 'pages/Test.md',
-      pathKey: 'pages/test.md',
-    });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PageService,
@@ -1518,308 +1500,5 @@ describe('page ordering', () => {
     expect(mockPrisma.page.findMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     }));
-  });
-
-  it('reorder updates parent and sortOrder in one parameterized bulk statement', async () => {
-    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
-    await service.reorder('space-1', [
-      { id: 'a', parentId: null, sortOrder: 0 },
-      { id: 'b', parentId: 'a', sortOrder: 1 },
-    ]);
-    expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('locks the single Space before every reorder Page read or write', async () => {
-    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a', parentId: null }]);
-    mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
-
-    await service.reorder('space-1', [{ id: 'a', parentId: null, sortOrder: 0 }]);
-
-    expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
-    const lockOrder = mockRevisionWriter.lockSpace.mock.invocationCallOrder[0];
-    for (const pageReadOrder of mockPrisma.page.findMany.mock.invocationCallOrder) {
-      expect(lockOrder).toBeLessThan(pageReadOrder);
-    }
-    for (const pageWriteOrder of mockPrisma.page.updateMany.mock.invocationCallOrder) {
-      expect(lockOrder).toBeLessThan(pageWriteOrder);
-    }
-    for (const bulkWriteOrder of mockPrisma.$executeRaw.mock.invocationCallOrder) {
-      expect(lockOrder).toBeLessThan(bulkWriteOrder);
-    }
-  });
-
-  it('bulk updates 2000 items in one parameterized roundtrip and explicitly advances updatedAt', async () => {
-    const items = Array.from({ length: 2000 }, (_, index) => ({
-      id: `page-${index}`,
-      parentId: null,
-      sortOrder: index,
-    }));
-    items[1999].id = `page-1999'); DROP TABLE "Page"; --`;
-    const pages = items.map((item) => ({ id: item.id, parentId: null }));
-    mockPrisma.page.findMany.mockResolvedValue(pages);
-
-    await service.reorder('space-1', items);
-
-    expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
-    const [query, payload, boundSpaceId] = mockPrisma.$executeRaw.mock.calls[0];
-    const sql = Array.from(query as readonly string[]).join('?');
-    expect(sql).toContain('jsonb_to_recordset(?::jsonb)');
-    expect(sql).toContain('"updatedAt" = statement_timestamp()');
-    expect(sql).not.toContain(items[1999].id);
-    expect(payload).toBe(JSON.stringify(items));
-    expect(boundSpaceId).toBe('space-1');
-  });
-
-  it('rolls back with a stable conflict when the bulk write count is incomplete', async () => {
-    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a', parentId: null }]);
-    mockPrisma.$executeRaw.mockResolvedValueOnce(0);
-
-    await expect(
-      service.reorder('space-1', [{ id: 'a', parentId: null, sortOrder: 0 }]),
-    ).rejects.toMatchObject({
-      statusCode: 409,
-      businessCode: 'RESOURCE_CONFLICT',
-      message: expect.stringContaining('changed while it was being reordered'),
-    });
-
-    expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
-    expect(mockPrisma.page.findMany).toHaveBeenCalledTimes(2);
-  });
-
-  it('treats an empty reorder as a service no-op', async () => {
-    mockPrisma.page.findMany.mockResolvedValue([]);
-
-    await expect(service.reorder('space-1', [])).resolves.toEqual([]);
-
-    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-    expect(mockRevisionWriter.lockSpace).not.toHaveBeenCalled();
-    expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
-    expect(mockPrisma.page.findMany).toHaveBeenCalledTimes(1);
-  });
-
-  it('serializes a same-millisecond reorder behind restore instead of relying on updatedAt CAS', async () => {
-    const sameMillisecond = new Date('2026-08-20T00:00:00.000Z');
-    const pages = new Map<string, any>([
-      ['page-1', {
-        id: 'page-1',
-        knowledgeKey: 'knowledge-1',
-        title: 'Current title',
-        content: 'Current body',
-        slug: 'current-title',
-        format: 'markdown',
-        parentId: null,
-        sortOrder: 0,
-        spaceId: 'space-1',
-        authorId: 'user-1',
-        syncPath: 'pages/Current title.md',
-        syncPathKey: 'pages/current title.md',
-        updatedAt: sameMillisecond,
-        deletedAt: null,
-      }],
-      ['parent-2', {
-        id: 'parent-2',
-        parentId: null,
-        sortOrder: 0,
-        spaceId: 'space-1',
-        deletedAt: null,
-      }],
-    ]);
-    const versions: Array<Record<string, unknown>> = [];
-    let allowRestoreWrite!: () => void;
-    const restoreWriteGate = new Promise<void>((resolve) => { allowRestoreWrite = resolve; });
-    let snapshotCaptured!: () => void;
-    const snapshotGate = new Promise<void>((resolve) => { snapshotCaptured = resolve; });
-    let lockHeld = false;
-    const lockWaiters: Array<() => void> = [];
-    const releaseByTransaction = new WeakMap<object, () => void>();
-
-    const pageFindMany = jest.fn(async ({ where }: any) => {
-      const allPages = [...pages.values()];
-      if (where?.id?.in) return allPages.filter((page) => where.id.in.includes(page.id));
-      return allPages.filter((page) => page.spaceId === where?.spaceId && page.deletedAt === null);
-    });
-    const pageUpdateMany = jest.fn(async ({ where, data }: any) => {
-      const page = pages.get(where.id);
-      if (!page || page.spaceId !== where.spaceId || page.deletedAt !== null) return { count: 0 };
-      if (where.updatedAt && where.updatedAt.getTime() !== page.updatedAt.getTime()) return { count: 0 };
-      pages.set(page.id, { ...page, ...data, updatedAt: sameMillisecond });
-      return { count: 1 };
-    });
-    const localPrisma: any = {
-      page: {
-        findMany: pageFindMany,
-        updateMany: pageUpdateMany,
-        findUnique: jest.fn(async ({ where }: any) => {
-          const page = pages.get(where.id);
-          return page ? { ...page } : null;
-        }),
-      },
-      pageVersion: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'version-1',
-          pageId: 'page-1',
-          title: 'Current title',
-          content: 'Restored body',
-          slug: 'restored-title',
-          format: 'markdown',
-          parentId: null,
-        }),
-      },
-      pageSearchDocument: { upsert: jest.fn().mockResolvedValue({}) },
-    };
-    localPrisma.$executeRaw = jest.fn(async (_query: unknown, payload: string, spaceId: string) => {
-      let count = 0;
-      for (const item of JSON.parse(payload)) {
-        const page = pages.get(item.id);
-        if (!page || page.spaceId !== spaceId || page.deletedAt !== null) continue;
-        pages.set(page.id, { ...page, ...item, updatedAt: sameMillisecond });
-        count += 1;
-      }
-      return count;
-    });
-    localPrisma.$transaction = jest.fn(async (operation: any) => {
-      if (Array.isArray(operation)) return Promise.all(operation);
-      const callback = operation;
-      const pendingVersions: Array<Record<string, unknown>> = [];
-      const tx = {
-        ...localPrisma,
-        pageVersion: {
-          ...localPrisma.pageVersion,
-          create: jest.fn(async ({ data }: any) => {
-            snapshotCaptured();
-            await restoreWriteGate;
-            pendingVersions.push(data);
-            return data;
-          }),
-        },
-      };
-      try {
-        const result = await callback(tx);
-        versions.push(...pendingVersions);
-        return result;
-      } finally {
-        releaseByTransaction.get(tx)?.();
-      }
-    });
-    const localRevisionWriter = {
-      lockSpace: jest.fn(async (tx: object) => {
-        if (lockHeld) await new Promise<void>((resolve) => lockWaiters.push(resolve));
-        lockHeld = true;
-        releaseByTransaction.set(tx, () => {
-          lockHeld = false;
-          lockWaiters.shift()?.();
-        });
-        return tx;
-      }),
-      advance: jest.fn().mockResolvedValue({}),
-    };
-    const localSearch = {
-      indexPage: jest.fn().mockResolvedValue(undefined),
-      deletePageIndex: jest.fn().mockResolvedValue(undefined),
-    };
-    const localService = new PageService(
-      localPrisma,
-      localSearch as any,
-      localRevisionWriter as any,
-      { allocate: jest.fn() } as any,
-      { enqueue: jest.fn() } as any,
-      mockTemplates as any,
-      mockAuthorization as any,
-      {
-        lockPageMutationSpace: async (tx: any, _spaceId: string) => Object.assign(
-          await localRevisionWriter.lockSpace(tx),
-          { contentTreeRevision: 0n },
-        ),
-        preparePageMutation: async (_tx: any, input: any) => ({
-          folderId: input.folderId,
-          syncPath: input.current.syncPath,
-          syncPathKey: input.current.syncPathKey,
-        }),
-        advancePageMutation: async (tx: any, input: any) => {
-          await localRevisionWriter.advance(tx, input.spaceId, input.changes, {});
-          return { treeRevision: 1n, syncRevisionId: 'sync-1' };
-        },
-      } as any,
-    );
-    jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
-
-    const restore = localService.restoreVersion('page-1', 'version-1');
-    await snapshotGate;
-    const reorder = localService.reorder('space-1', [
-      { id: 'page-1', parentId: 'parent-2', sortOrder: 0 },
-    ]);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    allowRestoreWrite();
-    await Promise.all([restore, reorder]);
-
-    expect(pages.get('page-1')).toMatchObject({
-      title: 'Current title',
-      content: 'Restored body',
-      parentId: 'parent-2',
-      updatedAt: sameMillisecond,
-    });
-    expect(localRevisionWriter.lockSpace).toHaveBeenCalledTimes(2);
-    expect(versions).toHaveLength(1);
-    expect(localSearch.indexPage).toHaveBeenCalledWith('page-1');
-  });
-
-  it('reorder rejects items outside the space', async () => {
-    mockPrisma.page.findMany.mockResolvedValueOnce([]);
-    await expect(
-      service.reorder('space-1', [{ id: 'b', parentId: null, sortOrder: 0 }]),
-    ).rejects.toMatchObject({ message: expect.stringContaining('do not belong') });
-  });
-
-  it('reorder rejects duplicate ids before the bulk write', async () => {
-    mockPrisma.page.findMany.mockResolvedValueOnce([{ id: 'a' }]);
-
-    await expect(service.reorder('space-1', [
-      { id: 'a', parentId: null, sortOrder: 0 },
-      { id: 'a', parentId: null, sortOrder: 1 },
-    ])).rejects.toMatchObject({ message: expect.stringContaining('do not belong') });
-
-    expect(mockPrisma.page.findMany).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
-  });
-
-  it('reorder rejects a cycle in the new parent assignment', async () => {
-    mockPrisma.page.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
-    await expect(
-      service.reorder('space-1', [
-        { id: 'a', parentId: 'b', sortOrder: 0 },
-        { id: 'b', parentId: 'a', sortOrder: 0 },
-      ]),
-    ).rejects.toMatchObject({ message: expect.stringContaining('cycle') });
-  });
-
-  it('reorder rejects a parent outside the space', async () => {
-    mockPrisma.page.findMany
-      .mockResolvedValueOnce([{ id: 'a' }])
-      .mockResolvedValueOnce([{ id: 'a', parentId: null }]);
-
-    await expect(
-      service.reorder('space-1', [{ id: 'a', parentId: 'other-space-page', sortOrder: 0 }]),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('reorder rejects a cycle completed through an existing parent assignment', async () => {
-    mockPrisma.page.findMany
-      .mockResolvedValueOnce([{ id: 'a' }])
-      .mockResolvedValueOnce([
-        { id: 'a', parentId: null },
-        { id: 'b', parentId: 'a' },
-      ]);
-
-    await expect(
-      service.reorder('space-1', [{ id: 'a', parentId: 'b', sortOrder: 0 }]),
-    ).rejects.toMatchObject({ message: expect.stringContaining('cycle') });
-
-    expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
   });
 });

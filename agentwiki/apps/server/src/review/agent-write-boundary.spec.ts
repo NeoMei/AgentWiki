@@ -6,6 +6,19 @@ import { ReviewController } from './review.controller';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 describe('Agent write review boundary', () => {
+  it('passes the caller tree CAS value into a human revert', async () => {
+    const review = { revert: jest.fn().mockResolvedValue({ id: 'change-1', status: 'reverted' }) } as any;
+    const authorization = { assertChangeSetAccess: jest.fn().mockResolvedValue(undefined) } as any;
+    const controller = new ReviewController(review, authorization);
+    const request = { user: { userId: 'owner-1' } } as any;
+
+    await expect((controller as any).revert(
+      'change-1', request, { expectedTreeRevision: '17' },
+    )).resolves.toMatchObject({ status: 'reverted' });
+
+    expect(review.revert).toHaveBeenCalledWith('change-1', '17');
+  });
+
   it('turns Agent REST page creation into a ChangeSet proposal', async () => {
     const pages = { create: jest.fn() } as any;
     const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any;
@@ -68,23 +81,26 @@ describe('Agent write review boundary', () => {
     const controller = new PageController(pages, authorization, review);
     await controller.update('page-1', { content: 'Updated', expectedUpdatedAt: updatedAt.toISOString() }, { user: { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] } } as any);
     expect(review.propose).toHaveBeenCalledWith(expect.anything(), 'space-1', expect.any(String), { type: 'update_page', payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString(), changes: { content: 'Updated' } } });
+    expect(pages.findOne).not.toHaveBeenCalled();
     expect(pages.update).not.toHaveBeenCalled();
   });
 
   it('pins the page version when an Agent proposes deleting a page', async () => {
     const updatedAt = new Date('2026-07-15T00:00:00.000Z');
-    const pages = { remove: jest.fn(), findOne: jest.fn().mockResolvedValue({ updatedAt }) } as any;
+    const pages = { remove: jest.fn() } as any;
     const authorization = { assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }) } as any;
     const review = { propose: jest.fn().mockResolvedValue({ id: 'change-delete' }) } as any;
     const controller = new PageController(pages, authorization, review);
 
     await controller.remove('page-1', {
+      expectedUpdatedAt: updatedAt.toISOString(), expectedTreeRevision: '9',
+    }, {
       user: { userId: 'owner-1', agentId: 'agent-1', scopes: ['pages:write'] },
     } as any);
 
     expect(review.propose).toHaveBeenCalledWith(expect.anything(), 'space-1', expect.any(String), {
       type: 'archive_page',
-      payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString() },
+      payload: { pageId: 'page-1', expectedUpdatedAt: updatedAt.toISOString(), expectedTreeRevision: '9' },
     });
     expect(pages.remove).not.toHaveBeenCalled();
   });
@@ -108,7 +124,9 @@ describe('Agent write review boundary', () => {
     ['reject', 'explicit', (controller: ReviewController, request: any) => controller.reject('change-1', request, {})],
     ['publish', 'explicit', (controller: ReviewController, request: any) => controller.publish('change-1', request)],
     ['review-publish', 'explicit', (controller: ReviewController, request: any) => controller.reviewPublish('change-1', request, {})],
-    ['revert', 'explicit', (controller: ReviewController, request: any) => controller.revert('change-1', request)],
+    ['revert', 'explicit', (controller: ReviewController, request: any) => controller.revert(
+      'change-1', request, { expectedTreeRevision: '0' },
+    )],
   ] as const)('denies publisher Agents the human-only %s boundary', async (_action, denial, invoke) => {
     const prisma = {
       changeSet: { findUnique: jest.fn().mockResolvedValue({ id: 'change-1', spaceId: 'space-1' }) },

@@ -18,13 +18,21 @@ import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
 import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
-import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
+import type { StructuralPageChange } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
+import { ContentTreeService } from '../../content-tree/content-tree.service';
+import { ContentTreeError } from '../../content-tree/content-tree.types';
 
 const SESSION_TTL_MS = 900 * 1_000;
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+interface AppliedPageChanges {
+  applied: Array<{ type: string; payload: Record<string, unknown>; publishedResourceId: string }>;
+  revisionChanges: StructuralPageChange[];
+  structural: boolean;
+}
 
 @Injectable()
 export class PushSessionService {
@@ -33,7 +41,7 @@ export class PushSessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: ObsidianCryptoService,
-    private readonly writer: SpaceRevisionWriterService,
+    private readonly contentTree: ContentTreeService,
     private readonly search: SearchService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly graphMaintenance?: GraphMaintenance,
@@ -248,7 +256,7 @@ export class PushSessionService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const result = await this.prisma.$transaction(async (tx) => {
-      await this.writer.lockSpace(tx, spaceId);
+      const lockedTx = await this.contentTree.lockPageMutationSpace(tx, spaceId);
       await this.assertPublishableInTx(tx, principal, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
@@ -265,7 +273,7 @@ export class PushSessionService {
       if (session.confirmationHash !== confirmationHashValue) {
         throw new SyncApiException('CONFIRMATION_MISMATCH', 'Confirmation hash does not match');
       }
-      const head = await this.prisma.spaceKnowledgeRevision.findFirst({
+      const head = await lockedTx.spaceKnowledgeRevision.findFirst({
         where: { spaceId },
         orderBy: { sequence: 'desc' },
       });
@@ -343,14 +351,29 @@ export class PushSessionService {
         return result;
       }
 
-      await this.assertNoPathCollisions(tx, spaceId, orderedChanges);
+      await this.assertNoPathCollisions(lockedTx, spaceId, orderedChanges);
 
-      const applied = await this.applyPageChanges(tx, spaceId, principal.userId, orderedChanges);
-      const revision = await this.writer.advance(tx, spaceId, orderedChanges, {
-        origin: 'obsidian_sync',
-        createdByUserId: principal.userId,
-        humanDeviceCredentialId: principal.credentialId,
+      const applied = await this.applyPageChanges(
+        lockedTx, spaceId, principal.userId, orderedChanges,
+      );
+      const advanced = await this.contentTree.advancePageMutation(lockedTx, {
+        spaceId,
+        expectedTreeRevision: lockedTx.contentTreeRevision,
+        structural: applied.structural,
+        changes: applied.revisionChanges,
+        actor: { userId: principal.userId },
+        revisionOrigin: {
+          origin: 'obsidian_sync',
+          createdByUserId: principal.userId,
+          humanDeviceCredentialId: principal.credentialId,
+        },
       });
+      const revision = await lockedTx.spaceKnowledgeRevision.findUnique({
+        where: { id: advanced.syncRevisionId },
+      });
+      if (!revision) {
+        throw new SyncApiException('BASE_STALE', 'Published revision could not be read back');
+      }
       const capabilities = await this.capabilities();
       if (
         revision.pageCount > BigInt(capabilities.maxClientSpacePages)
@@ -372,7 +395,7 @@ export class PushSessionService {
           publishedAt: new Date(),
         },
       });
-      for (const item of applied) {
+      for (const item of applied.applied) {
         await tx.changeItem.create({
           data: {
           id: randomUUID(),
@@ -387,7 +410,7 @@ export class PushSessionService {
       const result = {
         protocolVersion: '1',
         status: 'published',
-        revision: revision.revisionId,
+        revision: revision.id,
         sequence: revision.sequence,
         publishedAt: new Date().toISOString(),
         revisionContentHash: revision.revisionContentHash,
@@ -411,6 +434,17 @@ export class PushSessionService {
         );
         if (serializationConflict && attempt < 2) {
           continue;
+        }
+        if (error instanceof ContentTreeError) {
+          if (error.code === 'FOLDER_NOT_FOUND') {
+            throw new SyncApiException(
+              'PAYLOAD_INVALID',
+              'Incoming Page path does not identify one active Folder in this Space',
+            );
+          }
+          if (error.code === 'CONTENT_TREE_CONFLICT') {
+            throw new SyncApiException('PATH_COLLISION', 'Incoming Page path conflicts with the content tree');
+          }
         }
         throw error;
       }
@@ -637,89 +671,215 @@ export class PushSessionService {
     spaceId: string,
     userId: string,
     changes: Array<{ operation: string; pageId: string; path?: string; title?: string; body?: string; previousPath?: string }>,
-  ): Promise<Array<{ type: string; payload: Record<string, unknown>; publishedResourceId: string }>> {
-    const applied: Array<{ type: string; payload: Record<string, unknown>; publishedResourceId: string }> = [];
+  ): Promise<AppliedPageChanges> {
+    const applied: AppliedPageChanges['applied'] = [];
+    const revisionChanges: StructuralPageChange[] = [];
+    let structural = false;
+    const currentPlacement = (page: any) => ({
+      title: page.title,
+      folderId: page.folderId ?? null,
+      syncPath: page.syncPath,
+      syncPathKey: page.syncPathKey,
+      sortOrder: page.sortOrder ?? 0,
+      createdAt: page.createdAt ?? page.updatedAt,
+      updatedAt: page.updatedAt,
+      knowledgeKey: page.knowledgeKey,
+      content: page.content,
+    });
+    const versionSnapshot = (page: any) => ({
+      pageId: page.id,
+      title: page.title,
+      content: page.content ?? '',
+      authorId: userId,
+      slug: page.slug,
+      format: page.format,
+      parentId: page.parentId,
+      folderId: page.folderId ?? null,
+      syncPath: page.syncPath,
+      syncPathKey: page.syncPathKey,
+    });
+    const revertSnapshot = (page: any) => ({
+      title: page.title,
+      content: page.content ?? '',
+      format: page.format,
+      parentId: page.parentId,
+      folderId: page.folderId ?? null,
+      deletedAt: page.deletedAt?.toISOString?.() ?? null,
+      sourceChangeSetId: page.sourceChangeSetId ?? null,
+      createdByAgentId: page.createdByAgentId ?? null,
+      lastChangeSetId: page.lastChangeSetId ?? null,
+      lastModifiedByUserId: page.lastModifiedByUserId ?? null,
+      lastModifiedByAgentId: page.lastModifiedByAgentId ?? null,
+      lastModifiedAt: page.lastModifiedAt?.toISOString?.()
+        ?? page.updatedAt?.toISOString?.()
+        ?? new Date(0).toISOString(),
+      sourceId: page.sourceId ?? null,
+      sourceVersionId: page.sourceVersionId ?? null,
+      sourcePath: page.sourcePath ?? null,
+      syncPath: page.syncPath,
+      syncPathKey: page.syncPathKey,
+    });
+
     for (const change of changes) {
       if (change.operation === 'archive') {
         const page = await tx.page.findUnique({ where: { knowledgeKey: change.pageId } });
-        if (!page) throw new SyncApiException('PAGE_ID_CONFLICT', 'Archive target page does not exist');
-        if (page.spaceId !== spaceId) throw new SyncApiException('PAGE_ID_CONFLICT', 'Page belongs to another space');
-        await tx.pageVersion.create({
+        if (!page || page.spaceId !== spaceId || page.deletedAt) {
+          throw new SyncApiException('PAGE_ID_CONFLICT', 'Archive target page is not active in this Space');
+        }
+        if (change.previousPath && change.previousPath !== page.syncPath) {
+          throw new SyncApiException('BASE_STALE', 'Archive path no longer matches the current Page');
+        }
+        await this.contentTree.prepareExactPageMutation(tx, {
+          spaceId,
+          pageId: page.id,
+          title: page.title,
+          folderId: page.folderId ?? null,
+          syncPath: page.syncPath,
+          current: currentPlacement(page),
+        });
+        await tx.pageVersion.create({ data: versionSnapshot(page) });
+        const archived = await tx.page.updateMany({
+          where: {
+            id: page.id,
+            spaceId,
+            deletedAt: null,
+            updatedAt: page.updatedAt,
+          },
           data: {
-            pageId: page.id, title: page.title, content: page.content, authorId: userId,
-            slug: page.slug, format: page.format, parentId: page.parentId,
-            folderId: page.folderId ?? null,
-            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
+            deletedAt: new Date(),
+            lastModifiedByUserId: userId,
+            lastModifiedByAgentId: null,
+            lastModifiedAt: new Date(),
           },
         });
-        await tx.page.update({
-          where: { id: page.id },
-          data: { deletedAt: new Date(), lastModifiedByUserId: userId, lastModifiedAt: new Date() },
-        });
+        if (archived.count !== 1) {
+          throw new SyncApiException('BASE_STALE', 'Archive target changed during finalize');
+        }
         await tx.pageSearchDocument.deleteMany({ where: { pageId: page.id } });
-        applied.push({ type: 'archive_page', payload: { pageId: change.pageId, previousPath: change.previousPath ?? page.syncPath }, publishedResourceId: page.id });
+        applied.push({
+          type: 'archive_page',
+          payload: {
+            pageId: change.pageId,
+            previousPath: change.previousPath ?? page.syncPath,
+            before: {
+              deletedAt: null,
+              lastChangeSetId: page.lastChangeSetId ?? null,
+              lastModifiedByUserId: page.lastModifiedByUserId ?? null,
+              lastModifiedByAgentId: page.lastModifiedByAgentId ?? null,
+              lastModifiedAt: page.lastModifiedAt?.toISOString?.()
+                ?? page.updatedAt.toISOString(),
+            },
+          },
+          publishedResourceId: page.id,
+        });
+        revisionChanges.push({
+          operation: 'archive',
+          pageId: page.knowledgeKey,
+          previousPath: page.syncPath,
+        });
+        structural = true;
         continue;
       }
 
+      if (!change.path) {
+        throw new SyncApiException('PAYLOAD_INVALID', 'Upsert Page path is required');
+      }
       const body = normalizeMarkdown(change.body ?? '');
-      const key = change.path ? pathKey(change.path) : undefined;
-      let page = await tx.page.findUnique({ where: { knowledgeKey: change.pageId } });
-      if (page && page.spaceId !== spaceId) {
+      const existing = await tx.page.findUnique({ where: { knowledgeKey: change.pageId } });
+      if (existing && existing.spaceId !== spaceId) {
         throw new SyncApiException('PAGE_ID_CONFLICT', 'Page ID belongs to another space');
       }
-      if (page && page.deletedAt) {
-        await tx.pageVersion.create({
-          data: {
-            pageId: page.id, title: page.title, content: page.content, authorId: userId,
-            slug: page.slug, format: page.format, parentId: page.parentId,
-            folderId: page.folderId ?? null,
-            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
-          },
-        });
-        page = await tx.page.update({
-          where: { id: page.id },
-          data: {
-            title: change.title ?? page.title, content: body, format: 'markdown',
-            syncPath: change.path ?? page.syncPath, syncPathKey: key ?? page.syncPathKey,
-            deletedAt: null, lastModifiedByUserId: userId, lastModifiedAt: new Date(),
-          },
-        });
-        applied.push({ type: 'create_page', payload: { pageId: change.pageId, path: change.path }, publishedResourceId: page.id });
-        continue;
-      }
-      if (page) {
-        await tx.pageVersion.create({
-          data: {
-            pageId: page.id, title: page.title, content: page.content, authorId: userId,
-            slug: page.slug, format: page.format, parentId: page.parentId,
-            folderId: page.folderId ?? null,
-            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
-          },
-        });
-        page = await tx.page.update({
-          where: { id: page.id },
-          data: {
-            title: change.title ?? page.title, content: body, format: 'markdown',
-            syncPath: change.path ?? page.syncPath, syncPathKey: key ?? page.syncPathKey,
-            lastModifiedByUserId: userId, lastModifiedAt: new Date(),
-          },
-        });
-        applied.push({ type: 'update_page', payload: { pageId: change.pageId, path: change.path, title: change.title }, publishedResourceId: page.id });
-        continue;
-      }
-      page = await tx.page.create({
-        data: {
-          id: randomUUID(), knowledgeKey: change.pageId,
-          title: change.title ?? '',
-          slug: this.uniqueSlug(change.title ?? 'untitled', change.pageId),
-          content: body, format: 'markdown', spaceId, authorId: userId,
-          syncPath: change.path, syncPathKey: key,
-          lastModifiedByUserId: userId, lastModifiedAt: new Date(),
-        },
+      const pageId = existing?.id ?? randomUUID();
+      const title = change.title ?? existing?.title ?? '';
+      const placement = await this.contentTree.prepareExactPageMutation(tx, {
+        spaceId,
+        pageId,
+        title,
+        syncPath: change.path,
+        ...(existing ? { current: currentPlacement(existing) } : {}),
       });
-      applied.push({ type: 'create_page', payload: { pageId: change.pageId, path: change.path, title: change.title }, publishedResourceId: page.id });
+      const restoredFromArchive = !!existing?.deletedAt;
+      if (existing) {
+        await tx.pageVersion.create({ data: versionSnapshot(existing) });
+        const updated = await tx.page.updateMany({
+          where: {
+            id: existing.id,
+            spaceId,
+            updatedAt: existing.updatedAt,
+            deletedAt: existing.deletedAt,
+          },
+          data: {
+            title,
+            content: body,
+            format: 'markdown',
+            parentId: null,
+            folderId: placement.folderId,
+            syncPath: placement.syncPath,
+            syncPathKey: placement.syncPathKey,
+            deletedAt: null,
+            deletionBatchId: null,
+            lastModifiedByUserId: userId,
+            lastModifiedByAgentId: null,
+            lastModifiedAt: new Date(),
+          },
+        });
+        if (updated.count !== 1) {
+          throw new SyncApiException('BASE_STALE', 'Page changed during finalize');
+        }
+      } else {
+        await tx.page.create({
+          data: {
+            id: pageId,
+            knowledgeKey: change.pageId,
+            title,
+            slug: this.uniqueSlug(title || 'untitled', change.pageId),
+            content: body,
+            format: 'markdown',
+            spaceId,
+            authorId: userId,
+            parentId: null,
+            folderId: placement.folderId,
+            syncPath: placement.syncPath,
+            syncPathKey: placement.syncPathKey,
+            lastModifiedByUserId: userId,
+            lastModifiedAt: new Date(),
+          },
+        });
+      }
+      structural = structural
+        || !existing
+        || restoredFromArchive
+        || existing.title !== title
+        || (existing.folderId ?? null) !== placement.folderId
+        || existing.syncPath !== placement.syncPath
+        || existing.syncPathKey !== placement.syncPathKey;
+      revisionChanges.push({
+        operation: 'upsert',
+        pageId: change.pageId,
+        folderId: placement.folderId,
+        path: placement.syncPath,
+        title,
+        body,
+      });
+      applied.push({
+        type: !existing || restoredFromArchive ? 'create_page' : 'update_page',
+        payload: {
+          pageId: change.pageId,
+          path: placement.syncPath,
+          title,
+          ...(existing
+            ? {
+              before: {
+                ...(restoredFromArchive ? { restoredFromArchive: true } : {}),
+                ...revertSnapshot(existing),
+              },
+            }
+            : {}),
+        },
+        publishedResourceId: pageId,
+      });
     }
-    return applied;
+    return { applied, revisionChanges, structural };
   }
 
   private uniqueSlug(title: string, pageId: string): string {

@@ -138,10 +138,19 @@ export class UpdatePageDto {
 
 export class RestorePageVersionDto {
   @PreserveRawInput()
-  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @Matches(TREE_REVISION)
-  expectedTreeRevision?: string;
+  expectedTreeRevision: string;
+}
+
+export class ArchivePageDto {
+  @IsISO8601({ strict: true })
+  expectedUpdatedAt: string;
+
+  @PreserveRawInput()
+  @IsString()
+  @Matches(TREE_REVISION)
+  expectedTreeRevision: string;
 }
 
 export class ReorderPageItem {

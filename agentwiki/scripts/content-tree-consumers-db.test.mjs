@@ -12,7 +12,13 @@ import {
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
-const { pathKey } = requireFromServer('@neomei/agentwiki-sync-protocol');
+const {
+  canonicalBytes,
+  comparePushChanges,
+  confirmationHash,
+  contentHash,
+  pathKey,
+} = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
 const { PageService } = requireFromServer('./dist/core/page/page.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
@@ -20,6 +26,7 @@ const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
 const { ReviewService } = requireFromServer('./dist/review/review.service.js');
+const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
 
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 
@@ -49,7 +56,7 @@ const countSanitizedMigrationDirectories = async () => (
 
 const expectCode = async (promise, expectedCode) => {
   await assert.rejects(promise, (error) => {
-    assert.equal(error?.businessCode ?? error?.code, expectedCode);
+    assert.equal(error?.businessCode ?? error?.syncCode ?? error?.code, expectedCode);
     return true;
   });
 };
@@ -88,11 +95,21 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       const reviews = new ReviewService(
         prisma, search, writer, syncPaths, graph, contentTree,
       );
+      const pushes = new PushSessionService(
+        prisma, {}, contentTree, search, undefined, graph,
+      );
       const suffix = schemaName.slice('folder_test_'.length);
       const userId = `consumer-user-${suffix}`;
       const principal = { userId, platformRole: 'user' };
       let serial = 0;
       let moveState;
+
+      const devicePrincipal = {
+        userId,
+        platformRole: 'user',
+        credentialId: `consumer-credential-${suffix}`,
+        credentialFamilyId: `consumer-family-${suffix}`,
+      };
 
       const createSpace = async (label) => {
         serial += 1;
@@ -115,12 +132,109 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
         lastModifiedByUserId: userId,
       } });
 
+      const stagePush = async (spaceId, label, changes) => {
+        const head = await prisma.spaceKnowledgeRevision.findFirst({
+          where: { spaceId }, orderBy: { sequence: 'desc' },
+        });
+        const baseRevision = head?.id ?? '0';
+        const manifestChanges = [];
+        for (const change of changes) {
+          manifestChanges.push(change.operation === 'archive'
+            ? {
+              operation: 'archive', pageId: change.pageId,
+              previousPath: change.previousPath,
+            }
+            : {
+              operation: 'upsert', pageId: change.pageId, path: change.path,
+              title: change.title, contentHash: await contentHash(change.body),
+            });
+        }
+        const manifest = {
+          protocolVersion: '1',
+          spaceId,
+          baseRevision,
+          changes: [...manifestChanges].sort(comparePushChanges),
+        };
+        const hash = await confirmationHash(manifest);
+        const sessionId = `${label}-${serial}-${suffix}`;
+        const batchId = `batch-${label}-${serial}-${suffix}`;
+        await prisma.pushSession.create({ data: {
+          id: sessionId,
+          credentialFamilyId: devicePrincipal.credentialFamilyId,
+          credentialId: devicePrincipal.credentialId,
+          userId,
+          spaceId,
+          baseRevisionId: baseRevision,
+          idempotencyKey: sessionId,
+          status: 'ready_to_finalize',
+          capabilitiesHash: 'not-used-by-finalize',
+          confirmationHash: hash,
+          confirmationByteLength: canonicalBytes(manifest).byteLength,
+          changeCount: changes.length,
+          totalBodyBytes: BigInt(changes.reduce((total, change) => (
+            total + (change.operation === 'upsert'
+              ? new TextEncoder().encode(change.body).byteLength
+              : 0)
+          ), 0)),
+          receivedBatchCount: 1,
+          receivedChangeCount: changes.length,
+          receivedBodyBytes: BigInt(changes.reduce((total, change) => (
+            total + (change.operation === 'upsert'
+              ? new TextEncoder().encode(change.body).byteLength
+              : 0)
+          ), 0)),
+          expiresAt: new Date(Date.now() + 60_000),
+        } });
+        await prisma.pushSessionBatch.create({ data: {
+          id: batchId, sessionId, batchIndex: 0,
+          batchHash: `hash-${label}-${serial}-${suffix}`,
+          receipt: `receipt-${label}-${serial}-${suffix}`,
+        } });
+        const changeRows = [];
+        for (let ordinal = 0; ordinal < changes.length; ordinal += 1) {
+          const change = changes[ordinal];
+          changeRows.push({
+            id: `change-${label}-${ordinal}-${serial}-${suffix}`,
+            sessionId,
+            batchId,
+            ordinal,
+            operation: change.operation,
+            pageId: change.pageId,
+            path: change.operation === 'upsert' ? change.path : null,
+            title: change.operation === 'upsert' ? change.title : null,
+            body: change.operation === 'upsert' ? change.body : null,
+            contentHash: change.operation === 'upsert'
+              ? await contentHash(change.body)
+              : null,
+            previousPath: change.operation === 'archive' ? change.previousPath : null,
+          });
+        }
+        await prisma.pushSessionChange.createMany({ data: changeRows });
+        return { sessionId, hash, baseRevision };
+      };
+
       try {
         await prisma.user.create({ data: {
           id: userId,
           email: `${userId}@content-tree-consumers.test`,
           type: 'human',
           platformRole: 'user',
+        } });
+        await prisma.humanDeviceCredentialFamily.create({ data: {
+          id: devicePrincipal.credentialFamilyId,
+          userId,
+          deviceId: `consumer-device-${suffix}`,
+          vaultId: `consumer-vault-${suffix}`,
+        } });
+        await prisma.humanDeviceCredential.create({ data: {
+          id: devicePrincipal.credentialId,
+          credentialFamilyId: devicePrincipal.credentialFamilyId,
+          userId,
+          deviceId: `consumer-device-${suffix}`,
+          vaultId: `consumer-vault-${suffix}`,
+          deviceName: 'Content tree consumer gate',
+          credentialHash: `consumer-credential-hash-${suffix}`,
+          status: 'active',
         } });
 
         await t.test('Page create commits Page, tree revision, and sync revision together and rolls all back on writer failure', async () => {
@@ -239,6 +353,158 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: moveState.spaceId } })).contentTreeRevision, 3n);
         });
 
+        await t.test('Page archive uses caller Page/tree CAS and rolls every audit write back when stale', async () => {
+          const spaceId = await createSpace('page-archive');
+          const folder = await seedFolder(spaceId, 'Archive');
+          const created = await pages.create({
+            title: 'Archive me', content: '# Archive me', spaceId,
+            folderId: folder.id, expectedTreeRevision: '0',
+          }, principal);
+          const current = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+          const stableVersions = await prisma.pageVersion.count({ where: { pageId: created.id } });
+          await expectCode(
+            pages.remove(created.id, current.updatedAt.toISOString(), '0'),
+            'CONTENT_TREE_CONFLICT',
+          );
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: created.id } }), stableVersions);
+          assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: created.id } })).deletedAt, null);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
+
+          await pages.remove(created.id, current.updatedAt.toISOString(), '1');
+          const archived = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+          assert.ok(archived.deletedAt);
+          assert.equal(archived.folderId, folder.id);
+          assert.equal(archived.parentId, null);
+          assert.equal((await prisma.pageVersion.findFirstOrThrow({
+            where: { pageId: created.id }, orderBy: { createdAt: 'desc' },
+          })).folderId, folder.id);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 2n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+        });
+
+        await t.test('legacy Page reorder remains fail-closed with the migration flag enabled', async () => {
+          const spaceId = await createSpace('legacy-reorder');
+          const folder = await seedFolder(spaceId, 'Stable');
+          const created = await pages.create({
+            title: 'Stable page', spaceId, folderId: folder.id, expectedTreeRevision: '0',
+          }, principal);
+          const before = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+          const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+          process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+          try {
+            await expectCode(pages.reorder(spaceId, [{
+              id: created.id, parentId: null, sortOrder: 99,
+            }]), 'PAGE_PARENT_DEPRECATED');
+          } finally {
+            if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+            else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+          }
+          const after = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+          assert.equal(after.parentId, null);
+          assert.equal(after.folderId, before.folderId);
+          assert.equal(after.sortOrder, before.sortOrder);
+          assert.equal(after.syncPath, before.syncPath);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+        });
+
+        await t.test('Obsidian v1 finalize atomically creates, moves, archives, and restores Folder-aware Pages', async () => {
+          const spaceId = await createSpace('obsidian-finalize');
+          const projectFolder = await seedFolder(spaceId, 'Project');
+          const archiveFolder = await seedFolder(spaceId, 'Archive');
+          const knowledgeKey = `obsidian-page-${suffix}`;
+          const finalize = async (label, changes) => {
+            const staged = await stagePush(spaceId, label, changes);
+            return pushes.finalize(
+              devicePrincipal, spaceId, staged.sessionId, staged.hash,
+            );
+          };
+
+          const createdResult = await finalize('obsidian-create', [{
+            operation: 'upsert', pageId: knowledgeKey,
+            path: 'pages/Project/Obsidian.md', title: 'Obsidian', body: '# Obsidian',
+          }]);
+          let persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
+          assert.equal(persisted.parentId, null);
+          assert.equal(persisted.folderId, projectFolder.id);
+          assert.equal(persisted.syncPath, 'pages/Project/Obsidian.md');
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+          assert.equal((await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
+            where: { id: createdResult.revision },
+          })).origin, 'obsidian_sync');
+
+          await finalize('obsidian-move', [{
+            operation: 'upsert', pageId: knowledgeKey,
+            path: 'pages/Archive/Obsidian renamed.md',
+            title: 'Obsidian renamed', body: '# Obsidian renamed',
+          }]);
+          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
+          assert.equal(persisted.parentId, null);
+          assert.equal(persisted.folderId, archiveFolder.id);
+          assert.equal(persisted.syncPath, 'pages/Archive/Obsidian renamed.md');
+          assert.equal((await prisma.pagePathAlias.findFirstOrThrow({
+            where: { pageId: persisted.id, pathKey: pathKey('pages/Project/Obsidian.md') },
+          })).path, 'pages/Project/Obsidian.md');
+          assert.equal((await prisma.pageVersion.findFirstOrThrow({
+            where: { pageId: persisted.id }, orderBy: { createdAt: 'desc' },
+          })).folderId, projectFolder.id);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 2n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+
+          await finalize('obsidian-archive', [{
+            operation: 'archive', pageId: knowledgeKey,
+            previousPath: 'pages/Archive/Obsidian renamed.md',
+          }]);
+          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
+          assert.ok(persisted.deletedAt);
+          assert.equal(persisted.folderId, archiveFolder.id);
+          assert.equal((await prisma.pageVersion.findFirstOrThrow({
+            where: { pageId: persisted.id }, orderBy: { createdAt: 'desc' },
+          })).folderId, archiveFolder.id);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 3n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 3);
+
+          const restoredResult = await finalize('obsidian-restore', [{
+            operation: 'upsert', pageId: knowledgeKey,
+            path: 'pages/Archive/Obsidian renamed.md',
+            title: 'Obsidian renamed', body: '# Restored',
+          }]);
+          persisted = await prisma.page.findUniqueOrThrow({ where: { knowledgeKey } });
+          assert.equal(persisted.deletedAt, null);
+          assert.equal(persisted.parentId, null);
+          assert.equal(persisted.folderId, archiveFolder.id);
+          assert.equal(persisted.syncPath, 'pages/Archive/Obsidian renamed.md');
+          const versions = await prisma.pageVersion.findMany({ where: { pageId: persisted.id } });
+          assert.ok(versions.length >= 3);
+          assert.ok(versions.every((version) => version.folderId !== null));
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 4n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 4);
+          assert.equal((await prisma.syncRevisionPageRow.findFirstOrThrow({
+            where: { revisionId: restoredResult.revision, pageId: knowledgeKey },
+          })).folderId, archiveFolder.id);
+
+          const stablePageCount = await prisma.page.count({ where: { spaceId } });
+          const stableVersionCount = await prisma.pageVersion.count({ where: { pageId: persisted.id } });
+          const stableAliasCount = await prisma.pagePathAlias.count({ where: { pageId: persisted.id } });
+          const rejected = await stagePush(spaceId, 'obsidian-reject', [{
+            operation: 'upsert', pageId: `obsidian-rejected-${suffix}`,
+            path: 'pages/Missing/Rejected.md', title: 'Rejected', body: '# Rejected',
+          }]);
+          await expectCode(
+            pushes.finalize(devicePrincipal, spaceId, rejected.sessionId, rejected.hash),
+            'PAYLOAD_INVALID',
+          );
+          assert.equal((await prisma.pushSession.findUniqueOrThrow({
+            where: { id: rejected.sessionId },
+          })).status, 'ready_to_finalize');
+          assert.equal(await prisma.page.count({ where: { spaceId } }), stablePageCount);
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: persisted.id } }), stableVersionCount);
+          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: persisted.id } }), stableAliasCount);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 4n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 4);
+        });
+
         await t.test('Review publish commits Page placement once and rolls claim/Page/revisions back on a structural writer failure', async () => {
           const spaceId = await createSpace('review-publish');
           const folder = await seedFolder(spaceId, 'Reviewed');
@@ -281,6 +547,143 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.changeItem.findFirstOrThrow({ where: { changeSetId: rollbackSet.id } })).status, 'accepted');
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+        });
+
+        await t.test('Review revert commits once and rolls back stale, path-collision, and deleted-Folder targets', async () => {
+          const createReviewPage = async (spaceId, folderId, title, expectedTreeRevision) => {
+            const changeSet = await prisma.changeSet.create({ data: {
+              title: `Create ${title}`,
+              status: 'approved',
+              spaceId,
+              createdByUserId: userId,
+              items: { create: {
+                type: 'create_page', status: 'accepted',
+                payload: {
+                  title, content: `# ${title}`, folderId,
+                  expectedTreeRevision: String(expectedTreeRevision),
+                },
+              } },
+            } });
+            await reviews.publish(changeSet.id);
+            return {
+              changeSet,
+              page: await prisma.page.findFirstOrThrow({ where: { spaceId, title } }),
+            };
+          };
+          const publishReviewMove = async (spaceId, page, folderId, title, expectedTreeRevision) => {
+            const changeSet = await prisma.changeSet.create({ data: {
+              title: `Move ${page.title}`,
+              status: 'approved',
+              spaceId,
+              createdByUserId: userId,
+              items: { create: {
+                type: 'update_page', status: 'accepted',
+                payload: {
+                  pageId: page.id,
+                  expectedUpdatedAt: page.updatedAt.toISOString(),
+                  expectedTreeRevision: String(expectedTreeRevision),
+                  changes: { title, folderId },
+                },
+              } },
+            } });
+            await reviews.publish(changeSet.id);
+            return {
+              changeSet,
+              page: await prisma.page.findUniqueOrThrow({ where: { id: page.id } }),
+            };
+          };
+
+          const successSpaceId = await createSpace('review-revert-success');
+          const successFolder = await seedFolder(successSpaceId, 'Reviewed');
+          const success = await createReviewPage(successSpaceId, successFolder.id, 'Revert success', 0);
+          await reviews.revert(success.changeSet.id, '1');
+          const successPage = await prisma.page.findUniqueOrThrow({ where: { id: success.page.id } });
+          assert.ok(successPage.deletedAt);
+          assert.equal(successPage.parentId, null);
+          assert.equal(successPage.folderId, successFolder.id);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: success.changeSet.id } })).status, 'reverted');
+          assert.equal((await prisma.pageVersion.findFirstOrThrow({
+            where: { pageId: success.page.id }, orderBy: { createdAt: 'desc' },
+          })).folderId, successFolder.id);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: successSpaceId } })).contentTreeRevision, 2n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: successSpaceId } }), 2);
+
+          const stale = await createReviewPage(successSpaceId, successFolder.id, 'Stale revert', 2);
+          const staleVersionCount = await prisma.pageVersion.count({ where: { pageId: stale.page.id } });
+          await expectCode(reviews.revert(stale.changeSet.id, '2'), 'CONTENT_TREE_CONFLICT');
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: stale.changeSet.id } })).status, 'published');
+          assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: stale.page.id } })).deletedAt, null);
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: stale.page.id } }), staleVersionCount);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: successSpaceId } })).contentTreeRevision, 3n);
+
+          const collisionSpaceId = await createSpace('review-revert-collision');
+          const oldFolder = await seedFolder(collisionSpaceId, 'Old');
+          const newFolder = await seedFolder(collisionSpaceId, 'New');
+          const collisionBase = await pages.create({
+            title: 'Collision target', spaceId: collisionSpaceId,
+            folderId: oldFolder.id, expectedTreeRevision: '0',
+          }, principal);
+          const collisionBefore = await prisma.page.findUniqueOrThrow({ where: { id: collisionBase.id } });
+          const collisionMove = await publishReviewMove(
+            collisionSpaceId, collisionBefore, newFolder.id, 'Moved target', 1,
+          );
+          await prisma.page.create({ data: {
+            id: `collision-blocker-${suffix}`,
+            knowledgeKey: `collision-blocker-key-${suffix}`,
+            title: 'Collision target',
+            slug: `collision-blocker-${suffix}`,
+            content: '# blocker',
+            format: 'markdown',
+            authorId: userId,
+            spaceId: collisionSpaceId,
+            parentId: null,
+            folderId: oldFolder.id,
+            syncPath: 'pages/Old/Collision target.md',
+            syncPathKey: pathKey('pages/Old/Collision target.md'),
+          } });
+          const collisionVersionCount = await prisma.pageVersion.count({ where: { pageId: collisionBase.id } });
+          const collisionAliasCount = await prisma.pagePathAlias.count({ where: { pageId: collisionBase.id } });
+          await expectCode(reviews.revert(collisionMove.changeSet.id, '2'), 'CONTENT_TREE_CONFLICT');
+          const collisionAfter = await prisma.page.findUniqueOrThrow({ where: { id: collisionBase.id } });
+          assert.equal(collisionAfter.title, 'Moved target');
+          assert.equal(collisionAfter.folderId, newFolder.id);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: collisionMove.changeSet.id } })).status, 'published');
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: collisionBase.id } }), collisionVersionCount);
+          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: collisionBase.id } }), collisionAliasCount);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: collisionSpaceId } })).contentTreeRevision, 2n);
+
+          const deletedTargetSpaceId = await createSpace('review-revert-deleted-target');
+          const deletedFolder = await seedFolder(deletedTargetSpaceId, 'Deleted');
+          const activeFolder = await seedFolder(deletedTargetSpaceId, 'Active');
+          const deletedBase = await pages.create({
+            title: 'Deleted target', spaceId: deletedTargetSpaceId,
+            folderId: deletedFolder.id, expectedTreeRevision: '0',
+          }, principal);
+          const deletedBefore = await prisma.page.findUniqueOrThrow({ where: { id: deletedBase.id } });
+          const deletedMove = await publishReviewMove(
+            deletedTargetSpaceId, deletedBefore, activeFolder.id, 'Still active', 1,
+          );
+          const impact = await contentTree.deleteImpact({
+            spaceId: deletedTargetSpaceId, folderId: deletedFolder.id,
+          });
+          await contentTree.deleteFolder({
+            spaceId: deletedTargetSpaceId,
+            folderId: deletedFolder.id,
+            expectedTreeRevision: impact.treeRevision,
+            expectedUpdatedAt: impact.rootUpdatedAt,
+            expectedImpactHash: impact.impactHash,
+            actor: { userId },
+          });
+          const deletedVersionCount = await prisma.pageVersion.count({ where: { pageId: deletedBase.id } });
+          const deletedAliasCount = await prisma.pagePathAlias.count({ where: { pageId: deletedBase.id } });
+          await expectCode(reviews.revert(deletedMove.changeSet.id, '3'), 'FOLDER_NOT_FOUND');
+          const deletedAfter = await prisma.page.findUniqueOrThrow({ where: { id: deletedBase.id } });
+          assert.equal(deletedAfter.title, 'Still active');
+          assert.equal(deletedAfter.folderId, activeFolder.id);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: deletedMove.changeSet.id } })).status, 'published');
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: deletedBase.id } }), deletedVersionCount);
+          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: deletedBase.id } }), deletedAliasCount);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: deletedTargetSpaceId } })).contentTreeRevision, 3n);
         });
 
         await t.test('Review submission publish binds Folder placement to one prebuilt Sync revision and rolls it back with tree CAS failure', async () => {

@@ -89,7 +89,7 @@ describe('PageController.create', () => {
 });
 
 describe('PageController.restoreVersion', () => {
-  it('passes the optional decimal tree revision without breaking the legacy empty-body call', async () => {
+  it('passes the required caller tree revision to the structural restore path', async () => {
     const pageService = { restoreVersion: jest.fn().mockResolvedValue({ id: 'page-1' }) } as any;
     const authorization = {
       assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }),
@@ -98,10 +98,48 @@ describe('PageController.restoreVersion', () => {
     const request = { user: { userId: 'user-1', platformRole: 'user' } } as any;
 
     await controller.restoreVersion('page-1', 'version-1', { expectedTreeRevision: '15' }, request);
-    await controller.restoreVersion('page-1', 'version-2', {}, request);
 
     expect(pageService.restoreVersion).toHaveBeenNthCalledWith(1, 'page-1', 'version-1', '15');
-    expect(pageService.restoreVersion).toHaveBeenNthCalledWith(2, 'page-1', 'version-2', undefined);
+  });
+});
+
+describe('PageController.remove', () => {
+  const dto = {
+    expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '21',
+  };
+
+  it('delegates the caller Page/tree CAS values for a human archive', async () => {
+    const pageService = { remove: jest.fn().mockResolvedValue({ id: 'page-1' }) } as any;
+    const authorization = {
+      assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }),
+    } as any;
+    const controller = new PageController(pageService, authorization, { propose: jest.fn() } as any);
+
+    await (controller.remove as any)('page-1', dto, {
+      user: { userId: 'user-1', platformRole: 'user' },
+    });
+
+    expect(pageService.remove).toHaveBeenCalledWith('page-1', dto.expectedUpdatedAt, dto.expectedTreeRevision);
+  });
+
+  it('stores the caller Page/tree CAS values in an Agent archive proposal without reading current state', async () => {
+    const pageService = { findOne: jest.fn() } as any;
+    const authorization = {
+      assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }),
+    } as any;
+    const review = { propose: jest.fn().mockResolvedValue({ id: 'change-set-1' }) } as any;
+    const controller = new PageController(pageService, authorization, review);
+    const principal = { agentId: 'agent-1', userId: 'user-1', platformRole: 'user' as const };
+
+    await (controller.remove as any)('page-1', dto, { user: principal });
+
+    expect(review.propose).toHaveBeenCalledWith(
+      principal, 'space-1', 'Proposed delete: page-1', {
+        type: 'archive_page',
+        payload: { pageId: 'page-1', ...dto },
+      },
+    );
+    expect(pageService.findOne).not.toHaveBeenCalled();
   });
 });
 

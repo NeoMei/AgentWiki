@@ -33,6 +33,7 @@ function attachment(overrides: Partial<Record<'id' | 'spaceId' | 'displayName' |
 describe('MarkdownResourceService', () => {
   const prisma = {
     $queryRaw: jest.fn(),
+    page: { findFirst: jest.fn() },
     spaceAttachment: { findMany: jest.fn() },
   } as any;
   const authorization = { assertSpaceAccess: jest.fn() } as any;
@@ -42,6 +43,7 @@ describe('MarkdownResourceService', () => {
     jest.clearAllMocks();
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'viewer' });
     prisma.$queryRaw.mockResolvedValue([]);
+    prisma.page.findFirst.mockResolvedValue(null);
     prisma.spaceAttachment.findMany.mockResolvedValue([]);
     service = new MarkdownResourceService(prisma, authorization);
   });
@@ -325,6 +327,10 @@ describe('MarkdownResourceService', () => {
   });
 
   it('prefers a same-Folder title before a globally duplicated title', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page', folderId: 'folder-a', title: 'Source',
+      syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+    }));
     prisma.$queryRaw
       .mockResolvedValueOnce([page({
         id: 'source-page', folderId: 'folder-a', title: 'Source',
@@ -343,6 +349,61 @@ describe('MarkdownResourceService', () => {
       key: 'weekly', status: 'resolved', kind: 'page',
       pageId: 'same-folder', title: 'Weekly', slug: 'default',
     }]);
+  });
+
+  it('keeps an unqualified same-Folder title ambiguous even when one candidate owns the unsuffixed path', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page', folderId: 'folder-a', title: 'Source',
+      syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+    }));
+    prisma.$queryRaw
+      .mockResolvedValueOnce([
+        page({
+          id: 'source-page', folderId: 'folder-a', title: 'Source',
+          syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+        }),
+        page({
+          id: 'weekly-unsuffixed', folderId: 'folder-a', title: 'Weekly',
+          syncPath: 'pages/Project/Weekly.md', syncPathKey: 'pages/project/weekly.md',
+        }),
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        page({
+          id: 'weekly-unsuffixed', folderId: 'folder-a', title: 'Weekly',
+          syncPath: 'pages/Project/Weekly.md', syncPathKey: 'pages/project/weekly.md',
+        }),
+        page({
+          id: 'weekly-suffixed', folderId: 'folder-a', title: 'Weekly',
+          syncPath: 'pages/Project/Weekly-2.md', syncPathKey: 'pages/project/weekly-2.md',
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'weekly', kind: 'page', target: 'Weekly' },
+    ], principal, 'source-page')).resolves.toEqual([{
+      key: 'weekly', status: 'ambiguous', candidates: [
+        { pageId: 'weekly-suffixed', title: 'Weekly', path: 'pages/Project/Weekly-2.md' },
+        { pageId: 'weekly-unsuffixed', title: 'Weekly', path: 'pages/Project/Weekly.md' },
+      ],
+    }]);
+  });
+
+  it.each([
+    ['missing', null],
+    ['deleted', null],
+    ['foreign', { ...page({ id: 'source-page' }), spaceId: 'space-2' }],
+  ])('rejects a %s supplied sourcePageId instead of falling back to Space-wide resolution', async (_case, sourceRow) => {
+    prisma.page.findFirst.mockResolvedValue(sourceRow);
+
+    await expect(service.resolve('space-1', [
+      { key: 'weekly', kind: 'page', target: 'Weekly' },
+    ], principal, 'source-page')).rejects.toMatchObject({
+      businessCode: 'CONTENT_TREE_PAGE_NOT_FOUND',
+      message: 'Source Page not found',
+    });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('resolves a Folder-qualified wiki target through the current canonical path before aliases', async () => {
