@@ -1,62 +1,156 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readdir, readFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^folder_test_[a-z0-9_]+$/u;
-const VECTOR_EXTENSION_STATEMENT = /CREATE\s+EXTENSION\s+IF\s+NOT\s+EXISTS\s+vector\s+WITH\s+SCHEMA\s+public\s*;/giu;
-const HNSW_DATABASE_SETTING_STATEMENT = /DO\s+\$\$\s*BEGIN\s+EXECUTE\s+format\(\s*'ALTER DATABASE %I SET hnsw\.ef_search = 200'\s*,\s*current_database\(\)\s*\)\s*;\s*END\s+\$\$\s*;/giu;
-const FORBIDDEN_MIGRATION_PATTERNS = [
-  /(?:CREATE|ALTER|DROP)\s+EXTENSION\b[^;]*;/giu,
-  /(?:CREATE|ALTER|DROP)\s+SCHEMA\b[^;]*;/giu,
-  /(?:CREATE|ALTER|DROP)\s+(?:CAST|EVENT\s+TRIGGER|PUBLICATION|SUBSCRIPTION|ROLE|DATABASE|TABLESPACE|ACCESS\s+METHOD|LANGUAGE)\b[^;]*;/giu,
-  /ALTER\s+SYSTEM\b[^;]*;/giu,
-  /COMMENT\s+ON\s+(?:EXTENSION|SCHEMA|DATABASE|ROLE)\b[^;]*;/giu,
-  /ALTER\s+DEFAULT\s+PRIVILEGES\b[^;]*;/giu,
-  /SET\s+(?:LOCAL\s+)?search_path\b[^;]*;/giu,
-  /(?:GRANT|REVOKE)\b[^;]*(?:SCHEMA\s+public|IN\s+SCHEMA\s+public)[^;]*;/giu,
-  /(?:CREATE|ALTER|DROP|COMMENT\s+ON)\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|SEQUENCE|FUNCTION|PROCEDURE|TYPE|DOMAIN|OPERATOR(?:\s+CLASS|\s+FAMILY)?|CAST)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?public\./giu,
+const REVIEWED_MIGRATION_TREE_SHA256 = '99b85d23ffaab1f9db7c6fdc5a8a71d5ab546c6906d1411cbd12db32942d5471';
+const DEFAULT_MIGRATIONS_ROOT = fileURLToPath(new URL('../apps/server/prisma/migrations/', import.meta.url));
+const DEFAULT_SCHEMA_PATH = fileURLToPath(new URL('../apps/server/prisma/schema.prisma', import.meta.url));
+const VECTOR_EXTENSION_FRAGMENT = 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;';
+const HNSW_DATABASE_SETTING_FRAGMENT = `DO $$
+BEGIN
+  EXECUTE format('ALTER DATABASE %I SET hnsw.ef_search = 200', current_database());
+END
+$$;`;
+const REVIEWED_GLOBAL_FRAGMENTS = [
+  {
+    relativePath: '20260821120000_pgvector_semantic_search/migration.sql',
+    sourceSha256: '9a9bef11535630b9a41db7e1ed7bcd920dea251d958dae91f578e60f97acd7a1',
+    fragment: VECTOR_EXTENSION_FRAGMENT,
+    replacement: '-- Folder test bundle: vector extension is a preflight-only shared dependency.',
+    label: 'public vector extension declaration',
+  },
+  {
+    relativePath: '20260821130000_tune_hnsw_recall/migration.sql',
+    sourceSha256: '9e423f946144d7508e23ae8e412bede77f6cd6b2199f740090914e4e8c49e45e',
+    fragment: HNSW_DATABASE_SETTING_FRAGMENT,
+    replacement: '-- Folder test bundle: database-level hnsw.ef_search configuration is intentionally skipped.',
+    label: 'database-level hnsw.ef_search block',
+  },
 ];
 
-const stripSqlComments = (sql) => sql
-  .replace(/\/\*[\s\S]*?\*\//gu, ' ')
-  .replace(/--[^\r\n]*/gu, ' ');
+const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
-export async function auditFolderMigrations() {
-  const migrationsRoot = new URL('../apps/server/prisma/migrations/', import.meta.url);
-  const entries = (await readdir(migrationsRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .sort((left, right) => left.name.localeCompare(right.name));
-  let allowedVectorExtensionStatements = 0;
-  let allowedHnswDatabaseSettingStatements = 0;
-  const forbiddenStatements = [];
-  for (const entry of entries) {
-    const migrationUrl = new URL(`${entry.name}/migration.sql`, migrationsRoot);
-    const sql = stripSqlComments(await readFile(migrationUrl, 'utf8'));
-    const allowed = sql.match(VECTOR_EXTENSION_STATEMENT) ?? [];
-    allowedVectorExtensionStatements += allowed.length;
-    const allowedHnswSetting = sql.match(HNSW_DATABASE_SETTING_STATEMENT) ?? [];
-    allowedHnswDatabaseSettingStatements += allowedHnswSetting.length;
-    let remainder = sql
-      .replace(VECTOR_EXTENSION_STATEMENT, ' ')
-      .replace(HNSW_DATABASE_SETTING_STATEMENT, ' ');
-    for (const pattern of FORBIDDEN_MIGRATION_PATTERNS) {
-      const matches = remainder.match(pattern) ?? [];
-      forbiddenStatements.push(...matches.map((statement) => ({
-        migration: entry.name,
-        statement: statement.replace(/\s+/gu, ' ').trim(),
-      })));
-      remainder = remainder.replace(pattern, ' ');
+const compareByteStrings = (left, right) => Buffer.compare(
+  Buffer.from(left, 'utf8'),
+  Buffer.from(right, 'utf8'),
+);
+
+async function listMigrationFiles(root, relativeDirectory = '') {
+  const directoryEntries = (await readdir(join(root, relativeDirectory), { withFileTypes: true }))
+    .sort((left, right) => compareByteStrings(left.name, right.name));
+  const files = [];
+  for (const entry of directoryEntries) {
+    const relativePath = relativeDirectory
+      ? `${relativeDirectory}/${entry.name}`
+      : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...await listMigrationFiles(root, relativePath));
+    } else if (entry.isFile()) {
+      files.push(relativePath);
+    } else {
+      throw new Error(`Folder migration corpus contains an unsupported entry: ${relativePath}`);
     }
   }
-  return {
-    allowedVectorExtensionStatements,
-    allowedHnswDatabaseSettingStatements,
-    forbiddenStatements,
-  };
+  return files;
+}
+
+export async function inspectFolderMigrationCorpus(migrationsRoot = DEFAULT_MIGRATIONS_ROOT) {
+  const root = migrationsRoot instanceof URL ? fileURLToPath(migrationsRoot) : migrationsRoot;
+  const relativePaths = await listMigrationFiles(root);
+  const entries = [];
+  let canonicalManifest = '';
+  for (const relativePath of relativePaths) {
+    const content = await readFile(join(root, relativePath));
+    const contentSha256 = sha256(content);
+    entries.push({ relativePath, sha256: contentSha256 });
+    canonicalManifest += `${relativePath}\0${contentSha256}\n`;
+  }
+  return { entries, treeDigest: sha256(canonicalManifest) };
+}
+
+export function replaceByteExactFragmentOnce(source, fragment, replacement, label) {
+  if (!fragment) throw new Error(`Reviewed ${label} fragment must not be empty`);
+  const firstIndex = source.indexOf(fragment);
+  const secondIndex = firstIndex < 0
+    ? -1
+    : source.indexOf(fragment, firstIndex + fragment.length);
+  if (firstIndex < 0 || secondIndex >= 0) {
+    throw new Error(`Reviewed ${label} fragment must occur exactly once`);
+  }
+  return source.slice(0, firstIndex) + replacement + source.slice(firstIndex + fragment.length);
+}
+
+export async function prepareFolderMigrationBundle({
+  migrationsRoot = DEFAULT_MIGRATIONS_ROOT,
+  schemaPath = DEFAULT_SCHEMA_PATH,
+  temporaryParent = tmpdir(),
+} = {}) {
+  const sourceRoot = migrationsRoot instanceof URL ? fileURLToPath(migrationsRoot) : migrationsRoot;
+  const sourceSchemaPath = schemaPath instanceof URL ? fileURLToPath(schemaPath) : schemaPath;
+  const corpus = await inspectFolderMigrationCorpus(sourceRoot);
+  if (corpus.treeDigest !== REVIEWED_MIGRATION_TREE_SHA256) {
+    throw new Error(
+      'Folder migration corpus is not the byte-exact reviewed tree: '
+      + `${corpus.treeDigest} !== ${REVIEWED_MIGRATION_TREE_SHA256}`,
+    );
+  }
+
+  const temporaryRoot = await mkdtemp(join(temporaryParent, 'agentwiki-folder-migrations-'));
+  try {
+    const bundleMigrationsRoot = join(temporaryRoot, 'migrations');
+    await mkdir(bundleMigrationsRoot);
+    await writeFile(join(temporaryRoot, 'schema.prisma'), await readFile(sourceSchemaPath));
+    const replacedPaths = new Set();
+    for (const entry of corpus.entries) {
+      const source = await readFile(join(sourceRoot, entry.relativePath));
+      let output = source;
+      const reviewedFragment = REVIEWED_GLOBAL_FRAGMENTS.find(
+        (candidate) => candidate.relativePath === entry.relativePath,
+      );
+      if (reviewedFragment) {
+        if (entry.sha256 !== reviewedFragment.sourceSha256) {
+          throw new Error(`Reviewed global-fragment source hash drifted: ${entry.relativePath}`);
+        }
+        output = Buffer.from(replaceByteExactFragmentOnce(
+          source.toString('utf8'),
+          reviewedFragment.fragment,
+          reviewedFragment.replacement,
+          reviewedFragment.label,
+        ), 'utf8');
+        replacedPaths.add(entry.relativePath);
+      }
+      const destination = join(bundleMigrationsRoot, entry.relativePath);
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, output);
+    }
+    if (replacedPaths.size !== REVIEWED_GLOBAL_FRAGMENTS.length) {
+      throw new Error('Folder sanitized migration bundle did not replace every reviewed global fragment');
+    }
+    return {
+      temporaryRoot,
+      schemaPath: join(temporaryRoot, 'schema.prisma'),
+      treeDigest: corpus.treeDigest,
+      cleanup: () => rm(temporaryRoot, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await rm(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 export async function assertFolderDatabaseSafetyPreflight(prisma) {
@@ -72,61 +166,77 @@ export async function assertFolderDatabaseSafetyPreflight(prisma) {
   if (vector.length !== 1 || vector[0].schema !== 'public') {
     throw new Error('vector extension must be preconfigured in public before Folder test migrations');
   }
-  const hnswSetting = await prisma.$queryRaw`
-    SELECT configured_setting.setting
-    FROM pg_database database
-    JOIN pg_db_role_setting configured
-      ON configured.setdatabase = database.oid
-     AND configured.setrole = 0
-    CROSS JOIN LATERAL unnest(configured.setconfig) AS configured_setting(setting)
-    WHERE database.datname = current_database()
-      AND configured_setting.setting = 'hnsw.ef_search=200'
-  `;
-  if (hnswSetting.length !== 1) {
-    throw new Error('hnsw.ef_search=200 must be preconfigured for the Folder test database before migrations');
-  }
-  return { vector: vector[0], hnswEfSearch: '200' };
+  return vector[0];
 }
 
-export async function captureFolderDatabaseSafetyInventory(prisma) {
-  const [
-    extensions,
-    extensionObjects,
-    publicSchema,
-    publicRelations,
-    publicTypes,
-    publicFunctions,
-    publicOperators,
-    publicOperatorClasses,
-    publicOperatorFamilies,
-    databaseSettings,
-  ] = await Promise.all([
+export function normalizeFolderPublicSchemaDump(dump) {
+  return dump
+    .replace(/^\\(?:un)?restrict[^\r\n]*(?:\r?\n|$)/gmu, '')
+    .replaceAll('\r\n', '\n');
+}
+
+async function assertFolderDatabaseIdentity(prisma, databaseUrl) {
+  const parsed = validateFolderTestDatabaseUrl(databaseUrl);
+  parsed.searchParams.delete('schema');
+  const identityRows = await prisma.$queryRaw`
+    SELECT current_database() AS "databaseName",
+           current_user AS "currentUser",
+           COALESCE(host(inet_server_addr()), '') AS "serverAddress",
+           inet_server_port()::int AS "serverPort"
+  `;
+  const identity = identityRows[0];
+  const expectedDatabase = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
+  const expectedUser = decodeURIComponent(parsed.username);
+  const expectedPort = Number(parsed.port || '5432');
+  const expectedLiteralAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(parsed.hostname)
+    ? parsed.hostname
+    : undefined;
+  if (
+    !identity
+    || identity.databaseName !== expectedDatabase
+    || (expectedUser && identity.currentUser !== expectedUser)
+    || identity.serverPort !== expectedPort
+    || (expectedLiteralAddress && identity.serverAddress !== expectedLiteralAddress)
+  ) {
+    throw new Error('Folder pg_dump target does not match the explicit test database URL');
+  }
+  return { administrativeUrl: parsed.toString(), identity };
+}
+
+function dumpPublicSchema(databaseUrl) {
+  const dump = spawnSync(
+    'pg_dump',
+    ['--dbname', databaseUrl, '--schema-only', '--schema=public', '--no-password'],
+    {
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: { ...process.env, PGAPPNAME: 'agentwiki-folder-structural-inventory' },
+    },
+  );
+  if (dump.error || dump.status !== 0) {
+    throw new Error(
+      ['Folder public schema pg_dump failed', dump.error?.message, dump.stdout, dump.stderr]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+  return normalizeFolderPublicSchemaDump(dump.stdout);
+}
+
+export async function captureFolderDatabaseSafetyInventory(databaseUrl, prisma) {
+  const { administrativeUrl, identity } = await assertFolderDatabaseIdentity(prisma, databaseUrl);
+  const [extensions, publicSchema, databaseMetadata, databaseSettings] = await Promise.all([
     prisma.$queryRaw`
       SELECT e.extname AS name,
              n.nspname AS schema,
              pg_get_userbyid(e.extowner) AS owner,
              e.extversion AS version,
-             e.extrelocatable AS relocatable
+             e.extrelocatable AS relocatable,
+             COALESCE(e.extconfig::text, '') AS config,
+             COALESCE(e.extcondition::text, '') AS condition
       FROM pg_extension e
       JOIN pg_namespace n ON n.oid = e.extnamespace
       ORDER BY e.extname
-    `,
-    prisma.$queryRaw`
-      SELECT e.extname AS extension,
-             identified.type AS type,
-             COALESCE(identified.schema, '') AS schema,
-             COALESCE(identified.name, '') AS name,
-             identified.identity AS identity
-      FROM pg_depend dependency
-      JOIN pg_extension e ON e.oid = dependency.refobjid
-      CROSS JOIN LATERAL pg_identify_object(
-        dependency.classid,
-        dependency.objid,
-        dependency.objsubid
-      ) AS identified
-      WHERE dependency.refclassid = 'pg_extension'::regclass
-        AND dependency.deptype = 'e'
-      ORDER BY e.extname, identified.type, identified.schema, identified.name, identified.identity
     `,
     prisma.$queryRaw`
       SELECT n.nspname AS name,
@@ -137,129 +247,55 @@ export async function captureFolderDatabaseSafetyInventory(prisma) {
       WHERE n.nspname = 'public'
     `,
     prisma.$queryRaw`
-      SELECT c.relname AS name,
-             c.relkind AS kind,
-             c.relpersistence AS persistence,
-             pg_get_userbyid(c.relowner) AS owner,
-             COALESCE(c.relacl::text, '') AS acl,
-             COALESCE(array_to_string(c.reloptions, ','), '') AS options,
-             COALESCE(obj_description(c.oid, 'pg_class'), '') AS comment
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public'
-      ORDER BY c.relname, c.relkind
-    `,
-    prisma.$queryRaw`
-      SELECT t.typname AS name,
-             t.typtype AS type,
-             t.typcategory AS category,
-             pg_get_userbyid(t.typowner) AS owner,
-             COALESCE(t.typacl::text, '') AS acl,
-             format_type(t.oid, NULL) AS formatted,
-             t.typnotnull AS not_null,
-             COALESCE(t.typdefault, '') AS default_value,
-             COALESCE(format_type(NULLIF(t.typbasetype, 0), NULL), '') AS base_type,
-             COALESCE(format_type(NULLIF(t.typelem, 0), NULL), '') AS element_type,
-             COALESCE((
-               SELECT string_agg(enum_value.enumlabel, E'\n' ORDER BY enum_value.enumsortorder)
-               FROM pg_enum enum_value
-               WHERE enum_value.enumtypid = t.oid
-             ), '') AS enum_labels
-      FROM pg_type t
-      JOIN pg_namespace n ON n.oid = t.typnamespace
-      WHERE n.nspname = 'public'
-      ORDER BY t.typname
-    `,
-    prisma.$queryRaw`
-      SELECT p.proname AS name,
-             pg_get_function_identity_arguments(p.oid) AS arguments,
-             pg_get_function_result(p.oid) AS result,
-             p.prokind AS kind,
-             p.provolatile AS volatility,
-             p.proparallel AS parallel,
-             p.prosecdef AS security_definer,
-             pg_get_userbyid(p.proowner) AS owner,
-             COALESCE(p.proacl::text, '') AS acl
-      FROM pg_proc p
-      JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname = 'public'
-      ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)
-    `,
-    prisma.$queryRaw`
-      SELECT operator.oprname AS name,
-             operator.oprkind AS kind,
-             format_type(operator.oprleft, NULL) AS left_type,
-             format_type(operator.oprright, NULL) AS right_type,
-             format_type(operator.oprresult, NULL) AS result_type,
-             operator.oprcode::regprocedure::text AS implementation,
-             pg_get_userbyid(operator.oprowner) AS owner
-      FROM pg_operator operator
-      JOIN pg_namespace n ON n.oid = operator.oprnamespace
-      WHERE n.nspname = 'public'
-      ORDER BY operator.oprname, left_type, right_type
-    `,
-    prisma.$queryRaw`
-      SELECT class.opcname AS name,
-             method.amname AS access_method,
-             family.opfname AS family,
-             format_type(class.opcintype, NULL) AS input_type,
-             class.opcdefault AS is_default,
-             pg_get_userbyid(class.opcowner) AS owner
-      FROM pg_opclass class
-      JOIN pg_namespace n ON n.oid = class.opcnamespace
-      JOIN pg_am method ON method.oid = class.opcmethod
-      JOIN pg_opfamily family ON family.oid = class.opcfamily
-      WHERE n.nspname = 'public'
-      ORDER BY class.opcname, method.amname
-    `,
-    prisma.$queryRaw`
-      SELECT family.opfname AS name,
-             method.amname AS access_method,
-             pg_get_userbyid(family.opfowner) AS owner
-      FROM pg_opfamily family
-      JOIN pg_namespace n ON n.oid = family.opfnamespace
-      JOIN pg_am method ON method.oid = family.opfmethod
-      WHERE n.nspname = 'public'
-      ORDER BY family.opfname, method.amname
-    `,
-    prisma.$queryRaw`
       SELECT database.datname AS name,
              pg_get_userbyid(database.datdba) AS owner,
              COALESCE(database.datacl::text, '') AS acl,
-             COALESCE(settings.settings, '') AS settings
+             current_user AS "currentUser",
+             current_setting('hnsw.ef_search', true) AS "effectiveHnswEfSearch"
       FROM pg_database database
-      LEFT JOIN LATERAL (
-        SELECT string_agg(configured_setting.setting, E'\n' ORDER BY configured_setting.setting) AS settings
-        FROM pg_db_role_setting configured
-        CROSS JOIN LATERAL unnest(configured.setconfig) AS configured_setting(setting)
-        WHERE configured.setdatabase = database.oid
-          AND configured.setrole = 0
-      ) settings ON true
       WHERE database.datname = current_database()
+    `,
+    prisma.$queryRaw`
+      WITH target_database AS (
+        SELECT oid, datname
+        FROM pg_database
+        WHERE datname = current_database()
+      ), active_role AS (
+        SELECT oid FROM pg_roles WHERE rolname = current_user
+      )
+      SELECT CASE WHEN configured.setdatabase = 0 THEN '*' ELSE target_database.datname END AS scope,
+             COALESCE(role.rolname, '*') AS role,
+             configured_setting.setting AS setting
+      FROM target_database
+      JOIN pg_db_role_setting configured
+        ON configured.setdatabase = target_database.oid
+        OR (
+          configured.setdatabase = 0
+          AND configured.setrole = (SELECT oid FROM active_role)
+        )
+      LEFT JOIN pg_roles role ON role.oid = configured.setrole
+      CROSS JOIN LATERAL unnest(configured.setconfig) AS configured_setting(setting)
+      ORDER BY scope, role, configured_setting.setting
     `,
   ]);
   return {
-    extensions,
-    extensionObjects,
-    publicSchema,
-    publicRelations,
-    publicTypes,
-    publicFunctions,
-    publicOperators,
-    publicOperatorClasses,
-    publicOperatorFamilies,
+    databaseIdentity: identity,
+    databaseMetadata,
     databaseSettings,
+    extensions,
+    publicSchema,
+    publicSchemaDump: dumpPublicSchema(administrativeUrl),
   };
 }
 
 export function folderDatabaseSafetyInventoryDigest(inventory) {
-  return createHash('sha256').update(JSON.stringify(inventory), 'utf8').digest('hex');
+  return sha256(JSON.stringify(inventory));
 }
 
 function assertSafetyInventoryUnchanged(before, after, boundary) {
   if (!isDeepStrictEqual(after, before)) {
     throw new Error(
-      `Folder database ${boundary} changed protected public inventory `
+      `Folder database ${boundary} changed protected structural inventory `
       + `${folderDatabaseSafetyInventoryDigest(before)} -> ${folderDatabaseSafetyInventoryDigest(after)}`,
     );
   }
@@ -302,31 +338,28 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
   const parsed = validateFolderTestDatabaseUrl(baseDatabaseUrl);
   parsed.searchParams.delete('schema');
   const administrativeUrl = parsed.toString();
+  const preparedMigrations = await prepareFolderMigrationBundle();
   const schemaName = `folder_test_${randomUUID().replaceAll('-', '')}`;
   const schemaSql = quoteIdentifier(schemaName);
   const testUrl = new URL(administrativeUrl);
   testUrl.searchParams.set('schema', schemaName);
   const databaseUrl = testUrl.toString();
-  const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl } } });
+  let prisma;
   let created = false;
   let safetyInventory;
   let callbackStarted = false;
   try {
-    const migrationAudit = await auditFolderMigrations();
-    if (
-      migrationAudit.allowedVectorExtensionStatements !== 1
-      || migrationAudit.allowedHnswDatabaseSettingStatements !== 1
-      || migrationAudit.forbiddenStatements.length > 0
-    ) {
-      throw new Error(`Folder migration safety audit failed: ${JSON.stringify(migrationAudit)}`);
-    }
+    prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl } } });
     await assertFolderDatabaseSafetyPreflight(prisma);
-    safetyInventory = await captureFolderDatabaseSafetyInventory(prisma);
+    safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
     await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
     created = true;
     const migration = spawnSync(
       'pnpm',
-      ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
+      [
+        '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+        '--schema', preparedMigrations.schemaPath,
+      ],
       {
         cwd: new URL('..', import.meta.url),
         encoding: 'utf8',
@@ -339,26 +372,27 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
         [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n'),
       );
     }
-    const postMigrationInventory = await captureFolderDatabaseSafetyInventory(prisma);
+    const postMigrationInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
     assertSafetyInventoryUnchanged(safetyInventory, postMigrationInventory, 'migration');
     callbackStarted = true;
     return await callback({
       databaseUrl,
       schemaName,
+      migrationTreeDigest: preparedMigrations.treeDigest,
       publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
     });
   } finally {
     let safetyError;
     try {
-      if (safetyInventory && callbackStarted) {
+      if (prisma && safetyInventory && callbackStarted) {
         try {
-          const postCallbackInventory = await captureFolderDatabaseSafetyInventory(prisma);
+          const postCallbackInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
           assertSafetyInventoryUnchanged(safetyInventory, postCallbackInventory, 'callback');
         } catch (error) {
           safetyError = error;
         }
       }
-      if (created) {
+      if (prisma && created) {
         try {
           await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
         } catch (error) {
@@ -366,7 +400,11 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
         }
       }
     } finally {
-      await prisma.$disconnect();
+      try {
+        if (prisma) await prisma.$disconnect();
+      } finally {
+        await preparedMigrations.cleanup();
+      }
     }
     if (safetyError) throw safetyError;
   }

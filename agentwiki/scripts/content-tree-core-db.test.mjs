@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import test, { before } from 'node:test';
+import * as folderDatabaseSafety from './folder-test-database.mjs';
 import {
   assertFolderDatabaseSafetyPreflight,
-  auditFolderMigrations,
   captureFolderDatabaseSafetyInventory,
   folderDatabaseSafetyInventoryDigest,
   validateFolderTestDatabaseUrl,
@@ -19,6 +22,7 @@ const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
+const REVIEWED_MIGRATION_TREE_SHA256 = '99b85d23ffaab1f9db7c6fdc5a8a71d5ab546c6906d1411cbd12db32942d5471';
 
 const administrativeUrl = (value) => {
   const parsed = validateFolderTestDatabaseUrl(value);
@@ -44,31 +48,127 @@ before(async () => {
   if (!baseDatabaseUrl) return;
   const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl(baseDatabaseUrl) } } });
   try {
-    publicInventoryBefore = await captureFolderDatabaseSafetyInventory(prisma);
+    publicInventoryBefore = await captureFolderDatabaseSafetyInventory(
+      administrativeUrl(baseDatabaseUrl),
+      prisma,
+    );
   } finally {
     await prisma.$disconnect();
   }
 });
 
-test('Folder migration safety audit requires preconfigured public and database dependencies', async () => {
-  const audit = await auditFolderMigrations();
-  assert.equal(audit.allowedVectorExtensionStatements, 1);
-  assert.equal(audit.allowedHnswDatabaseSettingStatements, 1);
-  assert.deepEqual(audit.forbiddenStatements, []);
+test('Folder migration safety boundary rejects unknown and byte-modified migration corpora', async () => {
+  assert.equal(typeof folderDatabaseSafety.prepareFolderMigrationBundle, 'function');
+  const sourceRoot = new URL('../apps/server/prisma/migrations/', import.meta.url);
+  const reviewed = await folderDatabaseSafety.inspectFolderMigrationCorpus(sourceRoot);
+  assert.equal(reviewed.treeDigest, REVIEWED_MIGRATION_TREE_SHA256);
+
+  const fixtureParent = await mkdtemp(join(tmpdir(), 'agentwiki-folder-corpus-red-'));
+  const fixtureRoot = join(fixtureParent, 'migrations');
+  const bundleParent = join(fixtureParent, 'bundles');
+  await cp(sourceRoot, fixtureRoot, { recursive: true });
+  await mkdir(bundleParent);
+  try {
+    await writeFile(join(fixtureRoot, 'unknown.sql'), 'SELECT 1;\n', 'utf8');
+    await assert.rejects(
+      folderDatabaseSafety.prepareFolderMigrationBundle({
+        migrationsRoot: fixtureRoot,
+        temporaryParent: bundleParent,
+      }),
+      /migration corpus is not the byte-exact reviewed tree/iu,
+    );
+    assert.deepEqual(await readdir(bundleParent), []);
+
+    await rm(join(fixtureRoot, 'unknown.sql'));
+    const changedMigration = join(fixtureRoot, '20260828120000_expand_space_folders', 'migration.sql');
+    const original = await readFile(changedMigration, 'utf8');
+    await writeFile(changedMigration, `${original}\n`, 'utf8');
+    await assert.rejects(
+      folderDatabaseSafety.prepareFolderMigrationBundle({
+        migrationsRoot: fixtureRoot,
+        temporaryParent: bundleParent,
+      }),
+      /migration corpus is not the byte-exact reviewed tree/iu,
+    );
+    assert.deepEqual(await readdir(bundleParent), []);
+  } finally {
+    await rm(fixtureParent, { recursive: true, force: true });
+  }
+});
+
+test('Folder sanitized bundle removes each reviewed global fragment exactly once and cleans itself', async () => {
+  assert.throws(
+    () => folderDatabaseSafety.replaceByteExactFragmentOnce(
+      'unchanged', 'global DDL', '-- skipped', 'global DDL',
+    ),
+    /must occur exactly once/iu,
+  );
+  assert.throws(
+    () => folderDatabaseSafety.replaceByteExactFragmentOnce(
+      'global DDL; global DDL', 'global DDL', '-- skipped', 'global DDL',
+    ),
+    /must occur exactly once/iu,
+  );
+
+  const prepared = await folderDatabaseSafety.prepareFolderMigrationBundle();
+  const temporaryRoot = prepared.temporaryRoot;
+  try {
+    assert.equal(prepared.treeDigest, REVIEWED_MIGRATION_TREE_SHA256);
+    const vectorMigration = await readFile(join(
+      temporaryRoot,
+      'migrations/20260821120000_pgvector_semantic_search/migration.sql',
+    ), 'utf8');
+    const hnswMigration = await readFile(join(
+      temporaryRoot,
+      'migrations/20260821130000_tune_hnsw_recall/migration.sql',
+    ), 'utf8');
+    assert.doesNotMatch(vectorMigration, /CREATE EXTENSION/iu);
+    assert.match(vectorMigration, /public\.halfvec\(2048\)/u);
+    assert.doesNotMatch(hnswMigration, /ALTER DATABASE/iu);
+    assert.match(hnswMigration, /Page_embeddingVector_hnsw/u);
+  } finally {
+    await prepared.cleanup();
+  }
+  await assert.rejects(readFile(join(temporaryRoot, 'schema.prisma')), { code: 'ENOENT' });
+});
+
+test('Folder structural inventory distinguishes same-name public objects with different definitions', () => {
+  const beforeDump = String.raw`\restrict random-before
+CREATE TABLE public.same_name (
+    value integer NOT NULL
+);
+\unrestrict random-before
+`;
+  const sameStructureDifferentToken = beforeDump.replaceAll('random-before', 'random-after');
+  const changedStructure = sameStructureDifferentToken.replace('value integer', 'value bigint');
+  const before = { publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(beforeDump) };
+  const same = {
+    publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(sameStructureDifferentToken),
+  };
+  const changed = {
+    publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(changedStructure),
+  };
+  assert.equal(folderDatabaseSafetyInventoryDigest(same), folderDatabaseSafetyInventoryDigest(before));
+  assert.notEqual(folderDatabaseSafetyInventoryDigest(changed), folderDatabaseSafetyInventoryDigest(before));
+});
+
+test('Folder database preflight requires only the preinstalled public vector extension', async () => {
   await assert.rejects(
     assertFolderDatabaseSafetyPreflight({ $queryRaw: async () => [] }),
     /vector extension must be preconfigured in public/iu,
   );
-  let queryIndex = 0;
   await assert.rejects(
-    assertFolderDatabaseSafetyPreflight({
-      $queryRaw: async () => {
-        queryIndex += 1;
-        return queryIndex === 1 ? [{ name: 'vector', schema: 'public' }] : [];
-      },
-    }),
-    /hnsw\.ef_search=200 must be preconfigured/iu,
+    assertFolderDatabaseSafetyPreflight({ $queryRaw: async () => [{ name: 'vector', schema: 'private' }] }),
+    /vector extension must be preconfigured in public/iu,
   );
+  let queryCount = 0;
+  await assert.doesNotReject(assertFolderDatabaseSafetyPreflight({
+    $queryRaw: async () => {
+      queryCount += 1;
+      return [{ name: 'vector', schema: 'public', owner: 'neomei', version: '0.7.4' }];
+    },
+  }));
+  assert.equal(queryCount, 1, 'sanitized migrations do not require a database-level HNSW setting');
 });
 
 test('ContentTree production advisory lock serializes create, commit, and rollback boundaries', {
@@ -293,7 +393,10 @@ test('ContentTree DB gate leaves no generated schemas and preserves protected pu
   const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl(baseDatabaseUrl) } } });
   let publicInventoryAfter;
   try {
-    publicInventoryAfter = await captureFolderDatabaseSafetyInventory(prisma);
+    publicInventoryAfter = await captureFolderDatabaseSafetyInventory(
+      administrativeUrl(baseDatabaseUrl),
+      prisma,
+    );
   } finally {
     await prisma.$disconnect();
   }
@@ -304,11 +407,24 @@ test('ContentTree DB gate leaves no generated schemas and preserves protected pu
   assert.equal(afterDigest, beforeDigest);
   const vector = publicInventoryAfter.extensions.find((extension) => extension.name === 'vector');
   assert.equal(vector?.schema, 'public');
-  assert.match(publicInventoryAfter.databaseSettings[0]?.settings ?? '', /(?:^|\n)hnsw\.ef_search=200(?:\n|$)/u);
+  const expectedDatabaseUrl = validateFolderTestDatabaseUrl(baseDatabaseUrl);
+  assert.deepEqual(
+    publicInventoryAfter.databaseMetadata.map(({ name, currentUser }) => ({ name, currentUser })),
+    [{
+      name: decodeURIComponent(expectedDatabaseUrl.pathname.replace(/^\//u, '')),
+      currentUser: decodeURIComponent(expectedDatabaseUrl.username),
+    }],
+  );
+  assert.ok(publicInventoryAfter.databaseSettings.every(
+    (setting) => typeof setting.scope === 'string'
+      && typeof setting.role === 'string'
+      && typeof setting.setting === 'string',
+  ));
   console.log('folder_test_schemas=0');
   console.log(`public_inventory_before=${beforeDigest}`);
   console.log(`public_inventory_after=${afterDigest}`);
   console.log('public_inventory_equal=true');
   console.log(`vector_extension_schema=${vector.schema}`);
-  console.log('database_hnsw_ef_search=200');
+  console.log(`migration_tree_sha256=${REVIEWED_MIGRATION_TREE_SHA256}`);
+  console.log('sanitized_global_fragments=2');
 });
