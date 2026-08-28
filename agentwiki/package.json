@@ -27,6 +27,8 @@
     "test:e2e:codegraph-standard-scan": "pnpm --filter @neomei/agentwiki-local-sync build && node --test scripts/codegraph-standard-scan-e2e.test.mjs",
     "backfill:sync-v1": "node scripts/backfill-sync-v1.mjs",
     "migrate:readable-sync-paths": "pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node scripts/migrate-readable-sync-paths.mjs",
+    "migrate:space-folders:dry-run": "pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node scripts/space-folder-migration.mjs --dry-run",
+    "migrate:space-folders:apply": "pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node scripts/space-folder-migration.mjs --apply",
     "instance:rotate": "node scripts/instance-rotate.mjs",
     "test:e2e:sync-v1-db": "node --test scripts/sync-v1-db.test.mjs",
     "test:e2e:sync-v1-writer-db": "node --test scripts/sync-v1-writer-db.test.mjs",
@@ -39,7 +41,7 @@
     "test:e2e:collaboration": "node scripts/collaboration-workflows-e2e.mjs",
     "test:e2e:page-template-db": "node --test scripts/page-template-schema-db.test.mjs",
     "test:e2e:markdown-db": "node -e \"if (!process.env.MARKDOWN_TEST_DATABASE_URL) { throw new Error('MARKDOWN_TEST_DATABASE_URL is required for the dedicated Markdown attachment gate'); }\" && pnpm --filter @agentwiki/server build && MARKDOWN_ATTACHMENTS_DEDICATED_GATE=1 node --test scripts/markdown-attachments-schema-db.test.mjs scripts/markdown-attachments-http-db.test.mjs scripts/markdown-resource-resolution-db.test.mjs",
-    "test:e2e:folders-db": "node -e \"if (!process.env.FOLDER_TEST_DATABASE_URL) { throw new Error('FOLDER_TEST_DATABASE_URL is required for the dedicated Folder schema gate'); }\" && pnpm --filter @agentwiki/server build && node --test scripts/folder-schema-db.test.mjs && node --test scripts/content-tree-core-db.test.mjs && node --test scripts/content-tree-operations-db.test.mjs && node --test scripts/content-tree-consumers-db.test.mjs"
+    "test:e2e:folders-db": "node -e \"if (!process.env.FOLDER_TEST_DATABASE_URL) { throw new Error('FOLDER_TEST_DATABASE_URL is required for the dedicated Folder schema gate'); }\" && pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter @agentwiki/server build && node --test scripts/folder-schema-db.test.mjs && node --test scripts/content-tree-core-db.test.mjs && node --test scripts/content-tree-operations-db.test.mjs && node --test scripts/content-tree-consumers-db.test.mjs && node --test scripts/space-folder-migration-db.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
