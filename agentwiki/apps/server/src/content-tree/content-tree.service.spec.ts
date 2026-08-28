@@ -217,6 +217,22 @@ describe('ContentTreeService create/read core', () => {
     expect(tx.page.findMany).not.toHaveBeenCalled();
   });
 
+  it('treats a supplied empty-string parent as an exact Folder ID, not as root', async () => {
+    const { service, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
+    tx.folder.findFirst.mockResolvedValue(null);
+
+    await expect(service.listChildren({
+      spaceId: 'space-1', parentFolderId: '', take: 10,
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+    expect(tx.folder.findFirst).toHaveBeenCalledWith({
+      where: { id: '', spaceId: 'space-1', deletedAt: null },
+      select: { id: true },
+    });
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
+    expect(tx.page.findMany).not.toHaveBeenCalled();
+  });
+
   it('reads revision, parent, Folder children, and Page children from one read-only repeatable-read transaction', async () => {
     const { service, prisma, tx } = makeHarness();
     tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 12n });

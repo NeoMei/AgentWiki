@@ -114,7 +114,7 @@ export class ContentTreeService {
         select: { contentTreeRevision: true },
       });
       if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
-      if (parentFolderId) {
+      if (parentFolderId !== null) {
         const parent = await tx.folder.findFirst({
           where: { id: parentFolderId, spaceId: input.spaceId, deletedAt: null },
           select: { id: true },
