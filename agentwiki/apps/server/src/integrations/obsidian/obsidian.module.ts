@@ -7,6 +7,8 @@ import { HumanDeviceGuard } from './human-device.guard';
 import { ObsidianIntegrationService } from './obsidian-integration.service';
 import { ObsidianIntegrationController } from './obsidian-integration.controller';
 import { SyncV1Controller } from './sync-v1.controller';
+import { SyncV2Controller } from './sync-v2.controller';
+import { SyncV2RevisionService } from './sync-v2-revision.service';
 import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
@@ -23,17 +25,19 @@ import { ContentTreeModule } from '../../content-tree/content-tree.module';
     HumanDeviceGuard,
     ObsidianIntegrationService,
     SyncRevisionService,
+    SyncV2RevisionService,
     SyncCursorService,
     SyncCapabilitiesService,
     SpaceRevisionWriterService,
     PushSessionService,
   ],
-  controllers: [ObsidianIntegrationController, SyncV1Controller],
+  controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller],
   exports: [
     ObsidianCryptoService,
     HumanDeviceGuard,
     ObsidianIntegrationService,
     SyncRevisionService,
+    SyncV2RevisionService,
     SyncCursorService,
     SyncCapabilitiesService,
     SpaceRevisionWriterService,

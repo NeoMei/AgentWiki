@@ -110,6 +110,9 @@ describe('SpaceRevisionWriterService', () => {
       page: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      folder: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       agentMemory: {
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -185,6 +188,7 @@ describe('SpaceRevisionWriterService', () => {
       legacyRevisionSidecar: { findUnique: jest.fn().mockResolvedValue(null) },
       legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue(extras) },
       legacyPageBodyRow: { findMany: jest.fn().mockResolvedValue([{ contentHash: hash, body }]) },
+      folder: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
     const result = await (service as any).advanceStructuralPages(
@@ -206,4 +210,47 @@ describe('SpaceRevisionWriterService', () => {
     expect(result.pageCount).toBe(10_000n);
     expect(queryCount).toBeLessThanOrEqual(20);
   }, 20_000);
+
+  function emptyStructuralTransaction() {
+    return {
+      $queryRaw: jest.fn().mockResolvedValue([{ bytes: 0n }]),
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'revision-1', sequence: 1 }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([]) },
+      legacyRevisionSidecar: { findUnique: jest.fn().mockResolvedValue(null) },
+      legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  it('keeps automatic v2 finalization enabled even if external origin metadata names the migration defer flag', async () => {
+    const finalize = jest.spyOn(service as any, 'finalizeTreeV2IfRequired')
+      .mockImplementation(async (_tx, _spaceId, revisionId, _parentRevisionId, fallback) => ({
+        ...(fallback as any), revisionId,
+      }));
+
+    await service.advanceStructuralPagesLocked(
+      emptyStructuralTransaction(),
+      'space-1',
+      [],
+      { origin: 'obsidian_sync', deferTreeV2Finalization: true } as any,
+    );
+
+    expect(finalize).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets only the dedicated migration writer defer initial v2 persistence to the Task 6 finalizer', async () => {
+    const finalize = jest.spyOn(service as any, 'finalizeTreeV2IfRequired');
+
+    await service.advanceMigrationStructuralPagesLocked(
+      emptyStructuralTransaction(),
+      'space-1',
+      [],
+      { origin: 'migration', migrationBatchId: 'space-folders-v1:space-1' },
+    );
+
+    expect(finalize).not.toHaveBeenCalled();
+  });
 });

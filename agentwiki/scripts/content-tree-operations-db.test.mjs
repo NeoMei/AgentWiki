@@ -316,10 +316,13 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', baseRevision: null,
             memories: [{ id: 'memory-1' }], relations: [], provenance: [], deletions: [],
           };
-          await prisma.legacyRevisionSidecar.create({ data: {
-            revisionId: firstRevision.id,
-            sidecar,
-          } });
+          const revisionSidecar = await prisma.legacyRevisionSidecar.findUniqueOrThrow({
+            where: { revisionId: firstRevision.id },
+          });
+          await prisma.legacyRevisionSidecar.update({
+            where: { revisionId: firstRevision.id },
+            data: { sidecar: { ...revisionSidecar.sidecar, ...sidecar } },
+          });
 
           await service.moveNode({
             spaceId, kind: 'folder', nodeId: moving.id,
@@ -344,9 +347,19 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           assert.ok(await prisma.legacyRevisionPageExtra.findUnique({
             where: { revisionId_pageId: { revisionId: revisions[1].id, pageId: page.knowledgeKey } },
           }));
-          assert.deepEqual((await prisma.legacyRevisionSidecar.findUniqueOrThrow({
+          const inheritedSidecar = (await prisma.legacyRevisionSidecar.findUniqueOrThrow({
             where: { revisionId: revisions[1].id },
-          })).sidecar, sidecar);
+          })).sidecar;
+          assert.deepEqual({
+            schemaVersion: inheritedSidecar.schemaVersion,
+            recipeVersion: inheritedSidecar.recipeVersion,
+            baseRevision: inheritedSidecar.baseRevision,
+            memories: inheritedSidecar.memories,
+            relations: inheritedSidecar.relations,
+            provenance: inheritedSidecar.provenance,
+            deletions: inheritedSidecar.deletions,
+          }, sidecar);
+          assert.equal(inheritedSidecar.spaceFolderMigration.v2Revision.protocolVersion, '2');
         });
 
         await t.test('Page move allocates in the target Folder, compacts siblings, aliases, and rejects stale updatedAt', async () => {

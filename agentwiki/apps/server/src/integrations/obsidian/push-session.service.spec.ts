@@ -1,5 +1,11 @@
 import { PushSessionService } from './push-session.service';
-import { canonicalBytes, confirmationHash, contentHash } from '@neomei/agentwiki-sync-protocol';
+import {
+  canonicalBytes,
+  confirmationHash,
+  contentHash,
+  treeBatchHashV2,
+  treeConfirmationHashV2,
+} from '@neomei/agentwiki-sync-protocol';
 
 describe('PushSessionService graph lifecycle', () => {
   it('indexes finalized page changes before enqueueing a graph refresh', async () => {
@@ -509,5 +515,195 @@ describe('PushSessionService graph lifecycle', () => {
     }));
     expect(writer.lockSpace).not.toHaveBeenCalled();
     expect(writer.advance).not.toHaveBeenCalled();
+  });
+});
+
+describe('PushSessionService Sync Protocol v2', () => {
+  const principal = {
+    userId: 'user-1', platformRole: 'super_admin' as const,
+    credentialId: 'credential-1', credentialFamilyId: 'family-1',
+  };
+
+  it('rejects a Space Admin before creating a Folder-aware push session', async () => {
+    const prisma: any = {
+      pushSession: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'admin' }) },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const service: any = new (PushSessionService as any)(prisma, {}, {}, {}, undefined, undefined);
+    const admin = { ...principal, platformRole: 'user' as const };
+
+    await expect(service.createV2(admin, 'space-1', {
+      protocolVersion: '2', baseRevision: '0',
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      capabilitiesHash: await service.capabilityHashV2(),
+      confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
+      changeCount: 0, totalBodyBytes: 0,
+    })).rejects.toMatchObject({
+      syncCode: 'SPACE_READ_ONLY',
+      response: expect.objectContaining({ protocolVersion: '2' }),
+    });
+    expect(prisma.pushSession.create).not.toHaveBeenCalled();
+  });
+
+  it('stores a strict v2 mixed batch without conflating Folder and Page identities', async () => {
+    const changes = [
+      {
+        operation: 'upsert_folder' as const,
+        folder: {
+          folderId: 'same-id', parentFolderId: null, name: 'Folder', path: 'pages/Folder',
+          sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+        },
+      },
+      {
+        operation: 'upsert_page' as const,
+        page: {
+          pageId: 'same-id', folderId: 'same-id', title: 'Page', path: 'pages/Folder/Page.md',
+          body: '# Page\n', contentHash: await contentHash('# Page\n'),
+          updatedAt: '2026-08-29T00:00:01.000Z',
+        },
+      },
+    ];
+    const withoutHash = { protocolVersion: '2' as const, batchIndex: 0, changes };
+    const batch = { ...withoutHash, batchHash: await treeBatchHashV2(withoutHash) };
+    const createMany = jest.fn().mockResolvedValue({ count: 2 });
+    const session = {
+      id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+      credentialId: 'credential-1', status: 'uploading', expiresAt: new Date(Date.now() + 60_000),
+      receivedBatchCount: 0, receivedChangeCount: 0, receivedBodyBytes: 0n,
+      changeCount: 2, totalBodyBytes: 7n,
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      pushSessionBatch: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'batch-1' }),
+      },
+      pushSessionChange: { findMany: jest.fn().mockResolvedValue([]), createMany },
+    };
+    const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const service: any = new (PushSessionService as any)(prisma, {
+      batchReceipt: () => 'receipt-1',
+    }, {}, {}, undefined, undefined);
+    (session as any).capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service.uploadV2(principal, 'space-1', session.id, batch))
+      .resolves.toEqual(expect.objectContaining({ protocolVersion: '2', batchIndex: 0 }));
+    const rows = createMany.mock.calls[0][0].data;
+    expect(rows.map((row: any) => row.pageId)).toEqual(['folder:same-id', 'page:same-id']);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operation: 'upsert_folder', title: 'Folder', path: 'pages/Folder' }),
+      expect.objectContaining({ operation: 'upsert_page', body: '# Page\n', path: 'pages/Folder/Page.md' }),
+    ]));
+  });
+
+  it('verifies the v2 confirmation and delegates the whole mixed batch to one ContentTree boundary', async () => {
+    const changes = [{
+      operation: 'upsert_folder' as const,
+      folder: {
+        folderId: 'folder-1', parentFolderId: null, name: 'Folder', path: 'pages/Folder',
+        sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+      },
+    }];
+    const manifest = { protocolVersion: '2' as const, spaceId: 'space-1', baseRevision: 'rev-1', changes };
+    const confirmation = await treeConfirmationHashV2(manifest);
+    const published = {
+      protocolVersion: '2', status: 'published', revision: 'rev-2', sequence: 2,
+      publishedAt: '2026-08-29T00:00:02.000Z', revisionContentHash: 'c'.repeat(64),
+      folderCount: '1', pageCount: '0', revisionManifestByteLength: '200',
+      revisionBodyBytes: '0', changeSetId: 'change-set-1',
+    };
+    const session = {
+      id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+      credentialId: 'credential-1', status: 'ready_to_finalize', result: null,
+      baseRevisionId: 'rev-1', confirmationHash: confirmation,
+      confirmationByteLength: canonicalBytes(manifest).byteLength,
+      receivedBatchCount: 1, receivedChangeCount: 1, changeCount: 1,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 7n }) },
+      pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      pushSessionBatch: { findMany: jest.fn().mockResolvedValue([{ batchIndex: 0 }]) },
+      pushSessionChange: { findMany: jest.fn().mockResolvedValue([{
+        operation: 'upsert_folder', pageId: 'folder:folder-1', path: 'pages/Folder',
+        title: 'Folder', body: JSON.stringify({ parentFolderId: null, sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' }),
+      }]) },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue({ id: 'rev-1', sequence: 1 }) },
+    };
+    const contentTree = { publishSyncV2Batch: jest.fn().mockResolvedValue(published) };
+    const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    (session as any).capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service.finalizeV2(principal, 'space-1', session.id, {
+      protocolVersion: '2', confirmationHash: confirmation, userConfirmed: true,
+    })).resolves.toEqual(published);
+
+    expect(contentTree.publishSyncV2Batch).toHaveBeenCalledTimes(1);
+    expect(contentTree.publishSyncV2Batch).toHaveBeenCalledWith(tx, expect.objectContaining({
+      spaceId: 'space-1', baseRevision: 'rev-1', changes,
+      actor: { userId: 'user-1' },
+    }));
+    expect(tx.pushSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: session.id }, data: expect.objectContaining({ status: 'published', result: published }),
+    }));
+  });
+
+  it('returns an already published v2 result idempotently without replaying ContentTree', async () => {
+    const result = { protocolVersion: '2', status: 'published', revision: 'rev-2' };
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 8n }) },
+      pushSession: { findUnique: jest.fn().mockResolvedValue({
+        id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+        credentialId: 'credential-1', status: 'published', result,
+      }) },
+    };
+    const contentTree = { publishSyncV2Batch: jest.fn() };
+    const service: any = new (PushSessionService as any)(
+      { $transaction: (callback: any) => callback(tx) }, {}, contentTree, {}, undefined, undefined,
+    );
+    const publishedSession = await tx.pushSession.findUnique();
+    publishedSession.capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service.finalizeV2(principal, 'space-1', publishedSession.id, {
+      protocolVersion: '2', confirmationHash: 'a'.repeat(64), userConfirmed: true,
+    })).resolves.toEqual(result);
+    expect(contentTree.publishSyncV2Batch).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a mixed invalid batch without publishing the v2 session', async () => {
+    const update = jest.fn();
+    const tx: any = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 7n }) },
+      pushSession: { findUnique: jest.fn().mockResolvedValue({
+        id: '11111111-1111-4111-8111-111111111111', spaceId: 'space-1',
+        credentialId: 'credential-1', status: 'ready_to_finalize', result: null,
+        baseRevisionId: 'rev-1', confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
+        receivedBatchCount: 1, receivedChangeCount: 1, changeCount: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      }), update },
+      pushSessionBatch: { findMany: jest.fn().mockResolvedValue([{ batchIndex: 0 }]) },
+      pushSessionChange: { findMany: jest.fn().mockResolvedValue([]) },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue({ id: 'rev-1' }) },
+    };
+    const service: any = new (PushSessionService as any)(
+      { $transaction: (callback: any) => callback(tx) }, {}, { publishSyncV2Batch: jest.fn() }, {}, undefined, undefined,
+    );
+    const invalidSession = await tx.pushSession.findUnique();
+    invalidSession.capabilitiesHash = await service.capabilityHashV2();
+
+    await expect(service.finalizeV2(principal, 'space-1', invalidSession.id, {
+      protocolVersion: '2', confirmationHash: 'a'.repeat(64), userConfirmed: true,
+    })).rejects.toMatchObject({ syncCode: 'PUSH_SESSION_INCOMPLETE' });
+    expect(update).not.toHaveBeenCalled();
   });
 });

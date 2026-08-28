@@ -20,6 +20,7 @@ const SYNC_ERROR_MAP: Record<SyncErrorCode, SyncErrorDefinition> = {
   INSTALLATION_CODE_EXPIRED: { status: HttpStatus.UNAUTHORIZED, retryable: false },
   CREDENTIAL_COLLISION: { status: HttpStatus.CONFLICT, retryable: false },
   PROTOCOL_UNSUPPORTED: { status: HttpStatus.CONFLICT, retryable: false },
+  SYNC_PROTOCOL_UPGRADE_REQUIRED: { status: HttpStatus.CONFLICT, retryable: false },
   REVISION_GONE: { status: HttpStatus.GONE, retryable: false },
   CURSOR_INVALID: { status: HttpStatus.BAD_REQUEST, retryable: false },
   BASE_STALE: { status: HttpStatus.CONFLICT, retryable: false },
@@ -51,10 +52,11 @@ export class SyncApiException extends HttpException {
     code: SyncErrorCode,
     message: string,
     details?: Record<string, string | number | boolean | null>,
+    protocolVersion: '1' | '2' = '1',
   ) {
     const definition = SYNC_ERROR_MAP[code];
     const body = {
-      protocolVersion: '1',
+      protocolVersion,
       error: {
         code,
         message,

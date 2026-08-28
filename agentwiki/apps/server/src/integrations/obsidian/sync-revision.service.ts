@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import {
+  canonicalBytes,
+  revisionContentHash as computeRevisionContentHash,
+  type RevisionContentManifest,
+} from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 
@@ -33,6 +38,33 @@ export class SyncRevisionService {
         revisionManifestByteLength: 0n,
         revisionBodyBytes: 0n,
         publishedAt: null,
+      };
+    }
+    return this.v1HeadForRevision(spaceId, revision);
+  }
+
+  private async v1HeadForRevision(spaceId: string, revision: any): Promise<SyncHead> {
+    if (revision.schemaVersion === 'content-tree@2') {
+      const rows = await this.prisma.syncRevisionPageRow.findMany({
+        where: { revisionId: revision.id },
+        select: { pageId: true, path: true, title: true, contentHash: true },
+        orderBy: { pageId: 'asc' },
+      });
+      const manifest: RevisionContentManifest = {
+        protocolVersion: '1', spaceId,
+        pages: rows.map((row) => ({
+          pageId: row.pageId, path: row.path, title: row.title, contentHash: row.contentHash,
+        })),
+      };
+      const empty = rows.length === 0;
+      return {
+        revision: revision.id,
+        sequence: revision.sequence,
+        revisionContentHash: empty ? EMPTY_REVISION_HASH : await computeRevisionContentHash(manifest),
+        pageCount: BigInt(rows.length),
+        revisionManifestByteLength: BigInt(empty ? 0 : canonicalBytes(manifest).byteLength),
+        revisionBodyBytes: revision.revisionBodyBytes ?? 0n,
+        publishedAt: revision.createdAt.toISOString(),
       };
     }
     return {
@@ -87,15 +119,7 @@ export class SyncRevisionService {
     return {
       items,
       nextPageId: next ? items[items.length - 1]?.pageId : undefined,
-      head: {
-        revision: revision.id,
-        sequence: revision.sequence,
-        revisionContentHash: revision.revisionContentHash ?? EMPTY_REVISION_HASH,
-        pageCount: revision.pageCount ?? 0n,
-        revisionManifestByteLength: revision.revisionManifestByteLength ?? 0n,
-        revisionBodyBytes: revision.revisionBodyBytes ?? 0n,
-        publishedAt: revision.createdAt.toISOString(),
-      },
+      head: await this.v1HeadForRevision(spaceId, revision),
     };
   }
 

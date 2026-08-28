@@ -3,6 +3,7 @@ import type {
   RevisionOrigin,
   StructuralPageChange,
 } from '../core/sync/space-revision-writer.service';
+import type { TreePushChangeV2 } from '@neomei/agentwiki-sync-protocol';
 
 export type ContentTreeErrorCode =
   | 'SPACE_NOT_FOUND'
@@ -21,6 +22,11 @@ export type ContentTreeErrorCode =
   | 'CONTENT_TREE_CURSOR_INVALID'
   | 'CONTENT_TREE_PAGE_NOT_FOUND'
   | 'CONTENT_TREE_INVALID_ACTOR'
+  | 'CONTENT_TREE_SPACE_FORBIDDEN'
+  | 'CONTENT_TREE_SPACE_READ_ONLY'
+  | 'CONTENT_TREE_PAYLOAD_INVALID'
+  | 'CONTENT_TREE_PATH_COLLISION'
+  | 'CONTENT_TREE_ID_CONFLICT'
   | 'CONTENT_TREE_TAKE_INVALID'
   | 'PAGE_PARENT_DEPRECATED';
 
@@ -48,6 +54,30 @@ export class ContentTreeConflict extends ContentTreeError {
 export interface ContentTreeActor {
   userId?: string;
   agentId?: string;
+}
+
+export interface PublishSyncV2BatchInput {
+  spaceId: string;
+  baseRevision: string;
+  confirmationHash?: string;
+  changes: TreePushChangeV2[];
+  actor: ContentTreeActor;
+  principal: { userId: string; platformRole: string };
+  revisionOrigin: RevisionOrigin;
+}
+
+export interface PublishSyncV2BatchResult {
+  protocolVersion: '2';
+  status: 'published' | 'noop';
+  revision: string;
+  sequence: number;
+  publishedAt: string | null;
+  revisionContentHash: string;
+  folderCount: string;
+  pageCount: string;
+  revisionManifestByteLength: string;
+  revisionBodyBytes: string;
+  changeSetId: string | null;
 }
 
 export interface CreateFolderInput {

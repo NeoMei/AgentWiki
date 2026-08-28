@@ -3,7 +3,10 @@ import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
+  contentHash,
   foldCase,
+  normalizeMarkdown,
+  pathKey,
   validatePortableDirectoryPath,
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
@@ -41,6 +44,8 @@ import {
   type PlacedPageResult,
   type PreparePageMutationInput,
   type PrepareExactPageMutationInput,
+  type PublishSyncV2BatchInput,
+  type PublishSyncV2BatchResult,
   type AdvancePageMutationInput,
   type RenamedFolderResult,
   type RenameFolderInput,
@@ -796,6 +801,519 @@ export class ContentTreeService {
     return {
       treeRevision: lockedTx.contentTreeRevision,
       syncRevisionId: syncRevision.revisionId,
+    };
+  }
+
+  async publishSyncV2Batch(
+    tx: Prisma.TransactionClient,
+    input: PublishSyncV2BatchInput,
+  ): Promise<PublishSyncV2BatchResult> {
+    assertActor(input.actor);
+    if (input.changes.length > 100) {
+      throw new ContentTreeError('FOLDER_MUTATION_LIMIT', 'A Sync v2 publish may contain at most 100 changes');
+    }
+    const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, input.spaceId);
+    if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+    if (input.principal.platformRole !== 'super_admin') {
+      const membership = await lockedTx.spaceMember.findUnique({
+        where: { userId_spaceId: { userId: input.principal.userId, spaceId: input.spaceId } },
+        select: { role: true },
+      });
+      if (!membership) throw new ContentTreeError('CONTENT_TREE_SPACE_FORBIDDEN', 'Space is not accessible');
+      if (!['editor', 'owner'].includes(membership.role)) {
+        throw new ContentTreeError('CONTENT_TREE_SPACE_READ_ONLY', 'Live Space role does not permit publishing');
+      }
+    }
+    const head = await lockedTx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId: input.spaceId }, orderBy: { sequence: 'desc' },
+    });
+    if ((head?.id ?? '0') !== input.baseRevision) {
+      throw new ContentTreeConflict(lockedTx.contentTreeRevision, lockedTx.contentTreeRevision);
+    }
+    const folderCountAtHead = head ? await lockedTx.syncRevisionFolderRow.count({ where: { revisionId: head.id } }) : 0;
+    if (input.changes.length === 0) {
+      return {
+        protocolVersion: '2', status: 'noop', revision: head?.id ?? '0', sequence: head?.sequence ?? 0,
+        publishedAt: head?.createdAt.toISOString() ?? null,
+        revisionContentHash: head?.revisionContentHash ?? 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        folderCount: String(folderCountAtHead), pageCount: String(head?.pageCount ?? 0n),
+        revisionManifestByteLength: String(head?.revisionManifestByteLength ?? 0n),
+        revisionBodyBytes: String(head?.revisionBodyBytes ?? 0n), changeSetId: null,
+      };
+    }
+
+    const entityKeys = input.changes.map((change) => change.operation === 'upsert_folder'
+      ? `folder:${change.folder.folderId}`
+      : change.operation === 'archive_folder'
+        ? `folder:${change.folderId}`
+        : change.operation === 'upsert_page'
+          ? `page:${change.page.pageId}`
+          : `page:${change.pageId}`);
+    if (new Set(entityKeys).size !== entityKeys.length) {
+      throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'A Sync v2 batch may mutate each entity only once');
+    }
+    const [allFolders, allPages] = await Promise.all([
+      lockedTx.folder.findMany({ where: { spaceId: input.spaceId } }),
+      lockedTx.page.findMany({ where: { spaceId: input.spaceId } }),
+    ]);
+    const folderById = new Map(allFolders.map((folder) => [folder.id, folder]));
+    const pageByKey = new Map(allPages.map((page) => [page.knowledgeKey, page]));
+    const folderUpserts = input.changes.filter((change) => change.operation === 'upsert_folder');
+    const folderArchives = input.changes.filter((change) => change.operation === 'archive_folder');
+    const pageUpserts = input.changes.filter((change) => change.operation === 'upsert_page');
+    const pageArchives = input.changes.filter((change) => change.operation === 'archive_page');
+
+    const foreignFolderIds = folderUpserts.map((change) => change.folder.folderId)
+      .filter((id) => !folderById.has(id));
+    if (foreignFolderIds.length > 0 && await lockedTx.folder.count({
+      where: { id: { in: foreignFolderIds }, spaceId: { not: input.spaceId } },
+    }) > 0) throw new ContentTreeError('CONTENT_TREE_ID_CONFLICT', 'Folder ID belongs to another Space');
+    const foreignPageIds = pageUpserts.map((change) => change.page.pageId)
+      .filter((id) => !pageByKey.has(id));
+    if (foreignPageIds.length > 0 && await lockedTx.page.count({
+      where: { knowledgeKey: { in: foreignPageIds }, spaceId: { not: input.spaceId } },
+    }) > 0) throw new ContentTreeError('CONTENT_TREE_ID_CONFLICT', 'Page ID belongs to another Space');
+
+    const archivedFolderIds = new Set<string>();
+    for (const change of folderArchives) {
+      const root = folderById.get(change.folderId);
+      if (!root || root.deletedAt) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Archive target Folder is not active');
+      if (root.path !== change.previousPath) throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Archive Folder path is stale');
+      const queue = [root.id];
+      for (let index = 0; index < queue.length; index += 1) {
+        const id = queue[index]!;
+        if (archivedFolderIds.has(id)) throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'Folder archive subtrees overlap');
+        archivedFolderIds.add(id);
+        for (const child of allFolders) {
+          if (!child.deletedAt && child.parentId === id) queue.push(child.id);
+        }
+      }
+    }
+    if (folderUpserts.some((change) => archivedFolderIds.has(change.folder.folderId))) {
+      throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'A Folder cannot be archived and upserted together');
+    }
+    const folderArchivedPageKeys = new Set(allPages
+      .filter((page) => !page.deletedAt && page.folderId && archivedFolderIds.has(page.folderId))
+      .map((page) => page.knowledgeKey));
+    if (pageUpserts.some((change) => folderArchivedPageKeys.has(change.page.pageId))
+      || pageArchives.some((change) => folderArchivedPageKeys.has(change.pageId))) {
+      throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'Folder archives own all descendant Page archives');
+    }
+
+    const restoredBatchIds = new Set<string>();
+    for (const change of [...folderUpserts, ...pageUpserts]) {
+      const batchId = change.operation === 'upsert_folder'
+        ? folderById.get(change.folder.folderId)?.deletionBatchId
+        : pageByKey.get(change.page.pageId)?.deletionBatchId;
+      if (batchId) restoredBatchIds.add(batchId);
+    }
+    for (const batchId of restoredBatchIds) {
+      const batchFolders = allFolders.filter((folder) => folder.deletionBatchId === batchId);
+      const batchPages = allPages.filter((page) => page.deletionBatchId === batchId);
+      const folderChanges = new Map(folderUpserts.map((change) => [change.folder.folderId, change.folder]));
+      const pageChanges = new Map(pageUpserts.map((change) => [change.page.pageId, change.page]));
+      if (batchFolders.some((folder) => !folderChanges.has(folder.id))
+        || batchPages.some((page) => !pageChanges.has(page.knowledgeKey))) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'A Folder deletion batch may only be restored as one complete batch');
+      }
+      for (const folder of batchFolders) {
+        const proposed = folderChanges.get(folder.id)!;
+        if (proposed.parentFolderId !== folder.parentId || proposed.name !== folder.name
+          || proposed.path !== folder.path || proposed.sortOrder !== folder.sortOrder
+          || proposed.updatedAt !== folder.updatedAt.toISOString()) {
+          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion-batch Folder restore must preserve the archived snapshot');
+        }
+      }
+      for (const page of batchPages) {
+        const proposed = pageChanges.get(page.knowledgeKey)!;
+        if (proposed.folderId !== page.folderId || proposed.title !== page.title
+          || proposed.path !== page.syncPath || proposed.body !== page.content
+          || proposed.updatedAt !== page.updatedAt.toISOString()) {
+          throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion-batch Page restore must preserve the archived snapshot');
+        }
+      }
+    }
+    if (folderUpserts.some((change) => {
+      const current = folderById.get(change.folder.folderId);
+      return !!current?.deletedAt && !current.deletionBatchId;
+    })) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deleted Folders require deletion-batch restore');
+
+    const desiredFolders = new Map(allFolders
+      .filter((folder) => !folder.deletedAt || (folder.deletionBatchId && restoredBatchIds.has(folder.deletionBatchId)))
+      .filter((folder) => !archivedFolderIds.has(folder.id))
+      .map((folder) => [folder.id, {
+        folderId: folder.id, parentFolderId: folder.parentId, name: folder.name,
+        path: folder.path, sortOrder: folder.sortOrder, updatedAt: folder.updatedAt.toISOString(),
+      }]));
+    for (const change of folderUpserts) {
+      const current = folderById.get(change.folder.folderId);
+      if (current && !current.deletedAt && change.folder.updatedAt !== current.updatedAt.toISOString()) {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Folder updatedAt is stale');
+      }
+      const normalized = normalizeFolderName(change.folder.name);
+      const portable = portableDirectoryPath(change.folder.path);
+      if (normalized.name !== change.folder.name || portable.path !== change.folder.path) {
+        throw new ContentTreeError('FOLDER_INVALID_NAME', 'Folder name or path is not canonical');
+      }
+      desiredFolders.set(change.folder.folderId, change.folder);
+    }
+    if (desiredFolders.size > Number(MAX_ACTIVE_FOLDERS)) {
+      throw new ContentTreeError('FOLDER_COUNT_LIMIT', 'A Space may contain at most 10,000 active Folders');
+    }
+    const folderDepths = new Map<string, number>();
+    const resolveDepth = (folderId: string, trail = new Set<string>()): number => {
+      const known = folderDepths.get(folderId);
+      if (known !== undefined) return known;
+      if (trail.has(folderId)) throw new ContentTreeError('FOLDER_CYCLE', 'The Folder tree contains a cycle');
+      const folder = desiredFolders.get(folderId);
+      if (!folder) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder parent is not active');
+      trail.add(folderId);
+      const depth = folder.parentFolderId === null ? 1 : resolveDepth(folder.parentFolderId, trail) + 1;
+      if (depth > MAX_FOLDER_DEPTH) throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
+      folderDepths.set(folderId, depth);
+      return depth;
+    };
+    const siblingKeys = new Set<string>();
+    const folderPaths = new Set<string>();
+    for (const folder of desiredFolders.values()) {
+      const parentPath = folder.parentFolderId === null ? 'pages' : desiredFolders.get(folder.parentFolderId)?.path;
+      if (!parentPath) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder parent is not active');
+      const normalized = normalizeFolderName(folder.name);
+      const expected = portableDirectoryPath(`${parentPath}/${normalized.name}`);
+      if (folder.path !== expected.path) throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'Folder path does not match its parent and name');
+      resolveDepth(folder.folderId);
+      const siblingKey = `${folder.parentFolderId ?? ''}\0${normalized.nameKey}`;
+      if (siblingKeys.has(siblingKey) || folderPaths.has(expected.key)) {
+        throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'Folder paths or sibling names collide');
+      }
+      siblingKeys.add(siblingKey);
+      folderPaths.add(expected.key);
+    }
+
+    const explicitlyArchivedPageKeys = new Set<string>();
+    for (const change of pageArchives) {
+      const current = pageByKey.get(change.pageId);
+      if (!current || current.deletedAt) throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Archive target Page is not active');
+      if (current.syncPath !== change.previousPath) throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Archive Page path is stale');
+      explicitlyArchivedPageKeys.add(change.pageId);
+    }
+    const desiredPages = new Map(allPages
+      .filter((page) => !page.deletedAt || (page.deletionBatchId && restoredBatchIds.has(page.deletionBatchId)))
+      .filter((page) => !explicitlyArchivedPageKeys.has(page.knowledgeKey) && !folderArchivedPageKeys.has(page.knowledgeKey))
+      .map((page) => [page.knowledgeKey, {
+        pageId: page.knowledgeKey, folderId: page.folderId, path: page.syncPath,
+        title: page.title, body: page.content, updatedAt: page.updatedAt.toISOString(),
+      }]));
+    for (const change of pageUpserts) {
+      const current = pageByKey.get(change.page.pageId);
+      if (current && !current.deletedAt && change.page.updatedAt !== current.updatedAt.toISOString()) {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page updatedAt is stale');
+      }
+      const body = normalizeMarkdown(change.page.body);
+      if (await contentHash(body) !== change.page.contentHash) {
+        throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'Page content hash is invalid');
+      }
+      if (change.page.folderId !== null && !desiredFolders.has(change.page.folderId)) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Page references a Folder that is not active');
+      }
+      const portable = portablePagePath(change.page.path);
+      const directory = portable.path.slice(0, portable.path.lastIndexOf('/'));
+      const expectedDirectory = change.page.folderId === null ? 'pages' : desiredFolders.get(change.page.folderId)!.path;
+      if (directory !== expectedDirectory) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Page path does not match its Folder reference');
+      desiredPages.set(change.page.pageId, { ...change.page, body });
+    }
+    const pagePaths = new Map<string, string>();
+    for (const page of desiredPages.values()) {
+      if (page.folderId !== null && !desiredFolders.has(page.folderId)) {
+        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Active Page references a missing Folder');
+      }
+      const portable = portablePagePath(page.path);
+      const directory = portable.path.slice(0, portable.path.lastIndexOf('/'));
+      const expectedDirectory = page.folderId === null ? 'pages' : desiredFolders.get(page.folderId)!.path;
+      if (directory !== expectedDirectory) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Page path does not match its Folder reference');
+      const owner = pagePaths.get(portable.key);
+      if (owner && owner !== page.pageId) throw new ContentTreeError('CONTENT_TREE_PATH_COLLISION', 'Page paths collide');
+      pagePaths.set(portable.key, page.pageId);
+      const physicalOwner = allPages.find((candidate) => candidate.syncPathKey === portable.key);
+      if (physicalOwner && physicalOwner.knowledgeKey !== page.pageId && !desiredPages.has(physicalOwner.knowledgeKey)) {
+        throw new ContentTreeError('CONTENT_TREE_PATH_COLLISION', 'Page path is retained by an archived Page');
+      }
+    }
+
+    const isNoop = folderArchives.length === 0 && pageArchives.length === 0 && restoredBatchIds.size === 0
+      && folderUpserts.every((change) => {
+        const current = folderById.get(change.folder.folderId);
+        return current && !current.deletedAt && current.parentId === change.folder.parentFolderId
+          && current.name === change.folder.name && current.path === change.folder.path
+          && current.sortOrder === change.folder.sortOrder;
+      })
+      && pageUpserts.every((change) => {
+        const current = pageByKey.get(change.page.pageId);
+        return current && !current.deletedAt && current.folderId === change.page.folderId
+          && current.title === change.page.title && current.syncPath === change.page.path
+          && current.content === normalizeMarkdown(change.page.body);
+      });
+    if (isNoop) {
+      return {
+        protocolVersion: '2', status: 'noop', revision: head?.id ?? '0', sequence: head?.sequence ?? 0,
+        publishedAt: head?.createdAt.toISOString() ?? null,
+        revisionContentHash: head?.revisionContentHash ?? 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        folderCount: String(folderCountAtHead), pageCount: String(head?.pageCount ?? 0n),
+        revisionManifestByteLength: String(head?.revisionManifestByteLength ?? 0n),
+        revisionBodyBytes: String(head?.revisionBodyBytes ?? 0n), changeSetId: null,
+      };
+    }
+
+    const changeSet = await lockedTx.changeSet.create({ data: {
+      title: 'Obsidian sync v2', status: 'publishing', spaceId: input.spaceId,
+      createdByUserId: input.actor.userId ?? null, createdByAgentId: input.actor.agentId ?? null,
+      origin: 'obsidian_sync', humanDeviceCredentialId: input.revisionOrigin.humanDeviceCredentialId ?? null,
+      confirmationHash: input.confirmationHash ?? null, baseRevisionId: input.baseRevision,
+    } });
+    const changedAt = new Date();
+    for (const batchId of restoredBatchIds) {
+      const batch = await lockedTx.contentDeletionBatch.findFirst({
+        where: { id: batchId, spaceId: input.spaceId, restoredAt: null },
+      });
+      if (!batch) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch is not restorable');
+      const batchFolders = allFolders.filter((folder) => folder.deletionBatchId === batchId);
+      const batchPages = allPages.filter((page) => page.deletionBatchId === batchId);
+      const impactRows: AffectedTreeRow[] = [
+        ...batchFolders.map((folder) => ({
+          kind: 'folder' as const, id: folder.id, parentId: folder.parentId, folderId: null,
+          name: folder.name, title: null, path: folder.path, pathKey: folder.pathKey,
+          sortOrder: folder.sortOrder, createdAt: folder.createdAt, updatedAt: folder.updatedAt,
+          depth: 0, knowledgeKey: null, content: null,
+        })),
+        ...batchPages.map((page) => ({
+          kind: 'page' as const, id: page.id, parentId: null, folderId: page.folderId,
+          name: null, title: page.title, path: page.syncPath, pathKey: page.syncPathKey,
+          sortOrder: page.sortOrder, createdAt: page.createdAt, updatedAt: page.updatedAt,
+          depth: 0, knowledgeKey: page.knowledgeKey, content: page.content,
+        })),
+      ];
+      const impact = affectedImpact(impactRows);
+      if (impact.folderCount !== batch.folderCount || impact.pageCount !== batch.pageCount
+        || impact.impactHash !== batch.impactHash
+        || [...batchFolders, ...batchPages].some((entry) => entry.deletedAt?.getTime() !== batch.createdAt.getTime())) {
+        throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch evidence is inconsistent', {
+          expectedFolderCount: batch.folderCount, actualFolderCount: impact.folderCount,
+          expectedPageCount: batch.pageCount, actualPageCount: impact.pageCount,
+          expectedImpactHash: batch.impactHash, actualImpactHash: impact.impactHash,
+          timestampMismatch: [...batchFolders, ...batchPages]
+            .some((entry) => entry.deletedAt?.getTime() !== batch.createdAt.getTime()),
+        });
+      }
+      await lockedTx.folder.updateMany({
+        where: { spaceId: input.spaceId, deletionBatchId: batchId, deletedAt: batch.createdAt },
+        data: { deletedAt: null, deletionBatchId: null, lastModifiedByUserId: input.actor.userId ?? null,
+          lastModifiedByAgentId: input.actor.agentId ?? null, lastModifiedAt: changedAt },
+      });
+      await lockedTx.page.updateMany({
+        where: { spaceId: input.spaceId, deletionBatchId: batchId, deletedAt: batch.createdAt },
+        data: { deletedAt: null, deletionBatchId: null, lastChangeSetId: changeSet.id,
+          lastModifiedByUserId: input.actor.userId ?? null, lastModifiedByAgentId: input.actor.agentId ?? null,
+          lastModifiedAt: changedAt },
+      });
+      const marked = await lockedTx.contentDeletionBatch.updateMany({
+        where: { id: batchId, spaceId: input.spaceId, restoredAt: null }, data: { restoredAt: changedAt },
+      });
+      if (marked.count !== 1) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch was already restored');
+    }
+
+    const revisionChanges: StructuralPageChange[] = [];
+    for (const change of pageArchives) {
+      const page = pageByKey.get(change.pageId)!;
+      await lockedTx.pageVersion.create({ data: {
+        pageId: page.id, title: page.title, content: page.content, authorId: page.authorId,
+        slug: page.slug, format: page.format, parentId: page.parentId, folderId: page.folderId,
+        syncPath: page.syncPath, syncPathKey: page.syncPathKey,
+      } });
+      const updated = await lockedTx.page.updateMany({
+        where: { id: page.id, spaceId: input.spaceId, deletedAt: null, updatedAt: page.updatedAt },
+        data: { deletedAt: changedAt, deletionBatchId: null, lastChangeSetId: changeSet.id,
+          lastModifiedByUserId: input.actor.userId ?? null, lastModifiedByAgentId: input.actor.agentId ?? null,
+          lastModifiedAt: changedAt },
+      });
+      if (updated.count !== 1) throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page changed during archive');
+      await lockedTx.pageSearchDocument.deleteMany({ where: { pageId: page.id } });
+      revisionChanges.push({ operation: 'archive', pageId: page.knowledgeKey, previousPath: page.syncPath });
+    }
+
+    for (const change of folderArchives) {
+      const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, change.folderId);
+      const root = this.requireAffectedFolder(rows, change.folderId);
+      assertMutationLimit(rows);
+      const impact = affectedImpact(rows);
+      const batchId = randomUUID();
+      const batch = await lockedTx.contentDeletionBatch.create({ data: {
+        id: batchId, spaceId: input.spaceId, rootFolderId: root.id,
+        deletedByUserId: input.actor.userId ?? null, deletedByAgentId: input.actor.agentId ?? null,
+        deletedTreeRevision: lockedTx.contentTreeRevision, folderCount: impact.folderCount,
+        pageCount: impact.pageCount, impactHash: impact.impactHash, createdAt: changedAt,
+      } });
+      const pages = rows.filter((row) => row.kind === 'page');
+      for (const row of pages) {
+        const page = allPages.find((candidate) => candidate.id === row.id)!;
+        await lockedTx.pageVersion.create({ data: {
+          pageId: page.id, title: page.title, content: page.content, authorId: page.authorId,
+          slug: page.slug, format: page.format, parentId: page.parentId, folderId: page.folderId,
+          syncPath: page.syncPath, syncPathKey: page.syncPathKey,
+        } });
+      }
+      const pageIds = pages.map((row) => row.id);
+      const folderIds = rows.filter((row) => row.kind === 'folder').map((row) => row.id);
+      const pageUpdateCount = pageIds.length === 0 ? 0 : await lockedTx.$executeRaw(Prisma.sql`
+        UPDATE "Page" target
+        SET "deletedAt" = batch."createdAt",
+            "deletionBatchId" = batch."id",
+            "lastChangeSetId" = ${changeSet.id},
+            "lastModifiedByUserId" = ${input.actor.userId ?? null},
+            "lastModifiedByAgentId" = ${input.actor.agentId ?? null},
+            "lastModifiedAt" = batch."createdAt"
+        FROM "ContentDeletionBatch" batch
+        WHERE batch."id" = ${batch.id}
+          AND batch."spaceId" = ${input.spaceId}
+          AND target."spaceId" = batch."spaceId"
+          AND target."deletedAt" IS NULL
+          AND target."id" IN (
+            SELECT value FROM jsonb_array_elements_text(${JSON.stringify(pageIds)}::jsonb)
+          )
+      `);
+      const folderUpdateCount = await lockedTx.$executeRaw(Prisma.sql`
+        UPDATE "Folder" target
+        SET "deletedAt" = batch."createdAt",
+            "deletionBatchId" = batch."id",
+            "lastModifiedByUserId" = ${input.actor.userId ?? null},
+            "lastModifiedByAgentId" = ${input.actor.agentId ?? null},
+            "lastModifiedAt" = batch."createdAt"
+        FROM "ContentDeletionBatch" batch
+        WHERE batch."id" = ${batch.id}
+          AND batch."spaceId" = ${input.spaceId}
+          AND target."spaceId" = batch."spaceId"
+          AND target."deletedAt" IS NULL
+          AND target."id" IN (
+            SELECT value FROM jsonb_array_elements_text(${JSON.stringify(folderIds)}::jsonb)
+          )
+      `);
+      if (pageUpdateCount !== pageIds.length || folderUpdateCount !== folderIds.length) {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Folder subtree changed during archive');
+      }
+      revisionChanges.push(...pages.map((row) => ({
+        operation: 'archive' as const, pageId: row.knowledgeKey!, previousPath: row.path,
+      })));
+    }
+
+    const orderedFolderUpserts = [...folderUpserts].sort((left, right) =>
+      resolveDepth(left.folder.folderId) - resolveDepth(right.folder.folderId)
+      || Buffer.from(left.folder.path).compare(Buffer.from(right.folder.path)));
+    for (const change of orderedFolderUpserts) {
+      const current = folderById.get(change.folder.folderId);
+      const normalized = normalizeFolderName(change.folder.name);
+      if (current) {
+        await lockedTx.folder.update({ where: { id: current.id }, data: {
+          parentId: change.folder.parentFolderId, name: normalized.name, nameKey: normalized.nameKey,
+          path: change.folder.path, pathKey: pathKey(change.folder.path), sortOrder: change.folder.sortOrder,
+          deletedAt: null, deletionBatchId: null, lastModifiedByUserId: input.actor.userId ?? null,
+          lastModifiedByAgentId: input.actor.agentId ?? null, lastModifiedAt: changedAt,
+        } });
+      } else {
+        await lockedTx.folder.create({ data: {
+          id: change.folder.folderId, spaceId: input.spaceId, parentId: change.folder.parentFolderId,
+          name: normalized.name, nameKey: normalized.nameKey, path: change.folder.path,
+          pathKey: pathKey(change.folder.path), sortOrder: change.folder.sortOrder,
+          createdByUserId: input.actor.userId ?? null, createdByAgentId: input.actor.agentId ?? null,
+          sourceChangeSetId: changeSet.id, lastModifiedByUserId: input.actor.userId ?? null,
+          lastModifiedByAgentId: input.actor.agentId ?? null, lastModifiedAt: changedAt,
+        } });
+      }
+    }
+
+    const aliasRows: AffectedTreeRow[] = [];
+    const aliasPlans: PageMutationPlan[] = [];
+    for (const change of pageUpserts) {
+      const current = pageByKey.get(change.page.pageId);
+      const body = normalizeMarkdown(change.page.body);
+      if (current && current.syncPath !== change.page.path) {
+        aliasRows.push({
+          kind: 'page', id: current.id, parentId: null, folderId: current.folderId,
+          name: null, title: current.title, path: current.syncPath, pathKey: current.syncPathKey,
+          sortOrder: current.sortOrder, createdAt: current.createdAt, updatedAt: current.updatedAt,
+          depth: 0, knowledgeKey: current.knowledgeKey, content: current.content,
+        });
+        aliasPlans.push({
+          id: current.id, folderId: change.page.folderId, path: change.page.path,
+          pathKey: pathKey(change.page.path), sortOrder: current.sortOrder,
+          deletedAt: null, deletionBatchId: null,
+        });
+      }
+      if (current) {
+        await lockedTx.pageVersion.create({ data: {
+          pageId: current.id, title: current.title, content: current.content, authorId: current.authorId,
+          slug: current.slug, format: current.format, parentId: current.parentId, folderId: current.folderId,
+          syncPath: current.syncPath, syncPathKey: current.syncPathKey,
+        } });
+        await lockedTx.page.update({ where: { id: current.id }, data: {
+          title: change.page.title, content: body, format: 'markdown', parentId: null,
+          folderId: change.page.folderId, syncPath: change.page.path, syncPathKey: pathKey(change.page.path),
+          deletedAt: null, deletionBatchId: null, lastChangeSetId: changeSet.id,
+          lastModifiedByUserId: input.actor.userId ?? null, lastModifiedByAgentId: input.actor.agentId ?? null,
+          lastModifiedAt: changedAt,
+        } });
+      } else {
+        const pageId = randomUUID();
+        await lockedTx.page.create({ data: {
+          id: pageId, knowledgeKey: change.page.pageId, title: change.page.title,
+          slug: `${safeMarkdownBasename(change.page.title || 'untitled').toLowerCase().replace(/[^a-z0-9一-龥]+/g, '-') || 'untitled'}-${change.page.pageId}`,
+          content: body, format: 'markdown', spaceId: input.spaceId,
+          authorId: input.actor.userId!, parentId: null, folderId: change.page.folderId,
+          syncPath: change.page.path, syncPathKey: pathKey(change.page.path),
+          sourceChangeSetId: changeSet.id, lastChangeSetId: changeSet.id,
+          lastModifiedByUserId: input.actor.userId ?? null, lastModifiedByAgentId: input.actor.agentId ?? null,
+          lastModifiedAt: changedAt,
+        } });
+      }
+      revisionChanges.push({
+        operation: 'upsert', pageId: change.page.pageId, folderId: change.page.folderId,
+        path: change.page.path, title: change.page.title, body,
+      });
+    }
+    await this.insertPageAliases(lockedTx, input.spaceId, aliasRows, aliasPlans, changedAt);
+    await this.trimPageAliases(lockedTx, input.spaceId, aliasPlans.map((plan) => plan.id));
+
+    for (const change of input.changes) {
+      const entityId = change.operation === 'upsert_folder' ? change.folder.folderId
+        : change.operation === 'archive_folder' ? change.folderId
+          : change.operation === 'upsert_page' ? change.page.pageId : change.pageId;
+      const publishedResourceId = change.operation.includes('folder')
+        ? entityId : pageByKey.get(entityId)?.id
+          ?? (await lockedTx.page.findUnique({ where: { knowledgeKey: entityId }, select: { id: true } }))?.id
+          ?? entityId;
+      await lockedTx.changeItem.create({ data: {
+        id: randomUUID(), type: change.operation.replace('upsert_', folderById.has(entityId) || pageByKey.has(entityId) ? 'update_' : 'create_'),
+        payload: change as Prisma.InputJsonValue, status: 'published', publishedResourceId, changeSetId: changeSet.id,
+      } });
+    }
+    const advanced = await this.advanceMutationRevisions(
+      lockedTx, input.spaceId, lockedTx.contentTreeRevision, revisionChanges,
+      input.actor, { ...input.revisionOrigin, sourceChangeSetId: changeSet.id },
+    );
+    const revision = await lockedTx.spaceKnowledgeRevision.findUnique({ where: { id: advanced.syncRevisionId } });
+    if (!revision) throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Published revision could not be read back');
+    const folderCount = await lockedTx.syncRevisionFolderRow.count({ where: { revisionId: revision.id } });
+    if (revision.revisionBodyBytes > 2_097_152n) {
+      throw new ContentTreeError('FOLDER_MUTATION_LIMIT', 'Resulting v2 document tree exceeds 2 MiB');
+    }
+    const publishedAt = new Date();
+    await lockedTx.changeSet.update({
+      where: { id: changeSet.id }, data: { status: 'published', publishedAt },
+    });
+    return {
+      protocolVersion: '2', status: 'published', revision: revision.id, sequence: revision.sequence,
+      publishedAt: publishedAt.toISOString(), revisionContentHash: revision.revisionContentHash,
+      folderCount: String(folderCount), pageCount: String(revision.pageCount),
+      revisionManifestByteLength: String(revision.revisionManifestByteLength),
+      revisionBodyBytes: String(revision.revisionBodyBytes), changeSetId: changeSet.id,
     };
   }
 

@@ -94,6 +94,7 @@ export class SyncV1Controller {
   async head(@Param('spaceId') spaceIdParam: string, @Req() request: { user: HumanDevicePrincipal }) {
     const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
+    await this.capabilities.assertV1Compatible(spaceId);
     const head = await this.revisions.head(spaceId);
     return {
       protocolVersion: '1',
@@ -118,6 +119,7 @@ export class SyncV1Controller {
   ) {
     const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
+    await this.capabilities.assertV1Compatible(spaceId);
     let limit: number;
     try {
       limit = limitQuery ? parsePageLimit(limitQuery) : 100;
@@ -171,6 +173,7 @@ export class SyncV1Controller {
   ) {
     const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
+    await this.capabilities.assertV1Compatible(spaceId);
     if (!fromQuery) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Missing from query parameter');
     }
@@ -297,6 +300,8 @@ export class SyncV1Controller {
     @Req() request: { user: HumanDevicePrincipal },
   ) {
     const spaceId = this.parseSpaceId(spaceIdParam);
+    await this.assertReadable(request.user, spaceId);
+    await this.capabilities.assertV1Compatible(spaceId);
     const input = CreatePushSessionRequestSchema.safeParse(body);
     if (!input.success) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Invalid create push session request');

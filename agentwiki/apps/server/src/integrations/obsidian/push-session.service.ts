@@ -10,9 +10,16 @@ import {
   contentHash,
   normalizeMarkdown,
   pathKey,
+  treeBatchHashV2,
+  treeConfirmationHashV2,
+  TREE_SYNC_V2_LIMITS,
+  TreePushChangeV2Schema,
   type PushBatch,
   type PushConfirmationManifest,
   type SyncCapabilities,
+  type TreePushBatchV2,
+  type TreePushChangeV2,
+  type SyncErrorCode,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
@@ -128,6 +135,81 @@ export class PushSessionService {
           where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
         });
         if (created) return this.sessionResponse(created, await this.capabilities());
+      }
+      throw error;
+    }
+  }
+
+  async createV2(principal: HumanDevicePrincipal, spaceId: string, input: {
+    protocolVersion: '2';
+    baseRevision: string;
+    idempotencyKey: string;
+    capabilitiesHash: string;
+    confirmationHash: string;
+    confirmationByteLength: number;
+    changeCount: number;
+    totalBodyBytes: number;
+  }) {
+    if (input.changeCount > 100) throw this.v2Error('BATCH_TOO_LARGE', 'changeCount exceeds the maximum of 100');
+    if (input.confirmationByteLength > 4_194_304) {
+      throw this.v2Error('BATCH_TOO_LARGE', 'confirmationByteLength exceeds 4 MiB');
+    }
+    if (input.totalBodyBytes > TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes) {
+      throw this.v2Error('SPACE_TOO_LARGE', 'totalBodyBytes exceeds the v2 document-tree limit');
+    }
+    if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
+      throw this.v2Error('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
+    }
+    await this.assertSessionCreateRate(principal, spaceId);
+    const existing = await this.prisma.pushSession.findUnique({
+      where: { credentialFamilyId_idempotencyKey: {
+        credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey,
+      } },
+    });
+    if (existing) {
+      this.assertV2IdempotencyBinding(existing, principal, spaceId, input);
+      await this.assertV2Session(existing);
+      if (existing.credentialId !== principal.credentialId && existing.status !== 'published') {
+        throw this.v2Error('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
+      }
+      return this.sessionResponseV2(existing);
+    }
+    await this.assertPublishableV2(principal, spaceId);
+    if (input.capabilitiesHash !== await this.capabilityHashV2()) {
+      throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
+    }
+    const head = await this.prisma.spaceKnowledgeRevision.findFirst({
+      where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },
+    });
+    if (input.baseRevision !== (head?.id ?? '0')) throw this.v2Error('BASE_STALE', 'base revision is not the current head');
+    try {
+      const session = await this.prisma.pushSession.create({
+        data: {
+          id: randomUUID(), credentialFamilyId: principal.credentialFamilyId,
+          credentialId: principal.credentialId, userId: principal.userId, spaceId,
+          baseRevisionId: input.baseRevision, idempotencyKey: input.idempotencyKey,
+          status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
+          capabilitiesHash: input.capabilitiesHash, confirmationHash: input.confirmationHash,
+          confirmationByteLength: input.confirmationByteLength, changeCount: input.changeCount,
+          totalBodyBytes: BigInt(input.totalBodyBytes), expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        },
+      });
+      return this.sessionResponseV2(session);
+    } catch (error) {
+      if ((error as any)?.code === 'P2002') {
+        const raced = await this.prisma.pushSession.findUnique({
+          where: { credentialFamilyId_idempotencyKey: {
+            credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey,
+          } },
+        });
+        if (raced) {
+          this.assertV2IdempotencyBinding(raced, principal, spaceId, input);
+          await this.assertV2Session(raced);
+          if (raced.credentialId !== principal.credentialId && raced.status !== 'published') {
+            throw this.v2Error('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
+          }
+          return this.sessionResponseV2(raced);
+        }
       }
       throw error;
     }
@@ -249,6 +331,185 @@ export class PushSessionService {
         throw error;
       }
     }
+  }
+
+  async uploadV2(
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    sessionId: string,
+    batch: TreePushBatchV2,
+  ) {
+    await this.assertUploadRate(principal);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+          const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
+          if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
+            throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+          }
+          await this.assertV2Session(session);
+          this.assertMutableV2(session);
+          const existing = await tx.pushSessionBatch.findUnique({
+            where: { sessionId_batchIndex: { sessionId, batchIndex: batch.batchIndex } },
+          });
+          if (existing) {
+            if (existing.batchHash !== batch.batchHash) throw this.v2Error('BATCH_MISMATCH', 'Batch index already has a different hash');
+            return {
+              protocolVersion: '2' as const, sessionId, batchIndex: batch.batchIndex,
+              batchHash: batch.batchHash, receipt: existing.receipt,
+              receivedBatchCount: session.receivedBatchCount,
+            };
+          }
+          const { batchHash: _hash, ...withoutHash } = batch;
+          if (await treeBatchHashV2(withoutHash) !== batch.batchHash) {
+            throw this.v2Error('PAYLOAD_INVALID', 'Batch hash does not match its contents');
+          }
+          const capabilities = this.capabilitiesV2();
+          if (canonicalBytes(batch).byteLength > capabilities.maxBatchBytes) {
+            throw this.v2Error('BATCH_TOO_LARGE', 'Batch exceeds maxBatchBytes');
+          }
+          const entityKeys = batch.changes.map((change) => this.v2EntityKey(change));
+          if (new Set(entityKeys).size !== entityKeys.length) {
+            throw this.v2Error('PAYLOAD_INVALID', 'An entity may only appear once per push session');
+          }
+          const duplicates = await tx.pushSessionChange.findMany({
+            where: { sessionId, pageId: { in: entityKeys } }, select: { pageId: true },
+          });
+          if (duplicates.length > 0) throw this.v2Error('PAYLOAD_INVALID', 'An entity may only appear once per push session');
+          let bodyBytes = 0;
+          for (const change of batch.changes) {
+            if (change.operation !== 'upsert_page') continue;
+            const normalized = normalizeMarkdown(change.page.body);
+            if (normalized.startsWith('﻿')) throw this.v2Error('PAYLOAD_INVALID', 'Page body must not begin with U+FEFF');
+            const bytes = Buffer.byteLength(normalized, 'utf8');
+            if (bytes > capabilities.maxPageBytes) throw this.v2Error('PAGE_TOO_LARGE', 'Page exceeds maxPageBytes');
+            if (await contentHash(normalized) !== change.page.contentHash) {
+              throw this.v2Error('PAYLOAD_INVALID', 'Page contentHash does not match its body');
+            }
+            bodyBytes += bytes;
+          }
+          const nextChangeCount = session.receivedChangeCount + batch.changes.length;
+          const nextBodyBytes = session.receivedBodyBytes + BigInt(bodyBytes);
+          if (nextChangeCount > session.changeCount || nextBodyBytes > session.totalBodyBytes) {
+            throw this.v2Error('PAYLOAD_INVALID', 'Batch exceeds the declared change or byte totals');
+          }
+          const receipt = this.crypto.batchReceipt(sessionId, batch.batchIndex, batch.batchHash);
+          const batchRow = await tx.pushSessionBatch.create({
+            data: { id: randomUUID(), sessionId, batchIndex: batch.batchIndex, batchHash: batch.batchHash, receipt },
+          });
+          await tx.pushSessionChange.createMany({
+            data: batch.changes.map((change, index) => this.encodeV2Change(
+              sessionId, batchRow.id, session.receivedChangeCount + index, change,
+            )),
+          });
+          const complete = nextChangeCount === session.changeCount && nextBodyBytes === session.totalBodyBytes;
+          await tx.pushSession.update({
+            where: { id: sessionId },
+            data: {
+              receivedBatchCount: { increment: 1 }, receivedChangeCount: nextChangeCount,
+              receivedBodyBytes: nextBodyBytes, status: complete ? 'ready_to_finalize' : session.status,
+            },
+          });
+          return {
+            protocolVersion: '2' as const, sessionId, batchIndex: batch.batchIndex,
+            batchHash: batch.batchHash, receipt, receivedBatchCount: session.receivedBatchCount + 1,
+          };
+        }, { isolationLevel: 'Serializable' });
+      } catch (error) {
+        if (this.isSerializationFailure(error) && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw this.v2Error('INTERNAL_ERROR', 'Upload retry budget exhausted');
+  }
+
+  async finalizeV2(
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    sessionId: string,
+    input: { protocolVersion: '2'; confirmationHash: string; userConfirmed: true },
+  ) {
+    await this.assertFinalizeRate(principal, spaceId);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const result = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+          const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
+          if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
+            throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+          }
+          await this.assertV2Session(session);
+          if (session.status === 'published' && session.result) return session.result;
+          this.assertMutableV2(session);
+          if (session.status !== 'ready_to_finalize') throw this.v2Error('PUSH_SESSION_INCOMPLETE', 'Push session is not ready to finalize');
+          if (session.confirmationHash !== input.confirmationHash) throw this.v2Error('CONFIRMATION_MISMATCH', 'Confirmation hash does not match');
+          const batches = await tx.pushSessionBatch.findMany({
+            where: { sessionId }, orderBy: { batchIndex: 'asc' }, select: { batchIndex: true },
+          });
+          if (batches.length !== session.receivedBatchCount || batches.some((batch, index) => batch.batchIndex !== index)) {
+            throw this.v2Error('PUSH_SESSION_INCOMPLETE', 'Push session is missing one or more batch indexes');
+          }
+          const staged = await tx.pushSessionChange.findMany({ where: { sessionId }, orderBy: { ordinal: 'asc' } });
+          if (staged.length !== session.changeCount) throw this.v2Error('PUSH_SESSION_INCOMPLETE', 'Not all changes were uploaded');
+          const changes = staged.map((row) => this.decodeV2Change(row));
+          const manifest = {
+            protocolVersion: '2' as const, spaceId, baseRevision: session.baseRevisionId,
+            changes: changes.map((change) => change.operation === 'upsert_page'
+              ? { operation: 'upsert_page' as const, page: {
+                pageId: change.page.pageId, folderId: change.page.folderId,
+                path: change.page.path, title: change.page.title,
+                contentHash: change.page.contentHash, updatedAt: change.page.updatedAt,
+              } }
+              : change),
+          };
+          const computedHash = await treeConfirmationHashV2(manifest);
+          if (
+            computedHash !== session.confirmationHash
+            || canonicalBytes(manifest).byteLength !== session.confirmationByteLength
+          ) throw this.v2Error('CONFIRMATION_MISMATCH', 'Confirmation does not match staged changes');
+          const published = await this.contentTree.publishSyncV2Batch(tx, {
+            spaceId, baseRevision: session.baseRevisionId, confirmationHash: session.confirmationHash, changes,
+            actor: { userId: principal.userId }, principal,
+            revisionOrigin: {
+              origin: 'obsidian_sync' as const, createdByUserId: principal.userId,
+              humanDeviceCredentialId: principal.credentialId,
+            },
+          });
+          await tx.pushSession.update({
+            where: { id: sessionId },
+            data: {
+              status: 'published', result: published as unknown as Prisma.InputJsonValue,
+              publishedChangeSetId: published.changeSetId,
+            },
+          });
+          return published;
+        }, { isolationLevel: 'ReadCommitted', timeout: 120_000 });
+        await this.refreshGraphAfterFinalize(spaceId, (result as any).changeSetId ?? null);
+        return result;
+      } catch (error) {
+        if (this.isSerializationFailure(error) && attempt < 2) continue;
+        if (error instanceof ContentTreeError) {
+          if (error.code === 'CONTENT_TREE_SPACE_FORBIDDEN') throw this.v2Error('SPACE_FORBIDDEN', error.message);
+          if (error.code === 'CONTENT_TREE_SPACE_READ_ONLY') throw this.v2Error('SPACE_READ_ONLY', error.message);
+          if (error.code === 'CONTENT_TREE_PAYLOAD_INVALID' || error.code === 'FOLDER_INVALID_NAME') {
+            throw this.v2Error('PAYLOAD_INVALID', error.message);
+          }
+          if (error.code === 'CONTENT_TREE_PATH_COLLISION' || error.code === 'FOLDER_NAME_CONFLICT') {
+            throw this.v2Error('PATH_COLLISION', error.message);
+          }
+          if (error.code === 'CONTENT_TREE_ID_CONFLICT' || error.code === 'FOLDER_RESTORE_CONFLICT'
+            || error.code === 'CONTENT_TREE_PAGE_NOT_FOUND') {
+            throw this.v2Error('PAGE_ID_CONFLICT', error.message);
+          }
+          if (error.code === 'CONTENT_TREE_CONFLICT') throw this.v2Error('BASE_STALE', error.message);
+          if (error.code === 'FOLDER_NOT_FOUND') throw this.v2Error('PAYLOAD_INVALID', error.message);
+          throw this.v2Error('PATH_COLLISION', error.message);
+        }
+        throw error;
+      }
+    }
+    throw this.v2Error('INTERNAL_ERROR', 'Finalize retry budget exhausted');
   }
 
   async finalize(principal: HumanDevicePrincipal, spaceId: string, sessionId: string, confirmationHashValue: string) {
@@ -525,6 +786,48 @@ export class PushSessionService {
     });
   }
 
+  async getV2(principal: HumanDevicePrincipal, spaceId: string, sessionId: string) {
+    const session = await this.prisma.pushSession.findUnique({
+      where: { id: sessionId },
+      include: { batches: { orderBy: { batchIndex: 'asc' } } },
+    });
+    if (!session || session.spaceId !== spaceId || session.credentialFamilyId !== principal.credentialFamilyId) {
+      throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+    await this.assertV2Session(session);
+    if (session.credentialId !== principal.credentialId && session.status !== 'published') {
+      throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+    const status = session.expiresAt <= new Date() && !['published', 'aborted'].includes(session.status)
+      ? 'expired'
+      : session.status;
+    return {
+      protocolVersion: '2' as const,
+      sessionId,
+      status,
+      expiresAt: session.expiresAt.toISOString(),
+      receivedBatchIndexes: session.batches.map((batch: { batchIndex: number }) => batch.batchIndex),
+      result: session.result ?? null,
+    };
+  }
+
+  async abortV2(principal: HumanDevicePrincipal, spaceId: string, sessionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
+      if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
+        throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+      }
+      await this.assertV2Session(session);
+      if (session.status === 'published') throw this.v2Error('PUSH_SESSION_STATE_INVALID', 'Published session cannot be aborted');
+      if (session.status === 'aborted') return;
+      if (session.expiresAt <= new Date()) throw this.v2Error('PUSH_SESSION_EXPIRED', 'Push session has expired');
+      await tx.pushSessionChange.deleteMany({ where: { sessionId } });
+      await tx.pushSessionBatch.deleteMany({ where: { sessionId } });
+      await tx.pushSession.update({ where: { id: sessionId }, data: { status: 'aborted' } });
+    });
+  }
+
   private async assertPublishable(principal: HumanDevicePrincipal, spaceId: string) {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
@@ -542,6 +845,22 @@ export class PushSessionService {
     }
     if (!['editor', 'admin', 'owner'].includes(member.role)) {
       throw new SyncApiException('SPACE_READ_ONLY', 'Space role does not permit publishing');
+    }
+  }
+
+  private async assertPublishableV2(principal: HumanDevicePrincipal, spaceId: string) {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { deletedAt: true },
+    });
+    if (!space || space.deletedAt) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
+    if (principal.platformRole === 'super_admin') return;
+    const member = await this.prisma.spaceMember.findUnique({
+      where: { userId_spaceId: { userId: principal.userId, spaceId } },
+    });
+    if (!member) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
+    if (!['editor', 'owner'].includes(member.role)) {
+      throw this.v2Error('SPACE_READ_ONLY', 'Space role does not permit Folder-aware publishing');
     }
   }
 
@@ -575,6 +894,12 @@ export class PushSessionService {
     if (session.status === 'aborted') {
       throw new SyncApiException('PUSH_SESSION_STATE_INVALID', 'Push session is aborted');
     }
+  }
+
+  private assertMutableV2(session: { status: string; expiresAt: Date }) {
+    if (session.expiresAt <= new Date()) throw this.v2Error('PUSH_SESSION_EXPIRED', 'Push session has expired');
+    if (session.status === 'published') throw this.v2Error('PUSH_SESSION_STATE_INVALID', 'Push session is already published');
+    if (session.status === 'aborted') throw this.v2Error('PUSH_SESSION_STATE_INVALID', 'Push session is aborted');
   }
 
   private async rateLimit(key: string, limit: number, ttlSeconds: number): Promise<void> {
@@ -618,6 +943,156 @@ export class PushSessionService {
 
   private async capabilityHash(): Promise<string> {
     return capabilitiesHash(DEFAULT_SYNC_CAPABILITIES);
+  }
+
+  private capabilitiesV2(): SyncCapabilities {
+    return {
+      ...DEFAULT_SYNC_CAPABILITIES,
+      maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
+      maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
+      maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+    };
+  }
+
+  private async capabilityHashV2(): Promise<string> {
+    return capabilitiesHash(this.capabilitiesV2());
+  }
+
+  private async assertV2Session(session: { capabilitiesHash?: string | null }) {
+    if (session.capabilitiesHash !== await this.capabilityHashV2()) {
+      throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+  }
+
+  private assertV2IdempotencyBinding(
+    session: any,
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    input: {
+      baseRevision: string; capabilitiesHash: string; confirmationHash: string;
+      confirmationByteLength: number; changeCount: number; totalBodyBytes: number;
+    },
+  ) {
+    if (
+      session.userId !== principal.userId
+      || session.spaceId !== spaceId
+      || session.baseRevisionId !== input.baseRevision
+      || session.capabilitiesHash !== input.capabilitiesHash
+      || session.confirmationHash !== input.confirmationHash
+      || session.confirmationByteLength !== input.confirmationByteLength
+      || session.changeCount !== input.changeCount
+      || session.totalBodyBytes !== BigInt(input.totalBodyBytes)
+    ) throw this.v2Error('IDEMPOTENCY_MISMATCH', 'Existing session has different binding fields');
+  }
+
+  private sessionResponseV2(session: any) {
+    const status = session.expiresAt <= new Date() && !['published', 'aborted'].includes(session.status)
+      ? 'expired'
+      : session.status;
+    return {
+      protocolVersion: '2' as const,
+      sessionId: session.id,
+      status,
+      expiresAt: session.expiresAt.toISOString(),
+      result: session.result ?? null,
+    };
+  }
+
+  private v2EntityKey(change: TreePushChangeV2): string {
+    if (change.operation === 'upsert_folder') return `folder:${change.folder.folderId}`;
+    if (change.operation === 'archive_folder') return `folder:${change.folderId}`;
+    if (change.operation === 'upsert_page') return `page:${change.page.pageId}`;
+    return `page:${change.pageId}`;
+  }
+
+  private encodeV2Change(
+    sessionId: string,
+    batchId: string,
+    ordinal: number,
+    change: TreePushChangeV2,
+  ) {
+    const common = { id: randomUUID(), sessionId, batchId, ordinal, operation: change.operation };
+    if (change.operation === 'upsert_folder') return {
+      ...common,
+      pageId: `folder:${change.folder.folderId}`,
+      path: change.folder.path,
+      title: change.folder.name,
+      body: JSON.stringify({
+        parentFolderId: change.folder.parentFolderId,
+        sortOrder: change.folder.sortOrder,
+        updatedAt: change.folder.updatedAt,
+      }),
+    };
+    if (change.operation === 'archive_folder') return {
+      ...common, pageId: `folder:${change.folderId}`, previousPath: change.previousPath,
+    };
+    if (change.operation === 'upsert_page') return {
+      ...common,
+      pageId: `page:${change.page.pageId}`,
+      path: change.page.path,
+      title: change.page.title,
+      body: normalizeMarkdown(change.page.body),
+      contentHash: change.page.contentHash,
+      previousPath: JSON.stringify({ folderId: change.page.folderId, updatedAt: change.page.updatedAt }),
+    };
+    return { ...common, pageId: `page:${change.pageId}`, previousPath: change.previousPath };
+  }
+
+  private decodeV2Change(row: any): TreePushChangeV2 {
+    let value: unknown;
+    try {
+      if (row.operation === 'upsert_folder') {
+        if (!String(row.pageId).startsWith('folder:')) throw new Error('Folder identity prefix is invalid');
+        const metadata = JSON.parse(row.body ?? '{}');
+        value = {
+          operation: 'upsert_folder',
+          folder: {
+            folderId: String(row.pageId).slice('folder:'.length),
+            parentFolderId: metadata.parentFolderId,
+            name: row.title,
+            path: row.path,
+            sortOrder: metadata.sortOrder,
+            updatedAt: metadata.updatedAt,
+          },
+        };
+      } else if (row.operation === 'archive_folder') {
+        if (!String(row.pageId).startsWith('folder:')) throw new Error('Folder identity prefix is invalid');
+        value = {
+          operation: 'archive_folder', folderId: String(row.pageId).slice('folder:'.length),
+          previousPath: row.previousPath,
+        };
+      } else if (row.operation === 'upsert_page') {
+        if (!String(row.pageId).startsWith('page:')) throw new Error('Page identity prefix is invalid');
+        const metadata = JSON.parse(row.previousPath ?? '{}');
+        value = {
+          operation: 'upsert_page',
+          page: {
+            pageId: String(row.pageId).slice('page:'.length),
+            folderId: metadata.folderId,
+            path: row.path,
+            title: row.title,
+            body: row.body,
+            contentHash: row.contentHash,
+            updatedAt: metadata.updatedAt,
+          },
+        };
+      } else if (row.operation === 'archive_page') {
+        if (!String(row.pageId).startsWith('page:')) throw new Error('Page identity prefix is invalid');
+        value = {
+          operation: 'archive_page', pageId: String(row.pageId).slice('page:'.length),
+          previousPath: row.previousPath,
+        };
+      } else {
+        throw new Error('Unknown v2 change operation');
+      }
+      return TreePushChangeV2Schema.parse(value);
+    } catch {
+      throw this.v2Error('PAYLOAD_INVALID', 'Stored v2 change is invalid');
+    }
+  }
+
+  private v2Error(code: SyncErrorCode, message: string): SyncApiException {
+    return new SyncApiException(code, message, undefined, '2');
   }
 
   private async sessionResponse(session: any, capabilities: SyncCapabilities) {

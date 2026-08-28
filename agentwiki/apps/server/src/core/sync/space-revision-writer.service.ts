@@ -2,11 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
+  canonicalTreeRevisionManifestV2,
   contentHash,
   normalizeMarkdown,
   pathKey,
   revisionContentHash as computeRevisionContentHash,
+  treeRevisionContentHashV2,
   type RevisionContentManifest,
+  type SyncFolderV2,
+  type SyncPageV2,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
@@ -385,14 +389,14 @@ export class SpaceRevisionWriterService {
       },
     });
 
-    return {
+    return this.finalizeTreeV2IfRequired(tx, spaceId, created.id, parentRevisionId, {
       revisionId: created.id,
       sequence,
       revisionContentHash,
       pageCount: BigInt(pageCount),
       revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
       revisionBodyBytes,
-    };
+    });
   }
 
   async advanceStructuralPages(
@@ -410,6 +414,31 @@ export class SpaceRevisionWriterService {
     spaceId: string,
     changes: StructuralPageChange[],
     origin: RevisionOrigin,
+  ): Promise<RevisionWriteResult> {
+    return this.advanceStructuralPagesLockedInternal(tx, spaceId, changes, origin, false);
+  }
+
+  /**
+   * Task 6 owns the first content-tree@2 snapshot written during cutover. This
+   * dedicated entrypoint is intentionally separate from RevisionOrigin so no
+   * HTTP payload, ChangeSet metadata, or ordinary writer caller can suppress
+   * ongoing v2 finalization.
+   */
+  async advanceMigrationStructuralPagesLocked(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: StructuralPageChange[],
+    origin: RevisionOrigin & { origin: 'migration' },
+  ): Promise<RevisionWriteResult> {
+    return this.advanceStructuralPagesLockedInternal(tx, spaceId, changes, origin, true);
+  }
+
+  private async advanceStructuralPagesLockedInternal(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: StructuralPageChange[],
+    origin: RevisionOrigin,
+    deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
@@ -696,12 +725,182 @@ export class SpaceRevisionWriterService {
         revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
       },
     });
-    return {
+    const fallback = {
       revisionId: created.id,
       sequence,
       revisionContentHash,
       pageCount: BigInt(pageCount),
       revisionManifestByteLength: BigInt(revisionManifestBytes.byteLength),
+      revisionBodyBytes,
+    };
+    return deferTreeV2Finalization
+      ? fallback
+      : this.finalizeTreeV2IfRequired(tx, spaceId, created.id, parentRevisionId, fallback);
+  }
+
+  private async finalizeTreeV2IfRequired(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    revisionId: string,
+    parentRevisionId: string | null,
+    fallback: RevisionWriteResult,
+  ): Promise<RevisionWriteResult> {
+    const [folders, pages, parent] = await Promise.all([
+      tx.folder.findMany({ where: { spaceId, deletedAt: null } }),
+      tx.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
+      parentRevisionId ? tx.spaceKnowledgeRevision.findUnique({
+        where: { id: parentRevisionId }, select: { schemaVersion: true },
+      }) : null,
+    ]);
+    const useV2 = folders.length > 0
+      || pages.some((page) => page.folderId != null)
+      || parent?.schemaVersion === 'content-tree@2';
+    if (!useV2) return fallback;
+
+    const manifest = canonicalTreeRevisionManifestV2({
+      protocolVersion: '2',
+      spaceId,
+      folders: folders.map((folder): SyncFolderV2 => ({
+        folderId: folder.id,
+        parentFolderId: folder.parentId,
+        name: folder.name,
+        path: folder.path,
+        sortOrder: folder.sortOrder,
+        updatedAt: folder.updatedAt.toISOString(),
+      })),
+      pages: pages.map((page): SyncPageV2 => ({
+        pageId: page.pageId,
+        folderId: page.folderId,
+        path: page.path,
+        title: page.title,
+        body: page.content.body,
+        contentHash: page.contentHash,
+        updatedAt: page.updatedAt.toISOString(),
+      })),
+    });
+    await tx.syncRevisionFolderRow.deleteMany({ where: { revisionId } });
+    if (manifest.folders.length > 0) {
+      await tx.syncRevisionFolderRow.createMany({
+        data: manifest.folders.map((folder) => ({
+          revisionId,
+          folderId: folder.folderId,
+          parentFolderId: folder.parentFolderId,
+          name: folder.name,
+          path: folder.path,
+          pathKey: pathKey(folder.path),
+          sortOrder: folder.sortOrder,
+          updatedAt: new Date(folder.updatedAt),
+        })),
+      });
+    }
+
+    const [parentFolders, parentPages] = parentRevisionId ? await Promise.all([
+      tx.syncRevisionFolderRow.findMany({ where: { revisionId: parentRevisionId } }),
+      tx.syncRevisionPageRow.findMany({ where: { revisionId: parentRevisionId } }),
+    ]) : [[], []];
+    const currentFolderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
+    const parentFolderById = new Map(parentFolders.map((folder) => [folder.folderId, folder]));
+    const currentPageById = new Map(manifest.pages.map((page) => [page.pageId, page]));
+    const parentPageById = new Map(parentPages.map((page) => [page.pageId, page]));
+    const parentDepth = (folderId: string, trail = new Set<string>()): number => {
+      if (trail.has(folderId)) throw new ContentTreeConflict(0n, 0n);
+      const folder = parentFolderById.get(folderId);
+      if (!folder?.parentFolderId) return 0;
+      trail.add(folderId);
+      return parentDepth(folder.parentFolderId, trail) + 1;
+    };
+    const sameFolder = (prior: typeof parentFolders[number] | undefined, current: SyncFolderV2) => !!prior
+      && prior.parentFolderId === current.parentFolderId
+      && prior.name === current.name
+      && prior.path === current.path
+      && prior.sortOrder === current.sortOrder
+      && prior.updatedAt.toISOString() === current.updatedAt;
+    const samePage = (prior: typeof parentPages[number] | undefined, current: SyncPageV2) => !!prior
+      && prior.folderId === current.folderId
+      && prior.path === current.path
+      && prior.title === current.title
+      && prior.contentHash === current.contentHash
+      && prior.updatedAt.toISOString() === current.updatedAt;
+    const deltaRows = [
+      ...parentPages
+        .filter((page) => !currentPageById.has(page.pageId))
+        .sort((left, right) => Buffer.from(left.pathKey).compare(Buffer.from(right.pathKey)) || Buffer.from(left.pageId).compare(Buffer.from(right.pageId)))
+        .map((page) => ({ operation: 'archive_page', folderId: null, pageId: page.pageId, previousPath: page.path, contentHash: null })),
+      ...parentFolders
+        .filter((folder) => !currentFolderById.has(folder.folderId))
+        .sort((left, right) => parentDepth(right.folderId) - parentDepth(left.folderId)
+          || Buffer.from(left.pathKey).compare(Buffer.from(right.pathKey))
+          || Buffer.from(left.folderId).compare(Buffer.from(right.folderId)))
+        .map((folder) => ({ operation: 'archive_folder', folderId: folder.folderId, pageId: null, previousPath: folder.path, contentHash: null })),
+      ...manifest.folders
+        .filter((folder) => !sameFolder(parentFolderById.get(folder.folderId), folder))
+        .map((folder) => ({ operation: 'upsert_folder', folderId: folder.folderId, pageId: null, previousPath: null, contentHash: null })),
+      ...manifest.pages
+        .filter((page) => !samePage(parentPageById.get(page.pageId), page))
+        .map((page) => ({ operation: 'upsert_page', folderId: null, pageId: page.pageId, previousPath: null, contentHash: page.contentHash })),
+    ];
+    await tx.syncRevisionTreeDeltaRow.deleteMany({ where: { revisionId } });
+    if (deltaRows.length > 0) {
+      await tx.syncRevisionTreeDeltaRow.createMany({
+        data: deltaRows.map((row, ordinal) => ({ revisionId, ordinal, ...row })),
+      });
+    }
+    const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
+    const revisionContentHash = empty ? EMPTY_REVISION_HASH : await treeRevisionContentHashV2(manifest);
+    const revisionManifestByteLength = BigInt(empty ? 0 : canonicalBytes(manifest).byteLength);
+    const revisionBodyBytes = BigInt(manifest.pages.reduce(
+      (total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0,
+    ));
+    await tx.spaceKnowledgeRevision.update({
+      where: { id: revisionId },
+      data: {
+        schemaVersion: 'content-tree@2',
+        recipeVersion: 'space-folders-v1',
+        revisionContentHash,
+        pageCount: BigInt(manifest.pages.length),
+        revisionManifestByteLength,
+        revisionBodyBytes,
+      },
+    });
+    const sidecarRow = await tx.legacyRevisionSidecar.findUnique({ where: { revisionId } });
+    const sidecar = sidecarRow?.sidecar && typeof sidecarRow.sidecar === 'object' && !Array.isArray(sidecarRow.sidecar)
+      ? sidecarRow.sidecar as Prisma.InputJsonObject : {};
+    const migrationValue = sidecar.spaceFolderMigration;
+    const migration = migrationValue && typeof migrationValue === 'object' && !Array.isArray(migrationValue)
+      ? migrationValue as Prisma.InputJsonObject : {};
+    await tx.legacyRevisionSidecar.upsert({
+      where: { revisionId },
+      create: { revisionId, sidecar: {
+        ...sidecar,
+        spaceFolderMigration: {
+          ...migration,
+          v2Revision: {
+            protocolVersion: '2', manifestSchema: 'TreeRevisionContentManifestV2',
+            folderCount: String(manifest.folders.length), pageCount: String(manifest.pages.length),
+            revisionContentHash, revisionManifestByteLength: String(revisionManifestByteLength),
+            revisionBodyBytes: String(revisionBodyBytes), treeDeltaCount: String(deltaRows.length),
+          },
+        },
+      } },
+      update: { sidecar: {
+        ...sidecar,
+        spaceFolderMigration: {
+          ...migration,
+          v2Revision: {
+            protocolVersion: '2', manifestSchema: 'TreeRevisionContentManifestV2',
+            folderCount: String(manifest.folders.length), pageCount: String(manifest.pages.length),
+            revisionContentHash, revisionManifestByteLength: String(revisionManifestByteLength),
+            revisionBodyBytes: String(revisionBodyBytes), treeDeltaCount: String(deltaRows.length),
+          },
+        },
+      } },
+    });
+    return {
+      revisionId,
+      sequence: fallback.sequence,
+      revisionContentHash,
+      pageCount: BigInt(manifest.pages.length),
+      revisionManifestByteLength,
       revisionBodyBytes,
     };
   }

@@ -31,6 +31,17 @@
 - 插件和服务端都必须使用协议包验证跨边界 payload。
 - `protocolVersion` 是 major 字符串。v1 request Schema 拒绝未知字段，避免 hash 歧义；response Schema 忽略未知字段，允许增加可选响应元数据。删除字段、改变字段含义或改变 canonical/hash 规则必须发布 protocol v2。
 
+### 2.0.1 Folder Space 必须升级
+
+v1 只能读写当前完全无 Folder 的 Space。如果 Space 存在任一 `deletedAt = null` 的 Folder，或任一当前未删除 Page 的 `folderId != null`，服务端必须在以下每个 v1 入口返回 HTTP 409 `SYNC_PROTOCOL_UPGRADE_REQUIRED`：
+
+- `GET /spaces/:spaceId/head`
+- `GET /spaces/:spaceId/snapshot`
+- `GET /spaces/:spaceId/delta`
+- `POST /spaces/:spaceId/push-sessions`
+
+不允许通过指定旧 revision、cursor 或新 Push session 绕过检查，也不允许忽略 Folder 后继续扁平写 Page。完全无 Folder 的 Space 仍使用本文的 v1 canonical manifest、hash 和字节指标；即使其最新历史 revision 由 v2 writer 产生，服务端也必须合成字节兼容的 v1 head/Snapshot/Delta 元数据。Folder-aware 客户端使用 [Sync API v2](./agentwiki-obsidian-sync-api-v2.md)。
+
 协议包根入口必须导出：
 
 - 本文定义的所有 `...Request`、`...Response`、`SyncPage`、`DeltaItem`、`PushChange` 和 `SyncErrorCode` 类型。

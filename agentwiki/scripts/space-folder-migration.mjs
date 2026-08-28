@@ -1363,7 +1363,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       ? latestSidecar.sidecar
       : {};
     const revisionPages = plan.pages;
-    const revision = await writer.advanceStructuralPagesLocked(
+    const revision = await writer.advanceMigrationStructuralPagesLocked(
       lockedTx,
       spaceId,
       revisionPages.map((page) => ({

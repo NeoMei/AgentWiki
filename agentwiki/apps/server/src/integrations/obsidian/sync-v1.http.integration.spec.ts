@@ -39,6 +39,12 @@ describe('sync v1 HTTP contract', () => {
     spaceMember: {
       findUnique: jest.fn().mockResolvedValue({ role: 'editor', space: { deletedAt: null } }),
     },
+    folder: {
+      count: jest.fn().mockResolvedValue(0),
+    },
+    page: {
+      count: jest.fn().mockResolvedValue(0),
+    },
   } as any;
   const crypto = {
     credentialHash: jest.fn((value: string) => `h:${value}`),
@@ -51,13 +57,36 @@ describe('sync v1 HTTP contract', () => {
         HumanDeviceGuard,
         { provide: ObsidianCryptoService, useValue: crypto },
         { provide: PrismaService, useValue: prisma },
-        { provide: SyncRevisionService, useValue: { head: jest.fn().mockResolvedValue({
+        { provide: SyncRevisionService, useValue: {
+          head: jest.fn().mockResolvedValue({
           revision: '0', sequence: 0, revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
           pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n, publishedAt: null,
-        }) } },
+          }),
+          resolveRevision: jest.fn().mockResolvedValue('0'),
+          snapshotPage: jest.fn().mockResolvedValue({
+            items: [], nextPageId: undefined,
+            head: {
+              revision: '0', sequence: 0,
+              revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+              pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+              publishedAt: null,
+            },
+          }),
+          deltaPage: jest.fn().mockResolvedValue({
+            items: [], nextPageId: undefined, toRevision: '0',
+            head: {
+              revision: '0', sequence: 0,
+              revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+              pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+              publishedAt: null,
+            },
+          }),
+        } },
         { provide: SyncCursorService, useValue: {} },
-        { provide: SyncCapabilitiesService, useValue: {} },
-        { provide: PushSessionService, useValue: {} },
+        SyncCapabilitiesService,
+        { provide: PushSessionService, useValue: {
+          create: jest.fn().mockResolvedValue({ protocolVersion: '1', sessionId: 'session-1' }),
+        } },
         { provide: SpaceRevisionWriterService, useValue: {} },
       ],
     }).compile();
@@ -69,7 +98,11 @@ describe('sync v1 HTTP contract', () => {
   });
 
   afterAll(async () => { await app.close(); });
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.folder.count.mockResolvedValue(0);
+    prisma.page.count.mockResolvedValue(0);
+  });
 
   it('returns a terminal 200/401 response with no 3xx redirect', async () => {
     const response = await fetch(`${baseUrl}/sync/v1/spaces/space-1/head`, {
@@ -101,5 +134,63 @@ describe('sync v1 HTTP contract', () => {
     const response = await fetch(`${baseUrl}/sync/v1/spaces/space-1/head`, { redirect: 'manual' });
     expect(response.status).toBe(401);
     expect([301, 302, 303, 307, 308]).not.toContain(response.status);
+  });
+
+  it.each([
+    ['head', '/sync/v1/spaces/space-1/head', 'GET'],
+    ['snapshot', '/sync/v1/spaces/space-1/snapshot', 'GET'],
+    ['delta', '/sync/v1/spaces/space-1/delta?from=0', 'GET'],
+    ['push-session creation', '/sync/v1/spaces/space-1/push-sessions', 'POST'],
+  ])('fails closed with 409 on %s when an active Folder exists', async (_name, path, method) => {
+    prisma.folder.count.mockResolvedValue(1);
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: 'Bearer device-secret',
+        ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(method === 'POST' ? {
+        body: JSON.stringify({
+          baseRevision: '0', idempotencyKey: '11111111-1111-4111-8111-111111111111',
+          capabilitiesHash: 'a'.repeat(64), confirmationHash: 'b'.repeat(64),
+          confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+        }),
+      } : {}),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      protocolVersion: '1',
+      error: expect.objectContaining({
+        code: 'SYNC_PROTOCOL_UPGRADE_REQUIRED', retryable: false,
+      }),
+    }));
+  });
+
+  it('fails closed when an active Page has folderId even if no active Folder row is visible', async () => {
+    prisma.page.count.mockResolvedValue(1);
+    const response = await fetch(`${baseUrl}/sync/v1/spaces/space-1/head`, {
+      headers: { Authorization: 'Bearer device-secret' },
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('SYNC_PROTOCOL_UPGRADE_REQUIRED');
+    expect(prisma.page.count).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null, folderId: { not: null } },
+    });
+  });
+
+  it('keeps the exact empty v1 head fixture for a Folder-free Space', async () => {
+    const response = await fetch(`${baseUrl}/sync/v1/spaces/space-1/head`, {
+      headers: { Authorization: 'Bearer device-secret' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      protocolVersion: '1', spaceId: 'space-1', revision: '0', sequence: 0,
+      revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      pageCount: '0', revisionManifestByteLength: '0', revisionBodyBytes: '0',
+      publishedAt: null,
+    });
   });
 });
