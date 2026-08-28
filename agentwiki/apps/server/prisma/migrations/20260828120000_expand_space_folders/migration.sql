@@ -176,6 +176,8 @@ ALTER TABLE "Folder" ADD CONSTRAINT "Folder_createdByUserId_fkey"
   FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_createdByAgentId_fkey"
   FOREIGN KEY ("createdByAgentId") REFERENCES "Agent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- NO ACTION is intentional: Folder/source/deletion structure is soft-deleted and retained.
+-- Direct physical target deletion must fail while evidence remains; whole-Space CASCADE removes the graph together.
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_sourceChangeSetId_fkey"
   FOREIGN KEY ("sourceChangeSetId", "spaceId") REFERENCES "ChangeSet"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_lastModifiedByUserId_fkey"
@@ -193,6 +195,7 @@ ALTER TABLE "ContentDeletionBatch" ADD CONSTRAINT "ContentDeletionBatch_spaceId_
 ALTER TABLE "ContentDeletionBatch" ADD CONSTRAINT "ContentDeletionBatch_rootFolderId_fkey"
   FOREIGN KEY ("rootFolderId", "spaceId") REFERENCES "Folder"("id", "spaceId") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- These NO ACTION edges prevent silent root placement or loss of deletion-batch evidence.
 ALTER TABLE "Folder" ADD CONSTRAINT "Folder_deletionBatchId_fkey"
   FOREIGN KEY ("deletionBatchId", "spaceId") REFERENCES "ContentDeletionBatch"("id", "spaceId") ON DELETE NO ACTION ON UPDATE CASCADE;
 ALTER TABLE "Page" ADD CONSTRAINT "Page_folderId_fkey"

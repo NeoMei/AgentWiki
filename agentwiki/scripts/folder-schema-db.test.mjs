@@ -234,6 +234,122 @@ test('upsert_page tree deltas reject a NULL contentHash', {
   });
 });
 
+const seedNoActionRetentionGraph = async (prisma, suffix) => {
+  const ids = Object.fromEntries([
+    'user', 'space', 'change', 'folder', 'page', 'alias', 'batch',
+  ].map((name) => [name, `${name}_${suffix}`]));
+  await prisma.user.create({
+    data: { id: ids.user, email: `${ids.user}@folder-retention.test` },
+  });
+  await prisma.space.create({
+    data: { id: ids.space, name: 'Retention Space', slug: ids.space },
+  });
+  await prisma.changeSet.create({
+    data: { id: ids.change, title: 'Folder source', spaceId: ids.space },
+  });
+  await prisma.folder.create({ data: {
+    id: ids.folder,
+    spaceId: ids.space,
+    name: 'Retained Folder',
+    nameKey: 'retained folder',
+    path: 'pages/Retained Folder',
+    pathKey: 'pages/retained folder',
+    sourceChangeSetId: ids.change,
+  } });
+  await prisma.page.create({ data: {
+    id: ids.page,
+    title: 'Retained Page',
+    slug: ids.page,
+    spaceId: ids.space,
+    authorId: ids.user,
+    folderId: ids.folder,
+    syncPath: 'pages/Retained Folder/Retained Page.md',
+    syncPathKey: 'pages/retained folder/retained page.md',
+  } });
+  await prisma.pagePathAlias.create({ data: {
+    id: ids.alias,
+    spaceId: ids.space,
+    pageId: ids.page,
+    path: 'pages/Old Retained Page.md',
+    pathKey: 'pages/old retained page.md',
+  } });
+  await prisma.contentDeletionBatch.create({ data: {
+    id: ids.batch,
+    spaceId: ids.space,
+    rootFolderId: ids.folder,
+    deletedByUserId: ids.user,
+    deletedTreeRevision: 3n,
+    folderCount: 1,
+    pageCount: 1,
+    impactHash: 'd'.repeat(64),
+  } });
+  await prisma.folder.update({
+    where: { id: ids.folder },
+    data: { deletionBatchId: ids.batch, deletedAt: new Date() },
+  });
+  await prisma.page.update({
+    where: { id: ids.page },
+    data: { deletionBatchId: ids.batch, deletedAt: new Date() },
+  });
+  return ids;
+};
+
+test('NO ACTION retains Folder placement, deletion batches, and source evidence on direct physical deletes', {
+  skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    try {
+      const ids = await seedNoActionRetentionGraph(
+        prisma,
+        schemaName.replace('folder_test_', ''),
+      );
+      await assert.rejects(
+        prisma.folder.delete({ where: { id: ids.folder } }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.contentDeletionBatch.delete({ where: { id: ids.batch } }),
+        /foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.changeSet.delete({ where: { id: ids.change } }),
+        /foreign key|constraint/iu,
+      );
+      assert.equal(await prisma.folder.count({ where: { id: ids.folder } }), 1);
+      assert.equal(await prisma.page.count({ where: { id: ids.page } }), 1);
+      assert.equal(await prisma.contentDeletionBatch.count({ where: { id: ids.batch } }), 1);
+      assert.equal(await prisma.changeSet.count({ where: { id: ids.change } }), 1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('whole-Space deletion cascades through the retained NO ACTION relation graph', {
+  skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    try {
+      const ids = await seedNoActionRetentionGraph(
+        prisma,
+        schemaName.replace('folder_test_', ''),
+      );
+      await prisma.space.delete({ where: { id: ids.space } });
+      assert.equal(await prisma.folder.count({ where: { spaceId: ids.space } }), 0);
+      assert.equal(await prisma.page.count({ where: { spaceId: ids.space } }), 0);
+      assert.equal(await prisma.pagePathAlias.count({ where: { spaceId: ids.space } }), 0);
+      assert.equal(await prisma.contentDeletionBatch.count({ where: { spaceId: ids.space } }), 0);
+      assert.equal(await prisma.changeSet.count({ where: { spaceId: ids.space } }), 0);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('Folder migration enforces hierarchy, aliases, deletion batches, revisions, and cascades', {
   skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
   timeout: 120_000,

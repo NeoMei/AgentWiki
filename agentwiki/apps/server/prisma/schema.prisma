@@ -397,6 +397,7 @@ model Page {
   parentId  String?
   children  Page[]  @relation("PageChildren")
   folderId  String?
+  /// Physical Folder deletion is blocked while a Page references it; Folder lifecycle is soft-delete.
   folder    Folder? @relation(fields: [folderId, spaceId], references: [id, spaceId], onDelete: NoAction)
   sortOrder Int     @default(0)
 
@@ -411,6 +412,7 @@ model Page {
   pathAliases PagePathAlias[]
 
   deletionBatchId String?
+  /// Physical batch deletion is blocked while a Page retains deletion/restore evidence.
   deletionBatch   ContentDeletionBatch? @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
 
   createdAt             DateTime  @default(now())
@@ -481,9 +483,11 @@ model Folder {
   pages               Page[]
   createdByUser       User?                  @relation("FolderCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdByAgent      Agent?                 @relation("FolderCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  /// Physical ChangeSet deletion is blocked while Folder source evidence references it.
   sourceChangeSet     ChangeSet?             @relation("FolderOriginChangeSet", fields: [sourceChangeSetId, spaceId], references: [id, spaceId], onDelete: NoAction)
   lastModifiedByUser  User?                  @relation("FolderLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
   lastModifiedByAgent Agent?                 @relation("FolderLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  /// Physical batch deletion is blocked while a Folder retains deletion/restore evidence.
   deletionBatch       ContentDeletionBatch?  @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
   rootDeletionBatches ContentDeletionBatch[] @relation("ContentDeletionBatchRootFolder")
 
