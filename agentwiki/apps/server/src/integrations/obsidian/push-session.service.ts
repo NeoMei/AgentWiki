@@ -332,6 +332,7 @@ export class PushSessionService {
       }
 
       const orderedChanges = [...changes].sort(comparePushChanges);
+      await this.assertNoDeletionBatchResurrections(tx, spaceId, orderedChanges);
       const noop = session.changeCount === 0
         || (await this.isNoop(tx, spaceId, orderedChanges));
       if (noop) {
@@ -429,7 +430,7 @@ export class PushSessionService {
         data: { status: 'published', result, publishedChangeSetId: changeSet.id },
       });
       return result;
-        }, { isolationLevel: 'Serializable', timeout: 120_000 });
+        }, { isolationLevel: 'ReadCommitted', timeout: 120_000 });
         await this.refreshGraphAfterFinalize(spaceId, (result as any).changeSetId ?? null);
         return result;
       } catch (error: unknown) {
@@ -671,6 +672,30 @@ export class PushSessionService {
     return true;
   }
 
+  private async assertNoDeletionBatchResurrections(
+    tx: any,
+    spaceId: string,
+    changes: Array<{ operation: string; pageId: string }>,
+  ) {
+    for (const change of changes) {
+      if (change.operation !== 'upsert') continue;
+      const page = await tx.page.findUnique({
+        where: { knowledgeKey: change.pageId },
+        select: { spaceId: true, deletedAt: true, deletionBatchId: true },
+      });
+      if (
+        page?.spaceId === spaceId
+        && page.deletedAt
+        && page.deletionBatchId
+      ) {
+        throw new SyncApiException(
+          'PAGE_ID_CONFLICT',
+          'Page belongs to a Folder deletion batch; restore the deletion batch first',
+        );
+      }
+    }
+  }
+
   private async applyPageChanges(
     tx: any,
     spaceId: string,
@@ -790,6 +815,12 @@ export class PushSessionService {
       const existing = await tx.page.findUnique({ where: { knowledgeKey: change.pageId } });
       if (existing && existing.spaceId !== spaceId) {
         throw new SyncApiException('PAGE_ID_CONFLICT', 'Page ID belongs to another space');
+      }
+      if (existing?.deletedAt && existing.deletionBatchId) {
+        throw new SyncApiException(
+          'PAGE_ID_CONFLICT',
+          'Page belongs to a Folder deletion batch; restore the deletion batch first',
+        );
       }
       const pageId = existing?.id ?? randomUUID();
       const title = change.title ?? existing?.title ?? '';

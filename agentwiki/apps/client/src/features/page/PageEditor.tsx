@@ -432,6 +432,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveOperationRef.current += 1;
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
+    setSaving(false);
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();

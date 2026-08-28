@@ -65,6 +65,8 @@ export const PagePreview: React.FC = () => {
   const deleteControllerRef = useRef<AbortController | null>(null);
   const deleteInFlightRef = useRef(false);
 
+  activePageIdRef.current = id;
+
   const routeIsActive = (pageId: string, generation: number) => (
     mountedRef.current
     && activePageIdRef.current === pageId

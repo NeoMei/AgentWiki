@@ -127,6 +127,7 @@ export const SpaceView: React.FC = () => {
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
   const fetchedRouteIdRef = useRef<string | undefined>(undefined);
+  const activeRouteIdRef = useRef<string | undefined>(id);
   const mountedRef = useRef(false);
   const archiveOperationRef = useRef(0);
   const archiveControllerRef = useRef<AbortController | null>(null);
@@ -141,6 +142,8 @@ export const SpaceView: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
+
+  activeRouteIdRef.current = id;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -226,6 +229,7 @@ export const SpaceView: React.FC = () => {
         || controller.signal.aborted
         || archiveOperationRef.current !== operation
         || archiveInFlightRef.current !== requestedPageId
+        || activeRouteIdRef.current !== requestedSpaceId
         || fetchedRouteIdRef.current !== requestedSpaceId
         || id !== requestedSpaceId
       ) return;
@@ -236,6 +240,7 @@ export const SpaceView: React.FC = () => {
         !mountedRef.current
         || archiveOperationRef.current !== operation
         || archiveInFlightRef.current !== requestedPageId
+        || activeRouteIdRef.current !== requestedSpaceId
         || fetchedRouteIdRef.current !== requestedSpaceId
       ) return;
       setPages((prev) => prev.filter((p) => p.id !== requestedPageId));
@@ -246,6 +251,7 @@ export const SpaceView: React.FC = () => {
         && !controller.signal.aborted
         && archiveOperationRef.current === operation
         && archiveInFlightRef.current === requestedPageId
+        && activeRouteIdRef.current === requestedSpaceId
         && fetchedRouteIdRef.current === requestedSpaceId
       ) setActionError(err.response?.data?.message || t('page.deleteFailed'));
     } finally {
@@ -254,6 +260,7 @@ export const SpaceView: React.FC = () => {
       if (
         mountedRef.current
         && archiveOperationRef.current === operation
+        && activeRouteIdRef.current === requestedSpaceId
         && fetchedRouteIdRef.current === requestedSpaceId
       ) setArchivingPageId(null);
     }

@@ -551,6 +551,130 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 4);
         });
 
+        await t.test('Obsidian rejects a real Folder-deletion-batch Page before Page, alias, ChangeSet, or revision writes', async () => {
+          const spaceId = await createSpace('obsidian-batch-resurrection');
+          const folder = await seedFolder(spaceId, 'Deleted');
+          const created = await pages.create({
+            title: 'Batch archived', content: '# Batch archived', spaceId,
+            folderId: folder.id, expectedTreeRevision: '0',
+          }, principal);
+          const impact = await contentTree.deleteImpact({ spaceId, folderId: folder.id });
+          const deletion = await contentTree.deleteFolder({
+            spaceId,
+            folderId: folder.id,
+            expectedTreeRevision: impact.treeRevision,
+            expectedUpdatedAt: impact.rootUpdatedAt,
+            expectedImpactHash: impact.impactHash,
+            actor: { userId },
+          });
+          const before = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+          assert.ok(before.deletedAt);
+          assert.equal(before.deletionBatchId, deletion.batch.id);
+          assert.equal((await prisma.folder.findUniqueOrThrow({ where: { id: folder.id } })).deletedAt?.toISOString(), before.deletedAt.toISOString());
+          const stable = {
+            versions: await prisma.pageVersion.count({ where: { pageId: created.id } }),
+            aliases: await prisma.pagePathAlias.count({ where: { pageId: created.id } }),
+            changeSets: await prisma.changeSet.count({ where: { spaceId } }),
+            changeItems: await prisma.changeItem.count({ where: { changeSet: { spaceId } } }),
+            syncRevisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }),
+            treeRevision: (await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision,
+          };
+          const staged = await stagePush(spaceId, 'obsidian-batch-reject', [{
+            operation: 'upsert',
+            pageId: before.knowledgeKey,
+            path: 'pages/Forbidden individual restore.md',
+            title: 'Forbidden individual restore',
+            body: '# Forbidden individual restore',
+          }]);
+
+          await expectCode(
+            pushes.finalize(devicePrincipal, spaceId, staged.sessionId, staged.hash),
+            'PAGE_ID_CONFLICT',
+          );
+
+          assert.deepEqual(await prisma.page.findUniqueOrThrow({ where: { id: created.id } }), before);
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: created.id } }), stable.versions);
+          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: created.id } }), stable.aliases);
+          assert.equal(await prisma.changeSet.count({ where: { spaceId } }), stable.changeSets);
+          assert.equal(await prisma.changeItem.count({ where: { changeSet: { spaceId } } }), stable.changeItems);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), stable.syncRevisions);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, stable.treeRevision);
+          assert.equal((await prisma.pushSession.findUniqueOrThrow({ where: { id: staged.sessionId } })).status, 'ready_to_finalize');
+        });
+
+        await t.test('Obsidian finalize waiting behind a writer observes the committed head before its no-op branch', async () => {
+          const spaceId = await createSpace('obsidian-writer-first');
+          const created = await pages.create({
+            title: 'Would be no-op', content: '# Would be no-op', spaceId,
+            folderId: null, expectedTreeRevision: '0',
+          }, principal);
+          const staged = await stagePush(spaceId, 'obsidian-writer-first-stale', [{
+            operation: 'upsert',
+            pageId: created.knowledgeKey,
+            path: created.syncPath,
+            title: created.title,
+            body: created.content,
+          }]);
+          let writerLockedResolve;
+          let releaseWriterResolve;
+          const writerLocked = new Promise((resolve) => { writerLockedResolve = resolve; });
+          const releaseWriter = new Promise((resolve) => { releaseWriterResolve = resolve; });
+          const writerTransaction = prisma.$transaction(async (tx) => {
+            const lockedTx = await writer.lockContentTreeSpace(tx, spaceId);
+            assert.ok(lockedTx);
+            writerLockedResolve();
+            await releaseWriter;
+            await lockedTx.folder.create({ data: {
+              id: `writer-folder-${suffix}`,
+              spaceId,
+              parentId: null,
+              name: 'Writer committed',
+              nameKey: 'writer committed',
+              path: 'pages/Writer committed',
+              pathKey: pathKey('pages/Writer committed'),
+              sortOrder: 0,
+              createdByUserId: userId,
+              lastModifiedByUserId: userId,
+            } });
+            await writer.advanceContentTreeRevision(lockedTx, spaceId, 1n);
+            await writer.advance(lockedTx, spaceId, [], {
+              origin: 'web_editor',
+              createdByUserId: userId,
+            });
+          }, { timeout: 120_000 });
+          await writerLocked;
+
+          const originalLockPageMutationSpace = contentTree.lockPageMutationSpace;
+          let finalizeEnteredResolve;
+          const finalizeEntered = new Promise((resolve) => { finalizeEnteredResolve = resolve; });
+          contentTree.lockPageMutationSpace = async (...args) => {
+            finalizeEnteredResolve();
+            return originalLockPageMutationSpace.call(contentTree, ...args);
+          };
+          let finalizePromise;
+          try {
+            finalizePromise = pushes.finalize(
+              devicePrincipal, spaceId, staged.sessionId, staged.hash,
+            );
+            void finalizePromise.catch(() => undefined);
+            await finalizeEntered;
+            await assertPending(
+              finalizePromise,
+              'Obsidian finalize must wait behind the writer Space lock',
+            );
+            releaseWriterResolve();
+            await writerTransaction;
+            await expectCode(finalizePromise, 'BASE_STALE');
+          } finally {
+            releaseWriterResolve();
+            contentTree.lockPageMutationSpace = originalLockPageMutationSpace;
+          }
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 2n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+          assert.equal((await prisma.pushSession.findUniqueOrThrow({ where: { id: staged.sessionId } })).status, 'ready_to_finalize');
+          assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: created.id } })).content, '# Would be no-op');
+        });
+
         await t.test('real Obsidian ChangeSets revert create, update, and archive with complete Page snapshots', async () => {
           const finalize = async (spaceId, label, changes) => {
             const staged = await stagePush(spaceId, label, changes);
@@ -895,6 +1019,118 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
         });
 
+        await t.test('live Agent authorization rows always precede the Space advisory lock without the former two-transaction deadlock', async () => {
+          const spaceId = await createSpace('agent-lock-order');
+          const agentId = `lock-order-agent-${suffix}`;
+          const grantId = `lock-order-grant-${suffix}`;
+          const credentialId = `lock-order-credential-${suffix}`;
+          await prisma.agent.create({ data: {
+            id: agentId,
+            name: 'Lock order agent',
+            ownerId: userId,
+            status: 'active',
+            approvalMode: 'always-review',
+          } });
+          await prisma.agentGrant.create({ data: {
+            id: grantId,
+            agentId,
+            spaceId,
+            role: 'editor',
+          } });
+          await prisma.agentCredential.create({ data: {
+            id: credentialId,
+            name: 'Lock order credential',
+            prefix: `lock_${suffix.slice(0, 8)}`,
+            keyHash: `lock-order-key-${suffix}`,
+            agentId,
+            authorizationId: grantId,
+          } });
+          const proposalPrincipal = {
+            userId,
+            platformRole: 'user',
+            agentId,
+            credentialId,
+            authorizationId: grantId,
+            authorizationSpaceId: spaceId,
+            agentRole: 'editor',
+            scopes: scopesForAgentAccessRole('editor'),
+            testLane: 'proposal',
+          };
+          const blockerPrincipal = { ...proposalPrincipal, testLane: 'blocker' };
+          const bundle = {
+            schemaVersion: 'knowledge-bundle@1',
+            recipeVersion: 'lock-order',
+            spaceId,
+            baseRevision: '0',
+            pages: [{
+              pageId: `lock-order-page-${suffix}`,
+              spaceId,
+              path: '/lock-order.md',
+              title: 'Lock order proposal',
+              body: '# Lock order proposal',
+              artifactIds: [],
+              contentHash: 'lock-order-content-hash',
+              updatedAt: new Date().toISOString(),
+            }],
+            memories: [],
+            relations: [],
+            provenance: [],
+            deletions: [],
+          };
+          const originalLiveAuthorization = authorization.assertLiveAgentWriteAccess;
+          let blockerLockedResolve;
+          let proposalAuthorizationEnteredResolve;
+          const blockerLocked = new Promise((resolve) => { blockerLockedResolve = resolve; });
+          const proposalAuthorizationEntered = new Promise((resolve) => {
+            proposalAuthorizationEnteredResolve = resolve;
+          });
+          authorization.assertLiveAgentWriteAccess = async (...args) => {
+            if (args[1]?.testLane === 'proposal') proposalAuthorizationEnteredResolve();
+            return originalLiveAuthorization.call(authorization, ...args);
+          };
+          let timeoutId;
+          try {
+            const blockerTransaction = prisma.$transaction(async (tx) => {
+              await originalLiveAuthorization.call(
+                authorization,
+                tx,
+                blockerPrincipal,
+                spaceId,
+                ['pages:write'],
+              );
+              blockerLockedResolve();
+              await proposalAuthorizationEntered;
+              const lockedTx = await writer.lockContentTreeSpace(tx, spaceId);
+              assert.ok(lockedTx);
+            }, { timeout: 120_000 });
+            await blockerLocked;
+            const submissionPromise = knowledgeSubmissions.submit(
+              spaceId,
+              proposalPrincipal,
+              Buffer.from(JSON.stringify(bundle)),
+              `lock-order-${suffix}`,
+              true,
+            );
+            void submissionPromise.catch(() => proposalAuthorizationEnteredResolve());
+            const timeout = new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('Lock-order concurrency test timed out')), 10_000);
+            });
+            const [, submission] = await Promise.race([
+              Promise.all([blockerTransaction, submissionPromise]),
+              timeout,
+            ]);
+            assert.equal(submission.status, 'pending_review');
+            assert.ok(submission.changeSetId);
+            assert.equal(await prisma.changeSet.count({
+              where: { id: submission.changeSetId, status: 'pending_review' },
+            }), 1);
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            proposalAuthorizationEnteredResolve();
+            authorization.assertLiveAgentWriteAccess = originalLiveAuthorization;
+          }
+        });
+
         await t.test('real KnowledgeSubmission producer captures tree CAS and publishes through Review', async () => {
           const spaceId = await createSpace('knowledge-producer');
           const bundle = {
@@ -1128,6 +1364,155 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.space.findUniqueOrThrow({
             where: { id: spaceId },
           })).contentTreeRevision, 2n);
+        });
+
+        await t.test('Source publish restores only individual archives, reclassifies provenance, reverts to archive, and rejects deletion batches', async () => {
+          let runSerial = 0;
+          const produce = async (source, label) => {
+            runSerial += 1;
+            const workerId = `${label}-worker-${runSerial}-${suffix}`;
+            const run = await sources.createRun(
+              source.id,
+              principal,
+              `${label}-${runSerial}-${suffix}`,
+            );
+            await prisma.ingestRun.update({
+              where: { id: run.id },
+              data: {
+                status: 'reserved',
+                stage: 'reserved',
+                leaseOwner: workerId,
+                leaseExpiresAt: new Date(Date.now() + 60_000),
+              },
+            });
+            await sources.processRun(run.id, workerId);
+            return prisma.changeSet.findUniqueOrThrow({
+              where: { runId: run.id }, include: { items: true },
+            });
+          };
+
+          const individualSpaceId = await createSpace('source-individual-restore');
+          const individualSource = await sources.create(individualSpaceId, principal, {
+            type: 'text',
+            name: 'Source individual restore',
+            content: '# Source individual restore',
+          });
+          const initialSet = await produce(individualSource, 'source-individual-initial');
+          await reviews.reviewPublish(initialSet.id, userId);
+          let individualPage = await prisma.page.findFirstOrThrow({
+            where: { spaceId: individualSpaceId, sourceId: individualSource.id },
+          });
+          assert.equal(individualPage.sourceChangeSetId, initialSet.id);
+          await pages.remove(
+            individualPage.id,
+            individualPage.updatedAt.toISOString(),
+            '1',
+          );
+          const archivedBeforeRestore = await prisma.page.findUniqueOrThrow({
+            where: { id: individualPage.id },
+          });
+          assert.ok(archivedBeforeRestore.deletedAt);
+          assert.equal(archivedBeforeRestore.deletionBatchId, null);
+          const restoredSet = await produce(individualSource, 'source-individual-restored');
+          assert.equal(restoredSet.items.length, 1);
+          assert.equal(restoredSet.items[0].type, 'create_page');
+          await reviews.reviewPublish(restoredSet.id, userId);
+          const persistedRestoredSet = await prisma.changeSet.findUniqueOrThrow({
+            where: { id: restoredSet.id }, include: { items: true },
+          });
+          assert.equal(persistedRestoredSet.items.length, 1);
+          assert.equal(persistedRestoredSet.items[0].type, 'update_page');
+          assert.equal(persistedRestoredSet.items[0].payload.before.restoredFromArchive, true);
+          assert.equal(persistedRestoredSet.items[0].payload.before.slug, archivedBeforeRestore.slug);
+          assert.equal(persistedRestoredSet.items[0].payload.before.folderId, archivedBeforeRestore.folderId);
+          assert.equal(persistedRestoredSet.items[0].payload.before.deletionBatchId, null);
+          assert.equal(persistedRestoredSet.items[0].payload.before.sourceChangeSetId, initialSet.id);
+          individualPage = await prisma.page.findUniqueOrThrow({ where: { id: individualPage.id } });
+          assert.equal(individualPage.deletedAt, null);
+          assert.equal(individualPage.deletionBatchId, null);
+          assert.equal(individualPage.sourceChangeSetId, initialSet.id);
+          assert.equal(individualPage.lastChangeSetId, restoredSet.id);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: individualSpaceId } })).contentTreeRevision, 3n);
+
+          await reviews.revert(restoredSet.id, '3');
+          individualPage = await prisma.page.findUniqueOrThrow({ where: { id: individualPage.id } });
+          assert.equal(individualPage.deletedAt?.toISOString(), archivedBeforeRestore.deletedAt.toISOString());
+          assert.equal(individualPage.deletionBatchId, null);
+          assert.equal(individualPage.sourceChangeSetId, archivedBeforeRestore.sourceChangeSetId);
+          assert.equal(individualPage.lastChangeSetId, archivedBeforeRestore.lastChangeSetId);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: individualSpaceId } })).contentTreeRevision, 4n);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: individualSpaceId } }), 4);
+
+          const batchSpaceId = await createSpace('source-batch-reject');
+          const batchSource = await sources.create(batchSpaceId, principal, {
+            type: 'text',
+            name: 'Source batch reject',
+            content: '# Source batch reject',
+          });
+          const batchInitialSet = await produce(batchSource, 'source-batch-initial');
+          await reviews.reviewPublish(batchInitialSet.id, userId);
+          let batchPage = await prisma.page.findFirstOrThrow({
+            where: { spaceId: batchSpaceId, sourceId: batchSource.id },
+          });
+          const batchFolderResult = await contentTree.createFolder({
+            spaceId: batchSpaceId,
+            parentId: null,
+            name: 'Batch deleted',
+            expectedTreeRevision: 1n,
+            actor: { userId },
+          });
+          await pages.update(batchPage.id, {
+            folderId: batchFolderResult.folder.id,
+            expectedUpdatedAt: batchPage.updatedAt.toISOString(),
+            expectedTreeRevision: '2',
+          }, userId);
+          batchPage = await prisma.page.findUniqueOrThrow({ where: { id: batchPage.id } });
+          const impact = await contentTree.deleteImpact({
+            spaceId: batchSpaceId,
+            folderId: batchFolderResult.folder.id,
+          });
+          const deletion = await contentTree.deleteFolder({
+            spaceId: batchSpaceId,
+            folderId: batchFolderResult.folder.id,
+            expectedTreeRevision: impact.treeRevision,
+            expectedUpdatedAt: impact.rootUpdatedAt,
+            expectedImpactHash: impact.impactHash,
+            actor: { userId },
+          });
+          const batchArchived = await prisma.page.findUniqueOrThrow({ where: { id: batchPage.id } });
+          assert.ok(batchArchived.deletedAt);
+          assert.equal(batchArchived.deletionBatchId, deletion.batch.id);
+          const batchRestoreSet = await produce(batchSource, 'source-batch-restored');
+          assert.equal(batchRestoreSet.items.length, 1);
+          assert.equal(batchRestoreSet.items[0].type, 'create_page');
+          await prisma.$transaction([
+            prisma.changeSet.update({
+              where: { id: batchRestoreSet.id },
+              data: { status: 'approved' },
+            }),
+            prisma.changeItem.updateMany({
+              where: { changeSetId: batchRestoreSet.id },
+              data: { status: 'accepted' },
+            }),
+          ]);
+          const stableBatch = {
+            page: batchArchived,
+            versions: await prisma.pageVersion.count({ where: { pageId: batchPage.id } }),
+            aliases: await prisma.pagePathAlias.count({ where: { pageId: batchPage.id } }),
+            syncRevisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: batchSpaceId } }),
+            treeRevision: (await prisma.space.findUniqueOrThrow({ where: { id: batchSpaceId } })).contentTreeRevision,
+          };
+
+          await expectCode(reviews.publish(batchRestoreSet.id), 'FOLDER_RESTORE_CONFLICT');
+
+          assert.deepEqual(await prisma.page.findUniqueOrThrow({ where: { id: batchPage.id } }), stableBatch.page);
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: batchPage.id } }), stableBatch.versions);
+          assert.equal(await prisma.pagePathAlias.count({ where: { pageId: batchPage.id } }), stableBatch.aliases);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: batchSpaceId } }), stableBatch.syncRevisions);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: batchSpaceId } })).contentTreeRevision, stableBatch.treeRevision);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: batchRestoreSet.id } })).status, 'approved');
+          assert.ok((await prisma.changeItem.findMany({ where: { changeSetId: batchRestoreSet.id } }))
+            .every((item) => item.status === 'accepted'));
         });
 
         await t.test('real MCP propose_page persists caller tree CAS, publishes, and rejects an old proposal after a concurrent tree change', async () => {

@@ -458,6 +458,65 @@ describe('PageEditor remote update safety', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it('resets the saving state for a new Page route without letting the obsolete save finally alter it', async () => {
+    const oldHead = deferred<string>();
+    const newSave = deferred<any>();
+    contentTreeMocks.getContentTreeRevision
+      .mockImplementationOnce(() => oldHead.promise)
+      .mockResolvedValueOnce('32');
+    queuePages(
+      { data: page() },
+      { data: page({
+        id: 'page-2',
+        title: 'Second page',
+        content: 'Second content',
+        spaceId: 'space-2',
+        updatedAt: '2026-07-27T09:00:00.000Z',
+      }) },
+    );
+    vi.mocked(api.patch).mockImplementation(() => newSave.promise);
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(await screen.findByDisplayValue('Original title'), { target: { value: 'Late old title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    const newTitle = await screen.findByDisplayValue('Second page');
+    fireEvent.change(newTitle, { target: { value: 'Saved second page' } });
+    const newSaveButton = screen.getByTestId('save-button');
+    expect(newSaveButton).toHaveAccessibleName('Save');
+    expect(newSaveButton).toBeEnabled();
+    fireEvent.click(newSaveButton);
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-2', {
+      title: 'Saved second page',
+      content: 'Second content',
+      expectedUpdatedAt: '2026-07-27T09:00:00.000Z',
+      expectedTreeRevision: '32',
+    }));
+    expect(newSaveButton).toBeDisabled();
+
+    await act(async () => oldHead.resolve('31'));
+    expect(newSaveButton).toBeDisabled();
+
+    await act(async () => newSave.resolve({ data: page({
+      id: 'page-2',
+      title: 'Saved second page',
+      content: 'Second content',
+      spaceId: 'space-2',
+      updatedAt: '2026-07-27T09:01:00.000Z',
+    }) }));
+    await waitFor(() => expect(newSaveButton).toHaveAccessibleName('Save'));
+    expect(newSaveButton).toBeDisabled();
+  });
+
   it('refreshes a pristine form safely and uses the refreshed version for the next save', async () => {
     queuePages({ data: page() }, { data: page({ title: 'Remote title', content: 'Remote content', updatedAt: '2026-07-27T08:05:00.000Z' }) });
     vi.mocked(api.patch).mockResolvedValue({ data: page({ updatedAt: '2026-07-27T08:06:00.000Z' }) } as any);

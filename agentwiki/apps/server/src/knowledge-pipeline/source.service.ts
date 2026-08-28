@@ -20,6 +20,7 @@ import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
 import { agentRoleAllowsScope, agentRoleSpaceCapability, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
+import { lockLiveAgentAuthorization } from '../core/authorization/live-agent-authorization';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
@@ -479,6 +480,7 @@ export class SourceService {
         ],
       });
       const proposal = await this.prisma.$transaction(async (tx) => {
+        currentScopes = await this.assertRequesterStillAuthorized(run, tx, true);
         const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, run.spaceId);
         if (!lockedTx) throw new Error('Space no longer exists');
 
@@ -566,7 +568,6 @@ export class SourceService {
             ? lockedTx.agent.findUnique({ where: { id: run.requestedByAgentId }, select: { approvalMode: true } })
             : Promise.resolve(null),
         ]);
-        currentScopes = await this.assertRequesterStillAuthorized(run, lockedTx);
         if (!spacePolicy) throw new Error('Space no longer exists');
         const expectedTreeRevision = lockedTx.contentTreeRevision.toString();
         const autoPublish = changeItems.length > 0
@@ -1104,8 +1105,41 @@ export class SourceService {
   private async assertRequesterStillAuthorized(
     run: any,
     db: Prisma.TransactionClient | PrismaService = this.prisma,
+    lockLiveAgentRows = false,
   ): Promise<string[]> {
     if (run.requestedByAgentId) {
+      if (lockLiveAgentRows) {
+        if (!run.requestedCredentialId || run.requestedCredentialType !== 'agent') {
+          throw new Error('Run requester is no longer authorized');
+        }
+        const agentIdentity = await db.agent.findUnique({
+          where: { id: run.requestedByAgentId },
+          select: { ownerId: true },
+        });
+        if (!agentIdentity) throw new Error('Run requester is no longer authorized');
+        const state = await lockLiveAgentAuthorization(db, {
+          ownerId: agentIdentity.ownerId,
+          agentId: run.requestedByAgentId,
+          credentialId: run.requestedCredentialId,
+        }, run.spaceId);
+        const now = new Date();
+        if (
+          !state
+          || state.user.deletedAt
+          || state.user.lockedAt
+          || state.agent.status !== 'active'
+          || state.agent.revokedAt
+          || state.space.deletedAt
+          || state.credential.revokedAt
+          || (state.credential.expiresAt && state.credential.expiresAt <= now)
+          || state.credential.authorizationId !== state.grant.id
+          || agentRoleSpaceCapability(state.grant.role) !== 'editor'
+          || !agentRoleAllowsScope(state.grant.role, 'runs:write')
+        ) {
+          throw new Error('Run requester is no longer authorized');
+        }
+        return scopesForAgentAccessRole(state.grant.role);
+      }
       const [grant, credential] = await Promise.all([
         db.agentGrant.findUnique({
           where: { agentId_spaceId: { agentId: run.requestedByAgentId, spaceId: run.spaceId } },

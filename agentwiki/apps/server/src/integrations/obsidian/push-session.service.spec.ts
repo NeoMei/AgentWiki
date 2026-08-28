@@ -208,7 +208,7 @@ describe('PushSessionService graph lifecycle', () => {
       authorId: 'author-1', parentId: null, folderId: 'folder-old',
       syncPath: 'pages/Old/Archived.md', syncPathKey: 'pages/old/archived.md',
       sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
-      createdByAgentId: 'agent-original', deletionBatchId: 'batch-1',
+      createdByAgentId: 'agent-original', deletionBatchId: null,
       createdAt: archivedAt, updatedAt: archivedAt, deletedAt: archivedAt,
       lastModifiedAt: archivedAt, lastModifiedByUserId: null,
       lastModifiedByAgentId: 'agent-original', sourceId: 'source-1',
@@ -247,13 +247,52 @@ describe('PushSessionService graph lifecycle', () => {
           syncPath: 'pages/Old/Archived.md',
           syncPathKey: 'pages/old/archived.md',
           deletedAt: archivedAt.toISOString(),
-          deletionBatchId: 'batch-1',
+          deletionBatchId: null,
           sourceChangeSetId: 'original-change-set',
           lastChangeSetId: 'previous-change-set',
         }),
       }),
     })]);
     expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
+  });
+
+  it('rejects an Obsidian upsert of a Folder-deletion-batch Page before placement or Page writes', async () => {
+    const archivedAt = new Date('2026-08-20T00:00:00.000Z');
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'Batch archived', slug: 'batch-archived', content: '# Archived', format: 'markdown',
+      authorId: 'author-1', parentId: null, folderId: 'folder-deleted',
+      syncPath: 'pages/Deleted/Archived.md', syncPathKey: 'pages/deleted/archived.md',
+      sourceChangeSetId: 'original-change-set', lastChangeSetId: 'delete-change-set',
+      deletionBatchId: 'batch-1', createdAt: archivedAt, updatedAt: archivedAt,
+      deletedAt: archivedAt, lastModifiedAt: archivedAt,
+    };
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pageVersion: { create: jest.fn() },
+    };
+    const contentTree = {
+      prepareExactPageMutation: jest.fn().mockResolvedValue({
+        folderId: null,
+        syncPath: 'pages/Restored.md',
+        syncPathKey: 'pages/restored.md',
+      }),
+    };
+    const service: any = new (PushSessionService as any)(
+      {}, {}, contentTree, {}, undefined, undefined,
+    );
+
+    await expect(service.applyPageChanges(tx, 'space-1', 'user-1', [{
+      operation: 'upsert', pageId: 'knowledge-1',
+      path: 'pages/Restored.md', title: 'Restored', body: '# Restored',
+    }], 'change-set-restore')).rejects.toMatchObject({ syncCode: 'PAGE_ID_CONFLICT' });
+
+    expect(contentTree.prepareExactPageMutation).not.toHaveBeenCalled();
+    expect(tx.pageVersion.create).not.toHaveBeenCalled();
+    expect(tx.page.updateMany).not.toHaveBeenCalled();
   });
 
   it('binds an archived Page to the Obsidian ChangeSet without replacing its source', async () => {
@@ -397,6 +436,11 @@ describe('PushSessionService graph lifecycle', () => {
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue({ ...revision, id: 'sync-1', sequence: 1 }),
         findUnique: jest.fn().mockResolvedValue(revision),
+      },
+      page: {
+        findUnique: jest.fn().mockResolvedValue({
+          spaceId: 'space-1', deletedAt: null, deletionBatchId: null,
+        }),
       },
       changeSet: {
         create: jest.fn().mockResolvedValue({ id: 'change-set-1' }),

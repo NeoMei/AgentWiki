@@ -349,6 +349,7 @@ export class ReviewService {
       for (const item of pageItems) {
         const payload = item.payload as any;
         let resourceId: string;
+        let publishedItemType = item.type;
         if (item.type === 'create_page') {
           let targetFolderId = payload.folderId ?? null;
           if (payload.parentId !== undefined) {
@@ -382,6 +383,13 @@ export class ReviewService {
             throw new BusinessException('CHANGESET_CONFLICT', 'An active page already uses this source path');
           }
           if (existingSourcePage) {
+            if (existingSourcePage.deletionBatchId) {
+              throw new ContentTreeError(
+                'FOLDER_RESTORE_CONFLICT',
+                'Page belongs to a Folder deletion batch; restore the deletion batch first',
+              );
+            }
+            publishedItemType = 'update_page';
             const placement = await this.requireContentTree().preparePageMutation(lockedTx as any, {
               spaceId: changeSet.spaceId,
               pageId: existingSourcePage.id,
@@ -421,11 +429,13 @@ export class ReviewService {
                   before: {
                     restoredFromArchive: true,
                     title: existingSourcePage.title,
+                    slug: existingSourcePage.slug,
                     content: existingSourcePage.content,
                     format: existingSourcePage.format,
                     parentId: existingSourcePage.parentId,
                     folderId: existingSourcePage.folderId ?? null,
                     deletedAt: existingSourcePage.deletedAt!.toISOString(),
+                    deletionBatchId: existingSourcePage.deletionBatchId ?? null,
                     sourceChangeSetId: existingSourcePage.sourceChangeSetId,
                     createdByAgentId: existingSourcePage.createdByAgentId,
                     lastChangeSetId: existingSourcePage.lastChangeSetId,
@@ -455,8 +465,9 @@ export class ReviewService {
                 parentId: null,
                 folderId: placement.folderId,
                 deletedAt: null,
-                sourceChangeSetId: id,
-                createdByAgentId: changeSet.createdByAgentId,
+                deletionBatchId: null,
+                sourceChangeSetId: existingSourcePage.sourceChangeSetId,
+                createdByAgentId: existingSourcePage.createdByAgentId,
                 lastChangeSetId: id,
                 lastModifiedByAgentId: changeSet.createdByAgentId,
                 lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
@@ -699,7 +710,14 @@ export class ReviewService {
         } else {
           throw new BadRequestException(`Unsupported page change item type: ${item.type}`);
         }
-        await tx.changeItem.update({ where: { id: item.id }, data: { status: 'published', publishedResourceId: resourceId } });
+        await tx.changeItem.update({
+          where: { id: item.id },
+          data: {
+            ...(publishedItemType === item.type ? {} : { type: publishedItemType }),
+            status: 'published',
+            publishedResourceId: resourceId,
+          },
+        });
       }
 
       for (const item of memoryItems) {

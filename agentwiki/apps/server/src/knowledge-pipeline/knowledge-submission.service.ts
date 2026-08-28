@@ -49,9 +49,9 @@ export class KnowledgeSubmissionService {
     const principalKey = principal.agentId ? `credential:${principal.credentialId ?? 'unknown'}` : `user:${principal.userId}`;
 
     return this.prisma.$transaction(async (tx) => {
+      await this.auth.assertLiveAgentWriteAccess(tx, principal, spaceId, requiredScopes);
       const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
       if (!lockedTx) throw new BusinessException('RESOURCE_NOT_FOUND');
-      await this.auth.assertLiveAgentWriteAccess(lockedTx, principal, spaceId, requiredScopes);
       const currentRevision = await this.currentRevisionHead(lockedTx, spaceId);
       if (bundle.baseRevision !== currentRevision.revisionId) {
         throw new BusinessException('KNOWLEDGE_BASE_STALE', `Current revision is ${currentRevision.revisionId}`);

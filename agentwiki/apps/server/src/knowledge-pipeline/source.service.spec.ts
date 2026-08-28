@@ -317,6 +317,41 @@ describe('SourceService safety and idempotency', () => {
     },
   );
 
+  it('locks every live Agent policy row in deterministic order for the proposal transaction', async () => {
+    const lockEvents: string[] = [];
+    const authorizationPrisma = {
+      $queryRaw: jest.fn(async (query: any) => {
+        lockEvents.push(query.strings.join(''));
+        return [{ id: 'locked' }];
+      }),
+      agent: { findUnique: jest.fn().mockImplementation(async ({ select }: any) => (
+        select?.ownerId
+          ? { ownerId: 'owner-1' }
+          : {
+            status: 'active', revokedAt: null, approvalMode: 'always-review', memoryEnabled: true,
+            owner: { deletedAt: null, lockedAt: null },
+          }
+      )) },
+      agentGrant: { findUnique: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'editor' }) },
+      agentCredential: { findFirst: jest.fn().mockResolvedValue({
+        authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
+      }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, approvalPolicy: 'always-review' }) },
+    } as any;
+    const authorizationService = new SourceService(
+      authorizationPrisma, config, {} as any, {} as any, {} as any,
+    );
+
+    await expect((authorizationService as any).assertRequesterStillAuthorized({
+      requestedByAgentId: 'agent-1', spaceId: 'space-1',
+      requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
+    }, authorizationPrisma, true)).resolves.toEqual(scopesForAgentAccessRole('editor'));
+
+    expect(lockEvents).toHaveLength(5);
+    expect(lockEvents.map((sql) => /FROM\s+"([^"]+)"/u.exec(sql)?.[1]))
+      .toEqual(['User', 'Agent', 'Space', 'AgentGrant', 'AgentCredential']);
+  });
+
   it('allows a queued publisher run when credential and grant remain authorized', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
@@ -615,8 +650,15 @@ describe('SourceService pipeline lifecycle', () => {
     run.requestedByAgentId = 'agent-1' as any;
     (run as any).requestedCredentialId = 'credential-1';
     (run as any).requestedCredentialType = 'agent';
-    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', contentTreeRevision: 17n });
-    prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
+    prisma.$queryRaw = jest.fn().mockResolvedValue([{ id: 'locked' }]);
+    prisma.space.findUnique.mockResolvedValue({
+      deletedAt: null, approvalPolicy: 'scoped-auto-publish', contentTreeRevision: 17n,
+    });
+    prisma.agent.findUnique.mockResolvedValue({
+      ownerId: 'owner-1', status: 'active', revokedAt: null,
+      approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      owner: { deletedAt: null, lockedAt: null },
+    });
     prisma.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-1', role: 'publisher',
       agent: {
@@ -626,7 +668,7 @@ describe('SourceService pipeline lifecycle', () => {
       space: { deletedAt: null },
     });
     prisma.agentCredential = { findFirst: jest.fn().mockResolvedValue({
-      authorizationId: 'grant-1',
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
     }) };
     jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
 
@@ -719,7 +761,7 @@ describe('SourceService pipeline lifecycle', () => {
     });
   });
 
-  it('locks the final proposal snapshot before scanning Pages and persists the locked tree revision', async () => {
+  it('locks live requester policy before the Space lock, then scans and persists one locked snapshot', async () => {
     const { service, prisma } = makeHarness();
     const events: string[] = [];
     const revisionWriter = {
@@ -729,6 +771,12 @@ describe('SourceService pipeline lifecycle', () => {
       }),
     };
     (service as any).revisionWriter = revisionWriter;
+    jest.spyOn(service as any, 'assertRequesterStillAuthorized').mockImplementation(
+      async (_run: unknown, db?: unknown) => {
+        if (db) events.push('authorization');
+        return [];
+      },
+    );
     jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
     prisma.page.findMany.mockImplementation(async () => {
       events.push('page-scan');
@@ -745,7 +793,8 @@ describe('SourceService pipeline lifecycle', () => {
     await service.processRun('run-1');
 
     expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(prisma, 'space-1');
-    expect(events).toEqual(expect.arrayContaining(['lock', 'page-scan', 'change-set']));
+    expect(events).toEqual(expect.arrayContaining(['authorization', 'lock', 'page-scan', 'change-set']));
+    expect(events.indexOf('authorization')).toBeLessThan(events.indexOf('lock'));
     expect(events.indexOf('lock')).toBeLessThan(events.indexOf('page-scan'));
     expect(events.indexOf('page-scan')).toBeLessThan(events.indexOf('change-set'));
     expect(prisma.changeSet.create.mock.calls[0][0].data.items.create[0].payload)

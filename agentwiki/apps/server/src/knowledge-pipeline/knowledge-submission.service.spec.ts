@@ -200,7 +200,7 @@ describe('KnowledgeSubmissionService', () => {
     expect(tx.space.findUnique).not.toHaveBeenCalled();
   });
 
-  it('takes the shared Space lock before reading either revision head and compiles from that locked snapshot', async () => {
+  it('locks live Agent authorization before the shared Space lock and then compiles one locked snapshot', async () => {
     const events: string[] = [];
     const tx = makeTx({ latestRevision: { id: 'rev-1', sequence: 1 }, contentTreeRevision: 23n });
     tx.spaceKnowledgeRevision.findFirst.mockImplementation(async () => {
@@ -217,18 +217,31 @@ describe('KnowledgeSubmissionService', () => {
         return Object.assign(lockedTx, { contentTreeRevision: 23n });
       }),
     };
+    const orderedAuth = {
+      ...auth,
+      assertLiveAgentWriteAccess: jest.fn(async () => {
+        events.push('authorization');
+      }),
+    };
     const service = new (KnowledgeSubmissionService as any)(
-      makePrisma({ tx }), {}, auth, revisionWriter,
+      makePrisma({ tx }), {}, orderedAuth, revisionWriter,
     );
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({
       ...validBundle, baseRevision: 'rev-1', contentHash: 'x',
     });
 
-    await service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-locked', true);
+    await service.submit(
+      'space-1',
+      { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' },
+      Buffer.from('{}'),
+      'idem-locked',
+      true,
+    );
 
     expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(tx, 'space-1');
-    expect(events[0]).toBe('lock');
-    expect(events).toContain('sync-head');
+    expect(events).toEqual(expect.arrayContaining(['authorization', 'lock', 'sync-head']));
+    expect(events.indexOf('authorization')).toBeLessThan(events.indexOf('lock'));
+    expect(events.indexOf('lock')).toBeLessThan(events.indexOf('sync-head'));
     expect(tx.space.findUnique).not.toHaveBeenCalled();
     expect(tx.changeSet.create.mock.calls[0][0].data.items.create[0].payload)
       .toEqual(expect.objectContaining({ expectedTreeRevision: '23' }));

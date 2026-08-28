@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
@@ -72,6 +74,31 @@ const renderNavigableSpaceView = () => {
   return {
     ...result,
     navigateTo: (spaceId: string) => act(() => navigate(`/spaces/${spaceId}`)),
+  };
+};
+
+const renderCommitNavigableSpaceView = async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const navigator = {
+    createHref: () => '', encodeLocation: (value: unknown) => value,
+    go: () => undefined, push: () => undefined, replace: () => undefined,
+  } as any;
+  const view = (pathname: string) => (
+    <LanguageProvider>
+      <Router location={pathname} navigator={navigator}>
+        <Routes><Route path="/spaces/:id" element={<SpaceView />} /></Routes>
+      </Router>
+    </LanguageProvider>
+  );
+  await act(async () => root.render(view('/spaces/space-a')));
+  return {
+    commitNavigateTo: (spaceId: string) => flushSync(() => root.render(view(`/spaces/${spaceId}`))),
+    dispose: () => {
+      act(() => root.unmount());
+      container.remove();
+    },
   };
 };
 
@@ -197,6 +224,33 @@ describe('SpaceView new-page flow', () => {
     await act(async () => head.resolve('43'));
 
     expect(mocks.api.delete).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an old DELETE synchronously at the new Space render commit', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.getContentTreeRevision.mockReturnValue(head.promise);
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-a') return spaceResponse('space-a', 'Owner A', 'owner');
+      if (url === '/spaces/space-b') return spaceResponse('space-b', 'Owner B', 'owner');
+      if (url === '/pages/hierarchy/space-a') return {
+        data: [{ id: 'page-a', title: 'Archive A', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
+      };
+      if (url === '/pages/hierarchy/space-b') return { data: [] };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    const harness = await renderCommitNavigableSpaceView();
+    try {
+      fireEvent.click(await screen.findByTestId('tree-delete-page-a'));
+      await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+      harness.commitNavigateTo('space-b');
+      head.resolve('43');
+
+      await act(async () => Promise.resolve());
+      expect(mocks.api.delete).not.toHaveBeenCalled();
+    } finally {
+      harness.dispose();
+    }
   });
 
   it('coalesces repeated archive clicks into one head and one mutation', async () => {

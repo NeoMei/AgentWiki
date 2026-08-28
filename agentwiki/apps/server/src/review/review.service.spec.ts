@@ -421,6 +421,7 @@ describe('ReviewService approval boundaries', () => {
     const archived = {
       id: 'page-existing', spaceId: 'space-1', knowledgeKey: 'knowledge-existing', authorId: 'user-old',
       title: 'Archived', slug: 'archived', content: 'old', format: 'markdown', parentId: null,
+      folderId: 'folder-old', deletionBatchId: null,
       sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-old',
       lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
       sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/a.md',
@@ -453,22 +454,80 @@ describe('ReviewService approval boundaries', () => {
       data: expect.objectContaining({
         title: 'Restored', content: 'new', deletedAt: null,
         sourceId: 'source-1', sourceVersionId: 'version-2', sourcePath: 'docs/a.md',
-        sourceChangeSetId: 'cs-restore', lastChangeSetId: 'cs-restore',
+        sourceChangeSetId: 'cs-old', lastChangeSetId: 'cs-restore',
       }),
     });
     expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'restore' },
       data: expect.objectContaining({ payload: expect.objectContaining({
         before: expect.objectContaining({
-          restoredFromArchive: true, title: 'Archived', content: 'old',
+          restoredFromArchive: true, title: 'Archived', slug: 'archived', content: 'old',
+          folderId: 'folder-old', deletionBatchId: null,
           sourceChangeSetId: 'cs-old', lastModifiedAt: archivedAt.toISOString(),
         }),
       }) }),
     }));
     expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'restore' },
-      data: { status: 'published', publishedResourceId: archived.id },
+      data: expect.objectContaining({
+        type: 'update_page', status: 'published', publishedResourceId: archived.id,
+      }),
     }));
+  });
+
+  it('rejects create_page resurrection of a Folder-deletion-batch Page before Page or alias writes', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-batch-restore', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'restore-batch', type: 'create_page', status: 'accepted',
+        payload: {
+          sourceId: 'source-1', sourcePath: 'docs/batch.md', sourceVersionId: 'version-2',
+          title: 'Forbidden restore', content: 'new', expectedTreeRevision: '0',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const archivedAt = new Date('2026-08-18T08:00:00Z');
+    const archived = {
+      id: 'page-batch', spaceId: 'space-1', knowledgeKey: 'knowledge-batch', authorId: 'user-old',
+      title: 'Batch archived', slug: 'batch-archived', content: 'old', format: 'markdown',
+      parentId: null, folderId: 'folder-deleted', deletionBatchId: 'batch-1',
+      sourceChangeSetId: 'cs-old', createdByAgentId: null, lastChangeSetId: 'cs-delete',
+      lastModifiedByUserId: 'user-old', lastModifiedByAgentId: null, lastModifiedAt: archivedAt,
+      sourceId: 'source-1', sourceVersionId: 'version-1', sourcePath: 'docs/batch.md',
+      syncPath: 'pages/Deleted/Batch archived.md',
+      syncPathKey: pathKey('pages/Deleted/Batch archived.md'),
+      deletedAt: archivedAt, updatedAt: archivedAt,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(archived),
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue({
+          ...archived,
+          title: 'Forbidden restore',
+          deletedAt: null,
+        }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pageVersion: { create: jest.fn() },
+      pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await expect(service.publish('cs-batch-restore')).rejects.toMatchObject({
+      code: 'FOLDER_RESTORE_CONFLICT',
+    });
+
+    expect(contentTree.preparePageMutation).not.toHaveBeenCalled();
+    expect(tx.pageVersion.create).not.toHaveBeenCalled();
+    expect(tx.page.updateMany).not.toHaveBeenCalled();
+    expect(tx.changeItem.update).not.toHaveBeenCalled();
   });
 
   it('allocates a readable path when restoring an archived source page with a non-portable source path', async () => {

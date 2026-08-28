@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -77,6 +79,34 @@ const NavigationHarness = () => {
       <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
     </>
   );
+};
+
+const renderCommitNavigablePreview = async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const navigator = {
+    createHref: () => '', encodeLocation: (value: unknown) => value,
+    go: () => undefined, push: () => undefined, replace: () => undefined,
+  } as any;
+  const view = (pathname: string) => (
+    <LanguageProvider>
+      <Router location={pathname} navigator={navigator}>
+        <Routes>
+          <Route path="/pages/:id" element={<PagePreview />} />
+          <Route path="/spaces/:spaceId" element={<p>Space destination</p>} />
+        </Routes>
+      </Router>
+    </LanguageProvider>
+  );
+  await act(async () => root.render(view('/pages/page-1')));
+  return {
+    commitNavigateTo: (pageId: string) => flushSync(() => root.render(view(`/pages/${pageId}`))),
+    dispose: () => {
+      act(() => root.unmount());
+      container.remove();
+    },
+  };
 };
 
 const AbaNavigationHarness = () => {
@@ -206,6 +236,28 @@ describe('PagePreview checklist saves', () => {
     await act(async () => head.resolve('47'));
 
     expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('invalidates an old DELETE synchronously at the new Page render commit', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    contentTreeMocks.getContentTreeRevision.mockReturnValue(head.promise);
+    queuePages(
+      { data: page() },
+      { data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) },
+    );
+    const harness = await renderCommitNavigablePreview();
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+      await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+      harness.commitNavigateTo('page-2');
+      head.resolve('47');
+
+      await act(async () => Promise.resolve());
+      expect(api.delete).not.toHaveBeenCalled();
+    } finally {
+      harness.dispose();
+    }
   });
 
   it('serializes two fast task saves and advances the version token from the first response', async () => {
