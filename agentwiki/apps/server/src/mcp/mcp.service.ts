@@ -121,10 +121,17 @@ export class McpService {
     });
     registerTool('propose_page', {
       description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
-      inputSchema: { spaceId: z.string().describe(SPACE_ID), title: z.string().min(1), content: z.string() },
-    }, async ({ spaceId, title, content }: any) => {
+      inputSchema: {
+        spaceId: z.string().describe(SPACE_ID),
+        title: z.string().min(1),
+        content: z.string(),
+        expectedTreeRevision: z.string().regex(/^(?:0|[1-9]\d*)$/u),
+      },
+    }, async ({ spaceId, title, content, expectedTreeRevision }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'pages:write');
-      return this.text(await this.review.propose(principal, spaceId, `Proposed page: ${title}`, { type: 'create_page', payload: { title, content } }));
+      return this.text(await this.review.propose(principal, spaceId, `Proposed page: ${title}`, {
+        type: 'create_page', payload: { title, content, expectedTreeRevision },
+      }));
     });
     registerTool('propose_relation', {
       description: 'Propose a knowledge relation change set.',

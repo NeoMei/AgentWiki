@@ -430,7 +430,7 @@ describe('SourceService pipeline lifecycle', () => {
       knowledgeRelation: { findMany: jest.fn().mockResolvedValue([]) },
       sourceVersion: { findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null), findUnique: jest.fn(), create: jest.fn().mockResolvedValue({ id: 'version-1' }) },
       sourceFileSnapshot: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      space: { findUnique: jest.fn().mockResolvedValue({ approvalPolicy: 'always-review' }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ approvalPolicy: 'always-review', contentTreeRevision: 17n }) },
       user: { findUnique: jest.fn().mockResolvedValue({
         id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null,
       }) },
@@ -603,7 +603,7 @@ describe('SourceService pipeline lifecycle', () => {
     run.requestedByAgentId = 'agent-1' as any;
     (run as any).requestedCredentialId = 'credential-1';
     (run as any).requestedCredentialType = 'agent';
-    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish' });
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', contentTreeRevision: 17n });
     prisma.agent.findUnique.mockResolvedValue({ approvalMode: 'scoped-auto-publish' });
     prisma.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-1', role: 'publisher',
@@ -673,6 +673,37 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'pending_review' }),
     }));
+  });
+
+  it('captures one tree revision for create, update, and archive page proposals', async () => {
+    const { service, prisma } = makeHarness();
+    const updatedAt = new Date('2026-08-28T00:00:00.000Z');
+    jest.spyOn(service as any, 'fetch').mockResolvedValue({
+      content: 'unused',
+      segments: [
+        { sourcePath: 'create.md', title: 'Create', content: '# Create', format: 'markdown' },
+        { sourcePath: 'update.md', title: 'Updated', content: '# Updated', format: 'markdown' },
+      ],
+    });
+    prisma.page.findMany.mockResolvedValue([
+      { id: 'page-update', sourcePath: 'update.md', title: 'Old', content: '# Old', format: 'markdown', sourceVersionId: 'version-old', updatedAt },
+      { id: 'page-archive', sourcePath: 'archive.md', title: 'Archive', content: '# Archive', format: 'markdown', sourceVersionId: 'version-old', updatedAt },
+    ]);
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', contentTreeRevision: 29n });
+
+    await service.processRun('run-1');
+
+    const items = prisma.changeSet.create.mock.calls[0][0].data.items.create;
+    expect(items.filter((item: any) => ['create_page', 'update_page', 'archive_page'].includes(item.type)))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'create_page', payload: expect.objectContaining({ expectedTreeRevision: '29' }) }),
+        expect.objectContaining({ type: 'update_page', payload: expect.objectContaining({ expectedTreeRevision: '29' }) }),
+        expect.objectContaining({ type: 'archive_page', payload: expect.objectContaining({ expectedTreeRevision: '29' }) }),
+      ]));
+    expect(prisma.space.findUnique).toHaveBeenCalledWith({
+      where: { id: 'space-1' },
+      select: { approvalPolicy: true, contentTreeRevision: true },
+    });
   });
 
   it('fails a pinned OKF run when the version is deleted instead of reading a newer version', async () => {

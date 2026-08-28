@@ -46,6 +46,9 @@ describe('KnowledgeSubmissionService', () => {
       create: jest.fn(async ({ data }: any) => ({ id: 'cs-1', ...data })),
       update: jest.fn(async () => ({ id: 'cs-1' })),
     },
+    space: {
+      findUnique: jest.fn(async () => ({ contentTreeRevision: overrides.contentTreeRevision ?? 17n })),
+    },
     page: {
       findMany: jest.fn(async () => overrides.existingPages || []),
     },
@@ -154,6 +157,43 @@ describe('KnowledgeSubmissionService', () => {
         })] },
       }),
     }));
+  });
+
+  it('captures one tree revision for every structural page proposal in the submission transaction', async () => {
+    const updatedAt = new Date('2026-07-31T00:00:00.000Z');
+    const tx = makeTx({
+      latestRevision: { id: 'rev-1', sequence: 1 },
+      contentTreeRevision: 23n,
+      existingPages: [
+        { id: 'page-update', knowledgeKey: 'page-update', sourcePath: '/update', title: 'Old', content: '# Old', updatedAt },
+        { id: 'page-archive', knowledgeKey: 'page-archive', sourcePath: '/archive', title: 'Archive', content: '# Archive', updatedAt },
+      ],
+    });
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    (parseKnowledgeBundle as jest.Mock).mockReturnValue({
+      ...validBundle,
+      baseRevision: 'rev-1',
+      pages: [
+        { ...validBundle.pages[0], pageId: 'page-create', path: '/create', title: 'Create' },
+        { ...validBundle.pages[0], pageId: 'page-update', path: '/update', title: 'Updated' },
+      ],
+      deletions: [{ itemType: 'page', itemId: 'page-archive', reason: 'removed' }],
+      contentHash: 'x',
+    });
+
+    await service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-tree-cas', true);
+
+    const items = tx.changeSet.create.mock.calls[0][0].data.items.create;
+    expect(items.filter((item: any) => ['create_page', 'update_page', 'archive_page'].includes(item.type)))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'create_page', payload: expect.objectContaining({ expectedTreeRevision: '23' }) }),
+        expect.objectContaining({ type: 'update_page', payload: expect.objectContaining({ expectedTreeRevision: '23' }) }),
+        expect.objectContaining({ type: 'archive_page', payload: expect.objectContaining({ expectedTreeRevision: '23' }) }),
+      ]));
+    expect(tx.space.findUnique).toHaveBeenCalledWith({
+      where: { id: 'space-1' },
+      select: { contentTreeRevision: true },
+    });
   });
 
   it('returns noop when a full bundle page is unchanged', async () => {

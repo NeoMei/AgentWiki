@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
@@ -125,9 +126,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     setCreating(true);
     setCreateError(null);
     try {
+      const expectedTreeRevision = await getContentTreeRevision(spaceId);
       const payload = {
         title: normalizedTitle,
         spaceId,
+        expectedTreeRevision,
         ...(parentId ? { parentId } : {}),
         ...(selected ? {
           templateId: selected.id,

@@ -550,12 +550,17 @@ export class SourceService {
       });
 
       const [spacePolicy, agentPolicy] = await Promise.all([
-        this.prisma.space.findUnique({ where: { id: run.spaceId }, select: { approvalPolicy: true } }),
+        this.prisma.space.findUnique({
+          where: { id: run.spaceId },
+          select: { approvalPolicy: true, contentTreeRevision: true },
+        }),
         run.requestedByAgentId
           ? this.prisma.agent.findUnique({ where: { id: run.requestedByAgentId }, select: { approvalMode: true } })
           : Promise.resolve(null),
       ]);
       currentScopes = await this.assertRequesterStillAuthorized(run);
+      if (!spacePolicy) throw new Error('Space no longer exists');
+      const expectedTreeRevision = spacePolicy.contentTreeRevision.toString();
       const autoPublish = changeItems.length > 0 &&
         spacePolicy?.approvalPolicy === 'scoped-auto-publish' &&
         agentPolicy?.approvalMode === 'scoped-auto-publish' &&
@@ -569,7 +574,15 @@ export class SourceService {
           createdByUserId: run.requestedByUserId,
           createdByAgentId: run.requestedByAgentId,
           items: {
-            create: changeItems.map((item) => ({ ...item, status: autoPublish ? 'accepted' : item.status, payload: item.payload as any })),
+            create: changeItems.map((item) => ({
+              ...item,
+              status: autoPublish ? 'accepted' : item.status,
+              payload: (
+                item.type === 'create_page' || item.type === 'update_page' || item.type === 'archive_page'
+                  ? { ...item.payload, expectedTreeRevision }
+                  : item.payload
+              ) as any,
+            })),
           },
         },
       }) : null;

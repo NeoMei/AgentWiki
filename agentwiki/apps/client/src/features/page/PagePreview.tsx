@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { ArrowLeft, Clock, User, Trash2, FileText, Database } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
@@ -369,7 +370,10 @@ export const PagePreview: React.FC = () => {
     if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
     setDeleting(true);
     try {
-      await api.delete(`/pages/${page.id}`);
+      const expectedTreeRevision = await getContentTreeRevision(page.spaceId);
+      await api.delete(`/pages/${page.id}`, {
+        data: { expectedUpdatedAt: page.updatedAt, expectedTreeRevision },
+      });
       navigate(`/spaces/${page.spaceId}`);
     } catch (err: any) {
       setError(err.response?.data?.message || t('page.deleteFailed'));

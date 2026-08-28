@@ -7,10 +7,12 @@ import { SpaceView } from './SpaceView';
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   auth: { user: { id: 'user-1', platformRole: 'user' } as { id: string; platformRole: string } },
+  getContentTreeRevision: vi.fn(),
 }));
 
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => mocks.auth }));
+vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getContentTreeRevision }));
 
 const emptyCatalog = {
   system: [],
@@ -90,6 +92,7 @@ const mockNavigableGets = (spaceRequests: Record<string, Promise<ReturnType<type
 describe('SpaceView new-page flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getContentTreeRevision.mockResolvedValue('43');
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.auth.user = { id: 'user-1', platformRole: 'user' };
   });
@@ -140,8 +143,35 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'Created page',
       spaceId: 'space-1',
+      expectedTreeRevision: '43',
     }));
     expect(await screen.findByRole('heading', { name: 'Editing created page' })).toBeInTheDocument();
+  });
+
+  it('archives a page with the page and tree compare-and-swap tokens in the DELETE body', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-1') return {
+        data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role: 'owner' }] },
+      };
+      if (url === '/pages/hierarchy/space-1') return {
+        data: [{ id: 'page-1', title: 'Delete me', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
+      };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    mocks.api.delete.mockResolvedValue({ data: {} });
+    renderSpaceView();
+
+    fireEvent.click(await screen.findByTestId('tree-delete-page-1'));
+
+    await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledWith('/pages/page-1', {
+      data: {
+        expectedUpdatedAt: '2026-08-28T10:00:00.000Z',
+        expectedTreeRevision: '43',
+      },
+    }));
+    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    confirm.mockRestore();
   });
 
   it('removes owner authorization immediately while a viewer Space route is loading', async () => {
@@ -222,6 +252,7 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'B page',
       spaceId: 'space-b',
+      expectedTreeRevision: '43',
     }));
   });
 
@@ -244,6 +275,7 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'Late A page',
       spaceId: 'space-a',
+      expectedTreeRevision: '43',
     }));
 
     navigateTo('space-b');

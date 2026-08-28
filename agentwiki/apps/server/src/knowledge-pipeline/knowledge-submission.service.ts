@@ -65,7 +65,12 @@ export class KnowledgeSubmissionService {
         };
       }
 
-      const items = await this.compileChangeItems(tx, bundle);
+      const space = await tx.space.findUnique({
+        where: { id: spaceId },
+        select: { contentTreeRevision: true },
+      });
+      if (!space) throw new BusinessException('RESOURCE_NOT_FOUND');
+      const items = await this.compileChangeItems(tx, bundle, space.contentTreeRevision.toString());
       if (items.length === 0) {
         return { status: 'noop', submissionId: '', changeSetId: null, currentRevision: currentRevision.revisionId };
       }
@@ -134,6 +139,7 @@ export class KnowledgeSubmissionService {
   private async compileChangeItems(
     tx: Prisma.TransactionClient,
     bundle: NormalizedKnowledgeBundle,
+    expectedTreeRevision: string,
   ): Promise<Array<{ type: string; status: 'pending'; payload: any }>> {
     const items: Array<{ type: string; status: 'pending'; payload: any }> = [];
     const pageIds = [
@@ -183,6 +189,7 @@ export class KnowledgeSubmissionService {
           payload: {
             pageId: existing.id,
             expectedUpdatedAt: existing.updatedAt.toISOString(),
+            expectedTreeRevision,
             changes: { title: page.title, content: page.body },
             sourcePath: page.path,
           },
@@ -199,6 +206,7 @@ export class KnowledgeSubmissionService {
           content: page.body,
           format: 'markdown',
           sourcePath: page.path,
+          expectedTreeRevision,
         },
       });
     }
@@ -261,7 +269,13 @@ export class KnowledgeSubmissionService {
       const payload = del.itemType === 'page'
         ? (() => {
           const page = existingById.get(del.itemId);
-          return page ? { pageId: page.id, expectedUpdatedAt: page.updatedAt.toISOString(), knowledgeKey: del.itemId, reason: del.reason } : null;
+          return page ? {
+            pageId: page.id,
+            expectedUpdatedAt: page.updatedAt.toISOString(),
+            expectedTreeRevision,
+            knowledgeKey: del.itemId,
+            reason: del.reason,
+          } : null;
         })()
         : del.itemType === 'memory'
           ? (() => {

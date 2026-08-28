@@ -21,6 +21,10 @@ const attachmentMocks = vi.hoisted(() => ({
   restoreAttachment: vi.fn(),
 }));
 
+const contentTreeMocks = vi.hoisted(() => ({
+  getContentTreeRevision: vi.fn(),
+}));
+
 const socketMock = vi.hoisted(() => {
   const handlers = new Map<string, (...args: any[]) => void>();
   const socket: any = {
@@ -51,6 +55,7 @@ vi.mock('../attachments/attachmentApi', () => ({
   archiveAttachment: attachmentMocks.archiveAttachment,
   restoreAttachment: attachmentMocks.restoreAttachment,
 }));
+vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: contentTreeMocks.getContentTreeRevision }));
 
 // Per-test queue of page-detail responses.
 let pageQueue: any[] = [];
@@ -192,6 +197,8 @@ describe('PageEditor remote update safety', () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.post).mockReset();
+    contentTreeMocks.getContentTreeRevision.mockReset();
+    contentTreeMocks.getContentTreeRevision.mockResolvedValue('31');
     templateMocks.listPageTemplates.mockReset();
     templateMocks.createPageTemplate.mockReset();
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
@@ -419,7 +426,9 @@ describe('PageEditor remote update safety', () => {
       title: 'My local title',
       content: 'My local content',
       expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
+      expectedTreeRevision: '31',
     }));
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
   });
 
   it('refreshes a pristine form safely and uses the refreshed version for the next save', async () => {
@@ -440,6 +449,7 @@ describe('PageEditor remote update safety', () => {
       title: 'Local after refresh',
       content: 'Remote content',
       expectedUpdatedAt: '2026-07-27T08:05:00.000Z',
+      expectedTreeRevision: '31',
     }));
   });
 
@@ -528,10 +538,10 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.patch).toHaveBeenLastCalledWith('/pages/page-1', {
-      title: 'Original title',
       content: 'Second edit',
       expectedUpdatedAt: '2026-07-27T08:01:00.000Z',
     }));
+    expect(contentTreeMocks.getContentTreeRevision).not.toHaveBeenCalled();
   });
 
   it('ignores a late page response after navigation and aborts the obsolete request', async () => {
@@ -622,7 +632,6 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
-      title: 'Original title',
       content: 'Remote live content',
       expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
     }));
@@ -859,6 +868,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', {
       title: 'After template', content: 'Original content', expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
+      expectedTreeRevision: '31',
     }));
   });
 

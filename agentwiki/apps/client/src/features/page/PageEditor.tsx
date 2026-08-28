@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from
 import { useNavigate, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
@@ -621,12 +622,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const submittedEditRevision = editRevisionRef.current;
     const submittedTitle = title;
     const submittedContent = content;
+    const titleChanged = submittedTitle !== baseline.title;
     abortAttachmentUploads();
     setSaving(true);
     clearStatus();
     try {
+      const expectedTreeRevision = titleChanged
+        ? await getContentTreeRevision(baseline.spaceId)
+        : undefined;
       const response = await api.patch(`/pages/${requestedId}`, {
-        title: submittedTitle,
+        ...(titleChanged ? { title: submittedTitle, expectedTreeRevision } : {}),
         content: submittedContent,
         expectedUpdatedAt: baseline.updatedAt,
       });

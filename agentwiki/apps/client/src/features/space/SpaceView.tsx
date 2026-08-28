@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { FileText, Plus, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
@@ -179,10 +180,17 @@ export const SpaceView: React.FC = () => {
     };
   }, [fetchData, id]);
 
-  const handleDeletePage = async (pageId: string, pageTitle: string) => {
+  const handleDeletePage = async (pageId: string, pageTitle: string, expectedUpdatedAt?: string) => {
     if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
+    if (!id || !expectedUpdatedAt) {
+      setActionError(t('page.deleteFailed'));
+      return;
+    }
     try {
-      await api.delete(`/pages/${pageId}`);
+      const expectedTreeRevision = await getContentTreeRevision(id);
+      await api.delete(`/pages/${pageId}`, {
+        data: { expectedUpdatedAt, expectedTreeRevision },
+      });
       setPages((prev) => prev.filter((p) => p.id !== pageId));
       setPageTree((prev) => removeFromTree(prev, pageId));
     } catch (err: any) {
@@ -275,7 +283,7 @@ export const SpaceView: React.FC = () => {
             nodes={pageTree}
             emptyText={t('page.empty')}
             onEdit={(node) => navigate(`/pages/${node.id}/edit`)}
-            onDelete={(node) => handleDeletePage(node.id, node.title)}
+            onDelete={(node) => handleDeletePage(node.id, node.title, node.updatedAt)}
             editLabel={t('page.edit')}
             deleteLabel={t('page.delete')}
             onMove={handleMove}

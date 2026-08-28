@@ -9,6 +9,8 @@ import { PagePreview } from './PagePreview';
 vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }));
+const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
+vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: contentTreeMocks.getContentTreeRevision }));
 
 const source = '- [ ] first task\n- [ ] second task';
 
@@ -51,7 +53,10 @@ const queuePages = (...responses: any[]) => {
 const renderPreview = () => render(
   <LanguageProvider>
     <MemoryRouter initialEntries={['/pages/page-1']}>
-      <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
+      <Routes>
+        <Route path="/pages/:id" element={<PagePreview />} />
+        <Route path="/spaces/:spaceId" element={<p>Space destination</p>} />
+      </Routes>
     </MemoryRouter>
   </LanguageProvider>,
 );
@@ -111,6 +116,8 @@ describe('PagePreview checklist saves', () => {
     vi.mocked(api.post).mockReset();
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.delete).mockReset();
+    contentTreeMocks.getContentTreeRevision.mockReset();
+    contentTreeMocks.getContentTreeRevision.mockResolvedValue('47');
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
@@ -155,6 +162,24 @@ describe('PagePreview checklist saves', () => {
     expect(checkboxes[1]).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+  });
+
+  it('archives the page with updated-at and tree compare-and-swap tokens in the DELETE body', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    queuePages({ data: page() });
+    vi.mocked(api.delete).mockResolvedValue({ data: {} } as any);
+    renderPreview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/pages/page-1', {
+      data: {
+        expectedUpdatedAt: '2026-08-26T01:00:00.000Z',
+        expectedTreeRevision: '47',
+      },
+    }));
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    confirm.mockRestore();
   });
 
   it('serializes two fast task saves and advances the version token from the first response', async () => {

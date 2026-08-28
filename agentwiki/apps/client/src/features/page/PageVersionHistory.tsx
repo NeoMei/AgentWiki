@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
@@ -80,13 +81,15 @@ export const PageVersionHistory: React.FC = () => {
   }, [id]);
 
   const handleRestore = async (versionId: string) => {
-    if (!id || restoringRef.current !== null || !window.confirm(t('version.restoreConfirm'))) return;
+    if (!id || !page?.spaceId || restoringRef.current !== null || !window.confirm(t('version.restoreConfirm'))) return;
     const requestedId = id;
+    const requestedSpaceId = page.spaceId;
     const requestedRoute = routeRef.current;
     restoringRef.current = versionId;
     setRestoring(versionId);
     try {
-      await api.post(`/pages/${requestedId}/versions/${versionId}/restore`);
+      const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId);
+      await api.post(`/pages/${requestedId}/versions/${versionId}/restore`, { expectedTreeRevision });
       if (!mountedRef.current || routeRef.current !== requestedRoute) return;
       alert(t('version.restored'));
       navigate(`/pages/${requestedId}/edit`);

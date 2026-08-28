@@ -351,10 +351,22 @@ export class PushSessionService {
         return result;
       }
 
+      const changeSet = await tx.changeSet.create({
+        data: {
+          title: 'Obsidian sync',
+          status: 'publishing',
+          spaceId,
+          createdByUserId: principal.userId,
+          origin: 'obsidian_sync',
+          humanDeviceCredentialId: principal.credentialId,
+          confirmationHash: session.confirmationHash,
+          baseRevisionId: session.baseRevisionId,
+        },
+      });
       await this.assertNoPathCollisions(lockedTx, spaceId, orderedChanges);
 
       const applied = await this.applyPageChanges(
-        lockedTx, spaceId, principal.userId, orderedChanges,
+        lockedTx, spaceId, principal.userId, orderedChanges, changeSet.id,
       );
       const advanced = await this.contentTree.advancePageMutation(lockedTx, {
         spaceId,
@@ -366,6 +378,7 @@ export class PushSessionService {
           origin: 'obsidian_sync',
           createdByUserId: principal.userId,
           humanDeviceCredentialId: principal.credentialId,
+          sourceChangeSetId: changeSet.id,
         },
       });
       const revision = await lockedTx.spaceKnowledgeRevision.findUnique({
@@ -382,19 +395,6 @@ export class PushSessionService {
       ) {
         throw new SyncApiException('SPACE_TOO_LARGE', 'Resulting space exceeds the client capability');
       }
-      const changeSet = await tx.changeSet.create({
-        data: {
-          title: 'Obsidian sync',
-          status: 'published',
-          spaceId,
-          createdByUserId: principal.userId,
-          origin: 'obsidian_sync',
-          humanDeviceCredentialId: principal.credentialId,
-          confirmationHash: session.confirmationHash,
-          baseRevisionId: session.baseRevisionId,
-          publishedAt: new Date(),
-        },
-      });
       for (const item of applied.applied) {
         await tx.changeItem.create({
           data: {
@@ -407,12 +407,17 @@ export class PushSessionService {
           },
         });
       }
+      const publishedAt = new Date();
+      await tx.changeSet.update({
+        where: { id: changeSet.id },
+        data: { status: 'published', publishedAt },
+      });
       const result = {
         protocolVersion: '1',
         status: 'published',
         revision: revision.id,
         sequence: revision.sequence,
-        publishedAt: new Date().toISOString(),
+        publishedAt: publishedAt.toISOString(),
         revisionContentHash: revision.revisionContentHash,
         pageCount: revision.pageCount.toString(),
         revisionManifestByteLength: revision.revisionManifestByteLength.toString(),
@@ -671,6 +676,7 @@ export class PushSessionService {
     spaceId: string,
     userId: string,
     changes: Array<{ operation: string; pageId: string; path?: string; title?: string; body?: string; previousPath?: string }>,
+    changeSetId: string,
   ): Promise<AppliedPageChanges> {
     const applied: AppliedPageChanges['applied'] = [];
     const revisionChanges: StructuralPageChange[] = [];
@@ -700,6 +706,7 @@ export class PushSessionService {
     });
     const revertSnapshot = (page: any) => ({
       title: page.title,
+      slug: page.slug,
       content: page.content ?? '',
       format: page.format,
       parentId: page.parentId,
@@ -747,6 +754,7 @@ export class PushSessionService {
           },
           data: {
             deletedAt: new Date(),
+            lastChangeSetId: changeSetId,
             lastModifiedByUserId: userId,
             lastModifiedByAgentId: null,
             lastModifiedAt: new Date(),
@@ -818,6 +826,7 @@ export class PushSessionService {
             syncPathKey: placement.syncPathKey,
             deletedAt: null,
             deletionBatchId: null,
+            lastChangeSetId: changeSetId,
             lastModifiedByUserId: userId,
             lastModifiedByAgentId: null,
             lastModifiedAt: new Date(),
@@ -841,6 +850,8 @@ export class PushSessionService {
             folderId: placement.folderId,
             syncPath: placement.syncPath,
             syncPathKey: placement.syncPathKey,
+            sourceChangeSetId: changeSetId,
+            lastChangeSetId: changeSetId,
             lastModifiedByUserId: userId,
             lastModifiedAt: new Date(),
           },

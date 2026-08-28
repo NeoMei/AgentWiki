@@ -121,6 +121,125 @@ describe('PushSessionService graph lifecycle', () => {
     }));
   });
 
+  it('binds a newly created Page to the Obsidian ChangeSet as both source and latest change', async () => {
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'page-1' }),
+      },
+    };
+    const contentTree = {
+      prepareExactPageMutation: jest.fn().mockResolvedValue({
+        folderId: 'folder-1',
+        syncPath: 'pages/Team/New.md',
+        syncPathKey: 'pages/team/new.md',
+      }),
+    };
+    const service: any = new (PushSessionService as any)(
+      {}, {}, contentTree, {}, undefined, undefined,
+    );
+
+    await service.applyPageChanges(tx, 'space-1', 'user-1', [{
+      operation: 'upsert', pageId: 'knowledge-1',
+      path: 'pages/Team/New.md', title: 'New', body: '# New',
+    }], 'change-set-1');
+
+    expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        sourceChangeSetId: 'change-set-1',
+        lastChangeSetId: 'change-set-1',
+      }),
+    }));
+  });
+
+  it('captures a reversible update snapshot including slug without replacing the original source', async () => {
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
+      authorId: 'author-1', parentId: null, folderId: 'folder-old',
+      syncPath: 'pages/Old/Before.md', syncPathKey: 'pages/old/before.md',
+      sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
+      createdAt: new Date('2026-08-20T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-20T00:00:00.000Z'), deletedAt: null,
+      lastModifiedAt: new Date('2026-08-20T00:00:00.000Z'),
+    };
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const contentTree = {
+      prepareExactPageMutation: jest.fn().mockResolvedValue({
+        folderId: 'folder-new',
+        syncPath: 'pages/New/After.md',
+        syncPathKey: 'pages/new/after.md',
+      }),
+    };
+    const service: any = new (PushSessionService as any)(
+      {}, {}, contentTree, {}, undefined, undefined,
+    );
+
+    const result = await service.applyPageChanges(tx, 'space-1', 'user-1', [{
+      operation: 'upsert', pageId: 'knowledge-1',
+      path: 'pages/New/After.md', title: 'After', body: '# After',
+    }], 'change-set-1');
+
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ lastChangeSetId: 'change-set-1' }),
+    }));
+    expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
+    expect(result.applied[0].payload.before).toEqual(expect.objectContaining({
+      slug: 'before-slug',
+      folderId: 'folder-old',
+      syncPath: 'pages/Old/Before.md',
+      deletedAt: null,
+      sourceChangeSetId: 'original-change-set',
+      lastChangeSetId: 'previous-change-set',
+    }));
+  });
+
+  it('binds an archived Page to the Obsidian ChangeSet without replacing its source', async () => {
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
+      authorId: 'author-1', parentId: null, folderId: 'folder-1',
+      syncPath: 'pages/Team/Before.md', syncPathKey: 'pages/team/before.md',
+      sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
+      createdAt: new Date('2026-08-20T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-20T00:00:00.000Z'), deletedAt: null,
+      lastModifiedAt: new Date('2026-08-20T00:00:00.000Z'),
+    };
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const contentTree = {
+      prepareExactPageMutation: jest.fn().mockResolvedValue({
+        folderId: 'folder-1',
+        syncPath: current.syncPath,
+        syncPathKey: current.syncPathKey,
+      }),
+    };
+    const service: any = new (PushSessionService as any)(
+      {}, {}, contentTree, {}, undefined, undefined,
+    );
+
+    await service.applyPageChanges(tx, 'space-1', 'user-1', [{
+      operation: 'archive', pageId: 'knowledge-1', previousPath: current.syncPath,
+    }], 'change-set-1');
+
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ lastChangeSetId: 'change-set-1' }),
+    }));
+    expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
+  });
+
   it('delegates exact incoming path placement and aliasing to ContentTree for a structural update', async () => {
     const current = {
       id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
@@ -214,7 +333,10 @@ describe('PushSessionService graph lifecycle', () => {
         findFirst: jest.fn().mockResolvedValue({ ...revision, id: 'sync-1', sequence: 1 }),
         findUnique: jest.fn().mockResolvedValue(revision),
       },
-      changeSet: { create: jest.fn().mockResolvedValue({ id: 'change-set-1' }) },
+      changeSet: {
+        create: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
+      },
       changeItem: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma: any = {
@@ -262,6 +384,15 @@ describe('PushSessionService graph lifecycle', () => {
     )).resolves.toMatchObject({ status: 'published', revision: 'sync-2' });
 
     expect(contentTree.lockPageMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(tx.changeSet.create.mock.invocationCallOrder[0])
+      .toBeLessThan(service.applyPageChanges.mock.invocationCallOrder[0]);
+    expect(service.applyPageChanges).toHaveBeenCalledWith(
+      tx, 'space-1', 'user-1', expect.any(Array), 'change-set-1',
+    );
+    expect(tx.changeSet.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'change-set-1' },
+      data: expect.objectContaining({ status: 'published', publishedAt: expect.any(Date) }),
+    }));
     expect(contentTree.advancePageMutation).toHaveBeenCalledTimes(1);
     expect(contentTree.advancePageMutation).toHaveBeenCalledWith(tx, expect.objectContaining({
       spaceId: 'space-1', expectedTreeRevision: 7n, structural: true,

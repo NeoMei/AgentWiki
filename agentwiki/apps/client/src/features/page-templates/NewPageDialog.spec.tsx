@@ -9,10 +9,12 @@ import { NewPageDialog } from './NewPageDialog';
 const mocks = vi.hoisted(() => ({
   api: { post: vi.fn() },
   listPageTemplates: vi.fn(),
+  getContentTreeRevision: vi.fn(),
 }));
 
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('./pageTemplateApi', () => ({ listPageTemplates: mocks.listPageTemplates }));
+vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getContentTreeRevision }));
 
 const systemWeekly: PageTemplateSummary = {
   id: 'system-weekly',
@@ -131,6 +133,7 @@ const OpenerHarness: React.FC = () => {
 describe('NewPageDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getContentTreeRevision.mockResolvedValue('11');
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
   });
 
@@ -162,7 +165,9 @@ describe('NewPageDialog', () => {
       templateId: 'system-weekly',
       templateVersion: 1,
       templateLocale: 'zh-CN',
+      expectedTreeRevision: '11',
     }));
+    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
     expect(onCreated).toHaveBeenCalledWith('page-new');
     expect(mocks.api.post.mock.calls[0][1]).not.toHaveProperty('content');
     expect(mocks.api.post.mock.calls[0][1]).not.toHaveProperty('format');
@@ -179,7 +184,9 @@ describe('NewPageDialog', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.getByLabelText('标题')).toHaveValue('My page');
-    expect(mocks.api.post).toHaveBeenCalledWith('/pages', { title: 'My page', spaceId: 'space-1' });
+    expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
+      title: 'My page', spaceId: 'space-1', expectedTreeRevision: '11',
+    });
   });
 
   it('keeps Space template default titles literal even when they contain system tokens', async () => {
@@ -378,7 +385,7 @@ describe('NewPageDialog', () => {
     fireEvent.click(back);
     fireEvent.click(dialog.parentElement!);
 
-    expect(mocks.api.post).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledTimes(1));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '创建中…' })).toBeDisabled();
     expect(screen.getByLabelText('标题')).toHaveValue('Pending page');

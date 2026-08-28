@@ -6,6 +6,8 @@ import { LanguageProvider } from '../../context/LanguageContext';
 import { PageVersionHistory } from './PageVersionHistory';
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
+const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
+vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: contentTreeMocks.getContentTreeRevision }));
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -35,6 +37,7 @@ const NavigationHarness = () => {
 describe('PageVersionHistory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    contentTreeMocks.getContentTreeRevision.mockResolvedValue('37');
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
       ? { data: [{ id: 'v1', title: '旧版本', content: '# 旧标题\n\n旧正文\n\n- [ ] 历史任务', createdAt: '2026-08-19T00:00:00Z' }] }
@@ -176,7 +179,11 @@ describe('PageVersionHistory', () => {
     </LanguageProvider></MemoryRouter>);
 
     fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/pages/page-1/versions/page-1-version/restore'));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/pages/page-1/versions/page-1-version/restore',
+      { expectedTreeRevision: '37' },
+    ));
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('page-1-space');
     fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
     expect(await screen.findByText('page-2 version')).toBeInTheDocument();
 

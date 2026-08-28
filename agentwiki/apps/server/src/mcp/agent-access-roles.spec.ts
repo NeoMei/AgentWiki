@@ -76,6 +76,7 @@ describe('MCP Agent access roles', () => {
 
   function createTools(principal: Principal): Record<string, {
     description?: string;
+    inputSchema?: unknown;
     handler: (args: any) => Promise<any>;
   }> {
     const service = new (McpService as any)(
@@ -122,6 +123,7 @@ describe('MCP Agent access roles', () => {
       spaceId: 'space-1',
       title: '吃饭睡觉打豆豆',
       content: '豆豆不能随便打',
+      expectedTreeRevision: '41',
     });
     if (canPropose) {
       const response = await proposal;
@@ -150,7 +152,7 @@ describe('MCP Agent access roles', () => {
         'Proposed page: 吃饭睡觉打豆豆',
         expect.objectContaining({
           type: 'create_page',
-          payload: { title: '吃饭睡觉打豆豆', content: '豆豆不能随便打' },
+          payload: { title: '吃饭睡觉打豆豆', content: '豆豆不能随便打', expectedTreeRevision: '41' },
         }),
       );
     } else {
@@ -175,7 +177,7 @@ describe('MCP Agent access roles', () => {
     const tools = createTools(principal);
 
     await expect(tools.propose_page.handler({
-      spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打',
+      spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打', expectedTreeRevision: '41',
     })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
 
     expect(prisma.changeSet.create).not.toHaveBeenCalled();
@@ -203,7 +205,7 @@ describe('MCP Agent access roles', () => {
     const tools = createTools(principal);
 
     const response = await tools.propose_page.handler({
-      spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打',
+      spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打', expectedTreeRevision: '41',
     });
 
     expect(JSON.parse(response.content[0].text)).toMatchObject({
@@ -253,5 +255,20 @@ describe('MCP Agent access roles', () => {
     expect(tools.propose_page.description).toContain('bound Space Grant');
     expect(tools.propose_page.description).not.toContain('Credential and Space Grant');
     expect(tools.propose_page.description).not.toContain('never bypasses review');
+  });
+
+  it('requires a canonical decimal tree revision in the MCP proposal schema', () => {
+    grant.role = 'editor';
+    const tools = createTools({
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-editor',
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'editor', scopes: scopesForAgentAccessRole('editor'),
+    });
+    const schema = tools.propose_page.inputSchema as any;
+
+    expect(() => schema.parse({ spaceId: 'space-1', title: 'Title', content: 'Body' })).toThrow();
+    expect(() => schema.parse({ spaceId: 'space-1', title: 'Title', content: 'Body', expectedTreeRevision: 7 })).toThrow();
+    expect(() => schema.parse({ spaceId: 'space-1', title: 'Title', content: 'Body', expectedTreeRevision: '07' })).toThrow();
+    expect(() => schema.parse({ spaceId: 'space-1', title: 'Title', content: 'Body', expectedTreeRevision: '7' })).not.toThrow();
   });
 });
