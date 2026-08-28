@@ -624,6 +624,7 @@ describe('ContentTreeService lifecycle mutations', () => {
     tx.contentDeletionBatch.findFirst.mockResolvedValue({
       id: 'batch-1', rootFolderId: root.id, folderCount: 2, pageCount: 0,
       impactHash: 'ceed93e2f001cc6f668bd6ca31e104548fa1e406a5514ecda3af3a757242dbee',
+      createdAt: deletedAt,
       folders: [{ id: root.id }, { id: child.id }], pages: [],
     });
     tx.contentDeletionBatch.updateMany.mockResolvedValue({ count: 1 });
@@ -636,6 +637,49 @@ describe('ContentTreeService lifecycle mutations', () => {
     expect(tx.$executeRaw).not.toHaveBeenCalled();
     expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
     expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
+  });
+
+  it('rejects uniformly shifted deletion timestamps before any restore write', async () => {
+    const batchCreatedAt = new Date('2026-08-28T02:00:00.000Z');
+    const shiftedDeletedAt = new Date('2026-08-28T03:00:00.000Z');
+    const deletedRoot = {
+      ...root,
+      nameKey: '项目',
+      deletedAt: shiftedDeletedAt,
+      deletionBatchId: 'batch-1',
+    };
+    const deletedChild = {
+      ...child,
+      nameKey: '周报',
+      deletedAt: shiftedDeletedAt,
+      deletionBatchId: 'batch-1',
+    };
+    const { service, tx, revisionWriter } = lifecycleHarness([deletedRoot, deletedChild]);
+    tx.folder.count = jest.fn().mockResolvedValue(0);
+    tx.folder.findMany.mockImplementation(({ where }: any) => Promise.resolve(
+      where.deletionBatchId ? [deletedRoot, deletedChild] : [],
+    ));
+    tx.page.findMany.mockResolvedValue([]);
+    tx.contentDeletionBatch.findFirst.mockResolvedValue({
+      id: 'batch-1', rootFolderId: root.id, folderCount: 2, pageCount: 0,
+      impactHash: 'ceed93e2f001cc6f668bd6ca31e104548fa1e406a5514ecda3af3a757242dbee',
+      createdAt: batchCreatedAt,
+      folders: [{ id: root.id }, { id: child.id }], pages: [],
+    });
+    tx.contentDeletionBatch.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect((service as any).restoreDeletionBatch({
+      spaceId: 'space-1', deletionBatchId: 'batch-1',
+      strategy: { kind: 'original' }, expectedTreeRevision: 0n,
+      actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_RESTORE_CONFLICT' }));
+    expect(tx.contentDeletionBatch.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ createdAt: true }),
+    }));
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.contentDeletionBatch.updateMany).not.toHaveBeenCalled();
+    expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
     expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
   });
 });

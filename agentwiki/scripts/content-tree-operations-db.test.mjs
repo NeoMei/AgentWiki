@@ -707,6 +707,92 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           assert.equal(await prisma.pagePathAlias.count({ where: { spaceId } }), 0);
         });
 
+        await t.test('restore rejects uniformly shifted batch timestamps before writes', async () => {
+          const spaceId = await createSpace('restore-batch-timestamp');
+          const root = await createFolder(spaceId, {
+            id: `timestamp-root-${suffix}`, name: 'Timestamp', path: 'pages/Timestamp',
+          });
+          const child = await createFolder(spaceId, {
+            id: `timestamp-child-${suffix}`, parentId: root.id,
+            name: 'Child', path: 'pages/Timestamp/Child',
+          });
+          const page = await createPage(spaceId, {
+            id: `timestamp-page-${suffix}`, folderId: child.id, title: 'Evidence',
+            syncPath: 'pages/Timestamp/Child/Evidence.md',
+          });
+          const preview = await service.deleteImpact({ spaceId, folderId: root.id });
+          const deletion = await service.deleteFolder({
+            spaceId, folderId: root.id,
+            expectedTreeRevision: 0n, expectedUpdatedAt: root.updatedAt,
+            expectedImpactHash: preview.impactHash, actor,
+          });
+          await prisma.$executeRaw`
+            UPDATE "Folder" folder
+            SET "deletedAt" = batch."createdAt" + INTERVAL '1 minute'
+            FROM "ContentDeletionBatch" batch
+            WHERE batch."id" = ${deletion.batch.id}
+              AND folder."spaceId" = ${spaceId}
+              AND folder."deletionBatchId" = batch."id"
+          `;
+          await prisma.$executeRaw`
+            UPDATE "Page" page
+            SET "deletedAt" = batch."createdAt" + INTERVAL '1 minute'
+            FROM "ContentDeletionBatch" batch
+            WHERE batch."id" = ${deletion.batch.id}
+              AND page."spaceId" = ${spaceId}
+              AND page."deletionBatchId" = batch."id"
+          `;
+
+          const loadEvidence = async () => ({
+            folders: await prisma.folder.findMany({
+              where: { id: { in: [root.id, child.id] } },
+              orderBy: { id: 'asc' },
+            }),
+            pages: await prisma.page.findMany({
+              where: { id: page.id },
+              orderBy: { id: 'asc' },
+            }),
+            batch: await prisma.contentDeletionBatch.findUniqueOrThrow({
+              where: { id: deletion.batch.id },
+            }),
+            treeRevision: (await prisma.space.findUniqueOrThrow({
+              where: { id: spaceId },
+            })).contentTreeRevision,
+            syncRevisions: await prisma.spaceKnowledgeRevision.findMany({
+              where: { spaceId }, orderBy: { sequence: 'asc' },
+            }),
+            aliases: await prisma.pagePathAlias.findMany({
+              where: { spaceId }, orderBy: { id: 'asc' },
+            }),
+          });
+          const beforeRestore = await loadEvidence();
+          const taggedDeletedAt = [
+            ...beforeRestore.folders.map((item) => item.deletedAt?.toISOString()),
+            ...beforeRestore.pages.map((item) => item.deletedAt?.toISOString()),
+          ];
+          assert.equal(new Set(taggedDeletedAt).size, 1);
+          assert.notEqual(taggedDeletedAt[0], beforeRestore.batch.createdAt.toISOString());
+          assert.equal(beforeRestore.batch.restoredAt, null);
+          assert.equal(beforeRestore.treeRevision, 1n);
+          assert.equal(beforeRestore.syncRevisions.length, 1);
+          assert.equal(beforeRestore.aliases.length, 0);
+
+          await assert.rejects(service.restoreDeletionBatch({
+            spaceId,
+            deletionBatchId: deletion.batch.id,
+            strategy: { kind: 'original' },
+            expectedTreeRevision: 1n,
+            actor,
+          }), (error) => {
+            assert.equal(error?.code, 'FOLDER_RESTORE_CONFLICT');
+            assert.equal(error?.message, 'Deletion batch membership is inconsistent');
+            return true;
+          });
+
+          const afterRestore = await loadEvidence();
+          assert.deepEqual(afterRestore, beforeRestore);
+        });
+
         await t.test('restore includes existing active Folders in the 10,000 Folder cap', async () => {
           const spaceId = await createSpace('restore-folder-cap');
           const root = await createFolder(spaceId, {

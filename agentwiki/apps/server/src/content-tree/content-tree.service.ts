@@ -716,6 +716,7 @@ export class ContentTreeService {
           folderCount: true,
           pageCount: true,
           impactHash: true,
+          createdAt: true,
           folders: { select: { id: true } },
           pages: { select: { id: true } },
         },
@@ -767,11 +768,12 @@ export class ContentTreeService {
       ) {
         throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
       }
-      const deletedAtValues = [...folders, ...pages].map((record) => record.deletedAt?.getTime());
+      const authoritativeDeletedAt = batch.createdAt.getTime();
       if (
-        deletedAtValues.some((value) => value === undefined)
-        || new Set(deletedAtValues).size !== 1
-        || [...folders, ...pages].some((record) => record.deletionBatchId !== batch.id)
+        [...folders, ...pages].some((record) => (
+          record.deletedAt?.getTime() !== authoritativeDeletedAt
+          || record.deletionBatchId !== batch.id
+        ))
       ) {
         throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch membership is inconsistent');
       }
