@@ -33,7 +33,7 @@ export function validateTitle(title: string): void {
     throw new TypeError("Invalid Markdown title");
 }
 
-export function validatePortablePath(input: string): PortablePath {
+function validatePortableSegments(input: string): string[] {
   if (input.length === 0 || input.startsWith("/") || input.includes("\\"))
     throw new TypeError("Path must be relative and use slash separators");
   const parts = input.split("/");
@@ -54,6 +54,18 @@ export function validatePortablePath(input: string): PortablePath {
   const path = normalized.join("/");
   if (encoder.encode(path).byteLength > 1024)
     throw new RangeError("Path is longer than 1024 UTF-8 bytes");
+  return normalized;
+}
+
+export function validatePortableDirectoryPath(input: string): PortablePath {
+  const normalized = validatePortableSegments(input);
+  const path = normalized.join("/");
+  return { path, key: pathKey(path) };
+}
+
+export function validatePortableMarkdownPath(input: string): PortablePath {
+  const normalized = validatePortableSegments(input);
+  const path = normalized.join("/");
   const final = normalized.at(-1) ?? "";
   const extension = final.slice(final.lastIndexOf(".") + 1);
   if (extension.toLowerCase() !== "md")
@@ -62,3 +74,6 @@ export function validatePortablePath(input: string): PortablePath {
   validateTitle(title);
   return { path, key: pathKey(path) };
 }
+
+/** @deprecated Use validatePortableMarkdownPath. */
+export const validatePortablePath = validatePortableMarkdownPath;

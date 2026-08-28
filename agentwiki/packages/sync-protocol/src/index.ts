@@ -6,5 +6,6 @@ export * from "./hash.js";
 export * from "./normalize.js";
 export * from "./parse.js";
 export * from "./schemas.js";
+export * from "./sync-v2.js";
 export * from "./types.js";
 export * from "./unicode/case-folding.js";

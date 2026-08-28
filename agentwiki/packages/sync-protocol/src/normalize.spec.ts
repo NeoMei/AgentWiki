@@ -6,6 +6,8 @@ import {
   parseDecimalCount,
   parsePageLimit,
   pathKey,
+  validatePortableDirectoryPath,
+  validatePortableMarkdownPath,
   validatePortablePath,
 } from "./index.js";
 
@@ -28,6 +30,33 @@ describe("normalization and parsing", () => {
     expect(() => validatePortablePath("CON.md")).toThrow();
     expect(() => validatePortablePath("trailing.md ")).toThrow();
     expect(() => validatePortablePath("noext")).toThrow();
+  });
+
+  it("validates portable directory paths without requiring Markdown", () => {
+    expect(validatePortableDirectoryPath("pages/项目")).toEqual({
+      path: "pages/项目",
+      key: "pages/项目",
+    });
+    expect(validatePortableMarkdownPath("pages/项目.md")).toEqual({
+      path: "pages/项目.md",
+      key: "pages/项目.md",
+    });
+    expect(validatePortableDirectoryPath("Cafe\u0301")).toEqual({
+      path: "Café",
+      key: "café",
+    });
+    expect(validatePortableDirectoryPath("Straße").key).toBe("strasse");
+    expect(() => validatePortableMarkdownPath("pages/项目")).toThrow(/\.md/);
+  });
+
+  it("rejects non-portable directory segments and byte-length overflows", () => {
+    for (const value of [
+      "CON", "aux.txt", "a\u0000b", ".", "..", "a//b", "/a", "a\\b", "name.", "name ",
+    ]) {
+      expect(() => validatePortableDirectoryPath(value)).toThrow();
+    }
+    expect(() => validatePortableDirectoryPath("a".repeat(256))).toThrow(/255/);
+    expect(() => validatePortableDirectoryPath("a/".repeat(512) + "a")).toThrow(/1024/);
   });
 
   it("parses canonical decimals", () => {

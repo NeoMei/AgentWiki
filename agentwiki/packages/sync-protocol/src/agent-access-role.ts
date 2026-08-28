@@ -4,14 +4,18 @@ export const AGENT_ACCESS_ROLES = ["reader", "editor", "publisher"] as const;
 export const AgentAccessRoleSchema = z.enum(AGENT_ACCESS_ROLES);
 export type AgentAccessRole = z.infer<typeof AgentAccessRoleSchema>;
 
+export const FOLDER_READ_SCOPES = ["folders:read"] as const;
+export const FOLDER_WRITE_SCOPES = ["folders:write"] as const;
+export const FOLDER_DELETE_SCOPES = ["folders:delete"] as const;
+
 const READER_SCOPES = [
-  "collaboration:read", "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
+  "collaboration:read", ...FOLDER_READ_SCOPES, "graph:read", "pages:read", "review:read", "runs:read", "sources:read", "spaces:read",
 ] as const;
 const EDITOR_SCOPES = [
-  ...READER_SCOPES, "collaboration:execute", "graph:write", "pages:write", "runs:write", "sources:write",
+  ...READER_SCOPES, ...FOLDER_WRITE_SCOPES, "collaboration:execute", "graph:write", "pages:write", "runs:write", "sources:write",
 ].sort();
 const PUBLISHER_SCOPES = [
-  ...EDITOR_SCOPES, "memory:read", "memory:write", "review:auto-publish",
+  ...EDITOR_SCOPES, ...FOLDER_DELETE_SCOPES, "memory:read", "memory:write", "review:auto-publish",
 ].sort();
 
 export const AGENT_ACCESS_ROLE_SCOPES: Readonly<Record<AgentAccessRole, readonly string[]>> = {
