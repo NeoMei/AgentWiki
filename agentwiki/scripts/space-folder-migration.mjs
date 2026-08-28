@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, unlink } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -1229,7 +1229,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
       });
     }
     if (plan.status === 'completed') {
-      return {
+      const result = {
         ...operatorReport(plan),
         version: 1,
         status: 'completed',
@@ -1245,6 +1245,8 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
           pageVersionsBackfilled: 0, affectedNodes: 0,
         },
       };
+      if (options.persistReport) await options.persistReport(result);
+      return result;
     }
 
     if (plan.folders.length > 0) {
@@ -1528,9 +1530,10 @@ export function parseArguments(argv) {
   return args;
 }
 
-export async function reserveReportTarget(reportPath) {
+export async function reserveReportTarget(reportPath, operations = {}) {
   const target = resolve(reportPath);
   const parent = dirname(target);
+  const openFile = operations.open ?? open;
   const parentStat = await lstat(parent, { bigint: true });
   if (!parentStat.isDirectory() || parentStat.isSymbolicLink()) {
     throw new Error('Report parent must be an existing, non-symlink directory');
@@ -1559,13 +1562,12 @@ export async function reserveReportTarget(reportPath) {
     ) throw new Error('Reserved report target or parent identity changed');
   };
 
-  const writeThroughReservation = async (report) => {
-    if (closed) throw new Error('Report reservation is closed');
+  const writeHandle = async (handle, report) => {
     const content = Buffer.from(`${JSON.stringify(report, null, 2)}\n`, 'utf8');
-    await reportHandle.truncate(0);
+    await handle.truncate(0);
     let offset = 0;
     while (offset < content.length) {
-      const { bytesWritten } = await reportHandle.write(
+      const { bytesWritten } = await handle.write(
         content,
         offset,
         content.length - offset,
@@ -1574,19 +1576,24 @@ export async function reserveReportTarget(reportPath) {
       if (bytesWritten === 0) throw new Error('Report reservation write made no progress');
       offset += bytesWritten;
     }
-    await reportHandle.sync();
+    await handle.sync();
+  };
+
+  const writeThroughReservation = async (report) => {
+    if (closed) throw new Error('Report reservation is closed');
+    await writeHandle(reportHandle, report);
     await assertPathIdentity();
   };
 
   try {
-    parentHandle = await open(parent, (
+    parentHandle = await openFile(parent, (
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW
     ));
     const openedParent = await parentHandle.stat({ bigint: true });
     if (!sameIdentity(identity(openedParent), parentIdentity)) {
       throw new Error('Report parent identity changed before reservation');
     }
-    reportHandle = await open(target, (
+    reportHandle = await openFile(target, (
       constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW
     ), 0o600);
     await reportHandle.chmod(0o600);
@@ -1600,14 +1607,24 @@ export async function reserveReportTarget(reportPath) {
     });
     await parentHandle.sync();
   } catch (error) {
-    await reportHandle?.close().catch(() => {});
-    await parentHandle?.close().catch(() => {});
-    if (reportIdentity) {
-      const currentTarget = await lstat(target, { bigint: true }).catch(() => null);
-      if (currentTarget && sameIdentity(identity(currentTarget), reportIdentity)) {
-        await unlink(target).catch(() => {});
+    if (reportHandle) {
+      try {
+        await writeHandle(reportHandle, {
+          version: 1,
+          status: 'rejected',
+          reportPath: target,
+          rejections: [{
+            code: 'REPORT_RESERVATION_INITIALIZATION_FAILED',
+            message: error instanceof Error ? error.message : String(error),
+          }],
+        });
+      } catch {
+        // The original descriptor itself is not writable. Preserve the
+        // O_EXCL placeholder and never fall back to pathname mutation.
       }
     }
+    await reportHandle?.close().catch(() => {});
+    await parentHandle?.close().catch(() => {});
     throw error;
   }
   return {
@@ -1645,26 +1662,56 @@ function executionFailureReport(args, error) {
   });
 }
 
+export async function runSpaceFolderMigrationMode(args, prisma, reportTarget) {
+  try {
+    const report = args.mode === 'dry-run'
+      ? operatorReport(await preflightSpaceFolderMigration(prisma, args.spaceId))
+      : await migrateSpaceFolders(prisma, args.spaceId, {
+        expectedInputHash: args.expectedInputHash,
+        persistReport: (value) => reportTarget.write(value),
+      });
+    if (args.mode === 'dry-run' && reportTarget) await reportTarget.write(report);
+    return { ok: true, report, error: null, reportPersistenceError: null };
+  } catch (error) {
+    const report = executionFailureReport(args, error);
+    let reportPersistenceError = null;
+    if (reportTarget) {
+      try {
+        await reportTarget.write(report);
+      } catch (writeError) {
+        reportPersistenceError = writeError;
+      }
+    }
+    return { ok: false, report, error, reportPersistenceError };
+  }
+}
+
 async function main() {
   let args;
   let reportTarget;
   let prisma;
-  let report;
   try {
     args = parseArguments(process.argv.slice(2));
     reportTarget = args.reportPath ? await reserveReportTarget(args.reportPath) : null;
     const requireFromServer = createRequire(resolve(root, 'apps/server/package.json'));
     const { PrismaClient } = requireFromServer('@prisma/client');
     prisma = new PrismaClient({ datasources: { db: { url: databaseUrl() } } });
-    report = args.mode === 'dry-run'
-      ? operatorReport(await preflightSpaceFolderMigration(prisma, args.spaceId))
-      : await migrateSpaceFolders(prisma, args.spaceId, {
-        expectedInputHash: args.expectedInputHash,
-        persistReport: (value) => reportTarget.write(value),
-      });
-    if (reportTarget) await reportTarget.write(report);
+    const outcome = await runSpaceFolderMigrationMode(args, prisma, reportTarget);
+    if (!outcome.ok) {
+      console.error(JSON.stringify({
+        ...outcome.report,
+        ...(outcome.reportPersistenceError ? {
+          reportPersistenceError: outcome.reportPersistenceError instanceof Error
+            ? outcome.reportPersistenceError.message
+            : String(outcome.reportPersistenceError),
+        } : {}),
+      }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(outcome.report, null, 2));
   } catch (error) {
-    report = executionFailureReport(args, error);
+    const report = executionFailureReport(args, error);
     if (reportTarget) {
       try {
         await reportTarget.write(report);
@@ -1692,7 +1739,6 @@ async function main() {
       process.exitCode = 1;
     });
   }
-  console.log(JSON.stringify(report, null, 2));
 }
 
 const isMain = process.argv[1]

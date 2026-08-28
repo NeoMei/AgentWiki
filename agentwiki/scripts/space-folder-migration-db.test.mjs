@@ -23,6 +23,7 @@ import {
   migrateSpaceFolders,
   preflightSpaceFolderMigration,
   reserveReportTarget,
+  runSpaceFolderMigrationMode,
 } from './space-folder-migration.mjs';
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
@@ -758,6 +759,108 @@ test('CLI apply reserves a required report before writes and persists it before 
     } finally {
       await chmod(join(sandbox, 'unwritable'), 0o700).catch(() => {});
       await rm(sandbox, { recursive: true, force: true });
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('apply report lifecycle writes success once before commit and rewrites only after commit failure', {
+  skip,
+  timeout: 180_000,
+}, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    try {
+      const seedTree = async (label) => {
+        const seeded = await seedUserAndSpace(prisma, label);
+        const rootPage = await createPage(prisma, seeded, {
+          title: 'Root', syncPath: `pages/${label}-Root.md`,
+        });
+        await createPage(prisma, seeded, {
+          title: 'Child', parentId: rootPage.id, syncPath: `pages/${label}-Child.md`,
+        });
+        const dryRun = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+        return { ...seeded, dryRun };
+      };
+      const argsFor = (seeded, mode = 'apply') => ({
+        mode,
+        spaceId: seeded.spaceId,
+        reportPath: '/fd-bound-by-test',
+        expectedInputHash: mode === 'apply' ? seeded.dryRun.inputHash : null,
+      });
+
+      const successful = await seedTree('LifecycleSuccess');
+      const successWrites = [];
+      const successOutcome = await runSpaceFolderMigrationMode(
+        argsFor(successful),
+        prisma,
+        { write: async (value) => {
+          successWrites.push(structuredClone(value));
+          if (successWrites.length > 1) throw new Error('old post-commit report write');
+        } },
+      );
+      assert.equal(successOutcome.ok, true);
+      assert.equal(successWrites.length, 1);
+      assert.equal(successWrites[0].status, 'applied');
+      assert.equal(successWrites[0].pathChanges.length, 2);
+      assert.equal(successWrites[0].plannedFolders.length, 1);
+      assert.equal(successWrites[0].plannedAliases.length, 1);
+      assert.equal(await prisma.folder.count({ where: { spaceId: successful.spaceId } }), 1);
+
+      const dryRunOnly = await seedTree('LifecycleDryRun');
+      const dryRunWrites = [];
+      const dryRunOutcome = await runSpaceFolderMigrationMode(
+        argsFor(dryRunOnly, 'dry-run'),
+        prisma,
+        { write: async (value) => { dryRunWrites.push(structuredClone(value)); } },
+      );
+      assert.equal(dryRunOutcome.ok, true);
+      assert.deepEqual(dryRunWrites.map((value) => value.status), ['ready']);
+      assert.equal(await prisma.folder.count({ where: { spaceId: dryRunOnly.spaceId } }), 0);
+
+      const commitFailure = await seedTree('LifecycleCommitFailure');
+      const commitFailureWrites = [];
+      const commitFailingPrisma = new Proxy(prisma, {
+        get(realPrisma, property) {
+          if (property === '$transaction') {
+            return (callback, options) => realPrisma.$transaction(async (tx) => {
+              await callback(tx);
+              throw new Error('forced commit failure');
+            }, options);
+          }
+          const value = Reflect.get(realPrisma, property, realPrisma);
+          return typeof value === 'function' ? value.bind(realPrisma) : value;
+        },
+      });
+      const commitFailureOutcome = await runSpaceFolderMigrationMode(
+        argsFor(commitFailure),
+        commitFailingPrisma,
+        { write: async (value) => { commitFailureWrites.push(structuredClone(value)); } },
+      );
+      assert.equal(commitFailureOutcome.ok, false);
+      assert.deepEqual(commitFailureWrites.map((value) => value.status), ['applied', 'rejected']);
+      assert.match(commitFailureOutcome.report.rejections.at(-1).message, /forced commit failure/u);
+      assert.equal(commitFailureOutcome.report.pathChanges.length, 2);
+      assert.equal(await prisma.folder.count({ where: { spaceId: commitFailure.spaceId } }), 0);
+      assert.equal(await prisma.spaceKnowledgeRevision.count({
+        where: { spaceId: commitFailure.spaceId },
+      }), 0);
+
+      const combinedFailure = await seedTree('LifecycleCombinedFailure');
+      let combinedWriteCount = 0;
+      const combinedOutcome = await runSpaceFolderMigrationMode(
+        argsFor(combinedFailure),
+        commitFailingPrisma,
+        { write: async () => {
+          combinedWriteCount += 1;
+          if (combinedWriteCount === 2) throw new Error('forced rejection rewrite failure');
+        } },
+      );
+      assert.equal(combinedOutcome.ok, false);
+      assert.equal(combinedWriteCount, 2);
+      assert.match(combinedOutcome.reportPersistenceError.message, /forced rejection rewrite failure/u);
+      assert.equal(await prisma.folder.count({ where: { spaceId: combinedFailure.spaceId } }), 0);
+    } finally {
       await prisma.$disconnect();
     }
   });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -552,6 +552,74 @@ test('report writes remain bound to the original file when the parent path is re
     await assert.rejects(() => reservation.write({ status: 'rejected' }), /identity changed/);
     assert.equal(JSON.parse(await readFile(join(movedParent, 'report.json'), 'utf8')).status, 'rejected');
     await reservation.close?.();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('reservation initialization failures leave a closed O_EXCL placeholder and never unlink its pathname', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'agentwiki-folder-report-init-'));
+  try {
+    for (const method of ['chmod', 'stat']) {
+      const target = join(directory, `${method}.json`);
+      let reportHandleClosed = 0;
+      let parentHandleClosed = 0;
+      const injectedOpen = async (path, flags, mode) => {
+        const handle = await open(path, flags, mode);
+        return new Proxy(handle, {
+          get(realHandle, property) {
+            if (path === target && property === method) {
+              return async () => { throw new Error(`forced ${method} failure`); };
+            }
+            if (property === 'close') return async () => {
+              if (path === target) reportHandleClosed += 1;
+              else parentHandleClosed += 1;
+              return realHandle.close();
+            };
+            const value = Reflect.get(realHandle, property, realHandle);
+            return typeof value === 'function' ? value.bind(realHandle) : value;
+          },
+        });
+      };
+      await assert.rejects(
+        () => reserveReportTarget(target, { open: injectedOpen }),
+        new RegExp(`forced ${method} failure`, 'u'),
+      );
+      assert.equal(reportHandleClosed, 1);
+      assert.equal(parentHandleClosed, 1);
+      assert.equal((await stat(target)).isFile(), true);
+      const rejection = JSON.parse(await readFile(target, 'utf8'));
+      assert.equal(rejection.status, 'rejected');
+      assert.match(rejection.rejections[0].message, new RegExp(`forced ${method} failure`, 'u'));
+    }
+
+    const unwritableTarget = join(directory, 'write.json');
+    let unwritableClosed = 0;
+    let unwritableParentClosed = 0;
+    const unwritableOpen = async (path, flags, mode) => {
+      const handle = await open(path, flags, mode);
+      return new Proxy(handle, {
+        get(realHandle, property) {
+          if (path === unwritableTarget && property === 'write') {
+            return async () => { throw new Error('forced fd write failure'); };
+          }
+          if (property === 'close') return async () => {
+            if (path === unwritableTarget) unwritableClosed += 1;
+            else unwritableParentClosed += 1;
+            return realHandle.close();
+          };
+          const value = Reflect.get(realHandle, property, realHandle);
+          return typeof value === 'function' ? value.bind(realHandle) : value;
+        },
+      });
+    };
+    await assert.rejects(
+      () => reserveReportTarget(unwritableTarget, { open: unwritableOpen }),
+      /forced fd write failure/u,
+    );
+    assert.equal(unwritableClosed, 1);
+    assert.equal(unwritableParentClosed, 1);
+    assert.equal((await stat(unwritableTarget)).isFile(), true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
