@@ -62,6 +62,16 @@ const catalog: PageTemplateListResponse = {
 
 const parentOptions = [{ id: 'parent-1', title: '上级页面' }];
 
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
 const renderDialog = (overrides: Partial<React.ComponentProps<typeof NewPageDialog>> = {}) => {
   const onClose = vi.fn();
   const onCreated = vi.fn();
@@ -167,7 +177,7 @@ describe('NewPageDialog', () => {
       templateLocale: 'zh-CN',
       expectedTreeRevision: '11',
     }));
-    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
     expect(onCreated).toHaveBeenCalledWith('page-new');
     expect(mocks.api.post.mock.calls[0][1]).not.toHaveProperty('content');
     expect(mocks.api.post.mock.calls[0][1]).not.toHaveProperty('format');
@@ -187,6 +197,23 @@ describe('NewPageDialog', () => {
     expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'My page', spaceId: 'space-1', expectedTreeRevision: '11',
     });
+  });
+
+  it('does not create after the dialog unmounts while the tree head is pending', async () => {
+    const head = deferred<string>();
+    mocks.listPageTemplates.mockRejectedValue(new Error('offline'));
+    mocks.getContentTreeRevision.mockReturnValue(head.promise);
+    const view = renderDialog();
+
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Late page' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    view.unmount();
+
+    await act(async () => head.resolve('11'));
+
+    expect(mocks.api.post).not.toHaveBeenCalled();
   });
 
   it('keeps Space template default titles literal even when they contain system tokens', async () => {

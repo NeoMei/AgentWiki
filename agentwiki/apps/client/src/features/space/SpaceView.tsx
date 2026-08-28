@@ -127,6 +127,10 @@ export const SpaceView: React.FC = () => {
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
   const fetchedRouteIdRef = useRef<string | undefined>(undefined);
+  const mountedRef = useRef(false);
+  const archiveOperationRef = useRef(0);
+  const archiveControllerRef = useRef<AbortController | null>(null);
+  const archiveInFlightRef = useRef<string | null>(null);
 
   const [space, setSpace] = useState<Space | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -136,6 +140,18 @@ export const SpaceView: React.FC = () => {
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
+  const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      archiveOperationRef.current += 1;
+      archiveControllerRef.current?.abort();
+      archiveControllerRef.current = null;
+      archiveInFlightRef.current = null;
+    };
+  }, []);
 
   const fetchData = useCallback(async (resetForRoute = false) => {
     const requestSequence = ++requestSequenceRef.current;
@@ -173,7 +189,14 @@ export const SpaceView: React.FC = () => {
   useEffect(() => {
     const routeChanged = fetchedRouteIdRef.current !== id;
     fetchedRouteIdRef.current = id;
-    if (routeChanged) setShowCreate(false);
+    if (routeChanged) {
+      archiveOperationRef.current += 1;
+      archiveControllerRef.current?.abort();
+      archiveControllerRef.current = null;
+      archiveInFlightRef.current = null;
+      setArchivingPageId(null);
+      setShowCreate(false);
+    }
     void fetchData(routeChanged);
     return () => {
       requestSequenceRef.current += 1;
@@ -181,20 +204,58 @@ export const SpaceView: React.FC = () => {
   }, [fetchData, id]);
 
   const handleDeletePage = async (pageId: string, pageTitle: string, expectedUpdatedAt?: string) => {
+    if (archiveInFlightRef.current !== null) return;
     if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
     if (!id || !expectedUpdatedAt) {
       setActionError(t('page.deleteFailed'));
       return;
     }
+    const requestedSpaceId = id;
+    const requestedPageId = pageId;
+    const requestedUpdatedAt = expectedUpdatedAt;
+    const operation = ++archiveOperationRef.current;
+    archiveInFlightRef.current = pageId;
+    archiveControllerRef.current?.abort();
+    const controller = new AbortController();
+    archiveControllerRef.current = controller;
+    setArchivingPageId(pageId);
     try {
-      const expectedTreeRevision = await getContentTreeRevision(id);
-      await api.delete(`/pages/${pageId}`, {
-        data: { expectedUpdatedAt, expectedTreeRevision },
+      const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId, controller.signal);
+      if (
+        !mountedRef.current
+        || controller.signal.aborted
+        || archiveOperationRef.current !== operation
+        || archiveInFlightRef.current !== requestedPageId
+        || fetchedRouteIdRef.current !== requestedSpaceId
+        || id !== requestedSpaceId
+      ) return;
+      await api.delete(`/pages/${requestedPageId}`, {
+        data: { expectedUpdatedAt: requestedUpdatedAt, expectedTreeRevision },
       });
-      setPages((prev) => prev.filter((p) => p.id !== pageId));
-      setPageTree((prev) => removeFromTree(prev, pageId));
+      if (
+        !mountedRef.current
+        || archiveOperationRef.current !== operation
+        || archiveInFlightRef.current !== requestedPageId
+        || fetchedRouteIdRef.current !== requestedSpaceId
+      ) return;
+      setPages((prev) => prev.filter((p) => p.id !== requestedPageId));
+      setPageTree((prev) => removeFromTree(prev, requestedPageId));
     } catch (err: any) {
-      setActionError(err.response?.data?.message || t('page.deleteFailed'));
+      if (
+        mountedRef.current
+        && !controller.signal.aborted
+        && archiveOperationRef.current === operation
+        && archiveInFlightRef.current === requestedPageId
+        && fetchedRouteIdRef.current === requestedSpaceId
+      ) setActionError(err.response?.data?.message || t('page.deleteFailed'));
+    } finally {
+      if (archiveControllerRef.current === controller) archiveControllerRef.current = null;
+      if (archiveOperationRef.current === operation) archiveInFlightRef.current = null;
+      if (
+        mountedRef.current
+        && archiveOperationRef.current === operation
+        && fetchedRouteIdRef.current === requestedSpaceId
+      ) setArchivingPageId(null);
     }
   };
 
@@ -286,6 +347,7 @@ export const SpaceView: React.FC = () => {
             onDelete={(node) => handleDeletePage(node.id, node.title, node.updatedAt)}
             editLabel={t('page.edit')}
             deleteLabel={t('page.delete')}
+            deleteDisabled={archivingPageId !== null}
             onMove={handleMove}
           />
         </div>

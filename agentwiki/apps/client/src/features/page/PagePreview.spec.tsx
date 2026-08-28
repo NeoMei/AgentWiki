@@ -178,8 +178,34 @@ describe('PagePreview checklist saves', () => {
         expectedTreeRevision: '47',
       },
     }));
-    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
     confirm.mockRestore();
+  });
+
+  it('does not DELETE after navigating while the tree head is pending', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    contentTreeMocks.getContentTreeRevision.mockReturnValue(head.promise);
+    queuePages(
+      { data: page() },
+      { data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) },
+    );
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+    await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    expect(await screen.findByRole('heading', { name: 'Second page' })).toBeInTheDocument();
+
+    await act(async () => head.resolve('47'));
+
+    expect(api.delete).not.toHaveBeenCalled();
   });
 
   it('serializes two fast task saves and advances the version token from the first response', async () => {

@@ -103,10 +103,10 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
         prisma, {}, contentTree, search, undefined, graph,
       );
       const knowledgeSubmissions = new KnowledgeSubmissionService(
-        prisma, reviews, authorization,
+        prisma, reviews, authorization, writer,
       );
       const sources = new SourceService(
-        prisma, config, reviews, authorization,
+        prisma, config, reviews, authorization, writer,
       );
       const audit = { record: async () => undefined };
       const mcp = new McpService(
@@ -118,6 +118,37 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       const principal = { userId, platformRole: 'user' };
       let serial = 0;
       let moveState;
+
+      const holdNextContentTreeLock = () => {
+        const original = writer.lockContentTreeSpace;
+        let first = true;
+        let acquiredResolve;
+        let releaseResolve;
+        const acquired = new Promise((resolve) => { acquiredResolve = resolve; });
+        const released = new Promise((resolve) => { releaseResolve = resolve; });
+        writer.lockContentTreeSpace = async (...args) => {
+          const locked = await original.call(writer, ...args);
+          if (first) {
+            first = false;
+            acquiredResolve();
+            await released;
+          }
+          return locked;
+        };
+        return {
+          acquired,
+          release: () => releaseResolve(),
+          restore: () => { writer.lockContentTreeSpace = original; },
+        };
+      };
+
+      const assertPending = async (promise, message) => {
+        const state = await Promise.race([
+          promise.then(() => 'settled', () => 'settled'),
+          new Promise((resolve) => setTimeout(() => resolve('pending'), 40)),
+        ]);
+        assert.equal(state, 'pending', message);
+      };
 
       const devicePrincipal = {
         userId,
@@ -689,6 +720,88 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.pagePathAlias.count({ where: { pageId: archivedPage.id } }), 0);
           assert.deepEqual(await revisionState(archiveSpaceId), { tree: 3n, sync: 3 });
 
+          const restoredSpaceId = await createSpace('obsidian-revert-restored-archive');
+          const restoredOldFolder = await seedFolder(restoredSpaceId, 'Original');
+          const restoredNewFolder = await seedFolder(restoredSpaceId, 'Restored');
+          const restoredCreated = await pages.create({
+            title: 'Archived before restore', content: '# Archived before restore', spaceId: restoredSpaceId,
+            folderId: restoredOldFolder.id, expectedTreeRevision: '0',
+          }, principal);
+          const restoredArchiveResult = await finalize(restoredSpaceId, 'obsidian-restored-archive', [{
+            operation: 'archive',
+            pageId: restoredCreated.knowledgeKey,
+            previousPath: restoredCreated.syncPath,
+          }]);
+          const restoredBefore = await prisma.page.findUniqueOrThrow({ where: { id: restoredCreated.id } });
+          assert.ok(restoredBefore.deletedAt);
+          assert.equal(restoredBefore.lastChangeSetId, restoredArchiveResult.changeSetId);
+          const restoredResult = await finalize(restoredSpaceId, 'obsidian-restored-upsert', [{
+            operation: 'upsert',
+            pageId: restoredCreated.knowledgeKey,
+            path: 'pages/Restored/Active after restore.md',
+            title: 'Active after restore',
+            body: '# Active after restore',
+          }]);
+          let restoredPage = await prisma.page.findUniqueOrThrow({ where: { id: restoredCreated.id } });
+          assert.equal(restoredPage.deletedAt, null);
+          assert.equal(restoredPage.folderId, restoredNewFolder.id);
+          assert.equal(restoredPage.syncPath, 'pages/Restored/Active after restore.md');
+          assert.equal(restoredPage.sourceChangeSetId, restoredBefore.sourceChangeSetId);
+          assert.equal(restoredPage.lastChangeSetId, restoredResult.changeSetId);
+          const restoredChangeSet = await prisma.changeSet.findUniqueOrThrow({
+            where: { id: restoredResult.changeSetId }, include: { items: true },
+          });
+          assert.equal(restoredChangeSet.items.length, 1);
+          assert.equal(restoredChangeSet.items[0].type, 'update_page');
+          assert.equal(restoredChangeSet.items[0].payload.before.restoredFromArchive, true);
+          assert.equal(restoredChangeSet.items[0].payload.before.slug, restoredBefore.slug);
+          assert.equal(restoredChangeSet.items[0].payload.before.folderId, restoredOldFolder.id);
+          assert.equal(restoredChangeSet.items[0].payload.before.syncPath, restoredBefore.syncPath);
+          assert.equal(restoredChangeSet.items[0].payload.before.deletedAt, restoredBefore.deletedAt.toISOString());
+          assert.equal(restoredChangeSet.items[0].payload.before.sourceChangeSetId, restoredBefore.sourceChangeSetId);
+          assert.equal(restoredChangeSet.items[0].payload.before.lastChangeSetId, restoredBefore.lastChangeSetId);
+          assert.deepEqual(await revisionState(restoredSpaceId), { tree: 3n, sync: 3 });
+
+          const restoredStaleState = restoredPage;
+          const restoredStaleVersions = await prisma.pageVersion.count({ where: { pageId: restoredPage.id } });
+          const restoredStaleAliases = await prisma.pagePathAlias.findMany({
+            where: { pageId: restoredPage.id }, orderBy: { path: 'asc' },
+          });
+          await expectCode(reviews.revert(restoredResult.changeSetId, '2'), 'CONTENT_TREE_CONFLICT');
+          assert.deepEqual(await prisma.page.findUniqueOrThrow({ where: { id: restoredPage.id } }), restoredStaleState);
+          assert.equal(await prisma.pageVersion.count({ where: { pageId: restoredPage.id } }), restoredStaleVersions);
+          assert.deepEqual(await prisma.pagePathAlias.findMany({
+            where: { pageId: restoredPage.id }, orderBy: { path: 'asc' },
+          }), restoredStaleAliases);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({
+            where: { id: restoredResult.changeSetId },
+          })).status, 'published');
+
+          await reviews.revert(restoredResult.changeSetId, '3');
+          restoredPage = await prisma.page.findUniqueOrThrow({ where: { id: restoredPage.id } });
+          assert.equal(restoredPage.title, restoredBefore.title);
+          assert.equal(restoredPage.slug, restoredBefore.slug);
+          assert.equal(restoredPage.content, restoredBefore.content);
+          assert.equal(restoredPage.folderId, restoredOldFolder.id);
+          assert.equal(restoredPage.parentId, null);
+          assert.equal(restoredPage.syncPath, restoredBefore.syncPath);
+          assert.equal(restoredPage.deletedAt?.toISOString(), restoredBefore.deletedAt.toISOString());
+          assert.equal(restoredPage.deletionBatchId, restoredBefore.deletionBatchId);
+          assert.equal(restoredPage.sourceChangeSetId, restoredBefore.sourceChangeSetId);
+          assert.equal(restoredPage.lastChangeSetId, restoredBefore.lastChangeSetId);
+          assert.equal((await prisma.pagePathAlias.findFirstOrThrow({
+            where: { pageId: restoredPage.id, pathKey: pathKey('pages/Restored/Active after restore.md') },
+          })).path, 'pages/Restored/Active after restore.md');
+          assert.equal(await prisma.pagePathAlias.count({
+            where: { pageId: restoredPage.id, pathKey: pathKey(restoredBefore.syncPath) },
+          }), 1);
+          const restoredRevertVersion = await prisma.pageVersion.findFirstOrThrow({
+            where: { pageId: restoredPage.id }, orderBy: { createdAt: 'desc' },
+          });
+          assert.equal(restoredRevertVersion.folderId, restoredNewFolder.id);
+          assert.equal(restoredRevertVersion.syncPath, 'pages/Restored/Active after restore.md');
+          assert.deepEqual(await revisionState(restoredSpaceId), { tree: 4n, sync: 4 });
+
           const collisionSpaceId = await createSpace('obsidian-revert-collision');
           const collisionOldFolder = await seedFolder(collisionSpaceId, 'Old');
           const collisionNewFolder = await seedFolder(collisionSpaceId, 'New');
@@ -699,7 +812,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           const collisionBefore = await prisma.page.findUniqueOrThrow({
             where: { id: collisionCreated.id },
           });
-          const collisionResult = await finalize(collisionSpaceId, 'obsidian-revert-collision', [{
+          await finalize(collisionSpaceId, 'obsidian-revert-collision-archive', [{
+            operation: 'archive',
+            pageId: collisionBefore.knowledgeKey,
+            previousPath: collisionBefore.syncPath,
+          }]);
+          const collisionResult = await finalize(collisionSpaceId, 'obsidian-revert-collision-restore', [{
             operation: 'upsert',
             pageId: collisionBefore.knowledgeKey,
             path: 'pages/New/Collision moved.md',
@@ -708,7 +826,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           }]);
           await pages.create({
             title: 'Collision original', content: '# Blocker', spaceId: collisionSpaceId,
-            folderId: collisionOldFolder.id, expectedTreeRevision: '2',
+            folderId: collisionOldFolder.id, expectedTreeRevision: '3',
           }, principal);
           const collisionPage = await prisma.page.findUniqueOrThrow({
             where: { id: collisionBefore.id },
@@ -719,7 +837,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           const collisionAliases = await prisma.pagePathAlias.findMany({
             where: { pageId: collisionBefore.id }, orderBy: { path: 'asc' },
           });
-          await expectCode(reviews.revert(collisionResult.changeSetId, '3'), 'CONTENT_TREE_CONFLICT');
+          await expectCode(reviews.revert(collisionResult.changeSetId, '4'), 'CONTENT_TREE_CONFLICT');
           assert.deepEqual(await prisma.page.findUniqueOrThrow({
             where: { id: collisionBefore.id },
           }), collisionPage);
@@ -730,7 +848,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.changeSet.findUniqueOrThrow({
             where: { id: collisionResult.changeSetId },
           })).status, 'published');
-          assert.deepEqual(await revisionState(collisionSpaceId), { tree: 3n, sync: 3 });
+          assert.deepEqual(await revisionState(collisionSpaceId), { tree: 4n, sync: 4 });
         });
 
         await t.test('Review publish commits Page placement once and rolls claim/Page/revisions back on a structural writer failure', async () => {
@@ -833,6 +951,70 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.ok((await prisma.knowledgeSubmission.findUniqueOrThrow({
             where: { id: submission.submissionId },
           })).appliedRevisionId);
+
+          const latestRevision = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+            where: { spaceId }, orderBy: { sequence: 'desc' },
+          });
+          const staleBundle = {
+            ...bundle,
+            baseRevision: latestRevision.id,
+            pages: [{
+              ...bundle.pages[0],
+              pageId: `knowledge-stale-${suffix}`,
+              path: '/knowledge-stale.md',
+              title: 'Knowledge stale',
+              body: '# Knowledge stale',
+              contentHash: 'knowledge-stale-content-hash',
+            }],
+          };
+          const lockGate = holdNextContentTreeLock();
+          let staleSubmission;
+          try {
+            const proposalPromise = knowledgeSubmissions.submit(
+              spaceId,
+              principal,
+              Buffer.from(JSON.stringify(staleBundle)),
+              `knowledge-stale-${suffix}`,
+              true,
+            );
+            await lockGate.acquired;
+            const concurrentMutation = contentTree.createFolder({
+              spaceId,
+              parentId: null,
+              name: 'Knowledge concurrent',
+              expectedTreeRevision: 1n,
+              actor: { userId },
+            });
+            await assertPending(
+              concurrentMutation,
+              'Knowledge proposal lock must serialize a concurrent structural mutation',
+            );
+            lockGate.release();
+            [staleSubmission] = await Promise.all([proposalPromise, concurrentMutation]);
+          } finally {
+            lockGate.release();
+            lockGate.restore();
+          }
+          const staleProduced = await prisma.changeSet.findUniqueOrThrow({
+            where: { id: staleSubmission.changeSetId }, include: { items: true },
+          });
+          const staleStructural = staleProduced.items.filter((item) => (
+            item.type === 'create_page' || item.type === 'update_page' || item.type === 'archive_page'
+          ));
+          assert.equal(staleStructural.length, 1);
+          assert.equal(staleStructural[0].payload.expectedTreeRevision, '1');
+          await expectCode(reviews.reviewPublish(staleProduced.id, userId), 'CONTENT_TREE_CONFLICT');
+          assert.equal(await prisma.page.count({ where: { spaceId, title: 'Knowledge stale' } }), 0);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({
+            where: { id: staleProduced.id },
+          })).status, 'approved');
+          assert.ok(staleProduced.items.every((item) => item.status === 'pending'));
+          assert.ok((await prisma.changeItem.findMany({
+            where: { changeSetId: staleProduced.id },
+          })).every((item) => item.status === 'accepted'));
+          assert.equal((await prisma.space.findUniqueOrThrow({
+            where: { id: spaceId },
+          })).contentTreeRevision, 2n);
         });
 
         await t.test('real Source ingestion producer captures tree CAS and publishes through Review', async () => {
@@ -882,6 +1064,70 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             where: { id: spaceId },
           })).contentTreeRevision, 1n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+
+          const staleSource = await sources.create(spaceId, principal, {
+            type: 'text',
+            name: 'Source stale',
+            content: '# Source stale',
+          });
+          const staleRun = await sources.createRun(
+            staleSource.id,
+            principal,
+            `source-stale-${suffix}`,
+          );
+          await prisma.ingestRun.update({
+            where: { id: staleRun.id },
+            data: {
+              status: 'reserved',
+              stage: 'reserved',
+              leaseOwner: `source-stale-worker-${suffix}`,
+              leaseExpiresAt: new Date(Date.now() + 60_000),
+            },
+          });
+          const lockGate = holdNextContentTreeLock();
+          try {
+            const proposalPromise = sources.processRun(
+              staleRun.id,
+              `source-stale-worker-${suffix}`,
+            );
+            await lockGate.acquired;
+            const concurrentMutation = contentTree.createFolder({
+              spaceId,
+              parentId: null,
+              name: 'Source concurrent',
+              expectedTreeRevision: 1n,
+              actor: { userId },
+            });
+            await assertPending(
+              concurrentMutation,
+              'Source proposal lock must serialize a concurrent structural mutation',
+            );
+            lockGate.release();
+            await Promise.all([proposalPromise, concurrentMutation]);
+          } finally {
+            lockGate.release();
+            lockGate.restore();
+          }
+          const staleProduced = await prisma.changeSet.findUniqueOrThrow({
+            where: { runId: staleRun.id }, include: { items: true },
+          });
+          const staleStructural = staleProduced.items.filter((item) => (
+            item.type === 'create_page' || item.type === 'update_page' || item.type === 'archive_page'
+          ));
+          assert.equal(staleStructural.length, 1);
+          assert.equal(staleStructural[0].payload.expectedTreeRevision, '1');
+          await expectCode(reviews.reviewPublish(staleProduced.id, userId), 'CONTENT_TREE_CONFLICT');
+          assert.equal(await prisma.page.count({ where: { spaceId, title: 'Source stale' } }), 0);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({
+            where: { id: staleProduced.id },
+          })).status, 'approved');
+          assert.ok(staleProduced.items.every((item) => item.status === 'pending'));
+          assert.ok((await prisma.changeItem.findMany({
+            where: { changeSetId: staleProduced.id },
+          })).every((item) => item.status === 'accepted'));
+          assert.equal((await prisma.space.findUniqueOrThrow({
+            where: { id: spaceId },
+          })).contentTreeRevision, 2n);
         });
 
         await t.test('real MCP propose_page persists caller tree CAS, publishes, and rejects an old proposal after a concurrent tree change', async () => {

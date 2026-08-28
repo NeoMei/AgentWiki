@@ -878,9 +878,10 @@ describe('ReviewService approval boundaries', () => {
     const priorModifiedAt = new Date('2026-08-18T07:00:00Z');
     const before = {
       restoredFromArchive: true,
-      title: 'Archived title', content: 'Archived body', format: 'markdown', parentId: 'parent-old',
+      title: 'Archived title', slug: 'archived-title', content: 'Archived body', format: 'markdown', parentId: 'parent-old',
       folderId: 'folder-old',
       deletedAt: archivedAt.toISOString(), sourceChangeSetId: 'cs-old', createdByAgentId: 'agent-old',
+      deletionBatchId: 'deletion-batch-old',
       lastChangeSetId: 'cs-old', lastModifiedByUserId: null, lastModifiedByAgentId: 'agent-old',
       lastModifiedAt: priorModifiedAt.toISOString(), sourceId: 'source-1', sourceVersionId: 'version-1',
       sourcePath: 'docs/a.md', syncPath: 'pages/Archived title.md',
@@ -889,7 +890,7 @@ describe('ReviewService approval boundaries', () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-restore', status: 'published', spaceId: 'space-1', publishedAt,
       createdByUserId: 'user-1', createdByAgentId: null,
-      items: [{ id: 'restore', type: 'create_page', status: 'published', publishedResourceId: 'page-1', payload: { before } }],
+      items: [{ id: 'restore', type: 'update_page', status: 'published', publishedResourceId: 'page-1', payload: { before } }],
       approvals: [], space: {}, run: null,
     });
     const tx = {
@@ -913,14 +914,16 @@ describe('ReviewService approval boundaries', () => {
     await service.revert('cs-restore', '0');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'page-1', sourceChangeSetId: 'cs-restore', lastChangeSetId: 'cs-restore' }),
+      where: expect.objectContaining({ id: 'page-1', lastChangeSetId: 'cs-restore', deletedAt: null }),
       data: expect.objectContaining({
         title: 'Archived title', content: 'Archived body', parentId: null,
         folderId: 'folder-old', deletedAt: archivedAt,
+        deletionBatchId: 'deletion-batch-old',
         sourceChangeSetId: 'cs-old', lastChangeSetId: 'cs-old', lastModifiedAt: priorModifiedAt,
         syncPath: 'pages/Archived title.md', syncPathKey: pathKey('pages/Archived title.md'),
       }),
     }));
+    expect(tx.page.updateMany.mock.calls[0][0].where).not.toHaveProperty('sourceChangeSetId');
     expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ syncPath: 'pages/Restored title.md' }),
     }));
@@ -2548,11 +2551,25 @@ describe('ReviewService archive audit and provenance', () => {
         pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(),
         expectedTreeRevision: '0',
         before: {
+          title: originalPage.title,
+          slug: originalPage.slug,
+          content: originalPage.content,
+          format: originalPage.format,
+          parentId: originalPage.parentId,
+          folderId: null,
+          syncPath: originalPage.syncPath,
+          syncPathKey: originalPage.syncPathKey,
+          sourceChangeSetId: originalPage.sourceChangeSetId,
+          createdByAgentId: originalPage.createdByAgentId,
           lastChangeSetId: originalPage.lastChangeSetId,
           lastModifiedByUserId: originalPage.lastModifiedByUserId,
           lastModifiedByAgentId: originalPage.lastModifiedByAgentId,
           lastModifiedAt: originalModifiedAt.toISOString(),
+          sourceId: originalPage.sourceId,
+          sourceVersionId: originalPage.sourceVersionId,
+          sourcePath: originalPage.sourcePath,
           deletedAt: null,
+          deletionBatchId: null,
         },
       } },
     });

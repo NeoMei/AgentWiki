@@ -712,6 +712,7 @@ export class PushSessionService {
       parentId: page.parentId,
       folderId: page.folderId ?? null,
       deletedAt: page.deletedAt?.toISOString?.() ?? null,
+      deletionBatchId: page.deletionBatchId ?? null,
       sourceChangeSetId: page.sourceChangeSetId ?? null,
       createdByAgentId: page.createdByAgentId ?? null,
       lastChangeSetId: page.lastChangeSetId ?? null,
@@ -769,14 +770,7 @@ export class PushSessionService {
           payload: {
             pageId: change.pageId,
             previousPath: change.previousPath ?? page.syncPath,
-            before: {
-              deletedAt: null,
-              lastChangeSetId: page.lastChangeSetId ?? null,
-              lastModifiedByUserId: page.lastModifiedByUserId ?? null,
-              lastModifiedByAgentId: page.lastModifiedByAgentId ?? null,
-              lastModifiedAt: page.lastModifiedAt?.toISOString?.()
-                ?? page.updatedAt.toISOString(),
-            },
+            before: revertSnapshot(page),
           },
           publishedResourceId: page.id,
         });
@@ -873,7 +867,7 @@ export class PushSessionService {
         body,
       });
       applied.push({
-        type: !existing || restoredFromArchive ? 'create_page' : 'update_page',
+        type: existing ? 'update_page' : 'create_page',
         payload: {
           pageId: change.pageId,
           path: placement.syncPath,

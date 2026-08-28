@@ -66,11 +66,16 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const focusCloseAfterBackRef = useRef(false);
   const sessionActiveRef = useRef(true);
+  const createOperationRef = useRef(0);
+  const createControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     sessionActiveRef.current = true;
     return () => {
       sessionActiveRef.current = false;
+      createOperationRef.current += 1;
+      createControllerRef.current?.abort();
+      createControllerRef.current = null;
     };
   }, []);
 
@@ -123,10 +128,19 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     event.preventDefault();
     const normalizedTitle = truncateValidatorLength(title.trim(), PAGE_TITLE_LIMIT);
     if (!normalizedTitle || creating) return;
+    const operation = ++createOperationRef.current;
+    createControllerRef.current?.abort();
+    const controller = new AbortController();
+    createControllerRef.current = controller;
     setCreating(true);
     setCreateError(null);
     try {
-      const expectedTreeRevision = await getContentTreeRevision(spaceId);
+      const expectedTreeRevision = await getContentTreeRevision(spaceId, controller.signal);
+      if (
+        !sessionActiveRef.current
+        || controller.signal.aborted
+        || createOperationRef.current !== operation
+      ) return;
       const payload = {
         title: normalizedTitle,
         spaceId,
@@ -139,20 +153,36 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         } : {}),
       };
       const response = await api.post('/pages', payload);
-      if (sessionActiveRef.current) onCreated(response.data.id);
+      if (
+        sessionActiveRef.current
+        && !controller.signal.aborted
+        && createOperationRef.current === operation
+      ) onCreated(response.data.id);
     } catch (error) {
-      if (sessionActiveRef.current) {
+      if (
+        sessionActiveRef.current
+        && !controller.signal.aborted
+        && createOperationRef.current === operation
+      ) {
         setCreateError(apiErrorMessage(error, t, 'page.createFailed'));
       }
     } finally {
-      if (sessionActiveRef.current) setCreating(false);
+      if (createControllerRef.current === controller) createControllerRef.current = null;
+      if (sessionActiveRef.current && createOperationRef.current === operation) setCreating(false);
     }
+  };
+
+  const close = () => {
+    createOperationRef.current += 1;
+    createControllerRef.current?.abort();
+    createControllerRef.current = null;
+    onClose();
   };
 
   return (
     <ModalDialog
       labelledBy="new-page-dialog-title"
-      onRequestClose={onClose}
+      onRequestClose={close}
       closeDisabled={creating}
       returnFocusTo={returnFocusTo}
       className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[14px] bg-white p-4 shadow-xl sm:p-6"
@@ -171,7 +201,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           type="button"
           aria-label={t('common.close')}
           disabled={creating}
-          onClick={onClose}
+          onClick={close}
           className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
         >
           <X size={20} />

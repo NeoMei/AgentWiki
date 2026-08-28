@@ -37,6 +37,8 @@ export const PageVersionHistory: React.FC = () => {
   const routeRef = useRef({ id, generation: 0 });
   const restoringRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
+  const restoreOperationRef = useRef(0);
+  const restoreControllerRef = useRef<AbortController | null>(null);
   if (routeRef.current.id !== id) {
     routeRef.current = { id, generation: routeRef.current.generation + 1 };
   }
@@ -45,6 +47,9 @@ export const PageVersionHistory: React.FC = () => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      restoreOperationRef.current += 1;
+      restoreControllerRef.current?.abort();
+      restoreControllerRef.current = null;
       restoringRef.current = null;
     };
   }, []);
@@ -56,6 +61,9 @@ export const PageVersionHistory: React.FC = () => {
     setVersions([]);
     setPreviewVersionId(null);
     setError(null);
+    restoreOperationRef.current += 1;
+    restoreControllerRef.current?.abort();
+    restoreControllerRef.current = null;
     restoringRef.current = null;
     setRestoring(null);
     setLoading(true);
@@ -85,19 +93,45 @@ export const PageVersionHistory: React.FC = () => {
     const requestedId = id;
     const requestedSpaceId = page.spaceId;
     const requestedRoute = routeRef.current;
+    const operation = ++restoreOperationRef.current;
+    restoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    restoreControllerRef.current = controller;
     restoringRef.current = versionId;
     setRestoring(versionId);
     try {
-      const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId);
+      const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId, controller.signal);
+      if (
+        !mountedRef.current
+        || controller.signal.aborted
+        || restoreOperationRef.current !== operation
+        || routeRef.current !== requestedRoute
+        || page?.spaceId !== requestedSpaceId
+      ) return;
       await api.post(`/pages/${requestedId}/versions/${versionId}/restore`, { expectedTreeRevision });
-      if (!mountedRef.current || routeRef.current !== requestedRoute) return;
+      if (
+        !mountedRef.current
+        || restoreOperationRef.current !== operation
+        || routeRef.current !== requestedRoute
+      ) return;
       alert(t('version.restored'));
       navigate(`/pages/${requestedId}/edit`);
     } catch (err: unknown) {
-      if (!mountedRef.current || routeRef.current !== requestedRoute) return;
+      if (
+        !mountedRef.current
+        || controller.signal.aborted
+        || restoreOperationRef.current !== operation
+        || routeRef.current !== requestedRoute
+      ) return;
       alert(apiErrorMessage(err, t, 'version.restoreFailedGeneric'));
     } finally {
-      if (mountedRef.current && routeRef.current === requestedRoute && restoringRef.current === versionId) {
+      if (restoreControllerRef.current === controller) restoreControllerRef.current = null;
+      if (
+        mountedRef.current
+        && restoreOperationRef.current === operation
+        && routeRef.current === requestedRoute
+        && restoringRef.current === versionId
+      ) {
         restoringRef.current = null;
         setRestoring(null);
       }

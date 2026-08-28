@@ -18,12 +18,13 @@ interface PageTreeProps {
   onDelete?: (node: PageTreeNode) => void;
   editLabel?: string;
   deleteLabel?: string;
+  deleteDisabled?: boolean;
   onMove?: (dragId: string, targetId: string | null, position: 'into' | 'before' | 'after') => void;
 }
 
 export type MovePosition = 'into' | 'before' | 'after';
 
-const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string; collapsed: Set<string>; toggle: (id: string) => void; onSelect?: (id: string) => void; onEdit?: (n: PageTreeNode) => void; onDelete?: (n: PageTreeNode) => void; editLabel?: string; deleteLabel?: string; onMove?: PageTreeProps['onMove'] }> = ({ node, depth, currentPageId, collapsed, toggle, onSelect, onEdit, onDelete, editLabel, deleteLabel, onMove }) => {
+const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string; collapsed: Set<string>; toggle: (id: string) => void; onSelect?: (id: string) => void; onEdit?: (n: PageTreeNode) => void; onDelete?: (n: PageTreeNode) => void; editLabel?: string; deleteLabel?: string; deleteDisabled?: boolean; onMove?: PageTreeProps['onMove'] }> = ({ node, depth, currentPageId, collapsed, toggle, onSelect, onEdit, onDelete, editLabel, deleteLabel, deleteDisabled, onMove }) => {
   const hasChildren = !!node.children?.length;
   const isCollapsed = collapsed.has(node.id);
   const isCurrent = node.id === currentPageId;
@@ -114,7 +115,7 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
               </button>
             ) : null}
             {onDelete ? (
-              <button type="button" onClick={() => onDelete(node)} aria-label={deleteLabel || 'delete'} data-testid={`tree-delete-${node.id}`} className="inline-flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600">
+              <button type="button" disabled={deleteDisabled} onClick={() => onDelete(node)} aria-label={deleteLabel || 'delete'} data-testid={`tree-delete-${node.id}`} className="inline-flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50">
                 <Trash2 size={13} />
               </button>
             ) : null}
@@ -124,7 +125,7 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
       {hasChildren && !isCollapsed ? (
         <ul>
           {node.children!.map((child) => (
-            <Node key={child.id} node={child} depth={depth + 1} currentPageId={currentPageId} collapsed={collapsed} toggle={toggle} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} editLabel={editLabel} deleteLabel={deleteLabel} onMove={onMove} />
+            <Node key={child.id} node={child} depth={depth + 1} currentPageId={currentPageId} collapsed={collapsed} toggle={toggle} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} editLabel={editLabel} deleteLabel={deleteLabel} deleteDisabled={deleteDisabled} onMove={onMove} />
           ))}
         </ul>
       ) : null}
@@ -132,7 +133,7 @@ const Node: React.FC<{ node: PageTreeNode; depth: number; currentPageId?: string
   );
 };
 
-export const PageTree: React.FC<PageTreeProps> = ({ nodes, currentPageId, onSelect, emptyText, onEdit, onDelete, editLabel, deleteLabel, onMove }) => {
+export const PageTree: React.FC<PageTreeProps> = ({ nodes, currentPageId, onSelect, emptyText, onEdit, onDelete, editLabel, deleteLabel, deleteDisabled, onMove }) => {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (id: string) => {
     setCollapsed((current) => {
@@ -147,7 +148,7 @@ export const PageTree: React.FC<PageTreeProps> = ({ nodes, currentPageId, onSele
   return (
     <ul className="space-y-0.5" data-testid="page-tree">
       {tree.map((node) => (
-        <Node key={node.id} node={node} depth={0} currentPageId={currentPageId} collapsed={collapsed} toggle={toggle} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} editLabel={editLabel} deleteLabel={deleteLabel} onMove={onMove} />
+        <Node key={node.id} node={node} depth={0} currentPageId={currentPageId} collapsed={collapsed} toggle={toggle} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} editLabel={editLabel} deleteLabel={deleteLabel} deleteDisabled={deleteDisabled} onMove={onMove} />
       ))}
     </ul>
   );

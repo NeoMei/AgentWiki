@@ -428,7 +428,34 @@ describe('PageEditor remote update safety', () => {
       expectedUpdatedAt: '2026-07-27T08:00:00.000Z',
       expectedTreeRevision: '31',
     }));
-    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
+  });
+
+  it('does not PATCH after navigating away while the structural tree head is pending', async () => {
+    const head = deferred<string>();
+    contentTreeMocks.getContentTreeRevision.mockReturnValue(head.promise);
+    queuePages(
+      { data: page() },
+      { data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) },
+    );
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const title = await screen.findByDisplayValue('Original title');
+    fireEvent.change(title, { target: { value: 'Late title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    expect(await screen.findByDisplayValue('Second page')).toBeInTheDocument();
+
+    await act(async () => head.resolve('31'));
+
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('refreshes a pristine form safely and uses the refreshed version for the next save', async () => {

@@ -170,8 +170,57 @@ describe('SpaceView new-page flow', () => {
         expectedTreeRevision: '43',
       },
     }));
-    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1');
+    expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
     confirm.mockRestore();
+  });
+
+  it('does not DELETE after changing Space while the tree head is pending', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.getContentTreeRevision.mockReturnValue(head.promise);
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-a') return spaceResponse('space-a', 'Owner A', 'owner');
+      if (url === '/spaces/space-b') return spaceResponse('space-b', 'Owner B', 'owner');
+      if (url === '/pages/hierarchy/space-a') return {
+        data: [{ id: 'page-a', title: 'Archive A', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
+      };
+      if (url === '/pages/hierarchy/space-b') return { data: [] };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    const { navigateTo } = renderNavigableSpaceView();
+
+    fireEvent.click(await screen.findByTestId('tree-delete-page-a'));
+    await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    navigateTo('space-b');
+    expect(await screen.findByRole('heading', { name: 'Owner B' })).toBeInTheDocument();
+
+    await act(async () => head.resolve('43'));
+
+    expect(mocks.api.delete).not.toHaveBeenCalled();
+  });
+
+  it('coalesces repeated archive clicks into one head and one mutation', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.getContentTreeRevision.mockReturnValue(head.promise);
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-1') return spaceResponse('space-1', 'Owner Space', 'owner');
+      if (url === '/pages/hierarchy/space-1') return {
+        data: [{ id: 'page-1', title: 'Archive once', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
+      };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    mocks.api.delete.mockResolvedValue({ data: {} });
+    renderSpaceView();
+
+    const button = await screen.findByTestId('tree-delete-page-1');
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    expect(button).toBeDisabled();
+    await act(async () => head.resolve('43'));
+
+    await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledTimes(1));
   });
 
   it('removes owner authorization immediately while a viewer Space route is loading', async () => {

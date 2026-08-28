@@ -200,6 +200,62 @@ describe('PushSessionService graph lifecycle', () => {
     }));
   });
 
+  it('classifies an archived Page restore as an update and preserves a self-contained archived snapshot', async () => {
+    const archivedAt = new Date('2026-08-20T00:00:00.000Z');
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'Archived', slug: 'archived-slug', content: '# Archived', format: 'markdown',
+      authorId: 'author-1', parentId: null, folderId: 'folder-old',
+      syncPath: 'pages/Old/Archived.md', syncPathKey: 'pages/old/archived.md',
+      sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
+      createdByAgentId: 'agent-original', deletionBatchId: 'batch-1',
+      createdAt: archivedAt, updatedAt: archivedAt, deletedAt: archivedAt,
+      lastModifiedAt: archivedAt, lastModifiedByUserId: null,
+      lastModifiedByAgentId: 'agent-original', sourceId: 'source-1',
+      sourceVersionId: 'source-version-1', sourcePath: 'docs/archived.md',
+    };
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const contentTree = {
+      prepareExactPageMutation: jest.fn().mockResolvedValue({
+        folderId: 'folder-new',
+        syncPath: 'pages/New/Restored.md',
+        syncPathKey: 'pages/new/restored.md',
+      }),
+    };
+    const service: any = new (PushSessionService as any)(
+      {}, {}, contentTree, {}, undefined, undefined,
+    );
+
+    const result = await service.applyPageChanges(tx, 'space-1', 'user-1', [{
+      operation: 'upsert', pageId: 'knowledge-1',
+      path: 'pages/New/Restored.md', title: 'Restored', body: '# Restored',
+    }], 'change-set-restore');
+
+    expect(result.applied).toEqual([expect.objectContaining({
+      type: 'update_page',
+      payload: expect.objectContaining({
+        before: expect.objectContaining({
+          restoredFromArchive: true,
+          slug: 'archived-slug',
+          folderId: 'folder-old',
+          syncPath: 'pages/Old/Archived.md',
+          syncPathKey: 'pages/old/archived.md',
+          deletedAt: archivedAt.toISOString(),
+          deletionBatchId: 'batch-1',
+          sourceChangeSetId: 'original-change-set',
+          lastChangeSetId: 'previous-change-set',
+        }),
+      }),
+    })]);
+    expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
+  });
+
   it('binds an archived Page to the Obsidian ChangeSet without replacing its source', async () => {
     const current = {
       id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
@@ -207,6 +263,8 @@ describe('PushSessionService graph lifecycle', () => {
       authorId: 'author-1', parentId: null, folderId: 'folder-1',
       syncPath: 'pages/Team/Before.md', syncPathKey: 'pages/team/before.md',
       sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
+      deletionBatchId: null, createdByAgentId: 'agent-original',
+      lastModifiedByUserId: 'user-before', lastModifiedByAgentId: null,
       createdAt: new Date('2026-08-20T00:00:00.000Z'),
       updatedAt: new Date('2026-08-20T00:00:00.000Z'), deletedAt: null,
       lastModifiedAt: new Date('2026-08-20T00:00:00.000Z'),
@@ -230,7 +288,7 @@ describe('PushSessionService graph lifecycle', () => {
       {}, {}, contentTree, {}, undefined, undefined,
     );
 
-    await service.applyPageChanges(tx, 'space-1', 'user-1', [{
+    const result = await service.applyPageChanges(tx, 'space-1', 'user-1', [{
       operation: 'archive', pageId: 'knowledge-1', previousPath: current.syncPath,
     }], 'change-set-1');
 
@@ -238,6 +296,13 @@ describe('PushSessionService graph lifecycle', () => {
       data: expect.objectContaining({ lastChangeSetId: 'change-set-1' }),
     }));
     expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
+    expect(result.applied[0].payload.before).toEqual(expect.objectContaining({
+      title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
+      folderId: 'folder-1', syncPath: 'pages/Team/Before.md',
+      syncPathKey: 'pages/team/before.md', deletedAt: null, deletionBatchId: null,
+      sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
+      createdByAgentId: 'agent-original', lastModifiedByUserId: 'user-before',
+    }));
   });
 
   it('delegates exact incoming path placement and aliasing to ContentTree for a structural update', async () => {

@@ -35,6 +35,7 @@ describe('KnowledgeSubmissionService', () => {
   } as any);
 
   const makeTx = (overrides: any = {}) => ({
+    __contentTreeRevision: overrides.contentTreeRevision ?? 17n,
     spaceKnowledgeRevision: {
       findFirst: jest.fn(async () => overrides.latestRevision || null),
     },
@@ -65,30 +66,35 @@ describe('KnowledgeSubmissionService', () => {
     assertSpaceAccess: jest.fn(),
     assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined),
   } as any;
+  const revisionWriter = {
+    lockContentTreeSpace: jest.fn(async (tx: any) => Object.assign(tx, {
+      contentTreeRevision: tx.__contentTreeRevision ?? 17n,
+    })),
+  } as any;
 
   beforeEach(() => jest.clearAllMocks());
 
   it('requires explicit confirmation', async () => {
-    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
     await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', false)).rejects.toThrow(expect.objectContaining({ businessCode: 'SYNC_CONFIRMATION_REQUIRED' }));
   });
 
   it('rejects a bundle whose spaceId does not match route', async () => {
-    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, spaceId: 'space-2', contentHash: 'x' });
     await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', true)).rejects.toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BUNDLE_INVALID' }));
   });
 
   it('rejects a stale base revision', async () => {
-    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, baseRevision: 'rev-old', contentHash: 'x' });
     await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', true)).rejects.toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BASE_STALE' }));
   });
 
   it('returns existing submission for idempotent retry', async () => {
     const tx = makeTx({ existingSubmission: { id: 'sub-1', status: 'pending_review', changeSetId: 'cs-1' } });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx, latestRevision: { id: '0', sequence: 0 } }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx, latestRevision: { id: '0', sequence: 0 } }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
     const result = await service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', true);
     expect(result.status).toBe('pending_review');
@@ -96,7 +102,7 @@ describe('KnowledgeSubmissionService', () => {
 
   it('creates a pending review submission with compiled items', async () => {
     const tx = makeTx({ latestRevision: { id: '0', sequence: 0 } });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
     const result = await service.submit('space-1', { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' }, Buffer.from('{}'), 'idem-1', true);
     expect(result.status).toBe('pending_review');
@@ -115,7 +121,7 @@ describe('KnowledgeSubmissionService', () => {
 
   it('writes nothing when the Agent authorization changed before the transaction', async () => {
     const tx = makeTx({ latestRevision: { id: '0', sequence: 0 } });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, contentHash: 'x' });
     auth.assertLiveAgentWriteAccess.mockRejectedValueOnce(
       Object.assign(new Error('denied'), { businessCode: 'SPACE_ACCESS_DENIED' }),
@@ -133,7 +139,7 @@ describe('KnowledgeSubmissionService', () => {
 
   it('returns noop for an empty bundle', async () => {
     const tx = makeTx({ latestRevision: { id: '0', sequence: 0 } });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, pages: [], memories: [], relations: [], deletions: [], contentHash: 'x' });
     const result = await service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', true);
     expect(result.status).toBe('noop');
@@ -144,7 +150,7 @@ describe('KnowledgeSubmissionService', () => {
       latestRevision: { id: 'rev-1', sequence: 1 },
       existingPages: [{ id: 'page-1', sourcePath: '/home', title: 'Home', content: '# Old', updatedAt: new Date('2026-07-31T00:00:00.000Z') }],
     });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, baseRevision: 'rev-1', contentHash: 'x' });
 
     await service.submit('space-1', { userId: 'u1', agentId: 'agent-1', credentialId: 'cred-1' }, Buffer.from('{}'), 'idem-update', true);
@@ -169,7 +175,7 @@ describe('KnowledgeSubmissionService', () => {
         { id: 'page-archive', knowledgeKey: 'page-archive', sourcePath: '/archive', title: 'Archive', content: '# Archive', updatedAt },
       ],
     });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({
       ...validBundle,
       baseRevision: 'rev-1',
@@ -190,10 +196,42 @@ describe('KnowledgeSubmissionService', () => {
         expect.objectContaining({ type: 'update_page', payload: expect.objectContaining({ expectedTreeRevision: '23' }) }),
         expect.objectContaining({ type: 'archive_page', payload: expect.objectContaining({ expectedTreeRevision: '23' }) }),
       ]));
-    expect(tx.space.findUnique).toHaveBeenCalledWith({
-      where: { id: 'space-1' },
-      select: { contentTreeRevision: true },
+    expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(tx.space.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('takes the shared Space lock before reading either revision head and compiles from that locked snapshot', async () => {
+    const events: string[] = [];
+    const tx = makeTx({ latestRevision: { id: 'rev-1', sequence: 1 }, contentTreeRevision: 23n });
+    tx.spaceKnowledgeRevision.findFirst.mockImplementation(async () => {
+      events.push('sync-head');
+      return { id: 'rev-1', sequence: 1 };
     });
+    tx.space.findUnique.mockImplementation(async () => {
+      events.push('tree-head');
+      return { contentTreeRevision: 99n };
+    });
+    const revisionWriter = {
+      lockContentTreeSpace: jest.fn(async (lockedTx: any) => {
+        events.push('lock');
+        return Object.assign(lockedTx, { contentTreeRevision: 23n });
+      }),
+    };
+    const service = new (KnowledgeSubmissionService as any)(
+      makePrisma({ tx }), {}, auth, revisionWriter,
+    );
+    (parseKnowledgeBundle as jest.Mock).mockReturnValue({
+      ...validBundle, baseRevision: 'rev-1', contentHash: 'x',
+    });
+
+    await service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-locked', true);
+
+    expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(events[0]).toBe('lock');
+    expect(events).toContain('sync-head');
+    expect(tx.space.findUnique).not.toHaveBeenCalled();
+    expect(tx.changeSet.create.mock.calls[0][0].data.items.create[0].payload)
+      .toEqual(expect.objectContaining({ expectedTreeRevision: '23' }));
   });
 
   it('returns noop when a full bundle page is unchanged', async () => {
@@ -201,7 +239,7 @@ describe('KnowledgeSubmissionService', () => {
       latestRevision: { id: 'rev-1', sequence: 1 },
       existingPages: [{ id: 'page-1', sourcePath: '/home', title: 'Home', content: '# Home', updatedAt: new Date('2026-07-31T00:00:00.000Z') }],
     });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, baseRevision: 'rev-1', contentHash: 'x' });
 
     await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-noop', true)).resolves.toMatchObject({ status: 'noop' });
@@ -220,7 +258,7 @@ describe('KnowledgeSubmissionService', () => {
         sourcePage: { knowledgeKey: 'page-a' }, targetPage: { knowledgeKey: 'page-b' },
       }],
     });
-    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth);
+    const service = new KnowledgeSubmissionService(makePrisma({ tx }), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({
       ...validBundle, baseRevision: 'rev-1', pages: [], relations: [relation], contentHash: 'x',
     });

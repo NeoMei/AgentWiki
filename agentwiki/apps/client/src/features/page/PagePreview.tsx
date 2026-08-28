@@ -61,6 +61,9 @@ export const PagePreview: React.FC = () => {
   const pendingTaskOperationsRef = useRef<PendingTaskOperation[]>([]);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const nextTaskOperationIdRef = useRef(0);
+  const deleteOperationRef = useRef(0);
+  const deleteControllerRef = useRef<AbortController | null>(null);
+  const deleteInFlightRef = useRef(false);
 
   const routeIsActive = (pageId: string, generation: number) => (
     mountedRef.current
@@ -252,12 +255,20 @@ export const PagePreview: React.FC = () => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      deleteOperationRef.current += 1;
+      deleteControllerRef.current?.abort();
+      deleteControllerRef.current = null;
+      deleteInFlightRef.current = false;
     };
   }, []);
 
   useEffect(() => {
     const generation = routeGenerationRef.current + 1;
     routeGenerationRef.current = generation;
+    deleteOperationRef.current += 1;
+    deleteControllerRef.current?.abort();
+    deleteControllerRef.current = null;
+    deleteInFlightRef.current = false;
     activePageIdRef.current = id;
     pendingTaskOperationsRef.current = [];
     saveChainRef.current = Promise.resolve();
@@ -268,6 +279,7 @@ export const PagePreview: React.FC = () => {
     setLoading(true);
     setError(null);
     setTaskSaveError(null);
+    setDeleting(false);
     setPendingTaskIndexes(new Set());
     setRelatedPages([]);
     if (!id) {
@@ -367,17 +379,52 @@ export const PagePreview: React.FC = () => {
   }, [id, loading, page?.content, page?.id, page?.spaceId]);
 
   const handleDelete = async () => {
-    if (!page || page.capabilities?.canEdit !== true || !window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
+    if (
+      !page
+      || deleteInFlightRef.current
+      || page.capabilities?.canEdit !== true
+      || !window.confirm(t('page.deleteConfirm', { title: page.title }))
+    ) return;
+    const requestedPageId = page.id;
+    const requestedSpaceId = page.spaceId;
+    const requestedUpdatedAt = page.updatedAt;
+    const requestedGeneration = routeGenerationRef.current;
+    const operation = ++deleteOperationRef.current;
+    deleteInFlightRef.current = true;
+    deleteControllerRef.current?.abort();
+    const controller = new AbortController();
+    deleteControllerRef.current = controller;
     setDeleting(true);
     try {
-      const expectedTreeRevision = await getContentTreeRevision(page.spaceId);
-      await api.delete(`/pages/${page.id}`, {
-        data: { expectedUpdatedAt: page.updatedAt, expectedTreeRevision },
+      const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId, controller.signal);
+      const currentPage = pageRef.current;
+      if (
+        !routeIsActive(requestedPageId, requestedGeneration)
+        || controller.signal.aborted
+        || deleteOperationRef.current !== operation
+        || currentPage?.id !== requestedPageId
+        || currentPage.spaceId !== requestedSpaceId
+        || currentPage.updatedAt !== requestedUpdatedAt
+      ) return;
+      await api.delete(`/pages/${requestedPageId}`, {
+        data: { expectedUpdatedAt: requestedUpdatedAt, expectedTreeRevision },
       });
-      navigate(`/spaces/${page.spaceId}`);
+      if (
+        routeIsActive(requestedPageId, requestedGeneration)
+        && deleteOperationRef.current === operation
+      ) navigate(`/spaces/${requestedSpaceId}`);
     } catch (err: any) {
-      setError(err.response?.data?.message || t('page.deleteFailed'));
-      setDeleting(false);
+      if (
+        routeIsActive(requestedPageId, requestedGeneration)
+        && !controller.signal.aborted
+        && deleteOperationRef.current === operation
+      ) setError(err.response?.data?.message || t('page.deleteFailed'));
+    } finally {
+      if (deleteControllerRef.current === controller) deleteControllerRef.current = null;
+      if (deleteOperationRef.current === operation) deleteInFlightRef.current = false;
+      if (routeIsActive(requestedPageId, requestedGeneration) && deleteOperationRef.current === operation) {
+        setDeleting(false);
+      }
     }
   };
 

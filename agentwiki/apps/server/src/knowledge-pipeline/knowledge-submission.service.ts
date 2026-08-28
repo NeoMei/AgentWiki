@@ -5,6 +5,7 @@ import { ReviewService } from '../review/review.service';
 import { BusinessException } from '../core/filters/business-error';
 import { parseKnowledgeBundle, NormalizedKnowledgeBundle } from './knowledge-bundle';
 import { AuthorizationService, Principal } from '../core/authorization/authorization.service';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 
 export interface KnowledgeSubmissionResult {
   status: 'pending_review' | 'published' | 'noop' | 'existing';
@@ -23,6 +24,7 @@ export class KnowledgeSubmissionService {
     private readonly prisma: PrismaService,
     private readonly review: ReviewService,
     private readonly auth: AuthorizationService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async submit(
@@ -47,13 +49,15 @@ export class KnowledgeSubmissionService {
     const principalKey = principal.agentId ? `credential:${principal.credentialId ?? 'unknown'}` : `user:${principal.userId}`;
 
     return this.prisma.$transaction(async (tx) => {
-      await this.auth.assertLiveAgentWriteAccess(tx, principal, spaceId, requiredScopes);
-      const currentRevision = await this.currentRevisionHead(tx, spaceId);
+      const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
+      if (!lockedTx) throw new BusinessException('RESOURCE_NOT_FOUND');
+      await this.auth.assertLiveAgentWriteAccess(lockedTx, principal, spaceId, requiredScopes);
+      const currentRevision = await this.currentRevisionHead(lockedTx, spaceId);
       if (bundle.baseRevision !== currentRevision.revisionId) {
         throw new BusinessException('KNOWLEDGE_BASE_STALE', `Current revision is ${currentRevision.revisionId}`);
       }
 
-      const existing = await tx.knowledgeSubmission.findUnique({
+      const existing = await lockedTx.knowledgeSubmission.findUnique({
         where: { spaceId_principalKey_idempotencyKey: { spaceId, principalKey, idempotencyKey } },
       });
       if (existing) {
@@ -65,18 +69,17 @@ export class KnowledgeSubmissionService {
         };
       }
 
-      const space = await tx.space.findUnique({
-        where: { id: spaceId },
-        select: { contentTreeRevision: true },
-      });
-      if (!space) throw new BusinessException('RESOURCE_NOT_FOUND');
-      const items = await this.compileChangeItems(tx, bundle, space.contentTreeRevision.toString());
+      const items = await this.compileChangeItems(
+        lockedTx,
+        bundle,
+        lockedTx.contentTreeRevision.toString(),
+      );
       if (items.length === 0) {
         return { status: 'noop', submissionId: '', changeSetId: null, currentRevision: currentRevision.revisionId };
       }
 
       const title = `Knowledge submission from ${principalKey}`;
-      const changeSet = await tx.changeSet.create({
+      const changeSet = await lockedTx.changeSet.create({
         data: {
           spaceId,
           title,
@@ -87,7 +90,7 @@ export class KnowledgeSubmissionService {
         },
       });
 
-      const submission = await tx.knowledgeSubmission.create({
+      const submission = await lockedTx.knowledgeSubmission.create({
         data: {
           spaceId,
           baseRevisionId: bundle.baseRevision,
@@ -102,7 +105,7 @@ export class KnowledgeSubmissionService {
         },
       });
 
-      await tx.changeSet.update({
+      await lockedTx.changeSet.update({
         where: { id: changeSet.id },
         data: { knowledgeSubmission: { connect: { id: submission.id } } },
       });

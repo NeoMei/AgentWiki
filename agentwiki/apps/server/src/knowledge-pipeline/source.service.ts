@@ -19,6 +19,7 @@ import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
 import { agentRoleAllowsScope, agentRoleSpaceCapability, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.java', '.go', '.rs', '.sql', '.yaml', '.yml']);
 const execFileAsync = promisify(execFile);
@@ -128,6 +129,7 @@ export class SourceService {
     private readonly config: ConfigService,
     private readonly review: ReviewService,
     private readonly authorization: AuthorizationService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async create(spaceId: string, principal: Principal, dto: CreateSourceDto | { type: 'file'; name: string; content: string }) {
@@ -467,79 +469,7 @@ export class SourceService {
         format: segment.format,
         contentHash: this.hash(segment.content),
       }));
-      const existingPages = await this.prisma.page.findMany({
-        where: { spaceId: run.spaceId, sourceId: run.sourceId, deletedAt: null },
-        select: { id: true, sourcePath: true, title: true, content: true, format: true, sourceVersionId: true, updatedAt: true },
-      });
-      const existingByPath = new Map(existingPages.map((page) => [page.sourcePath || '__root__', page]));
-      const compiledPaths = new Set(compiledPages.map((page) => page.sourcePath));
-      const itemStatus = 'pending';
-      const changeItems: Array<{ type: string; status: string; payload: Record<string, unknown> }> = [];
-      for (const page of compiledPages) {
-        const existing = existingByPath.get(page.sourcePath);
-        if (!existing) {
-          changeItems.push({
-            type: 'create_page', status: itemStatus,
-            payload: { ...page, sourceId: run.sourceId, sourceVersionId: version.id },
-          });
-        } else if (
-          existing.title !== page.title || existing.content !== page.content ||
-          existing.format !== page.format || existing.sourceVersionId !== version.id
-        ) {
-          changeItems.push({
-            type: 'update_page', status: itemStatus,
-            payload: {
-              pageId: existing.id,
-              sourcePath: page.sourcePath,
-              sourceId: run.sourceId,
-              sourceVersionId: version.id,
-              expectedUpdatedAt: existing.updatedAt.toISOString(),
-              changes: { title: page.title, content: page.content, format: page.format },
-            },
-          });
-        }
-      }
-      for (const existing of existingPages) {
-        const sourcePath = existing.sourcePath || '__root__';
-        if (!compiledPaths.has(sourcePath)) {
-          changeItems.push({ type: 'archive_page', status: itemStatus, payload: { pageId: existing.id, sourcePath, expectedUpdatedAt: existing.updatedAt.toISOString() } });
-        }
-      }
-
       const relations = this.extractRelations(segments);
-      const existingPageIds = existingPages.map((page) => page.id);
-      const existingRelations = existingPageIds.length ? await this.prisma.knowledgeRelation.findMany({
-        where: { sourcePageId: { in: existingPageIds }, targetPageId: { in: existingPageIds }, origin: 'compiled' },
-        select: { id: true, sourcePageId: true, targetPageId: true, relation: true, lastModifiedAt: true },
-      }) : [];
-      const pathByPageId = new Map(existingPages.map((page) => [page.id, page.sourcePath || '__root__']));
-      const existingRelationByKey = new Map(existingRelations.map((relation) => [
-        `${pathByPageId.get(relation.sourcePageId)}|${pathByPageId.get(relation.targetPageId)}|${relation.relation}`,
-        relation,
-      ]));
-      const compiledRelationKeys = new Set<string>();
-      for (const relation of relations) {
-        const key = `${relation.sourcePath}|${relation.targetPath}|${relation.relation}`;
-        compiledRelationKeys.add(key);
-        if (existingRelationByKey.has(key)) continue;
-        changeItems.push({
-          type: 'create_relation', status: itemStatus,
-          payload: {
-            ...relation,
-            confidence: 0.85,
-            evidenceId: evidenceByPath.get(relation.sourcePath),
-          },
-        });
-      }
-      for (const [key, relation] of existingRelationByKey) {
-        if (!compiledRelationKeys.has(key)) {
-          changeItems.push({
-            type: 'archive_relation', status: itemStatus,
-            payload: { relationId: relation.id, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
-          });
-        }
-      }
-
       const entities = this.extractEntities(segments);
       await this.prisma.artifact.createMany({
         data: [
@@ -548,44 +478,125 @@ export class SourceService {
           ...relations.map((relation) => ({ runId: id, type: 'relation_candidate', content: `${relation.sourcePath} ${relation.relation} ${relation.targetPath}`, metadata: relation })),
         ],
       });
+      const proposal = await this.prisma.$transaction(async (tx) => {
+        const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, run.spaceId);
+        if (!lockedTx) throw new Error('Space no longer exists');
 
-      const [spacePolicy, agentPolicy] = await Promise.all([
-        this.prisma.space.findUnique({
-          where: { id: run.spaceId },
-          select: { approvalPolicy: true, contentTreeRevision: true },
-        }),
-        run.requestedByAgentId
-          ? this.prisma.agent.findUnique({ where: { id: run.requestedByAgentId }, select: { approvalMode: true } })
-          : Promise.resolve(null),
-      ]);
-      currentScopes = await this.assertRequesterStillAuthorized(run);
-      if (!spacePolicy) throw new Error('Space no longer exists');
-      const expectedTreeRevision = spacePolicy.contentTreeRevision.toString();
-      const autoPublish = changeItems.length > 0 &&
-        spacePolicy?.approvalPolicy === 'scoped-auto-publish' &&
-        agentPolicy?.approvalMode === 'scoped-auto-publish' &&
-        currentScopes.includes('review:auto-publish');
-      const changeSet = changeItems.length ? await this.prisma.changeSet.create({
-        data: {
-          spaceId: run.spaceId,
-          runId: id,
-          title: `Import: ${run.source.name}`,
-          status: autoPublish ? 'approved' : 'pending_review',
-          createdByUserId: run.requestedByUserId,
-          createdByAgentId: run.requestedByAgentId,
-          items: {
-            create: changeItems.map((item) => ({
-              ...item,
-              status: autoPublish ? 'accepted' : item.status,
-              payload: (
-                item.type === 'create_page' || item.type === 'update_page' || item.type === 'archive_page'
-                  ? { ...item.payload, expectedTreeRevision }
-                  : item.payload
-              ) as any,
-            })),
+        const existingPages = await lockedTx.page.findMany({
+          where: { spaceId: run.spaceId, sourceId: run.sourceId, deletedAt: null },
+          select: { id: true, sourcePath: true, title: true, content: true, format: true, sourceVersionId: true, updatedAt: true },
+        });
+        const existingByPath = new Map(existingPages.map((page) => [page.sourcePath || '__root__', page]));
+        const compiledPaths = new Set(compiledPages.map((page) => page.sourcePath));
+        const itemStatus = 'pending';
+        const changeItems: Array<{ type: string; status: string; payload: Record<string, unknown> }> = [];
+        for (const page of compiledPages) {
+          const existing = existingByPath.get(page.sourcePath);
+          if (!existing) {
+            changeItems.push({
+              type: 'create_page', status: itemStatus,
+              payload: { ...page, sourceId: run.sourceId, sourceVersionId: version.id },
+            });
+          } else if (
+            existing.title !== page.title || existing.content !== page.content ||
+            existing.format !== page.format || existing.sourceVersionId !== version.id
+          ) {
+            changeItems.push({
+              type: 'update_page', status: itemStatus,
+              payload: {
+                pageId: existing.id,
+                sourcePath: page.sourcePath,
+                sourceId: run.sourceId,
+                sourceVersionId: version.id,
+                expectedUpdatedAt: existing.updatedAt.toISOString(),
+                changes: { title: page.title, content: page.content, format: page.format },
+              },
+            });
+          }
+        }
+        for (const existing of existingPages) {
+          const sourcePath = existing.sourcePath || '__root__';
+          if (!compiledPaths.has(sourcePath)) {
+            changeItems.push({
+              type: 'archive_page', status: itemStatus,
+              payload: { pageId: existing.id, sourcePath, expectedUpdatedAt: existing.updatedAt.toISOString() },
+            });
+          }
+        }
+
+        const existingPageIds = existingPages.map((page) => page.id);
+        const existingRelations = existingPageIds.length ? await lockedTx.knowledgeRelation.findMany({
+          where: { sourcePageId: { in: existingPageIds }, targetPageId: { in: existingPageIds }, origin: 'compiled' },
+          select: { id: true, sourcePageId: true, targetPageId: true, relation: true, lastModifiedAt: true },
+        }) : [];
+        const pathByPageId = new Map(existingPages.map((page) => [page.id, page.sourcePath || '__root__']));
+        const existingRelationByKey = new Map(existingRelations.map((relation) => [
+          `${pathByPageId.get(relation.sourcePageId)}|${pathByPageId.get(relation.targetPageId)}|${relation.relation}`,
+          relation,
+        ]));
+        const compiledRelationKeys = new Set<string>();
+        for (const relation of relations) {
+          const key = `${relation.sourcePath}|${relation.targetPath}|${relation.relation}`;
+          compiledRelationKeys.add(key);
+          if (existingRelationByKey.has(key)) continue;
+          changeItems.push({
+            type: 'create_relation', status: itemStatus,
+            payload: {
+              ...relation,
+              confidence: 0.85,
+              evidenceId: evidenceByPath.get(relation.sourcePath),
+            },
+          });
+        }
+        for (const [key, relation] of existingRelationByKey) {
+          if (!compiledRelationKeys.has(key)) {
+            changeItems.push({
+              type: 'archive_relation', status: itemStatus,
+              payload: { relationId: relation.id, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
+            });
+          }
+        }
+
+        const [spacePolicy, agentPolicy] = await Promise.all([
+          lockedTx.space.findUnique({
+            where: { id: run.spaceId },
+            select: { approvalPolicy: true },
+          }),
+          run.requestedByAgentId
+            ? lockedTx.agent.findUnique({ where: { id: run.requestedByAgentId }, select: { approvalMode: true } })
+            : Promise.resolve(null),
+        ]);
+        currentScopes = await this.assertRequesterStillAuthorized(run, lockedTx);
+        if (!spacePolicy) throw new Error('Space no longer exists');
+        const expectedTreeRevision = lockedTx.contentTreeRevision.toString();
+        const autoPublish = changeItems.length > 0
+          && spacePolicy.approvalPolicy === 'scoped-auto-publish'
+          && agentPolicy?.approvalMode === 'scoped-auto-publish'
+          && currentScopes.includes('review:auto-publish');
+        const changeSet = changeItems.length ? await lockedTx.changeSet.create({
+          data: {
+            spaceId: run.spaceId,
+            runId: id,
+            title: `Import: ${run.source.name}`,
+            status: autoPublish ? 'approved' : 'pending_review',
+            createdByUserId: run.requestedByUserId,
+            createdByAgentId: run.requestedByAgentId,
+            items: {
+              create: changeItems.map((item) => ({
+                ...item,
+                status: autoPublish ? 'accepted' : item.status,
+                payload: (
+                  item.type === 'create_page' || item.type === 'update_page' || item.type === 'archive_page'
+                    ? { ...item.payload, expectedTreeRevision }
+                    : item.payload
+                ) as any,
+              })),
+            },
           },
-        },
-      }) : null;
+        }) : null;
+        return { changeItems, autoPublish, changeSet };
+      });
+      const { changeItems, autoPublish, changeSet } = proposal;
 
       await this.assertRunActive(id, workerId, leaseMs);
       await this.assertRequesterStillAuthorized(run);
@@ -1090,10 +1101,13 @@ export class SourceService {
     if (run?.cancelRequested) throw new Error('Run cancelled');
   }
 
-  private async assertRequesterStillAuthorized(run: any): Promise<string[]> {
+  private async assertRequesterStillAuthorized(
+    run: any,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<string[]> {
     if (run.requestedByAgentId) {
       const [grant, credential] = await Promise.all([
-        this.prisma.agentGrant.findUnique({
+        db.agentGrant.findUnique({
           where: { agentId_spaceId: { agentId: run.requestedByAgentId, spaceId: run.spaceId } },
           include: {
             agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
@@ -1101,7 +1115,7 @@ export class SourceService {
           },
         }),
         run.requestedCredentialId && run.requestedCredentialType === 'agent'
-          ? this.prisma.agentCredential.findFirst({
+          ? db.agentCredential.findFirst({
               where: {
                 id: run.requestedCredentialId,
                 agentId: run.requestedByAgentId,
@@ -1119,7 +1133,7 @@ export class SourceService {
       }
       return scopesForAgentAccessRole(grant.role);
     }
-    const requester = run.requestedByUserId ? await this.prisma.user.findUnique({
+    const requester = run.requestedByUserId ? await db.user.findUnique({
       where: { id: run.requestedByUserId },
       select: { deletedAt: true, lockedAt: true, type: true, platformRole: true },
     }) : null;
@@ -1128,7 +1142,7 @@ export class SourceService {
     }
     if (requester.platformRole === 'super_admin') {
       if (run.requestedCredentialType === 'personal') {
-        const credential = run.requestedCredentialId ? await this.prisma.apiKeyCredential.findFirst({
+        const credential = run.requestedCredentialId ? await db.apiKeyCredential.findFirst({
           where: {
             id: run.requestedCredentialId,
             userId: run.requestedByUserId,
@@ -1142,7 +1156,7 @@ export class SourceService {
       }
       return [];
     }
-    const membership = await this.prisma.spaceMember.findUnique({
+    const membership = await db.spaceMember.findUnique({
       where: { userId_spaceId: { userId: run.requestedByUserId, spaceId: run.spaceId } },
       include: {
         user: { select: { deletedAt: true, type: true } },
@@ -1154,7 +1168,7 @@ export class SourceService {
       throw new Error('Run requester is no longer authorized');
     }
     if (run.requestedCredentialType === 'personal') {
-      const credential = run.requestedCredentialId ? await this.prisma.apiKeyCredential.findFirst({
+      const credential = run.requestedCredentialId ? await db.apiKeyCredential.findFirst({
         where: {
           id: run.requestedCredentialId,
           userId: run.requestedByUserId,

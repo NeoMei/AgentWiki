@@ -638,11 +638,25 @@ export class ReviewService {
             throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this archive candidate was compiled');
           }
           const before = {
+            title: page.title,
+            slug: page.slug,
+            content: page.content,
+            format: page.format,
+            parentId: page.parentId,
+            folderId: page.folderId ?? null,
+            syncPath: page.syncPath,
+            syncPathKey: page.syncPathKey,
+            sourceChangeSetId: page.sourceChangeSetId ?? null,
+            createdByAgentId: page.createdByAgentId ?? null,
             lastChangeSetId: page.lastChangeSetId,
             lastModifiedByUserId: page.lastModifiedByUserId,
             lastModifiedByAgentId: page.lastModifiedByAgentId,
             lastModifiedAt: page.lastModifiedAt.toISOString(),
+            sourceId: page.sourceId ?? null,
+            sourceVersionId: page.sourceVersionId ?? null,
+            sourcePath: page.sourcePath ?? null,
             deletedAt: null,
+            deletionBatchId: page.deletionBatchId ?? null,
           };
           await tx.pageVersion.create({
             data: {
@@ -1476,6 +1490,42 @@ export class ReviewService {
       const restoredState: Record<string, unknown> = { deletedAt: null };
       const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
         && before[key] !== undefined;
+      const structuralSnapshotKeys = [
+        'slug', 'format', 'folderId', 'syncPath', 'syncPathKey', 'sourceChangeSetId',
+      ];
+      const hasStructuralSnapshot = structuralSnapshotKeys.some((key) => hasValue(key));
+      if (hasStructuralSnapshot) {
+        if (
+          typeof before.title !== 'string'
+          || typeof before.slug !== 'string'
+          || typeof before.content !== 'string'
+          || typeof before.format !== 'string'
+          || !Object.prototype.hasOwnProperty.call(before, 'folderId')
+          || (before.folderId !== null && typeof before.folderId !== 'string')
+          || typeof before.syncPath !== 'string'
+          || typeof before.syncPathKey !== 'string'
+          || pathKey(before.syncPath) !== before.syncPathKey
+        ) {
+          throw new BusinessException('CHANGESET_INVALID_STATE', 'Archived page prior state is invalid');
+        }
+        Object.assign(restoredState, {
+          title: before.title,
+          slug: before.slug,
+          content: before.content,
+          format: before.format,
+          parentId: null,
+          folderId: before.folderId,
+          syncPath: before.syncPath,
+          syncPathKey: before.syncPathKey,
+        });
+        for (const key of [
+          'sourceChangeSetId', 'createdByAgentId', 'lastChangeSetId',
+          'lastModifiedByUserId', 'lastModifiedByAgentId', 'sourceId',
+          'sourceVersionId', 'sourcePath', 'deletionBatchId',
+        ]) {
+          if (Object.prototype.hasOwnProperty.call(before, key)) restoredState[key] = before[key];
+        }
+      }
       if (hasValue('lastChangeSetId')) {
         restoredState.lastChangeSetId = before.lastChangeSetId;
       }
@@ -1586,9 +1636,20 @@ export class ReviewService {
         for (const key of [
           'sourceChangeSetId', 'createdByAgentId', 'lastChangeSetId',
           'lastModifiedByUserId', 'lastModifiedByAgentId', 'sourceId',
-          'sourceVersionId', 'sourcePath',
+          'sourceVersionId', 'sourcePath', 'deletionBatchId',
         ]) {
           if (Object.prototype.hasOwnProperty.call(before, key)) restored[key] = before[key];
+        }
+        if (Object.prototype.hasOwnProperty.call(before, 'deletedAt')) {
+          if (before.deletedAt === null) {
+            restored.deletedAt = null;
+          } else {
+            const deletedAt = parseValidDate(before.deletedAt);
+            if (!deletedAt) {
+              throw new BusinessException('CHANGESET_INVALID_STATE', 'Update Page prior state is invalid');
+            }
+            restored.deletedAt = deletedAt;
+          }
         }
         if (Object.prototype.hasOwnProperty.call(before, 'lastModifiedAt')) {
           const lastModifiedAt = parseValidDate(before.lastModifiedAt);
@@ -1649,7 +1710,8 @@ export class ReviewService {
           };
           const page = await snapshotPage(where, item.type);
           const restoredState = sanitizeUpdateBefore(payload.before);
-          const structural = page.parentId !== null
+          const structural = restoredState.deletedAt instanceof Date
+            || page.parentId !== null
             || page.title !== restoredState.title
             || (page.folderId ?? null) !== restoredState.folderId
             || page.syncPath !== restoredState.syncPath
@@ -1688,10 +1750,14 @@ export class ReviewService {
           };
           const page = await snapshotPage(where, item.type);
           const restoredState = archiveRestores.get(item.id)!;
+          const hasPlacementSnapshot = typeof restoredState.title === 'string'
+            && typeof restoredState.syncPath === 'string';
           const placement = await prepareExact(page, {
-            title: page.title,
-            folderId: page.folderId ?? null,
-            syncPath: page.syncPath,
+            title: hasPlacementSnapshot ? restoredState.title as string : page.title,
+            folderId: hasPlacementSnapshot
+              ? restoredState.folderId as string | null
+              : page.folderId ?? null,
+            syncPath: hasPlacementSnapshot ? restoredState.syncPath as string : page.syncPath,
           });
           const reverted = await lockedTx.page.updateMany({
             where,

@@ -11,9 +11,10 @@ import { KnowledgeSyncController } from './knowledge-sync.controller';
 import { KnowledgeSyncService } from './knowledge-sync.service';
 import { KnowledgeRevisionController } from './knowledge-revision.controller';
 import { KnowledgeSubmissionService } from './knowledge-submission.service';
+import { SyncModule } from '../core/sync/sync.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, ReviewModule, SecurityModule, KnowledgeRevisionModule],
+  imports: [DatabaseModule, AuthModule, ReviewModule, SecurityModule, KnowledgeRevisionModule, SyncModule],
   providers: [SourceService, IngestQueue, KnowledgeSyncService, KnowledgeSubmissionService],
   controllers: [SourceController, KnowledgeSyncController, KnowledgeRevisionController],
   exports: [SourceService, IngestQueue, KnowledgeSyncService, KnowledgeSubmissionService],

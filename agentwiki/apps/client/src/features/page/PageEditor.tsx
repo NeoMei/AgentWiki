@@ -92,6 +92,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const mountedRef = useRef(true);
   const dismissedRemoteRevisionRef = useRef<string | null>(null);
   const requestControllersRef = useRef(new Set<AbortController>());
+  const saveOperationRef = useRef(0);
+  const saveControllerRef = useRef<AbortController | null>(null);
   const attachmentControllersRef = useRef(new Set<AbortController>());
   const attachmentGenerationRef = useRef(0);
   const attachmentContextRef = useRef<AttachmentRuntimeContext>({
@@ -375,6 +377,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       mountedRef.current = false;
       requestControllersRef.current.forEach((controller) => controller.abort());
       requestControllersRef.current.clear();
+      saveOperationRef.current += 1;
+      saveControllerRef.current?.abort();
+      saveControllerRef.current = null;
       abortAttachmentUploads();
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     };
@@ -424,6 +429,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
     routeGenerationRef.current += 1;
+    saveOperationRef.current += 1;
+    saveControllerRef.current?.abort();
+    saveControllerRef.current = null;
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
@@ -619,6 +627,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const baseline = pageRef.current;
     if (!id || !baseline?.updatedAt || remoteUpdate) return;
     const requestedId = id;
+    const requestedSpaceId = baseline.spaceId;
+    const requestedRouteGeneration = routeGenerationRef.current;
+    const operation = ++saveOperationRef.current;
     const submittedEditRevision = editRevisionRef.current;
     const submittedTitle = title;
     const submittedContent = content;
@@ -626,16 +637,35 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     abortAttachmentUploads();
     setSaving(true);
     clearStatus();
+    const controller = titleChanged ? new AbortController() : null;
+    saveControllerRef.current?.abort();
+    saveControllerRef.current = controller;
     try {
       const expectedTreeRevision = titleChanged
-        ? await getContentTreeRevision(baseline.spaceId)
+        ? await getContentTreeRevision(baseline.spaceId, controller!.signal)
         : undefined;
+      const currentPage = pageRef.current;
+      if (
+        !mountedRef.current
+        || controller?.signal.aborted
+        || saveOperationRef.current !== operation
+        || routeGenerationRef.current !== requestedRouteGeneration
+        || activePageIdRef.current !== requestedId
+        || currentPage?.id !== requestedId
+        || currentPage.spaceId !== requestedSpaceId
+        || currentPage.updatedAt !== baseline.updatedAt
+      ) return;
       const response = await api.patch(`/pages/${requestedId}`, {
         ...(titleChanged ? { title: submittedTitle, expectedTreeRevision } : {}),
         content: submittedContent,
         expectedUpdatedAt: baseline.updatedAt,
       });
-      if (!mountedRef.current || activePageIdRef.current !== requestedId) return;
+      if (
+        !mountedRef.current
+        || saveOperationRef.current !== operation
+        || routeGenerationRef.current !== requestedRouteGeneration
+        || activePageIdRef.current !== requestedId
+      ) return;
       const savedPage: Page = {
         ...baseline,
         ...response.data,
@@ -648,7 +678,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       showStatus({ kind: 'success', text: t('editor.saved') }, 'save', 3000);
       if (editRevisionRef.current === submittedEditRevision) updateDirty(false);
     } catch (err: any) {
-      if (!mountedRef.current || activePageIdRef.current !== requestedId) return;
+      if (
+        !mountedRef.current
+        || controller?.signal.aborted
+        || saveOperationRef.current !== operation
+        || routeGenerationRef.current !== requestedRouteGeneration
+        || activePageIdRef.current !== requestedId
+      ) return;
       showStatus({
         kind: 'error',
         text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
@@ -658,7 +694,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         void loadPage(false, true);
       }
     } finally {
-      if (mountedRef.current && activePageIdRef.current === requestedId) setSaving(false);
+      if (saveControllerRef.current === controller) saveControllerRef.current = null;
+      if (
+        mountedRef.current
+        && saveOperationRef.current === operation
+        && routeGenerationRef.current === requestedRouteGeneration
+        && activePageIdRef.current === requestedId
+      ) setSaving(false);
     }
   };
 

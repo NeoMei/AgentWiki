@@ -183,7 +183,7 @@ describe('PageVersionHistory', () => {
       '/pages/page-1/versions/page-1-version/restore',
       { expectedTreeRevision: '37' },
     ));
-    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('page-1-space');
+    expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('page-1-space', expect.any(AbortSignal));
     fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
     expect(await screen.findByText('page-2 version')).toBeInTheDocument();
 
@@ -297,6 +297,31 @@ describe('PageVersionHistory', () => {
     expect(restoreButtons[1]).toBeDisabled();
     fireEvent.click(restoreButtons[1]);
     expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not POST a restore after navigating while the tree head is pending', async () => {
+    const head = deferred<string>();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    contentTreeMocks.getContentTreeRevision.mockReturnValue(head.promise);
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const pageId = url.includes('page-2') ? 'page-2' : 'page-1';
+      if (url.endsWith('/versions')) return {
+        data: [{ id: `${pageId}-version`, title: `${pageId} version`, content: '', createdAt: '2026-08-19T00:00:00Z' }],
+      };
+      return { data: { id: pageId, title: `${pageId} title`, spaceId: `${pageId}-space`, capabilities: { canEdit: true } } };
+    });
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <NavigationHarness />
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '恢复' }));
+    await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Open second history' }));
+    expect(await screen.findByText('page-2 version')).toBeInTheDocument();
+
+    await act(async () => head.resolve('37'));
+
+    expect(api.post).not.toHaveBeenCalled();
   });
 
   it('ignores a rejected first A load after navigating A to B to A', async () => {
