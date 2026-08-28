@@ -398,6 +398,22 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(currentEditorView(container).state.doc.toString()).toBe(source);
   });
 
+  it.each([
+    ['generic HTML block', 'active\n<div>\n[[inside]]\n</div>'],
+    ['quoted fenced code', 'active\n> ~~~md\n> [[inside]]\n> ~~~'],
+    ['quoted indented code', 'active\n>     [[inside]]'],
+  ])('keeps Wiki-looking text in %s raw with zero resolver I/O', (_kind, source) => {
+    const { container } = renderWYS({
+      initial: source,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(resourceMocks.post).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(0);
+    expect(currentEditorView(container).state.doc.toString()).toBe(source);
+  });
+
   it('reuses resolution when alias text and offsets change while rebuilding the current widgets', async () => {
     resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
       data: body.references.map((reference: any) => ({

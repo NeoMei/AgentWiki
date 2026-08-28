@@ -19,6 +19,15 @@ const MAX_EDITOR_WIKI_OCCURRENCES = 256;
 const MAX_EDITOR_CANDIDATE_PARSE_CHARS = 32_768;
 const MAX_REFERENCE_CHARS = 512;
 const RAW_HTML_BLOCK_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
+const HTML_BLOCK_TAGS = new Set([
+  'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body', 'caption', 'center',
+  'col', 'colgroup', 'dd', 'details', 'dialog', 'dir', 'div', 'dl', 'dt', 'fieldset',
+  'figcaption', 'figure', 'footer', 'form', 'frame', 'frameset', 'h1', 'h2', 'h3', 'h4',
+  'h5', 'h6', 'head', 'header', 'hr', 'html', 'iframe', 'legend', 'li', 'link', 'main',
+  'menu', 'menuitem', 'nav', 'noframes', 'ol', 'optgroup', 'option', 'p', 'param',
+  'search', 'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'title',
+  'tr', 'track', 'ul',
+]);
 
 // Mirrors validator.js `isLength`, which class-validator's MaxLength delegates
 // to: surrogate pairs and BMP presentation-selector sequences each count as a
@@ -278,17 +287,151 @@ const findAsciiCaseInsensitiveTokenBefore = (
   return -1;
 };
 
-const rawHtmlBlockTagAt = (source: string, start: number, end: number): string | null => {
-  if (source[start] !== '<' || source[start + 1] === '/') return null;
+const isAsciiLetter = (character: string | undefined): boolean => {
+  if (character === undefined) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+};
+
+const isAsciiDigit = (character: string | undefined): boolean => {
+  if (character === undefined) return false;
+  const code = character.charCodeAt(0);
+  return code >= 48 && code <= 57;
+};
+
+const stripMarkdownContainerPrefixes = (
+  source: string,
+  start: number,
+  end: number,
+): { contentStart: number; quoteDepth: number } => {
+  let cursor = start;
+  let quoteDepth = 0;
+  while (cursor < end) {
+    const beforePrefix = cursor;
+    let indent = 0;
+    while (cursor < end && source[cursor] === ' ' && indent < 3) {
+      cursor += 1;
+      indent += 1;
+    }
+
+    if (source[cursor] === '>') {
+      cursor += 1;
+      if (source[cursor] === ' ' || source[cursor] === '\t') cursor += 1;
+      quoteDepth += 1;
+      continue;
+    }
+
+    let markerEnd = cursor;
+    if ((source[cursor] === '-' || source[cursor] === '+' || source[cursor] === '*')
+      && (source[cursor + 1] === ' ' || source[cursor + 1] === '\t')) {
+      markerEnd = cursor + 1;
+    } else {
+      let digitEnd = cursor;
+      while (digitEnd < end && digitEnd - cursor < 9 && isAsciiDigit(source[digitEnd])) digitEnd += 1;
+      if (digitEnd > cursor && (source[digitEnd] === '.' || source[digitEnd] === ')')
+        && (source[digitEnd + 1] === ' ' || source[digitEnd + 1] === '\t')) {
+        markerEnd = digitEnd + 1;
+      }
+    }
+    if (markerEnd !== cursor) {
+      cursor = markerEnd;
+      let paddingEnd = cursor;
+      while (paddingEnd < end && paddingEnd - cursor < 5
+        && (source[paddingEnd] === ' ' || source[paddingEnd] === '\t')) {
+        paddingEnd += 1;
+      }
+      cursor += paddingEnd - cursor > 4 ? 1 : paddingEnd - cursor;
+      continue;
+    }
+
+    return { contentStart: beforePrefix, quoteDepth };
+  }
+  return { contentStart: cursor, quoteDepth };
+};
+
+const contentAfterRequiredBlockquotes = (
+  source: string,
+  start: number,
+  end: number,
+  quoteDepth: number,
+): number => {
+  let cursor = start;
+  for (let depth = 0; depth < quoteDepth; depth += 1) {
+    let indent = 0;
+    while (cursor < end && source[cursor] === ' ' && indent < 3) {
+      cursor += 1;
+      indent += 1;
+    }
+    if (source[cursor] !== '>') return end;
+    cursor += 1;
+    if (source[cursor] === ' ' || source[cursor] === '\t') cursor += 1;
+  }
+  return cursor;
+};
+
+const htmlTagNameAt = (source: string, start: number, end: number): string | null => {
+  if (source[start] !== '<') return null;
   let cursor = start + 1;
-  while (cursor < end && cursor - start <= 10 && /[A-Za-z]/u.test(source[cursor])) cursor += 1;
-  if (cursor === start + 1 || cursor - start > 10) return null;
+  if (source[cursor] === '/') cursor += 1;
+  const nameStart = cursor;
+  while (cursor < end && (isAsciiLetter(source[cursor]) || isAsciiDigit(source[cursor])
+    || source[cursor] === '-')) cursor += 1;
+  if (cursor === nameStart || !isAsciiLetter(source[nameStart])) return null;
   const boundary = source[cursor];
   if (boundary !== undefined && boundary !== '>' && boundary !== '/' && boundary !== ' ' && boundary !== '\t') {
     return null;
   }
-  const tag = source.slice(start + 1, cursor).toLocaleLowerCase('en-US');
-  return RAW_HTML_BLOCK_TAGS.has(tag) ? tag : null;
+  return source.slice(nameStart, cursor).toLowerCase();
+};
+
+const completeHtmlTagLineAt = (source: string, start: number, end: number): boolean => {
+  if (htmlTagNameAt(source, start, end) === null) return false;
+  let quote: '"' | "'" | null = null;
+  for (let cursor = start + 1; cursor < end; cursor += 1) {
+    const character = source[cursor];
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character !== '>') continue;
+    for (let rest = cursor + 1; rest < end; rest += 1) {
+      if (source[rest] !== ' ' && source[rest] !== '\t') return false;
+    }
+    return true;
+  }
+  return false;
+};
+
+type HtmlBlockState =
+  | { kind: 'blank-line'; quoteDepth?: number }
+  | { kind: 'token'; token: string; asciiInsensitive: boolean; quoteDepth?: number };
+
+const htmlBlockAt = (source: string, start: number, end: number): HtmlBlockState | null => {
+  if (source[start] !== '<') return null;
+  const tag = htmlTagNameAt(source, start, end);
+  if (tag !== null && RAW_HTML_BLOCK_TAGS.has(tag) && source[start + 1] !== '/') {
+    return { kind: 'token', token: `</${tag}`, asciiInsensitive: true };
+  }
+  if (source.startsWith('<!--', start)) {
+    return { kind: 'token', token: '-->', asciiInsensitive: false };
+  }
+  if (source.startsWith('<?', start)) {
+    return { kind: 'token', token: '?>', asciiInsensitive: false };
+  }
+  if (source.startsWith('<![CDATA[', start)) {
+    return { kind: 'token', token: ']]>', asciiInsensitive: false };
+  }
+  if (source.startsWith('<!', start) && isAsciiLetter(source[start + 2])
+    && source.charCodeAt(start + 2) >= 65 && source.charCodeAt(start + 2) <= 90) {
+    return { kind: 'token', token: '>', asciiInsensitive: false };
+  }
+  if (tag !== null && HTML_BLOCK_TAGS.has(tag)) return { kind: 'blank-line' };
+  if (tag !== null && completeHtmlTagLineAt(source, start, end)) return { kind: 'blank-line' };
+  return null;
 };
 
 const closingFenceAt = (
@@ -350,14 +493,16 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
   let inlineTicks = 0;
   let bracketDepth = 0;
   let inHtmlComment = false;
-  let rawHtmlBlockTag: string | null = null;
+  let htmlBlock: HtmlBlockState | null = null;
   let lineStart = 0;
 
   while (lineStart < source.length) {
     let lineEnd = lineStart;
     while (lineEnd < source.length && source[lineEnd] !== '\n' && source[lineEnd] !== '\r') lineEnd += 1;
 
-    let firstContent = lineStart;
+    const container = stripMarkdownContainerPrefixes(source, lineStart, lineEnd);
+    const containerContent = container.contentStart;
+    let firstContent = containerContent;
     let indentation = 0;
     while (firstContent < lineEnd && source[firstContent] === ' ' && indentation < 4) {
       firstContent += 1;
@@ -367,20 +512,33 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
     const startedInsideFence = fence !== null;
     let rawHtmlBlockLine = false;
 
-    if (rawHtmlBlockTag !== null) {
+    if (htmlBlock !== null) {
       rawHtmlBlockLine = true;
-      if (findAsciiCaseInsensitiveTokenBefore(
-        source,
-        `</${rawHtmlBlockTag}`,
-        firstContent,
-        lineEnd,
-      ) !== -1) rawHtmlBlockTag = null;
+      if (htmlBlock.kind === 'blank-line') {
+        if (firstContent >= lineEnd) htmlBlock = null;
+      } else {
+        const tokenSearchStart = contentAfterRequiredBlockquotes(
+          source,
+          lineStart,
+          lineEnd,
+          htmlBlock.quoteDepth ?? 0,
+        );
+        const closingToken = htmlBlock.asciiInsensitive
+          ? findAsciiCaseInsensitiveTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd)
+          : findTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd);
+        if (closingToken !== -1) htmlBlock = null;
+      }
     } else if (fence === null && inlineTicks === 0 && indentation <= 3) {
-      const openingTag = rawHtmlBlockTagAt(source, firstContent, lineEnd);
-      if (openingTag !== null) {
+      const openingBlock = htmlBlockAt(source, firstContent, lineEnd);
+      if (openingBlock !== null) {
         rawHtmlBlockLine = true;
-        if (findAsciiCaseInsensitiveTokenBefore(source, `</${openingTag}`, firstContent, lineEnd) === -1) {
-          rawHtmlBlockTag = openingTag;
+        if (openingBlock.kind === 'blank-line') {
+          htmlBlock = { ...openingBlock, quoteDepth: container.quoteDepth };
+        } else {
+          const closingToken = openingBlock.asciiInsensitive
+            ? findAsciiCaseInsensitiveTokenBefore(source, openingBlock.token, firstContent, lineEnd)
+            : findTokenBefore(source, openingBlock.token, firstContent, lineEnd);
+          if (closingToken === -1) htmlBlock = { ...openingBlock, quoteDepth: container.quoteDepth };
         }
       }
     }
@@ -395,9 +553,9 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
       const marker = source[firstContent] as '`' | '~';
       const runEnd = markerRunEnd(source, firstContent, lineEnd, marker);
       if (runEnd - firstContent >= 3) fence = { marker, length: runEnd - firstContent };
-      else firstContent = lineStart;
+      else firstContent = containerContent;
     } else if (!rawHtmlBlockLine && (!indentedCode || inlineTicks !== 0)) {
-      firstContent = lineStart;
+      firstContent = containerContent;
     }
 
     const fenceLine = rawHtmlBlockLine || startedInsideFence || fence !== null;

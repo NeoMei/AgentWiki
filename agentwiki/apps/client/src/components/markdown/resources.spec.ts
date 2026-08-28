@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
   collectMarkdownResourceOccurrences,
@@ -13,6 +14,20 @@ vi.mock('../../api/client', () => ({
 }));
 
 afterEach(() => vi.restoreAllMocks());
+
+const fullAstWikiLiterals = (source: string): string[] => {
+  const literals: string[] = [];
+  const tree = editorMarkdownResourceParser.parse(source);
+  visit(tree as never, 'agentWikiLink', (node: any) => {
+    const literal = node.data?.hProperties?.['data-markdown-literal'];
+    if (typeof literal === 'string') literals.push(literal);
+  });
+  return literals;
+};
+
+const collectedWikiLiterals = (source: string): string[] => (
+  collectMarkdownResourceOccurrences(source).map(({ from, to }) => source.slice(from, to))
+);
 
 describe('collectMarkdownResourceRefs', () => {
   it('returns exact source ranges only for syntax-valid Wiki links', () => {
@@ -67,6 +82,46 @@ describe('collectMarkdownResourceRefs', () => {
     expect(collectMarkdownResourceOccurrences(htmlBlock).map(({ from, to }) => htmlBlock.slice(from, to))).toEqual([
       '[[After HTML]]',
     ]);
+  });
+
+  it.each([
+    ['generic HTML block', '<div>\n[[inside]]\n</div>\n\n[[after]]'],
+    ['blockquote fenced code', '> ~~~md\n> [[inside]]\n> ~~~\n\n[[after]]'],
+    ['blockquote indented code', '>     [[inside]]\n\n[[after]]'],
+  ])('matches the full resource AST for %s', (_kind, source) => {
+    expect(fullAstWikiLiterals(source)).toEqual(['[[after]]']);
+    expect(collectedWikiLiterals(source)).toEqual(fullAstWikiLiterals(source));
+  });
+
+  it.each([
+    ['type 1 raw tag', '<script>\r\n[[inside]]\r\n</script>\r\n\r\n[[after]]'],
+    ['type 2 comment', '<!--\r\n[[inside]]\r\n-->\r\n\r\n[[after]]'],
+    ['type 3 instruction', '<?agentwiki\r\n[[inside]]\r\n?>\r\n\r\n[[after]]'],
+    ['type 4 declaration', '<!AGENTWIKI\r\n[[inside]]\r\n>\r\n\r\n[[after]]'],
+    ['type 5 CDATA', '<![CDATA[\r\n[[inside]]\r\n]]>\r\n\r\n[[after]]'],
+    ['type 6 block tag', '<table>\r\n[[inside]]\r\n</table>\r\n\r\n[[after]]'],
+    ['type 7 complete tag', '<custom-tag data-kind="wiki">\r\n[[inside]]\r\n\r\n[[after]]'],
+  ])('matches the full resource AST for CommonMark HTML block %s', (_kind, source) => {
+    expect(fullAstWikiLiterals(source)).toEqual(['[[after]]']);
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
+    const collected = collectedWikiLiterals(source);
+    expect(parseSpy.mock.calls.map(([input]) => input)).toEqual(['[[after]]']);
+    expect(collected).toEqual(fullAstWikiLiterals(source));
+    parseSpy.mockRestore();
+  });
+
+  it.each([
+    ['bullet-list fence', '- ~~~md\n  [[inside]]\n  ~~~\n\n[[after]]'],
+    ['ordered-list fence', '1. ~~~md\n   [[inside]]\n   ~~~\n\n[[after]]'],
+    ['nested quote/list fence CRLF', '> - ~~~md\r\n>   [[inside]]\r\n>   ~~~\r\n\r\n[[after]]'],
+    ['nested quote indented code', '> >     [[inside]]\r\n\r\n[[after]]'],
+    ['list indented code', '- item\n\n      [[inside]]\n\n[[after]]'],
+    ['nested list indented code CRLF', '> - item\r\n>\r\n>       [[inside]]\r\n\r\n[[after]]'],
+    ['unclosed quoted fence', '> ```md\r\n> [[inside]]\r\n> [[still inside]]'],
+  ])('matches the full resource AST for %s', (_kind, source) => {
+    const expected = source.includes('[[after]]') ? ['[[after]]'] : [];
+    expect(fullAstWikiLiterals(source)).toEqual(expected);
+    expect(collectedWikiLiterals(source)).toEqual(fullAstWikiLiterals(source));
   });
 
   it('bounds synchronous collection and resolution for a near-200k stored document', async () => {
