@@ -24,6 +24,8 @@ const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
 const REVIEWED_MIGRATION_TREE_SHA256 = '99b85d23ffaab1f9db7c6fdc5a8a71d5ab546c6906d1411cbd12db32942d5471';
 
+const folderPgDumpFixture = (token, body) => `--\n-- PostgreSQL database dump\n--\n\n\\restrict ${token}\n\n${body}\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ${token}\n\n`;
+
 const administrativeUrl = (value) => {
   const parsed = validateFolderTestDatabaseUrl(value);
   parsed.searchParams.delete('schema');
@@ -132,13 +134,99 @@ test('Folder sanitized bundle removes each reviewed global fragment exactly once
   await assert.rejects(readFile(join(temporaryRoot, 'schema.prisma')), { code: 'ENOENT' });
 });
 
+test('Folder sanitized bundle uses only migration bytes captured by corpus inspection', async () => {
+  const sourceRoot = new URL('../apps/server/prisma/migrations/', import.meta.url);
+  const fixtureParent = await mkdtemp(join(tmpdir(), 'agentwiki-folder-captured-corpus-red-'));
+  const fixtureRoot = join(fixtureParent, 'migrations');
+  const bundleParent = join(fixtureParent, 'bundles');
+  await cp(sourceRoot, fixtureRoot, { recursive: true });
+  await mkdir(bundleParent);
+  let prepared;
+  try {
+    const inspected = await folderDatabaseSafety.inspectFolderMigrationCorpus(fixtureRoot);
+    const relativePath = '20260828120000_expand_space_folders/migration.sql';
+    const capturedEntry = inspected.entries.find((entry) => entry.relativePath === relativePath);
+    assert.equal(typeof capturedEntry?.contentBase64, 'string');
+    const capturedBytes = Buffer.from(capturedEntry.contentBase64, 'base64');
+    await writeFile(
+      join(fixtureRoot, relativePath),
+      Buffer.concat([capturedBytes, Buffer.from('\n-- post-inspection source mutation\n')]),
+    );
+
+    prepared = await folderDatabaseSafety.prepareFolderMigrationBundle({
+      inspection: inspected,
+      temporaryParent: bundleParent,
+    });
+    const bundledBytes = await readFile(join(prepared.temporaryRoot, 'migrations', relativePath));
+    assert.deepEqual(bundledBytes, capturedBytes);
+  } finally {
+    await prepared?.cleanup();
+    await rm(fixtureParent, { recursive: true, force: true });
+  }
+});
+
+test('Folder sanitized bundle rejects captured migration bytes that do not match their inspected hash', async () => {
+  const sourceRoot = new URL('../apps/server/prisma/migrations/', import.meta.url);
+  const inspected = await folderDatabaseSafety.inspectFolderMigrationCorpus(sourceRoot);
+  const entries = await Promise.all(inspected.entries.map(async (entry) => ({
+    ...entry,
+    contentBase64: (await readFile(new URL(entry.relativePath, sourceRoot))).toString('base64'),
+  })));
+  entries[0] = {
+    ...entries[0],
+    contentBase64: Buffer.concat([
+      Buffer.from(entries[0].contentBase64, 'base64'),
+      Buffer.from('tampered-after-review'),
+    ]).toString('base64'),
+  };
+  const fixtureParent = await mkdtemp(join(tmpdir(), 'agentwiki-folder-captured-hash-red-'));
+  let prepared;
+  let error;
+  try {
+    try {
+      prepared = await folderDatabaseSafety.prepareFolderMigrationBundle({
+        inspection: { ...inspected, entries },
+        temporaryParent: fixtureParent,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(error?.message ?? '', /captured migration bytes do not match inspected hash/iu);
+  } finally {
+    await prepared?.cleanup();
+    await rm(fixtureParent, { recursive: true, force: true });
+  }
+});
+
+test('Folder sanitized bundle ownership removes the bundle after an asynchronous setup failure', async () => {
+  assert.equal(typeof folderDatabaseSafety.withFolderMigrationBundle, 'function');
+  const fixtureParent = await mkdtemp(join(tmpdir(), 'agentwiki-folder-bundle-owner-red-'));
+  const bundleParent = join(fixtureParent, 'bundles');
+  await mkdir(bundleParent);
+  let acquiredRoot;
+  try {
+    await assert.rejects(
+      folderDatabaseSafety.withFolderMigrationBundle(
+        { temporaryParent: bundleParent },
+        async (prepared) => {
+          acquiredRoot = prepared.temporaryRoot;
+          await Promise.resolve();
+          throw new Error('injected post-acquisition setup failure');
+        },
+      ),
+      /injected post-acquisition setup failure/iu,
+    );
+    assert.deepEqual(await readdir(bundleParent), []);
+    await assert.rejects(readFile(join(acquiredRoot, 'schema.prisma')), { code: 'ENOENT' });
+  } finally {
+    await rm(fixtureParent, { recursive: true, force: true });
+  }
+});
+
 test('Folder structural inventory distinguishes same-name public objects with different definitions', () => {
-  const beforeDump = String.raw`\restrict random-before
-CREATE TABLE public.same_name (
+  const beforeDump = folderPgDumpFixture('random-before', `CREATE TABLE public.same_name (
     value integer NOT NULL
-);
-\unrestrict random-before
-`;
+);`);
   const sameStructureDifferentToken = beforeDump.replaceAll('random-before', 'random-after');
   const changedStructure = sameStructureDifferentToken.replace('value integer', 'value bigint');
   const before = { publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(beforeDump) };
@@ -150,6 +238,103 @@ CREATE TABLE public.same_name (
   };
   assert.equal(folderDatabaseSafetyInventoryDigest(same), folderDatabaseSafetyInventoryDigest(before));
   assert.notEqual(folderDatabaseSafetyInventoryDigest(changed), folderDatabaseSafetyInventoryDigest(before));
+});
+
+test('Folder structural inventory preserves dollar-quoted body directives while normalizing the outer pair', () => {
+  const beforeDump = folderPgDumpFixture('random-before', String.raw`CREATE FUNCTION public.material_body() RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $function$
+SELECT $body$
+\restrict material-body-line
+$body$;
+$function$;`);
+  const sameStructureDifferentOuterToken = beforeDump.replaceAll('random-before', 'random-after');
+  const changedFunctionBody = sameStructureDifferentOuterToken.replace(
+    'material-body-line',
+    'material-body-changed',
+  );
+  const before = {
+    publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(beforeDump),
+  };
+  const same = {
+    publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(
+      sameStructureDifferentOuterToken,
+    ),
+  };
+  const changed = {
+    publicSchemaDump: folderDatabaseSafety.normalizeFolderPublicSchemaDump(changedFunctionBody),
+  };
+  assert.match(before.publicSchemaDump, /^\\restrict material-body-line$/mu);
+  assert.equal(folderDatabaseSafetyInventoryDigest(same), folderDatabaseSafetyInventoryDigest(before));
+  assert.notEqual(folderDatabaseSafetyInventoryDigest(changed), folderDatabaseSafetyInventoryDigest(before));
+});
+
+test('Folder structural inventory rejects malformed or multiple outer pg_dump directives', () => {
+  const valid = folderPgDumpFixture('reviewed-token', 'SELECT 1;');
+  assert.throws(
+    () => folderDatabaseSafety.normalizeFolderPublicSchemaDump(
+      valid.replace('\\unrestrict reviewed-token', '\\unrestrict wrong-token'),
+    ),
+    /matching outer.*directive pair/iu,
+  );
+  assert.throws(
+    () => folderDatabaseSafety.normalizeFolderPublicSchemaDump(
+      valid.replace('\\restrict reviewed-token\n', '\\restrict reviewed-token\n\\restrict extra-token\n'),
+    ),
+    /exactly one outer.*directive pair/iu,
+  );
+  assert.throws(
+    () => folderDatabaseSafety.normalizeFolderPublicSchemaDump('SELECT 1;\n'),
+    /outer.*directive pair/iu,
+  );
+});
+
+test('Folder structural inventory vector catalog digest changes with implementation details', async () => {
+  assert.equal(typeof folderDatabaseSafety.captureFolderVectorExtensionCatalog, 'function');
+  const queryResults = [
+    [
+      {
+        className: 'pg_proc',
+        objectIdentity: 'public.vector_norm(vector)',
+        catalogRow: { proname: 'vector_norm', proconfig: ['search_path=public'], prosrc: 'return 1' },
+        definition: 'CREATE FUNCTION public.vector_norm(vector) RETURNS double precision ...',
+      },
+      {
+        className: 'pg_opfamily',
+        objectIdentity: 'public.vector_l2_ops USING hnsw',
+        catalogRow: { opfname: 'vector_l2_ops', opfmethod: 42 },
+        definition: '',
+      },
+    ],
+    [
+      {
+        familyIdentity: 'public.vector_l2_ops USING hnsw',
+        operatorOid: 101,
+        catalogRow: { amopstrategy: 1, amopopr: 101 },
+      },
+    ],
+    [
+      { familyIdentity: 'public.vector_l2_ops USING hnsw', procedureNumber: 1, procedureOid: 201 },
+    ],
+    [],
+  ];
+  const catalog = await folderDatabaseSafety.captureFolderVectorExtensionCatalog({
+    $queryRaw: async () => queryResults.shift(),
+  });
+  assert.deepEqual(catalog.directObjectCounts, { pg_opfamily: 1, pg_proc: 1 });
+  const changedBody = structuredClone(catalog);
+  changedBody.directObjects[0].catalogRow.prosrc = 'return 2';
+  const changedOperatorGraph = structuredClone(catalog);
+  changedOperatorGraph.accessMethodOperators[0].catalogRow.amopstrategy = 2;
+  const digest = folderDatabaseSafetyInventoryDigest({ vectorExtensionCatalog: catalog });
+  assert.notEqual(
+    folderDatabaseSafetyInventoryDigest({ vectorExtensionCatalog: changedBody }),
+    digest,
+  );
+  assert.notEqual(
+    folderDatabaseSafetyInventoryDigest({ vectorExtensionCatalog: changedOperatorGraph }),
+    digest,
+  );
 });
 
 test('Folder database preflight requires only the preinstalled public vector extension', async () => {
@@ -407,6 +592,23 @@ test('ContentTree DB gate leaves no generated schemas and preserves protected pu
   assert.equal(afterDigest, beforeDigest);
   const vector = publicInventoryAfter.extensions.find((extension) => extension.name === 'vector');
   assert.equal(vector?.schema, 'public');
+  assert.deepEqual(publicInventoryAfter.vectorExtensionCatalog.directObjectCounts, {
+    pg_am: 2,
+    pg_cast: 23,
+    pg_opclass: 24,
+    pg_operator: 40,
+    pg_opfamily: 24,
+    pg_proc: 118,
+    pg_type: 3,
+  });
+  const definedVectorFunction = publicInventoryAfter.vectorExtensionCatalog.directObjects.find(
+    (object) => object.className === 'pg_proc' && object.definition,
+  );
+  assert.equal(typeof definedVectorFunction?.catalogRow?.prosrc, 'string');
+  assert.equal(Object.hasOwn(definedVectorFunction?.catalogRow ?? {}, 'proconfig'), true);
+  assert.match(definedVectorFunction?.definition ?? '', /CREATE OR REPLACE FUNCTION/iu);
+  assert.ok(publicInventoryAfter.vectorExtensionCatalog.accessMethodOperators.length > 0);
+  assert.ok(publicInventoryAfter.vectorExtensionCatalog.accessMethodProcedures.length > 0);
   const expectedDatabaseUrl = validateFolderTestDatabaseUrl(baseDatabaseUrl);
   assert.deepEqual(
     publicInventoryAfter.databaseMetadata.map(({ name, currentUser }) => ({ name, currentUser })),
@@ -425,6 +627,7 @@ test('ContentTree DB gate leaves no generated schemas and preserves protected pu
   console.log(`public_inventory_after=${afterDigest}`);
   console.log('public_inventory_equal=true');
   console.log(`vector_extension_schema=${vector.schema}`);
+  console.log(`vector_extension_direct_objects=${publicInventoryAfter.vectorExtensionCatalog.directObjects.length}`);
   console.log(`migration_tree_sha256=${REVIEWED_MIGRATION_TREE_SHA256}`);
   console.log('sanitized_global_fragments=2');
 });
