@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
+import { ContentTreeConflict, ContentTreeError } from '../../content-tree/content-tree.types';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -41,6 +42,10 @@ export interface RevisionOrigin {
   legacySidecarOverride?: Prisma.InputJsonObject;
 }
 
+export type SpaceTreeLockedTransaction = SpaceLockedTransaction & {
+  readonly contentTreeRevision: bigint;
+};
+
 
 @Injectable()
 export class SpaceRevisionWriterService {
@@ -49,9 +54,38 @@ export class SpaceRevisionWriterService {
   async lockSpace(
     tx: Prisma.TransactionClient,
     spaceId: string,
-  ): Promise<SpaceLockedTransaction> {
+  ): Promise<SpaceTreeLockedTransaction> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${spaceId}))`;
-    return tx as SpaceLockedTransaction;
+    const space = await tx.space.findUnique({
+      where: { id: spaceId, deletedAt: null },
+      select: { contentTreeRevision: true },
+    });
+    if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+    Object.defineProperty(tx, 'contentTreeRevision', {
+      configurable: true,
+      enumerable: false,
+      value: space.contentTreeRevision,
+    });
+    return tx as SpaceTreeLockedTransaction;
+  }
+
+  async advanceContentTreeRevision(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    expected: bigint,
+  ): Promise<bigint> {
+    const result = await tx.space.updateMany({
+      where: { id: spaceId, deletedAt: null, contentTreeRevision: expected },
+      data: { contentTreeRevision: { increment: 1n } },
+    });
+    if (result.count !== 1) {
+      const current = await tx.space.findUnique({
+        where: { id: spaceId },
+        select: { contentTreeRevision: true },
+      });
+      throw new ContentTreeConflict(expected, current?.contentTreeRevision ?? expected);
+    }
+    return expected + 1n;
   }
 
   async advance(

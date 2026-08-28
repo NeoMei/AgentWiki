@@ -10,9 +10,39 @@ describe('SpaceRevisionWriterService', () => {
   });
 
   it('locks a space with a transaction-scoped advisory lock', async () => {
-    const tx = { $executeRaw: jest.fn() };
-    await service.lockSpace(tx as any, 'space-1');
+    const tx = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 7n }) },
+    };
+    const locked = await service.lockSpace(tx as any, 'space-1');
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(locked.contentTreeRevision).toBe(7n);
+  });
+
+  it('advances the content tree revision with compare-and-swap', async () => {
+    const tx = {
+      space: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn(),
+      },
+    };
+    await expect(service.advanceContentTreeRevision(tx as any, 'space-1', 4n)).resolves.toBe(5n);
+    expect(tx.space.updateMany).toHaveBeenCalledWith({
+      where: { id: 'space-1', deletedAt: null, contentTreeRevision: 4n },
+      data: { contentTreeRevision: { increment: 1n } },
+    });
+  });
+
+  it('reports a stale compare-and-swap as a content-tree conflict', async () => {
+    const tx = {
+      space: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 9n }),
+      },
+    };
+    await expect(service.advanceContentTreeRevision(tx as any, 'space-1', 8n)).rejects.toEqual(
+      expect.objectContaining({ code: 'CONTENT_TREE_CONFLICT' }),
+    );
   });
 
   it('advances a revision with normalized rows, delta and bigint metrics', async () => {
@@ -23,6 +53,9 @@ describe('SpaceRevisionWriterService', () => {
     const tx = {
       $executeRaw: jest.fn(),
       $queryRaw: jest.fn().mockResolvedValue([{ bytes: 6n }]),
+      space: {
+        findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 0n }),
+      },
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(createdRevision),
