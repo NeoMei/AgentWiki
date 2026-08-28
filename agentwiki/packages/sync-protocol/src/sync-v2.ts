@@ -19,10 +19,20 @@ export const TREE_SYNC_V2_LIMITS = {
   maxDocumentTreeBytes: 2 * 1024 * 1024,
 } as const;
 
+function validateManagedPath(
+  input: string,
+  validate: (value: string) => { path: string },
+): string {
+  const path = validate(input).path;
+  if (!path.startsWith("pages/"))
+    throw new TypeError("Path must be under pages/");
+  return path;
+}
+
 function portableDirectoryPath() {
   return z.string().transform((value, context) => {
     try {
-      return validatePortableDirectoryPath(value).path;
+      return validateManagedPath(value, validatePortableDirectoryPath);
     } catch (error) {
       context.addIssue({ code: "custom", message: error instanceof Error ? error.message : "Path is not portable" });
       return z.NEVER;
@@ -33,7 +43,7 @@ function portableDirectoryPath() {
 function portableMarkdownPath() {
   return z.string().transform((value, context) => {
     try {
-      return validatePortableMarkdownPath(value).path;
+      return validateManagedPath(value, validatePortableMarkdownPath);
     } catch (error) {
       context.addIssue({ code: "custom", message: error instanceof Error ? error.message : "Path is not portable" });
       return z.NEVER;

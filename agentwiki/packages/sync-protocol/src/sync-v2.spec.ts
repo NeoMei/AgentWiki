@@ -56,6 +56,27 @@ describe("Sync Protocol v2", () => {
     })).toThrow();
   });
 
+  it("rejects paths outside the managed pages directory", () => {
+    const batch = (changes: unknown[]) => ({
+      protocolVersion: "2",
+      batchIndex: 0,
+      changes,
+      batchHash: hash,
+    });
+    expect(() => TreePushBatchV2Schema.parse(batch([
+      { operation: "upsert_folder", folder: folder({ path: "outside/folder" }) },
+    ]))).toThrow(/pages/);
+    expect(() => TreePushBatchV2Schema.parse(batch([
+      { operation: "upsert_page", page: page({ path: "outside.md" }) },
+    ]))).toThrow(/pages/);
+    expect(() => TreePushBatchV2Schema.parse(batch([
+      { operation: "archive_folder", folderId: "folder-a", previousPath: "outside/folder" },
+    ]))).toThrow(/pages/);
+    expect(() => TreePushBatchV2Schema.parse(batch([
+      { operation: "upsert_folder", folder: folder({ path: "pages" }) },
+    ]))).toThrow(/pages/);
+  });
+
   it("orders revision manifests with parents before children and Pages by path key then ID", async () => {
     const manifest = canonicalTreeRevisionManifestV2({
       protocolVersion: "2",
