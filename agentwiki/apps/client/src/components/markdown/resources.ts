@@ -18,6 +18,7 @@ const MAX_REFERENCES = 100;
 const MAX_EDITOR_WIKI_OCCURRENCES = 256;
 const MAX_EDITOR_CANDIDATE_PARSE_CHARS = 32_768;
 const MAX_REFERENCE_CHARS = 512;
+const MAX_INLINE_STRUCTURE_TOKENS = 512;
 const RAW_HTML_BLOCK_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
 const HTML_BLOCK_TAGS = new Set([
   'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body', 'caption', 'center',
@@ -303,9 +304,11 @@ const stripMarkdownContainerPrefixes = (
   source: string,
   start: number,
   end: number,
-): { contentStart: number; quoteDepth: number } => {
+): { contentStart: number; quoteDepth: number; listDepth: number; listContinuationIndent: number } => {
   let cursor = start;
   let quoteDepth = 0;
+  let listDepth = 0;
+  let listContinuationIndent = 0;
   while (cursor < end) {
     const beforePrefix = cursor;
     let indent = 0;
@@ -334,6 +337,7 @@ const stripMarkdownContainerPrefixes = (
       }
     }
     if (markerEnd !== cursor) {
+      const markerStart = beforePrefix;
       cursor = markerEnd;
       let paddingEnd = cursor;
       while (paddingEnd < end && paddingEnd - cursor < 5
@@ -341,12 +345,14 @@ const stripMarkdownContainerPrefixes = (
         paddingEnd += 1;
       }
       cursor += paddingEnd - cursor > 4 ? 1 : paddingEnd - cursor;
+      listDepth += 1;
+      listContinuationIndent += cursor - markerStart;
       continue;
     }
 
-    return { contentStart: beforePrefix, quoteDepth };
+    return { contentStart: beforePrefix, quoteDepth, listDepth, listContinuationIndent };
   }
-  return { contentStart: cursor, quoteDepth };
+  return { contentStart: cursor, quoteDepth, listDepth, listContinuationIndent };
 };
 
 const contentAfterRequiredBlockquotes = (
@@ -367,6 +373,42 @@ const contentAfterRequiredBlockquotes = (
     if (source[cursor] === ' ' || source[cursor] === '\t') cursor += 1;
   }
   return cursor;
+};
+
+interface MarkdownContainerScope {
+  quoteDepth: number;
+  listContinuationIndent: number;
+}
+
+const leadingIndentFrom = (source: string, start: number, end: number): number => {
+  let cursor = start;
+  while (cursor < end && (source[cursor] === ' ' || source[cursor] === '\t')) cursor += 1;
+  return cursor - start;
+};
+
+const lineContinuesContainer = (
+  source: string,
+  lineStart: number,
+  lineEnd: number,
+  container: ReturnType<typeof stripMarkdownContainerPrefixes>,
+  scope: MarkdownContainerScope,
+): boolean => {
+  if (container.quoteDepth < scope.quoteDepth) return false;
+  if (scope.listContinuationIndent === 0) return true;
+  const afterQuotes = contentAfterRequiredBlockquotes(source, lineStart, lineEnd, scope.quoteDepth);
+  return leadingIndentFrom(source, afterQuotes, lineEnd) >= scope.listContinuationIndent;
+};
+
+const lineContinuesParagraphScope = (
+  source: string,
+  lineStart: number,
+  lineEnd: number,
+  container: ReturnType<typeof stripMarkdownContainerPrefixes>,
+  scope: MarkdownContainerScope,
+): boolean => {
+  if (container.quoteDepth !== scope.quoteDepth) return false;
+  if (scope.listContinuationIndent === 0) return container.listDepth === 0;
+  return lineContinuesContainer(source, lineStart, lineEnd, container, scope);
 };
 
 const htmlTagNameAt = (source: string, start: number, end: number): string | null => {
@@ -406,31 +448,37 @@ const completeHtmlTagLineAt = (source: string, start: number, end: number): bool
   return false;
 };
 
-type HtmlBlockState =
-  | { kind: 'blank-line'; quoteDepth?: number }
-  | { kind: 'token'; token: string; asciiInsensitive: boolean; quoteDepth?: number };
+type HtmlBlockOpening =
+  | { kind: 'blank-line'; canInterruptParagraph: boolean }
+  | { kind: 'token'; token: string; asciiInsensitive: boolean; canInterruptParagraph: true };
 
-const htmlBlockAt = (source: string, start: number, end: number): HtmlBlockState | null => {
+type HtmlBlockState = HtmlBlockOpening & MarkdownContainerScope;
+
+const htmlBlockAt = (source: string, start: number, end: number): HtmlBlockOpening | null => {
   if (source[start] !== '<') return null;
   const tag = htmlTagNameAt(source, start, end);
   if (tag !== null && RAW_HTML_BLOCK_TAGS.has(tag) && source[start + 1] !== '/') {
-    return { kind: 'token', token: `</${tag}`, asciiInsensitive: true };
+    return { kind: 'token', token: `</${tag}`, asciiInsensitive: true, canInterruptParagraph: true };
   }
   if (source.startsWith('<!--', start)) {
-    return { kind: 'token', token: '-->', asciiInsensitive: false };
+    return { kind: 'token', token: '-->', asciiInsensitive: false, canInterruptParagraph: true };
   }
   if (source.startsWith('<?', start)) {
-    return { kind: 'token', token: '?>', asciiInsensitive: false };
+    return { kind: 'token', token: '?>', asciiInsensitive: false, canInterruptParagraph: true };
   }
   if (source.startsWith('<![CDATA[', start)) {
-    return { kind: 'token', token: ']]>', asciiInsensitive: false };
+    return { kind: 'token', token: ']]>', asciiInsensitive: false, canInterruptParagraph: true };
   }
   if (source.startsWith('<!', start) && isAsciiLetter(source[start + 2])
     && source.charCodeAt(start + 2) >= 65 && source.charCodeAt(start + 2) <= 90) {
-    return { kind: 'token', token: '>', asciiInsensitive: false };
+    return { kind: 'token', token: '>', asciiInsensitive: false, canInterruptParagraph: true };
   }
-  if (tag !== null && HTML_BLOCK_TAGS.has(tag)) return { kind: 'blank-line' };
-  if (tag !== null && completeHtmlTagLineAt(source, start, end)) return { kind: 'blank-line' };
+  if (tag !== null && HTML_BLOCK_TAGS.has(tag)) {
+    return { kind: 'blank-line', canInterruptParagraph: true };
+  }
+  if (tag !== null && completeHtmlTagLineAt(source, start, end)) {
+    return { kind: 'blank-line', canInterruptParagraph: false };
+  }
   return null;
 };
 
@@ -486,14 +534,229 @@ const skipLinkDestination = (source: string, start: number, end: number): number
   return end;
 };
 
+interface SourceRange {
+  from: number;
+  to: number;
+}
+
+const mergeSourceRanges = (ranges: SourceRange[]): SourceRange[] => {
+  ranges.sort((left, right) => left.from - right.from || left.to - right.to);
+  const merged: SourceRange[] = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.from > previous.to) merged.push({ ...range });
+    else if (range.to > previous.to) previous.to = range.to;
+  }
+  return merged;
+};
+
+const rangeContaining = (ranges: SourceRange[], position: number, startIndex = 0): number => {
+  let index = startIndex;
+  while (index < ranges.length && ranges[index].to <= position) index += 1;
+  return index < ranges.length && ranges[index].from <= position ? index : -index - 1;
+};
+
+const inlineExclusionsFor = (source: string, start: number, end: number): SourceRange[] => {
+  const failRaw = (): SourceRange[] => [{ from: start, to: end }];
+  const opaqueRanges: SourceRange[] = [];
+  const ticks: Array<{ from: number; to: number; length: number; next?: number }> = [];
+  let cursor = start;
+  let slashRun = 0;
+  while (cursor < end) {
+    const character = source[cursor];
+    if (character === '\\') {
+      slashRun += 1;
+      cursor += 1;
+      continue;
+    }
+    if (character === '`' && slashRun % 2 === 0) {
+      const runEnd = markerRunEnd(source, cursor, end, '`');
+      if (ticks.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+      ticks.push({ from: cursor, to: runEnd, length: runEnd - cursor });
+      cursor = runEnd;
+      slashRun = 0;
+      continue;
+    }
+    slashRun = 0;
+    cursor += 1;
+  }
+  const nextTickByLength = new Map<number, number>();
+  for (let index = ticks.length - 1; index >= 0; index -= 1) {
+    ticks[index].next = nextTickByLength.get(ticks[index].length);
+    nextTickByLength.set(ticks[index].length, index);
+  }
+  for (let index = 0; index < ticks.length;) {
+    const closingIndex = ticks[index].next;
+    if (closingIndex === undefined) {
+      index += 1;
+      continue;
+    }
+    opaqueRanges.push({ from: ticks[index].from, to: ticks[closingIndex].to });
+    index = closingIndex + 1;
+  }
+
+  const codeRanges = mergeSourceRanges(opaqueRanges);
+  let codeIndex = 0;
+  let commentStart = -1;
+  cursor = start;
+  while (cursor < end) {
+    const codeRangeIndex = rangeContaining(codeRanges, cursor, codeIndex);
+    if (codeRangeIndex >= 0) {
+      codeIndex = codeRangeIndex;
+      cursor = codeRanges[codeRangeIndex].to;
+      continue;
+    }
+    codeIndex = -codeRangeIndex - 1;
+    if (commentStart === -1 && source.startsWith('<!--', cursor)) {
+      commentStart = cursor;
+      cursor += 4;
+      continue;
+    }
+    if (commentStart !== -1 && source.startsWith('-->', cursor)) {
+      if (opaqueRanges.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+      opaqueRanges.push({ from: commentStart, to: cursor + 3 });
+      commentStart = -1;
+      cursor += 3;
+      continue;
+    }
+    cursor += 1;
+  }
+
+  const exclusions = mergeSourceRanges(opaqueRanges);
+  let exclusionIndex = 0;
+  cursor = start;
+  while (cursor < end) {
+    const containing = rangeContaining(exclusions, cursor, exclusionIndex);
+    if (containing >= 0) {
+      exclusionIndex = containing;
+      cursor = exclusions[containing].to;
+      continue;
+    }
+    exclusionIndex = -containing - 1;
+    if (source[cursor] === '<') {
+      const tagEnd = skipHtmlTag(source, cursor, end);
+      if (tagEnd > cursor + 1 && source[tagEnd - 1] === '>') {
+        if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+        exclusions.push({ from: cursor, to: tagEnd });
+        cursor = tagEnd;
+        continue;
+      }
+      if (tagEnd === end) break;
+    }
+    cursor += 1;
+  }
+
+  const nonLinkRanges = mergeSourceRanges(exclusions);
+  const bracketStack: number[] = [];
+  exclusionIndex = 0;
+  cursor = start;
+  while (cursor < end) {
+    const containing = rangeContaining(nonLinkRanges, cursor, exclusionIndex);
+    if (containing >= 0) {
+      exclusionIndex = containing;
+      cursor = nonLinkRanges[containing].to;
+      continue;
+    }
+    exclusionIndex = -containing - 1;
+    if (source[cursor] === '\\' && cursor + 1 < end) {
+      cursor += 2;
+      continue;
+    }
+    if (source[cursor] === '[' && source[cursor + 1] === '[') {
+      const wikiEnd = findTokenBefore(source, ']]', cursor + 2, end);
+      cursor = wikiEnd === -1 ? end : wikiEnd + 2;
+      continue;
+    }
+    if (source[cursor] === '[') {
+      if (bracketStack.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+      bracketStack.push(cursor);
+    }
+    else if (source[cursor] === ']' && bracketStack.length > 0) {
+      const labelStart = bracketStack.pop()!;
+      if (source[cursor + 1] === '(') {
+        const linkEnd = skipLinkDestination(source, cursor + 1, end);
+        if (linkEnd < end || source[linkEnd - 1] === ')') {
+          if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+          exclusions.push({ from: labelStart, to: linkEnd });
+        }
+        cursor = linkEnd;
+        continue;
+      }
+      if (source[cursor + 1] === '[') {
+        const referenceEnd = findTokenBefore(source, ']', cursor + 2, end);
+        if (referenceEnd !== -1) {
+          if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+          exclusions.push({ from: labelStart, to: referenceEnd + 1 });
+          cursor = referenceEnd + 1;
+          continue;
+        } else cursor = end;
+      }
+      if (source[cursor + 1] === ':') {
+        if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
+        exclusions.push({ from: labelStart, to: end });
+      }
+    }
+    cursor += 1;
+  }
+  return mergeSourceRanges(exclusions);
+};
+
+const paragraphEndFrom = (
+  source: string,
+  start: number,
+  initialContainer: ReturnType<typeof stripMarkdownContainerPrefixes>,
+): number => {
+  let lineStart = start;
+  let firstLine = true;
+  while (lineStart < source.length) {
+    let lineEnd = lineStart;
+    while (lineEnd < source.length && source[lineEnd] !== '\n' && source[lineEnd] !== '\r') lineEnd += 1;
+    const container = stripMarkdownContainerPrefixes(source, lineStart, lineEnd);
+    const blank = leadingIndentFrom(source, container.contentStart, lineEnd) === lineEnd - container.contentStart;
+    if (blank) return lineStart;
+    if (!firstLine) {
+      if (container.quoteDepth !== initialContainer.quoteDepth) return lineStart;
+      if (initialContainer.listDepth === 0 && container.listDepth > 0) return lineStart;
+      if (initialContainer.listDepth > 0 && !lineContinuesContainer(source, lineStart, lineEnd, container, {
+        quoteDepth: initialContainer.quoteDepth,
+        listContinuationIndent: initialContainer.listContinuationIndent,
+      })) return lineStart;
+    }
+    if (lineEnd >= source.length) return lineEnd;
+    lineStart = lineEnd + (source[lineEnd] === '\r' && source[lineEnd + 1] === '\n' ? 2 : 1);
+    firstLine = false;
+  }
+  return source.length;
+};
+
+const lineOpensParagraph = (source: string, start: number, end: number): boolean => {
+  if (source[start] === '#') {
+    const runEnd = markerRunEnd(source, start, end, '#');
+    if (runEnd - start <= 6 && (runEnd === end || source[runEnd] === ' ' || source[runEnd] === '\t')) {
+      return false;
+    }
+  }
+  const marker = source[start];
+  if (marker === '=' || marker === '-' || marker === '*' || marker === '_') {
+    let count = 0;
+    let cursor = start;
+    while (cursor < end) {
+      if (source[cursor] === marker) count += 1;
+      else if (source[cursor] !== ' ' && source[cursor] !== '\t') break;
+      cursor += 1;
+    }
+    if (cursor === end && (marker === '=' ? count >= 1 : count >= 3)) return false;
+  }
+  return true;
+};
+
 const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandidate[] => {
   const candidates: MarkdownResourceCandidate[] = [];
   let candidateCharacters = 0;
-  let fence: { marker: '`' | '~'; length: number } | null = null;
-  let inlineTicks = 0;
-  let bracketDepth = 0;
-  let inHtmlComment = false;
+  let fence: ({ marker: '`' | '~'; length: number } & MarkdownContainerScope) | null = null;
   let htmlBlock: HtmlBlockState | null = null;
+  let paragraphScope: MarkdownContainerScope | null = null;
+  let inlineParagraph: { from: number; to: number; exclusions: SourceRange[] } | null = null;
   let lineStart = 0;
 
   while (lineStart < source.length) {
@@ -509,6 +772,34 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
       indentation += 1;
     }
     const indentedCode = indentation >= 4 || source[firstContent] === '\t';
+    const blankLine = firstContent >= lineEnd;
+    if (blankLine) {
+      paragraphScope = null;
+      inlineParagraph = null;
+    } else if (paragraphScope !== null && !lineContinuesParagraphScope(
+      source,
+      lineStart,
+      lineEnd,
+      container,
+      paragraphScope,
+    )) {
+      paragraphScope = null;
+      inlineParagraph = null;
+    }
+    if (htmlBlock !== null && !blankLine && !lineContinuesContainer(
+      source,
+      lineStart,
+      lineEnd,
+      container,
+      htmlBlock,
+    )) htmlBlock = null;
+    if (fence !== null && !blankLine && !lineContinuesContainer(
+      source,
+      lineStart,
+      lineEnd,
+      container,
+      fence,
+    )) fence = null;
     const startedInsideFence = fence !== null;
     let rawHtmlBlockLine = false;
 
@@ -521,24 +812,36 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
           source,
           lineStart,
           lineEnd,
-          htmlBlock.quoteDepth ?? 0,
+          htmlBlock.quoteDepth,
         );
         const closingToken = htmlBlock.asciiInsensitive
           ? findAsciiCaseInsensitiveTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd)
           : findTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd);
         if (closingToken !== -1) htmlBlock = null;
       }
-    } else if (fence === null && inlineTicks === 0 && indentation <= 3) {
+    } else if (fence === null && indentation <= 3) {
       const openingBlock = htmlBlockAt(source, firstContent, lineEnd);
-      if (openingBlock !== null) {
+      if (openingBlock !== null && (openingBlock.canInterruptParagraph || paragraphScope === null)) {
         rawHtmlBlockLine = true;
+        paragraphScope = null;
+        inlineParagraph = null;
         if (openingBlock.kind === 'blank-line') {
-          htmlBlock = { ...openingBlock, quoteDepth: container.quoteDepth };
+          htmlBlock = {
+            ...openingBlock,
+            quoteDepth: container.quoteDepth,
+            listContinuationIndent: container.listContinuationIndent,
+          };
         } else {
           const closingToken = openingBlock.asciiInsensitive
             ? findAsciiCaseInsensitiveTokenBefore(source, openingBlock.token, firstContent, lineEnd)
             : findTokenBefore(source, openingBlock.token, firstContent, lineEnd);
-          if (closingToken === -1) htmlBlock = { ...openingBlock, quoteDepth: container.quoteDepth };
+          if (closingToken === -1) {
+            htmlBlock = {
+              ...openingBlock,
+              quoteDepth: container.quoteDepth,
+              listContinuationIndent: container.listContinuationIndent,
+            };
+          }
         }
       }
     }
@@ -548,55 +851,49 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
         && closingFenceAt(source, firstContent, lineEnd, fence.marker, fence.length)) {
         fence = null;
       }
-    } else if (!rawHtmlBlockLine && inlineTicks === 0 && !indentedCode
+    } else if (!rawHtmlBlockLine && !indentedCode
       && (source[firstContent] === '`' || source[firstContent] === '~')) {
       const marker = source[firstContent] as '`' | '~';
       const runEnd = markerRunEnd(source, firstContent, lineEnd, marker);
-      if (runEnd - firstContent >= 3) fence = { marker, length: runEnd - firstContent };
+      if (runEnd - firstContent >= 3) {
+        fence = {
+          marker,
+          length: runEnd - firstContent,
+          quoteDepth: container.quoteDepth,
+          listContinuationIndent: container.listContinuationIndent,
+        };
+        paragraphScope = null;
+        inlineParagraph = null;
+      }
       else firstContent = containerContent;
-    } else if (!rawHtmlBlockLine && (!indentedCode || inlineTicks !== 0)) {
+    } else if (!rawHtmlBlockLine && !indentedCode) {
       firstContent = containerContent;
     }
 
     const fenceLine = rawHtmlBlockLine || startedInsideFence || fence !== null;
-    if (!fenceLine && (!indentedCode || inlineTicks !== 0)) {
+    if (!fenceLine && !indentedCode && !blankLine) {
+      if (inlineParagraph === null || lineStart < inlineParagraph.from || lineStart >= inlineParagraph.to) {
+        const paragraphEnd = paragraphEndFrom(source, lineStart, container);
+        inlineParagraph = {
+          from: lineStart,
+          to: paragraphEnd,
+          exclusions: inlineExclusionsFor(source, lineStart, paragraphEnd),
+        };
+      }
       let cursor = firstContent;
+      let exclusionIndex = 0;
       while (cursor < lineEnd) {
-        if (inHtmlComment) {
-          const commentEnd = findTokenBefore(source, '-->', cursor, lineEnd);
-          if (commentEnd === -1) {
-            cursor = lineEnd;
-            continue;
-          }
-          inHtmlComment = false;
-          cursor = commentEnd + 3;
+        const containing = rangeContaining(inlineParagraph.exclusions, cursor, exclusionIndex);
+        if (containing >= 0) {
+          exclusionIndex = containing;
+          cursor = Math.min(inlineParagraph.exclusions[containing].to, lineEnd);
           continue;
         }
-        if (source.startsWith('<!--', cursor)) {
-          inHtmlComment = true;
-          cursor += 4;
-          continue;
-        }
+        exclusionIndex = -containing - 1;
 
         const character = source[cursor];
-        if (character === '`') {
-          const runEnd = markerRunEnd(source, cursor, lineEnd, '`');
-          const runLength = runEnd - cursor;
-          if (inlineTicks === 0) inlineTicks = runLength;
-          else if (runLength === inlineTicks) inlineTicks = 0;
-          cursor = runEnd;
-          continue;
-        }
-        if (inlineTicks !== 0) {
-          cursor += 1;
-          continue;
-        }
         if (character === '\\' && cursor + 1 < lineEnd) {
           cursor += 2;
-          continue;
-        }
-        if (character === '<') {
-          cursor = skipHtmlTag(source, cursor, lineEnd);
           continue;
         }
         if (character === '[' && source[cursor + 1] === '[') {
@@ -622,35 +919,31 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
           const to = close + 2;
           const embed = cursor > lineStart && source[cursor - 1] === '!';
           const from = embed ? cursor - 1 : cursor;
-          if (bracketDepth === 0) {
-            const literalLength = to - from;
-            const separatorLength = candidates.length === 0 ? 0 : 1;
-            if (candidateCharacters + separatorLength + literalLength > MAX_EDITOR_CANDIDATE_PARSE_CHARS) {
-              return candidates;
-            }
-            candidates.push({ from, to, literal: source.slice(from, to) });
-            candidateCharacters += separatorLength + literalLength;
-            if (candidates.length >= MAX_EDITOR_WIKI_OCCURRENCES) return candidates;
+          const literalLength = to - from;
+          const separatorLength = candidates.length === 0 ? 0 : 1;
+          if (candidateCharacters + separatorLength + literalLength > MAX_EDITOR_CANDIDATE_PARSE_CHARS) {
+            return candidates;
           }
+          candidates.push({ from, to, literal: source.slice(from, to) });
+          candidateCharacters += separatorLength + literalLength;
+          if (candidates.length >= MAX_EDITOR_WIKI_OCCURRENCES) return candidates;
           cursor = to;
           continue;
         }
-        if (character === '[') bracketDepth += 1;
-        else if (character === ']' && bracketDepth > 0) {
-          bracketDepth -= 1;
-          if (bracketDepth === 0) {
-            if (source[cursor + 1] === '(') {
-              cursor = skipLinkDestination(source, cursor + 1, lineEnd);
-              continue;
-            }
-            if (source[cursor + 1] === ':') {
-              cursor = lineEnd;
-              continue;
-            }
-          }
-        }
         cursor += 1;
       }
+      if (lineOpensParagraph(source, firstContent, lineEnd)) {
+        paragraphScope ??= {
+          quoteDepth: container.quoteDepth,
+          listContinuationIndent: container.listContinuationIndent,
+        };
+      } else {
+        paragraphScope = null;
+        inlineParagraph = null;
+      }
+    } else if (indentedCode || rawHtmlBlockLine || startedInsideFence) {
+      paragraphScope = null;
+      inlineParagraph = null;
     }
 
     if (lineEnd >= source.length) break;

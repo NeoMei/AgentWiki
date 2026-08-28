@@ -72,7 +72,9 @@ describe('collectMarkdownResourceRefs', () => {
     ]);
 
     expect(collectMarkdownResourceOccurrences('```md\r\n[[fenced]]\r\n[[still fenced]]')).toEqual([]);
-    expect(collectMarkdownResourceOccurrences('`unterminated [[inline]]\r\n[[still inline]]')).toEqual([]);
+    const unmatchedCode = '`unterminated [[inline]]\r\n[[still inline]]';
+    expect(fullAstWikiLiterals(unmatchedCode)).toEqual(['[[inline]]', '[[still inline]]']);
+    expect(collectedWikiLiterals(unmatchedCode)).toEqual(['[[inline]]', '[[still inline]]']);
     expect(collectMarkdownResourceOccurrences('<!--\r\n[[commented]]\r\n[[still commented]]')).toEqual([]);
     expect(collectMarkdownResourceOccurrences(
       '[[Outer [nested] target]] [[Page|Alias [nested]]] [[broken ] delimiter]]',
@@ -91,6 +93,26 @@ describe('collectMarkdownResourceRefs', () => {
   ])('matches the full resource AST for %s', (_kind, source) => {
     expect(fullAstWikiLiterals(source)).toEqual(['[[after]]']);
     expect(collectedWikiLiterals(source)).toEqual(fullAstWikiLiterals(source));
+  });
+
+  it.each([
+    [
+      'type-7 tag after paragraph text',
+      'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[after]]',
+      ['[[valid in paragraph]]', '[[after]]'],
+    ],
+    ['type-7 tag after an ATX heading', '# heading\n<custom-tag>\n[[inside]]\n\n[[after]]', ['[[after]]']],
+    ['quoted type-6 HTML dedent', '> <div>\n> [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['quoted comment dedent', '> <!--\n> [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['quoted raw-tag dedent', '> <script>\n> [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['quoted unclosed fence dedent', '> ~~~md\n> [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['list unclosed fence dedent', '- ~~~md\n  [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['unclosed code span before blank line', '`unterminated [[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
+    ['unclosed link label before blank line', '[unterminated [[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
+    ['unclosed inline comment before blank line', 'paragraph <!--\n[[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
+  ])('resumes full-AST resource collection across %s', (_kind, source, expected) => {
+    expect(fullAstWikiLiterals(source)).toEqual(expected);
+    expect(collectedWikiLiterals(source)).toEqual(expected);
   });
 
   it.each([
@@ -149,6 +171,16 @@ describe('collectMarkdownResourceRefs', () => {
     await expect(resolveMarkdownResources('space-editor', references)).resolves.toHaveProperty('size', 100);
     expect(api.post).toHaveBeenCalledTimes(1);
     expect((vi.mocked(api.post).mock.calls[0][1] as any).references).toHaveLength(100);
+    parseSpy.mockRestore();
+  });
+
+  it('fails a delimiter-heavy near-200k paragraph raw before parser or resolver work', () => {
+    const source = `${'` '.repeat(600)}[[after]]`.padEnd(199_000, 'x');
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
+
+    expect(collectMarkdownResourceOccurrences(source)).toEqual([]);
+    expect(parseSpy).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
     parseSpy.mockRestore();
   });
 

@@ -414,6 +414,45 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(currentEditorView(container).state.doc.toString()).toBe(source);
   });
 
+  it.each([
+    ['type-7 tag after paragraph text', 'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[outside]]', ['valid in paragraph', 'outside']],
+    ['quoted type-6 HTML dedent', '> <div>\n> [[inside]]\n[[outside]]', ['outside']],
+    ['quoted comment dedent', '> <!--\n> [[inside]]\n[[outside]]', ['outside']],
+    ['quoted raw-tag dedent', '> <script>\n> [[inside]]\n[[outside]]', ['outside']],
+    ['quoted unclosed fence dedent', '> ~~~md\n> [[inside]]\n[[outside]]', ['outside']],
+    ['list unclosed fence dedent', '- ~~~md\n  [[inside]]\n[[outside]]', ['outside']],
+    ['unclosed code span paragraph', '`unterminated [[inside]]\n\n[[outside]]', ['inside', 'outside']],
+    ['unclosed link-label paragraph', '[unterminated [[inside]]\n\n[[outside]]', ['inside', 'outside']],
+    ['unclosed inline comment paragraph', 'paragraph <!--\n[[inside]]\n\n[[outside]]', ['inside', 'outside']],
+  ])('keeps invalid %s content raw and resolves valid content after its boundary', async (_kind, source, links) => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target.toLowerCase().replaceAll(' ', '-'),
+        title: reference.target,
+        slug: reference.target.toLowerCase().replaceAll(' ', '-'),
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: `active\n${source}`,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    for (const link of links) {
+      expect(await screen.findByRole('link', { name: link })).toBeInTheDocument();
+    }
+    if (!links.includes('inside')) {
+      expect(screen.queryByRole('link', { name: 'inside' })).not.toBeInTheDocument();
+    }
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(links.length);
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(links.length);
+    expect(currentEditorView(container).state.doc.toString()).toBe(`active\n${source}`);
+  });
+
   it('reuses resolution when alias text and offsets change while rebuilding the current widgets', async () => {
     resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
       data: body.references.map((reference: any) => ({
