@@ -319,6 +319,63 @@ export function canonicalTreeRevisionManifestV2(
   };
 }
 
+function sameRevisionFolder(left: SyncFolderV2 | undefined, right: SyncFolderV2): boolean {
+  return !!left
+    && left.parentFolderId === right.parentFolderId
+    && left.name === right.name
+    && left.path === right.path
+    && left.sortOrder === right.sortOrder
+    && left.updatedAt === right.updatedAt;
+}
+
+function sameRevisionPage(left: SyncPageV2 | undefined, right: SyncPageV2): boolean {
+  return !!left
+    && left.folderId === right.folderId
+    && left.path === right.path
+    && left.title === right.title
+    && left.contentHash === right.contentHash
+    && left.updatedAt === right.updatedAt;
+}
+
+/**
+ * Derive the unique persisted/served tree delta from immutable manifests.
+ * A null parent represents a pre-v2 revision and therefore produces a full
+ * parent-first v2 upsert set.
+ */
+export function treeRevisionDeltaV2(
+  parentInput: TreeRevisionContentManifestV2 | null,
+  currentInput: TreeRevisionContentManifestV2,
+): TreeDeltaItemV2[] {
+  const current = canonicalTreeRevisionManifestV2(currentInput);
+  const parent = parentInput === null
+    ? { protocolVersion: SYNC_PROTOCOL_V2, spaceId: current.spaceId, folders: [], pages: [] } satisfies TreeRevisionContentManifestV2
+    : canonicalTreeRevisionManifestV2(parentInput);
+  if (parent.spaceId !== current.spaceId) throw new TypeError("Tree revision manifests belong to different Spaces");
+
+  const parentFolders = new Map(parent.folders.map((folder) => [folder.folderId, folder]));
+  const currentFolders = new Map(current.folders.map((folder) => [folder.folderId, folder]));
+  const parentPages = new Map(parent.pages.map((page) => [page.pageId, page]));
+  const currentPages = new Map(current.pages.map((page) => [page.pageId, page]));
+
+  const archivedPages: TreeDeltaItemV2[] = parent.pages
+    .filter((page) => !currentPages.has(page.pageId))
+    .sort((left, right) => compareStrings(pathKey(left.path), pathKey(right.path)) || compareStrings(left.pageId, right.pageId))
+    .map((page) => ({ operation: "archive_page", pageId: page.pageId, previousPath: page.path }));
+  const archivedFolders: TreeDeltaItemV2[] = parent.folders
+    .filter((folder) => !currentFolders.has(folder.folderId))
+    .sort((left, right) => folderDepth(right, parentFolders) - folderDepth(left, parentFolders)
+      || compareStrings(pathKey(left.path), pathKey(right.path))
+      || compareStrings(left.folderId, right.folderId))
+    .map((folder) => ({ operation: "archive_folder", folderId: folder.folderId, previousPath: folder.path }));
+  const upsertFolders: TreeDeltaItemV2[] = current.folders
+    .filter((folder) => !sameRevisionFolder(parentFolders.get(folder.folderId), folder))
+    .map((folder) => ({ operation: "upsert_folder", folder }));
+  const upsertPages: TreeDeltaItemV2[] = current.pages
+    .filter((page) => !sameRevisionPage(parentPages.get(page.pageId), page))
+    .map((page) => ({ operation: "upsert_page", page }));
+  return [...archivedPages, ...archivedFolders, ...upsertFolders, ...upsertPages];
+}
+
 function treeChangeSortKey(change: TreePushManifestChangeV2 | TreePushChangeV2): [number, string, string, string] {
   if (change.operation === "upsert_folder") return [0, pathKey(change.folder.path), change.folder.folderId, change.operation];
   if (change.operation === "archive_folder") return [0, pathKey(change.previousPath), change.folderId, change.operation];

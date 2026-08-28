@@ -1733,6 +1733,136 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.knowledgeSubmission.findUniqueOrThrow({ where: { id: rollback.submission.id } })).appliedRevisionId, null);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
+
+          const secondPage = await pages.create({
+            title: 'Relation target', spaceId, folderId: folder.id, expectedTreeRevision: '1',
+          }, principal);
+          const stableTreeRevision = (await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision;
+          assert.equal(stableTreeRevision, 2n);
+          const memoryAgentId = `review-submission-agent-${suffix}`;
+          await prisma.agent.create({ data: {
+            id: memoryAgentId, name: 'Review submission memory agent', ownerId: userId,
+            status: 'active', approvalMode: 'always-review',
+          } });
+          const memory = await prisma.agentMemory.create({ data: {
+            id: `review-submission-memory-${suffix}`,
+            type: 'decision', content: 'before', contentHash: 'b'.repeat(64),
+            visibility: 'space', agentId: memoryAgentId, spaceId,
+          } });
+          const createZeroPageSubmission = async (label, items) => {
+            const changeSet = await prisma.changeSet.create({ data: {
+              title: label, status: 'approved', spaceId, createdByUserId: userId,
+              items: { create: items.map((item) => ({ ...item, status: 'accepted' })) },
+            } });
+            const submission = await prisma.knowledgeSubmission.create({ data: {
+              spaceId, principalKey: userId, idempotencyKey: `submission-${changeSet.id}`,
+              schemaVersion: 'knowledge-bundle@1', recipeVersion: 'folder-test', contentHash: 'c'.repeat(64),
+              bundle: {
+                schemaVersion: 'knowledge-bundle@1', recipeVersion: 'folder-test', spaceId,
+                baseRevision: null, pages: [], memories: [], relations: [], provenance: [], deletions: [],
+              },
+              changeSetId: changeSet.id,
+            } });
+            const parent = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+              where: { spaceId }, orderBy: { sequence: 'desc' },
+            });
+            await reviews.publish(changeSet.id);
+            const applied = await prisma.knowledgeSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+            assert.ok(applied.appliedRevisionId);
+            const [head, snapshot, delta, revision, sidecarRow, treeDeltaCount] = await Promise.all([
+              syncV2Revisions.head(spaceId),
+              syncV2Revisions.snapshot(spaceId, applied.appliedRevisionId, undefined, 100),
+              syncV2Revisions.delta(spaceId, parent.id, undefined, 100),
+              prisma.spaceKnowledgeRevision.findUniqueOrThrow({ where: { id: applied.appliedRevisionId } }),
+              prisma.legacyRevisionSidecar.findUniqueOrThrow({ where: { revisionId: applied.appliedRevisionId } }),
+              prisma.syncRevisionTreeDeltaRow.count({ where: { revisionId: applied.appliedRevisionId } }),
+            ]);
+            assert.equal(head.revision, applied.appliedRevisionId);
+            assert.equal(revision.schemaVersion, 'content-tree@2');
+            assert.equal(revision.recipeVersion, 'space-folders-v1');
+            assert.equal(snapshot.folderCount, '2');
+            assert.equal(snapshot.pageCount, '2');
+            assert.deepEqual(snapshot.folders.map((item) => item.folderId).sort(), [emptyFolder.id, folder.id].sort());
+            assert.deepEqual(snapshot.pages.map((item) => item.pageId).sort(), [page.knowledgeKey, secondPage.knowledgeKey].sort());
+            assert.equal(snapshot.revisionContentHash, parent.revisionContentHash);
+            assert.deepEqual(delta.items, []);
+            assert.equal(treeDeltaCount, 0);
+            assert.equal(sidecarRow.sidecar.spaceFolderMigration.v2Revision.treeDeltaCount, '0');
+            assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, stableTreeRevision);
+            return { submission: applied, revision };
+          };
+
+          const memoryOnly = await createZeroPageSubmission('Memory-only submission', [{
+            type: 'upsert_space_memory',
+            payload: {
+              knowledgeKey: memory.id, key: 'decision', value: 'memory-only', contentHash: 'd'.repeat(64),
+              expectedUpdatedAt: memory.updatedAt.toISOString(),
+            },
+          }]);
+          const relationOnly = await createZeroPageSubmission('Relation-only submission', [{
+            type: 'create_relation',
+            payload: {
+              knowledgeKey: `review-submission-relation-${suffix}`,
+              sourcePageId: page.id, targetPageId: secondPage.id, relation: 'supports',
+            },
+          }]);
+          const relation = await prisma.knowledgeRelation.findUniqueOrThrow({
+            where: { knowledgeKey: `review-submission-relation-${suffix}` },
+          });
+          const currentMemory = await prisma.agentMemory.findUniqueOrThrow({ where: { id: memory.id } });
+          await createZeroPageSubmission('Mixed memory-relation submission', [
+            {
+              type: 'upsert_space_memory',
+              payload: {
+                knowledgeKey: memory.id, key: 'decision', value: 'mixed', contentHash: 'e'.repeat(64),
+                expectedUpdatedAt: currentMemory.updatedAt.toISOString(),
+              },
+            },
+            {
+              type: 'update_relation_strength',
+              payload: {
+                relationId: relation.id, strength: 0.75,
+                expectedLastModifiedAt: relation.lastModifiedAt.toISOString(),
+              },
+            },
+          ]);
+          assert.ok(memoryOnly.revision.sequence < relationOnly.revision.sequence);
+
+          const rollbackMemory = await prisma.agentMemory.findUniqueOrThrow({ where: { id: memory.id } });
+          const rollbackSet = await prisma.changeSet.create({ data: {
+            title: 'Zero Page finalize rollback', status: 'approved', spaceId, createdByUserId: userId,
+            items: { create: {
+              type: 'upsert_space_memory', status: 'accepted',
+              payload: {
+                knowledgeKey: memory.id, key: 'decision', value: 'must-roll-back', contentHash: 'f'.repeat(64),
+                expectedUpdatedAt: rollbackMemory.updatedAt.toISOString(),
+              },
+            } },
+          } });
+          const rollbackSubmission = await prisma.knowledgeSubmission.create({ data: {
+            spaceId, principalKey: userId, idempotencyKey: `submission-${rollbackSet.id}`,
+            schemaVersion: 'knowledge-bundle@1', recipeVersion: 'folder-test', contentHash: 'f'.repeat(64),
+            bundle: {
+              schemaVersion: 'knowledge-bundle@1', recipeVersion: 'folder-test', spaceId,
+              baseRevision: null, pages: [], memories: [], relations: [], provenance: [], deletions: [],
+            },
+            changeSetId: rollbackSet.id,
+          } });
+          const revisionCountBeforeFinalizeFailure = await prisma.spaceKnowledgeRevision.count({ where: { spaceId } });
+          const originalFinalize = writer.finalizeExistingTreeV2Locked;
+          writer.finalizeExistingTreeV2Locked = async () => {
+            throw new Error('forced zero Page v2 finalize failure');
+          };
+          try {
+            await assert.rejects(reviews.publish(rollbackSet.id), /forced zero Page v2 finalize failure/u);
+          } finally {
+            writer.finalizeExistingTreeV2Locked = originalFinalize;
+          }
+          assert.equal((await prisma.agentMemory.findUniqueOrThrow({ where: { id: memory.id } })).content, rollbackMemory.content);
+          assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: rollbackSet.id } })).status, 'approved');
+          assert.equal((await prisma.knowledgeSubmission.findUniqueOrThrow({ where: { id: rollbackSubmission.id } })).appliedRevisionId, null);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), revisionCountBeforeFinalizeFailure);
+          assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, stableTreeRevision);
         });
       } finally {
         await prisma.$disconnect();

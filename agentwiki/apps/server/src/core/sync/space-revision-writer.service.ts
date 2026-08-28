@@ -7,6 +7,7 @@ import {
   normalizeMarkdown,
   pathKey,
   revisionContentHash as computeRevisionContentHash,
+  treeRevisionDeltaV2,
   treeRevisionContentHashV2,
   type RevisionContentManifest,
   type SyncFolderV2,
@@ -856,51 +857,45 @@ export class SpaceRevisionWriterService {
       });
     }
 
-    const [parentFolders, parentPages] = parentRevisionId ? await Promise.all([
+    const [parentFolders, parentPages] = parentRevisionId && parent?.schemaVersion === 'content-tree@2' ? await Promise.all([
       tx.syncRevisionFolderRow.findMany({ where: { revisionId: parentRevisionId } }),
-      tx.syncRevisionPageRow.findMany({ where: { revisionId: parentRevisionId } }),
+      tx.syncRevisionPageRow.findMany({ where: { revisionId: parentRevisionId }, include: { content: true } }),
     ]) : [[], []];
-    const currentFolderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
-    const parentFolderById = new Map(parentFolders.map((folder) => [folder.folderId, folder]));
-    const currentPageById = new Map(manifest.pages.map((page) => [page.pageId, page]));
-    const parentPageById = new Map(parentPages.map((page) => [page.pageId, page]));
-    const parentDepth = (folderId: string, trail = new Set<string>()): number => {
-      if (trail.has(folderId)) throw new ContentTreeConflict(0n, 0n);
-      const folder = parentFolderById.get(folderId);
-      if (!folder?.parentFolderId) return 0;
-      trail.add(folderId);
-      return parentDepth(folder.parentFolderId, trail) + 1;
-    };
-    const sameFolder = (prior: typeof parentFolders[number] | undefined, current: SyncFolderV2) => !!prior
-      && prior.parentFolderId === current.parentFolderId
-      && prior.name === current.name
-      && prior.path === current.path
-      && prior.sortOrder === current.sortOrder
-      && prior.updatedAt.toISOString() === current.updatedAt;
-    const samePage = (prior: typeof parentPages[number] | undefined, current: SyncPageV2) => !!prior
-      && prior.folderId === current.folderId
-      && prior.path === current.path
-      && prior.title === current.title
-      && prior.contentHash === current.contentHash
-      && prior.updatedAt.toISOString() === current.updatedAt;
-    const deltaRows = [
-      ...parentPages
-        .filter((page) => !currentPageById.has(page.pageId))
-        .sort((left, right) => Buffer.from(left.pathKey).compare(Buffer.from(right.pathKey)) || Buffer.from(left.pageId).compare(Buffer.from(right.pageId)))
-        .map((page) => ({ operation: 'archive_page', folderId: null, pageId: page.pageId, previousPath: page.path, contentHash: null })),
-      ...parentFolders
-        .filter((folder) => !currentFolderById.has(folder.folderId))
-        .sort((left, right) => parentDepth(right.folderId) - parentDepth(left.folderId)
-          || Buffer.from(left.pathKey).compare(Buffer.from(right.pathKey))
-          || Buffer.from(left.folderId).compare(Buffer.from(right.folderId)))
-        .map((folder) => ({ operation: 'archive_folder', folderId: folder.folderId, pageId: null, previousPath: folder.path, contentHash: null })),
-      ...manifest.folders
-        .filter((folder) => !sameFolder(parentFolderById.get(folder.folderId), folder))
-        .map((folder) => ({ operation: 'upsert_folder', folderId: folder.folderId, pageId: null, previousPath: null, contentHash: null })),
-      ...manifest.pages
-        .filter((page) => !samePage(parentPageById.get(page.pageId), page))
-        .map((page) => ({ operation: 'upsert_page', folderId: null, pageId: page.pageId, previousPath: null, contentHash: page.contentHash })),
-    ];
+    const parentManifest = parent?.schemaVersion === 'content-tree@2'
+      ? canonicalTreeRevisionManifestV2({
+        protocolVersion: '2',
+        spaceId,
+        folders: parentFolders.map((folder): SyncFolderV2 => ({
+          folderId: folder.folderId,
+          parentFolderId: folder.parentFolderId,
+          name: folder.name,
+          path: folder.path,
+          sortOrder: folder.sortOrder,
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        pages: parentPages.map((page): SyncPageV2 => ({
+          pageId: page.pageId,
+          folderId: page.folderId,
+          path: page.path,
+          title: page.title,
+          body: page.content.body,
+          contentHash: page.contentHash,
+          updatedAt: page.updatedAt.toISOString(),
+        })),
+      })
+      : null;
+    const deltaRows = treeRevisionDeltaV2(parentManifest, manifest).map((item) => {
+      if (item.operation === 'archive_page') {
+        return { operation: item.operation, folderId: null, pageId: item.pageId, previousPath: item.previousPath, contentHash: null };
+      }
+      if (item.operation === 'archive_folder') {
+        return { operation: item.operation, folderId: item.folderId, pageId: null, previousPath: item.previousPath, contentHash: null };
+      }
+      if (item.operation === 'upsert_folder') {
+        return { operation: item.operation, folderId: item.folder.folderId, pageId: null, previousPath: null, contentHash: null };
+      }
+      return { operation: item.operation, folderId: null, pageId: item.page.pageId, previousPath: null, contentHash: item.page.contentHash };
+    });
     await tx.syncRevisionTreeDeltaRow.deleteMany({ where: { revisionId } });
     if (deltaRows.length > 0) {
       await tx.syncRevisionTreeDeltaRow.createMany({

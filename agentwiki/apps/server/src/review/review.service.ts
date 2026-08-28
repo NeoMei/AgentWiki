@@ -977,6 +977,15 @@ export class ReviewService {
           submission,
           id,
         );
+        // KnowledgeSubmission revisions are prebuilt independently of whether
+        // the accepted ChangeSet contains a Page mutation. Complete the
+        // immutable v2 snapshot in this same locked transaction even for
+        // memory-only/relation-only/empty-Page submissions.
+        await this.revisionWriter.finalizeExistingTreeV2Locked(
+          lockedTx as SpaceLockedTransaction,
+          changeSet.spaceId,
+          revision.id,
+        );
         if (pageIds.length > 0) {
           await this.requireContentTree().advancePageMutation(lockedTx as any, {
             spaceId: changeSet.spaceId,
@@ -1248,6 +1257,31 @@ export class ReviewService {
       });
     }
     normalizedPages.sort((a, b) => (a.pageId < b.pageId ? -1 : 1));
+    if (latest) {
+      const parentRows = await tx.syncRevisionPageRow.findMany({
+        where: { revisionId: latest.id },
+        select: {
+          pageId: true, folderId: true, path: true, title: true,
+          contentHash: true, updatedAt: true,
+        },
+      });
+      const parentByPageId = new Map(parentRows.map((row) => [row.pageId, row]));
+      for (const page of normalizedPages) {
+        const parent = parentByPageId.get(page.pageId);
+        if (
+          parent
+          && parent.folderId === page.folderId
+          && parent.path === page.path
+          && parent.title === page.title
+          && parent.contentHash === page.contentHash
+        ) {
+          // Memory/relation-only submissions must not manufacture a Page
+          // upsert merely because the live Page row and its prior immutable
+          // snapshot were captured a few milliseconds apart.
+          page.updatedAt = parent.updatedAt;
+        }
+      }
+    }
     const manifest: RevisionContentManifest = {
       protocolVersion: '1',
       spaceId,

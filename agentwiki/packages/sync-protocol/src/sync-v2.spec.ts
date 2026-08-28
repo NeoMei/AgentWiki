@@ -9,6 +9,7 @@ import {
   TreeSnapshotPageV2Schema,
   canonicalTreeRevisionManifestV2,
   partitionTreePushChangesV2,
+  treeRevisionDeltaV2,
   treeBatchHashV2,
   treeConfirmationHashV2,
   treeRevisionContentHashV2,
@@ -95,6 +96,59 @@ describe("Sync Protocol v2", () => {
     expect(await treeRevisionContentHashV2(manifest)).toBe(
       await treeRevisionContentHashV2({ ...manifest, folders: [...manifest.folders].reverse(), pages: [...manifest.pages].reverse() }),
     );
+  });
+
+  it("derives the one canonical tree delta from parent and current immutable manifests", () => {
+    const parent = canonicalTreeRevisionManifestV2({
+      protocolVersion: "2",
+      spaceId: "space-a",
+      folders: [
+        folder({ folderId: "root", path: "pages/root", name: "root" }),
+        folder({ folderId: "removed", parentFolderId: "root", path: "pages/root/removed", name: "removed" }),
+      ],
+      pages: [
+        page({ pageId: "removed-page", folderId: "removed", path: "pages/root/removed/old.md" }),
+        page({ pageId: "unchanged", folderId: "root", path: "pages/root/same.md" }),
+      ],
+    });
+    const current = canonicalTreeRevisionManifestV2({
+      protocolVersion: "2",
+      spaceId: "space-a",
+      folders: [
+        folder({ folderId: "root", path: "pages/root", name: "root" }),
+        folder({ folderId: "added", parentFolderId: "root", path: "pages/root/added", name: "added" }),
+      ],
+      pages: [
+        page({ pageId: "unchanged", folderId: "root", path: "pages/root/same.md" }),
+        page({ pageId: "added-page", folderId: "added", path: "pages/root/added/new.md" }),
+      ],
+    });
+
+    expect(treeRevisionDeltaV2(parent, current)).toEqual([
+      { operation: "archive_page", pageId: "removed-page", previousPath: "pages/root/removed/old.md" },
+      { operation: "archive_folder", folderId: "removed", previousPath: "pages/root/removed" },
+      { operation: "upsert_folder", folder: expect.objectContaining({ folderId: "added", parentFolderId: "root" }) },
+      { operation: "upsert_page", page: expect.objectContaining({ pageId: "added-page", folderId: "added" }) },
+    ]);
+  });
+
+  it("treats a non-v2 parent as an empty manifest and emits parent-first full upserts", () => {
+    const current = canonicalTreeRevisionManifestV2({
+      protocolVersion: "2",
+      spaceId: "space-a",
+      folders: [
+        folder({ folderId: "child", parentFolderId: "root", path: "pages/root/child", name: "child" }),
+        folder({ folderId: "root", path: "pages/root", name: "root" }),
+      ],
+      pages: [page({ folderId: "child", path: "pages/root/child/page.md" })],
+    });
+
+    expect(treeRevisionDeltaV2(null, current).map((item) => item.operation)).toEqual([
+      "upsert_folder", "upsert_folder", "upsert_page",
+    ]);
+    expect(treeRevisionDeltaV2(null, current)[0]).toEqual(expect.objectContaining({
+      folder: expect.objectContaining({ folderId: "root" }),
+    }));
   });
 
   it("orders canonical path keys by Unicode code point rather than UTF-16 code unit", () => {

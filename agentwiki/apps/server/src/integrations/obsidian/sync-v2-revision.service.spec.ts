@@ -14,12 +14,12 @@ const root = {
 };
 const child = {
   revisionId: 'rev-2', folderId: 'child', parentFolderId: 'root', name: 'Child',
-  path: 'pages/Root/Child', pathKey: 'pages/root/child', sortOrder: 0,
+  path: 'pages/Root/Café', pathKey: 'pages/root/café', sortOrder: 0,
   updatedAt: at('2026-08-29T00:00:01.000Z'),
 };
 const page = {
   revisionId: 'rev-2', pageId: 'page-1', folderId: 'child',
-  path: 'pages/Root/Child/Page.md', pathKey: 'pages/root/child/page.md', title: 'Page',
+  path: 'pages/Root/Café/Page.md', pathKey: 'pages/root/café/page.md', title: 'Page',
   contentHash: '', updatedAt: at('2026-08-29T00:00:02.000Z'),
   content: { body: '# Page\n', byteLength: 7 },
 };
@@ -37,10 +37,14 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
   const revisions = new Map<string, any>([
     ['rev-1', {
       id: 'rev-1', spaceId: 'space-1', sequence: 1, schemaVersion: 'content-tree@2',
+      recipeVersion: 'space-folders-v1', parentRevisionId: null, origin: 'migration',
+      migrationBatchId: 'space-folders-v1:space-1',
       createdAt: at('2026-08-28T00:00:00.000Z'),
     }],
     ['rev-2', {
       id: 'rev-2', spaceId: 'space-1', sequence: 2, schemaVersion: 'content-tree@2',
+      recipeVersion: 'space-folders-v1', parentRevisionId: 'rev-1', origin: 'change_set',
+      migrationBatchId: null,
       createdAt: at('2026-08-29T00:00:00.000Z'),
     }],
   ]);
@@ -240,6 +244,22 @@ describe('SyncV2RevisionService', () => {
     ['modified revision page count', (state: any) => { state.revisions.get('rev-2').pageCount = 2n; }],
     ['modified revision manifest bytes', (state: any) => { state.revisions.get('rev-2').revisionManifestByteLength += 1n; }],
     ['modified revision body bytes', (state: any) => { state.revisions.get('rev-2').revisionBodyBytes += 1n; }],
+    ['downgraded schema marker', (state: any) => { state.revisions.get('rev-2').schemaVersion = 'knowledge-bundle@1'; }],
+    ['modified recipe marker', (state: any) => { state.revisions.get('rev-2').recipeVersion = 'none'; }],
+    ['missing sidecar plus downgraded schema', (state: any) => {
+      state.revisions.get('rev-2').schemaVersion = 'knowledge-bundle@1';
+      state.sidecars.delete('rev-2');
+    }],
+    ['non-canonical Folder path bytes', (state: any) => {
+      const folder = state.foldersByRevision.get('rev-2')[0];
+      folder.path = 'pages/Root/Cafe\u0301';
+      folder.pathKey = 'pages/root/café';
+    }],
+    ['non-canonical Page path bytes', (state: any) => {
+      const page = state.pagesByRevision.get('rev-2')[0];
+      page.path = 'pages/Root/Cafe\u0301/Page.md';
+      page.pathKey = 'pages/root/café/page.md';
+    }],
     ['missing v2 sidecar', (state: any) => state.sidecars.delete('rev-2')],
     ['modified sidecar version', (state: any) => {
       state.sidecars.get('rev-2').sidecar.spaceFolderMigration.v2Revision.protocolVersion = '1';
@@ -264,6 +284,40 @@ describe('SyncV2RevisionService', () => {
           code: 'REVISION_GONE', message: 'Revision is not available',
         }) },
       });
+  });
+
+  it.each([
+    ['tampered archive previousPath', (state: any) => {
+      state.deltaRows.get('rev-2')[0].previousPath = 'pages/Root/Wrong.md';
+    }],
+    ['tampered archive target', (state: any) => {
+      state.deltaRows.get('rev-2')[0].pageId = 'other-archived';
+    }],
+    ['unchanged Folder upsert replacing the changed Folder', (state: any) => {
+      state.deltaRows.get('rev-2')[1].folderId = 'root';
+    }],
+    ['same-count reordered Page upserts', (state: any) => {
+      const rows = state.deltaRows.get('rev-1');
+      [rows[2].pageId, rows[3].pageId] = [rows[3].pageId, rows[2].pageId];
+    }],
+    ['missing expected row with matching sidecar count', (state: any) => {
+      state.deltaRows.get('rev-2').pop();
+      state.sidecars.get('rev-2').sidecar.spaceFolderMigration.v2Revision.treeDeltaCount = '2';
+    }],
+    ['extra valid-looking row with matching sidecar count', (state: any) => {
+      state.deltaRows.get('rev-2').push({
+        ordinal: 3, operation: 'upsert_page', folderId: null, pageId: 'page-1',
+        previousPath: null, contentHash: state.pagesByRevision.get('rev-2')[0].contentHash,
+      });
+      state.sidecars.get('rev-2').sidecar.spaceFolderMigration.v2Revision.treeDeltaCount = '4';
+    }],
+  ])('rejects a stored tree delta with %s', async (_label, mutate) => {
+    const state = await fixture();
+    mutate(state);
+
+    const revisionId = _label.includes('reordered') ? 'rev-1' : 'rev-2';
+    await expect(state.service.snapshot('space-1', revisionId, undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
   });
 
   it('rejects a snapshot cursor replayed with a different explicit revision', async () => {

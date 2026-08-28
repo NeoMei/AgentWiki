@@ -4,8 +4,10 @@ import {
   canonicalTreeRevisionManifestV2,
   contentHash,
   normalizeMarkdown,
-  pathKey,
+  treeRevisionDeltaV2,
   treeRevisionContentHashV2,
+  validatePortableDirectoryPath,
+  validatePortableMarkdownPath,
   type SyncFolderV2,
   type SyncPageV2,
   type TreeDeltaItemV2,
@@ -28,10 +30,6 @@ interface LoadedRevision {
   revisionBodyBytes: number;
 }
 
-function compareText(left: string, right: string): number {
-  return Buffer.from(left, 'utf8').compare(Buffer.from(right, 'utf8'));
-}
-
 function folderDepth(folder: SyncFolderV2, folders: ReadonlyMap<string, SyncFolderV2>): number {
   let depth = 0;
   let current = folder;
@@ -45,24 +43,6 @@ function folderDepth(folder: SyncFolderV2, folders: ReadonlyMap<string, SyncFold
     depth += 1;
   }
   return depth;
-}
-
-function sameFolder(left: SyncFolderV2 | undefined, right: SyncFolderV2): boolean {
-  return !!left
-    && left.parentFolderId === right.parentFolderId
-    && left.name === right.name
-    && left.path === right.path
-    && left.sortOrder === right.sortOrder
-    && left.updatedAt === right.updatedAt;
-}
-
-function samePage(left: SyncPageV2 | undefined, right: SyncPageV2): boolean {
-  return !!left
-    && left.folderId === right.folderId
-    && left.path === right.path
-    && left.title === right.title
-    && left.contentHash === right.contentHash
-    && left.updatedAt === right.updatedAt;
 }
 
 function revisionGone(): SyncApiException {
@@ -217,75 +197,55 @@ export class SyncV2RevisionService {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
     }
     try {
-      const [folderRows, pageRows] = await Promise.all([
-        this.prisma.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),
-        this.prisma.syncRevisionPageRow.findMany({
-          where: { revisionId: revision.id }, include: { content: true },
+      const [immutable, sidecarRow, deltaRows, parentRevision] = await Promise.all([
+        this.rebuildImmutableManifest(spaceId, revision.id),
+        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
+        this.prisma.syncRevisionTreeDeltaRow.findMany({
+          where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
         }),
+        revision.parentRevisionId
+          ? this.prisma.spaceKnowledgeRevision.findUnique({ where: { id: revision.parentRevisionId } })
+          : null,
       ]);
-      if (
-        folderRows.some((folder) => folder.pathKey !== pathKey(folder.path))
-        || pageRows.some((page) => page.pathKey !== pathKey(page.path))
-      ) throw revisionGone();
-      const manifest = canonicalTreeRevisionManifestV2({
-        protocolVersion: '2',
-        spaceId,
-        folders: folderRows.map((folder) => ({
-          folderId: folder.folderId, parentFolderId: folder.parentFolderId,
-          name: folder.name, path: folder.path, sortOrder: folder.sortOrder,
-          updatedAt: folder.updatedAt.toISOString(),
-        })),
-        pages: pageRows.map((page) => ({
-          pageId: page.pageId, folderId: page.folderId, path: page.path,
-          title: page.title, body: page.content.body, contentHash: page.contentHash,
-          updatedAt: page.updatedAt.toISOString(),
-        })),
-      });
-      const folderIds = new Set(manifest.folders.map((folder) => folder.folderId));
-      for (const folder of manifest.folders) folderDepth(folder, new Map(manifest.folders.map((item) => [item.folderId, item])));
-      if (manifest.pages.some((page) => page.folderId !== null && !folderIds.has(page.folderId))) throw revisionGone();
-      for (let index = 0; index < pageRows.length; index += 1) {
-        const row = pageRows[index]!;
-        const body = normalizeMarkdown(row.content.body);
-        if (
-          body !== row.content.body
-          || await contentHash(body) !== row.contentHash
-          || Buffer.byteLength(body, 'utf8') !== row.content.byteLength
-        ) throw revisionGone();
-      }
-      const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
-      const calculatedHash = empty ? EMPTY_HASH : await treeRevisionContentHashV2(manifest);
-      const manifestBytes = empty ? 0 : canonicalBytes(manifest).byteLength;
-      const bodyBytes = manifest.pages.reduce(
-        (total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0,
-      );
-      if (revision.schemaVersion === 'content-tree@2') {
-        if (
-          revision.revisionContentHash !== calculatedHash
-          || revision.pageCount !== BigInt(manifest.pages.length)
-          || revision.revisionManifestByteLength !== BigInt(manifestBytes)
-          || revision.revisionBodyBytes !== BigInt(bodyBytes)
-        ) throw revisionGone();
-        const [sidecarRow, deltaRows] = await Promise.all([
-          this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
-          this.prisma.syncRevisionTreeDeltaRow.findMany({
-            where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
-          }),
-        ]);
-        const sidecar = record(sidecarRow?.sidecar);
-        const migration = record(sidecar?.spaceFolderMigration);
-        const v2 = record(migration?.v2Revision);
-        if (
-          v2?.protocolVersion !== '2'
-          || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
-          || v2.folderCount !== String(manifest.folders.length)
-          || v2.pageCount !== String(manifest.pages.length)
-          || v2.revisionContentHash !== calculatedHash
-          || v2.revisionManifestByteLength !== String(manifestBytes)
-          || v2.revisionBodyBytes !== String(bodyBytes)
-          || v2.treeDeltaCount !== String(deltaRows.length)
-        ) throw revisionGone();
-        this.assertTreeDeltaContract(deltaRows, manifest);
+      const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
+      const sidecar = record(sidecarRow?.sidecar);
+      const migration = record(sidecar?.spaceFolderMigration);
+      const hasSidecarMarker = !!migration && Object.prototype.hasOwnProperty.call(migration, 'v2Revision');
+      const shouldBeV2 = revision.schemaVersion === 'content-tree@2'
+        || revision.recipeVersion === 'space-folders-v1'
+        || hasSidecarMarker
+        || immutable.folderRowCount > 0
+        || immutable.hasPlacedPage
+        || deltaRows.length > 0
+        || (typeof revision.migrationBatchId === 'string' && revision.migrationBatchId.startsWith('space-folders-v1:'))
+        || parentRevision?.schemaVersion === 'content-tree@2';
+      if (shouldBeV2) {
+        this.assertV2Metadata(revision, immutable, sidecarRow, deltaRows.length);
+        let parentManifest: TreeRevisionContentManifestV2 | null = null;
+        if (parentRevision) {
+          if (parentRevision.spaceId !== spaceId) throw revisionGone();
+          const [parentSidecarRow, parentImmutable, parentDeltaRows] = await Promise.all([
+            this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
+            this.rebuildImmutableManifest(spaceId, parentRevision.id),
+            this.prisma.syncRevisionTreeDeltaRow.findMany({
+              where: { revisionId: parentRevision.id }, select: { ordinal: true },
+            }),
+          ]);
+          const parentSidecar = record(parentSidecarRow?.sidecar);
+          const parentMigration = record(parentSidecar?.spaceFolderMigration);
+          const parentHasV2Marker = parentRevision.schemaVersion === 'content-tree@2'
+            || parentRevision.recipeVersion === 'space-folders-v1'
+            || (!!parentMigration && Object.prototype.hasOwnProperty.call(parentMigration, 'v2Revision'))
+            || parentImmutable.folderRowCount > 0
+            || parentImmutable.hasPlacedPage
+            || parentDeltaRows.length > 0
+            || (typeof parentRevision.migrationBatchId === 'string' && parentRevision.migrationBatchId.startsWith('space-folders-v1:'));
+          if (parentHasV2Marker) {
+            this.assertV2Metadata(parentRevision, parentImmutable, parentSidecarRow, parentDeltaRows.length);
+            parentManifest = parentImmutable.manifest;
+          }
+        }
+        this.assertTreeDeltaContract(deltaRows, treeRevisionDeltaV2(parentManifest, manifest));
       }
       return {
         revision: revision.id,
@@ -301,63 +261,128 @@ export class SyncV2RevisionService {
     }
   }
 
+  private async rebuildImmutableManifest(spaceId: string, revisionId: string) {
+    const [folderRows, pageRows] = await Promise.all([
+      this.prisma.syncRevisionFolderRow.findMany({ where: { revisionId } }),
+      this.prisma.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
+    ]);
+    for (const folder of folderRows) {
+      const portable = validatePortableDirectoryPath(folder.path);
+      if (portable.path !== folder.path || portable.key !== folder.pathKey) throw revisionGone();
+    }
+    for (const page of pageRows) {
+      const portable = validatePortableMarkdownPath(page.path);
+      const body = normalizeMarkdown(page.content.body);
+      if (
+        portable.path !== page.path
+        || portable.key !== page.pathKey
+        || body !== page.content.body
+        || await contentHash(body) !== page.contentHash
+        || Buffer.byteLength(body, 'utf8') !== page.content.byteLength
+      ) throw revisionGone();
+    }
+    const manifest = canonicalTreeRevisionManifestV2({
+      protocolVersion: '2',
+      spaceId,
+      folders: folderRows.map((folder) => ({
+        folderId: folder.folderId, parentFolderId: folder.parentFolderId,
+        name: folder.name, path: folder.path, sortOrder: folder.sortOrder,
+        updatedAt: folder.updatedAt.toISOString(),
+      })),
+      pages: pageRows.map((page) => ({
+        pageId: page.pageId, folderId: page.folderId, path: page.path,
+        title: page.title, body: page.content.body, contentHash: page.contentHash,
+        updatedAt: page.updatedAt.toISOString(),
+      })),
+    });
+    const folderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
+    for (const folder of manifest.folders) folderDepth(folder, folderById);
+    if (manifest.pages.some((page) => page.folderId !== null && !folderById.has(page.folderId))) {
+      throw revisionGone();
+    }
+    const empty = manifest.folders.length === 0 && manifest.pages.length === 0;
+    return {
+      manifest,
+      calculatedHash: empty ? EMPTY_HASH : await treeRevisionContentHashV2(manifest),
+      manifestBytes: empty ? 0 : canonicalBytes(manifest).byteLength,
+      bodyBytes: manifest.pages.reduce((total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0),
+      folderRowCount: folderRows.length,
+      hasPlacedPage: pageRows.some((page) => page.folderId !== null),
+    };
+  }
+
+  private assertV2Metadata(
+    revision: {
+      schemaVersion: string; recipeVersion: string; revisionContentHash: string | null;
+      pageCount: bigint | null; revisionManifestByteLength: bigint | null; revisionBodyBytes: bigint | null;
+    },
+    immutable: Awaited<ReturnType<SyncV2RevisionService['rebuildImmutableManifest']>>,
+    sidecarRow: { sidecar: unknown } | null,
+    deltaCount: number,
+  ): void {
+    const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
+    if (
+      revision.schemaVersion !== 'content-tree@2'
+      || revision.recipeVersion !== 'space-folders-v1'
+      || revision.revisionContentHash !== calculatedHash
+      || revision.pageCount !== BigInt(manifest.pages.length)
+      || revision.revisionManifestByteLength !== BigInt(manifestBytes)
+      || revision.revisionBodyBytes !== BigInt(bodyBytes)
+    ) throw revisionGone();
+    const sidecar = record(sidecarRow?.sidecar);
+    const migration = record(sidecar?.spaceFolderMigration);
+    const v2 = record(migration?.v2Revision);
+    if (
+      v2?.protocolVersion !== '2'
+      || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
+      || v2.folderCount !== String(manifest.folders.length)
+      || v2.pageCount !== String(manifest.pages.length)
+      || v2.revisionContentHash !== calculatedHash
+      || v2.revisionManifestByteLength !== String(manifestBytes)
+      || v2.revisionBodyBytes !== String(bodyBytes)
+      || v2.treeDeltaCount !== String(deltaCount)
+    ) throw revisionGone();
+  }
+
   private assertTreeDeltaContract(rows: Array<{
     ordinal: number; operation: string; folderId: string | null; pageId: string | null;
     previousPath: string | null; contentHash: string | null;
-  }>, manifest: TreeRevisionContentManifestV2): void {
-    const folderById = new Map(manifest.folders.map((folder) => [folder.folderId, folder]));
-    const pageById = new Map(manifest.pages.map((page) => [page.pageId, page]));
-    const rank = new Map([
-      ['archive_page', 0], ['archive_folder', 1], ['upsert_folder', 2], ['upsert_page', 3],
-    ]);
-    let previousRank = -1;
-    const folderOrdinal = new Map<string, number>();
+  }>, expectedItems: TreeDeltaItemV2[]): void {
+    const expectedRows = expectedItems.map((item, ordinal) => {
+      if (item.operation === 'archive_page') return {
+        ordinal, operation: item.operation, folderId: null, pageId: item.pageId,
+        previousPath: item.previousPath, contentHash: null,
+      };
+      if (item.operation === 'archive_folder') return {
+        ordinal, operation: item.operation, folderId: item.folderId, pageId: null,
+        previousPath: item.previousPath, contentHash: null,
+      };
+      if (item.operation === 'upsert_folder') return {
+        ordinal, operation: item.operation, folderId: item.folder.folderId, pageId: null,
+        previousPath: null, contentHash: null,
+      };
+      return {
+        ordinal, operation: item.operation, folderId: null, pageId: item.page.pageId,
+        previousPath: null, contentHash: item.page.contentHash,
+      };
+    });
+    if (rows.length !== expectedRows.length) throw revisionGone();
     for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index]!;
-      const currentRank = rank.get(row.operation);
-      if (row.ordinal !== index || currentRank === undefined || currentRank < previousRank) throw revisionGone();
-      previousRank = currentRank;
-      if (row.operation === 'archive_page') {
-        if (!row.pageId || row.folderId || !row.previousPath || row.contentHash || pageById.has(row.pageId)) throw revisionGone();
-      } else if (row.operation === 'archive_folder') {
-        if (!row.folderId || row.pageId || !row.previousPath || row.contentHash || folderById.has(row.folderId)) throw revisionGone();
-      } else if (row.operation === 'upsert_folder') {
-        if (!row.folderId || row.pageId || row.previousPath || row.contentHash || !folderById.has(row.folderId)) throw revisionGone();
-        folderOrdinal.set(row.folderId, row.ordinal);
-      } else {
-        const page = row.pageId ? pageById.get(row.pageId) : undefined;
-        if (!page || row.folderId || row.previousPath || row.contentHash !== page.contentHash) throw revisionGone();
-      }
-    }
-    for (const [folderId, ordinal] of folderOrdinal) {
-      const parentId = folderById.get(folderId)?.parentFolderId;
-      const parentOrdinal = parentId ? folderOrdinal.get(parentId) : undefined;
-      if (parentOrdinal !== undefined && parentOrdinal >= ordinal) throw revisionGone();
+      const actual = rows[index]!;
+      const expected = expectedRows[index]!;
+      if (
+        actual.ordinal !== expected.ordinal
+        || actual.operation !== expected.operation
+        || actual.folderId !== expected.folderId
+        || actual.pageId !== expected.pageId
+        || actual.previousPath !== expected.previousPath
+        || actual.contentHash !== expected.contentHash
+      ) throw revisionGone();
     }
   }
 
   private deltaItems(from: TreeRevisionContentManifestV2, to: TreeRevisionContentManifestV2): TreeDeltaItemV2[] {
-    const fromFolders = new Map(from.folders.map((folder) => [folder.folderId, folder]));
-    const toFolders = new Map(to.folders.map((folder) => [folder.folderId, folder]));
-    const fromPages = new Map(from.pages.map((page) => [page.pageId, page]));
-    const toPages = new Map(to.pages.map((page) => [page.pageId, page]));
-    const archivedPages = from.pages
-      .filter((page) => !toPages.has(page.pageId))
-      .sort((left, right) => compareText(pathKey(left.path), pathKey(right.path)) || compareText(left.pageId, right.pageId))
-      .map((page) => ({ operation: 'archive_page' as const, pageId: page.pageId, previousPath: page.path }));
-    const archivedFolders = from.folders
-      .filter((folder) => !toFolders.has(folder.folderId))
-      .sort((left, right) => folderDepth(right, fromFolders) - folderDepth(left, fromFolders)
-        || compareText(pathKey(left.path), pathKey(right.path))
-        || compareText(left.folderId, right.folderId))
-      .map((folder) => ({ operation: 'archive_folder' as const, folderId: folder.folderId, previousPath: folder.path }));
-    const upsertFolders = to.folders
-      .filter((folder) => !sameFolder(fromFolders.get(folder.folderId), folder))
-      .map((folder) => ({ operation: 'upsert_folder' as const, folder }));
-    const upsertPages = to.pages
-      .filter((page) => !samePage(fromPages.get(page.pageId), page))
-      .map((page) => ({ operation: 'upsert_page' as const, page }));
-    return [...archivedPages, ...archivedFolders, ...upsertFolders, ...upsertPages];
+    return treeRevisionDeltaV2(from, to);
   }
 
   private headEnvelope(spaceId: string, loaded: LoadedRevision) {

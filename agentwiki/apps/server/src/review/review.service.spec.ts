@@ -94,7 +94,11 @@ describe('ReviewService approval boundaries', () => {
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true, semanticIndexed: false }) } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
-  const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
+  const revisionWriter = {
+    advance: jest.fn(),
+    lockSpace: jest.fn(),
+    finalizeExistingTreeV2Locked: jest.fn().mockResolvedValue({ revisionId: 'submission-revision-1' }),
+  } as any;
   revisionWriter.advanceLocked = revisionWriter.advance;
   const contentTree = {
     lockPageMutationSpace: jest.fn(),
@@ -404,6 +408,56 @@ describe('ReviewService approval boundaries', () => {
         where: { id: 'submission-1' },
         data: { status: 'published', appliedRevisionId: 'submission-revision-1' },
       });
+    } finally {
+      (service as any).createKnowledgeRevision = originalCreateKnowledgeRevision;
+    }
+  });
+
+  it('finalizes a submission revision even when a memory-only publication has zero Page IDs', async () => {
+    const updatedAt = new Date('2026-08-29T01:00:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-memory-submission', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'memory-item', type: 'upsert_space_memory', status: 'accepted',
+        payload: {
+          knowledgeKey: 'memory-1', key: 'decision', value: 'Keep it', contentHash: 'a'.repeat(64),
+          expectedUpdatedAt: updatedAt.toISOString(),
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const submission = {
+      id: 'submission-memory', bundle: { pages: [], memories: [], relations: [] },
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'recipe-1', contentHash: 'hash-1',
+    };
+    const memory = {
+      id: 'memory-1', spaceId: 'space-1', updatedAt,
+      type: 'decision', content: 'Old', contentHash: 'b'.repeat(64),
+      visibility: 'space', status: 'active', archivedAt: null, deletedAt: null,
+    };
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn(), updateMany: jest.fn() },
+      agentMemory: {
+        findUnique: jest.fn().mockResolvedValue(memory),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      knowledgeSubmission: {
+        findUnique: jest.fn().mockResolvedValue(submission),
+        update: jest.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    const originalCreateKnowledgeRevision = (service as any).createKnowledgeRevision;
+    (service as any).createKnowledgeRevision = jest.fn().mockResolvedValue({ id: 'submission-revision-memory' });
+    try {
+      await service.publish('cs-memory-submission');
+      expect(revisionWriter.finalizeExistingTreeV2Locked).toHaveBeenCalledWith(
+        tx, 'space-1', 'submission-revision-memory',
+      );
+      expect(contentTree.advancePageMutation).not.toHaveBeenCalled();
     } finally {
       (service as any).createKnowledgeRevision = originalCreateKnowledgeRevision;
     }
