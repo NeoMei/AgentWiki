@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -104,6 +105,14 @@ class UniqueMarkdownResourceReferences implements ValidatorConstraintInterface {
 }
 
 export class ResolveMarkdownResourcesDto {
+  @PreserveRawInput()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @Matches(/\S/u)
+  @MaxLength(100)
+  sourcePageId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(100)
@@ -117,4 +126,8 @@ export type ResolvedMarkdownResource =
   | { key: string; status: 'resolved'; kind: 'page'; pageId: string; title: string; slug: string }
   | { key: string; status: 'resolved'; kind: 'attachment'; attachmentId: string; displayName: string; mimeType: string; width: number; height: number }
   | { key: string; status: 'unresolved' }
-  | { key: string; status: 'ambiguous' };
+  | {
+      key: string;
+      status: 'ambiguous';
+      candidates?: Array<{ pageId: string; title: string; path: string }>;
+    };

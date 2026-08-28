@@ -11,9 +11,9 @@ import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.s
 import { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
 import {
   ReadableSyncPathService,
-  safeMarkdownBasename,
-  syncPathDirectory,
 } from '../core/sync/readable-sync-path.service';
+import { ContentTreeService } from '../content-tree/content-tree.service';
+import { ContentTreeError } from '../content-tree/content-tree.types';
 import {
   canonicalBytes,
   contentHash as syncContentHash,
@@ -21,7 +21,6 @@ import {
   normalizeMarkdown,
   pathKey,
   revisionContentHash,
-  validatePortablePath,
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
 import {
@@ -43,7 +42,15 @@ export class ReviewService {
     private revisionWriter: SpaceRevisionWriterService,
     private syncPaths: ReadableSyncPathService,
     @Optional() private graphMaintenance?: GraphMaintenance,
+    private contentTree?: ContentTreeService,
   ) {}
+
+  private requireContentTree(): ContentTreeService {
+    if (!this.contentTree) {
+      throw new Error('ContentTreeService is required for Review Page mutations');
+    }
+    return this.contentTree;
+  }
 
   async propose(
     principal: Principal,
@@ -279,7 +286,42 @@ export class ReviewService {
       const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
       const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
       const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
-      const lockedTx = await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
+      const requestedTreeRevisions = Array.from(new Set(pageItems.flatMap((item) => {
+        const payload = item.payload as any;
+        const value = payload.expectedTreeRevision ?? payload.changes?.expectedTreeRevision;
+        if (value === undefined) return [];
+        if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+          throw new ContentTreeError(
+            'CONTENT_TREE_CONFLICT',
+            'The review proposal carries an invalid content-tree revision',
+          );
+        }
+        return [value];
+      })));
+      if (requestedTreeRevisions.length > 1) {
+        throw new ContentTreeError(
+          'CONTENT_TREE_CONFLICT',
+          'The review proposal mixes content-tree revisions',
+        );
+      }
+      const requestedTreeRevision = requestedTreeRevisions[0] === undefined
+        ? undefined
+        : BigInt(requestedTreeRevisions[0]);
+      const lockedTx = pageItems.length > 0
+        ? await this.requireContentTree().lockPageMutationSpace(
+          tx,
+          changeSet.spaceId,
+          requestedTreeRevision,
+        )
+        : await this.revisionWriter.lockSpace(tx, changeSet.spaceId);
+      const expectedTreeRevision = pageItems.length > 0
+        ? requestedTreeRevision ?? (lockedTx as any).contentTreeRevision
+        : 0n;
+      const structuralPageMutation = pageItems.some((item) => {
+        if (item.type === 'create_page' || item.type === 'archive_page') return true;
+        const changes = (item.payload as any).changes ?? {};
+        return changes.title !== undefined || changes.folderId !== undefined;
+      });
       if (relationItems.some((item) => item.type === 'create_relation')) {
         await tx.spaceGraphState.upsert({
           where: { spaceId: changeSet.spaceId },
@@ -295,7 +337,25 @@ export class ReviewService {
         const payload = item.payload as any;
         let resourceId: string;
         if (item.type === 'create_page') {
-          if (payload.parentId) await this.assertValidParent(tx, changeSet.spaceId, payload.parentId);
+          let targetFolderId = payload.folderId ?? null;
+          if (payload.parentId !== undefined) {
+            if (
+              payload.folderId !== undefined
+              || process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true'
+            ) {
+              throw new ContentTreeError(
+                'PAGE_PARENT_DEPRECATED',
+                'Legacy Page parent placement cannot be mapped safely',
+              );
+            }
+            targetFolderId = payload.parentId === null
+              ? null
+              : await this.requireContentTree().mapLegacyPageParent(
+                lockedTx as any,
+                changeSet.spaceId,
+                payload.parentId,
+              );
+          }
           const existingSourcePage = payload.sourceId && payload.sourcePath
             ? await tx.page.findFirst({
                 where: {
@@ -309,12 +369,22 @@ export class ReviewService {
             throw new BusinessException('CHANGESET_CONFLICT', 'An active page already uses this source path');
           }
           if (existingSourcePage) {
-            const sourceSyncPath = this.validateSourceSyncPath(payload.sourcePath);
-            const restoredSyncPath = sourceSyncPath ?? await this.syncPaths.allocate(lockedTx!, {
+            const placement = await this.requireContentTree().preparePageMutation(lockedTx as any, {
               spaceId: changeSet.spaceId,
-              directory: syncPathDirectory(existingSourcePage.syncPath),
+              pageId: existingSourcePage.id,
               title: payload.title,
-              excludePageId: existingSourcePage.id,
+              folderId: targetFolderId,
+              current: {
+                title: existingSourcePage.title,
+                folderId: existingSourcePage.folderId ?? null,
+                syncPath: existingSourcePage.syncPath,
+                syncPathKey: existingSourcePage.syncPathKey,
+                sortOrder: existingSourcePage.sortOrder ?? 0,
+                createdAt: existingSourcePage.createdAt ?? existingSourcePage.updatedAt,
+                updatedAt: existingSourcePage.updatedAt,
+                knowledgeKey: existingSourcePage.knowledgeKey,
+                content: existingSourcePage.content,
+              },
             });
             await tx.pageVersion.create({
               data: {
@@ -325,6 +395,7 @@ export class ReviewService {
                 slug: existingSourcePage.slug,
                 format: existingSourcePage.format,
                 parentId: existingSourcePage.parentId,
+                folderId: existingSourcePage.folderId ?? null,
                 syncPath: existingSourcePage.syncPath,
                 syncPathKey: existingSourcePage.syncPathKey,
               },
@@ -340,6 +411,7 @@ export class ReviewService {
                     content: existingSourcePage.content,
                     format: existingSourcePage.format,
                     parentId: existingSourcePage.parentId,
+                    folderId: existingSourcePage.folderId ?? null,
                     deletedAt: existingSourcePage.deletedAt!.toISOString(),
                     sourceChangeSetId: existingSourcePage.sourceChangeSetId,
                     createdByAgentId: existingSourcePage.createdByAgentId,
@@ -367,7 +439,8 @@ export class ReviewService {
                 title: payload.title,
                 content: payload.content ?? '',
                 format: payload.format || 'markdown',
-                parentId: payload.parentId,
+                parentId: null,
+                folderId: placement.folderId,
                 deletedAt: null,
                 sourceChangeSetId: id,
                 createdByAgentId: changeSet.createdByAgentId,
@@ -378,8 +451,8 @@ export class ReviewService {
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
                 sourcePath: payload.sourcePath,
-                syncPath: restoredSyncPath.path,
-                syncPathKey: restoredSyncPath.pathKey,
+                syncPath: placement.syncPath,
+                syncPathKey: placement.syncPathKey,
               },
             });
             if (restored.count !== 1) {
@@ -389,14 +462,16 @@ export class ReviewService {
             pageIdByKnowledgeKey.set(existingSourcePage.knowledgeKey, existingSourcePage.id);
           } else {
             const knowledgeKey = payload.knowledgeKey || randomUUID();
-            const sourceSyncPath = this.validateSourceSyncPath(payload.sourcePath);
-            const createdSyncPath = sourceSyncPath ?? await this.syncPaths.allocate(lockedTx!, {
+            const pageId = randomUUID();
+            const placement = await this.requireContentTree().placePage(lockedTx as any, {
               spaceId: changeSet.spaceId,
-              directory: 'pages',
+              pageId,
               title: payload.title,
+              folderId: targetFolderId,
             });
             const page = await tx.page.create({
               data: {
+                id: pageId,
                 spaceId: changeSet.spaceId,
                 knowledgeKey,
                 authorId,
@@ -404,7 +479,8 @@ export class ReviewService {
                 slug: payload.slug || this.slugify(payload.title) + '-' + Date.now().toString(36) + '-' + item.id.slice(-4),
                 content: payload.content ?? '',
                 format: payload.format || 'markdown',
-                parentId: payload.parentId,
+                parentId: null,
+                folderId: placement.folderId,
                 sourceChangeSetId: id,
                 createdByAgentId: changeSet.createdByAgentId,
                 lastChangeSetId: id,
@@ -414,8 +490,8 @@ export class ReviewService {
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
                 sourcePath: payload.sourcePath,
-                syncPath: createdSyncPath.path,
-                syncPathKey: createdSyncPath.pathKey,
+                syncPath: placement.syncPath,
+                syncPathKey: placement.syncPathKey,
               },
             });
             resourceId = page.id;
@@ -440,19 +516,44 @@ export class ReviewService {
             throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this candidate was compiled; create a new run before publishing');
           }
           const changes = payload.changes || {};
-          if (changes.parentId !== undefined) await this.assertValidParent(tx, changeSet.spaceId, changes.parentId, page.id);
-          const allocatedPath = changes.title !== undefined
-            && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
-            ? await this.syncPaths.allocate(lockedTx!, {
-                spaceId: changeSet.spaceId,
-                directory: syncPathDirectory(page.syncPath),
-                title: changes.title,
-                excludePageId: page.id,
-              })
-            : null;
+          if (changes.parentId !== undefined) {
+            throw new ContentTreeError(
+              'PAGE_PARENT_DEPRECATED',
+              'Legacy Page parent placement cannot be mapped safely',
+            );
+          }
+          const {
+            expectedTreeRevision: _expectedTreeRevision,
+            folderId: requestedFolderId,
+            ...pageChanges
+          } = changes;
+          const structural = changes.title !== undefined || changes.folderId !== undefined;
+          const placement = structural
+            ? await this.requireContentTree().preparePageMutation(lockedTx as any, {
+              spaceId: changeSet.spaceId,
+              pageId: page.id,
+              title: changes.title ?? page.title,
+              folderId: requestedFolderId === undefined ? (page.folderId ?? null) : requestedFolderId,
+              current: {
+                title: page.title,
+                folderId: page.folderId ?? null,
+                syncPath: page.syncPath,
+                syncPathKey: page.syncPathKey,
+                sortOrder: page.sortOrder ?? 0,
+                createdAt: page.createdAt ?? page.updatedAt,
+                updatedAt: page.updatedAt,
+                knowledgeKey: page.knowledgeKey,
+                content: page.content,
+              },
+            })
+            : {
+              folderId: page.folderId ?? null,
+              syncPath: page.syncPath,
+              syncPathKey: page.syncPathKey,
+            };
           const before = {
             title: page.title, slug: page.slug, content: page.content, parentId: page.parentId,
-            format: page.format,
+            folderId: page.folderId ?? null, format: page.format,
             sourceChangeSetId: page.sourceChangeSetId, createdByAgentId: page.createdByAgentId,
             lastChangeSetId: page.lastChangeSetId, lastModifiedByUserId: page.lastModifiedByUserId,
             lastModifiedByAgentId: page.lastModifiedByAgentId, lastModifiedAt: page.lastModifiedAt,
@@ -468,6 +569,7 @@ export class ReviewService {
               slug: page.slug,
               format: page.format,
               parentId: page.parentId,
+              folderId: page.folderId ?? null,
               syncPath: page.syncPath,
               syncPathKey: page.syncPathKey,
             },
@@ -476,9 +578,18 @@ export class ReviewService {
           const updated = await tx.page.updateMany({
             where: { id: page.id, spaceId: changeSet.spaceId, deletedAt: null, updatedAt: page.updatedAt },
             data: {
-              ...changes,
-              ...(allocatedPath
-                ? { syncPath: allocatedPath.path, syncPathKey: allocatedPath.pathKey }
+              ...pageChanges,
+              ...(structural
+                ? {
+                  parentId: null,
+                  folderId: placement.folderId,
+                  ...(placement.syncPathKey === page.syncPathKey
+                    ? {}
+                    : {
+                      syncPath: placement.syncPath,
+                      syncPathKey: placement.syncPathKey,
+                    }),
+                }
                 : {}),
               sourceChangeSetId: page.sourceChangeSetId || id,
               createdByAgentId: page.createdByAgentId || changeSet.createdByAgentId,
@@ -529,6 +640,7 @@ export class ReviewService {
               slug: page.slug,
               format: page.format,
               parentId: page.parentId,
+              folderId: page.folderId ?? null,
               syncPath: page.syncPath,
               syncPathKey: page.syncPathKey,
             },
@@ -802,6 +914,18 @@ export class ReviewService {
       const submission = await tx.knowledgeSubmission?.findUnique({ where: { changeSetId: id } });
       if (submission) {
         const revision = await this.createKnowledgeRevision(tx, changeSet.spaceId, submission, id);
+        if (pageIds.length > 0) {
+          await this.requireContentTree().advancePageMutation(lockedTx as any, {
+            spaceId: changeSet.spaceId,
+            expectedTreeRevision,
+            structural: structuralPageMutation,
+            changes: [],
+            actor: changeSet.createdByAgentId
+              ? { agentId: changeSet.createdByAgentId }
+              : { userId: changeSet.createdByUserId ?? authorId },
+            existingSyncRevisionId: revision.id,
+          });
+        }
         await tx.knowledgeSubmission.update({
           where: { id: submission.id },
           data: { status: 'published', appliedRevisionId: revision.id },
@@ -809,12 +933,41 @@ export class ReviewService {
       } else if (pageIds.length > 0) {
         const pages = await tx.page.findMany({
           where: { id: { in: pageIds } },
-          select: { knowledgeKey: true, syncPath: true, title: true, content: true, deletedAt: true },
+          select: {
+            knowledgeKey: true,
+            folderId: true,
+            syncPath: true,
+            title: true,
+            content: true,
+            deletedAt: true,
+          },
         });
-        await this.revisionWriter.advance(tx, changeSet.spaceId, pages.map((p) => p.deletedAt
-          ? { operation: 'archive' as const, pageId: p.knowledgeKey, previousPath: p.syncPath ?? undefined }
-          : { operation: 'upsert' as const, pageId: p.knowledgeKey, path: p.syncPath ?? undefined, title: p.title, body: p.content },
-        ), { origin: 'change_set', sourceChangeSetId: id, createdByUserId: changeSet.createdByUserId, legacySidecarOverride });
+        await this.requireContentTree().advancePageMutation(lockedTx as any, {
+          spaceId: changeSet.spaceId,
+          expectedTreeRevision,
+          structural: structuralPageMutation,
+          changes: pages.map((page) => page.deletedAt
+            ? {
+              operation: 'archive' as const,
+              pageId: page.knowledgeKey,
+              previousPath: page.syncPath ?? undefined,
+            }
+            : {
+              operation: 'upsert' as const,
+              pageId: page.knowledgeKey,
+              folderId: page.folderId,
+              path: page.syncPath,
+              title: page.title,
+              body: page.content,
+            }),
+          actor: changeSet.createdByAgentId
+            ? { agentId: changeSet.createdByAgentId }
+            : { userId: changeSet.createdByUserId ?? authorId },
+          revisionOrigin: {
+            sourceChangeSetId: id,
+            legacySidecarOverride,
+          },
+        });
       } else if (memoryItems.length > 0 || relationItems.length > 0) {
         // Relation/Memory-only changesets still advance the authoritative
         // revision sequence: they inherit parent page rows and produce an empty
@@ -939,6 +1092,7 @@ export class ReviewService {
         title: true,
         content: true,
         parentId: true,
+        folderId: true,
         sortOrder: true,
         updatedAt: true,
         sourcePath: true,
@@ -1033,6 +1187,7 @@ export class ReviewService {
       occupiedPathKeys.add(key);
       normalizedPages.push({
         pageId: page.knowledgeKey,
+        folderId: page.folderId,
         path,
         pathKey: key as string,
         title: page.title,
@@ -1091,6 +1246,7 @@ export class ReviewService {
         data: normalizedPages.map((p) => ({
           revisionId: created.id,
           pageId: p.pageId,
+          folderId: p.folderId,
           path: p.path,
           pathKey: p.pathKey,
           title: p.title,
@@ -1221,18 +1377,6 @@ export class ReviewService {
     return idFileKey(id);
   }
 
-  private validateSourceSyncPath(
-    sourcePath: unknown,
-  ): { path: string; pathKey: string } | null {
-    if (typeof sourcePath !== 'string') return null;
-    try {
-      const validated = validatePortablePath(sourcePath);
-      return { path: validated.path, pathKey: validated.key };
-    } catch {
-      return null;
-    }
-  }
-
   private pagePathFromTitle(title: string): string {
     const slug = title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
     return `pages/${slug}.md`;
@@ -1266,6 +1410,11 @@ export class ReviewService {
             || typeof before.content !== 'string'
             || typeof before.format !== 'string'
             || (before.parentId !== null && typeof before.parentId !== 'string')
+            || (
+              Object.prototype.hasOwnProperty.call(before, 'folderId')
+              && before.folderId !== null
+              && typeof before.folderId !== 'string'
+            )
             || !deletedAt
             || !lastModifiedAt
           ) {
@@ -1287,6 +1436,9 @@ export class ReviewService {
             sourceVersionId: before.sourceVersionId,
             sourcePath: before.sourcePath,
           };
+          if (Object.prototype.hasOwnProperty.call(before, 'folderId')) {
+            restoredState.folderId = before.folderId;
+          }
           const hasSyncPath = Object.prototype.hasOwnProperty.call(before, 'syncPath');
           const hasSyncPathKey = Object.prototype.hasOwnProperty.call(before, 'syncPathKey');
           if (hasSyncPath || hasSyncPathKey) {
@@ -1360,6 +1512,7 @@ export class ReviewService {
             slug: page.slug,
             format: page.format,
             parentId: page.parentId,
+            folderId: page.folderId ?? null,
             syncPath: page.syncPath,
             syncPathKey: page.syncPathKey,
           },

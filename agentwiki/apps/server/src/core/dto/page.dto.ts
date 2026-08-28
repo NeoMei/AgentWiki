@@ -1,8 +1,36 @@
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested, registerDecorator, type ValidationArguments } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { IsPageTemplateCreateShape } from './page-template-create.validator';
 
 const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
+const TREE_REVISION = /^(?:0|[1-9]\d*)$/u;
+
+function IsPagePlacementShape() {
+  return (target: object, propertyName: string) => registerDecorator({
+    name: 'isPagePlacementShape', target: target.constructor, propertyName,
+    validator: {
+      validate(_value: unknown, args: ValidationArguments) {
+        const body = args.object as { folderId?: unknown; parentId?: unknown };
+        return !(body.folderId !== undefined && body.parentId !== undefined);
+      },
+      defaultMessage: () => 'folderId and parentId cannot be submitted together',
+    },
+  });
+}
+
+function IsPageUpdateTreeShape() {
+  return (target: object, propertyName: string) => registerDecorator({
+    name: 'isPageUpdateTreeShape', target: target.constructor, propertyName,
+    validator: {
+      validate(_value: unknown, args: ValidationArguments) {
+        const body = args.object as { title?: unknown; folderId?: unknown; expectedTreeRevision?: unknown };
+        const structural = body.title !== undefined || body.folderId !== undefined;
+        return !structural || (typeof body.expectedTreeRevision === 'string' && TREE_REVISION.test(body.expectedTreeRevision));
+      },
+      defaultMessage: () => 'expectedTreeRevision is required for title or folderId changes',
+    },
+  });
+}
 
 export class CreatePageDto {
   @IsString()
@@ -23,7 +51,13 @@ export class CreatePageDto {
   @IsString()
   @MaxLength(100)
   @IsPageTemplateCreateShape()
+  @IsPagePlacementShape()
   spaceId: string;
+
+  @PreserveRawInput()
+  @IsString()
+  @Matches(TREE_REVISION)
+  expectedTreeRevision: string;
 
   @PreserveRawInput()
   @ValidateIf((_object, value) => value !== undefined)
@@ -49,7 +83,14 @@ export class CreatePageDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  parentId?: string;
+  parentId?: string | null;
+
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined && value !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  folderId?: string | null;
 
   @IsOptional()
   @IsIn(['markdown', 'html', 'json'])
@@ -58,7 +99,14 @@ export class CreatePageDto {
 
 export class UpdatePageDto {
   @IsISO8601({ strict: true })
+  @IsPageUpdateTreeShape()
   expectedUpdatedAt: string;
+
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @Matches(TREE_REVISION)
+  expectedTreeRevision?: string;
 
   @IsOptional()
   @IsString()
@@ -76,14 +124,24 @@ export class UpdatePageDto {
   @MaxLength(200000)
   content?: string;
 
-  @IsOptional()
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined && value !== null)
   @IsString()
+  @MinLength(1)
   @MaxLength(100)
-  parentId?: string;
+  folderId?: string | null;
 
   @IsOptional()
   @IsIn(['markdown', 'html', 'json'])
   format?: 'markdown' | 'html' | 'json';
+}
+
+export class RestorePageVersionDto {
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @Matches(TREE_REVISION)
+  expectedTreeRevision?: string;
 }
 
 export class ReorderPageItem {

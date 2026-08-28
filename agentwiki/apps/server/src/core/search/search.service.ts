@@ -26,6 +26,10 @@ function vectorLiteral(embedding: number[]): string {
   return '[' + embedding.join(',') + ']';
 }
 
+function withCanonicalPath<T extends { syncPath?: string | null }>(page: T): T & { path: string | null } {
+  return { ...page, path: page.syncPath ?? null };
+}
+
 @Injectable()
 export class SearchService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SearchService.name);
@@ -119,7 +123,10 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
         });
         const byId = new Map(pages.map((page) => [page.id, page]));
         const semanticResults = rows
-          .map((row) => ({ page: byId.get(row.id), similarity: row.similarity }))
+          .map((row) => ({
+            page: byId.get(row.id) ? withCanonicalPath(byId.get(row.id)!) : undefined,
+            similarity: row.similarity,
+          }))
           .filter((row) => row.page);
         if (semanticResults.length > 0) return semanticResults as SearchResult[];
       }
@@ -147,7 +154,10 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       orderBy: { indexedAt: 'desc' },
     });
 
-    return documents.map((document) => ({ page: document.page, similarity: 1.0 }));
+    return documents.map((document) => ({
+      page: withCanonicalPath(document.page),
+      similarity: 1.0,
+    }));
   }
 
   async indexPage(pageId: string): Promise<{ lexicalIndexed: boolean; semanticIndexed: boolean; skipped?: boolean }> {

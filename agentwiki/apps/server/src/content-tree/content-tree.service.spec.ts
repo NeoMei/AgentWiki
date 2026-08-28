@@ -43,6 +43,7 @@ function makeHarness(options: {
     })),
     advanceContentTreeRevision: jest.fn().mockImplementation(async (_tx: any, _spaceId: string, expected: bigint) => expected + 1n),
     advance: jest.fn().mockResolvedValue({ revisionId: 'sync-revision-1', sequence: 1 }),
+    advanceStructuralPages: jest.fn().mockResolvedValue({ revisionId: 'sync-structural-1', sequence: 2 }),
   };
   const syncPaths: any = {
     allocate: jest.fn(),
@@ -202,6 +203,62 @@ describe('ContentTreeService create/read core', () => {
     await expect(service.listChildren({ spaceId: 'space-1', take: 201 })).rejects.toBeInstanceOf(ContentTreeError);
   });
 
+  it('lists active Folders through a bounded, query-bound stable cursor', async () => {
+    const { service, prisma, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 7n });
+    tx.folder.findMany
+      .mockResolvedValueOnce([
+        { id: 'folder-a', parentId: null, name: '项目 A', nameKey: '项目 a', path: 'pages/项目 A', pathKey: 'pages/项目 a', createdAt: now, updatedAt: now },
+        { id: 'folder-b', parentId: null, name: '项目 B', nameKey: '项目 b', path: 'pages/项目 B', pathKey: 'pages/项目 b', createdAt: now, updatedAt: now },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'folder-b', parentId: null, name: '项目 B', nameKey: '项目 b', path: 'pages/项目 B', pathKey: 'pages/项目 b', createdAt: now, updatedAt: now },
+      ]);
+
+    const first = await service.listFolders({ spaceId: 'space-1', query: ' 项目 ', take: 1 });
+    const second = await service.listFolders({
+      spaceId: 'space-1', query: '项目', take: 1, cursor: first.nextCursor!,
+    });
+
+    expect(first).toEqual({
+      spaceId: 'space-1', treeRevision: 7n,
+      data: [expect.objectContaining({ id: 'folder-a', name: '项目 A', path: 'pages/项目 A' })],
+      nextCursor: expect.any(String),
+    });
+    expect(second.data).toEqual([expect.objectContaining({ id: 'folder-b' })]);
+    expect(second.nextCursor).toBeNull();
+    expect(tx.folder.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: {
+        spaceId: 'space-1', deletedAt: null,
+        OR: [{ nameKey: { contains: '项目' } }, { pathKey: { contains: '项目' } }],
+      },
+      orderBy: [{ pathKey: 'asc' }, { id: 'asc' }],
+      take: 2,
+    }));
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+  });
+
+  it('rejects a Folder-list cursor reused with another query or Space before reading rows', async () => {
+    const { service, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
+    tx.folder.findMany.mockResolvedValue([
+      { id: 'folder-a', parentId: null, name: 'A', nameKey: 'a', path: 'pages/A', pathKey: 'pages/a', createdAt: now, updatedAt: now },
+      { id: 'folder-b', parentId: null, name: 'B', nameKey: 'b', path: 'pages/B', pathKey: 'pages/b', createdAt: now, updatedAt: now },
+    ]);
+    const first = await service.listFolders({ spaceId: 'space-1', query: 'a', take: 1 });
+    tx.folder.findMany.mockClear();
+
+    await expect(service.listFolders({
+      spaceId: 'space-1', query: 'b', take: 1, cursor: first.nextCursor!,
+    })).rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CURSOR_INVALID' }));
+    await expect(service.listFolders({
+      spaceId: 'space-2', query: 'a', take: 1, cursor: first.nextCursor!,
+    })).rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CURSOR_INVALID' }));
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['missing', null],
     ['deleted', null],
@@ -252,6 +309,100 @@ describe('ContentTreeService create/read core', () => {
 });
 
 describe('ContentTreeService Page placement and concurrency', () => {
+  it('owns the Page mutation lock and decimal tree-revision comparison', async () => {
+    const { service, tx, revisionWriter } = makeHarness({ treeRevision: 7n });
+
+    await expect(service.lockPageMutationSpace(tx, 'space-1', 7n)).resolves.toBe(tx);
+    await expect(service.lockPageMutationSpace(tx, 'space-1', 6n))
+      .rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CONFLICT' }));
+    expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(tx, 'space-1');
+  });
+
+  it('prepares an existing Page rename through Folder placement and records the old path alias', async () => {
+    const { service, tx, syncPaths } = makeHarness();
+    tx.folder.findFirst.mockResolvedValue({ id: 'folder-1', path: 'pages/项目' });
+    tx.$executeRaw.mockResolvedValue(1);
+    syncPaths.allocate.mockResolvedValue({
+      path: 'pages/项目/新标题.md', pathKey: 'pages/项目/新标题.md',
+    });
+
+    const placement = await service.preparePageMutation(tx, {
+      spaceId: 'space-1', pageId: 'page-1', title: '新标题', folderId: 'folder-1',
+      current: {
+        title: '旧标题', folderId: null, syncPath: 'pages/旧标题.md',
+        syncPathKey: 'pages/旧标题.md', sortOrder: 0,
+        createdAt: now, updatedAt: now, knowledgeKey: 'knowledge-1', content: '# old',
+      },
+    });
+
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, expect.objectContaining({
+      spaceId: 'space-1', directory: 'pages/项目', title: '新标题', excludePageId: 'page-1',
+    }));
+    expect(tx.$executeRaw.mock.calls.some(([query]: any[]) =>
+      Array.isArray(query?.strings) && query.strings.join(' ').includes('INSERT INTO "PagePathAlias"')))
+      .toBe(true);
+    expect(placement).toEqual({
+      folderId: 'folder-1', syncPath: 'pages/项目/新标题.md',
+      syncPathKey: 'pages/项目/新标题.md',
+    });
+  });
+
+  it('advances contentTreeRevision only for structural Page changes while always advancing Sync', async () => {
+    const { service, tx, revisionWriter } = makeHarness();
+    const change = {
+      operation: 'upsert' as const, pageId: 'knowledge-1', folderId: null,
+      path: 'pages/P.md', title: 'P', body: '# P',
+    };
+
+    await service.advancePageMutation(tx, {
+      spaceId: 'space-1', expectedTreeRevision: 0n, structural: false,
+      changes: [change], actor: { userId: 'user-1' },
+    });
+    expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).toHaveBeenCalledTimes(1);
+    expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
+
+    await service.advancePageMutation(tx, {
+      spaceId: 'space-1', expectedTreeRevision: 0n, structural: true,
+      changes: [change], actor: { userId: 'user-1' },
+    });
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledWith(tx, 'space-1', 0n);
+    expect(revisionWriter.advanceStructuralPages).toHaveBeenCalledWith(
+      tx, 'space-1', [change], expect.objectContaining({ origin: 'web_editor' }),
+    );
+  });
+
+  it('binds a structural Page mutation to an existing same-transaction Sync revision', async () => {
+    const { service, tx, revisionWriter } = makeHarness();
+    const result = await service.advancePageMutation(tx, {
+      spaceId: 'space-1', expectedTreeRevision: 0n, structural: true,
+      changes: [], actor: { userId: 'user-1' },
+      existingSyncRevisionId: 'submission-revision-1',
+    } as any);
+
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledWith(tx, 'space-1', 0n);
+    expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+    expect(result).toEqual({ treeRevision: 1n, syncRevisionId: 'submission-revision-1' });
+  });
+
+  it('maps a legacy Page parent only through one exact migrated Folder path', async () => {
+    const { service, tx } = makeHarness();
+    tx.page.findFirst.mockResolvedValue({ syncPathKey: 'pages/项目.md' });
+    tx.folder.findMany.mockResolvedValue([{ id: 'folder-1' }]);
+
+    await expect(service.mapLegacyPageParent(tx, 'space-1', 'legacy-page'))
+      .resolves.toBe('folder-1');
+    expect(tx.folder.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null, pathKey: 'pages/项目' },
+      select: { id: true }, take: 2,
+    });
+
+    tx.folder.findMany.mockResolvedValue([{ id: 'folder-1' }, { id: 'folder-2' }]);
+    await expect(service.mapLegacyPageParent(tx, 'space-1', 'legacy-page'))
+      .rejects.toEqual(expect.objectContaining({ code: 'PAGE_PARENT_DEPRECATED' }));
+  });
+
   it('prepares initial Page placement inside the caller-owned locked transaction', async () => {
     const { service, prisma, tx, syncPaths, revisionWriter } = makeHarness();
     tx.page.findUnique.mockResolvedValue(null);

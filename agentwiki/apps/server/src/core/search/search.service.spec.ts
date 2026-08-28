@@ -32,7 +32,7 @@ describe('SearchService data minimization and durable index', () => {
     ]);
 
     await expect(service.searchPages('exact term', undefined, 10, ['space-1'])).resolves.toEqual([
-      { page: { id: 'lexical-match' }, similarity: 1 },
+      { page: { id: 'lexical-match', path: null }, similarity: 1 },
     ]);
     expect(prisma.pageSearchDocument.findMany).toHaveBeenCalled();
   });
@@ -56,12 +56,28 @@ describe('SearchService data minimization and durable index', () => {
     ]);
 
     await expect(service.searchPages('term', 'space-1', 10, [])).resolves.toEqual([
-      { page: { id: 'semantic-hit', author: {}, space: {} }, similarity: 0.9 },
+      { page: { id: 'semantic-hit', author: {}, space: {}, path: null }, similarity: 0.9 },
     ]);
     expect(prisma.$queryRaw).toHaveBeenCalled();
     expect(prisma.page.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: { in: ['semantic-hit'] } },
     }));
+  });
+
+  it('adds Folder placement and canonical path to search Page results', async () => {
+    llm.generateEmbedding.mockRejectedValue(new Error('offline'));
+    prisma.pageSearchDocument.findMany.mockResolvedValue([{
+      page: {
+        id: 'page-1', folderId: 'folder-1', syncPath: 'pages/Project/Page.md',
+      },
+    }]);
+
+    await expect(service.searchPages('Page', 'space-1', 10, [])).resolves.toEqual([{
+      page: expect.objectContaining({
+        id: 'page-1', folderId: 'folder-1', path: 'pages/Project/Page.md',
+      }),
+      similarity: 1,
+    }]);
   });
 
   it('skips both index writes when the content hash and vector are unchanged', async () => {

@@ -125,22 +125,28 @@ export class KnowledgeService {
     const pages = relatedPageIds.length > 0
       ? await this.prisma.page.findMany({
           where: { id: { in: relatedPageIds }, deletedAt: null },
-          select: { id: true, title: true, slug: true, spaceId: true, deletedAt: true },
+          select: {
+            id: true, title: true, slug: true, spaceId: true,
+            folderId: true, syncPath: true, deletedAt: true,
+          },
         })
       : [];
 
     const pageMap = new Map(pages.map((p) => [p.id, p]));
 
-    return relations.map((r) => ({
-      relation: r.relation,
-      strength: r.strength,
-      confidence: r.confidence,
-      origin: r.origin,
-      evidenceId: r.evidenceId,
-      createdByAgentId: r.createdByAgentId,
-      page: pageMap.get(r.sourcePageId === pageId ? r.targetPageId : r.sourcePageId),
-      direction: r.sourcePageId === pageId ? 'outgoing' : 'incoming',
-    }));
+    return relations.map((r) => {
+      const page = pageMap.get(r.sourcePageId === pageId ? r.targetPageId : r.sourcePageId);
+      return {
+        relation: r.relation,
+        strength: r.strength,
+        confidence: r.confidence,
+        origin: r.origin,
+        evidenceId: r.evidenceId,
+        createdByAgentId: r.createdByAgentId,
+        page: page ? { ...page, path: page.syncPath ?? null } : undefined,
+        direction: r.sourcePageId === pageId ? 'outgoing' : 'incoming',
+      };
+    });
   }
 
   async deleteRelation(id: string) {
@@ -237,6 +243,8 @@ export class KnowledgeService {
       return [p.id, {
         id: p.id,
         title: p.title,
+        folderId: p.folderId ?? null,
+        path: p.syncPath ?? null,
         x: 400 + Math.cos(angle) * radius,
         y: 300 + Math.sin(angle) * radius,
         radius: 20,

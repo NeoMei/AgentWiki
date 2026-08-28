@@ -273,6 +273,17 @@ test('the sync v1 backfill can read nullable Release A rows with the final Prism
   assert.match(backfill, /FROM "SpaceKnowledgeRevision"/);
 });
 
+test('every migration-created PageVersion snapshots its current Folder placement', async () => {
+  const [syncBackfill, readablePathMigration] = await Promise.all([
+    read('scripts/backfill-sync-v1.mjs'),
+    read('scripts/migrate-readable-sync-paths.mjs'),
+  ]);
+
+  assert.match(syncBackfill, /"parentId", "folderId", "authorId"/);
+  assert.match(syncBackfill, /folderId:\s*page\.folderId/);
+  assert.match(readablePathMigration, /folderId:\s*page\.folderId/);
+});
+
 test('the sync v1 backfill holds the shared Space lock for its mutation window', async () => {
   const events = [];
   const unlockedClient = {
@@ -302,10 +313,11 @@ test('the sync v1 backfill holds the shared Space lock for its mutation window',
   assert.deepEqual(events, ['transaction', 'lock', 'pages', 'revisions']);
 });
 
-test('the readable allocator is lock-branded at all seven production call sites', async () => {
-  const [allocator, writer, page, review, migration] = await Promise.all([
+test('the readable allocator is lock-branded and structural Page paths are centralized in ContentTree', async () => {
+  const [allocator, writer, contentTree, page, review, migration] = await Promise.all([
     read('apps/server/src/core/sync/readable-sync-path.service.ts'),
     read('apps/server/src/core/sync/space-revision-writer.service.ts'),
+    read('apps/server/src/content-tree/content-tree.service.ts'),
     read('apps/server/src/core/page/page.service.ts'),
     read('apps/server/src/review/review.service.ts'),
     read('scripts/migrate-readable-sync-paths.mjs'),
@@ -314,8 +326,9 @@ test('the readable allocator is lock-branded at all seven production call sites'
   assert.match(allocator, /export type SpaceLockedTransaction/);
   assert.match(allocator, /tx: SpaceLockedTransaction/);
   assert.match(writer, /Promise<SpaceLockedTransaction>/);
-  assert.equal(page.match(/syncPaths\.allocate\(lockedTx,/g)?.length, 3);
-  assert.equal(review.match(/syncPaths\.allocate\(lockedTx!?,/g)?.length, 3);
+  assert.equal(contentTree.match(/syncPaths\.allocate\(lockedTx,/g)?.length, 3);
+  assert.doesNotMatch(page, /syncPaths\.allocate\(/);
+  assert.doesNotMatch(review, /syncPaths\.allocate\(/);
   assert.equal(migration.match(/allocator\.allocate\(lockedTx,/g)?.length, 1);
 });
 

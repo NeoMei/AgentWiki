@@ -26,7 +26,8 @@ describe('Markdown resource DTO validation', () => {
       ...(index === 1 ? { blockId: 'block-1' } : {}),
     }));
 
-    await expect(transformBody({ references })).resolves.toEqual({ references });
+    await expect(transformBody({ sourcePageId: 'source-page', references }))
+      .resolves.toEqual({ sourcePageId: 'source-page', references });
   });
 
   it.each([
@@ -66,6 +67,9 @@ describe('Markdown resource DTO validation', () => {
     await expect(transformBody({ references: [{
       key: 'page', kind: 'page', target: 'Page',
     }], content: '# secret' })).rejects.toMatchObject({ status: 400 });
+    await expect(transformBody({ references: [{
+      key: 'page', kind: 'page', target: 'Page',
+    }], sourcePageId: '' })).rejects.toMatchObject({ status: 400 });
   });
 
   it.each([

@@ -27,6 +27,7 @@ import { CollaborationWorkflowsModule } from './collaboration-workflows/collabor
 import { PageTemplateModule } from './page-templates/page-template.module';
 import { AttachmentModule } from './attachments/attachment.module';
 import { MarkdownResourceModule } from './markdown-resources/markdown-resource.module';
+import { ContentTreeModule } from './content-tree/content-tree.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { MarkdownResourceModule } from './markdown-resources/markdown-resource.m
     CollaborationWorkflowsModule,
     AttachmentModule,
     MarkdownResourceModule,
+    ContentTreeModule,
   ],
   controllers: [HealthController],
 })

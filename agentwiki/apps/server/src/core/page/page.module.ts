@@ -7,9 +7,18 @@ import { AuthModule } from '../auth/auth.module';
 import { ReviewModule } from '../../review/review.module';
 import { KnowledgeGraphModule } from '../../knowledge-graph/knowledge-graph.module';
 import { PageTemplateModule } from '../../page-templates/page-template.module';
+import { ContentTreeModule } from '../../content-tree/content-tree.module';
 
 @Module({
-  imports: [DatabaseModule, SearchModule, AuthModule, ReviewModule, KnowledgeGraphModule, PageTemplateModule],
+  imports: [
+    DatabaseModule,
+    SearchModule,
+    AuthModule,
+    ReviewModule,
+    KnowledgeGraphModule,
+    PageTemplateModule,
+    ContentTreeModule,
+  ],
   controllers: [PageController],
   providers: [PageService],
   exports: [PageService],

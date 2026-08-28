@@ -1,6 +1,57 @@
 import { BadRequestException } from '@nestjs/common';
 import { pathKey, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { ReviewService } from './review.service';
+import {
+  safeMarkdownBasename,
+  syncPathDirectory,
+} from '../core/sync/readable-sync-path.service';
+
+function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
+  return {
+    lockPageMutationSpace: jest.fn(async (tx: any, spaceId: string) => Object.assign(
+      await revisionWriter.lockSpace?.(tx, spaceId) ?? tx,
+      { contentTreeRevision: 0n },
+    )),
+    placePage: jest.fn(async (tx: any, input: any) => {
+      const allocated = await syncPaths.allocate(tx, {
+        spaceId: input.spaceId, directory: 'pages', title: input.title,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    }),
+    preparePageMutation: jest.fn(async (tx: any, input: any) => {
+      const changed = input.folderId !== input.current.folderId
+        || safeMarkdownBasename(input.title) !== safeMarkdownBasename(input.current.title);
+      if (!changed) {
+        return {
+          folderId: input.folderId,
+          syncPath: input.current.syncPath,
+          syncPathKey: input.current.syncPathKey,
+        };
+      }
+      const allocated = await syncPaths.allocate(tx, {
+        spaceId: input.spaceId,
+        directory: syncPathDirectory(input.current.syncPath),
+        title: input.title,
+        excludePageId: input.pageId,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    }),
+    advancePageMutation: jest.fn(async (tx: any, input: any) => {
+      if (!input.existingSyncRevisionId) {
+        await revisionWriter.advance(tx, input.spaceId, input.changes, {
+          origin: input.actor.agentId ? 'change_set' : 'web_editor',
+          createdByUserId: input.actor.userId ?? null,
+          ...input.revisionOrigin,
+        });
+      }
+      return {
+        treeRevision: input.expectedTreeRevision,
+        syncRevisionId: input.existingSyncRevisionId ?? 'sync-1',
+      };
+    }),
+    mapLegacyPageParent: jest.fn().mockRejectedValue({ businessCode: 'PAGE_PARENT_DEPRECATED' }),
+  };
+}
 
 describe('ReviewService queue presentation', () => {
   const prisma = { changeSet: { count: jest.fn(), findMany: jest.fn() } } as any;
@@ -39,13 +90,21 @@ describe('ReviewService approval boundaries', () => {
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
-  const service = new ReviewService(
+  const contentTree = {
+    lockPageMutationSpace: jest.fn(),
+    placePage: jest.fn(),
+    preparePageMutation: jest.fn(),
+    advancePageMutation: jest.fn(),
+    mapLegacyPageParent: jest.fn(),
+  } as any;
+  const service = new (ReviewService as any)(
     prisma,
     search,
     revisionWriter,
     syncPaths,
     graphMaintenance,
-  );
+    contentTree,
+  ) as ReviewService;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -54,6 +113,37 @@ describe('ReviewService approval boundaries', () => {
       pathKey: pathKey('pages/Generated.md'),
     });
     revisionWriter.lockSpace.mockImplementation(async (tx: unknown) => tx);
+    contentTree.lockPageMutationSpace.mockImplementation(async (tx: any, spaceId: string) =>
+      Object.assign(await revisionWriter.lockSpace(tx, spaceId), { contentTreeRevision: 0n }));
+    contentTree.placePage.mockImplementation(async (tx: any, input: any) => {
+      const allocated = await syncPaths.allocate(tx, {
+        spaceId: input.spaceId, directory: 'pages', title: input.title,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    });
+    contentTree.preparePageMutation.mockImplementation(async (tx: any, input: any) => {
+      const allocated = await syncPaths.allocate(tx, {
+        spaceId: input.spaceId,
+        directory: input.current.syncPath.slice(0, input.current.syncPath.lastIndexOf('/')),
+        title: input.title,
+        excludePageId: input.pageId,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    });
+    contentTree.advancePageMutation.mockImplementation(async (tx: any, input: any) => {
+      if (!input.existingSyncRevisionId) {
+        await revisionWriter.advance(tx, input.spaceId, input.changes, {
+          origin: input.actor.agentId ? 'change_set' : 'web_editor',
+          createdByUserId: input.actor.userId ?? null,
+          ...input.revisionOrigin,
+        });
+      }
+      return {
+        treeRevision: input.expectedTreeRevision + (input.structural ? 1n : 0n),
+        syncRevisionId: input.existingSyncRevisionId ?? 'sync-1',
+      };
+    });
+    contentTree.mapLegacyPageParent.mockResolvedValue('folder-mapped');
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -128,6 +218,154 @@ describe('ReviewService approval boundaries', () => {
     await service.publish('cs-1');
     expect(tx.page.create).toHaveBeenCalledTimes(1);
     expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'accepted' } }));
+  });
+
+  it('publishes a Folder-placed Page through the ContentTree lock, placement, and structural revision boundary', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-folder', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'create-folder-page', type: 'create_page', status: 'accepted',
+        payload: {
+          title: '周报', content: '# 周报', folderId: 'folder-1', expectedTreeRevision: '4',
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const created = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', title: '周报', content: '# 周报',
+      folderId: 'folder-1', syncPath: 'pages/项目/周报.md', deletedAt: null,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(created),
+        findMany: jest.fn().mockResolvedValue([created]),
+      },
+      pageSearchDocument: { deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    contentTree.placePage.mockResolvedValueOnce({
+      folderId: 'folder-1', syncPath: 'pages/项目/周报.md', syncPathKey: 'pages/项目/周报.md',
+    });
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+
+    await service.publish('cs-folder');
+
+    expect(contentTree.lockPageMutationSpace).toHaveBeenCalledWith(tx, 'space-1', 4n);
+    expect(contentTree.placePage).toHaveBeenCalledWith(tx, expect.objectContaining({
+      title: '周报', folderId: 'folder-1', pageId: expect.any(String),
+    }));
+    expect(tx.page.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      parentId: null, folderId: 'folder-1', syncPath: 'pages/项目/周报.md',
+    }) });
+    expect(contentTree.advancePageMutation).toHaveBeenCalledWith(tx, expect.objectContaining({
+      expectedTreeRevision: 4n,
+      structural: true,
+      changes: [expect.objectContaining({ folderId: 'folder-1', path: 'pages/项目/周报.md' })],
+    }));
+  });
+
+  it('publishes an explicit legacy root parent at the Folder root without an unsafe mapping lookup', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-legacy-root', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'create-legacy-root', type: 'create_page', status: 'accepted',
+        payload: { title: 'Root', content: '# Root', parentId: null, expectedTreeRevision: '4' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const created = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Root', content: '# Root',
+      folderId: null, syncPath: 'pages/Root.md', deletedAt: null,
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(created),
+        findMany: jest.fn().mockResolvedValue([created]),
+      },
+      pageSearchDocument: { deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    contentTree.placePage.mockResolvedValueOnce({
+      folderId: null, syncPath: 'pages/Root.md', syncPathKey: 'pages/root.md',
+    });
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+    process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+    try {
+      await service.publish('cs-legacy-root');
+      expect(contentTree.mapLegacyPageParent).not.toHaveBeenCalled();
+      expect(contentTree.placePage).toHaveBeenCalledWith(tx, expect.objectContaining({
+        folderId: null,
+      }));
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+    }
+  });
+
+  it('binds a structural submission publication to its one prebuilt Sync revision', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-submission', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'create-submission-page', type: 'create_page', status: 'accepted',
+        payload: { title: 'Imported', content: '# Imported', folderId: 'folder-1', expectedTreeRevision: '6' },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const created = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Imported', content: '# Imported',
+      folderId: 'folder-1', syncPath: 'pages/项目/Imported.md', deletedAt: null,
+    };
+    const submission = {
+      id: 'submission-1', bundle: { pages: [], memories: [], relations: [] },
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'recipe-1', contentHash: 'hash-1',
+    };
+    const tx = {
+      page: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(created),
+        findMany: jest.fn().mockResolvedValue([created]),
+      },
+      pageSearchDocument: { deleteMany: jest.fn() },
+      evidence: { updateMany: jest.fn() },
+      changeItem: { update: jest.fn() },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      knowledgeSubmission: {
+        findUnique: jest.fn().mockResolvedValue(submission),
+        update: jest.fn(),
+      },
+    };
+    contentTree.placePage.mockResolvedValueOnce({
+      folderId: 'folder-1', syncPath: 'pages/项目/Imported.md',
+      syncPathKey: 'pages/项目/imported.md',
+    });
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    const originalCreateKnowledgeRevision = (service as any).createKnowledgeRevision;
+    (service as any).createKnowledgeRevision = jest.fn().mockResolvedValue({ id: 'submission-revision-1' });
+    try {
+      await service.publish('cs-submission');
+      expect(contentTree.advancePageMutation).toHaveBeenCalledWith(tx, expect.objectContaining({
+        expectedTreeRevision: 6n,
+        structural: true,
+        existingSyncRevisionId: 'submission-revision-1',
+      }));
+      expect(revisionWriter.advance).not.toHaveBeenCalled();
+      expect(tx.knowledgeSubmission.update).toHaveBeenCalledWith({
+        where: { id: 'submission-1' },
+        data: { status: 'published', appliedRevisionId: 'submission-revision-1' },
+      });
+    } finally {
+      (service as any).createKnowledgeRevision = originalCreateKnowledgeRevision;
+    }
   });
 
   it('restores an archived page with the same source identity instead of creating a duplicate', async () => {
@@ -601,6 +839,7 @@ describe('ReviewService approval boundaries', () => {
     const before = {
       restoredFromArchive: true,
       title: 'Archived title', content: 'Archived body', format: 'markdown', parentId: 'parent-old',
+      folderId: 'folder-old',
       deletedAt: archivedAt.toISOString(), sourceChangeSetId: 'cs-old', createdByAgentId: 'agent-old',
       lastChangeSetId: 'cs-old', lastModifiedByUserId: null, lastModifiedByAgentId: 'agent-old',
       lastModifiedAt: priorModifiedAt.toISOString(), sourceId: 'source-1', sourceVersionId: 'version-1',
@@ -636,7 +875,8 @@ describe('ReviewService approval boundaries', () => {
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'page-1', sourceChangeSetId: 'cs-restore', lastChangeSetId: 'cs-restore' }),
       data: expect.objectContaining({
-        title: 'Archived title', content: 'Archived body', parentId: 'parent-old', deletedAt: archivedAt,
+        title: 'Archived title', content: 'Archived body', parentId: 'parent-old',
+        folderId: 'folder-old', deletedAt: archivedAt,
         sourceChangeSetId: 'cs-old', lastChangeSetId: 'cs-old', lastModifiedAt: priorModifiedAt,
         syncPath: 'pages/Archived title.md', syncPathKey: pathKey('pages/Archived title.md'),
       }),
@@ -1239,12 +1479,14 @@ describe('one-shot review-publish and agent auto-publish', () => {
   const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
+  const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
-    { advance: jest.fn(), lockSpace: jest.fn() } as any,
+    revisionWriter,
     syncPaths,
     graphMaintenance,
+    makeReviewContentTree(revisionWriter, syncPaths) as any,
   );
 
   beforeEach(() => {
@@ -1580,6 +1822,7 @@ describe('ReviewService readable page paths', () => {
     revisionWriter,
     syncPaths,
     graphMaintenance,
+    makeReviewContentTree(revisionWriter, syncPaths) as any,
   );
 
   let changeSet: any;
@@ -1639,7 +1882,7 @@ describe('ReviewService readable page paths', () => {
     });
   });
 
-  it('uses a legal sourcePath without allocating a title path', async () => {
+  it('keeps sourcePath as provenance while ContentTree allocates the runtime Page path', async () => {
     changeSet.items = [{
       id: 'create-1',
       type: 'create_page',
@@ -1665,11 +1908,13 @@ describe('ReviewService readable page paths', () => {
 
     await service.publish('cs-1');
 
-    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(syncPaths.allocate).toHaveBeenCalledWith(tx, {
+      spaceId: 'space-1', directory: 'pages', title: 'Setup',
+    });
     expect(tx.page.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        syncPath: 'guides/Setup.md',
-        syncPathKey: pathKey('guides/Setup.md'),
+        syncPath: 'pages/Guide.md',
+        syncPathKey: pathKey('pages/Guide.md'),
       }),
     }));
   });
@@ -1955,12 +2200,14 @@ describe('ReviewService page revert ordering and audit', () => {
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
+  const syncPaths = { allocate: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
-    { allocate: jest.fn() } as any,
+    syncPaths,
     graphMaintenance,
+    makeReviewContentTree(revisionWriter, syncPaths) as any,
   );
 
   beforeEach(() => {
@@ -1983,6 +2230,7 @@ describe('ReviewService page revert ordering and audit', () => {
       slug: 'current-title',
       format: 'markdown',
       parentId: null,
+      folderId: 'folder-1',
       syncPath: 'guides/Current title.md',
       syncPathKey: 'guides/current title.md',
       sourceChangeSetId: 'cs-1',
@@ -2054,6 +2302,7 @@ describe('ReviewService page revert ordering and audit', () => {
         slug: current.slug,
         format: current.format,
         parentId: current.parentId,
+        folderId: current.folderId,
         syncPath: current.syncPath,
         syncPathKey: current.syncPathKey,
       },
@@ -2086,12 +2335,14 @@ describe('ReviewService archive audit and provenance', () => {
     advance: jest.fn().mockResolvedValue({ revisionId: 'revision-1' }),
   } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
+  const syncPaths = { allocate: jest.fn() } as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
-    { allocate: jest.fn() } as any,
+    syncPaths,
     graphMaintenance,
+    makeReviewContentTree(revisionWriter, syncPaths) as any,
   );
 
   const originalUpdatedAt = new Date('2026-08-20T00:00:00.000Z');
@@ -2160,7 +2411,7 @@ describe('ReviewService archive audit and provenance', () => {
         pageId: originalPage.id, title: originalPage.title,
         content: originalPage.content, authorId: originalPage.authorId,
         slug: originalPage.slug, format: originalPage.format,
-        parentId: originalPage.parentId, syncPath: originalPage.syncPath,
+        parentId: originalPage.parentId, folderId: null, syncPath: originalPage.syncPath,
         syncPathKey: originalPage.syncPathKey,
       },
     });

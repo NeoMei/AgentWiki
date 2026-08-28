@@ -302,9 +302,13 @@ describe('PageTemplateService', () => {
     page.findMany.mockResolvedValue([
       {
         id: 'page-2', title: 'Second', format: 'markdown', updatedAt: firstUpdatedAt,
+        folderId: 'folder-1', syncPath: 'pages/项目/Second.md',
         content: '# must not leak', slug: 'must-not-leak',
       },
-      { id: 'page-1', title: 'First', format: 'markdown', updatedAt: secondUpdatedAt },
+      {
+        id: 'page-1', title: 'First', format: 'markdown', updatedAt: secondUpdatedAt,
+        folderId: null, syncPath: 'pages/First.md',
+      },
     ]);
     page.count.mockResolvedValue(42);
 
@@ -312,8 +316,14 @@ describe('PageTemplateService', () => {
       'space-1', { skip: 10, take: 25 }, principal,
     )).resolves.toEqual({
       data: [
-        { id: 'page-2', title: 'Second', format: 'markdown', updatedAt: firstUpdatedAt.toISOString() },
-        { id: 'page-1', title: 'First', format: 'markdown', updatedAt: secondUpdatedAt.toISOString() },
+        {
+          id: 'page-2', title: 'Second', format: 'markdown', folderId: 'folder-1',
+          path: 'pages/项目/Second.md', updatedAt: firstUpdatedAt.toISOString(),
+        },
+        {
+          id: 'page-1', title: 'First', format: 'markdown', folderId: null,
+          path: 'pages/First.md', updatedAt: secondUpdatedAt.toISOString(),
+        },
       ],
       total: 42,
       skip: 10,
@@ -325,7 +335,9 @@ describe('PageTemplateService', () => {
     );
     expect(page.findMany).toHaveBeenCalledWith({
       where: { spaceId: 'space-1', deletedAt: null, format: 'markdown' },
-      select: { id: true, title: true, format: true, updatedAt: true },
+      select: {
+        id: true, title: true, format: true, folderId: true, syncPath: true, updatedAt: true,
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       skip: 10,
       take: 25,

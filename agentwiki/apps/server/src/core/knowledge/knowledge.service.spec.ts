@@ -18,6 +18,54 @@ describe('KnowledgeService related pages', () => {
       },
     });
   });
+
+  it('adds Folder placement and canonical path to each related Page', async () => {
+    const relation = {
+      id: 'relation-1', sourcePageId: 'page-1', targetPageId: 'page-2',
+      relation: 'references', strength: 1, confidence: 1, origin: 'manual',
+      evidenceId: null, createdByAgentId: null,
+    };
+    const prisma = {
+      knowledgeRelation: { findMany: jest.fn().mockResolvedValue([relation]) },
+      page: { findMany: jest.fn().mockResolvedValue([{
+        id: 'page-2', title: 'Target', slug: 'target', spaceId: 'space-1',
+        folderId: 'folder-1', syncPath: 'pages/Project/Target.md', deletedAt: null,
+      }]) },
+    } as any;
+    const service = new KnowledgeService(prisma);
+
+    await expect(service.getRelatedPages('page-1')).resolves.toEqual([
+      expect.objectContaining({
+        page: expect.objectContaining({
+          id: 'page-2', folderId: 'folder-1', path: 'pages/Project/Target.md',
+        }),
+      }),
+    ]);
+  });
+});
+
+describe('KnowledgeService graph Page nodes', () => {
+  it('adds Folder placement and canonical path without changing graph coordinates', async () => {
+    const prisma = {
+      page: { findMany: jest.fn().mockResolvedValue([{
+        id: 'page-1', title: 'Page', folderId: null, syncPath: 'pages/Page.md',
+      }]) },
+      knowledgeRelation: { findMany: jest.fn().mockResolvedValue([]) },
+      changeSet: { findMany: jest.fn() },
+      evidence: { findMany: jest.fn() },
+      agent: { findMany: jest.fn() },
+      user: { findMany: jest.fn() },
+    } as any;
+    const service = new KnowledgeService(prisma);
+
+    await expect(service.getGraph('space-1')).resolves.toEqual({
+      nodes: [expect.objectContaining({
+        id: 'page-1', folderId: null, path: 'pages/Page.md',
+        x: expect.any(Number), y: expect.any(Number),
+      })],
+      edges: [],
+    });
+  });
 });
 
 describe('KnowledgeService relation ownership', () => {

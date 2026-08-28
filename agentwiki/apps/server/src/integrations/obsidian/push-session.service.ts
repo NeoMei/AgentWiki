@@ -648,6 +648,7 @@ export class PushSessionService {
           data: {
             pageId: page.id, title: page.title, content: page.content, authorId: userId,
             slug: page.slug, format: page.format, parentId: page.parentId,
+            folderId: page.folderId ?? null,
             syncPath: page.syncPath, syncPathKey: page.syncPathKey,
           },
         });
@@ -671,6 +672,7 @@ export class PushSessionService {
           data: {
             pageId: page.id, title: page.title, content: page.content, authorId: userId,
             slug: page.slug, format: page.format, parentId: page.parentId,
+            folderId: page.folderId ?? null,
             syncPath: page.syncPath, syncPathKey: page.syncPathKey,
           },
         });
@@ -690,6 +692,7 @@ export class PushSessionService {
           data: {
             pageId: page.id, title: page.title, content: page.content, authorId: userId,
             slug: page.slug, format: page.format, parentId: page.parentId,
+            folderId: page.folderId ?? null,
             syncPath: page.syncPath, syncPathKey: page.syncPathKey,
           },
         });

@@ -12,14 +12,96 @@ describe('PageController.create', () => {
     };
 
     await controller.create(
-      { title: 'Human page', spaceId: 'space-1' },
+      { title: 'Human page', spaceId: 'space-1', expectedTreeRevision: '0' },
       { user: principal } as any,
     );
 
     expect(pageService.create).toHaveBeenCalledWith(
-      { title: 'Human page', spaceId: 'space-1' }, principal,
+      { title: 'Human page', spaceId: 'space-1', expectedTreeRevision: '0' }, principal,
     );
     expect(review.propose).not.toHaveBeenCalled();
+  });
+
+  it('carries Folder placement and tree revision into the established Agent review proposal', async () => {
+    const pageService = { create: jest.fn() } as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any;
+    const review = { propose: jest.fn().mockResolvedValue({ id: 'change-set-1' }) } as any;
+    const controller = new PageController(pageService, authorization, review);
+    const principal = { agentId: 'agent-1', platformRole: 'user' as const };
+
+    await controller.create({
+      title: 'Agent page', spaceId: 'space-1', folderId: 'folder-1', expectedTreeRevision: '9',
+    }, { user: principal } as any);
+
+    expect(review.propose).toHaveBeenCalledWith(
+      principal,
+      'space-1',
+      'Proposed page: Agent page',
+      expect.objectContaining({ payload: expect.objectContaining({
+        folderId: 'folder-1', expectedTreeRevision: '9',
+      }) }),
+    );
+    expect(review.propose.mock.calls[0][3].payload).not.toHaveProperty('parentId');
+  });
+
+  it('does not let the Agent review path bypass the legacy parent migration flag', async () => {
+    const pageService = { create: jest.fn() } as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any;
+    const review = { propose: jest.fn() } as any;
+    const controller = new PageController(pageService, authorization, review);
+    const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+    delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+    try {
+      await expect(controller.create({
+        title: 'Legacy', spaceId: 'space-1', parentId: 'page-parent', expectedTreeRevision: '0',
+      }, { user: { agentId: 'agent-1', platformRole: 'user' } } as any))
+        .rejects.toMatchObject({ businessCode: 'PAGE_PARENT_DEPRECATED' });
+      expect(review.propose).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+    }
+  });
+
+  it('keeps the migration-only Agent parent proposal unambiguous when the flag is enabled', async () => {
+    const pageService = { create: jest.fn() } as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any;
+    const review = { propose: jest.fn().mockResolvedValue({ id: 'change-set-1' }) } as any;
+    const controller = new PageController(pageService, authorization, review);
+    const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+    process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+    try {
+      await controller.create({
+        title: 'Legacy', spaceId: 'space-1', parentId: 'page-parent', expectedTreeRevision: '3',
+      }, { user: { agentId: 'agent-1', platformRole: 'user' } } as any);
+      expect(review.propose).toHaveBeenCalledWith(
+        expect.anything(), 'space-1', expect.any(String),
+        expect.objectContaining({ payload: expect.objectContaining({
+          parentId: 'page-parent', expectedTreeRevision: '3',
+        }) }),
+      );
+      expect(review.propose.mock.calls[0][3].payload).not.toHaveProperty('folderId');
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+    }
+  });
+});
+
+describe('PageController.restoreVersion', () => {
+  it('passes the optional decimal tree revision without breaking the legacy empty-body call', async () => {
+    const pageService = { restoreVersion: jest.fn().mockResolvedValue({ id: 'page-1' }) } as any;
+    const authorization = {
+      assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }),
+    } as any;
+    const controller = new PageController(pageService, authorization, { propose: jest.fn() } as any);
+    const request = { user: { userId: 'user-1', platformRole: 'user' } } as any;
+
+    await controller.restoreVersion('page-1', 'version-1', { expectedTreeRevision: '15' }, request);
+    await controller.restoreVersion('page-1', 'version-2', {}, request);
+
+    expect(pageService.restoreVersion).toHaveBeenNthCalledWith(1, 'page-1', 'version-1', '15');
+    expect(pageService.restoreVersion).toHaveBeenNthCalledWith(2, 'page-1', 'version-2', undefined);
   });
 });
 

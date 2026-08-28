@@ -1,7 +1,12 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger, Req, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { PageService } from './page.service';
-import { CreatePageDto, ReorderPagesDto, UpdatePageDto } from '../dto/page.dto';
+import {
+  CreatePageDto,
+  ReorderPagesDto,
+  RestorePageVersionDto,
+  UpdatePageDto,
+} from '../dto/page.dto';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { ReviewService } from '../../review/review.service';
@@ -23,6 +28,12 @@ export class PageController {
   async create(@Body() dto: CreatePageDto, @Req() req: Request) {
     const user = req.user as any;
     await this.authorization.assertSpaceAccess(user, dto.spaceId, ['owner', 'editor'], 'pages:write');
+    if (
+      dto.parentId !== undefined
+      && process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true'
+    ) {
+      throw new BusinessException('PAGE_PARENT_DEPRECATED');
+    }
     if (user.agentId && (
       dto.templateId !== undefined
       || dto.templateVersion !== undefined
@@ -36,7 +47,10 @@ export class PageController {
           title: dto.title,
           content: dto.content || '',
           slug: dto.slug,
-          parentId: dto.parentId,
+          ...(dto.parentId === undefined
+            ? { folderId: dto.folderId ?? null }
+            : { parentId: dto.parentId }),
+          expectedTreeRevision: dto.expectedTreeRevision,
           format: dto.format,
         },
       });
@@ -113,11 +127,16 @@ export class PageController {
   }
 
   @Post(':id/versions/:versionId/restore')
-  async restoreVersion(@Param('id') id: string, @Param('versionId') versionId: string, @Req() req: Request) {
+  async restoreVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Body() dto: RestorePageVersionDto,
+    @Req() req: Request,
+  ) {
     await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor'], 'pages:write');
     if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
     this.logger.log('Restoring version ' + versionId + ' for page: ' + id);
-    return this.pageService.restoreVersion(id, versionId);
+    return this.pageService.restoreVersion(id, versionId, dto.expectedTreeRevision);
   }
 
   @Patch(':id')
@@ -127,11 +146,12 @@ export class PageController {
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
       const current = await this.pageService.findOne(id);
-      const { expectedUpdatedAt, ...changes } = dto;
+      const { expectedUpdatedAt, expectedTreeRevision, ...changes } = dto;
       return this.review.propose(user, page.spaceId, `Proposed update: ${id}`, {
         type: 'update_page', payload: {
           pageId: id,
           expectedUpdatedAt: expectedUpdatedAt || current.updatedAt.toISOString(),
+          ...(expectedTreeRevision === undefined ? {} : { expectedTreeRevision }),
           changes,
         },
       });

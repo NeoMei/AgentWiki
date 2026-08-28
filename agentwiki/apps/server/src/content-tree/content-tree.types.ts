@@ -1,3 +1,9 @@
+import { BusinessException } from '../core/filters/business-error';
+import type {
+  RevisionOrigin,
+  StructuralPageChange,
+} from '../core/sync/space-revision-writer.service';
+
 export type ContentTreeErrorCode =
   | 'SPACE_NOT_FOUND'
   | 'FOLDER_NOT_FOUND'
@@ -15,15 +21,16 @@ export type ContentTreeErrorCode =
   | 'CONTENT_TREE_CURSOR_INVALID'
   | 'CONTENT_TREE_PAGE_NOT_FOUND'
   | 'CONTENT_TREE_INVALID_ACTOR'
-  | 'CONTENT_TREE_TAKE_INVALID';
+  | 'CONTENT_TREE_TAKE_INVALID'
+  | 'PAGE_PARENT_DEPRECATED';
 
-export class ContentTreeError extends Error {
+export class ContentTreeError extends BusinessException {
   constructor(
     readonly code: ContentTreeErrorCode,
     message: string,
     readonly details?: Readonly<Record<string, unknown>>,
   ) {
-    super(message);
+    super(code, message, details);
     this.name = 'ContentTreeError';
   }
 }
@@ -98,6 +105,7 @@ export type RestoreStrategy =
 
 export interface RestoreDeletionBatchInput {
   spaceId: string;
+  rootFolderId?: string;
   deletionBatchId: string;
   strategy: RestoreStrategy;
   expectedTreeRevision: bigint;
@@ -169,6 +177,29 @@ export interface ListChildrenInput {
   take?: number;
 }
 
+export interface ListFoldersInput {
+  spaceId: string;
+  query?: string;
+  cursor?: string;
+  take?: number;
+}
+
+export interface FolderListItem {
+  id: string;
+  parentId: string | null;
+  name: string;
+  path: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FolderListResult {
+  spaceId: string;
+  treeRevision: bigint;
+  data: FolderListItem[];
+  nextCursor: string | null;
+}
+
 export interface ContentTreeFolderNode {
   kind: 'folder';
   id: string;
@@ -222,4 +253,28 @@ export interface PlacedPageResult {
   folderId: string | null;
   syncPath: string;
   syncPathKey: string;
+}
+
+export interface PreparePageMutationInput extends PlacePageInput {
+  current: {
+    title: string;
+    folderId: string | null;
+    syncPath: string;
+    syncPathKey: string;
+    sortOrder: number;
+    createdAt: Date;
+    updatedAt: Date;
+    knowledgeKey: string;
+    content: string | null;
+  };
+}
+
+export interface AdvancePageMutationInput {
+  spaceId: string;
+  expectedTreeRevision: bigint;
+  structural: boolean;
+  changes: StructuralPageChange[];
+  actor: ContentTreeActor;
+  revisionOrigin?: Partial<Omit<RevisionOrigin, 'origin' | 'createdByUserId'>>;
+  existingSyncRevisionId?: string;
 }

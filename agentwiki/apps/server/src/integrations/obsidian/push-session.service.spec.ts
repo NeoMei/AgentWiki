@@ -78,4 +78,34 @@ describe('PushSessionService graph lifecycle', () => {
     expect(indexPage).toHaveBeenCalledTimes(20);
     expect(maximum).toBeLessThanOrEqual(8);
   });
+
+  it.each([
+    ['archive', { operation: 'archive', pageId: 'knowledge-1', previousPath: 'pages/Current.md' }, null],
+    ['restore', { operation: 'upsert', pageId: 'knowledge-1', path: 'pages/Restored.md', title: 'Restored', body: 'Body' }, new Date('2026-08-20T00:00:00.000Z')],
+    ['update', { operation: 'upsert', pageId: 'knowledge-1', path: 'pages/Updated.md', title: 'Updated', body: 'Body' }, null],
+  ])('records folderId in the PageVersion created by a %s push', async (_name, change, deletedAt) => {
+    const current = {
+      id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
+      title: 'Current', content: 'Current body', authorId: 'author-1',
+      slug: 'current', format: 'markdown', parentId: null, folderId: 'folder-1',
+      syncPath: 'pages/Current.md', syncPathKey: 'pages/current.md', deletedAt,
+    };
+    const tx = {
+      page: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...current, ...data })),
+        create: jest.fn(),
+      },
+      pageVersion: { create: jest.fn().mockResolvedValue({}) },
+      pageSearchDocument: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const Service = PushSessionService as any;
+    const service = new Service({}, {}, {}, {}, undefined, undefined);
+
+    await (service as any).applyPageChanges(tx, 'space-1', 'user-1', [change]);
+
+    expect(tx.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ folderId: 'folder-1' }),
+    }));
+  });
 });

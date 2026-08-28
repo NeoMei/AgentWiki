@@ -29,6 +29,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
     content: '# Preserved\n\nBody',
     format: 'markdown',
     parentId: null,
+    folderId: 'folder-1',
     authorId: 'user-1',
     spaceId: 'space-1',
     syncPath: opaquePath('e'),
@@ -86,6 +87,7 @@ test('migration rejects an opaque title candidate when its hash differs from the
     assert.equal(page.title, title);
     assert.equal(page.content, '# Preserved\n\nBody');
     assert.equal(migrationVersions.size, 1);
+    assert.equal([...migrationVersions.values()][0].folderId, 'folder-1');
     assert.equal(revisionCount, 1);
   } finally {
     SpaceRevisionWriterService.prototype.lockSpace = originalLockSpace;

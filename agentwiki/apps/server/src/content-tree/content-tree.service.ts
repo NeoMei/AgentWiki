@@ -3,11 +3,15 @@ import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
+  foldCase,
   validatePortableDirectoryPath,
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../database/prisma.service';
-import { ReadableSyncPathService } from '../core/sync/readable-sync-path.service';
+import {
+  ReadableSyncPathService,
+  safeMarkdownBasename,
+} from '../core/sync/readable-sync-path.service';
 import {
   SpaceRevisionWriterService,
   type StructuralPageChange,
@@ -28,11 +32,15 @@ import {
   type DeleteImpactInput,
   type DeleteImpactResult,
   type DeletedFolderResult,
+  type FolderListResult,
   type ListChildrenInput,
+  type ListFoldersInput,
   type MovedTreeNodeResult,
   type MoveTreeNodeInput,
   type PlacePageInput,
   type PlacedPageResult,
+  type PreparePageMutationInput,
+  type AdvancePageMutationInput,
   type RenamedFolderResult,
   type RenameFolderInput,
   type RestoreDeletionBatchInput,
@@ -55,6 +63,14 @@ interface TreeCursor {
   kind: 'folder' | 'page';
   sortOrder: number;
   createdAt: string;
+  id: string;
+}
+
+interface FolderListCursor {
+  v: 1;
+  spaceId: string;
+  query: string;
+  pathKey: string;
   id: string;
 }
 
@@ -261,6 +277,33 @@ function afterCursor(cursor: TreeCursor): Prisma.FolderWhereInput[] {
   ];
 }
 
+function encodeFolderListCursor(
+  folder: { pathKey: string; id: string },
+  spaceId: string,
+  query: string,
+): string {
+  return Buffer.from(JSON.stringify({
+    v: 1, spaceId, query, pathKey: folder.pathKey, id: folder.id,
+  } satisfies FolderListCursor), 'utf8').toString('base64url');
+}
+
+function decodeFolderListCursor(value: string, spaceId: string, query: string): FolderListCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<FolderListCursor>;
+    if (
+      parsed.v !== 1
+      || parsed.spaceId !== spaceId
+      || parsed.query !== query
+      || typeof parsed.pathKey !== 'string'
+      || typeof parsed.id !== 'string'
+      || parsed.id.length === 0
+    ) throw new Error('invalid cursor');
+    return parsed as FolderListCursor;
+  } catch {
+    throw new ContentTreeError('CONTENT_TREE_CURSOR_INVALID', 'The cursor does not belong to this Folder query');
+  }
+}
+
 @Injectable()
 export class ContentTreeService {
   constructor(
@@ -362,6 +405,67 @@ export class ContentTreeService {
         spaceId: input.spaceId,
         treeRevision: space.contentTreeRevision,
         parentFolderId,
+        data,
+        nextCursor,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async listFolders(input: ListFoldersInput): Promise<FolderListResult> {
+    const take = input.take ?? DEFAULT_TAKE;
+    if (!Number.isInteger(take) || take < 1 || take > MAX_TAKE) {
+      throw new ContentTreeError('CONTENT_TREE_TAKE_INVALID', 'take must be an integer from 1 through 200');
+    }
+    const query = foldCase((input.query ?? '').normalize('NFC').trim());
+    const cursor = input.cursor
+      ? decodeFolderListCursor(input.cursor, input.spaceId, query)
+      : null;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      const space = await tx.space.findUnique({
+        where: { id: input.spaceId, deletedAt: null },
+        select: { contentTreeRevision: true },
+      });
+      if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+      const queryFilter: Prisma.FolderWhereInput = query
+        ? { OR: [{ nameKey: { contains: query } }, { pathKey: { contains: query } }] }
+        : {};
+      const cursorFilter: Prisma.FolderWhereInput = cursor
+        ? {
+            OR: [
+              { pathKey: { gt: cursor.pathKey } },
+              { pathKey: cursor.pathKey, id: { gt: cursor.id } },
+            ],
+          }
+        : {};
+      const where: Prisma.FolderWhereInput = {
+        spaceId: input.spaceId,
+        deletedAt: null,
+        ...(query && cursor ? { AND: [queryFilter, cursorFilter] } : query ? queryFilter : cursorFilter),
+      };
+      const folders = await tx.folder.findMany({
+        where,
+        select: {
+          id: true, parentId: true, name: true, nameKey: true,
+          path: true, pathKey: true, createdAt: true, updatedAt: true,
+        },
+        orderBy: [{ pathKey: 'asc' }, { id: 'asc' }],
+        take: take + 1,
+      });
+      const data = folders.slice(0, take).map((folder) => ({
+        id: folder.id,
+        parentId: folder.parentId,
+        name: folder.name,
+        path: folder.path,
+        createdAt: folder.createdAt,
+        updatedAt: folder.updatedAt,
+      }));
+      const nextCursor = folders.length > take && data.length > 0
+        ? encodeFolderListCursor(folders[take - 1]!, input.spaceId, query)
+        : null;
+      return {
+        spaceId: input.spaceId,
+        treeRevision: space.contentTreeRevision,
         data,
         nextCursor,
       };
@@ -490,6 +594,154 @@ export class ContentTreeService {
       syncPath: allocated.path,
       syncPathKey: allocated.pathKey,
     };
+  }
+
+  async lockPageMutationSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    expectedTreeRevision?: bigint,
+  ): Promise<SpaceTreeLockedTransaction> {
+    const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
+    if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+    if (
+      expectedTreeRevision !== undefined
+      && lockedTx.contentTreeRevision !== expectedTreeRevision
+    ) {
+      throw new ContentTreeConflict(expectedTreeRevision, lockedTx.contentTreeRevision);
+    }
+    return lockedTx;
+  }
+
+  async preparePageMutation(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: PreparePageMutationInput,
+  ): Promise<PlacedPageResult> {
+    const folder = input.folderId === null ? null : await lockedTx.folder.findFirst({
+      where: { id: input.folderId, spaceId: input.spaceId, deletedAt: null },
+      select: { id: true, path: true },
+    });
+    if (input.folderId !== null && !folder) {
+      throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+    }
+    const pathChanged = input.folderId !== input.current.folderId
+      || safeMarkdownBasename(input.title) !== safeMarkdownBasename(input.current.title);
+    if (!pathChanged) {
+      return {
+        folderId: input.folderId,
+        syncPath: input.current.syncPath,
+        syncPathKey: input.current.syncPathKey,
+      };
+    }
+    const allocated = await this.syncPaths.allocate(lockedTx, {
+      spaceId: input.spaceId,
+      directory: folder?.path ?? 'pages',
+      title: input.title,
+      excludePageId: input.pageId,
+    });
+    const currentRow: AffectedTreeRow = {
+      kind: 'page', id: input.pageId, parentId: null, folderId: input.current.folderId,
+      name: null, title: input.current.title,
+      path: input.current.syncPath, pathKey: input.current.syncPathKey,
+      sortOrder: input.current.sortOrder, createdAt: input.current.createdAt,
+      updatedAt: input.current.updatedAt, depth: 0,
+      knowledgeKey: input.current.knowledgeKey, content: input.current.content,
+    };
+    const plan: PageMutationPlan = {
+      id: input.pageId,
+      folderId: input.folderId,
+      path: allocated.path,
+      pathKey: allocated.pathKey,
+      sortOrder: input.current.sortOrder,
+      deletedAt: null,
+      deletionBatchId: null,
+    };
+    const changedAt = new Date();
+    await this.insertPageAliases(lockedTx, input.spaceId, [currentRow], [plan], changedAt);
+    await this.trimPageAliases(lockedTx, input.spaceId, [input.pageId]);
+    return {
+      folderId: input.folderId,
+      syncPath: allocated.path,
+      syncPathKey: allocated.pathKey,
+    };
+  }
+
+  async advancePageMutation(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: AdvancePageMutationInput,
+  ): Promise<{ treeRevision: bigint; syncRevisionId: string }> {
+    assertActor(input.actor);
+    if (input.existingSyncRevisionId) {
+      const treeRevision = input.structural
+        ? await this.revisionWriter.advanceContentTreeRevision(
+          lockedTx,
+          input.spaceId,
+          input.expectedTreeRevision,
+        )
+        : lockedTx.contentTreeRevision;
+      return { treeRevision, syncRevisionId: input.existingSyncRevisionId };
+    }
+    if (input.structural) {
+      return this.advanceMutationRevisions(
+        lockedTx,
+        input.spaceId,
+        input.expectedTreeRevision,
+        input.changes,
+        input.actor,
+        input.revisionOrigin,
+      );
+    }
+    const syncRevision = await this.revisionWriter.advance(
+      lockedTx,
+      input.spaceId,
+      input.changes.map((change) => change.operation === 'archive'
+        ? {
+          operation: 'archive' as const,
+          pageId: change.pageId,
+          previousPath: change.previousPath,
+        }
+        : {
+          operation: 'upsert' as const,
+          pageId: change.pageId,
+          path: change.path,
+          title: change.title,
+          body: change.body,
+        }),
+      { ...mutationOrigin(input.actor), ...input.revisionOrigin },
+    );
+    return {
+      treeRevision: lockedTx.contentTreeRevision,
+      syncRevisionId: syncRevision.revisionId,
+    };
+  }
+
+  async mapLegacyPageParent(
+    lockedTx: SpaceTreeLockedTransaction,
+    spaceId: string,
+    legacyParentId: string,
+  ): Promise<string> {
+    const legacyParent = await lockedTx.page.findFirst({
+      where: { id: legacyParentId, spaceId, deletedAt: null },
+      select: { syncPathKey: true },
+    });
+    const legacyPath = legacyParent?.syncPathKey;
+    if (!legacyPath || !legacyPath.toLowerCase().endsWith('.md')) {
+      throw new ContentTreeError(
+        'PAGE_PARENT_DEPRECATED',
+        'Legacy Page parent placement cannot be mapped safely',
+      );
+    }
+    const candidates = await lockedTx.folder.findMany({
+      where: { spaceId, deletedAt: null, pathKey: legacyPath.slice(0, -3) },
+      select: { id: true },
+      take: 2,
+    });
+    if (candidates.length !== 1) {
+      throw new ContentTreeError(
+        'PAGE_PARENT_DEPRECATED',
+        'Legacy Page parent placement cannot be mapped safely',
+      );
+    }
+    return candidates[0].id;
   }
 
   async renameFolder(input: RenameFolderInput): Promise<RenamedFolderResult> {
@@ -708,6 +960,7 @@ export class ContentTreeService {
         where: {
           id: input.deletionBatchId,
           spaceId: input.spaceId,
+          ...(input.rootFolderId ? { rootFolderId: input.rootFolderId } : {}),
           restoredAt: null,
         },
         select: {
@@ -1696,12 +1949,13 @@ export class ContentTreeService {
     expectedTreeRevision: bigint,
     pageChanges: StructuralPageChange[],
     actor: ContentTreeActor,
+    revisionOrigin?: AdvancePageMutationInput['revisionOrigin'],
   ): Promise<{ treeRevision: bigint; syncRevisionId: string }> {
     const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
       tx, spaceId, expectedTreeRevision,
     );
     const syncRevision = await this.revisionWriter.advanceStructuralPages(
-      tx, spaceId, pageChanges, mutationOrigin(actor),
+      tx, spaceId, pageChanges, { ...mutationOrigin(actor), ...revisionOrigin },
     );
     return { treeRevision, syncRevisionId: syncRevision.revisionId };
   }

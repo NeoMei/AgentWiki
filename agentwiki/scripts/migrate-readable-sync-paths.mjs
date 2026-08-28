@@ -98,6 +98,7 @@ export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          folderId: page.folderId,
           syncPath: page.syncPath,
           syncPathKey: page.syncPathKey,
           migrationBatchId: batchId,

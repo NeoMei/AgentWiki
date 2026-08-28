@@ -18,6 +18,7 @@ export interface ErrorResponse {
   path: string;
   code: string;
   requestId: string;
+  details?: unknown;
 }
 
 @Catch()
@@ -35,6 +36,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string = 'Internal server error';
     let error: string = 'Internal Server Error';
+    let details: unknown;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -65,6 +67,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
               ? body.message.join(', ')
               : JSON.stringify(body.message);
         error = typeof body.error === 'string' ? body.error : exception.name;
+        details = body.details;
       } else {
         message = exception.message;
         error = exception.name;
@@ -110,6 +113,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       code: getBusinessCode(exception) || this.errorCode(statusCode),
       requestId: request.requestId || 'unknown',
+      ...(details === undefined ? {} : { details }),
     };
 
     httpAdapter.reply(response, errorResponse, statusCode);

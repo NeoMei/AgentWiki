@@ -46,7 +46,7 @@ describe('MarkdownResourceController', () => {
   });
 
   it('delegates ordered references with the authenticated principal', async () => {
-    const body = { references: [
+    const body = { sourcePageId: 'source-page', references: [
       { key: 'first', kind: 'page' as const, target: 'Page' },
       { key: 'second', kind: 'attachment' as const, target: 'image.png' },
     ] };
@@ -60,7 +60,7 @@ describe('MarkdownResourceController', () => {
       { key: 'second', status: 'unresolved' },
     ]);
     expect(service.resolve).toHaveBeenCalledWith(
-      'space-1', body.references, request.user,
+      'space-1', body.references, request.user, 'source-page',
     );
   });
 });

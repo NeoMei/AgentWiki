@@ -214,7 +214,7 @@ export async function backfillSpace(prisma, spaceId, batchId) {
 export async function migratePages(tx, spaceId, batchId) {
   const pages = await tx.$queryRawUnsafe(
     `SELECT "id", "knowledgeKey", "title", "content", "format", "slug",
-            "parentId", "authorId", "sourcePath", "syncPath", "syncPathKey"
+            "parentId", "folderId", "authorId", "sourcePath", "syncPath", "syncPathKey"
        FROM "Page"
       WHERE "spaceId" = $1
       ORDER BY "createdAt" ASC`,
@@ -251,6 +251,7 @@ export async function migratePages(tx, spaceId, batchId) {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          folderId: page.folderId,
           migrationBatchId: batchId,
         },
       });

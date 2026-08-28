@@ -4,15 +4,13 @@ import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
 import { BusinessException } from '../filters/business-error';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
-import {
-  ReadableSyncPathService,
-  safeMarkdownBasename,
-  syncPathDirectory,
-} from '../sync/readable-sync-path.service';
+import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
 import { randomUUID } from 'crypto';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
+import { ContentTreeService } from '../../content-tree/content-tree.service';
+import { ContentTreeError } from '../../content-tree/content-tree.types';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -29,6 +27,7 @@ const PAGE_PUBLIC_FIELDS = {
   content: true,
   format: true,
   parentId: true,
+  folderId: true,
   spaceId: true,
   authorId: true,
   createdAt: true,
@@ -46,6 +45,7 @@ const PAGE_PUBLIC_FIELDS = {
   sourceTemplateId: true,
   sourceTemplateVersion: true,
   sourceTemplateLocale: true,
+  syncPath: true,
 };
 
 const AUTHOR_SELECT = {
@@ -61,10 +61,11 @@ export class PageService {
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
     private readonly revisionWriter: SpaceRevisionWriterService,
-    private readonly syncPaths: ReadableSyncPathService,
+    private readonly _syncPaths: ReadableSyncPathService,
     private readonly graphMaintenance: GraphMaintenance,
     private readonly pageTemplates: PageTemplateService,
     private readonly authorization: AuthorizationService,
+    private readonly contentTree: ContentTreeService,
   ) {}
 
   private slugify(text: string): string {
@@ -74,13 +75,8 @@ export class PageService {
       .replace(/^-+|-+$/g, '');
   }
 
-  private async advanceRevision(
-    tx: any,
-    spaceId: string,
-    changes: Array<{ operation: 'upsert' | 'archive'; pageId: string; path?: string; title?: string; body?: string; previousPath?: string }>,
-    origin: { origin: 'web_editor' | 'change_set' | 'obsidian_sync' | 'migration'; createdByUserId?: string | null },
-  ) {
-    await this.revisionWriter.advance(tx, spaceId, changes, origin);
+  private withCanonicalPath<T extends { syncPath?: string | null }>(page: T): T & { path: string | null } {
+    return { ...page, path: page.syncPath ?? null };
   }
 
   async create(data: CreatePageDto, principal: Principal) {
@@ -91,12 +87,38 @@ export class PageService {
 
     const slug = data.slug || (this.slugify(data.title) + '-' + Date.now().toString(36));
     const userId = principal.userId;
+    const expectedTreeRevision = BigInt(data.expectedTreeRevision ?? '0');
     const page = await this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockSpace(tx, data.spaceId);
+      const lockedTx = await this.contentTree.lockPageMutationSpace(
+        tx,
+        data.spaceId,
+        expectedTreeRevision,
+      );
       await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx, principal, data.spaceId, ['owner', 'editor'],
       );
-      await this.assertValidParent(data.spaceId, data.parentId, undefined, lockedTx);
+      let folderId = data.folderId ?? null;
+      if (data.parentId !== undefined) {
+        if (data.folderId !== undefined) {
+          throw new ContentTreeError(
+            'PAGE_PARENT_DEPRECATED',
+            'Legacy parentId cannot be combined with folderId',
+          );
+        }
+        if (process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true') {
+          throw new ContentTreeError(
+            'PAGE_PARENT_DEPRECATED',
+            'Legacy Page parent placement cannot be mapped safely',
+          );
+        }
+        folderId = data.parentId === null
+          ? null
+          : await this.contentTree.mapLegacyPageParent(
+            lockedTx,
+            data.spaceId,
+            data.parentId,
+          );
+      }
       const hasTemplateFields = data.templateId !== undefined
         || data.templateVersion !== undefined
         || data.templateLocale !== undefined;
@@ -121,13 +143,16 @@ export class PageService {
       }
       const initialContent = template?.content ?? data.content ?? '';
       const knowledgeKey = randomUUID();
-      const allocatedPath = await this.syncPaths.allocate(lockedTx, {
+      const pageId = randomUUID();
+      const placement = await this.contentTree.placePage(lockedTx, {
         spaceId: data.spaceId,
-        directory: 'pages',
+        pageId,
         title: data.title,
+        folderId,
       });
       const created = await tx.page.create({
         data: {
+          id: pageId,
           knowledgeKey,
           title: data.title,
           slug,
@@ -138,9 +163,10 @@ export class PageService {
           sourceTemplateLocale: template?.locale,
           spaceId: data.spaceId,
           authorId: userId,
-          parentId: data.parentId,
-          syncPath: allocatedPath.path,
-          syncPathKey: allocatedPath.pathKey,
+          parentId: null,
+          folderId: placement.folderId,
+          syncPath: placement.syncPath,
+          syncPathKey: placement.syncPathKey,
           lastModifiedByUserId: userId,
           lastModifiedAt: new Date(),
         },
@@ -150,18 +176,25 @@ export class PageService {
           knowledgeKey: true,
         },
       });
-      await this.advanceRevision(tx, data.spaceId, [{
+      await this.contentTree.advancePageMutation(lockedTx, {
+        spaceId: data.spaceId,
+        expectedTreeRevision,
+        structural: true,
+        changes: [{
         operation: 'upsert',
         pageId: created.knowledgeKey,
-        path: allocatedPath.path,
+        folderId: placement.folderId,
+        path: placement.syncPath,
         title: data.title,
         body: initialContent,
-      }], { origin: 'web_editor', createdByUserId: userId });
+        }],
+        actor: { userId },
+      });
       // Lexical and vector indexing are owned by SearchService.indexPage,
       // called after the transaction commits. Writing the search document here
       // would refresh its contentHash before indexPage runs and defeat the
       // hash short-circuit.
-      return { ...created, syncPath: allocatedPath.path };
+      return { ...created, syncPath: placement.syncPath, path: placement.syncPath };
     });
 
     try {
@@ -225,7 +258,12 @@ export class PageService {
       }),
       this.prisma.page.count({ where }),
     ]);
-    return { data, total, page: Math.floor(skip / take) + 1, limit: take };
+    return {
+      data: data.map((item) => this.withCanonicalPath(item)),
+      total,
+      page: Math.floor(skip / take) + 1,
+      limit: take,
+    };
   }
 
   async findOne(id: string) {
@@ -273,7 +311,9 @@ export class PageService {
         ? this.prisma.agent.findUnique({ where: { id: page.lastModifiedByAgentId }, select: { id: true, name: true } })
         : Promise.resolve(null),
     ]);
-    return { ...page, provenance, lastChange, lastModifiedByUser, lastModifiedByAgent, evidence };
+    return this.withCanonicalPath({
+      ...page, provenance, lastChange, lastModifiedByUser, lastModifiedByAgent, evidence,
+    });
   }
 
   async findBySlug(slug: string, spaceId: string) {
@@ -285,7 +325,7 @@ export class PageService {
       },
     });
     if (!page) throw new NotFoundException('Page not found');
-    return page;
+    return this.withCanonicalPath(page);
   }
 
   async findHierarchy(spaceId: string) {
@@ -300,7 +340,7 @@ export class PageService {
     const map = new Map<string, any>();
     const roots: any[] = [];
     for (const page of pages) {
-      map.set(page.id, { ...page, children: [] });
+      map.set(page.id, { ...this.withCanonicalPath(page), children: [] });
     }
     for (const page of pages) {
       const node = map.get(page.id);
@@ -322,6 +362,12 @@ export class PageService {
     spaceId: string,
     items: Array<{ id: string; parentId: string | null; sortOrder: number }>,
   ) {
+    if (process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true') {
+      throw new ContentTreeError(
+        'PAGE_PARENT_DEPRECATED',
+        'Legacy Page parent ordering is disabled',
+      );
+    }
     if (items.length === 0) return this.findHierarchy(spaceId);
 
     await this.prisma.$transaction(async (tx) => {
@@ -381,8 +427,9 @@ export class PageService {
   }
 
   async update(id: string, data: UpdatePageDto, userId?: string) {
-    const { expectedUpdatedAt, ...changes } = data;
+    const { expectedUpdatedAt, expectedTreeRevision, ...changes } = data;
     const expectedVersion = new Date(expectedUpdatedAt);
+    const structural = changes.title !== undefined || changes.folderId !== undefined;
     const updated = await this.prisma.$transaction(async (tx) => {
       const page = await tx.page.findUnique({
         where: { id, deletedAt: null },
@@ -393,26 +440,51 @@ export class PageService {
           slug: true,
           format: true,
           parentId: true,
+          folderId: true,
           spaceId: true,
           authorId: true,
           knowledgeKey: true,
           syncPath: true,
           syncPathKey: true,
+          sortOrder: true,
+          createdAt: true,
+          updatedAt: true,
         },
       });
       if (!page) throw new NotFoundException('Page not found');
-      const lockedTx = await this.revisionWriter.lockSpace(tx, page.spaceId);
-      if (changes.parentId !== undefined) await this.assertValidParent(page.spaceId, changes.parentId, id, tx);
-
-      const allocatedPath = changes.title !== undefined
-        && safeMarkdownBasename(changes.title) !== safeMarkdownBasename(page.title)
-        ? await this.syncPaths.allocate(lockedTx, {
-            spaceId: page.spaceId,
-            directory: syncPathDirectory(page.syncPath),
-            title: changes.title,
-            excludePageId: page.id,
-          })
-        : null;
+      const lockedTx = await this.contentTree.lockPageMutationSpace(
+        tx,
+        page.spaceId,
+        structural && expectedTreeRevision !== undefined
+          ? BigInt(expectedTreeRevision)
+          : undefined,
+      );
+      const treeRevision = expectedTreeRevision === undefined
+        ? lockedTx.contentTreeRevision
+        : BigInt(expectedTreeRevision);
+      const placement = structural
+        ? await this.contentTree.preparePageMutation(lockedTx, {
+          spaceId: page.spaceId,
+          pageId: page.id,
+          title: changes.title ?? page.title,
+          folderId: changes.folderId === undefined ? (page.folderId ?? null) : changes.folderId,
+          current: {
+            title: page.title,
+            folderId: page.folderId ?? null,
+            syncPath: page.syncPath,
+            syncPathKey: page.syncPathKey,
+            sortOrder: page.sortOrder,
+            createdAt: page.createdAt,
+            updatedAt: page.updatedAt,
+            knowledgeKey: page.knowledgeKey,
+            content: page.content,
+          },
+        })
+        : {
+          folderId: page.folderId ?? null,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
+        };
 
       await tx.pageVersion.create({
         data: {
@@ -423,6 +495,7 @@ export class PageService {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          folderId: page.folderId,
           syncPath: page.syncPath,
           syncPathKey: page.syncPathKey,
         },
@@ -432,8 +505,17 @@ export class PageService {
         where: { id, deletedAt: null, updatedAt: expectedVersion },
         data: {
           ...changes,
-          ...(allocatedPath
-            ? { syncPath: allocatedPath.path, syncPathKey: allocatedPath.pathKey }
+          ...(structural
+            ? {
+              parentId: null,
+              folderId: placement.folderId,
+              ...(placement.syncPathKey === page.syncPathKey
+                ? {}
+                : {
+                  syncPath: placement.syncPath,
+                  syncPathKey: placement.syncPathKey,
+                }),
+            }
             : {}),
           lastChangeSetId: null,
           lastModifiedByUserId: userId ?? page.authorId,
@@ -456,16 +538,28 @@ export class PageService {
         },
       });
       if (!result) throw new NotFoundException('Page not found');
-      if (changes.title !== undefined || changes.content !== undefined) {
-        await this.advanceRevision(tx, page.spaceId, [{
+      if (
+        changes.title !== undefined
+        || changes.content !== undefined
+        || changes.folderId !== undefined
+        || changes.format !== undefined
+      ) {
+        await this.contentTree.advancePageMutation(lockedTx, {
+          spaceId: page.spaceId,
+          expectedTreeRevision: treeRevision,
+          structural,
+          changes: [{
           operation: 'upsert',
           pageId: result.knowledgeKey,
+          folderId: result.folderId,
           path: result.syncPath,
           title: result.title,
           body: result.content,
-        }], { origin: 'web_editor', createdByUserId: userId ?? page.authorId });
+          }],
+          actor: { userId: userId ?? page.authorId },
+        });
       }
-      return result;
+      return { ...result, path: result.syncPath };
     });
 
     try {
@@ -478,18 +572,29 @@ export class PageService {
 
   async getVersionHistory(pageId: string) {
     await this.findOne(pageId);
-    return this.prisma.pageVersion.findMany({
+    const versions = await this.prisma.pageVersion.findMany({
       where: { pageId },
       include: { author: { select: AUTHOR_SELECT } },
       orderBy: { createdAt: 'desc' },
     });
+    return versions.map((version) => ({
+      ...version,
+      path: version.syncPath ?? null,
+    }));
   }
 
-  async restoreVersion(pageId: string, versionId: string) {
+  async restoreVersion(pageId: string, versionId: string, expectedTreeRevision?: string) {
     const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockSpace(tx, visiblePage.spaceId);
+      const lockedTx = await this.contentTree.lockPageMutationSpace(
+        tx,
+        visiblePage.spaceId,
+        expectedTreeRevision === undefined ? undefined : BigInt(expectedTreeRevision),
+      );
+      const treeRevision = expectedTreeRevision === undefined
+        ? lockedTx.contentTreeRevision
+        : BigInt(expectedTreeRevision);
       const version = await tx.pageVersion.findFirst({
         where: { id: versionId, pageId },
       });
@@ -498,14 +603,30 @@ export class PageService {
         where: { id: pageId, deletedAt: null },
       });
       if (!page) throw new NotFoundException('Page not found');
-      const restoredPath = safeMarkdownBasename(version.title) !== safeMarkdownBasename(page.title)
-        ? await this.syncPaths.allocate(lockedTx, {
-            spaceId: page.spaceId,
-            directory: syncPathDirectory(page.syncPath),
-            title: version.title,
-            excludePageId: page.id,
-          })
-        : { path: page.syncPath, pathKey: page.syncPathKey };
+      if (version.parentId !== null && version.parentId !== undefined && !version.folderId) {
+        throw new ContentTreeError(
+          'PAGE_PARENT_DEPRECATED',
+          'This historical Page version must be migrated before it can be restored',
+        );
+      }
+      const restoredFolderId = version.folderId ?? null;
+      const placement = await this.contentTree.preparePageMutation(lockedTx, {
+        spaceId: page.spaceId,
+        pageId: page.id,
+        title: version.title,
+        folderId: restoredFolderId,
+        current: {
+          title: page.title,
+          folderId: page.folderId ?? null,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
+          sortOrder: page.sortOrder,
+          createdAt: page.createdAt,
+          updatedAt: page.updatedAt,
+          knowledgeKey: page.knowledgeKey,
+          content: page.content,
+        },
+      });
       await tx.pageVersion.create({
         data: {
           pageId: page.id,
@@ -515,6 +636,7 @@ export class PageService {
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
+          folderId: page.folderId ?? null,
           syncPath: page.syncPath,
           syncPathKey: page.syncPathKey,
         },
@@ -531,9 +653,10 @@ export class PageService {
           content: version.content,
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
-          parentId: version.parentId,
-          syncPath: restoredPath.path,
-          syncPathKey: restoredPath.pathKey,
+          parentId: null,
+          folderId: placement.folderId,
+          syncPath: placement.syncPath,
+          syncPathKey: placement.syncPathKey,
           lastChangeSetId: null,
           lastModifiedByUserId: page.authorId,
           lastModifiedByAgentId: null,
@@ -556,14 +679,21 @@ export class PageService {
       if (!updated) {
         throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being restored');
       }
-      await this.advanceRevision(tx, page.spaceId, [{
-        operation: 'upsert',
-        pageId: updated.knowledgeKey,
-        path: updated.syncPath,
-        title: updated.title,
-        body: updated.content,
-      }], { origin: 'web_editor', createdByUserId: page.authorId });
-      return updated;
+      await this.contentTree.advancePageMutation(lockedTx, {
+        spaceId: page.spaceId,
+        expectedTreeRevision: treeRevision,
+        structural: true,
+        changes: [{
+          operation: 'upsert',
+          pageId: updated.knowledgeKey,
+          folderId: updated.folderId,
+          path: updated.syncPath,
+          title: updated.title,
+          body: updated.content,
+        }],
+        actor: { userId: page.authorId },
+      });
+      return { ...updated, path: updated.syncPath };
     });
 
     try {
@@ -577,7 +707,7 @@ export class PageService {
   async remove(id: string) {
     const existing = await this.findOne(id);
     const page = await this.prisma.$transaction(async (tx) => {
-      await this.revisionWriter.lockSpace(tx, existing.spaceId);
+      const lockedTx = await this.contentTree.lockPageMutationSpace(tx, existing.spaceId);
       const current = await tx.page.findUnique({
         where: { id, spaceId: existing.spaceId, deletedAt: null },
         select: {
@@ -588,6 +718,7 @@ export class PageService {
           slug: true,
           format: true,
           parentId: true,
+          folderId: true,
           spaceId: true,
           syncPath: true,
           syncPathKey: true,
@@ -604,6 +735,7 @@ export class PageService {
           slug: current.slug,
           format: current.format,
           parentId: current.parentId,
+          folderId: current.folderId,
           syncPath: current.syncPath,
           syncPathKey: current.syncPathKey,
         },
@@ -627,13 +759,19 @@ export class PageService {
       if (!archived) {
         throw new BusinessException('RESOURCE_CONFLICT', 'Page changed while it was being archived');
       }
-      await this.advanceRevision(tx, current.spaceId, [{
-        operation: 'archive',
-        pageId: archived.knowledgeKey,
-        previousPath: archived.syncPath ?? undefined,
-      }], { origin: 'web_editor', createdByUserId: archived.authorId });
+      await this.contentTree.advancePageMutation(lockedTx, {
+        spaceId: current.spaceId,
+        expectedTreeRevision: lockedTx.contentTreeRevision,
+        structural: true,
+        changes: [{
+          operation: 'archive',
+          pageId: archived.knowledgeKey,
+          previousPath: archived.syncPath ?? undefined,
+        }],
+        actor: { userId: archived.authorId },
+      });
       await tx.pageSearchDocument.deleteMany({ where: { pageId: archived.id } });
-      return archived;
+      return { ...archived, path: archived.syncPath };
     });
 
     try {
@@ -644,26 +782,4 @@ export class PageService {
     return page;
   }
 
-  private async assertValidParent(
-    spaceId: string,
-    parentId?: string,
-    currentPageId?: string,
-    database: Pick<PrismaService, 'page'> = this.prisma,
-  ) {
-    if (!parentId) return;
-    if (parentId === currentPageId) throw new BadRequestException('A page cannot be its own parent');
-    let cursor: string | null = parentId;
-    const visited = new Set<string>();
-    while (cursor) {
-      if (cursor === currentPageId) throw new BadRequestException('Page hierarchy cannot contain a cycle');
-      if (visited.has(cursor)) throw new BadRequestException('Existing page hierarchy contains a cycle');
-      visited.add(cursor);
-      const parent: { spaceId: string; parentId: string | null } | null = await database.page.findUnique({
-        where: { id: cursor, deletedAt: null },
-        select: { spaceId: true, parentId: true },
-      });
-      if (!parent || parent.spaceId !== spaceId) throw new BadRequestException('Parent page must belong to the same space');
-      cursor = parent.parentId;
-    }
-  }
 }

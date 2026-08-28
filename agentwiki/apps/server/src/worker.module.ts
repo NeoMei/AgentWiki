@@ -19,10 +19,12 @@ import { CollaborationEventsService } from './collaboration-workflows/collaborat
 import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
 import { AttachmentCleanupWorker } from './attachments/attachment-cleanup.worker';
 import { AttachmentStorageModule } from './attachments/attachment.module';
+import { ContentTreeService } from './content-tree/content-tree.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
   providers: [
+    ContentTreeService,
     ReviewService,
     SourceService,
     IngestQueue,

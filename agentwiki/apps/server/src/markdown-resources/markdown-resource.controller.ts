@@ -20,6 +20,7 @@ export class MarkdownResourceController {
       spaceId,
       body.references,
       request.user as Principal,
+      body.sourcePageId,
     );
   }
 }

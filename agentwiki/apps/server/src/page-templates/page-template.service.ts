@@ -211,7 +211,14 @@ export class PageTemplateService implements OnModuleInit {
       const [pages, total] = await Promise.all([
         tx.page.findMany({
           where,
-          select: { id: true, title: true, format: true, updatedAt: true },
+          select: {
+            id: true,
+            title: true,
+            format: true,
+            folderId: true,
+            syncPath: true,
+            updatedAt: true,
+          },
           orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
           skip: query.skip,
           take: query.take,
@@ -223,6 +230,8 @@ export class PageTemplateService implements OnModuleInit {
           id: page.id,
           title: page.title,
           format: page.format,
+          folderId: page.folderId,
+          path: page.syncPath,
           updatedAt: page.updatedAt.toISOString(),
         })),
         total,

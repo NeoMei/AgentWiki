@@ -4,7 +4,12 @@ import { PageService } from './page.service';
 import { PrismaService } from '../../database/prisma.service';
 import { SearchService } from '../search/search.service';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
-import { ReadableSyncPathService } from '../sync/readable-sync-path.service';
+import {
+  ReadableSyncPathService,
+  safeMarkdownBasename,
+  syncPathDirectory,
+} from '../sync/readable-sync-path.service';
+import { ContentTreeService } from '../../content-tree/content-tree.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
@@ -65,6 +70,14 @@ const mockAuthorization = {
   assertLiveHumanSpaceAccess: jest.fn(),
 };
 
+const mockContentTree = {
+  lockPageMutationSpace: jest.fn(),
+  placePage: jest.fn(),
+  preparePageMutation: jest.fn(),
+  advancePageMutation: jest.fn(),
+  mapLegacyPageParent: jest.fn(),
+};
+
 const humanPrincipal: Principal = { userId: 'user-1', platformRole: 'user' };
 
 describe('PageService', () => {
@@ -78,6 +91,41 @@ describe('PageService', () => {
       path: 'pages/Test.md',
       pathKey: 'pages/test.md',
     });
+    mockContentTree.lockPageMutationSpace.mockImplementation(
+      async (tx: any, spaceId: string, expectedTreeRevision?: bigint) => {
+        const locked = await mockRevisionWriter.lockSpace(tx, spaceId);
+        return Object.assign(locked, { contentTreeRevision: expectedTreeRevision ?? 0n });
+      },
+    );
+    mockContentTree.placePage.mockImplementation(async (tx: any, input: any) => {
+      const allocated = await mockSyncPaths.allocate(tx, {
+        spaceId: input.spaceId, directory: 'pages', title: input.title,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    });
+    mockContentTree.preparePageMutation.mockImplementation(async (tx: any, input: any) => {
+      const pathChanged = input.folderId !== input.current.folderId
+        || safeMarkdownBasename(input.title) !== safeMarkdownBasename(input.current.title);
+      if (!pathChanged) {
+        return {
+          folderId: input.folderId,
+          syncPath: input.current.syncPath,
+          syncPathKey: input.current.syncPathKey,
+        };
+      }
+      const allocated = await mockSyncPaths.allocate(tx, {
+        spaceId: input.spaceId,
+        directory: syncPathDirectory(input.current.syncPath),
+        title: input.title,
+        excludePageId: input.pageId,
+      });
+      return { folderId: input.folderId, syncPath: allocated.path, syncPathKey: allocated.pathKey };
+    });
+    mockContentTree.advancePageMutation.mockImplementation(async (tx: any, input: any) => {
+      await mockRevisionWriter.advance(tx, input.spaceId, input.changes, expect.anything());
+      return { treeRevision: input.expectedTreeRevision, syncRevisionId: 'sync-1' };
+    });
+    mockContentTree.mapLegacyPageParent.mockResolvedValue('folder-mapped');
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PageService,
@@ -88,6 +136,7 @@ describe('PageService', () => {
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
         { provide: PageTemplateService, useValue: mockTemplates },
         { provide: AuthorizationService, useValue: mockAuthorization },
+        { provide: ContentTreeService, useValue: mockContentTree },
       ],
     }).compile();
 
@@ -98,7 +147,146 @@ describe('PageService', () => {
     expect(service).toBeDefined();
   });
 
+  it('exposes folderId and canonical path in existing Page list/detail semantics', async () => {
+    const row = {
+      id: 'page-1', title: 'Weekly', folderId: 'folder-1',
+      syncPath: 'pages/项目/Weekly.md', sourceChangeSetId: null,
+      lastChangeSetId: null, lastModifiedByUserId: null, lastModifiedByAgentId: null,
+    };
+    mockPrisma.page.findMany.mockResolvedValue([row]);
+    mockPrisma.page.count.mockResolvedValue(1);
+    await expect(service.findAll(['space-1'], 'space-1')).resolves.toMatchObject({
+      data: [expect.objectContaining({
+        id: 'page-1', folderId: 'folder-1', path: 'pages/项目/Weekly.md',
+      })],
+    });
+
+    mockPrisma.page.findUnique.mockResolvedValue(row);
+    await expect(service.findOne('page-1')).resolves.toMatchObject({
+      id: 'page-1', folderId: 'folder-1', path: 'pages/项目/Weekly.md',
+    });
+
+    mockPrisma.pageVersion.findMany.mockResolvedValue([{
+      id: 'version-1', pageId: 'page-1', folderId: 'folder-1',
+      syncPath: 'pages/项目/Weekly.md',
+    }]);
+    await expect(service.getVersionHistory('page-1')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'version-1', folderId: 'folder-1', path: 'pages/项目/Weekly.md',
+      }),
+    ]);
+  });
+
   describe('create', () => {
+    it('delegates initial Folder placement, locking, and structural revision advancement to ContentTreeService', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockContentTree.placePage.mockResolvedValueOnce({
+        folderId: 'folder-1', syncPath: 'pages/项目/周报.md', syncPathKey: 'pages/项目/周报.md',
+      });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: '周报', content: '# 周报',
+        folderId: 'folder-1', syncPath: 'pages/项目/周报.md',
+      });
+
+      await service.create({
+        spaceId: 'space-1', title: '周报', content: '# 周报',
+        folderId: 'folder-1', expectedTreeRevision: '7',
+      }, humanPrincipal);
+
+      expect(mockContentTree.lockPageMutationSpace).toHaveBeenCalledWith(
+        mockPrisma, 'space-1', 7n,
+      );
+      expect(mockContentTree.placePage).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+        spaceId: 'space-1', title: '周报', folderId: 'folder-1', pageId: expect.any(String),
+      }));
+      expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ parentId: null, folderId: 'folder-1' }),
+      }));
+      expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+        spaceId: 'space-1', expectedTreeRevision: 7n, structural: true,
+        changes: [expect.objectContaining({ folderId: 'folder-1', path: 'pages/项目/周报.md' })],
+      }));
+    });
+
+    it('rejects legacy parentId unless the migration-only flag is explicitly enabled', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      try {
+        await expect(service.create({
+          spaceId: 'space-1', title: 'Legacy', parentId: 'legacy-page', expectedTreeRevision: '0',
+        } as any, humanPrincipal)).rejects.toMatchObject({ businessCode: 'PAGE_PARENT_DEPRECATED' });
+        expect(mockContentTree.mapLegacyPageParent).not.toHaveBeenCalled();
+        expect(mockPrisma.page.create).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+        else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+      }
+    });
+
+    it('maps legacy parentId once under the tree lock when the migration flag is enabled', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Legacy', content: '',
+      });
+      const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+      try {
+        await service.create({
+          spaceId: 'space-1', title: 'Legacy', parentId: 'legacy-page', expectedTreeRevision: '0',
+        } as any, humanPrincipal);
+        expect(mockContentTree.mapLegacyPageParent).toHaveBeenCalledWith(
+          mockPrisma, 'space-1', 'legacy-page',
+        );
+        expect(mockContentTree.placePage).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+          folderId: 'folder-mapped',
+        }));
+      } finally {
+        if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+        else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+      }
+    });
+
+    it('maps an explicit legacy root parent to the Folder root without guessing a Folder', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      mockPrisma.page.create.mockResolvedValue({
+        id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Legacy root', content: '',
+      });
+      const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+      try {
+        await service.create({
+          spaceId: 'space-1', title: 'Legacy root', parentId: null,
+          expectedTreeRevision: '0',
+        } as any, humanPrincipal);
+        expect(mockContentTree.mapLegacyPageParent).not.toHaveBeenCalled();
+        expect(mockContentTree.placePage).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+          folderId: null,
+        }));
+      } finally {
+        if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+        else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+      }
+    });
+
+    it('never accepts legacy parentId together with folderId even under the migration flag', async () => {
+      mockPrisma.space.findUnique.mockResolvedValue({ id: 'space-1' });
+      const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+      try {
+        await expect(service.create({
+          spaceId: 'space-1', title: 'Ambiguous', parentId: 'legacy-page',
+          folderId: 'folder-1', expectedTreeRevision: '0',
+        } as any, humanPrincipal)).rejects.toMatchObject({ businessCode: 'PAGE_PARENT_DEPRECATED' });
+        expect(mockContentTree.mapLegacyPageParent).not.toHaveBeenCalled();
+        expect(mockContentTree.placePage).not.toHaveBeenCalled();
+        expect(mockPrisma.page.create).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+        else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+      }
+    });
+
     it('rejects a template-backed create when archive commits after the template was selected', async () => {
       const selectedAt = new Date('2026-08-26T01:00:00.000Z');
       const state = {
@@ -210,6 +398,12 @@ describe('PageService', () => {
         mockGraphMaintenance as any,
         templates,
         liveAuthorization,
+        {
+          lockPageMutationSpace: async (tx: any, _spaceId: string) => Object.assign(
+            await sharedWriter.lockSpace(tx) as object,
+            { contentTreeRevision: 0n },
+          ),
+        } as any,
       );
 
       const archive = templates.archive(
@@ -292,7 +486,9 @@ describe('PageService', () => {
         id: 'page-1', knowledgeKey: 'knowledge-1', title: 'Blank', content: '', format: 'markdown',
       });
 
-      await service.create({ title: 'Blank', spaceId: 'space-1' }, humanPrincipal);
+      await service.create({
+        title: 'Blank', spaceId: 'space-1', expectedTreeRevision: '0',
+      }, humanPrincipal);
 
       expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
       expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -311,6 +507,7 @@ describe('PageService', () => {
 
       await service.create({
         title: 'Structured', spaceId: 'space-1', content: '{}', format: 'json',
+        expectedTreeRevision: '0',
       }, humanPrincipal);
 
       expect(mockTemplates.resolveVersion).not.toHaveBeenCalled();
@@ -350,7 +547,7 @@ describe('PageService', () => {
 
       await expect(service.create({
         title: 'Missing version', spaceId: 'space-1', templateId: 'template-1',
-        templateVersion: 2, templateLocale: 'en',
+        templateVersion: 2, templateLocale: 'en', expectedTreeRevision: '0',
       }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_VERSION_NOT_FOUND' });
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
@@ -408,7 +605,9 @@ describe('PageService', () => {
       });
       mockAuthorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
 
-      await service.create({ title: 'Authorized', spaceId: 'space-1' }, principal);
+      await service.create({
+        title: 'Authorized', spaceId: 'space-1', expectedTreeRevision: '0',
+      }, principal);
 
       expect(mockAuthorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
         mockPrisma, principal, 'space-1', ['owner', 'editor'],
@@ -430,7 +629,7 @@ describe('PageService', () => {
       mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
 
       await expect(service.create(
-        { title: 'Rejected', spaceId: 'space-1' }, humanPrincipal,
+        { title: 'Rejected', spaceId: 'space-1', expectedTreeRevision: '0' }, humanPrincipal,
       )).rejects.toBe(revoked);
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
@@ -460,6 +659,31 @@ describe('PageService', () => {
   };
 
   describe('update', () => {
+    it('delegates title and Folder placement atomically but does not advance tree revision for body-only edits', async () => {
+      const current = {
+        id: 'page-1', title: 'Current', content: 'before', slug: 'current', format: 'markdown',
+        parentId: null, folderId: null, spaceId: 'space-1', authorId: 'user-1',
+        knowledgeKey: 'knowledge-1', syncPath: 'pages/Current.md', syncPathKey: 'pages/current.md',
+        sortOrder: 0, createdAt: new Date('2026-08-27T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-28T00:00:00.000Z'),
+      };
+      mockPrisma.page.findUnique
+        .mockResolvedValueOnce(current)
+        .mockResolvedValueOnce({ ...current, content: 'after' });
+      mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.update('page-1', {
+        content: 'after', expectedUpdatedAt: current.updatedAt.toISOString(),
+      }, 'user-1');
+
+      expect(mockContentTree.preparePageMutation).not.toHaveBeenCalled();
+      expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+        structural: false, expectedTreeRevision: 0n,
+      }));
+      expect(mockPrisma.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ folderId: null }),
+      }));
+    });
     it('rejects a stale version with a stable 409 code and no unconditional update', async () => {
       mockPrisma.page.findUnique.mockResolvedValue(original);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
@@ -1151,7 +1375,10 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(archived);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
-      await expect(service.remove('page-1')).resolves.toEqual(archived);
+      await expect(service.remove('page-1')).resolves.toEqual({
+        ...archived,
+        path: archived.syncPath,
+      });
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1226,11 +1453,35 @@ describe('PageService', () => {
       expect(mockPrisma.page.findUnique).toHaveBeenCalledTimes(1);
       expect(mockSearch.deletePageIndex).not.toHaveBeenCalled();
     });
+
+    it('rejects the legacy Page-parent reorder contract unless the migration flag is explicit', async () => {
+      const previous = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+      try {
+        await expect(service.reorder('space-1', [
+          { id: 'page-1', parentId: null, sortOrder: 0 },
+        ])).rejects.toMatchObject({ businessCode: 'PAGE_PARENT_DEPRECATED' });
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+        else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previous;
+      }
+    });
   });
 });
 
 describe('page ordering', () => {
   let service: PageService;
+  const previousLegacyParentFlag = process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+
+  beforeAll(() => {
+    process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = 'true';
+  });
+
+  afterAll(() => {
+    if (previousLegacyParentFlag === undefined) delete process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE;
+    else process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE = previousLegacyParentFlag;
+  });
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -1255,6 +1506,7 @@ describe('page ordering', () => {
         { provide: GraphMaintenance, useValue: mockGraphMaintenance },
         { provide: PageTemplateService, useValue: mockTemplates },
         { provide: AuthorizationService, useValue: mockAuthorization },
+        { provide: ContentTreeService, useValue: mockContentTree },
       ],
     }).compile();
     service = module.get<PageService>(PageService);
@@ -1477,6 +1729,21 @@ describe('page ordering', () => {
       { enqueue: jest.fn() } as any,
       mockTemplates as any,
       mockAuthorization as any,
+      {
+        lockPageMutationSpace: async (tx: any, _spaceId: string) => Object.assign(
+          await localRevisionWriter.lockSpace(tx),
+          { contentTreeRevision: 0n },
+        ),
+        preparePageMutation: async (_tx: any, input: any) => ({
+          folderId: input.folderId,
+          syncPath: input.current.syncPath,
+          syncPathKey: input.current.syncPathKey,
+        }),
+        advancePageMutation: async (tx: any, input: any) => {
+          await localRevisionWriter.advance(tx, input.spaceId, input.changes, {});
+          return { treeRevision: 1n, syncRevisionId: 'sync-1' };
+        },
+      } as any,
     );
     jest.spyOn(localService, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
 

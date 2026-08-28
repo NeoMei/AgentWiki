@@ -3,7 +3,7 @@ import { MarkdownResourceService } from './markdown-resource.service';
 
 const principal = { userId: 'user-1' };
 
-function page(overrides: Partial<Record<'id' | 'spaceId' | 'title' | 'slug' | 'syncPath' | 'syncPathKey', string>> = {}) {
+function page(overrides: Partial<Record<'id' | 'spaceId' | 'title' | 'slug' | 'syncPath' | 'syncPathKey', string> & { folderId: string | null }> = {}) {
   return {
     id: 'page-default',
     spaceId: 'space-1',
@@ -11,6 +11,7 @@ function page(overrides: Partial<Record<'id' | 'spaceId' | 'title' | 'slug' | 's
     slug: 'default',
     syncPath: 'pages/Default.md',
     syncPathKey: 'pages/default.md',
+    folderId: null,
     ...overrides,
   };
 }
@@ -45,7 +46,7 @@ describe('MarkdownResourceService', () => {
     service = new MarkdownResourceService(prisma, authorization);
   });
 
-  it('authorizes the Space once and resolves pages in id, syncPath, slug, then title order', async () => {
+  it('authorizes the Space once and resolves pages by stable id, current path, title, then legacy slug', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([
         page({ id: 'same-target', title: 'ID winner', slug: 'id-winner', syncPath: 'pages/Id.md', syncPathKey: 'pages/id.md' }),
@@ -135,7 +136,7 @@ describe('MarkdownResourceService', () => {
     ]);
   });
 
-  it('returns ambiguous without candidates when exact normalized titles collide', async () => {
+  it('returns structured same-Space candidates when exact normalized titles collide', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -146,7 +147,12 @@ describe('MarkdownResourceService', () => {
 
     await expect(service.resolve('space-1', [
       { key: 'ambiguous', kind: 'page', target: ' Cafe\u0301 ' },
-    ], principal)).resolves.toEqual([{ key: 'ambiguous', status: 'ambiguous' }]);
+    ], principal)).resolves.toEqual([{
+      key: 'ambiguous', status: 'ambiguous', candidates: [
+        { pageId: 'one', title: 'Caf\u00e9', path: 'pages/Default.md' },
+        { pageId: 'two', title: 'CAF\u00c9', path: 'pages/Default.md' },
+      ],
+    }]);
   });
 
   it('queries the indexed identity so NFC title matching covers legacy decomposed rows', async () => {
@@ -302,19 +308,102 @@ describe('MarkdownResourceService', () => {
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
   });
 
-  it('uses three constant-count bounded Page queries for one hundred references', async () => {
+  it('uses four constant-count bounded Page and alias queries for one hundred references', async () => {
     const references = Array.from({ length: 100 }, (_, index) => index % 2 === 0
       ? { key: `page-${index}`, kind: 'page' as const, target: `Page ${index}` }
       : { key: `attachment-${index}`, kind: 'attachment' as const, target: `image-${index}.png` });
 
     await service.resolve('space-1', references, principal);
 
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
     for (const [query] of prisma.$queryRaw.mock.calls) {
       expect(query.values).toContain(201);
-      expect(query.strings.join('?')).toMatch(/markdown_page_identity/u);
     }
+    expect(prisma.$queryRaw.mock.calls[3][0].strings.join('?')).toContain('PagePathAlias');
     expect(prisma.spaceAttachment.findMany.mock.calls[0][0].take).toBeLessThanOrEqual(100);
+  });
+
+  it('prefers a same-Folder title before a globally duplicated title', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([page({
+        id: 'source-page', folderId: 'folder-a', title: 'Source',
+        syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+      })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        page({ id: 'same-folder', folderId: 'folder-a', title: 'Weekly', syncPath: 'pages/Project/Weekly.md', syncPathKey: 'pages/project/weekly.md' }),
+        page({ id: 'other-folder', folderId: 'folder-b', title: 'Weekly', syncPath: 'pages/Other/Weekly.md', syncPathKey: 'pages/other/weekly.md' }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    await expect((service as any).resolve('space-1', [
+      { key: 'weekly', kind: 'page', target: 'Weekly' },
+    ], principal, 'source-page')).resolves.toEqual([{
+      key: 'weekly', status: 'resolved', kind: 'page',
+      pageId: 'same-folder', title: 'Weekly', slug: 'default',
+    }]);
+  });
+
+  it('resolves a Folder-qualified wiki target through the current canonical path before aliases', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([page({
+        id: 'current', title: 'Weekly', syncPath: 'pages/Project/Weekly.md',
+        syncPathKey: 'pages/project/weekly.md', folderId: 'folder-project',
+      })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        ...page({ id: 'alias-owner', title: 'Old Weekly', syncPath: 'pages/Archive/Weekly.md', syncPathKey: 'pages/archive/weekly.md' }),
+        aliasPathKey: 'pages/project/weekly.md',
+      }]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'qualified', kind: 'page', target: 'Project/Weekly' },
+    ], principal)).resolves.toEqual([{
+      key: 'qualified', status: 'resolved', kind: 'page',
+      pageId: 'current', title: 'Weekly', slug: 'default',
+    }]);
+  });
+
+  it('returns structured candidates for an ambiguous historical path alias', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { ...page({ id: 'alias-a', title: 'Alpha', syncPath: 'pages/New/Alpha.md', syncPathKey: 'pages/new/alpha.md' }), aliasPathKey: 'pages/old/weekly.md' },
+        { ...page({ id: 'alias-b', title: 'Beta', syncPath: 'pages/New/Beta.md', syncPathKey: 'pages/new/beta.md' }), aliasPathKey: 'pages/old/weekly.md' },
+        { ...page({ id: 'foreign', spaceId: 'space-2', title: 'Secret', syncPath: 'pages/Secret.md', syncPathKey: 'pages/secret.md' }), aliasPathKey: 'pages/old/weekly.md' },
+      ]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'alias', kind: 'page', target: 'Old/Weekly' },
+    ], principal)).resolves.toEqual([{
+      key: 'alias', status: 'ambiguous', candidates: [
+        { pageId: 'alias-a', title: 'Alpha', path: 'pages/New/Alpha.md' },
+        { pageId: 'alias-b', title: 'Beta', path: 'pages/New/Beta.md' },
+      ],
+    }]);
+  });
+
+  it('fails alias resolution closed when the bounded alias query is truncated', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(Array.from({ length: 201 }, (_, index) => ({
+        ...page({
+          id: `alias-${index}`,
+          title: `Alias ${index}`,
+          syncPath: `pages/New/Alias-${index}.md`,
+          syncPathKey: `pages/new/alias-${index}.md`,
+        }),
+        aliasPathKey: index === 0 ? 'pages/old/weekly.md' : `pages/other/${index}.md`,
+      })));
+
+    await expect(service.resolve('space-1', [
+      { key: 'alias-cap', kind: 'page', target: 'Old/Weekly' },
+    ], principal)).resolves.toEqual([{ key: 'alias-cap', status: 'ambiguous' }]);
   });
 });
