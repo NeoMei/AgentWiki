@@ -96,6 +96,45 @@ describe('collectMarkdownResourceRefs', () => {
   });
 
   it.each([
+    ['bullet list then quote fence', '- > ~~~md\n  > [[inside]]\n  > ~~~\n\n[[after]]'],
+    ['ordered list then quote fence', '1. > ~~~md\n   > [[inside]]\n   > ~~~\n\n[[after]]'],
+    ['bullet list then quote HTML', '- > <div>\n  > [[inside]]\n  > </div>\n\n[[after]]'],
+    ['bullet list then quote comment', '- > <!--\n  > [[inside]]\n  > -->\n\n[[after]]'],
+    ['quote then list then quote fence', '> - > ~~~md\n>   > [[inside]]\n>   > ~~~\n\n[[after]]'],
+    ['ordered and unordered mixed containers', '1. > - > ~~~md\n   >   > [[inside]]\n   >   > ~~~\n\n[[after]]'],
+  ])('matches full-AST boundaries for ordered container stack: %s', (_kind, source) => {
+    expect(fullAstWikiLiterals(source)).toEqual(['[[after]]']);
+    expect(collectedWikiLiterals(source)).toEqual(['[[after]]']);
+  });
+
+  it('keeps a container-stack overflow raw and resumes after a real block boundary', () => {
+    const source = `${'> '.repeat(65)}[[inside]]\n\n[[after]]`;
+    const parseSpy = vi.spyOn(editorMarkdownResourceParser, 'parse');
+
+    expect(collectedWikiLiterals(source)).toEqual(['[[after]]']);
+    expect(parseSpy.mock.calls.map(([input]) => input)).toEqual(['[[after]]']);
+    parseSpy.mockRestore();
+  });
+
+  it.each([
+    ['escaped alias', '[[slashes\\|alias]] [[After]]', ['[[slashes\\|alias]]', '[[After]]']],
+    ['entity alias', '[[One|alias &amp;]] [[After]]', ['[[One|alias &amp;]]', '[[After]]']],
+    [
+      'Unicode and CRLF candidates',
+      '[[路线|&amp; 别名]]\r\n[[Cafe\u0301|别名\\|two]]\r\n[[After]]',
+      ['[[路线|&amp; 别名]]', '[[Cafe\u0301|别名\\|two]]', '[[After]]'],
+    ],
+    [
+      'synthetic delimiter-shaped aliases',
+      '[[One|---]] [[Two|# heading]] [[Three|<div>]] [[After]]',
+      ['[[One|---]]', '[[Two|# heading]]', '[[After]]'],
+    ],
+  ])('isolates parser offsets for %s', (_kind, source, expected) => {
+    expect(fullAstWikiLiterals(source)).toHaveLength(expected.length);
+    expect(collectedWikiLiterals(source)).toEqual(expected);
+  });
+
+  it.each([
     [
       'type-7 tag after paragraph text',
       'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[after]]',
@@ -107,6 +146,9 @@ describe('collectMarkdownResourceRefs', () => {
     ['quoted raw-tag dedent', '> <script>\n> [[inside]]\n[[outside]]', ['[[outside]]']],
     ['quoted unclosed fence dedent', '> ~~~md\n> [[inside]]\n[[outside]]', ['[[outside]]']],
     ['list unclosed fence dedent', '- ~~~md\n  [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['list/quote unclosed fence dedent', '- > ~~~md\n  > [[inside]]\n[[outside]]', ['[[outside]]']],
+    ['list/quote unclosed fence lazy dedent', '- > ~~~md\n  > [[inside]]\n  lazy [[outside]]', ['[[outside]]']],
+    ['list/quote unclosed comment dedent', '- > <!--\n  > [[inside]]\n[[outside]]', ['[[outside]]']],
     ['unclosed code span before blank line', '`unterminated [[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
     ['unclosed link label before blank line', '[unterminated [[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
     ['unclosed inline comment before blank line', 'paragraph <!--\n[[inside]]\n\n[[after]]', ['[[inside]]', '[[after]]']],
@@ -165,6 +207,7 @@ describe('collectMarkdownResourceRefs', () => {
 
     expect(occurrences).toHaveLength(256);
     expect(references).toHaveLength(100);
+    expect(parseSpy).toHaveBeenCalledTimes(256);
     expect(parseSpy.mock.calls.reduce((sum, [input]) => sum + input.length, 0)).toBeLessThanOrEqual(32_768);
     expect(parseSpy).not.toHaveBeenCalledWith(source);
     expect(source.slice(occurrences[255].from, occurrences[255].to)).toBe('[[Page 0]]');
@@ -205,6 +248,7 @@ describe('collectMarkdownResourceRefs', () => {
 
     expect(occurrences).toHaveLength(100);
     expect(references).toHaveLength(100);
+    expect(parseSpy.mock.calls.length).toBeLessThanOrEqual(256);
     expect(parseSpy.mock.calls.reduce((sum, [input]) => sum + input.length, 0)).toBeLessThanOrEqual(32_768);
     expect(parseSpy).not.toHaveBeenCalledWith(source);
     await expect(resolveMarkdownResources('space-editor', references)).resolves.toHaveProperty('size', 100);

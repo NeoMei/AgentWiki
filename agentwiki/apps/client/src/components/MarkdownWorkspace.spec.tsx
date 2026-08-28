@@ -415,6 +415,63 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   });
 
   it.each([
+    ['list then quote fence', '- > ~~~md\n  > [[inside]]\n  > ~~~\n\n[[after]]'],
+    ['ordered list then quote HTML', '1. > <div>\n   > [[inside]]\n   > </div>\n\n[[after]]'],
+    ['quote/list/quote comment', '> - > <!--\n>   > [[inside]]\n>   > -->\n\n[[after]]'],
+  ])('keeps %s content raw while resolving only the dedented reference', async (_kind, source) => {
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target,
+        title: reference.target,
+        slug: reference.target,
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: `active\n${source}`,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(await screen.findByRole('link', { name: 'after' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'inside' })).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(1);
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(1);
+    expect(currentEditorView(container).state.doc.toString()).toBe(`active\n${source}`);
+  });
+
+  it('isolates escaped, entity and Unicode aliases without losing following resolvers or widgets', async () => {
+    const source = 'active\n[[slashes\\|alias]] [[One|alias &amp;]] [[路线|别名]] [[After]]';
+    resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
+      data: body.references.map((reference: any) => ({
+        key: reference.key,
+        status: 'resolved',
+        kind: 'page',
+        pageId: reference.target,
+        title: reference.target,
+        slug: reference.target,
+      })),
+    }));
+    const { container } = renderWYS({
+      initial: source,
+      pageId: 'page-editor',
+      spaceId: 'space-authoritative',
+    });
+
+    expect(await screen.findByRole('link', { name: 'After' })).toBeInTheDocument();
+    // The shared raw-reference parser conservatively leaves the escaped-pipe
+    // candidate as source, while the authoritative collector still keeps it
+    // isolated so it cannot shift or suppress any later candidate.
+    expect(container.querySelectorAll('.cm-content a')).toHaveLength(3);
+    expect(resourceMocks.post).toHaveBeenCalledTimes(1);
+    expect(resourceMocks.post.mock.calls[0][1].references).toHaveLength(4);
+    expect(currentEditorView(container).state.doc.toString()).toBe(source);
+  });
+
+  it.each([
     ['type-7 tag after paragraph text', 'paragraph\n<custom-tag>\n[[valid in paragraph]]\n\n[[outside]]', ['valid in paragraph', 'outside']],
     ['quoted type-6 HTML dedent', '> <div>\n> [[inside]]\n[[outside]]', ['outside']],
     ['quoted comment dedent', '> <!--\n> [[inside]]\n[[outside]]', ['outside']],

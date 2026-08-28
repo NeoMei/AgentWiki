@@ -19,6 +19,7 @@ const MAX_EDITOR_WIKI_OCCURRENCES = 256;
 const MAX_EDITOR_CANDIDATE_PARSE_CHARS = 32_768;
 const MAX_REFERENCE_CHARS = 512;
 const MAX_INLINE_STRUCTURE_TOKENS = 512;
+const MAX_MARKDOWN_CONTAINER_FRAMES = 64;
 const RAW_HTML_BLOCK_TAGS = new Set(['pre', 'script', 'style', 'textarea']);
 const HTML_BLOCK_TAGS = new Set([
   'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body', 'caption', 'center',
@@ -300,15 +301,23 @@ const isAsciiDigit = (character: string | undefined): boolean => {
   return code >= 48 && code <= 57;
 };
 
+type MarkdownContainerFrame =
+  | { kind: 'quote' }
+  | { kind: 'list'; continuationIndent: number };
+
+interface MarkdownContainerPrefix {
+  contentStart: number;
+  frames: readonly MarkdownContainerFrame[];
+  overflow: boolean;
+}
+
 const stripMarkdownContainerPrefixes = (
   source: string,
   start: number,
   end: number,
-): { contentStart: number; quoteDepth: number; listDepth: number; listContinuationIndent: number } => {
+): MarkdownContainerPrefix => {
   let cursor = start;
-  let quoteDepth = 0;
-  let listDepth = 0;
-  let listContinuationIndent = 0;
+  const frames: MarkdownContainerFrame[] = [];
   while (cursor < end) {
     const beforePrefix = cursor;
     let indent = 0;
@@ -318,9 +327,12 @@ const stripMarkdownContainerPrefixes = (
     }
 
     if (source[cursor] === '>') {
+      if (frames.length >= MAX_MARKDOWN_CONTAINER_FRAMES) {
+        return { contentStart: end, frames, overflow: true };
+      }
       cursor += 1;
       if (source[cursor] === ' ' || source[cursor] === '\t') cursor += 1;
-      quoteDepth += 1;
+      frames.push({ kind: 'quote' });
       continue;
     }
 
@@ -337,6 +349,9 @@ const stripMarkdownContainerPrefixes = (
       }
     }
     if (markerEnd !== cursor) {
+      if (frames.length >= MAX_MARKDOWN_CONTAINER_FRAMES) {
+        return { contentStart: end, frames, overflow: true };
+      }
       const markerStart = beforePrefix;
       cursor = markerEnd;
       let paddingEnd = cursor;
@@ -345,30 +360,40 @@ const stripMarkdownContainerPrefixes = (
         paddingEnd += 1;
       }
       cursor += paddingEnd - cursor > 4 ? 1 : paddingEnd - cursor;
-      listDepth += 1;
-      listContinuationIndent += cursor - markerStart;
+      frames.push({ kind: 'list', continuationIndent: cursor - markerStart });
       continue;
     }
 
-    return { contentStart: beforePrefix, quoteDepth, listDepth, listContinuationIndent };
+    return { contentStart: beforePrefix, frames, overflow: false };
   }
-  return { contentStart: cursor, quoteDepth, listDepth, listContinuationIndent };
+  return { contentStart: cursor, frames, overflow: false };
 };
 
-const contentAfterRequiredBlockquotes = (
+const matchMarkdownContainerScope = (
   source: string,
   start: number,
   end: number,
-  quoteDepth: number,
-): number => {
+  frames: readonly MarkdownContainerFrame[],
+): number | null => {
   let cursor = start;
-  for (let depth = 0; depth < quoteDepth; depth += 1) {
+  for (const frame of frames) {
+    if (frame.kind === 'list') {
+      let consumed = 0;
+      while (cursor < end && consumed < frame.continuationIndent
+        && (source[cursor] === ' ' || source[cursor] === '\t')) {
+        cursor += 1;
+        consumed += 1;
+      }
+      if (consumed < frame.continuationIndent) return null;
+      continue;
+    }
+
     let indent = 0;
     while (cursor < end && source[cursor] === ' ' && indent < 3) {
       cursor += 1;
       indent += 1;
     }
-    if (source[cursor] !== '>') return end;
+    if (source[cursor] !== '>') return null;
     cursor += 1;
     if (source[cursor] === ' ' || source[cursor] === '\t') cursor += 1;
   }
@@ -376,8 +401,7 @@ const contentAfterRequiredBlockquotes = (
 };
 
 interface MarkdownContainerScope {
-  quoteDepth: number;
-  listContinuationIndent: number;
+  frames: readonly MarkdownContainerFrame[];
 }
 
 const leadingIndentFrom = (source: string, start: number, end: number): number => {
@@ -390,25 +414,22 @@ const lineContinuesContainer = (
   source: string,
   lineStart: number,
   lineEnd: number,
-  container: ReturnType<typeof stripMarkdownContainerPrefixes>,
+  _container: ReturnType<typeof stripMarkdownContainerPrefixes>,
   scope: MarkdownContainerScope,
 ): boolean => {
-  if (container.quoteDepth < scope.quoteDepth) return false;
-  if (scope.listContinuationIndent === 0) return true;
-  const afterQuotes = contentAfterRequiredBlockquotes(source, lineStart, lineEnd, scope.quoteDepth);
-  return leadingIndentFrom(source, afterQuotes, lineEnd) >= scope.listContinuationIndent;
+  return matchMarkdownContainerScope(source, lineStart, lineEnd, scope.frames) !== null;
 };
 
 const lineContinuesParagraphScope = (
   source: string,
   lineStart: number,
   lineEnd: number,
-  container: ReturnType<typeof stripMarkdownContainerPrefixes>,
+  _container: ReturnType<typeof stripMarkdownContainerPrefixes>,
   scope: MarkdownContainerScope,
 ): boolean => {
-  if (container.quoteDepth !== scope.quoteDepth) return false;
-  if (scope.listContinuationIndent === 0) return container.listDepth === 0;
-  return lineContinuesContainer(source, lineStart, lineEnd, container, scope);
+  const contentStart = matchMarkdownContainerScope(source, lineStart, lineEnd, scope.frames);
+  if (contentStart === null) return false;
+  return stripMarkdownContainerPrefixes(source, contentStart, lineEnd).frames.length === 0;
 };
 
 const htmlTagNameAt = (source: string, start: number, end: number): string | null => {
@@ -714,14 +735,9 @@ const paragraphEndFrom = (
     const container = stripMarkdownContainerPrefixes(source, lineStart, lineEnd);
     const blank = leadingIndentFrom(source, container.contentStart, lineEnd) === lineEnd - container.contentStart;
     if (blank) return lineStart;
-    if (!firstLine) {
-      if (container.quoteDepth !== initialContainer.quoteDepth) return lineStart;
-      if (initialContainer.listDepth === 0 && container.listDepth > 0) return lineStart;
-      if (initialContainer.listDepth > 0 && !lineContinuesContainer(source, lineStart, lineEnd, container, {
-        quoteDepth: initialContainer.quoteDepth,
-        listContinuationIndent: initialContainer.listContinuationIndent,
-      })) return lineStart;
-    }
+    if (!firstLine && !lineContinuesParagraphScope(source, lineStart, lineEnd, container, {
+      frames: initialContainer.frames,
+    })) return lineStart;
     if (lineEnd >= source.length) return lineEnd;
     lineStart = lineEnd + (source[lineEnd] === '\r' && source[lineEnd + 1] === '\n' ? 2 : 1);
     firstLine = false;
@@ -764,6 +780,13 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
     while (lineEnd < source.length && source[lineEnd] !== '\n' && source[lineEnd] !== '\r') lineEnd += 1;
 
     const container = stripMarkdownContainerPrefixes(source, lineStart, lineEnd);
+    if (container.overflow) {
+      paragraphScope = null;
+      inlineParagraph = null;
+      if (lineEnd >= source.length) break;
+      lineStart = lineEnd + (source[lineEnd] === '\r' && source[lineEnd + 1] === '\n' ? 2 : 1);
+      continue;
+    }
     const containerContent = container.contentStart;
     let firstContent = containerContent;
     let indentation = 0;
@@ -808,12 +831,9 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
       if (htmlBlock.kind === 'blank-line') {
         if (firstContent >= lineEnd) htmlBlock = null;
       } else {
-        const tokenSearchStart = contentAfterRequiredBlockquotes(
-          source,
-          lineStart,
-          lineEnd,
-          htmlBlock.quoteDepth,
-        );
+        const tokenSearchStart = matchMarkdownContainerScope(
+          source, lineStart, lineEnd, htmlBlock.frames,
+        ) ?? lineEnd;
         const closingToken = htmlBlock.asciiInsensitive
           ? findAsciiCaseInsensitiveTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd)
           : findTokenBefore(source, htmlBlock.token, tokenSearchStart, lineEnd);
@@ -828,8 +848,7 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
         if (openingBlock.kind === 'blank-line') {
           htmlBlock = {
             ...openingBlock,
-            quoteDepth: container.quoteDepth,
-            listContinuationIndent: container.listContinuationIndent,
+            frames: container.frames,
           };
         } else {
           const closingToken = openingBlock.asciiInsensitive
@@ -838,8 +857,7 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
           if (closingToken === -1) {
             htmlBlock = {
               ...openingBlock,
-              quoteDepth: container.quoteDepth,
-              listContinuationIndent: container.listContinuationIndent,
+              frames: container.frames,
             };
           }
         }
@@ -859,8 +877,7 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
         fence = {
           marker,
           length: runEnd - firstContent,
-          quoteDepth: container.quoteDepth,
-          listContinuationIndent: container.listContinuationIndent,
+          frames: container.frames,
         };
         paragraphScope = null;
         inlineParagraph = null;
@@ -934,8 +951,7 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
       }
       if (lineOpensParagraph(source, firstContent, lineEnd)) {
         paragraphScope ??= {
-          quoteDepth: container.quoteDepth,
-          listContinuationIndent: container.listContinuationIndent,
+          frames: container.frames,
         };
       } else {
         paragraphScope = null;
@@ -956,35 +972,24 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
 const parseMarkdownResourceCandidates = (source: string): ParsedMarkdownResourceCandidate[] => {
   const candidates = scanMarkdownResourceCandidates(source);
   if (candidates.length === 0) return [];
-  const mappings = new Map<number, MarkdownResourceCandidate>();
-  let syntheticSource = '';
-  for (const candidate of candidates) {
-    if (syntheticSource) syntheticSource += '\n';
-    mappings.set(syntheticSource.length, candidate);
-    syntheticSource += candidate.literal;
-  }
-  if (syntheticSource.length > MAX_EDITOR_CANDIDATE_PARSE_CHARS) {
+  const parserInputCharacters = candidates.reduce((total, candidate) => total + candidate.literal.length, 0);
+  if (parserInputCharacters > MAX_EDITOR_CANDIDATE_PARSE_CHARS
+    || candidates.length > MAX_EDITOR_WIKI_OCCURRENCES) {
     throw new Error('Markdown resource candidate budget exceeded');
   }
 
-  const tree = editorMarkdownResourceParser.parse(syntheticSource);
   const parsed: ParsedMarkdownResourceCandidate[] = [];
-  const consumed = new Set<number>();
-  visit(tree as never, (node: MarkdownAstNode) => {
-    if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return;
-    const properties = node.data?.hProperties ?? {};
-    const sourceOffset = properties['data-markdown-source-offset'];
-    const literal = properties['data-markdown-literal'];
-    const syntheticFrom = typeof sourceOffset === 'string' && /^\d+$/u.test(sourceOffset)
-      ? Number(sourceOffset)
-      : -1;
-    const candidate = mappings.get(syntheticFrom);
-    if (!candidate || consumed.has(syntheticFrom) || literal !== candidate.literal
-      || syntheticSource.slice(syntheticFrom, syntheticFrom + candidate.literal.length) !== candidate.literal
-      || source.slice(candidate.from, candidate.to) !== candidate.literal) return;
-    consumed.add(syntheticFrom);
-    parsed.push({ candidate, node });
-  });
+  for (const candidate of candidates) {
+    if (source.slice(candidate.from, candidate.to) !== candidate.literal) continue;
+    const tree = editorMarkdownResourceParser.parse(candidate.literal);
+    const resourceNodes: MarkdownAstNode[] = [];
+    visit(tree as never, (node: MarkdownAstNode) => {
+      if (!['agentWikiLink', 'agentWikiEmbed', 'agentWikiImage'].includes(node.type)) return;
+      const sourceOffset = node.data?.hProperties?.['data-markdown-source-offset'];
+      if (sourceOffset === '0') resourceNodes.push(node);
+    });
+    if (resourceNodes.length === 1) parsed.push({ candidate, node: resourceNodes[0] });
+  }
   return parsed;
 };
 
