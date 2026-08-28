@@ -11,7 +11,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { LegacyBundleHashStream } from './legacy-serializer';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
-import { ContentTreeConflict, ContentTreeError } from '../../content-tree/content-tree.types';
+import { ContentTreeConflict } from '../../content-tree/content-tree.types';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -54,19 +54,27 @@ export class SpaceRevisionWriterService {
   async lockSpace(
     tx: Prisma.TransactionClient,
     spaceId: string,
-  ): Promise<SpaceTreeLockedTransaction> {
+  ): Promise<SpaceLockedTransaction> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${spaceId}))`;
+    return tx as SpaceLockedTransaction;
+  }
+
+  async lockContentTreeSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+  ): Promise<SpaceTreeLockedTransaction | null> {
+    const lockedTx = await this.lockSpace(tx, spaceId);
     const space = await tx.space.findUnique({
       where: { id: spaceId, deletedAt: null },
       select: { contentTreeRevision: true },
     });
-    if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
-    Object.defineProperty(tx, 'contentTreeRevision', {
+    if (!space) return null;
+    Object.defineProperty(lockedTx, 'contentTreeRevision', {
       configurable: true,
       enumerable: false,
       value: space.contentTreeRevision,
     });
-    return tx as SpaceTreeLockedTransaction;
+    return lockedTx as SpaceTreeLockedTransaction;
   }
 
   async advanceContentTreeRevision(

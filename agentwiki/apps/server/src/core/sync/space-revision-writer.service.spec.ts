@@ -10,13 +10,29 @@ describe('SpaceRevisionWriterService', () => {
   });
 
   it('locks a space with a transaction-scoped advisory lock', async () => {
+    const tx = { $executeRaw: jest.fn() };
+    const locked = await service.lockSpace(tx as any, 'space-1');
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(locked).toBe(tx);
+  });
+
+  it('reads the active Space revision only through the ContentTree lock entrypoint', async () => {
     const tx = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 7n }) },
     };
-    const locked = await service.lockSpace(tx as any, 'space-1');
+    const locked = await service.lockContentTreeSpace(tx as any, 'space-1');
+    expect(locked?.contentTreeRevision).toBe(7n);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
-    expect(locked.contentTreeRevision).toBe(7n);
+  });
+
+  it('returns null for a missing/deleted ContentTree Space without changing shared lockSpace errors', async () => {
+    const tx = {
+      $executeRaw: jest.fn(),
+      space: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    await expect(service.lockContentTreeSpace(tx as any, 'missing')).resolves.toBeNull();
+    await expect(service.lockSpace({ $executeRaw: jest.fn() } as any, 'missing')).resolves.toBeDefined();
   });
 
   it('advances the content tree revision with compare-and-swap', async () => {

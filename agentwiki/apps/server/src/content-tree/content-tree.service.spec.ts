@@ -10,6 +10,7 @@ function makeHarness(options: {
   duplicate?: boolean;
 } = {}) {
   const tx: any = {
+    $executeRaw: jest.fn(),
     $queryRaw: jest.fn()
       .mockResolvedValueOnce(options.ancestors ?? [])
       .mockResolvedValueOnce([{ count: options.folderCount ?? 0n }]),
@@ -26,19 +27,18 @@ function makeHarness(options: {
       aggregate: jest.fn().mockResolvedValue({ _max: { sortOrder: 3 } }),
     },
     page: {
+      findUnique: jest.fn().mockResolvedValue(null),
       findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
       update: jest.fn(),
     },
   };
   const prisma: any = {
     $transaction: jest.fn((callback: (transaction: any) => unknown) => callback(tx)),
-    space: { findUnique: jest.fn() },
-    folder: { findMany: jest.fn() },
-    page: { findMany: jest.fn() },
   };
   const revisionWriter: any = {
-    lockSpace: jest.fn().mockImplementation(async (transaction: any) => Object.assign(transaction, {
+    lockContentTreeSpace: jest.fn().mockImplementation(async (transaction: any) => Object.assign(transaction, {
       contentTreeRevision: options.treeRevision ?? 0n,
     })),
     advanceContentTreeRevision: jest.fn().mockImplementation(async (_tx: any, _spaceId: string, expected: bigint) => expected + 1n),
@@ -134,16 +134,27 @@ describe('ContentTreeService create/read core', () => {
     expect(tx.folder.create).not.toHaveBeenCalled();
   });
 
+  it('maps a missing/deleted locked Space to the ContentTree not-found contract', async () => {
+    const { service, tx, revisionWriter } = makeHarness();
+    revisionWriter.lockContentTreeSpace.mockResolvedValue(null);
+    await expect(service.createFolder({
+      spaceId: 'missing-space', parentId: null, name: '项目', expectedTreeRevision: 0n,
+      actor: { userId: 'user-1' },
+    })).rejects.toEqual(expect.objectContaining({ code: 'SPACE_NOT_FOUND' }));
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.folder.create).not.toHaveBeenCalled();
+  });
+
   it('lists only direct children with Folder-first deterministic cursor pagination and hasChildren', async () => {
-    const { service, prisma } = makeHarness();
-    prisma.space.findUnique.mockResolvedValue({ contentTreeRevision: 9n });
-    prisma.folder.findMany
+    const { service, prisma, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 9n });
+    tx.folder.findMany
       .mockResolvedValueOnce([
         { id: 'f1', name: 'A', path: 'pages/A', sortOrder: 0, createdAt: now, updatedAt: now, _count: { children: 1, pages: 0 } },
         { id: 'f2', name: 'B', path: 'pages/B', sortOrder: 1, createdAt: now, updatedAt: now, _count: { children: 0, pages: 0 } },
       ])
       .mockResolvedValueOnce([]);
-    prisma.page.findMany
+    tx.page.findMany
       .mockResolvedValueOnce([{ id: 'p1', folderId: null, title: 'P', syncPath: 'pages/P.md', sortOrder: 0, createdAt: now, updatedAt: now }])
       .mockResolvedValueOnce([{ id: 'p1', folderId: null, title: 'P', syncPath: 'pages/P.md', sortOrder: 0, createdAt: now, updatedAt: now }]);
 
@@ -157,20 +168,24 @@ describe('ContentTreeService create/read core', () => {
     });
     expect(second.data).toEqual([expect.objectContaining({ kind: 'page', id: 'p1' })]);
     expect(second.nextCursor).toBeNull();
-    expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(tx.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ spaceId: 'space-1', parentId: null, deletedAt: null }),
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     }));
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('binds a cursor to its Space and parent location', async () => {
-    const { service, prisma } = makeHarness();
-    prisma.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
-    prisma.folder.findMany.mockResolvedValue([
+    const { service, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
+    tx.folder.findMany.mockResolvedValue([
       { id: 'f1', name: 'A', path: 'pages/A', sortOrder: 0, createdAt: now, updatedAt: now, _count: { children: 0, pages: 0 } },
       { id: 'f2', name: 'B', path: 'pages/B', sortOrder: 1, createdAt: now, updatedAt: now, _count: { children: 0, pages: 0 } },
     ]);
-    prisma.page.findMany.mockResolvedValue([]);
+    tx.page.findMany.mockResolvedValue([]);
     const page = await service.listChildren({ spaceId: 'space-1', parentFolderId: null, take: 1 });
 
     await expect(service.listChildren({
@@ -186,56 +201,105 @@ describe('ContentTreeService create/read core', () => {
     await expect(service.listChildren({ spaceId: 'space-1', take: 0 })).rejects.toBeInstanceOf(ContentTreeError);
     await expect(service.listChildren({ spaceId: 'space-1', take: 201 })).rejects.toBeInstanceOf(ContentTreeError);
   });
+
+  it.each([
+    ['missing', null],
+    ['deleted', null],
+    ['foreign', null],
+  ])('rejects a %s supplied parent without disclosing its location', async (_label, parent) => {
+    const { service, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
+    tx.folder.findFirst.mockResolvedValue(parent);
+    await expect(service.listChildren({
+      spaceId: 'space-1', parentFolderId: 'unavailable-parent', take: 10,
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
+    expect(tx.page.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reads revision, parent, Folder children, and Page children from one read-only repeatable-read transaction', async () => {
+    const { service, prisma, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 12n });
+    tx.folder.findFirst.mockResolvedValue({ id: 'parent' });
+    tx.folder.findMany.mockResolvedValue([]);
+    tx.page.findMany.mockResolvedValue([]);
+
+    await expect(service.listChildren({
+      spaceId: 'space-1', parentFolderId: 'parent', take: 10,
+    })).resolves.toEqual(expect.objectContaining({ treeRevision: 12n, data: [] }));
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledWith(expect.anything());
+  });
 });
 
 describe('ContentTreeService Page placement and concurrency', () => {
-  it('places a Page in a same-Space Folder and advances both revisions', async () => {
-    const { service, tx, syncPaths, revisionWriter } = makeHarness();
+  it('prepares initial Page placement inside the caller-owned locked transaction', async () => {
+    const { service, prisma, tx, syncPaths, revisionWriter } = makeHarness();
+    tx.page.findUnique.mockResolvedValue(null);
     tx.folder.findFirst.mockResolvedValue({ id: 'folder-1', path: 'pages/项目' });
-    tx.page.findFirst.mockResolvedValue({
-      id: 'page-1', title: '周报', content: 'body', syncPath: 'pages/周报.md', updatedAt: now,
-    });
     syncPaths.allocate.mockResolvedValue({ path: 'pages/项目/周报.md', pathKey: 'pages/项目/周报.md' });
-    tx.page.update.mockResolvedValue({ id: 'page-1', folderId: 'folder-1', syncPath: 'pages/项目/周报.md', updatedAt: now });
 
-    const result = await service.placePage({
-      spaceId: 'space-1', pageId: 'page-1', folderId: 'folder-1', expectedTreeRevision: 0n,
-      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    const result = await service.placePage(tx, {
+      spaceId: 'space-1', pageId: 'page-new', title: '周报', folderId: 'folder-1',
     });
 
     expect(syncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
-      spaceId: 'space-1', directory: 'pages/项目', title: '周报', excludePageId: 'page-1',
+      spaceId: 'space-1', directory: 'pages/项目', title: '周报',
     });
-    expect(tx.page.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'page-1' },
-      data: expect.objectContaining({ folderId: 'folder-1', syncPath: 'pages/项目/周报.md' }),
-    }));
-    expect(revisionWriter.advance).toHaveBeenCalledWith(tx, 'space-1', [expect.objectContaining({
-      operation: 'upsert', pageId: 'page-1', path: 'pages/项目/周报.md', body: 'body',
-    })], expect.anything());
-    expect(result.treeRevision).toBe(1n);
+    expect(result).toEqual({
+      folderId: 'folder-1', syncPath: 'pages/项目/周报.md', syncPathKey: 'pages/项目/周报.md',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.page.update).not.toHaveBeenCalled();
+    expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
   });
 
   it('does not disclose a cross-Space target Folder', async () => {
     const { service, tx } = makeHarness();
+    tx.page.findUnique.mockResolvedValue(null);
     tx.folder.findFirst.mockResolvedValue(null);
-    await expect(service.placePage({
-      spaceId: 'space-1', pageId: 'page-1', folderId: 'other-space-folder', expectedTreeRevision: 0n,
-      expectedUpdatedAt: now, actor: { userId: 'user-1' },
+    await expect(service.placePage(tx, {
+      spaceId: 'space-1', pageId: 'page-new', title: 'Page', folderId: 'other-space-folder',
     })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
     expect(tx.page.update).not.toHaveBeenCalled();
   });
 
-  it('rejects stale Page versions before placement', async () => {
+  it('rejects an existing visible Page so initial placement cannot become an alias-free move', async () => {
     const { service, tx } = makeHarness();
-    tx.page.findFirst.mockResolvedValue({
-      id: 'page-1', title: 'P', content: '', syncPath: 'pages/P.md', updatedAt: new Date(now.getTime() + 1),
-    });
-    await expect(service.placePage({
-      spaceId: 'space-1', pageId: 'page-1', folderId: null, expectedTreeRevision: 0n,
-      expectedUpdatedAt: now, actor: { userId: 'user-1' },
-    })).rejects.toBeInstanceOf(ContentTreeConflict);
+    tx.page.findUnique.mockResolvedValue({ id: 'page-1', deletedAt: null, syncPath: 'pages/P.md' });
+    await expect(service.placePage(tx, {
+      spaceId: 'space-1', pageId: 'page-1', title: 'P', folderId: null,
+    })).rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CONFLICT' }));
     expect(tx.page.update).not.toHaveBeenCalled();
+  });
+
+  it('composes initial placement, Page create, and both revision advances in one caller transaction', async () => {
+    const { service, prisma, tx, syncPaths, revisionWriter } = makeHarness();
+    tx.page.findUnique.mockResolvedValue(null);
+    tx.folder.findFirst.mockResolvedValue({ id: 'folder-1', path: 'pages/项目' });
+    tx.page.create.mockResolvedValue({ id: 'page-new' });
+    syncPaths.allocate.mockResolvedValue({ path: 'pages/项目/P.md', pathKey: 'pages/项目/p.md' });
+
+    await prisma.$transaction(async (callerTx: any) => {
+      const lockedTx = await revisionWriter.lockContentTreeSpace(callerTx, 'space-1');
+      const placement = await service.placePage(lockedTx, {
+        spaceId: 'space-1', pageId: 'page-new', title: 'P', folderId: 'folder-1',
+      });
+      await callerTx.page.create({ data: { id: 'page-new', ...placement } });
+      await revisionWriter.advanceContentTreeRevision(lockedTx, 'space-1', 0n);
+      await revisionWriter.advance(lockedTx, 'space-1', [], { origin: 'web_editor' });
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.page.create).toHaveBeenCalledWith({ data: {
+      id: 'page-new', folderId: 'folder-1', syncPath: 'pages/项目/P.md', syncPathKey: 'pages/项目/p.md',
+    } });
+    expect(revisionWriter.advanceContentTreeRevision).toHaveBeenCalledWith(tx, 'space-1', 0n);
+    expect(revisionWriter.advance).toHaveBeenCalledWith(tx, 'space-1', [], { origin: 'web_editor' });
   });
 
   it('serializes concurrent same-name creates so one succeeds and the stale peer conflicts', async () => {
@@ -263,7 +327,7 @@ describe('ContentTreeService Page placement and concurrency', () => {
       }),
     };
     const revisionWriter: any = {
-      lockSpace: jest.fn().mockImplementation(async (transaction: any) => Object.assign(transaction, { contentTreeRevision: currentRevision })),
+      lockContentTreeSpace: jest.fn().mockImplementation(async (transaction: any) => Object.assign(transaction, { contentTreeRevision: currentRevision })),
       advanceContentTreeRevision: jest.fn().mockImplementation(async (_tx: any, _spaceId: string, expected: bigint) => {
         if (expected !== currentRevision) throw new ContentTreeConflict(expected, currentRevision);
         currentRevision += 1n;

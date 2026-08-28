@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { validatePortableDirectoryPath } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../database/prisma.service';
 import { ReadableSyncPathService } from '../core/sync/readable-sync-path.service';
-import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
+import {
+  SpaceRevisionWriterService,
+  type SpaceTreeLockedTransaction,
+} from '../core/sync/space-revision-writer.service';
 import { normalizeFolderName } from './folder-name';
 import {
   ContentTreeConflict,
@@ -104,93 +107,104 @@ export class ContentTreeService {
       throw new ContentTreeError('CONTENT_TREE_TAKE_INVALID', 'take must be an integer from 1 through 200');
     }
     const cursor = input.cursor ? decodeCursor(input.cursor, input.spaceId, parentFolderId) : null;
-    const commonWhere = { spaceId: input.spaceId, deletedAt: null } as const;
-    const folderAfter = cursor?.kind === 'folder' ? afterCursor(cursor) : undefined;
-    const pageAfter = cursor?.kind === 'page' ? afterCursor(cursor) : undefined;
-    const includeFolders = cursor?.kind !== 'page';
-    const folderWhere: Prisma.FolderWhereInput = {
-      ...commonWhere,
-      parentId: parentFolderId,
-      ...(!includeFolders ? { id: '__cursor-past-folders__' } : {}),
-      ...(folderAfter ? { OR: folderAfter } : {}),
-    };
-
-    const [space, folders, pages] = await Promise.all([
-      this.prisma.space.findUnique({
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      const space = await tx.space.findUnique({
         where: { id: input.spaceId, deletedAt: null },
         select: { contentTreeRevision: true },
-      }),
-      this.prisma.folder.findMany({
-        where: folderWhere,
-        select: {
-          id: true, name: true, path: true, sortOrder: true, createdAt: true, updatedAt: true,
-          _count: {
-            select: {
-              children: { where: { deletedAt: null } },
-              pages: { where: { deletedAt: null } },
+      });
+      if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+      if (parentFolderId) {
+        const parent = await tx.folder.findFirst({
+          where: { id: parentFolderId, spaceId: input.spaceId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!parent) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
+
+      const commonWhere = { spaceId: input.spaceId, deletedAt: null } as const;
+      const folderAfter = cursor?.kind === 'folder' ? afterCursor(cursor) : undefined;
+      const pageAfter = cursor?.kind === 'page' ? afterCursor(cursor) : undefined;
+      const includeFolders = cursor?.kind !== 'page';
+      const folderWhere: Prisma.FolderWhereInput = {
+        ...commonWhere,
+        parentId: parentFolderId,
+        ...(!includeFolders ? { id: '__cursor-past-folders__' } : {}),
+        ...(folderAfter ? { OR: folderAfter } : {}),
+      };
+      const [folders, pages] = await Promise.all([
+        tx.folder.findMany({
+          where: folderWhere,
+          select: {
+            id: true, name: true, path: true, sortOrder: true, createdAt: true, updatedAt: true,
+            _count: {
+              select: {
+                children: { where: { deletedAt: null } },
+                pages: { where: { deletedAt: null } },
+              },
             },
           },
-        },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        take: take + 1,
-      }),
-      this.prisma.page.findMany({
-        where: {
-          ...commonWhere,
-          folderId: parentFolderId,
-          ...(cursor?.kind === 'folder' ? {} : pageAfter ? { OR: pageAfter as Prisma.PageWhereInput[] } : {}),
-        },
-        select: {
-          id: true, folderId: true, title: true, syncPath: true,
-          sortOrder: true, createdAt: true, updatedAt: true,
-        },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-        take: take + 1,
-      }),
-    ]);
-    if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          take: take + 1,
+        }),
+        tx.page.findMany({
+          where: {
+            ...commonWhere,
+            folderId: parentFolderId,
+            ...(cursor?.kind === 'folder' ? {} : pageAfter ? { OR: pageAfter as Prisma.PageWhereInput[] } : {}),
+          },
+          select: {
+            id: true, folderId: true, title: true, syncPath: true,
+            sortOrder: true, createdAt: true, updatedAt: true,
+          },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          take: take + 1,
+        }),
+      ]);
 
-    const folderNodes: ContentTreeFolderNode[] = folders.map((folder) => ({
-      kind: 'folder',
-      id: folder.id,
-      name: folder.name,
-      path: folder.path,
-      sortOrder: folder.sortOrder,
-      createdAt: folder.createdAt,
-      updatedAt: folder.updatedAt,
-      hasChildren: folder._count.children > 0 || folder._count.pages > 0,
-    }));
-    const pageNodes: ContentTreePageNode[] = pages.map((page) => ({
-      kind: 'page',
-      id: page.id,
-      folderId: page.folderId,
-      title: page.title,
-      path: page.syncPath,
-      sortOrder: page.sortOrder,
-      createdAt: page.createdAt,
-      updatedAt: page.updatedAt,
-    }));
-    const candidates: ContentTreeNode[] = cursor?.kind === 'page'
-      ? pageNodes
-      : [...folderNodes, ...pageNodes];
-    const data = candidates.slice(0, take);
-    const nextCursor = candidates.length > take && data.length > 0
-      ? encodeCursor(data[data.length - 1]!, input.spaceId, parentFolderId)
-      : null;
-    return {
-      spaceId: input.spaceId,
-      treeRevision: space.contentTreeRevision,
-      parentFolderId,
-      data,
-      nextCursor,
-    };
+      const folderNodes: ContentTreeFolderNode[] = folders.map((folder) => ({
+        kind: 'folder',
+        id: folder.id,
+        name: folder.name,
+        path: folder.path,
+        sortOrder: folder.sortOrder,
+        createdAt: folder.createdAt,
+        updatedAt: folder.updatedAt,
+        hasChildren: folder._count.children > 0 || folder._count.pages > 0,
+      }));
+      const pageNodes: ContentTreePageNode[] = pages.map((page) => ({
+        kind: 'page',
+        id: page.id,
+        folderId: page.folderId,
+        title: page.title,
+        path: page.syncPath,
+        sortOrder: page.sortOrder,
+        createdAt: page.createdAt,
+        updatedAt: page.updatedAt,
+      }));
+      const candidates: ContentTreeNode[] = cursor?.kind === 'page'
+        ? pageNodes
+        : [...folderNodes, ...pageNodes];
+      const data = candidates.slice(0, take);
+      const nextCursor = candidates.length > take && data.length > 0
+        ? encodeCursor(data[data.length - 1]!, input.spaceId, parentFolderId)
+        : null;
+      return {
+        spaceId: input.spaceId,
+        treeRevision: space.contentTreeRevision,
+        parentFolderId,
+        data,
+        nextCursor,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async createFolder(input: CreateFolderInput): Promise<CreatedFolderResult> {
     assertActor(input.actor);
     const normalized = normalizeFolderName(input.name);
     return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockSpace(tx, input.spaceId);
+      const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, input.spaceId);
+      if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
       if (lockedTx.contentTreeRevision !== input.expectedTreeRevision) {
         throw new ContentTreeConflict(input.expectedTreeRevision, lockedTx.contentTreeRevision);
       }
@@ -278,59 +292,34 @@ export class ContentTreeService {
     });
   }
 
-  async placePage(input: PlacePageInput): Promise<PlacedPageResult> {
-    assertActor(input.actor);
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockSpace(tx, input.spaceId);
-      if (lockedTx.contentTreeRevision !== input.expectedTreeRevision) {
-        throw new ContentTreeConflict(input.expectedTreeRevision, lockedTx.contentTreeRevision);
-      }
-      const folder = input.folderId ? await lockedTx.folder.findFirst({
-        where: { id: input.folderId, spaceId: input.spaceId, deletedAt: null },
-        select: { id: true, path: true },
-      }) : null;
-      if (input.folderId && !folder) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
-      const page = await lockedTx.page.findFirst({
-        where: { id: input.pageId, spaceId: input.spaceId, deletedAt: null },
-        select: { id: true, title: true, content: true, syncPath: true, updatedAt: true },
-      });
-      if (!page) throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Page not found');
-      if (page.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-        throw new ContentTreeConflict(input.expectedUpdatedAt, page.updatedAt);
-      }
-      const allocated = await this.syncPaths.allocate(lockedTx, {
-        spaceId: input.spaceId,
-        directory: folder?.path ?? 'pages',
-        title: page.title,
-        excludePageId: page.id,
-      });
-      const updated = await lockedTx.page.update({
-        where: { id: page.id },
-        data: {
-          folderId: input.folderId,
-          syncPath: allocated.path,
-          syncPathKey: allocated.pathKey,
-          lastModifiedByUserId: input.actor.userId ?? null,
-          lastModifiedByAgentId: input.actor.agentId ?? null,
-          lastModifiedAt: new Date(),
-        },
-        select: { id: true, folderId: true, syncPath: true, updatedAt: true },
-      });
-      const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
-        lockedTx, input.spaceId, input.expectedTreeRevision,
-      );
-      const syncRevision = await this.revisionWriter.advance(lockedTx, input.spaceId, [{
-        operation: 'upsert',
-        pageId: page.id,
-        path: allocated.path,
-        title: page.title,
-        body: page.content,
-        previousPath: page.syncPath,
-      }], {
-        origin: input.actor.agentId ? 'change_set' : 'web_editor',
-        createdByUserId: input.actor.userId ?? null,
-      });
-      return { page: updated, treeRevision, syncRevisionId: syncRevision.revisionId };
+  async placePage(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: PlacePageInput,
+  ): Promise<PlacedPageResult> {
+    const existing = await lockedTx.page.findUnique({
+      where: { id: input.pageId },
+      select: { id: true, spaceId: true, deletedAt: true, syncPath: true },
     });
+    if (existing) {
+      throw new ContentTreeError(
+        'CONTENT_TREE_CONFLICT',
+        'placePage only prepares initial placement; existing Pages require the move lifecycle',
+      );
+    }
+    const folder = input.folderId ? await lockedTx.folder.findFirst({
+      where: { id: input.folderId, spaceId: input.spaceId, deletedAt: null },
+      select: { id: true, path: true },
+    }) : null;
+    if (input.folderId && !folder) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+    const allocated = await this.syncPaths.allocate(lockedTx, {
+      spaceId: input.spaceId,
+      directory: folder?.path ?? 'pages',
+      title: input.title,
+    });
+    return {
+      folderId: input.folderId,
+      syncPath: allocated.path,
+      syncPathKey: allocated.pathKey,
+    };
   }
 }

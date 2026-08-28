@@ -59,10 +59,8 @@ export interface MoveTreeNodeInput {
 export interface PlacePageInput {
   spaceId: string;
   pageId: string;
+  title: string;
   folderId: string | null;
-  expectedTreeRevision: bigint;
-  expectedUpdatedAt: Date;
-  actor: ContentTreeActor;
 }
 
 export interface ListChildrenInput {
@@ -122,12 +120,7 @@ export interface CreatedFolderResult {
 }
 
 export interface PlacedPageResult {
-  page: {
-    id: string;
-    folderId: string | null;
-    syncPath: string;
-    updatedAt: Date;
-  };
-  treeRevision: bigint;
-  syncRevisionId: string;
+  folderId: string | null;
+  syncPath: string;
+  syncPathKey: string;
 }
