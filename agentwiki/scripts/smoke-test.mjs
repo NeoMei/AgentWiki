@@ -10,7 +10,17 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { Client } = requireFromServer('@modelcontextprotocol/sdk/client/index.js');
 const { StreamableHTTPClientTransport } = requireFromServer('@modelcontextprotocol/sdk/client/streamableHttp.js');
 
-async function proposePageThroughMcp(apiUrl, apiKey, spaceId) {
+async function getContentTreeRevision(apiUrl, spaceId, token) {
+  const head = await request(
+    apiUrl,
+    `/spaces/${encodeURIComponent(spaceId)}/content-tree?take=1`,
+    { token },
+  );
+  assert.match(head.data.treeRevision, /^(?:0|[1-9]\d*)$/);
+  return head.data.treeRevision;
+}
+
+async function proposePageThroughMcp(apiUrl, apiKey, spaceId, expectedTreeRevision) {
   const client = new Client({ name: 'agentwiki-smoke', version: '1.0.0' });
   const transport = new StreamableHTTPClientTransport(new URL(`${apiUrl}/mcp`), {
     requestInit: { headers: { Authorization: `Bearer ${apiKey}` } },
@@ -19,7 +29,7 @@ async function proposePageThroughMcp(apiUrl, apiKey, spaceId) {
   try {
     const result = await client.callTool({
       name: 'propose_page',
-      arguments: { spaceId, title: 'Agent editor proposal', content: 'Pending review.' },
+      arguments: { spaceId, title: 'Agent editor proposal', content: 'Pending review.', expectedTreeRevision },
     });
     const text = result.content?.find((item) => item.type === 'text')?.text;
     assert.equal(typeof text, 'string');
@@ -44,7 +54,8 @@ async function request(apiUrl, path, { method = 'GET', token, apiKey, body, expe
   let data;
   try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
   if (expected ? !expected.includes(response.status) : !response.ok) {
-    throw new Error(`${method} ${path} failed with ${response.status}`);
+    const detail = typeof data === 'string' ? data : JSON.stringify(data);
+    throw new Error(`${method} ${path} failed with ${response.status}: ${detail.slice(0, 500)}`);
   }
   return { status: response.status, data };
 }
@@ -89,11 +100,22 @@ export async function runSmoke(environment = process.env) {
     fixture.spaceId = space.data.id;
     const spaces = await request(apiUrl, '/spaces', { token });
     assert.ok((spaces.data.data ?? spaces.data).some((candidate) => candidate.id === space.data.id));
+    const contentTreeRevision = await getContentTreeRevision(apiUrl, space.data.id, token);
 
     const createdPage = await request(apiUrl, '/pages', {
       method: 'POST', token,
-      body: { spaceId: space.data.id, title: 'Smoke Page', content: '# Smoke\n\nTest content.' },
+      body: { spaceId: space.data.id, title: 'Smoke Page', content: '# Smoke\n\nTest content.', expectedTreeRevision: contentTreeRevision },
     });
+    const contentTree = await request(
+      apiUrl,
+      `/spaces/${encodeURIComponent(space.data.id)}/content-tree?take=200`,
+      { token },
+    );
+    const createdNode = (contentTree.data.data ?? []).find(
+      (candidate) => candidate.id === createdPage.data.id,
+    );
+    assert.equal(createdNode?.kind, 'page');
+    assert.equal(createdNode?.folderId, null);
     const listedPages = await request(apiUrl, `/pages?spaceId=${encodeURIComponent(space.data.id)}`, { token });
     const pages = listedPages.data.data ?? listedPages.data;
     const page = pages.find((candidate) => candidate.id === createdPage.data.id);
@@ -138,21 +160,23 @@ export async function runSmoke(environment = process.env) {
     await request(apiUrl, `/agents/${agent.data.id}/grants/${space.data.id}`, {
       method: 'PUT', token, body: { role: 'reader' },
     });
+    const readerTreeRevision = await getContentTreeRevision(apiUrl, space.data.id, token);
     const downgradedAccess = await request(apiUrl, '/integrations/mcp', {
       apiKey: credential.data.apiKey,
     });
     assert.equal(downgradedAccess.data.access[0].credentials[0].authorization.role, 'reader');
     await request(apiUrl, '/pages', {
       method: 'POST', apiKey: credential.data.apiKey,
-      body: { spaceId: space.data.id, title: 'Must be denied', content: 'Reader cannot write.' },
+      body: { spaceId: space.data.id, title: 'Must be denied', content: 'Reader cannot write.', expectedTreeRevision: readerTreeRevision },
       expected: [403],
     });
     await request(apiUrl, `/agents/${agent.data.id}/grants/${space.data.id}`, {
       method: 'PUT', token, body: { role: 'editor' },
     });
+    const proposalTreeRevision = await getContentTreeRevision(apiUrl, space.data.id, token);
 
     const proposal = await proposePageThroughMcp(
-      apiUrl, credential.data.apiKey, space.data.id,
+      apiUrl, credential.data.apiKey, space.data.id, proposalTreeRevision,
     );
     assert.equal(proposal.status, 'pending_review');
     const postProposalAccess = await request(apiUrl, '/integrations/mcp', {
