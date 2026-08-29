@@ -478,22 +478,31 @@ export class SyncEngine {
     current: TreeRevisionContentManifestV2,
   ): Promise<TreeRevisionContentManifestV2> {
     if (bundle.spaceId !== this.spaceId) throw new SyncError('Folder publish Space mismatch.', 'SPACE_MISMATCH');
-    const folderIdsByPath = new Map(current.folders.map((folder) => [pathKey(folder.path), folder.folderId]));
+    const foldersByPathKey = new Map<string, typeof current.folders>();
+    for (const folder of current.folders) {
+      const key = pathKey(folder.path);
+      foldersByPathKey.set(key, [...(foldersByPathKey.get(key) ?? []), folder]);
+    }
     const pages = await Promise.all(bundle.pages.map(async (page) => {
+      const suppliedPath = page.path.startsWith('pages/') ? page.path : `pages/${page.path}`;
       let portablePath: string;
       try {
-        const suppliedPath = page.path.startsWith('pages/') ? page.path : `pages/${page.path}`;
         portablePath = validatePortableMarkdownPath(suppliedPath).path;
-        if (portablePath !== suppliedPath) throw new TypeError('Page path is not canonical');
       } catch {
         throw new SyncError(`Bundle Page ${page.pageId} path is not canonical.`, 'PAGE_PATH_INVALID');
       }
       const { dirname } = await import('node:path');
-      const directory = dirname(portablePath);
-      const folderId = directory === 'pages' ? null : folderIdsByPath.get(pathKey(directory));
-      if (folderId === undefined) {
+      const directory = dirname(suppliedPath);
+      const matchingFolders = directory === 'pages'
+        ? []
+        : (foldersByPathKey.get(pathKey(directory)) ?? []).filter((folder) => folder.path === directory);
+      if (directory !== 'pages' && matchingFolders.length !== 1) {
         throw new SyncError(`Bundle Page ${page.pageId} references an unknown Folder path.`, 'FOLDER_IDENTITY_UNKNOWN');
       }
+      if (portablePath !== suppliedPath) {
+        throw new SyncError(`Bundle Page ${page.pageId} path is not canonical.`, 'PAGE_PATH_INVALID');
+      }
+      const folderId = directory === 'pages' ? null : matchingFolders[0]!.folderId;
       return {
         pageId: page.pageId,
         folderId,

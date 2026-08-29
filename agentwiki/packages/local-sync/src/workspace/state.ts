@@ -277,6 +277,16 @@ interface FolderTreeOperationStateV2 {
   before: PersistedPathIdentityV2[];
   after?: PersistedPathIdentityV2[];
   rollbackAfter?: PersistedPathIdentityV2[];
+  rollbackArtifact?: RollbackArtifactV2;
+}
+
+interface RollbackArtifactV2 {
+  status: 'prepared' | 'ambiguous';
+  source: string;
+  target: string;
+  kind: 'file' | 'directory';
+  dev: string;
+  ino: string;
 }
 
 export interface FolderTreeTransactionOptionsV2 {
@@ -759,12 +769,12 @@ async function executeOperation(
   await fsyncDirectory(dirname(localPath(root, operation.path)));
 }
 
-async function reverseOperation(
+async function reverseOperationWithoutArtifact(
   root: string,
   operation: FolderTreeOperationV2,
   expectedCurrent: PersistedPathIdentityV2[],
   options?: Partial<FolderTreeTransactionOptionsV2>,
-): Promise<PersistedPathIdentityV2[] | null> {
+): Promise<void> {
   for (const value of operationPaths(operation)) await checkedPath(root, value, true, options);
   const current = await captureOperationIdentity(root, operation);
   if (!samePathIdentities(current, expectedCurrent)) {
@@ -774,47 +784,179 @@ async function reverseOperation(
     await checkedPath(root, operation.path, false, options);
     await rmdir(localPath(root, operation.path));
     await fsyncDirectory(dirname(localPath(root, operation.path)));
-    return null;
+    return;
   }
   if (operation.kind === 'link') {
     await checkedPath(root, operation.to, false, options);
     await unlink(localPath(root, operation.to));
     await fsyncDirectory(dirname(localPath(root, operation.to)));
-    return null;
+    return;
   }
   if (operation.kind === 'write') {
     await checkedPath(root, operation.path, false, options);
     await unlink(localPath(root, operation.path));
     await fsyncDirectory(dirname(localPath(root, operation.path)));
-    return null;
+    return;
   }
+  throw new TypeError('Rollback operation requires a pre-identified private artifact');
+}
+
+function rollbackArtifactKind(operation: FolderTreeOperationV2): RollbackArtifactV2['kind'] | null {
+  if (operation.kind === 'unlink') return 'file';
+  if (operation.kind === 'rmdir') return 'directory';
+  return null;
+}
+
+function assertRollbackArtifactSource(source: string): void {
+  if (!/^folder-tree-rollback-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(source)) {
+    throw new TypeError('Folder transaction rollback artifact source is invalid');
+  }
+}
+
+function rollbackArtifactPath(paths: SpaceWorkspacePaths, artifact: RollbackArtifactV2): string {
+  assertRollbackArtifactSource(artifact.source);
+  return join(paths.runtimeDir, artifact.source);
+}
+
+async function assertPrivateRuntimeRoot(paths: SpaceWorkspacePaths): Promise<void> {
+  const entry = await lstat(paths.runtimeDir);
+  if (entry.isSymbolicLink() || !entry.isDirectory()) {
+    throw new TypeError('Folder transaction private runtime root is unsafe');
+  }
+}
+
+async function capturePrivateRollbackArtifact(
+  paths: SpaceWorkspacePaths,
+  artifact: RollbackArtifactV2,
+): Promise<{ kind: 'file' | 'directory'; dev: string; ino: string } | null> {
+  await assertPrivateRuntimeRoot(paths);
+  try {
+    const entry = await lstat(rollbackArtifactPath(paths, artifact), { bigint: true });
+    if (entry.isSymbolicLink()) throw new TypeError('Folder transaction private rollback artifact is unsafe');
+    const kind = entry.isFile() ? 'file' : entry.isDirectory() ? 'directory' : null;
+    if (!kind) throw new TypeError('Folder transaction private rollback artifact has an unsupported type');
+    return { kind, dev: entry.dev.toString(), ino: entry.ino.toString() };
+  } catch (error) {
+    if (missing(error)) return null;
+    throw error;
+  }
+}
+
+function sameRollbackArtifactIdentity(
+  identity: { kind: ManagedPathKind; dev?: string; ino?: string } | null,
+  artifact: RollbackArtifactV2,
+): boolean {
+  return identity !== null && identity.kind === artifact.kind
+    && identity.dev === artifact.dev && identity.ino === artifact.ino;
+}
+
+async function requirePrivateRollbackArtifact(
+  paths: SpaceWorkspacePaths,
+  artifact: RollbackArtifactV2,
+): Promise<void> {
+  const current = await capturePrivateRollbackArtifact(paths, artifact);
+  if (!sameRollbackArtifactIdentity(current, artifact)) {
+    throw new TypeError('Folder transaction private rollback artifact was replaced; journal was preserved');
+  }
+}
+
+async function preparePrivateRollbackArtifact(
+  paths: SpaceWorkspacePaths,
+  operation: FolderTreeOperationV2,
+): Promise<RollbackArtifactV2> {
+  const kind = rollbackArtifactKind(operation);
+  if (!kind || (operation.kind !== 'unlink' && operation.kind !== 'rmdir')) {
+    throw new TypeError('Rollback operation does not create a new identity');
+  }
+  await assertPrivateRuntimeRoot(paths);
+  const source = `folder-tree-rollback-${randomUUID()}`;
+  const absoluteSource = join(paths.runtimeDir, source);
   if (operation.kind === 'unlink') {
-    await checkedPath(root, operation.path, true, options);
-    const destination = localPath(root, operation.path);
-    const handle = await open(destination, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    let createdIdentity: PersistedPathIdentityV2;
+    const handle = await open(absoluteSource, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try {
       await handle.writeFile(operation.before, 'utf8');
       await handle.sync();
-      const created = await handle.stat({ bigint: true });
-      createdIdentity = {
-        path: operation.path,
-        kind: 'file',
-        dev: created.dev.toString(),
-        ino: created.ino.toString(),
-      };
     } finally {
       await handle.close();
     }
-    await fsyncDirectory(dirname(destination));
-    return [createdIdentity!];
+  } else {
+    await mkdir(absoluteSource, { recursive: false });
+    await fsyncDirectory(absoluteSource);
   }
-  await checkedPath(root, operation.path, true, options);
-  await mkdir(localPath(root, operation.path), { recursive: false });
-  const created = await capturePathIdentity(root, operation.path);
-  if (created.kind !== 'directory') throw new TypeError('Rollback-created Folder identity is invalid');
-  await fsyncDirectory(dirname(localPath(root, operation.path)));
-  return [created];
+  await fsyncDirectory(paths.runtimeDir);
+  const entry = await lstat(absoluteSource, { bigint: true });
+  if (entry.isSymbolicLink() || (kind === 'file' ? !entry.isFile() : !entry.isDirectory())) {
+    throw new TypeError('Folder transaction private rollback artifact identity is invalid');
+  }
+  return {
+    status: 'prepared',
+    source,
+    target: operation.path,
+    kind,
+    dev: entry.dev.toString(),
+    ino: entry.ino.toString(),
+  };
+}
+
+async function removeOwnedPrivateRollbackArtifact(
+  paths: SpaceWorkspacePaths,
+  artifact: RollbackArtifactV2,
+): Promise<void> {
+  const current = await capturePrivateRollbackArtifact(paths, artifact);
+  if (current === null) return;
+  if (!sameRollbackArtifactIdentity(current, artifact)) {
+    throw new TypeError('Folder transaction private rollback artifact was replaced; journal was preserved');
+  }
+  if (artifact.kind === 'file') await unlink(rollbackArtifactPath(paths, artifact));
+  else await rmdir(rollbackArtifactPath(paths, artifact));
+  await fsyncDirectory(paths.runtimeDir);
+}
+
+async function materializePrivateRollbackArtifact(
+  paths: SpaceWorkspacePaths,
+  operation: Extract<FolderTreeOperationV2, { kind: 'unlink' | 'rmdir' }>,
+  artifact: RollbackArtifactV2,
+  expectedCurrent: PersistedPathIdentityV2[],
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<PersistedPathIdentityV2[]> {
+  const current = await captureOperationIdentity(paths.pagesDir, operation);
+  const currentTarget = current[0] ?? null;
+  if (sameRollbackArtifactIdentity(currentTarget, artifact)) {
+    await removeOwnedPrivateRollbackArtifact(paths, artifact);
+    return current;
+  }
+  if (!samePathIdentities(current, expectedCurrent)) {
+    throw new TypeError('Folder transaction rollback artifact target was replaced; journal was preserved');
+  }
+  await requirePrivateRollbackArtifact(paths, artifact);
+  await checkedPath(paths.pagesDir, operation.path, true, options);
+  const immediatelyBefore = await captureOperationIdentity(paths.pagesDir, operation);
+  if (!samePathIdentities(immediatelyBefore, expectedCurrent)) {
+    throw new TypeError('Folder transaction rollback artifact target changed before materialization');
+  }
+  await requirePrivateRollbackArtifact(paths, artifact);
+  const source = rollbackArtifactPath(paths, artifact);
+  const target = localPath(paths.pagesDir, operation.path);
+  if (artifact.kind === 'file') {
+    await link(source, target);
+    const linked = await capturePathIdentity(paths.pagesDir, operation.path);
+    if (!sameRollbackArtifactIdentity(linked, artifact)) {
+      throw new TypeError('Folder transaction rollback artifact link identity is invalid');
+    }
+    await unlink(source);
+  } else {
+    await rename(source, target);
+  }
+  await fsyncDirectory(dirname(target));
+  await fsyncDirectory(paths.runtimeDir);
+  const materialized = await captureOperationIdentity(paths.pagesDir, operation);
+  if (!sameRollbackArtifactIdentity(materialized[0] ?? null, artifact)) {
+    throw new TypeError('Folder transaction rollback artifact was replaced during materialization');
+  }
+  if (await capturePrivateRollbackArtifact(paths, artifact)) {
+    throw new TypeError('Folder transaction rollback artifact source remained after materialization');
+  }
+  return materialized;
 }
 
 function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
@@ -898,7 +1040,7 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
   }
   for (let index = 0; index < journal.operationStates.length; index += 1) {
     const state = journal.operationStates[index]!;
-    if (!state || Object.keys(state).some((key) => !['status', 'before', 'after', 'rollbackAfter'].includes(key))
+    if (!state || Object.keys(state).some((key) => !['status', 'before', 'after', 'rollbackAfter', 'rollbackArtifact'].includes(key))
       || !['prepared', 'ambiguous', 'applied'].includes(state.status)
       || !Array.isArray(state.before) || (state.after !== undefined && !Array.isArray(state.after))
       || (state.rollbackAfter !== undefined && !Array.isArray(state.rollbackAfter))) {
@@ -932,6 +1074,23 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
       throw new TypeError('Unapplied Folder transaction journal state has a post-state');
     }
     if (state.rollbackAfter !== undefined) validateIdentities(state.rollbackAfter, false);
+    if (state.rollbackArtifact !== undefined) {
+      const artifact = state.rollbackArtifact;
+      const operation = journal.operations[index]!;
+      const expectedKind = rollbackArtifactKind(operation);
+      if (journal.phase !== 'rolling-back'
+        || !artifact || typeof artifact !== 'object' || Array.isArray(artifact)
+        || Object.keys(artifact).some((key) => !['status', 'source', 'target', 'kind', 'dev', 'ino'].includes(key))
+        || !['prepared', 'ambiguous'].includes(artifact.status)
+        || typeof artifact.source !== 'string' || typeof artifact.target !== 'string'
+        || artifact.target !== (operation.kind === 'link' ? operation.to : operation.path)
+        || artifact.kind !== expectedKind
+        || typeof artifact.dev !== 'string' || typeof artifact.ino !== 'string'
+        || !/^\d+$/u.test(artifact.dev) || !/^\d+$/u.test(artifact.ino)) {
+        throw new TypeError('Folder transaction rollback artifact binding is invalid');
+      }
+      assertRollbackArtifactSource(artifact.source);
+    }
   }
   return journal;
 }
@@ -1198,6 +1357,7 @@ async function rollbackFolderTreeJournalV2(
       if (!samePathIdentities(current, state.rollbackAfter)) {
         throw new TypeError('Folder transaction rollback identity was replaced; journal was preserved');
       }
+      if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
       journal.rollbackNextOperation = index - 1;
       await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
       await options?.onCheckpoint?.(`rollback:${index}:committed`);
@@ -1209,24 +1369,52 @@ async function rollbackFolderTreeJournalV2(
       continue;
     }
     const current = await captureOperationIdentity(paths.pagesDir, operation);
+    const artifactMaterialized = state.rollbackArtifact
+      ? sameRollbackArtifactIdentity(current[0] ?? null, state.rollbackArtifact)
+      : false;
     if (state.status === 'ambiguous') {
       if (samePathIdentities(current, state.before)) {
+        if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
         state.rollbackAfter = current;
         await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
         await options?.onCheckpoint?.(`rollback:${index}:applied`);
         continue;
       }
-      if (!state.after || !samePathIdentities(current, state.after)) {
+      if (!artifactMaterialized && (!state.after || !samePathIdentities(current, state.after))) {
         throw new TypeError('Folder transaction rollback is ambiguous; journal was preserved');
       }
-    } else if (!state.after || !samePathIdentities(current, state.after)) {
+    } else if (!artifactMaterialized && (!state.after || !samePathIdentities(current, state.after))) {
       throw new TypeError('Folder transaction post-state was replaced; journal was preserved');
     }
     await options?.onCheckpoint?.(`rollback:${index}:prepared`);
-    const generatedIdentity = await reverseOperation(paths.pagesDir, operation, current, options);
-    const rollbackAfter = await captureOperationIdentity(paths.pagesDir, operation);
-    if (generatedIdentity && !samePathIdentities(generatedIdentity, rollbackAfter)) {
-      throw new TypeError('Rollback-created path identity was replaced before it became durable');
+    let rollbackAfter: PersistedPathIdentityV2[];
+    const artifactKind = rollbackArtifactKind(operation);
+    if (artifactKind) {
+      if (operation.kind !== 'unlink' && operation.kind !== 'rmdir') {
+        throw new TypeError('Folder transaction rollback artifact operation is invalid');
+      }
+      if (!state.rollbackArtifact) {
+        state.rollbackArtifact = await preparePrivateRollbackArtifact(paths, operation);
+        await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+        await options?.onCheckpoint?.(`rollback:${index}:artifact-prepared`);
+      }
+      if (state.rollbackArtifact.status === 'prepared') {
+        await requirePrivateRollbackArtifact(paths, state.rollbackArtifact);
+        state.rollbackArtifact.status = 'ambiguous';
+        await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+        await options?.onCheckpoint?.(`rollback:${index}:before-syscall`);
+      }
+      rollbackAfter = await materializePrivateRollbackArtifact(
+        paths,
+        operation,
+        state.rollbackArtifact,
+        state.after!,
+        options,
+      );
+      await options?.onCheckpoint?.(`rollback:${index}:after-syscall`);
+    } else {
+      await reverseOperationWithoutArtifact(paths.pagesDir, operation, current, options);
+      rollbackAfter = await captureOperationIdentity(paths.pagesDir, operation);
     }
     assertRollbackTransition(operation, state.before, rollbackAfter);
     propagateRollbackIdentityOverrides(journal, index, rollbackAfter);
@@ -1235,6 +1423,9 @@ async function rollbackFolderTreeJournalV2(
     await options?.onCheckpoint?.(`rollback:${index}:applied`);
   }
   await fsyncDirectory(paths.pagesDir);
+  for (const state of journal.operationStates ?? []) {
+    if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
+  }
   await options?.onCheckpoint?.('rollback:complete');
   await clearFolderTreeJournalV2(paths);
 }

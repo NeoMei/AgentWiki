@@ -553,6 +553,83 @@ describe('SyncEngine', () => {
     }).pushTreeV2(makeBundle({ baseRevision: 'rev-1', pages: [page] }))).rejects.toMatchObject({ code: 'FOLDER_IDENTITY_UNKNOWN' });
   });
 
+  it.each([
+    ['case', 'pages/Foo', 'pages/foo/New.md'],
+    ['Unicode normalization', 'pages/Caf\u00e9', 'pages/Cafe\u0301/New.md'],
+  ])('rejects a bundle Page whose %s-equivalent dirname is not the exact Folder path', async (_variant, folderPath, pagePath) => {
+    const tree: TreeRevisionContentManifestV2 = {
+      protocolVersion: '2', spaceId: 'space-1', pages: [],
+      folders: [{
+        folderId: 'folder-1', parentFolderId: null, name: folderPath.slice('pages/'.length),
+        path: folderPath, sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+      }],
+    };
+    await seedTreeWorkspace(tempHome, tree);
+    let published = false;
+    const client = {
+      pushTreeChangesV2: async () => {
+        published = true;
+        throw new Error('must not publish a Page with a mismatched Folder path');
+      },
+    } as unknown as AgentWikiClient;
+    const page = { ...makePage('p-new', 'Body'), path: pagePath };
+
+    await expect(new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    }).pushTreeV2(makeBundle({ baseRevision: 'rev-1', pages: [page] }))).rejects.toMatchObject({
+      code: 'FOLDER_IDENTITY_UNKNOWN',
+    });
+    expect(published).toBe(false);
+  });
+
+  it('binds a bundle Page after a completed case-only Folder transaction using the new exact path', async () => {
+    const initial: TreeRevisionContentManifestV2 = {
+      protocolVersion: '2', spaceId: 'space-1', pages: [],
+      folders: [{
+        folderId: 'folder-1', parentFolderId: null, name: 'Foo', path: 'pages/Foo',
+        sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+      }],
+    };
+    await seedTreeWorkspace(tempHome, initial);
+    const paths = workspacePaths(tempHome, 'space-1');
+    const renamed: TreeRevisionContentManifestV2 = {
+      ...initial,
+      folders: [{ ...initial.folders[0]!, name: 'foo', path: 'pages/foo' }],
+    };
+    const renamedHash = await treeRevisionContentHashV2(renamed);
+    await applyFolderTreeTransactionV2(paths, initial, renamed, (await readFolderIdentityStateV2(paths))!, {
+      revision: 'rev-2', controlBase: renamed, revisionContentHash: renamedHash,
+      pulledAt: '2026-08-29T00:00:00.000Z',
+    });
+
+    let pushedPage: TreeRevisionContentManifestV2['pages'][number] | undefined;
+    let published = renamed;
+    let publishedHash = renamedHash;
+    const client = {
+      pushTreeChangesV2: async (_connection: unknown, _credential: string, _spaceId: string, _baseRevision: string, changes: import('@neomei/agentwiki-sync-protocol').TreePushChangeV2[]) => {
+        const change = changes.find((candidate) => candidate.operation === 'upsert_page');
+        if (!change || change.operation !== 'upsert_page') throw new Error('missing exact Page upsert');
+        pushedPage = structuredClone(change.page);
+        published = { ...renamed, pages: [change.page] };
+        publishedHash = await treeRevisionContentHashV2(published);
+        return {
+          protocolVersion: '2', status: 'published', revision: 'rev-3', sequence: 3,
+          publishedAt: '2026-08-29T00:00:00.000Z', revisionContentHash: publishedHash,
+          folderCount: '1', pageCount: '1', revisionManifestByteLength: '1', revisionBodyBytes: '4', changeSetId: null,
+        };
+      },
+      getTreeSnapshotV2: async () => ({ revision: 'rev-3', sequence: 3, revisionContentHash: publishedHash, manifest: published }),
+    } as unknown as AgentWikiClient;
+    const page = { ...makePage('p-new', 'Body'), path: 'pages/foo/New.md' };
+
+    await expect(new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    }).pushTreeV2(makeBundle({ baseRevision: 'rev-2', pages: [page] }))).resolves.toMatchObject({ revision: 'rev-3' });
+    expect(pushedPage).toMatchObject({ folderId: 'folder-1', path: 'pages/foo/New.md' });
+  });
+
   it('uses the Folder-aware protocol directly from the common pull entrypoint when a device credential exists', async () => {
     const emptyTree: TreeRevisionContentManifestV2 = { protocolVersion: '2', spaceId: 'space-1', folders: [], pages: [] };
     const hash = await treeRevisionContentHashV2(emptyTree);
