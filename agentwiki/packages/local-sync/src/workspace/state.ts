@@ -252,6 +252,7 @@ interface FolderTreeJournalV2 {
   revision: string;
   phase: 'applying' | 'committing' | 'committed' | 'rolling-back';
   nextOperation: number;
+  rollbackNextOperation?: number;
   operations: FolderTreeOperationV2[];
   operationStates?: FolderTreeOperationStateV2[];
   rootIdentity?: { dev: string; ino: string };
@@ -275,6 +276,7 @@ interface FolderTreeOperationStateV2 {
   status: 'prepared' | 'ambiguous' | 'applied';
   before: PersistedPathIdentityV2[];
   after?: PersistedPathIdentityV2[];
+  rollbackAfter?: PersistedPathIdentityV2[];
 }
 
 export interface FolderTreeTransactionOptionsV2 {
@@ -282,6 +284,7 @@ export interface FolderTreeTransactionOptionsV2 {
   controlBase?: TreeRevisionContentManifestV2;
   revisionContentHash?: string;
   pulledAt?: string;
+  finalState?: FolderIdentityStateV2;
   onCheckpoint?: (checkpoint: string) => Promise<void> | void;
   afterPathCheck?: (path: string) => Promise<void> | void;
 }
@@ -337,7 +340,7 @@ async function checkedPath(
   root: string,
   value: string,
   allowMissingLeaf: boolean,
-  options?: FolderTreeTransactionOptionsV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<void> {
   assertManagedRelativePath(value);
   const identities: DirectoryIdentity[] = [];
@@ -433,6 +436,47 @@ function samePathIdentities(left: PersistedPathIdentityV2[], right: PersistedPat
     return other !== undefined && entry.path === other.path && entry.kind === other.kind
       && entry.dev === other.dev && entry.ino === other.ino;
   });
+}
+
+function samePathKinds(left: PersistedPathIdentityV2[], right: PersistedPathIdentityV2[]): boolean {
+  return left.length === right.length && left.every((entry, index) => {
+    const other = right[index];
+    return other !== undefined && entry.path === other.path && entry.kind === other.kind;
+  });
+}
+
+function assertRollbackTransition(
+  operation: FolderTreeOperationV2,
+  expectedBefore: PersistedPathIdentityV2[],
+  rollbackAfter: PersistedPathIdentityV2[],
+): void {
+  const recreatesIdentity = operation.kind === 'unlink' || operation.kind === 'rmdir';
+  if (recreatesIdentity ? !samePathKinds(rollbackAfter, expectedBefore) : !samePathIdentities(rollbackAfter, expectedBefore)) {
+    throw new TypeError('Folder transaction rollback produced an invalid path transition');
+  }
+}
+
+function propagateRollbackIdentityOverrides(
+  journal: FolderTreeJournalV2,
+  reversedIndex: number,
+  rollbackAfter: PersistedPathIdentityV2[],
+): void {
+  const generated = rollbackAfter.filter((identity) => identity.kind !== 'missing');
+  for (let index = 0; index < reversedIndex; index += 1) {
+    const state = journal.operationStates![index]!;
+    const replace = (identities: PersistedPathIdentityV2[] | undefined): void => {
+      if (!identities) return;
+      for (let identityIndex = 0; identityIndex < identities.length; identityIndex += 1) {
+        const identity = identities[identityIndex]!;
+        const override = generated.find((candidate) => (
+          candidate.path === identity.path && candidate.kind === identity.kind
+        ));
+        if (override) identities[identityIndex] = { ...override };
+      }
+    };
+    replace(state.before);
+    replace(state.after);
+  }
 }
 
 function assertOperationTransition(
@@ -662,7 +706,7 @@ async function buildFolderTreeOperationsV2(
 async function executeOperation(
   root: string,
   operation: FolderTreeOperationV2,
-  options?: FolderTreeTransactionOptionsV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
   expectedBefore?: PersistedPathIdentityV2[],
 ): Promise<void> {
   for (const value of operationPaths(operation)) await checkedPath(root, value, true, options);
@@ -715,55 +759,81 @@ async function executeOperation(
   await fsyncDirectory(dirname(localPath(root, operation.path)));
 }
 
-async function reverseOperation(root: string, operation: FolderTreeOperationV2): Promise<void> {
+async function reverseOperation(
+  root: string,
+  operation: FolderTreeOperationV2,
+  expectedCurrent: PersistedPathIdentityV2[],
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<PersistedPathIdentityV2[] | null> {
+  for (const value of operationPaths(operation)) await checkedPath(root, value, true, options);
+  const current = await captureOperationIdentity(root, operation);
+  if (!samePathIdentities(current, expectedCurrent)) {
+    throw new TypeError('Managed path identity changed before the rollback syscall');
+  }
   if (operation.kind === 'mkdir') {
-    await checkedPath(root, operation.path, false);
+    await checkedPath(root, operation.path, false, options);
     await rmdir(localPath(root, operation.path));
     await fsyncDirectory(dirname(localPath(root, operation.path)));
-    return;
+    return null;
   }
   if (operation.kind === 'link') {
-    await checkedPath(root, operation.to, false);
+    await checkedPath(root, operation.to, false, options);
     await unlink(localPath(root, operation.to));
     await fsyncDirectory(dirname(localPath(root, operation.to)));
-    return;
+    return null;
   }
   if (operation.kind === 'write') {
-    await checkedPath(root, operation.path, false);
+    await checkedPath(root, operation.path, false, options);
     await unlink(localPath(root, operation.path));
     await fsyncDirectory(dirname(localPath(root, operation.path)));
-    return;
+    return null;
   }
   if (operation.kind === 'unlink') {
-    await checkedPath(root, operation.path, true);
+    await checkedPath(root, operation.path, true, options);
     const destination = localPath(root, operation.path);
     const handle = await open(destination, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    let createdIdentity: PersistedPathIdentityV2;
     try {
       await handle.writeFile(operation.before, 'utf8');
       await handle.sync();
+      const created = await handle.stat({ bigint: true });
+      createdIdentity = {
+        path: operation.path,
+        kind: 'file',
+        dev: created.dev.toString(),
+        ino: created.ino.toString(),
+      };
     } finally {
       await handle.close();
     }
     await fsyncDirectory(dirname(destination));
-    return;
+    return [createdIdentity!];
   }
-  await checkedPath(root, operation.path, true);
+  await checkedPath(root, operation.path, true, options);
   await mkdir(localPath(root, operation.path), { recursive: false });
+  const created = await capturePathIdentity(root, operation.path);
+  if (created.kind !== 'directory') throw new TypeError('Rollback-created Folder identity is invalid');
   await fsyncDirectory(dirname(localPath(root, operation.path)));
+  return [created];
 }
 
 function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Folder transaction journal is invalid');
   const journal = value as FolderTreeJournalV2;
   if (Object.keys(journal as unknown as Record<string, unknown>).some((key) => ![
-    'schemaVersion', 'spaceId', 'revision', 'phase', 'nextOperation', 'operations', 'operationStates', 'rootIdentity', 'finalState', 'finalTree', 'control',
+    'schemaVersion', 'spaceId', 'revision', 'phase', 'nextOperation', 'rollbackNextOperation', 'operations', 'operationStates', 'rootIdentity', 'finalState', 'finalTree', 'control',
   ].includes(key))
     || (journal as { schemaVersion?: unknown }).schemaVersion !== 2
     || typeof journal.spaceId !== 'string' || typeof journal.revision !== 'string'
     || !['applying', 'committing', 'committed', 'rolling-back'].includes(journal.phase)
     || !Number.isSafeInteger(journal.nextOperation) || journal.nextOperation < 0
     || !Array.isArray(journal.operations) || journal.operations.length > 20_000
-    || journal.nextOperation > journal.operations.length) {
+    || journal.nextOperation > journal.operations.length
+    || (journal.rollbackNextOperation !== undefined && (
+      !Number.isSafeInteger(journal.rollbackNextOperation)
+      || journal.rollbackNextOperation < -1
+      || journal.rollbackNextOperation >= journal.operations.length
+    ))) {
     throw new TypeError('Folder transaction journal version or shape is invalid');
   }
   for (const raw of journal.operations as unknown[]) {
@@ -828,8 +898,10 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
   }
   for (let index = 0; index < journal.operationStates.length; index += 1) {
     const state = journal.operationStates[index]!;
-    if (!state || !['prepared', 'ambiguous', 'applied'].includes(state.status)
-      || !Array.isArray(state.before) || (state.after !== undefined && !Array.isArray(state.after))) {
+    if (!state || Object.keys(state).some((key) => !['status', 'before', 'after', 'rollbackAfter'].includes(key))
+      || !['prepared', 'ambiguous', 'applied'].includes(state.status)
+      || !Array.isArray(state.before) || (state.after !== undefined && !Array.isArray(state.after))
+      || (state.rollbackAfter !== undefined && !Array.isArray(state.rollbackAfter))) {
       throw new TypeError('Folder transaction journal operation state is invalid');
     }
     const expectedPaths = operationPaths(journal.operations[index]!);
@@ -859,6 +931,7 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
     } else if (state.after !== undefined) {
       throw new TypeError('Unapplied Folder transaction journal state has a post-state');
     }
+    if (state.rollbackAfter !== undefined) validateIdentities(state.rollbackAfter, false);
   }
   return journal;
 }
@@ -916,7 +989,7 @@ async function assertFolderTreeControlCommitV2(
 async function commitFolderTreeControlV2(
   paths: SpaceWorkspacePaths,
   journal: FolderTreeJournalV2,
-  options?: FolderTreeTransactionOptionsV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<void> {
   if (!journal.control) throw new TypeError('Folder transaction control commit is missing');
   await writeBase(paths, journal.revision, journal.control.base);
@@ -935,9 +1008,12 @@ async function commitFolderTreeControlV2(
 async function replayFolderTreeJournalV2(
   paths: SpaceWorkspacePaths,
   journal: FolderTreeJournalV2,
-  options?: FolderTreeTransactionOptionsV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<void> {
-  if (journal.phase === 'rolling-back') throw new TypeError('Folder transaction rollback must be completed before replay');
+  if (journal.phase === 'rolling-back') {
+    await rollbackFolderTreeJournalV2(paths, journal, options);
+    return;
+  }
   await assertJournalRootIdentity(paths, journal);
   if (journal.phase === 'applying') for (let index = journal.nextOperation; index < journal.operations.length; index += 1) {
     const operation = journal.operations[index]!;
@@ -1049,6 +1125,13 @@ export async function applyFolderTreeTransactionV2(
   } else if (options.revisionContentHash !== undefined || options.pulledAt !== undefined) {
     throw new TypeError('Folder transaction control metadata requires a control base');
   }
+  const finalState = options.finalState
+    ? assertFolderIdentityStateV2(options.finalState)
+    : targetIdentityState(target, options.revision);
+  if (finalState.spaceId !== target.spaceId || finalState.revision !== options.revision) {
+    throw new TypeError('Folder transaction final identity binding does not match its revision');
+  }
+  assertIdentityMatchesBase(target, finalState);
   const journal: FolderTreeJournalV2 = {
     schemaVersion: 2,
     spaceId: target.spaceId,
@@ -1058,7 +1141,7 @@ export async function applyFolderTreeTransactionV2(
     operations: await buildFolderTreeOperationsV2(paths, base, target),
     operationStates: [],
     rootIdentity: undefined,
-    finalState: targetIdentityState(target, options.revision),
+    finalState,
     ...(control ? { finalTree: target, control } : {}),
   };
   const rootIdentity = await lstat(paths.pagesDir, { bigint: true });
@@ -1073,50 +1156,85 @@ export async function applyFolderTreeTransactionV2(
 export async function recoverFolderTreeTransactionV2(
   paths: SpaceWorkspacePaths,
   mode: 'replay' | 'rollback',
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<void> {
   const journal = await readFolderTreeJournalV2(paths);
   if (!journal) return;
   if (mode === 'replay') {
-    await replayFolderTreeJournalV2(paths, journal);
+    await replayFolderTreeJournalV2(paths, journal, options);
     return;
   }
   await assertJournalRootIdentity(paths, journal);
   if (journal.phase === 'committing' || journal.phase === 'committed') {
-    await replayFolderTreeJournalV2(paths, journal);
+    await replayFolderTreeJournalV2(paths, journal, options);
     return;
   }
+  await rollbackFolderTreeJournalV2(paths, journal, options);
+}
+
+async function rollbackFolderTreeJournalV2(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<void> {
+  await assertJournalRootIdentity(paths, journal);
   if (journal.phase === 'applying') {
     journal.phase = 'rolling-back';
+    journal.rollbackNextOperation = journal.operations.length - 1;
+    await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    await options?.onCheckpoint?.('rollback:prepared');
+  }
+  if (journal.phase !== 'rolling-back') throw new TypeError('Folder transaction is not rollback-replayable');
+  if (journal.rollbackNextOperation === undefined) {
+    journal.rollbackNextOperation = journal.operations.length - 1;
     await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
   }
-  if (journal.operationStates) {
-    for (let index = journal.operations.length - 1; index >= 0; index -= 1) {
-      const state = journal.operationStates[index]!;
-      if (state.status === 'prepared') continue;
-      const current = await captureOperationIdentity(paths.pagesDir, journal.operations[index]!);
-      if (state.status === 'ambiguous') {
-        if (samePathIdentities(current, state.before)) continue;
-        if (!state.after || !samePathIdentities(current, state.after)) {
-          throw new TypeError('Folder transaction rollback is ambiguous; journal was preserved');
-        }
-      } else if (!state.after || !samePathIdentities(current, state.after)) {
-        throw new TypeError('Folder transaction post-state was replaced; journal was preserved');
+  while (journal.rollbackNextOperation >= 0) {
+    const index: number = journal.rollbackNextOperation;
+    const operation = journal.operations[index]!;
+    const state = journal.operationStates![index]!;
+    if (state.rollbackAfter) {
+      const current = await captureOperationIdentity(paths.pagesDir, operation);
+      if (!samePathIdentities(current, state.rollbackAfter)) {
+        throw new TypeError('Folder transaction rollback identity was replaced; journal was preserved');
       }
-      await reverseOperation(paths.pagesDir, journal.operations[index]!);
-      state.status = 'prepared';
-      state.before = await captureOperationIdentity(paths.pagesDir, journal.operations[index]!);
-      state.after = undefined;
+      journal.rollbackNextOperation = index - 1;
       await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+      await options?.onCheckpoint?.(`rollback:${index}:committed`);
+      continue;
     }
-    await fsyncDirectory(paths.pagesDir);
-    await clearFolderTreeJournalV2(paths);
-    return;
-  }
-  // The cursor is persisted only after the mutation and its fsync checkpoint.
-  // Therefore the operation at nextOperation may have taken effect before a crash.
-  for (let index = Math.min(journal.nextOperation - 1, journal.operations.length - 1); index >= 0; index -= 1) {
-    await reverseOperation(paths.pagesDir, journal.operations[index]!);
+    if (state.status === 'prepared') {
+      journal.rollbackNextOperation = index - 1;
+      await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+      continue;
+    }
+    const current = await captureOperationIdentity(paths.pagesDir, operation);
+    if (state.status === 'ambiguous') {
+      if (samePathIdentities(current, state.before)) {
+        state.rollbackAfter = current;
+        await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+        await options?.onCheckpoint?.(`rollback:${index}:applied`);
+        continue;
+      }
+      if (!state.after || !samePathIdentities(current, state.after)) {
+        throw new TypeError('Folder transaction rollback is ambiguous; journal was preserved');
+      }
+    } else if (!state.after || !samePathIdentities(current, state.after)) {
+      throw new TypeError('Folder transaction post-state was replaced; journal was preserved');
+    }
+    await options?.onCheckpoint?.(`rollback:${index}:prepared`);
+    const generatedIdentity = await reverseOperation(paths.pagesDir, operation, current, options);
+    const rollbackAfter = await captureOperationIdentity(paths.pagesDir, operation);
+    if (generatedIdentity && !samePathIdentities(generatedIdentity, rollbackAfter)) {
+      throw new TypeError('Rollback-created path identity was replaced before it became durable');
+    }
+    assertRollbackTransition(operation, state.before, rollbackAfter);
+    propagateRollbackIdentityOverrides(journal, index, rollbackAfter);
+    state.rollbackAfter = rollbackAfter;
+    await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    await options?.onCheckpoint?.(`rollback:${index}:applied`);
   }
   await fsyncDirectory(paths.pagesDir);
+  await options?.onCheckpoint?.('rollback:complete');
   await clearFolderTreeJournalV2(paths);
 }

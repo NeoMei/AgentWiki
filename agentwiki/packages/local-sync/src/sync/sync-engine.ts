@@ -30,6 +30,7 @@ import {
   treeRevisionDeltaV2,
   treeRevisionContentHashV2,
   TreeRevisionContentManifestV2Schema,
+  validatePortableMarkdownPath,
   type TreeRevisionContentManifestV2,
 } from '@neomei/agentwiki-sync-protocol';
 import type { FolderIdentityStateV2 } from '../workspace/manifest.js';
@@ -56,7 +57,7 @@ export interface PullResult {
 export interface PushResult {
   submitted: boolean;
   status: 'pending_review' | 'published' | 'noop' | 'existing';
-  submissionId: string;
+  submissionId?: string;
   changeSetId: string | null;
   currentRevision: string;
 }
@@ -92,6 +93,7 @@ export class SyncEngine {
   }
 
   async pull(): Promise<PullResult> {
+    if (this.options.syncDeviceCredential) return this.pullTreeV2();
     await this.ensureWorkspace();
     const manifest = await this.readManifest();
     let head: RevisionHead;
@@ -169,7 +171,16 @@ export class SyncEngine {
     const head = await this.client.getTreeRevisionHeadV2(this.options.connection, credential, this.spaceId);
     let state = await readFolderIdentityStateV2(this.paths);
     if (state?.revision === head.revision) {
-      await this.assertTreeNoopBindingV2(state, head.revisionContentHash);
+      const scanned = await this.assertTreeNoopBindingV2(state, head.revisionContentHash);
+      const base = this.assertTreeBase(await readBase(this.paths, state.revision), state.revision);
+      const localIdentityMerge = mergeTreeManifestsV2(base, scanned.manifest, base, scanned.unidentifiedFolders);
+      if (!localIdentityMerge.manifest || localIdentityMerge.conflicts.length > 0) {
+        return {
+          updated: false, revisionId: head.revision, pageCount: 0, memoryCount: 0, relationCount: 0,
+          conflicts: localIdentityMerge.conflicts,
+        };
+      }
+      await this.persistLocalIdentityStateV2(state, base, localIdentityMerge.manifest);
       return { updated: false, revisionId: head.revision, pageCount: 0, memoryCount: 0, relationCount: 0, conflicts: [] };
     }
     const snapshot = await this.client.getTreeSnapshotV2(this.options.connection, credential, this.spaceId, head.revision);
@@ -202,6 +213,7 @@ export class SyncEngine {
     if (!localIdentityMerge.manifest || localIdentityMerge.conflicts.length > 0) {
       return { updated: false, revisionId: head.revision, pageCount: 0, memoryCount: 0, relationCount: 0, conflicts: localIdentityMerge.conflicts };
     }
+    state = await this.persistLocalIdentityStateV2(state, base, localIdentityMerge.manifest);
     const merge = mergeTreeManifestsV2(base, localIdentityMerge.manifest, snapshot.manifest);
     if (!merge.manifest || merge.conflicts.length > 0) {
       return { updated: false, revisionId: head.revision, pageCount: 0, memoryCount: 0, relationCount: 0, conflicts: merge.conflicts };
@@ -210,12 +222,15 @@ export class SyncEngine {
       this.paths,
       localIdentityMerge.manifest,
       merge.manifest,
-      this.identityStateForLocalTreeV2(state, localIdentityMerge.manifest),
+      state,
       {
         revision: head.revision,
         controlBase: snapshot.manifest,
         revisionContentHash: head.revisionContentHash,
         pulledAt: new Date().toISOString(),
+        finalState: this.identityStateForLocalTreeV2(
+          state, merge.manifest, base, snapshot.manifest, head.revision,
+        ),
       },
     );
     return {
@@ -228,7 +243,7 @@ export class SyncEngine {
     await this.ensureWorkspace();
     const credential = this.requireSyncDeviceCredential();
     await recoverFolderTreeTransactionV2(this.paths, 'replay');
-    const state = await readFolderIdentityStateV2(this.paths);
+    let state = await readFolderIdentityStateV2(this.paths);
     if (!state) throw new SyncError('Pull the Folder-aware Space before publishing.', 'V2_BASE_REQUIRED');
     const base = this.assertTreeBase(await readBase(this.paths, state.revision), state.revision);
     const scanned = await this.scanLocalTreeV2(base, state);
@@ -236,6 +251,7 @@ export class SyncEngine {
     if (!currentMerge.manifest || currentMerge.conflicts.length > 0) {
       throw new SyncError('Local Folder identities are ambiguous; resolve them before publishing.', 'FOLDER_IDENTITY_AMBIGUOUS');
     }
+    state = await this.persistLocalIdentityStateV2(state, base, currentMerge.manifest);
     const target = isKnowledgeBundle(targetInput)
       ? await this.knowledgeBundleToTreeV2(targetInput, currentMerge.manifest)
       : canonicalTreeRevisionManifestV2(targetInput);
@@ -252,18 +268,30 @@ export class SyncEngine {
       this.paths,
       currentMerge.manifest,
       snapshot.manifest,
-      this.identityStateForLocalTreeV2(state, currentMerge.manifest),
+      state,
       {
         revision: result.revision,
         controlBase: snapshot.manifest,
         revisionContentHash: result.revisionContentHash,
         pulledAt: new Date().toISOString(),
+        finalState: this.identityStateForLocalTreeV2(
+          state, snapshot.manifest, base, snapshot.manifest, result.revision,
+        ),
       },
     );
     return { revision: result.revision, status: result.status };
   }
 
   async push(bundle: KnowledgeBundle): Promise<PushResult> {
+    if (this.options.syncDeviceCredential) {
+      const result = await this.pushTreeV2(bundle);
+      return {
+        submitted: true,
+        status: result.status,
+        changeSetId: null,
+        currentRevision: result.revision,
+      };
+    }
     const pullResult = await this.pull();
     if (pullResult.conflicts.length > 0) {
       throw new SyncError('Pull produced conflicts; resolve them before pushing.', 'CONFLICTS');
@@ -376,7 +404,10 @@ export class SyncEngine {
   private async assertTreeNoopBindingV2(
     state: FolderIdentityStateV2,
     expectedRevisionContentHash: string,
-  ): Promise<void> {
+  ): Promise<{
+    manifest: TreeRevisionContentManifestV2;
+    unidentifiedFolders: import('./merge.js').UnidentifiedLocalFolderV2[];
+  }> {
     try {
       if (state.spaceId !== this.spaceId) throw new TypeError('Folder identity Space mismatch');
       const base = this.assertTreeBase(await readBase(this.paths, state.revision), state.revision);
@@ -391,7 +422,7 @@ export class SyncEngine {
       for (const folder of base.folders) {
         if (!state.folders[folder.folderId]) throw new TypeError('Private Folder identity binding is incomplete');
       }
-      await this.scanLocalTreeV2(base, state);
+      return await this.scanLocalTreeV2(base, state);
     } catch (error) {
       if (error instanceof SyncError && error.code !== 'V2_BASE_INVALID') throw error;
       throw new SyncError('Private Folder control state is missing, corrupt, or not fully bound.', 'V2_CONTROL_STATE_INVALID');
@@ -401,15 +432,45 @@ export class SyncEngine {
   private identityStateForLocalTreeV2(
     state: FolderIdentityStateV2,
     local: TreeRevisionContentManifestV2,
+    previousBase: TreeRevisionContentManifestV2 = local,
+    nextControlBase: TreeRevisionContentManifestV2 = previousBase,
+    revision = state.revision,
   ): FolderIdentityStateV2 {
+    const activeFolderIds = new Set(local.folders.map((folder) => folder.folderId));
+    const previousFolderIds = new Set(previousBase.folders.map((folder) => folder.folderId));
+    const nextFolderIds = new Set(nextControlBase.folders.map((folder) => folder.folderId));
+    const pendingDeletes = Object.entries(state.folders).filter(([folderId]) => (
+      !activeFolderIds.has(folderId) && previousFolderIds.has(folderId) && nextFolderIds.has(folderId)
+    ));
     return {
       ...state,
-      folders: Object.fromEntries(local.folders.map((folder) => [folder.folderId, {
-        path: folder.path,
-        pathKey: pathKey(folder.path),
-        updatedAt: folder.updatedAt,
-      }])),
+      revision,
+      folders: Object.fromEntries([
+        ...local.folders.map((folder) => [folder.folderId, {
+          path: folder.path,
+          pathKey: pathKey(folder.path),
+          updatedAt: folder.updatedAt,
+        }] as const),
+        ...pendingDeletes,
+      ]),
     };
+  }
+
+  private async persistLocalIdentityStateV2(
+    state: FolderIdentityStateV2,
+    controlBase: TreeRevisionContentManifestV2,
+    local: TreeRevisionContentManifestV2,
+  ): Promise<FolderIdentityStateV2> {
+    const pendingState = this.identityStateForLocalTreeV2(state, local, controlBase, controlBase);
+    if (JSON.stringify(pendingState) === JSON.stringify(state)) return state;
+    await applyFolderTreeTransactionV2(this.paths, local, local, pendingState, {
+      revision: state.revision,
+      controlBase,
+      revisionContentHash: await treeRevisionContentHashV2(controlBase),
+      pulledAt: (await this.readManifest()).baseRevision?.pulledAt ?? new Date().toISOString(),
+      finalState: pendingState,
+    });
+    return pendingState;
   }
 
   private async knowledgeBundleToTreeV2(
@@ -417,13 +478,26 @@ export class SyncEngine {
     current: TreeRevisionContentManifestV2,
   ): Promise<TreeRevisionContentManifestV2> {
     if (bundle.spaceId !== this.spaceId) throw new SyncError('Folder publish Space mismatch.', 'SPACE_MISMATCH');
-    const currentPages = new Map(current.pages.map((page) => [page.pageId, page]));
+    const folderIdsByPath = new Map(current.folders.map((folder) => [pathKey(folder.path), folder.folderId]));
     const pages = await Promise.all(bundle.pages.map(async (page) => {
-      const previous = currentPages.get(page.pageId);
+      let portablePath: string;
+      try {
+        const suppliedPath = page.path.startsWith('pages/') ? page.path : `pages/${page.path}`;
+        portablePath = validatePortableMarkdownPath(suppliedPath).path;
+        if (portablePath !== suppliedPath) throw new TypeError('Page path is not canonical');
+      } catch {
+        throw new SyncError(`Bundle Page ${page.pageId} path is not canonical.`, 'PAGE_PATH_INVALID');
+      }
+      const { dirname } = await import('node:path');
+      const directory = dirname(portablePath);
+      const folderId = directory === 'pages' ? null : folderIdsByPath.get(pathKey(directory));
+      if (folderId === undefined) {
+        throw new SyncError(`Bundle Page ${page.pageId} references an unknown Folder path.`, 'FOLDER_IDENTITY_UNKNOWN');
+      }
       return {
         pageId: page.pageId,
-        folderId: previous?.folderId ?? null,
-        path: previous?.path ?? `pages/${page.pageId}.md`,
+        folderId,
+        path: portablePath,
         title: page.title,
         body: page.body,
         contentHash: await treePageContentHash(page.body),

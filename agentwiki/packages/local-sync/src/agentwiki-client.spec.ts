@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalSyncConnection } from './config.js';
 import { AgentWikiClient, redactSecrets } from './agentwiki-client.js';
-import { canonicalBytes, contentHash, treeRevisionContentHashV2, type TreePushChangeV2, type TreeRevisionContentManifestV2 } from '@neomei/agentwiki-sync-protocol';
+import { TREE_SYNC_V2_LIMITS, canonicalBytes, contentHash, treeRevisionContentHashV2, type TreePushChangeV2, type TreeRevisionContentManifestV2 } from '@neomei/agentwiki-sync-protocol';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +27,7 @@ describe('AgentWikiClient', () => {
     maxChangeCount: 100, maxConfirmationBytes: 4_194_304, maxClientSpacePages: 5_000,
     maxClientSpaceFolders: 10_000, maxSnapshotObjects: 15_000,
     maxClientManifestBytes: 4_194_304, maxClientTotalBodyBytes: 2_097_152,
+    maxDeltaItems: 15_000,
     maxResponseBytes: 4_194_304, maxPageItems: 100, pushSessionTtlSeconds: 900,
   };
 
@@ -74,6 +75,15 @@ describe('AgentWikiClient', () => {
     await expect(new AgentWikiClient(request as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret'))
       .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('never lets a caller enlarge the separate capabilities-discovery hard ceiling', async () => {
+    const response = jsonResponse({ payload: '汉'.repeat(TREE_SYNC_V2_LIMITS.capabilitiesDiscoveryBytes) });
+    const request = vi.fn().mockResolvedValue(response);
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeCapabilitiesV2(
+      connection, 'device-secret', Number.MAX_SAFE_INTEGER,
+    )).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
   });
 
   it('cancels a streamed response when strict UTF-8 decoding fails', async () => {
@@ -391,8 +401,35 @@ describe('AgentWikiClient', () => {
       .rejects.toMatchObject({ code: 'RESPONSE_INVALID' });
   });
 
-  it('rejects a delta whose aggregate change count exceeds maxChangeCount', async () => {
-    const capabilities = { ...v2Capabilities, maxChangeCount: 1 };
+  it('paginates a legal delta larger than the independent push change limit', async () => {
+    const capabilities = { ...v2Capabilities, maxDeltaItems: 150 };
+    const items = Array.from({ length: 120 }, (_, index) => ({
+      operation: 'archive_page' as const,
+      pageId: `p${index}`,
+      previousPath: `pages/P${index}.md`,
+    }));
+    let page = 0;
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().endsWith('/capabilities')) {
+        return jsonResponse({ protocolVersion: '2', capabilities, capabilitiesHash: 'a'.repeat(64) });
+      }
+      const selected = page === 0 ? items.slice(0, 100) : items.slice(100);
+      page += 1;
+      return jsonResponse({
+        protocolVersion: '2', spaceId: 'space-1', fromRevision: 'rev-1', toRevision: 'rev-2', toSequence: 2,
+        toRevisionContentHash: 'b'.repeat(64), toFolderCount: '0', toPageCount: '0',
+        toRevisionManifestByteLength: '0', toRevisionBodyBytes: '0', items: selected,
+        nextCursor: page === 1 ? 'next' : null,
+      });
+    });
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeDeltaV2(
+      connection, 'device-secret', 'space-1', 'rev-1',
+    )).resolves.toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ pageId: 'p119' })]) });
+  });
+
+  it('rejects a delta whose aggregate change count exceeds maxDeltaItems', async () => {
+    const capabilities = { ...v2Capabilities, maxDeltaItems: 1 };
     const request = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/capabilities')
       ? jsonResponse({ protocolVersion: '2', capabilities, capabilitiesHash: 'a'.repeat(64) })
       : jsonResponse({

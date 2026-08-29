@@ -19,6 +19,8 @@ export const TREE_SYNC_V2_LIMITS = {
   maxDocumentTreeBytes: 2 * 1024 * 1024,
   maxClientSpaceFolders: 10_000,
   maxSnapshotObjects: 15_000,
+  maxDeltaItems: 15_000,
+  maxResponseBytes: 4 * 1024 * 1024,
   capabilitiesDiscoveryBytes: 64 * 1024,
 } as const;
 
@@ -33,7 +35,8 @@ export const TreeSyncCapabilitiesV2Schema = z.object({
   maxSnapshotObjects: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxSnapshotObjects),
   maxClientManifestBytes: z.number().int().positive(),
   maxClientTotalBodyBytes: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes),
-  maxResponseBytes: z.number().int().positive(),
+  maxDeltaItems: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxDeltaItems),
+  maxResponseBytes: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxResponseBytes),
   maxPageItems: z.number().int().positive().max(200),
   pushSessionTtlSeconds: z.number().int().positive(),
 }).strict();

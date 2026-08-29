@@ -63,6 +63,7 @@ describe('sync v2 HTTP contract', () => {
       maxChangeCount: 100, maxConfirmationBytes: 4_194_304, maxClientSpacePages: 5_000,
       maxClientSpaceFolders: 10_000, maxSnapshotObjects: 15_000,
       maxClientManifestBytes: 4_194_304, maxClientTotalBodyBytes: 2_097_152,
+      maxDeltaItems: 15_000,
       maxResponseBytes: 4_194_304, maxPageItems: 100, pushSessionTtlSeconds: 900,
     }),
     hashV2: jest.fn().mockResolvedValue('a'.repeat(64)),

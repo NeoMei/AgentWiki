@@ -51,6 +51,7 @@ describe("Sync Protocol v2", () => {
       maxSnapshotObjects: 15_000,
       maxClientManifestBytes: 4_194_304,
       maxClientTotalBodyBytes: 2_097_152,
+      maxDeltaItems: 15_000,
       maxResponseBytes: 4_194_304,
       maxPageItems: 100,
       pushSessionTtlSeconds: 900,
@@ -64,6 +65,16 @@ describe("Sync Protocol v2", () => {
     const { maxSnapshotObjects: _missing, ...incomplete } = capabilities;
     expect(() => TreeCapabilitiesResponseV2Schema.parse({
       protocolVersion: "2", capabilities: incomplete, capabilitiesHash: hash,
+    })).toThrow();
+    expect(() => TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: "2",
+      capabilities: { ...capabilities, maxResponseBytes: TREE_SYNC_V2_LIMITS.maxResponseBytes + 1 },
+      capabilitiesHash: hash,
+    })).toThrow();
+    expect(() => TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: "2",
+      capabilities: { ...capabilities, maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems + 1 },
+      capabilitiesHash: hash,
     })).toThrow();
   });
 
@@ -211,6 +222,7 @@ describe("Sync Protocol v2", () => {
   it("keeps tree push limits at 100 changes and document-tree input at 2 MiB", async () => {
     expect(TREE_SYNC_V2_LIMITS.maxPushChanges).toBe(100);
     expect(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes).toBe(2 * 1024 * 1024);
+    expect(TREE_SYNC_V2_LIMITS.maxDeltaItems).toBeGreaterThan(100);
     await expect(partitionTreePushChangesV2(
       Array.from({ length: 101 }, (_, index) => ({ operation: "archive_folder" as const, folderId: `folder-${index}`, previousPath: `pages/folder-${index}` })),
       { maxBatchBytes: 1_000_000, maxBatchItems: 100, maxChangeCount: 100, maxPageBytes: 1_000_000 },

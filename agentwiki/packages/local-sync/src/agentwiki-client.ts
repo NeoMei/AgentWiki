@@ -159,6 +159,10 @@ function authorization(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
+function negotiatedV2ResponseBytes(maxResponseBytes: number): number {
+  return Math.min(maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes);
+}
+
 async function responseBody(response: Response, maximumBytes?: number): Promise<unknown> {
   if (maximumBytes !== undefined) {
     const declared = response.headers.get('content-length');
@@ -393,7 +397,7 @@ export class AgentWikiClient {
     const body = await this.send<unknown>(endpoint(connection.serverUrl, '/sync/v2/capabilities'), {
       method: 'GET',
       headers: authorization(syncDeviceCredential),
-    }, maximumResponseBytes);
+    }, Math.min(maximumResponseBytes, TREE_SYNC_V2_LIMITS.capabilitiesDiscoveryBytes));
     return this.parseV2(TreeCapabilitiesResponseV2Schema, body);
   }
 
@@ -406,7 +410,7 @@ export class AgentWikiClient {
     return this.parseV2(TreeRevisionHeadResponseV2Schema, await this.send<unknown>(
       endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/head`),
       { method: 'GET', headers: authorization(syncDeviceCredential) },
-      negotiated.capabilities.maxResponseBytes,
+      negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
     ));
   }
 
@@ -429,7 +433,7 @@ export class AgentWikiClient {
       const page = this.parseV2(TreeSnapshotPageV2Schema, await this.send<unknown>(
         endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/snapshot?${query.toString()}`),
         { method: 'GET', headers: authorization(syncDeviceCredential) },
-        negotiated.capabilities.maxResponseBytes,
+        negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
       ));
       const nextMetadata = { revision: page.revision, sequence: page.sequence, revisionContentHash: page.revisionContentHash };
       const nextCounts = {
@@ -499,7 +503,7 @@ export class AgentWikiClient {
       const page = this.parseV2(TreeDeltaPageV2Schema, await this.send<unknown>(
         endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/delta?${query.toString()}`),
         { method: 'GET', headers: authorization(syncDeviceCredential) },
-        negotiated.capabilities.maxResponseBytes,
+        negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
       ));
       const nextMetadata = {
         fromRevision: page.fromRevision, toRevision: page.toRevision, toSequence: page.toSequence,
@@ -522,7 +526,7 @@ export class AgentWikiClient {
         identities.add(entityId);
         items.push(item);
       }
-      if (items.length > negotiated.capabilities.maxChangeCount) {
+      if (items.length > negotiated.capabilities.maxDeltaItems) {
         throw new AgentWikiClientError('Delta exceeded the negotiated object limit', 502, 'RESPONSE_TOO_LARGE');
       }
       if (page.nextCursor !== null && cursors.has(page.nextCursor)) {
@@ -589,7 +593,7 @@ export class AgentWikiClient {
             headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
             body: JSON.stringify(createBody),
           },
-          negotiated.capabilities.maxResponseBytes,
+          negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
         ));
         if (session.result) return session.result;
         for (const batch of batches) {
@@ -600,7 +604,7 @@ export class AgentWikiClient {
               headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
               body: JSON.stringify(batch),
             },
-            negotiated.capabilities.maxResponseBytes,
+            negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
           ));
           if (receipt.batchHash !== batch.batchHash) {
             throw new AgentWikiClientError('Push batch receipt did not match the uploaded batch', 502, 'RESPONSE_INVALID');
@@ -613,7 +617,7 @@ export class AgentWikiClient {
             headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
             body: JSON.stringify({ protocolVersion: '2', confirmationHash, userConfirmed: true }),
           },
-          negotiated.capabilities.maxResponseBytes,
+          negotiatedV2ResponseBytes(negotiated.capabilities.maxResponseBytes),
         ));
       } catch (error) {
         if (attempt === 0 && error instanceof AgentWikiClientError && error.code === 'CAPABILITIES_CHANGED') continue;

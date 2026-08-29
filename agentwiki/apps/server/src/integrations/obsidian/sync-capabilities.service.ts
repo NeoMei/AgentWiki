@@ -24,6 +24,8 @@ export class SyncCapabilitiesService {
       maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
       maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
       maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
+      maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems,
+      maxResponseBytes: Math.min(DEFAULT_SYNC_CAPABILITIES.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes),
     };
   }
 

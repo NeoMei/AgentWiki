@@ -7,6 +7,7 @@ import {
   normalizeMarkdown,
   treeRevisionDeltaV2,
   treeRevisionContentHashV2,
+  TREE_SYNC_V2_LIMITS,
   validatePortableDirectoryPath,
   validatePortableMarkdownPath,
   type SyncFolderV2,
@@ -99,7 +100,10 @@ export class SyncV2RevisionService {
     const start = this.resumeIndex(entries.map((entry) => entry.key), afterKey);
     const metadata = this.snapshotMetadata(spaceId, loaded);
     const selected: typeof entries = [];
-    const maxBytes = this.capabilities.capabilitiesV2().maxResponseBytes;
+    const maxBytes = Math.min(
+      this.capabilities.capabilitiesV2().maxResponseBytes,
+      TREE_SYNC_V2_LIMITS.maxResponseBytes,
+    );
     for (let index = start; index < entries.length && selected.length < limit; index += 1) {
       const candidate = [...selected, entries[index]!];
       const hasMore = index + 1 < entries.length;
@@ -148,6 +152,10 @@ export class SyncV2RevisionService {
       this.loadRevision(tx, spaceId, toRevision),
     ]));
     const items = this.deltaItems(from.manifest, to.manifest);
+    const capabilities = this.capabilities.capabilitiesV2();
+    if (items.length > capabilities.maxDeltaItems) {
+      throw new SyncApiException('SPACE_TOO_LARGE', 'Delta exceeds maxDeltaItems', undefined, '2');
+    }
     const start = afterOrdinal === undefined ? 0 : afterOrdinal + 1;
     if (start > items.length) this.invalidCursor();
     const metadata = {
@@ -163,7 +171,7 @@ export class SyncV2RevisionService {
       toRevisionBodyBytes: String(to.revisionBodyBytes),
     };
     const selected: TreeDeltaItemV2[] = [];
-    const maxBytes = this.capabilities.capabilitiesV2().maxResponseBytes;
+    const maxBytes = Math.min(capabilities.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes);
     for (let index = start; index < items.length && selected.length < limit; index += 1) {
       const candidate = [...selected, items[index]!];
       const hasMore = index + 1 < items.length;

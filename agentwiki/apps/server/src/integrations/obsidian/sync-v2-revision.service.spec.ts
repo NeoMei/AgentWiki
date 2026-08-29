@@ -33,7 +33,7 @@ function cursorCodec() {
   };
 }
 
-async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
+async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_000) {
   const bodyHash = await contentHash('# Page\n');
   const hydratedPage = { ...page, contentHash: bodyHash };
   const revisions = new Map<string, any>([
@@ -163,7 +163,7 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
   } as any;
   prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => unknown) => callback(prisma));
   const cursors = cursorCodec();
-  const capabilities = { capabilitiesV2: jest.fn(() => ({ maxResponseBytes })) };
+  const capabilities = { capabilitiesV2: jest.fn(() => ({ maxResponseBytes, maxDeltaItems })) };
   return {
     service: new SyncV2RevisionService(prisma, cursors as any, capabilities as any),
     prisma, cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
@@ -319,6 +319,26 @@ describe('SyncV2RevisionService', () => {
     expect(response.items[1]).toEqual(expect.objectContaining({
       operation: 'upsert_folder', folder: expect.objectContaining({ parentFolderId: 'root' }),
     }));
+  });
+
+  it('paginates a delta larger than the push limit but fails closed above maxDeltaItems', async () => {
+    const allowed = await fixture(4 * 1024 * 1024, 150);
+    const items = Array.from({ length: 120 }, (_, index) => ({
+      operation: 'archive_page' as const,
+      pageId: `page-${index}`,
+      previousPath: `pages/Page-${index}.md`,
+    }));
+    jest.spyOn(allowed.service as any, 'deltaItems').mockReturnValue(items);
+
+    const first = await allowed.service.delta('space-1', 'rev-1', undefined, 100);
+    const second = await allowed.service.delta('space-1', 'rev-1', first.nextCursor!, 100);
+    expect(first.items).toHaveLength(100);
+    expect(second.items).toHaveLength(20);
+
+    const rejected = await fixture(4 * 1024 * 1024, 119);
+    jest.spyOn(rejected.service as any, 'deltaItems').mockReturnValue(items);
+    await expect(rejected.service.delta('space-1', 'rev-1', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'SPACE_TOO_LARGE' });
   });
 
   it('binds delta cursors to the fixed from/to revisions and rejects cross-route replay', async () => {
