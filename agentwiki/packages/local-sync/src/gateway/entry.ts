@@ -42,6 +42,7 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
   const syncEngine = (spaceId: string): SyncEngine => new SyncEngine({
     connection,
     apiKey: credential.apiKey,
+    syncDeviceCredential: credential.syncDeviceCredential,
     client,
     home: deps.home,
     spaceId,

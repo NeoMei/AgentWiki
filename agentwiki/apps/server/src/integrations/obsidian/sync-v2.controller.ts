@@ -18,6 +18,7 @@ import {
   PushSessionParamsSchema,
   SpaceParamsSchema,
   TreeFinalizePushRequestV2Schema,
+  TreeCapabilitiesResponseV2Schema,
   TreePushBatchV2Schema,
   parseBatchIndex,
   parsePageLimit,
@@ -28,6 +29,7 @@ import { PushSessionService } from './push-session.service';
 import { SyncApiException } from './sync-error';
 import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
 
 @Controller('sync/v2')
 @UseGuards(HumanDeviceGuard)
@@ -37,7 +39,17 @@ export class SyncV2Controller {
     private readonly prisma: PrismaService,
     private readonly revisions: SyncV2RevisionService,
     private readonly pushSessions: PushSessionService,
+    private readonly capabilities: SyncCapabilitiesService,
   ) {}
+
+  @Get('capabilities')
+  async negotiatedCapabilities() {
+    return TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: '2' as const,
+      capabilities: this.capabilities.capabilitiesV2(),
+      capabilitiesHash: await this.capabilities.hashV2(),
+    });
+  }
 
   @Get('spaces')
   async listSpaces(@Req() request: { user: HumanDevicePrincipal }) {

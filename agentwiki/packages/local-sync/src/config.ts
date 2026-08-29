@@ -24,6 +24,11 @@ export interface LocalSyncConfig {
 }
 
 export interface CredentialFile {
+  version: 2;
+  credentials: Record<string, { apiKey: string; syncDeviceCredential?: string }>;
+}
+
+export interface LegacyCredentialFileV1 {
   version: 1;
   credentials: Record<string, { apiKey: string }>;
 }
@@ -63,7 +68,7 @@ function defaultConfig(): LocalSyncConfig {
 }
 
 function defaultCredentials(): CredentialFile {
-  return { version: 1, credentials: {} };
+  return { version: 2, credentials: {} };
 }
 
 async function loadJson<T>(path: string, fallback: T): Promise<T> {
@@ -111,11 +116,57 @@ export async function saveConfig(home: string, config: LocalSyncConfig): Promise
 }
 
 export async function loadCredentials(home: string): Promise<CredentialFile> {
-  return loadJson(credentialsPath(home), defaultCredentials());
+  const raw = await loadJson<unknown>(credentialsPath(home), defaultCredentials());
+  const credentials = parseCredentials(raw);
+  if ((raw as { version?: unknown }).version === 1) {
+    await writeJsonAtomically(credentialsPath(home), credentials);
+  }
+  return credentials;
 }
 
-export async function saveCredentials(home: string, credentials: CredentialFile): Promise<void> {
-  await writeJsonAtomically(credentialsPath(home), credentials);
+export async function saveCredentials(home: string, credentials: CredentialFile | LegacyCredentialFileV1): Promise<void> {
+  await writeJsonAtomically(credentialsPath(home), parseCredentials(credentials));
+}
+
+function parseCredentials(value: unknown): CredentialFile {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Credential file must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.version === 'number' && record.version > 2) {
+    throw new TypeError('Credential file uses a future version');
+  }
+  if (record.version !== 1 && record.version !== 2) {
+    throw new TypeError('Credential file version is unsupported');
+  }
+  if (Object.keys(record).some((key) => key !== 'version' && key !== 'credentials')) {
+    throw new TypeError('Credential file contains unknown fields');
+  }
+  if (!record.credentials || typeof record.credentials !== 'object' || Array.isArray(record.credentials)) {
+    throw new TypeError('Credential file credentials must be an object');
+  }
+  const credentials: CredentialFile['credentials'] = {};
+  for (const [credentialId, rawCredential] of Object.entries(record.credentials as Record<string, unknown>)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(credentialId)
+      || !rawCredential || typeof rawCredential !== 'object' || Array.isArray(rawCredential)) {
+      throw new TypeError('Credential file contains an invalid credential entry');
+    }
+    const credential = rawCredential as Record<string, unknown>;
+    const allowed = record.version === 1 ? ['apiKey'] : ['apiKey', 'syncDeviceCredential'];
+    if (Object.keys(credential).some((key) => !allowed.includes(key))
+      || typeof credential.apiKey !== 'string' || credential.apiKey.length === 0
+      || (credential.syncDeviceCredential !== undefined
+        && (typeof credential.syncDeviceCredential !== 'string' || credential.syncDeviceCredential.length === 0))) {
+      throw new TypeError('Credential file contains an invalid credential secret');
+    }
+    credentials[credentialId] = {
+      apiKey: credential.apiKey,
+      ...(typeof credential.syncDeviceCredential === 'string'
+        ? { syncDeviceCredential: credential.syncDeviceCredential }
+        : {}),
+    };
+  }
+  return { version: 2, credentials };
 }
 
 export async function getOrCreateSourceKey(home: string, sourcePath: string): Promise<string> {

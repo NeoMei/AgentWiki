@@ -1,5 +1,12 @@
 import type { WikiPage, SharedMemory, KnowledgeRelation, KnowledgeBundle, DeletionProposal } from '../protocol/bundle.js';
 import { createHash } from 'node:crypto';
+import {
+  canonicalTreeRevisionManifestV2,
+  pathKey,
+  type SyncFolderV2,
+  type SyncPageV2,
+  type TreeRevisionContentManifestV2,
+} from '@neomei/agentwiki-sync-protocol';
 
 function canonicalHash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value, Object.keys(value as object).sort())).digest('hex').slice(0, 32);
@@ -269,4 +276,132 @@ export function applyConflictResolution<T extends KnowledgeItem>(
     return { ...result, memories: replaceIn(result.memories, (m) => (m as SharedMemory).memoryId), conflicts: remaining };
   }
   return { ...result, relations: replaceIn(result.relations, (r) => (r as KnowledgeRelation).relationId), conflicts: remaining };
+}
+
+export type TreeConflictKindV2 =
+  | 'folder-add-add'
+  | 'folder-delete-modify'
+  | 'folder-parent-delete-child-add'
+  | 'folder-identity-ambiguous'
+  | 'folder-field'
+  | 'page-add-add'
+  | 'page-delete-modify'
+  | 'page-field';
+
+export interface TreeConflictV2 {
+  id: string;
+  itemId: string;
+  itemKind: 'folder' | 'page';
+  conflictKind: TreeConflictKindV2;
+  conflictingFields: string[];
+  base: SyncFolderV2 | SyncPageV2 | null;
+  local: SyncFolderV2 | SyncPageV2 | null;
+  remote: SyncFolderV2 | SyncPageV2 | null;
+}
+
+export interface UnidentifiedLocalFolderV2 {
+  path: string;
+  empty: boolean;
+  possibleFolderIds: string[];
+}
+
+export interface TreeMergeResultV2 {
+  manifest: TreeRevisionContentManifestV2 | null;
+  conflicts: TreeConflictV2[];
+}
+
+function sameTreeItem(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function mergeTreeItem<T extends SyncFolderV2 | SyncPageV2>(base: T, local: T, remote: T): { value: T; fields: string[] } {
+  const value = { ...base } as Record<string, unknown>;
+  const fields: string[] = [];
+  for (const key of new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)])) {
+    const baseValue = (base as unknown as Record<string, unknown>)[key];
+    const localValue = (local as unknown as Record<string, unknown>)[key];
+    const remoteValue = (remote as unknown as Record<string, unknown>)[key];
+    if (sameTreeItem(localValue, remoteValue)) value[key] = localValue;
+    else if (sameTreeItem(baseValue, localValue)) value[key] = remoteValue;
+    else if (sameTreeItem(baseValue, remoteValue)) value[key] = localValue;
+    else { fields.push(key); value[key] = localValue; }
+  }
+  return { value: value as unknown as T, fields };
+}
+
+export function mergeTreeManifestsV2(
+  base: TreeRevisionContentManifestV2,
+  local: TreeRevisionContentManifestV2,
+  remote: TreeRevisionContentManifestV2,
+  unidentifiedLocalFolders: UnidentifiedLocalFolderV2[] = [],
+): TreeMergeResultV2 {
+  if (base.spaceId !== local.spaceId || base.spaceId !== remote.spaceId) throw new TypeError('Tree merge Space mismatch');
+  const conflicts: TreeConflictV2[] = [];
+  const conflict = (
+    itemKind: 'folder' | 'page', conflictKind: TreeConflictKindV2, itemId: string,
+    baseItem: SyncFolderV2 | SyncPageV2 | null, localItem: SyncFolderV2 | SyncPageV2 | null,
+    remoteItem: SyncFolderV2 | SyncPageV2 | null, conflictingFields: string[] = [],
+  ) => conflicts.push({
+    id: canonicalHash({ itemKind, conflictKind, itemId, baseItem, localItem, remoteItem, conflictingFields }).slice(0, 16),
+    itemId, itemKind, conflictKind, base: baseItem, local: localItem, remote: remoteItem, conflictingFields,
+  });
+  const mergeKind = <T extends SyncFolderV2 | SyncPageV2>(
+    itemKind: 'folder' | 'page', idOf: (item: T) => string, baseItems: T[], localItems: T[], remoteItems: T[],
+  ): T[] => {
+    const byBase = new Map(baseItems.map((item) => [idOf(item), item]));
+    const byLocal = new Map(localItems.map((item) => [idOf(item), item]));
+    const byRemote = new Map(remoteItems.map((item) => [idOf(item), item]));
+    const merged: T[] = [];
+    for (const id of new Set([...byBase.keys(), ...byLocal.keys(), ...byRemote.keys()])) {
+      const b = byBase.get(id) ?? null;
+      const l = byLocal.get(id) ?? null;
+      const r = byRemote.get(id) ?? null;
+      if (!b) {
+        if (l && r && !sameTreeItem(l, r)) conflict(itemKind, itemKind === 'folder' ? 'folder-add-add' : 'page-add-add', id, null, l, r);
+        if (l ?? r) merged.push((l ?? r)!);
+        continue;
+      }
+      if (!l && !r) continue;
+      if (!l || !r) {
+        const survivor = l ?? r!;
+        if (!sameTreeItem(b, survivor)) conflict(itemKind, itemKind === 'folder' ? 'folder-delete-modify' : 'page-delete-modify', id, b, l, r);
+        continue;
+      }
+      const itemMerge = mergeTreeItem(b, l, r);
+      if (itemMerge.fields.length > 0) conflict(itemKind, itemKind === 'folder' ? 'folder-field' : 'page-field', id, b, l, r, itemMerge.fields);
+      merged.push(itemMerge.value);
+    }
+    return merged;
+  };
+  const folders = mergeKind('folder', (item) => item.folderId, base.folders, local.folders, remote.folders);
+  const pages = mergeKind('page', (item) => item.pageId, base.pages, local.pages, remote.pages);
+  const baseFolderIds = new Set(base.folders.map((item) => item.folderId));
+  const localNew = local.folders.filter((item) => !baseFolderIds.has(item.folderId));
+  const remoteNew = remote.folders.filter((item) => !baseFolderIds.has(item.folderId));
+  for (const left of localNew) for (const right of remoteNew) {
+    if (left.folderId !== right.folderId && pathKey(left.path) === pathKey(right.path)) {
+      conflict('folder', 'folder-add-add', left.folderId, null, left, right, ['path']);
+    }
+  }
+  for (const parent of base.folders) {
+    const localDeleted = !local.folders.some((folder) => folder.folderId === parent.folderId);
+    const remoteDeleted = !remote.folders.some((folder) => folder.folderId === parent.folderId);
+    const remoteChildAdded = remote.folders.some((folder) => !baseFolderIds.has(folder.folderId) && folder.parentFolderId === parent.folderId)
+      || remote.pages.some((page) => !base.pages.some((basePage) => basePage.pageId === page.pageId) && page.folderId === parent.folderId);
+    const localChildAdded = local.folders.some((folder) => !baseFolderIds.has(folder.folderId) && folder.parentFolderId === parent.folderId)
+      || local.pages.some((page) => !base.pages.some((basePage) => basePage.pageId === page.pageId) && page.folderId === parent.folderId);
+    if ((localDeleted && remoteChildAdded) || (remoteDeleted && localChildAdded)) {
+      conflict('folder', 'folder-parent-delete-child-add', parent.folderId, parent,
+        local.folders.find((folder) => folder.folderId === parent.folderId) ?? null,
+        remote.folders.find((folder) => folder.folderId === parent.folderId) ?? null);
+    }
+  }
+  const missingFolderIds = base.folders.filter((folder) => !local.folders.some((candidate) => candidate.folderId === folder.folderId));
+  for (const unknown of unidentifiedLocalFolders) {
+    if (unknown.possibleFolderIds.length > 1 || (unknown.empty && missingFolderIds.length > 0)) {
+      conflict('folder', 'folder-identity-ambiguous', unknown.possibleFolderIds.join(',') || unknown.path, null, null, null, ['path']);
+    }
+  }
+  if (conflicts.length > 0) return { manifest: null, conflicts };
+  return { manifest: canonicalTreeRevisionManifestV2({ protocolVersion: '2', spaceId: base.spaceId, folders, pages }), conflicts };
 }

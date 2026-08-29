@@ -4,6 +4,7 @@ import {
   SYNC_PROTOCOL_V2,
   TREE_SYNC_V2_LIMITS,
   TreeDeltaPageV2Schema,
+  TreeCapabilitiesResponseV2Schema,
   TreePushBatchV2Schema,
   TreeRevisionContentManifestV2Schema,
   TreeSnapshotPageV2Schema,
@@ -38,6 +39,28 @@ const page = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("Sync Protocol v2", () => {
+  it("strictly validates negotiated v2 capabilities and their binding hash", () => {
+    const capabilities = {
+      maxPageBytes: 1_048_576,
+      maxBatchBytes: 4_194_304,
+      maxBatchItems: 100,
+      maxChangeCount: 100,
+      maxConfirmationBytes: 4_194_304,
+      maxClientSpacePages: 5_000,
+      maxClientManifestBytes: 4_194_304,
+      maxClientTotalBodyBytes: 2_097_152,
+      maxResponseBytes: 4_194_304,
+      maxPageItems: 100,
+      pushSessionTtlSeconds: 900,
+    };
+    expect(TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: "2", capabilities, capabilitiesHash: hash,
+    })).toEqual({ protocolVersion: "2", capabilities, capabilitiesHash: hash });
+    expect(() => TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: "2", capabilities, capabilitiesHash: hash, unexpected: true,
+    })).toThrow();
+  });
+
   it("uses strict v2 envelopes and validates Folder and Page paths independently", () => {
     expect(TreePushBatchV2Schema.parse({
       protocolVersion: SYNC_PROTOCOL_V2,

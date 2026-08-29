@@ -9,6 +9,7 @@ import { ObsidianCryptoService } from './obsidian-crypto.service';
 import { SyncV2Controller } from './sync-v2.controller';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
 import { PushSessionService } from './push-session.service';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
 
 describe('sync v2 HTTP contract', () => {
   let app: INestApplication;
@@ -56,6 +57,15 @@ describe('sync v2 HTTP contract', () => {
     finalizeV2: jest.fn().mockResolvedValue({ protocolVersion: '2', status: 'noop', revision: '0' }),
     getV2: jest.fn(), abortV2: jest.fn(),
   };
+  const capabilities = {
+    capabilitiesV2: jest.fn().mockReturnValue({
+      maxPageBytes: 1_048_576, maxBatchBytes: 4_194_304, maxBatchItems: 100,
+      maxChangeCount: 100, maxConfirmationBytes: 4_194_304, maxClientSpacePages: 5_000,
+      maxClientManifestBytes: 4_194_304, maxClientTotalBodyBytes: 2_097_152,
+      maxResponseBytes: 4_194_304, maxPageItems: 100, pushSessionTtlSeconds: 900,
+    }),
+    hashV2: jest.fn().mockResolvedValue('a'.repeat(64)),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -66,6 +76,7 @@ describe('sync v2 HTTP contract', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: SyncV2RevisionService, useValue: revisions },
         { provide: PushSessionService, useValue: pushSessions },
+        { provide: SyncCapabilitiesService, useValue: capabilities },
       ],
     }).compile();
     prisma.humanDeviceCredential.findUnique.mockImplementation(async ({ where }: any) => (
@@ -86,6 +97,18 @@ describe('sync v2 HTTP contract', () => {
   beforeEach(() => jest.clearAllMocks());
 
   const auth = { Authorization: 'Bearer device-secret' };
+
+  it('negotiates the exact v2 capabilities and binding hash under device authentication', async () => {
+    const response = await fetch(`${baseUrl}/sync/v2/capabilities`, { headers: auth });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      protocolVersion: '2',
+      capabilities: capabilities.capabilitiesV2(),
+      capabilitiesHash: 'a'.repeat(64),
+    });
+    expect(capabilities.hashV2).toHaveBeenCalledTimes(1);
+  });
 
   it('serves the v2 head with no redirect', async () => {
     const response = await fetch(`${baseUrl}/sync/v2/spaces/space-1/head`, {

@@ -10,6 +10,10 @@
 
 Every JSON success or failure envelope carries `protocolVersion: "2"`; `204 No Content` is the only bodyless success. Requests are validated by strict runtime schemas from `@neomei/agentwiki-sync-protocol`, so unknown fields fail with `PAYLOAD_INVALID`.
 
+Local Sync keeps two credentials in its private, versioned credential store. The existing Agent API key remains limited to legacy Agent/knowledge flows. A separately enrolled human device credential is the only credential sent to `/sync/v2`; it is never copied into public connection configuration, workspace manifests, Folder identity state, managed Pages, logs, or errors. A Folder-aware Space that requires v2 fails locally when this device credential is missing and never retries with the Agent key or flattens the tree.
+
+Before v2 reads or publication, clients fetch `GET /api/sync/v2/capabilities`. Its strict response is `{ protocolVersion: "2", capabilities, capabilitiesHash }`; `capabilitiesHash` is produced by the same server capability service used to validate push-session creation. A `CAPABILITIES_CHANGED` response permits one bounded refetch and complete session rebuild; a second change fails closed. No private server override or secret is exposed.
+
 ## Canonical tree objects
 
 `SyncFolderV2` contains `folderId`, `parentFolderId`, `name`, canonical directory `path`, `sortOrder`, and RFC 3339 `updatedAt`. `SyncPageV2` contains `pageId`, `folderId`, canonical Markdown `path`, `title`, normalized `body`, `contentHash`, and `updatedAt`.
@@ -35,6 +39,7 @@ Delta order is fixed: archived Pages; archived Folders deepest-child first; upse
 
 | Method | Path | Result |
 |---|---|---|
+| GET | `/capabilities` | strict negotiated limits and their canonical hash |
 | GET | `/spaces` | readable Spaces and current revision/count metadata |
 | GET | `/spaces/:spaceId/head` | current immutable v2 head |
 | GET | `/spaces/:spaceId/snapshot?revision=current&limit=100&cursor=...` | Folder and Page page |

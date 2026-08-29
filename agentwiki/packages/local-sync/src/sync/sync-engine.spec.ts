@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SyncEngine, SyncError } from './sync-engine.js';
-import { AgentWikiClient } from '../agentwiki-client.js';
+import { AgentWikiClient, AgentWikiClientError } from '../agentwiki-client.js';
 import type { LocalSyncConnection } from '../config.js';
 import type { KnowledgeBundle, WikiPage } from '../protocol/bundle.js';
 import type { RevisionHead, RevisionSnapshot, KnowledgeSubmissionResult } from '../agentwiki-client.js';
@@ -140,6 +140,43 @@ describe('SyncEngine', () => {
     expect(result.updated).toBe(true);
     expect(result.pageCount).toBe(1);
     expect(result.revisionId).toBe('rev-1');
+  });
+
+  it('fails locally when a Folder Space requires v2 but no device credential is configured', async () => {
+    const client = {
+      getRevisionHead: async () => { throw new AgentWikiClientError('upgrade', 409, 'SYNC_PROTOCOL_UPGRADE_REQUIRED'); },
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({ connection, apiKey: 'agk_must-not-be-reused', client, home: tempHome, spaceId: 'space-1' });
+
+    await expect(engine.pull()).rejects.toMatchObject({ code: 'SYNC_DEVICE_CREDENTIAL_REQUIRED' });
+  });
+
+  it('upgrades a legacy v1 workspace into a Folder tree without flattening or losing Page identity', async () => {
+    const legacy = makeClient();
+    await new SyncEngine({ connection, apiKey: 'agk_test', client: legacy.client, home: tempHome, spaceId: 'space-1' }).pull();
+    const updatedAt = '2026-08-29T00:00:00.000Z';
+    const remoteTree = {
+      protocolVersion: '2' as const, spaceId: 'space-1',
+      folders: [{ folderId: 'f1', parentFolderId: null, name: 'Folder', path: 'pages/Folder', sortOrder: 0, updatedAt }],
+      pages: [{ pageId: 'p1', folderId: 'f1', path: 'pages/Folder/Page.md', title: 'Page', body: 'Hello', contentHash: contentHash('Hello'), updatedAt }],
+    };
+    const v2Client = {
+      getRevisionHead: async () => { throw new AgentWikiClientError('upgrade', 409, 'SYNC_PROTOCOL_UPGRADE_REQUIRED'); },
+      getTreeRevisionHeadV2: async () => ({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-2', sequence: 2,
+        revisionContentHash: 'a'.repeat(64), folderCount: '1', pageCount: '1', revisionManifestByteLength: '1', revisionBodyBytes: '5', publishedAt: updatedAt,
+      }),
+      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash: 'a'.repeat(64), manifest: remoteTree }),
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({
+      connection, apiKey: 'agk_must-not-be-used-for-v2', syncDeviceCredential: 'device-secret',
+      client: v2Client, home: tempHome, spaceId: 'space-1',
+    });
+
+    const result = await engine.pull();
+
+    expect(result.updated).toBe(true);
+    expect(await import('node:fs/promises').then(({ readFile }) => readFile(join(workspacePaths(tempHome, 'space-1').pagesDir, 'Folder', 'Page.md'), 'utf8'))).toBe('Hello');
   });
 
   it('pull is noop when local base revision matches remote head', async () => {

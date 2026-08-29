@@ -19,6 +19,30 @@ export const TREE_SYNC_V2_LIMITS = {
   maxDocumentTreeBytes: 2 * 1024 * 1024,
 } as const;
 
+export const TreeSyncCapabilitiesV2Schema = z.object({
+  maxPageBytes: z.number().int().positive(),
+  maxBatchBytes: z.number().int().positive(),
+  maxBatchItems: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxPushChanges),
+  maxChangeCount: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxPushChanges),
+  maxConfirmationBytes: z.number().int().positive(),
+  maxClientSpacePages: z.number().int().positive(),
+  maxClientManifestBytes: z.number().int().positive(),
+  maxClientTotalBodyBytes: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes),
+  maxResponseBytes: z.number().int().positive(),
+  maxPageItems: z.number().int().positive().max(200),
+  pushSessionTtlSeconds: z.number().int().positive(),
+}).strict();
+
+export type TreeSyncCapabilitiesV2 = z.infer<typeof TreeSyncCapabilitiesV2Schema>;
+
+export const TreeCapabilitiesResponseV2Schema = z.object({
+  protocolVersion: z.literal(SYNC_PROTOCOL_V2),
+  capabilities: TreeSyncCapabilitiesV2Schema,
+  capabilitiesHash: HashSchema,
+}).strict();
+
+export type TreeCapabilitiesResponseV2 = z.infer<typeof TreeCapabilitiesResponseV2Schema>;
+
 function validateManagedPath(
   input: string,
   validate: (value: string) => { path: string },

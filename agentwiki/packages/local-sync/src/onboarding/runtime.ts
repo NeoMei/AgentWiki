@@ -92,10 +92,13 @@ function installedKnowledge(home: string): KnowledgeWorkflowFn {
     const connection = config.connections[connectionId];
     if (!connection) throw new Error(`onboarding connection ${connectionId} is missing`);
     const credentials = await loadCredentials(home);
-    const apiKey = credentials.credentials[connection.credentialId]?.apiKey;
+    const privateCredential = credentials.credentials[connection.credentialId];
+    const apiKey = privateCredential?.apiKey;
     if (!apiKey) throw new Error('onboarding gateway credential is missing');
     const client = new AgentWikiClient();
-    const engine = (spaceId: string) => new SyncEngine({ connection, apiKey, client, home, spaceId });
+    const engine = (spaceId: string) => new SyncEngine({
+      connection, apiKey, syncDeviceCredential: privateCredential?.syncDeviceCredential, client, home, spaceId,
+    });
     const sync: RemoteSync = {
       pull: async (spaceId) => ({ revisionId: (await engine(spaceId).pull()).revisionId }),
       push: async (spaceId, bundle) => {

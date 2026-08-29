@@ -87,6 +87,8 @@ test.describe('local sync enrollment card', () => {
     await expect(instructions).not.toContainText('connect --server');
     await expect(instructions).toContainText('AW-');
     await expect(instructions).not.toContainText('agk_');
+    await expect(instructions).not.toContainText('syncDeviceCredential');
+    await expect(instructions).not.toContainText('human device credential');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.6.1');

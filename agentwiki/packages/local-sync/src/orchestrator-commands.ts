@@ -21,6 +21,7 @@ export interface OrchestratorCommandDeps {
   home: string;
   connection: LocalSyncConnection;
   readApiKey: () => Promise<string>;
+  readSyncDeviceCredential?: () => Promise<string | undefined>;
   client: AgentWikiClient;
   adapters: SourceAdapter[];
   recipes: Recipe[];
@@ -60,6 +61,7 @@ export function createOrchestratorCommands(deps: OrchestratorCommandDeps): Orche
     return new SyncEngine({
       connection: deps.connection,
       apiKey: await deps.readApiKey(),
+      syncDeviceCredential: await deps.readSyncDeviceCredential?.(),
       client: deps.client,
       home: deps.home,
       spaceId,

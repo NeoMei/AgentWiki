@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { mergeBundles, applyConflictResolution } from './merge.js';
+import { mergeBundles, applyConflictResolution, mergeTreeManifestsV2 } from './merge.js';
 import type { KnowledgeBundle, WikiPage, SharedMemory, KnowledgeRelation, DeletionProposal } from '../protocol/bundle.js';
+import type { TreeRevisionContentManifestV2 } from '@neomei/agentwiki-sync-protocol';
 
 function makePage(overrides: Partial<WikiPage> = {}): WikiPage {
   return {
@@ -151,5 +152,41 @@ describe('mergeBundles', () => {
     const local = makeBundle({ pages: [makePage()] });
     const result = mergeBundles(makeBundle(), local, makeBundle());
     expect(result.pages[0].proposed?.pageId).toBe('p1');
+  });
+});
+
+describe('Folder-aware tree merge v2', () => {
+  const updatedAt = '2026-08-29T00:00:00.000Z';
+  const tree = (folders: TreeRevisionContentManifestV2['folders'] = [], pages: TreeRevisionContentManifestV2['pages'] = []): TreeRevisionContentManifestV2 => ({ protocolVersion: '2', spaceId: 'space-1', folders, pages });
+  const folder = (folderId: string, name: string, parentFolderId: string | null = null) => ({ folderId, parentFolderId, name, path: `pages/${name}`, sortOrder: 0, updatedAt });
+
+  it('merges a one-sided rename by stable Folder ID', () => {
+    const base = tree([folder('f1', 'Before')]);
+    const result = mergeTreeManifestsV2(base, tree([folder('f1', 'After')]), structuredClone(base));
+    expect(result.conflicts).toEqual([]);
+    expect(result.manifest?.folders[0]?.path).toBe('pages/After');
+  });
+
+  it('reports add/add portable basename and delete/modify while allowing Page/Folder same basename', () => {
+    const base = tree([folder('f1', 'Base')]);
+    const local = tree([folder('local-new', 'Readme')]);
+    const remote = tree([
+      { ...folder('f1', 'Base'), sortOrder: 2 }, folder('remote-new', 'README'),
+    ], [{ pageId: 'p1', folderId: null, path: 'pages/Readme.md', title: 'Readme', body: '', contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', updatedAt }]);
+    const result = mergeTreeManifestsV2(base, local, remote);
+    expect(result.conflicts.map((conflict) => conflict.conflictKind)).toEqual(expect.arrayContaining(['folder-add-add', 'folder-delete-modify']));
+    expect(result.conflicts.some((conflict) => conflict.itemId === 'p1')).toBe(false);
+  });
+
+  it('reports parent-delete/child-add and never guesses an empty unknown rename', () => {
+    const base = tree([folder('parent', 'Parent')]);
+    const remote = tree([folder('parent', 'Parent'), { folderId: 'child', parentFolderId: 'parent', name: 'Child', path: 'pages/Parent/Child', sortOrder: 0, updatedAt }]);
+    const result = mergeTreeManifestsV2(base, tree(), remote, [{ path: 'pages/Renamed', empty: true, possibleFolderIds: [] }]);
+    expect(result.conflicts.map((conflict) => conflict.conflictKind)).toEqual(expect.arrayContaining(['folder-parent-delete-child-add', 'folder-identity-ambiguous']));
+  });
+
+  it('reports two Folder identity matches instead of choosing one', () => {
+    const result = mergeTreeManifestsV2(tree([folder('f1', 'One'), folder('f2', 'Two')]), tree(), tree(), [{ path: 'pages/Moved', empty: false, possibleFolderIds: ['f1', 'f2'] }]);
+    expect(result.conflicts).toEqual([expect.objectContaining({ conflictKind: 'folder-identity-ambiguous' })]);
   });
 });

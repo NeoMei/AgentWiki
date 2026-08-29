@@ -29,6 +29,8 @@ export interface SpaceWorkspacePaths {
   draftsDir: string;
   checkpointsDir: string;
   runtimeDir: string;
+  folderIdentityFile: string;
+  folderTransactionJournalFile: string;
 }
 
 export function workspacePaths(baseDir: string, spaceId: string): SpaceWorkspacePaths {
@@ -47,5 +49,7 @@ export function workspacePaths(baseDir: string, spaceId: string): SpaceWorkspace
     draftsDir: join(root, '.state', 'drafts'),
     checkpointsDir: join(root, '.state', 'checkpoints'),
     runtimeDir: join(root, '.state', 'runtime'),
+    folderIdentityFile: join(root, '.state', 'folder-identities-v2.json'),
+    folderTransactionJournalFile: join(root, '.state', 'runtime', 'folder-tree-transaction-v2.json'),
   };
 }

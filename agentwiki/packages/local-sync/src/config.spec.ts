@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,8 @@ import {
   claimPreview,
   completePreview,
   getOrCreateSourceKey,
+  loadCredentials,
+  saveConfig,
   releasePreview,
   saveCredentials,
   savePreview,
@@ -26,6 +28,40 @@ afterEach(async () => {
 });
 
 describe('secure local state', () => {
+  it('migrates v1 credentials to v2 and keeps the device credential out of public config', async () => {
+    const home = await createHome();
+    await saveConfig(home, {
+      version: 1,
+      defaultConnectionId: 'local',
+      connections: {
+        local: {
+          id: 'local', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-1',
+          pluginVersion: '0.6.1', client: 'codex', mcpName: 'agentwiki',
+        },
+      },
+    });
+    await saveCredentials(home, {
+      version: 1,
+      credentials: { 'cred-1': { apiKey: 'agk_secret' } },
+    });
+
+    const migrated = await loadCredentials(home);
+    migrated.credentials['cred-1']!.syncDeviceCredential = 'device-secret';
+    await saveCredentials(home, migrated);
+
+    expect(migrated.version).toBe(2);
+    expect((await readFile(join(home, '.agentwiki', 'credentials.json'), 'utf8'))).toContain('device-secret');
+    expect(await readFile(join(home, '.agentwiki', 'local-sync.json'), 'utf8')).not.toContain('device-secret');
+  });
+
+  it('rejects a future credential schema instead of guessing', async () => {
+    const home = await createHome();
+    await mkdir(join(home, '.agentwiki'), { recursive: true });
+    await writeFile(join(home, '.agentwiki', 'credentials.json'), JSON.stringify({ version: 3, credentials: {} }));
+
+    await expect(loadCredentials(home)).rejects.toThrow(/future|version/i);
+  });
+
   it('writes credentials with POSIX mode 0600 and never into the project', async () => {
     const home = await createHome();
 

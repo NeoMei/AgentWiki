@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalSyncConnection } from './config.js';
 import { AgentWikiClient, redactSecrets } from './agentwiki-client.js';
+import { canonicalBytes, contentHash, treeRevisionContentHashV2, type TreePushChangeV2, type TreeRevisionContentManifestV2 } from '@neomei/agentwiki-sync-protocol';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -21,6 +22,165 @@ const connection: LocalSyncConnection = {
 };
 
 describe('AgentWikiClient', () => {
+  const v2Capabilities = {
+    maxPageBytes: 1_048_576, maxBatchBytes: 4_194_304, maxBatchItems: 100,
+    maxChangeCount: 100, maxConfirmationBytes: 4_194_304, maxClientSpacePages: 5_000,
+    maxClientManifestBytes: 4_194_304, maxClientTotalBodyBytes: 2_097_152,
+    maxResponseBytes: 4_194_304, maxPageItems: 100, pushSessionTtlSeconds: 900,
+  };
+
+  it('negotiates strict v2 capabilities using only the device credential', async () => {
+    const request = vi.fn().mockResolvedValue(jsonResponse({
+      protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64),
+    }));
+
+    const result = await new AgentWikiClient(request as typeof fetch)
+      .getTreeCapabilitiesV2(connection, 'device-secret');
+
+    expect(result.capabilities.maxChangeCount).toBe(100);
+    expect(request).toHaveBeenCalledWith('https://wiki.test/api/sync/v2/capabilities', expect.objectContaining({
+      headers: { Authorization: 'Bearer device-secret' },
+    }));
+    expect(JSON.stringify(request.mock.calls)).not.toContain('agk_secret');
+  });
+
+  it('rejects malformed or oversized v2 responses before using their data', async () => {
+    const malformed = vi.fn().mockResolvedValue(jsonResponse({
+      protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64), unexpected: true,
+    }));
+    await expect(new AgentWikiClient(malformed as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret'))
+      .rejects.toMatchObject({ code: 'RESPONSE_INVALID' });
+
+    const oversized = vi.fn().mockResolvedValue(jsonResponse({ payload: 'x'.repeat(1024) }));
+    await expect(new AgentWikiClient(oversized as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret', 64))
+      .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+  });
+
+  it('re-fetches capabilities once and pushes one atomic v2 session', async () => {
+    let capabilityReads = 0;
+    let createAttempts = 0;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      requests.push({ url, init });
+      if (url.endsWith('/sync/v2/capabilities')) {
+        capabilityReads += 1;
+        return jsonResponse({
+          protocolVersion: '2', capabilities: v2Capabilities,
+          capabilitiesHash: (capabilityReads === 1 ? 'a' : 'b').repeat(64),
+        });
+      }
+      if (url.endsWith('/push-sessions')) {
+        createAttempts += 1;
+        if (createAttempts === 1) return jsonResponse({ protocolVersion: '2', error: { code: 'CAPABILITIES_CHANGED', message: 'changed', retryable: true } }, 409);
+        return jsonResponse({
+          protocolVersion: '2', sessionId: '11111111-1111-4111-8111-111111111111',
+          status: 'uploading', expiresAt: '2026-08-29T01:00:00.000Z', result: null,
+        }, 201);
+      }
+      if (url.includes('/batches/0')) return jsonResponse({
+        protocolVersion: '2', sessionId: '11111111-1111-4111-8111-111111111111',
+        batchIndex: 0, batchHash: JSON.parse(String(init?.body)).batchHash,
+        receipt: 'receipt', receivedBatchCount: 1,
+      });
+      if (url.endsWith('/finalize')) return jsonResponse({
+        protocolVersion: '2', status: 'published', revision: 'rev-2', sequence: 2,
+        publishedAt: '2026-08-29T00:00:00.000Z', revisionContentHash: 'c'.repeat(64),
+        folderCount: '1', pageCount: '0', revisionManifestByteLength: '1', revisionBodyBytes: '0', changeSetId: null,
+      });
+      return jsonResponse({});
+    });
+    const changes: TreePushChangeV2[] = [{
+      operation: 'upsert_folder',
+      folder: {
+        folderId: 'folder-1', parentFolderId: null, name: 'Project', path: 'pages/Project',
+        sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z',
+      },
+    }];
+
+    const result = await new AgentWikiClient(request as typeof fetch).pushTreeChangesV2(
+      connection, 'device-secret', 'space-1', 'rev-1', changes,
+    );
+
+    expect(result.revision).toBe('rev-2');
+    expect(capabilityReads).toBe(2);
+    expect(createAttempts).toBe(2);
+    expect(requests.filter(({ url }) => url.includes('/batches/'))).toHaveLength(1);
+    expect(requests.filter(({ url }) => url.endsWith('/finalize'))).toHaveLength(1);
+    expect(requests.every(({ init }) => (init?.headers as Record<string, string> | undefined)?.Authorization === 'Bearer device-secret')).toBe(true);
+  });
+
+  it('strictly assembles a paginated v2 snapshot and sends only the device credential', async () => {
+    const folder = { folderId: 'f1', parentFolderId: null, name: 'Dir', path: 'pages/Dir', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' };
+    const page = { pageId: 'p1', folderId: 'f1', path: 'pages/Dir/Page.md', title: 'Page', body: 'body', contentHash: await contentHash('body'), updatedAt: '2026-08-29T00:00:00.000Z' };
+    const manifest: TreeRevisionContentManifestV2 = { protocolVersion: '2', spaceId: 'space-1', folders: [folder], pages: [page] };
+    let snapshotPage = 0;
+    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer device-secret');
+      if (url.endsWith('/capabilities')) return jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64) });
+      snapshotPage += 1;
+      const common = {
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+        revisionContentHash: await treeRevisionContentHashV2(manifest), folderCount: '1', pageCount: '1',
+        revisionManifestByteLength: String(canonicalBytes(manifest).byteLength), revisionBodyBytes: '4',
+      };
+      return snapshotPage === 1
+        ? jsonResponse({ ...common, folders: [folder], pages: [], nextCursor: 'cursor-1' })
+        : jsonResponse({ ...common, folders: [], pages: [page], nextCursor: null });
+    });
+
+    const snapshot = await new AgentWikiClient(request as typeof fetch)
+      .getTreeSnapshotV2(connection, 'device-secret', 'space-1', 'rev-1');
+
+    expect(snapshot.manifest.folders.map((folder) => folder.folderId)).toEqual(['f1']);
+    expect(snapshot.manifest.pages.map((page) => page.pageId)).toEqual(['p1']);
+    expect(request.mock.calls[2]?.[0].toString()).toContain('cursor=cursor-1');
+  });
+
+  it('rejects cursor replay and duplicate identities in v2 reads', async () => {
+    const folder = { folderId: 'f1', parentFolderId: null, name: 'Dir', path: 'pages/Dir', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' };
+    let read = 0;
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().endsWith('/capabilities')) return jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64) });
+      read += 1;
+      return jsonResponse({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+        revisionContentHash: 'b'.repeat(64), folderCount: '2', pageCount: '0',
+        revisionManifestByteLength: '1', revisionBodyBytes: '0', folders: [folder], pages: [],
+        nextCursor: read === 1 ? 'replayed' : 'replayed',
+      });
+    });
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeSnapshotV2(connection, 'device-secret', 'space-1'))
+      .rejects.toMatchObject({ code: 'CURSOR_REPLAY' });
+
+    const duplicate = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/capabilities')
+      ? jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64) })
+      : jsonResponse({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+        revisionContentHash: 'b'.repeat(64), folderCount: '2', pageCount: '0',
+        revisionManifestByteLength: '1', revisionBodyBytes: '0', folders: [folder, folder], pages: [], nextCursor: null,
+      }));
+    await expect(new AgentWikiClient(duplicate as typeof fetch).getTreeSnapshotV2(connection, 'device-secret', 'space-1'))
+      .rejects.toMatchObject({ code: 'RESPONSE_INVALID' });
+  });
+
+  it('strictly assembles a paginated v2 delta without replaying entity mutations', async () => {
+    let page = 0;
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().endsWith('/capabilities')) return jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64) });
+      page += 1;
+      const common = {
+        protocolVersion: '2', spaceId: 'space-1', fromRevision: 'rev-1', toRevision: 'rev-2', toSequence: 2,
+        toRevisionContentHash: 'b'.repeat(64), toFolderCount: '1', toPageCount: '0',
+        toRevisionManifestByteLength: '1', toRevisionBodyBytes: '0',
+      };
+      return jsonResponse({ ...common, items: [{ operation: 'upsert_folder', folder: { folderId: 'f1', parentFolderId: null, name: 'Dir', path: 'pages/Dir', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' } }], nextCursor: page === 1 ? 'next' : null });
+    });
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeDeltaV2(connection, 'device-secret', 'space-1', 'rev-1'))
+      .rejects.toMatchObject({ code: 'RESPONSE_INVALID' });
+  });
   it('redacts API keys and one-time installation codes', () => {
     expect(redactSecrets('agk_secret AW-ABCDEFGHIJKLMNOPQRSTUVWX AW-ABCD-EFGH awk_other')).toBe(
       '[REDACTED] [REDACTED] [REDACTED] [REDACTED]',

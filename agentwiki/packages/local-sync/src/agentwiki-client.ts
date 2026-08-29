@@ -1,4 +1,24 @@
-import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { randomUUID } from 'node:crypto';
+import {
+  CreateTreePushSessionResponseV2Schema,
+  TreeCapabilitiesResponseV2Schema,
+  TreeDeltaPageV2Schema,
+  TreeFinalizePushResponseV2Schema,
+  TreePushBatchReceiptV2Schema,
+  TreeRevisionHeadResponseV2Schema,
+  TreeSnapshotPageV2Schema,
+  canonicalTreeRevisionManifestV2,
+  canonicalBytes,
+  contentHash as treePageContentHash,
+  partitionTreePushChangesV2,
+  treeConfirmationHashV2,
+  treeRevisionContentHashV2,
+  type AgentAccessRole,
+  type TreeDeltaItemV2,
+  type TreeCapabilitiesResponseV2,
+  type TreePushChangeV2,
+  type TreeRevisionContentManifestV2,
+} from '@neomei/agentwiki-sync-protocol';
 import type { LocalSyncConnection } from './config.js';
 import type { KnowledgeBundle } from './protocol/bundle.js';
 import type { Delta } from './protocol/sync.js';
@@ -83,6 +103,25 @@ export interface StaleBaseError {
   currentRevision: string;
 }
 
+export interface TreeSnapshotV2 {
+  revision: string;
+  sequence: number;
+  revisionContentHash: string;
+  manifest: TreeRevisionContentManifestV2;
+}
+
+export interface TreeDeltaV2 {
+  fromRevision: string;
+  toRevision: string;
+  toSequence: number;
+  toRevisionContentHash: string;
+  toFolderCount: string;
+  toPageCount: string;
+  toRevisionManifestByteLength: string;
+  toRevisionBodyBytes: string;
+  items: TreeDeltaItemV2[];
+}
+
 export class AgentWikiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -119,8 +158,17 @@ function authorization(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
-async function responseBody(response: Response): Promise<unknown> {
+async function responseBody(response: Response, maximumBytes?: number): Promise<unknown> {
+  if (maximumBytes !== undefined) {
+    const declared = response.headers.get('content-length');
+    if (declared !== null && Number(declared) > maximumBytes) {
+      throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
+    }
+  }
   const body = await response.text();
+  if (maximumBytes !== undefined && new TextEncoder().encode(body).byteLength > maximumBytes) {
+    throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
+  }
   if (!body) return undefined;
 
   try {
@@ -133,6 +181,14 @@ async function responseBody(response: Response): Promise<unknown> {
 function errorDetails(body: unknown, status: number): { code: string; message: string } {
   if (typeof body === 'object' && body !== null) {
     const error = body as Record<string, unknown>;
+    const nested = error.error;
+    if (typeof nested === 'object' && nested !== null) {
+      const details = nested as Record<string, unknown>;
+      return {
+        code: typeof details.code === 'string' ? details.code : `HTTP_${status}`,
+        message: typeof details.message === 'string' ? details.message : `Request failed with status ${status}`,
+      };
+    }
     const code = typeof error.code === 'string' ? error.code : `HTTP_${status}`;
     const message = typeof error.message === 'string' ? error.message : `Request failed with status ${status}`;
     return { code, message };
@@ -282,7 +338,246 @@ export class AgentWikiClient {
     );
   }
 
-  private async send<T>(url: string, init: RequestInit): Promise<T> {
+  async getTreeCapabilitiesV2(
+    connection: LocalSyncConnection,
+    syncDeviceCredential: string,
+    maximumResponseBytes = 64 * 1024,
+  ): Promise<TreeCapabilitiesResponseV2> {
+    const body = await this.send<unknown>(endpoint(connection.serverUrl, '/sync/v2/capabilities'), {
+      method: 'GET',
+      headers: authorization(syncDeviceCredential),
+    }, maximumResponseBytes);
+    return this.parseV2(TreeCapabilitiesResponseV2Schema, body);
+  }
+
+  async getTreeRevisionHeadV2(
+    connection: LocalSyncConnection,
+    syncDeviceCredential: string,
+    spaceId: string,
+  ): Promise<ReturnType<typeof TreeRevisionHeadResponseV2Schema.parse>> {
+    const negotiated = await this.getTreeCapabilitiesV2(connection, syncDeviceCredential);
+    return this.parseV2(TreeRevisionHeadResponseV2Schema, await this.send<unknown>(
+      endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/head`),
+      { method: 'GET', headers: authorization(syncDeviceCredential) },
+      negotiated.capabilities.maxResponseBytes,
+    ));
+  }
+
+  async getTreeSnapshotV2(
+    connection: LocalSyncConnection,
+    syncDeviceCredential: string,
+    spaceId: string,
+    revision = 'current',
+  ): Promise<TreeSnapshotV2> {
+    const negotiated = await this.getTreeCapabilitiesV2(connection, syncDeviceCredential);
+    const folders: TreeRevisionContentManifestV2['folders'] = [];
+    const pages: TreeRevisionContentManifestV2['pages'] = [];
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    let metadata: Omit<TreeSnapshotV2, 'manifest'> | null = null;
+    let counts: { folderCount: string; pageCount: string; revisionManifestByteLength: string; revisionBodyBytes: string } | null = null;
+    do {
+      const query = new URLSearchParams({ revision, limit: String(negotiated.capabilities.maxPageItems) });
+      if (cursor !== null) query.set('cursor', cursor);
+      const page = this.parseV2(TreeSnapshotPageV2Schema, await this.send<unknown>(
+        endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/snapshot?${query.toString()}`),
+        { method: 'GET', headers: authorization(syncDeviceCredential) },
+        negotiated.capabilities.maxResponseBytes,
+      ));
+      const nextMetadata = { revision: page.revision, sequence: page.sequence, revisionContentHash: page.revisionContentHash };
+      const nextCounts = {
+        folderCount: page.folderCount, pageCount: page.pageCount,
+        revisionManifestByteLength: page.revisionManifestByteLength, revisionBodyBytes: page.revisionBodyBytes,
+      };
+      if (page.spaceId !== spaceId || (metadata && JSON.stringify(metadata) !== JSON.stringify(nextMetadata))
+        || (counts && JSON.stringify(counts) !== JSON.stringify(nextCounts))) {
+        throw new AgentWikiClientError('Snapshot pagination metadata changed', 502, 'RESPONSE_INVALID');
+      }
+      metadata = nextMetadata;
+      counts = nextCounts;
+      folders.push(...page.folders);
+      pages.push(...page.pages);
+      if (folders.length + pages.length > negotiated.capabilities.maxClientSpacePages) {
+        throw new AgentWikiClientError('Snapshot exceeded the negotiated object limit', 502, 'RESPONSE_TOO_LARGE');
+      }
+      if (page.nextCursor !== null && cursors.has(page.nextCursor)) {
+        throw new AgentWikiClientError('Snapshot cursor was replayed', 502, 'CURSOR_REPLAY');
+      }
+      if (page.nextCursor !== null) cursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    if (!metadata || !counts) throw new AgentWikiClientError('Snapshot response was empty', 502, 'RESPONSE_INVALID');
+    const folderIds = new Set(folders.map((folder) => folder.folderId));
+    const pageIds = new Set(pages.map((page) => page.pageId));
+    if (folderIds.size !== folders.length || pageIds.size !== pages.length) {
+      throw new AgentWikiClientError('Snapshot repeated an object identity', 502, 'RESPONSE_INVALID');
+    }
+    let manifest: TreeRevisionContentManifestV2;
+    try { manifest = canonicalTreeRevisionManifestV2({ protocolVersion: '2', spaceId, folders, pages }); }
+    catch { throw new AgentWikiClientError('Snapshot tree was invalid', 502, 'RESPONSE_INVALID'); }
+    const bodyBytes = manifest.pages.reduce((total, page) => total + new TextEncoder().encode(page.body).byteLength, 0);
+    const manifestBytes = manifest.folders.length === 0 && manifest.pages.length === 0 ? 0 : canonicalBytes(manifest).byteLength;
+    for (const page of manifest.pages) {
+      if (await treePageContentHash(page.body) !== page.contentHash) {
+        throw new AgentWikiClientError('Snapshot Page content hash was invalid', 502, 'RESPONSE_INVALID');
+      }
+    }
+    if (counts.folderCount !== String(manifest.folders.length) || counts.pageCount !== String(manifest.pages.length)
+      || counts.revisionBodyBytes !== String(bodyBytes) || counts.revisionManifestByteLength !== String(manifestBytes)
+      || metadata.revisionContentHash !== await treeRevisionContentHashV2(manifest)
+      || bodyBytes > negotiated.capabilities.maxClientTotalBodyBytes
+      || manifestBytes > negotiated.capabilities.maxClientManifestBytes) {
+      throw new AgentWikiClientError('Snapshot totals or revision hash were invalid', 502, 'RESPONSE_INVALID');
+    }
+    return { ...metadata, manifest };
+  }
+
+  async getTreeDeltaV2(
+    connection: LocalSyncConnection,
+    syncDeviceCredential: string,
+    spaceId: string,
+    fromRevision: string,
+  ): Promise<TreeDeltaV2> {
+    const negotiated = await this.getTreeCapabilitiesV2(connection, syncDeviceCredential);
+    const items: TreeDeltaItemV2[] = [];
+    const identities = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    let metadata: Omit<TreeDeltaV2, 'items'> | null = null;
+    do {
+      const query = new URLSearchParams({ from: fromRevision, limit: String(negotiated.capabilities.maxPageItems) });
+      if (cursor !== null) query.set('cursor', cursor);
+      const page = this.parseV2(TreeDeltaPageV2Schema, await this.send<unknown>(
+        endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/delta?${query.toString()}`),
+        { method: 'GET', headers: authorization(syncDeviceCredential) },
+        negotiated.capabilities.maxResponseBytes,
+      ));
+      const nextMetadata = {
+        fromRevision: page.fromRevision, toRevision: page.toRevision, toSequence: page.toSequence,
+        toRevisionContentHash: page.toRevisionContentHash, toFolderCount: page.toFolderCount,
+        toPageCount: page.toPageCount, toRevisionManifestByteLength: page.toRevisionManifestByteLength,
+        toRevisionBodyBytes: page.toRevisionBodyBytes,
+      };
+      if (page.spaceId !== spaceId || page.fromRevision !== fromRevision
+        || (metadata && JSON.stringify(metadata) !== JSON.stringify(nextMetadata))) {
+        throw new AgentWikiClientError('Delta pagination metadata changed', 502, 'RESPONSE_INVALID');
+      }
+      metadata = nextMetadata;
+      for (const item of page.items) {
+        let entityId: string;
+        if (item.operation === 'upsert_folder') entityId = `folder:${item.folder.folderId}`;
+        else if (item.operation === 'archive_folder') entityId = `folder:${item.folderId}`;
+        else if (item.operation === 'upsert_page') entityId = `page:${item.page.pageId}`;
+        else entityId = `page:${item.pageId}`;
+        if (identities.has(entityId)) throw new AgentWikiClientError('Delta repeated an object identity', 502, 'RESPONSE_INVALID');
+        identities.add(entityId);
+        items.push(item);
+      }
+      if (items.length > negotiated.capabilities.maxClientSpacePages * 2) {
+        throw new AgentWikiClientError('Delta exceeded the negotiated object limit', 502, 'RESPONSE_TOO_LARGE');
+      }
+      if (page.nextCursor !== null && cursors.has(page.nextCursor)) {
+        throw new AgentWikiClientError('Delta cursor was replayed', 502, 'CURSOR_REPLAY');
+      }
+      if (page.nextCursor !== null) cursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    if (!metadata) throw new AgentWikiClientError('Delta response was empty', 502, 'RESPONSE_INVALID');
+    return { ...metadata, items };
+  }
+
+  async pushTreeChangesV2(
+    connection: LocalSyncConnection,
+    syncDeviceCredential: string,
+    spaceId: string,
+    baseRevision: string,
+    changes: TreePushChangeV2[],
+  ): Promise<ReturnType<typeof TreeFinalizePushResponseV2Schema.parse>> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const negotiated = await this.getTreeCapabilitiesV2(connection, syncDeviceCredential);
+      try {
+        const batches = await partitionTreePushChangesV2(changes, negotiated.capabilities);
+        const manifest = {
+          protocolVersion: '2' as const,
+          spaceId,
+          baseRevision,
+          changes: changes.map((change) => change.operation === 'upsert_page'
+            ? {
+                operation: change.operation,
+                page: {
+                  pageId: change.page.pageId, folderId: change.page.folderId, path: change.page.path,
+                  title: change.page.title, contentHash: change.page.contentHash, updatedAt: change.page.updatedAt,
+                },
+              }
+            : change),
+        };
+        const confirmationHash = await treeConfirmationHashV2(manifest);
+        const confirmationByteLength = canonicalBytes(manifest).byteLength;
+        const totalBodyBytes = changes.reduce((total, change) => total + (
+          change.operation === 'upsert_page'
+            ? new TextEncoder().encode(change.page.body.replace(/\r\n?/g, '\n')).byteLength
+            : 0
+        ), 0);
+        const createBody = {
+          protocolVersion: '2' as const,
+          baseRevision,
+          idempotencyKey: randomUUID(),
+          capabilitiesHash: negotiated.capabilitiesHash,
+          confirmationHash,
+          confirmationByteLength,
+          changeCount: changes.length,
+          totalBodyBytes,
+        };
+        const session = this.parseV2(CreateTreePushSessionResponseV2Schema, await this.send<unknown>(
+          endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/push-sessions`),
+          {
+            method: 'POST',
+            headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
+            body: JSON.stringify(createBody),
+          },
+          negotiated.capabilities.maxResponseBytes,
+        ));
+        if (session.result) return session.result;
+        for (const batch of batches) {
+          const receipt = this.parseV2(TreePushBatchReceiptV2Schema, await this.send<unknown>(
+            endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/push-sessions/${encodeURIComponent(session.sessionId)}/batches/${batch.batchIndex}`),
+            {
+              method: 'PUT',
+              headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
+              body: JSON.stringify(batch),
+            },
+            negotiated.capabilities.maxResponseBytes,
+          ));
+          if (receipt.batchHash !== batch.batchHash) {
+            throw new AgentWikiClientError('Push batch receipt did not match the uploaded batch', 502, 'RESPONSE_INVALID');
+          }
+        }
+        return this.parseV2(TreeFinalizePushResponseV2Schema, await this.send<unknown>(
+          endpoint(connection.serverUrl, `/sync/v2/spaces/${encodeURIComponent(spaceId)}/push-sessions/${encodeURIComponent(session.sessionId)}/finalize`),
+          {
+            method: 'POST',
+            headers: { ...authorization(syncDeviceCredential), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ protocolVersion: '2', confirmationHash, userConfirmed: true }),
+          },
+          negotiated.capabilities.maxResponseBytes,
+        ));
+      } catch (error) {
+        if (attempt === 0 && error instanceof AgentWikiClientError && error.code === 'CAPABILITIES_CHANGED') continue;
+        throw error;
+      }
+    }
+    throw new AgentWikiClientError('Server capabilities changed repeatedly', 409, 'CAPABILITIES_CHANGED');
+  }
+
+  private parseV2<T>(schema: { parse(value: unknown): T }, value: unknown): T {
+    try {
+      return schema.parse(value);
+    } catch {
+      throw new AgentWikiClientError('Server returned an invalid Sync Protocol v2 response', 502, 'RESPONSE_INVALID');
+    }
+  }
+
+  private async send<T>(url: string, init: RequestInit, maximumResponseBytes?: number): Promise<T> {
     let response: Response;
     try {
       response = await this.request(url, init);
@@ -293,8 +588,9 @@ export class AgentWikiClient {
 
     let body: unknown;
     try {
-      body = await responseBody(response);
+      body = await responseBody(response, maximumResponseBytes);
     } catch (error: unknown) {
+      if (error instanceof AgentWikiClientError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       throw new AgentWikiClientError(message, response.status, 'RESPONSE_BODY_ERROR');
     }
