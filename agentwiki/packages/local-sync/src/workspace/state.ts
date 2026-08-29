@@ -297,6 +297,8 @@ interface RollbackArtifactV2 {
   kind: 'file';
   dev: string;
   ino: string;
+  targetParentDev: string;
+  targetParentIno: string;
 }
 
 interface PlannedRollbackArtifactRootV2 {
@@ -657,7 +659,7 @@ async function buildFolderTreeOperationsV2(
   const baseFoldersByPath = new Map(base.folders.map((folder) => [folder.path, folder]));
   const baseFoldersByPathKey = new Map(base.folders.map((folder) => [pathKey(folder.path), folder]));
   const targetFolderPaths = new Set(target.folders.map((folder) => folder.path));
-  const caseRenameSources = new Set<string>();
+  const caseRetainedSources = new Set<string>();
   const foldersToMaterialize: typeof foldersToCreate = [];
 
   for (const folder of foldersToRemove) {
@@ -685,15 +687,20 @@ async function buildFolderTreeOperationsV2(
       || sourceIdentity.dev !== targetIdentity.dev || sourceIdentity.ino !== targetIdentity.ino) {
       throw new TypeError(`Unknown Folder already occupies destination: ${folder.path}`);
     }
-    caseRenameSources.add(caseEquivalent.path);
-    directoryCleanup.push({
-      kind: 'rename-case',
-      path: localRelativePath(caseEquivalent.path, 'folder'),
-      target: destination,
-    });
+    caseRetainedSources.add(caseEquivalent.path);
+    // A cleanup entry changes this Folder's own directory-entry spelling.
+    // Descendants whose paths changed only because an ancestor changed case
+    // are already moved by that ancestor and must not be replayed separately.
+    if (basename(caseEquivalent.path) !== basename(folder.path)) {
+      directoryCleanup.push({
+        kind: 'rename-case',
+        path: localRelativePath(caseEquivalent.path, 'folder'),
+        target: destination,
+      });
+    }
   }
   for (const folder of foldersToRemove) {
-    if (targetFolderPaths.has(folder.path) || caseRenameSources.has(folder.path)) continue;
+    if (targetFolderPaths.has(folder.path) || caseRetainedSources.has(folder.path)) continue;
     directoryCleanup.push({ kind: 'remove', path: localRelativePath(folder.path, 'folder') });
   }
 
@@ -1024,6 +1031,11 @@ async function preparePrivateRollbackArtifact(
     throw new TypeError('Rollback operation does not create a new identity');
   }
   const root = await ensurePrivateRollbackRoot(paths, journal, options);
+  await checkedPath(paths.pagesDir, operation.path, true, options);
+  const targetParent = await lstat(dirname(localPath(paths.pagesDir, operation.path)), { bigint: true });
+  if (targetParent.isSymbolicLink() || !targetParent.isDirectory()) {
+    throw new TypeError('Folder transaction rollback artifact target parent is unsafe');
+  }
   const source = `${root.source}/artifact-${randomUUID()}`;
   const absoluteSource = join(paths.runtimeDir, source);
   const handle = await open(absoluteSource, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
@@ -1045,7 +1057,21 @@ async function preparePrivateRollbackArtifact(
     kind,
     dev: entry.dev.toString(),
     ino: entry.ino.toString(),
+    targetParentDev: targetParent.dev.toString(),
+    targetParentIno: targetParent.ino.toString(),
   };
+}
+
+async function requireRollbackArtifactTargetParent(
+  paths: SpaceWorkspacePaths,
+  artifact: RollbackArtifactV2,
+): Promise<void> {
+  const parent = await lstat(dirname(localPath(paths.pagesDir, artifact.target)), { bigint: true });
+  if (parent.isSymbolicLink() || !parent.isDirectory()
+    || parent.dev.toString() !== artifact.targetParentDev
+    || parent.ino.toString() !== artifact.targetParentIno) {
+    throw new TypeError('Folder transaction rollback artifact target parent was replaced; journal was preserved');
+  }
 }
 
 async function removeOwnedPrivateRollbackArtifact(
@@ -1084,6 +1110,7 @@ async function materializePrivateRollbackArtifact(
   const current = await captureOperationIdentity(paths.pagesDir, operation);
   const currentTarget = current[0] ?? null;
   if (sameRollbackArtifactIdentity(currentTarget, artifact)) {
+    await requireRollbackArtifactTargetParent(paths, artifact);
     await fsyncDirectory(dirname(localPath(paths.pagesDir, operation.path)));
     await options?.onCheckpoint?.(`rollback:${rollbackIndex}:materialized-parent-fsynced`);
     await removeOwnedPrivateRollbackArtifact(paths, artifact, root, rollbackIndex, options);
@@ -1098,6 +1125,7 @@ async function materializePrivateRollbackArtifact(
   if (!samePathIdentities(immediatelyBefore, expectedCurrent)) {
     throw new TypeError('Folder transaction rollback artifact target changed before materialization');
   }
+  await requireRollbackArtifactTargetParent(paths, artifact);
   await options?.onCheckpoint?.(`rollback:${rollbackIndex}:before-materialization-final-check`);
   await requirePrivateRollbackRoot(paths, root);
   const source = rollbackArtifactPath(paths, artifact, root);
@@ -1107,6 +1135,11 @@ async function materializePrivateRollbackArtifact(
     || sourceImmediatelyBefore.dev.toString() !== artifact.dev || sourceImmediatelyBefore.ino.toString() !== artifact.ino) {
     throw new TypeError(`Folder transaction private rollback artifact was replaced before materialization; journal preserved at ${root.source}`);
   }
+  // Node exposes path-based link(), but no portable handle-relative linkat().
+  // Keep every source/root await before this final target-parent identity check;
+  // link() is the next operation and remains no-replace for an appearing leaf.
+  await checkedPath(paths.pagesDir, operation.path, true, options);
+  await requireRollbackArtifactTargetParent(paths, artifact);
   await link(source, target);
   const linked = await capturePathIdentity(paths.pagesDir, operation.path);
   if (!sameRollbackArtifactIdentity(linked, artifact)) {
@@ -1298,13 +1331,17 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
       if (journal.phase !== 'rolling-back' || !journal.rollbackArtifactRoot
         || journal.rollbackArtifactRoot.status === 'planned'
         || !artifact || typeof artifact !== 'object' || Array.isArray(artifact)
-        || Object.keys(artifact).some((key) => !['status', 'source', 'target', 'kind', 'dev', 'ino'].includes(key))
+        || Object.keys(artifact).some((key) => ![
+          'status', 'source', 'target', 'kind', 'dev', 'ino', 'targetParentDev', 'targetParentIno',
+        ].includes(key))
         || !['prepared', 'ambiguous'].includes(artifact.status)
         || typeof artifact.source !== 'string' || typeof artifact.target !== 'string'
         || artifact.target !== (operation.kind === 'link' ? operation.to : operation.path)
         || artifact.kind !== expectedKind
         || typeof artifact.dev !== 'string' || typeof artifact.ino !== 'string'
-        || !/^\d+$/u.test(artifact.dev) || !/^\d+$/u.test(artifact.ino)) {
+        || typeof artifact.targetParentDev !== 'string' || typeof artifact.targetParentIno !== 'string'
+        || !/^\d+$/u.test(artifact.dev) || !/^\d+$/u.test(artifact.ino)
+        || !/^\d+$/u.test(artifact.targetParentDev) || !/^\d+$/u.test(artifact.targetParentIno)) {
         throw new TypeError('Folder transaction rollback artifact binding is invalid');
       }
       assertRollbackArtifactSource(artifact.source, journal.rollbackArtifactRoot);
