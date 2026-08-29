@@ -106,14 +106,20 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
   const deltaCounts = new Map([...deltaRows].map(([revisionId, rows]) => [revisionId, rows.length]));
   const sidecars = new Map([...revisions].map(([revisionId, revision]) => {
     const manifest = manifests.get(revisionId)!;
-    return [revisionId, { sidecar: { spaceFolderMigration: { v2Revision: {
-      protocolVersion: '2', manifestSchema: 'TreeRevisionContentManifestV2',
-      folderCount: String(manifest.folders.length), pageCount: String(manifest.pages.length),
-      revisionContentHash: revision.revisionContentHash,
-      revisionManifestByteLength: String(revision.revisionManifestByteLength),
-      revisionBodyBytes: String(revision.revisionBodyBytes),
-      treeDeltaCount: String(deltaCounts.get(revisionId)),
-    } } } }];
+    return [revisionId, { sidecar: { spaceFolderMigration: {
+      version: 1,
+      status: 'completed',
+      batchKey: 'space-folders-v1:space-1',
+      inputHash: 'a'.repeat(64),
+      v2Revision: {
+        protocolVersion: '2', manifestSchema: 'TreeRevisionContentManifestV2',
+        folderCount: String(manifest.folders.length), pageCount: String(manifest.pages.length),
+        revisionContentHash: revision.revisionContentHash,
+        revisionManifestByteLength: String(revision.revisionManifestByteLength),
+        revisionBodyBytes: String(revision.revisionBodyBytes),
+        treeDeltaCount: String(deltaCounts.get(revisionId)),
+      },
+    } } }];
   }));
   const prisma = {
     spaceRevisionChainCheckpoint: {
@@ -127,23 +133,38 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
         .sort((left, right) => right.sequence - left.sequence)),
     },
     syncRevisionFolderRow: {
-      findMany: jest.fn(async ({ where }: any) => foldersByRevision.get(where.revisionId) ?? []),
+      findMany: jest.fn(async ({ where }: any) => {
+        const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
+        return ids.flatMap((revisionId: string) => foldersByRevision.get(revisionId) ?? []);
+      }),
     },
     syncRevisionPageRow: {
-      findMany: jest.fn(async ({ where }: any) => pagesByRevision.get(where.revisionId) ?? []),
+      findMany: jest.fn(async ({ where }: any) => {
+        const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
+        return ids.flatMap((revisionId: string) => pagesByRevision.get(revisionId) ?? []);
+      }),
     },
     legacyRevisionSidecar: {
       findUnique: jest.fn(async ({ where }: any) => sidecars.get(where.revisionId) ?? null),
+      findMany: jest.fn(async ({ where }: any) => where.revisionId.in.flatMap((revisionId: string) => {
+        const row = sidecars.get(revisionId);
+        return row ? [{ revisionId, sidecar: row.sidecar }] : [];
+      })),
     },
     syncRevisionTreeDeltaRow: {
-      findMany: jest.fn(async ({ where }: any) => deltaRows.get(where.revisionId) ?? []),
+      findMany: jest.fn(async ({ where }: any) => {
+        const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
+        return ids.flatMap((revisionId: string) => (deltaRows.get(revisionId) ?? [])
+          .map((row) => ({ ...row, revisionId })));
+      }),
     },
   } as any;
+  prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => unknown) => callback(prisma));
   const cursors = cursorCodec();
   const capabilities = { capabilitiesV2: jest.fn(() => ({ maxResponseBytes })) };
   return {
     service: new SyncV2RevisionService(prisma, cursors as any, capabilities as any),
-    cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
+    prisma, cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
   };
 }
 
@@ -158,6 +179,18 @@ function replaceWithInitialV2Delta(state: Awaited<ReturnType<typeof fixture>>, r
 }
 
 describe('SyncV2RevisionService', () => {
+  it('runs each logical immutable read in one RepeatableRead transaction', async () => {
+    const { service, prisma } = await fixture();
+
+    await service.head('space-1');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      { isolationLevel: 'RepeatableRead' },
+    );
+  });
+
   it('serves the empty immutable v2 revision with the canonical empty hash', async () => {
     const { service } = await fixture();
 

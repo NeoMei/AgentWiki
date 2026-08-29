@@ -74,7 +74,7 @@ describe('SpaceRevisionWriterService', () => {
     );
   });
 
-  it('advances a locked revision without reacquiring the Space advisory lock', async () => {
+  it('takes the content-store lock without reacquiring the Space advisory lock', async () => {
     const createdRevision: any = {
       id: 'rev-1', sequence: 1, revisionContentHash: 'x', pageCount: 1n,
       revisionBodyBytes: 6n, revisionManifestByteLength: 100n,
@@ -153,7 +153,11 @@ describe('SpaceRevisionWriterService', () => {
 
     expect(result.sequence).toBe(1);
     expect(result.pageCount).toBe(1n);
-    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[0])).toContain('agentwiki:sync-page-content-store:v1');
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[0])).not.toContain('space-1');
+    expect(tx.$executeRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.spaceKnowledgeRevision.findFirst.mock.invocationCallOrder[0]);
     expect(tx.syncRevisionPageRow.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { revisionId_pageId: { revisionId: 'rev-1', pageId: '11111111-1111-4111-8111-111111111111' } },
       create: expect.objectContaining({
@@ -241,11 +245,12 @@ describe('SpaceRevisionWriterService', () => {
     expect(result.pageCount).toBe(10_000n);
     // Full-chain and persisted-marker integrity add a fixed query budget, not a
     // per-Page query. The 10k boundary must remain constant-sized.
-    expect(queryCount).toBeLessThanOrEqual(24);
+    expect(queryCount).toBeLessThanOrEqual(25);
   }, 20_000);
 
   function emptyStructuralTransaction() {
     return {
+      $executeRaw: jest.fn(),
       $queryRaw: jest.fn().mockResolvedValue([{ bytes: 0n }]),
       spaceKnowledgeRevision: {
         findFirst: jest.fn().mockResolvedValue(null),

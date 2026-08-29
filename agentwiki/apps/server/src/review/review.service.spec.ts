@@ -463,6 +463,56 @@ describe('ReviewService approval boundaries', () => {
     }
   });
 
+  it('does not bind a submission when the shared revision finalizer rejects its retained chain', async () => {
+    const updatedAt = new Date('2026-08-29T01:00:00.000Z');
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-invalid-chain', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'memory-item', type: 'upsert_space_memory', status: 'accepted',
+        payload: {
+          knowledgeKey: 'memory-1', key: 'decision', value: 'Keep it', contentHash: 'a'.repeat(64),
+          expectedUpdatedAt: updatedAt.toISOString(),
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    });
+    const tx = {
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { update: jest.fn(), updateMany: jest.fn() },
+      agentMemory: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'memory-1', spaceId: 'space-1', updatedAt,
+          type: 'decision', content: 'Old', contentHash: 'b'.repeat(64),
+          visibility: 'space', status: 'active', archivedAt: null, deletedAt: null,
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      knowledgeSubmission: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'submission-invalid-chain', bundle: { pages: [], memories: [], relations: [] },
+          schemaVersion: 'knowledge-bundle@1', recipeVersion: 'recipe-1', contentHash: 'hash-1',
+        }),
+        update: jest.fn(),
+      },
+    };
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(tx));
+    const originalCreateKnowledgeRevision = (service as any).createKnowledgeRevision;
+    (service as any).createKnowledgeRevision = jest.fn().mockResolvedValue({ id: 'submission-revision-invalid' });
+    revisionWriter.finalizeExistingTreeV2Locked.mockRejectedValueOnce(
+      Object.assign(new Error('Revision is not available'), { code: 'CONTENT_TREE_REVISION_GONE' }),
+    );
+    try {
+      await expect(service.publish('cs-invalid-chain')).rejects.toMatchObject({
+        code: 'CONTENT_TREE_REVISION_GONE',
+      });
+      expect(tx.knowledgeSubmission.update).not.toHaveBeenCalled();
+    } finally {
+      (service as any).createKnowledgeRevision = originalCreateKnowledgeRevision;
+    }
+  });
+
   it('restores an archived page with the same source identity instead of creating a duplicate', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-restore', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,

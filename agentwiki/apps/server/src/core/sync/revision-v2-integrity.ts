@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, SyncRevisionFolderRow, SyncRevisionTreeDeltaRow } from '@prisma/client';
 import {
   canonicalBytes,
   canonicalTreeRevisionManifestV2,
@@ -306,17 +306,96 @@ function folderDepthV2(
   return depth;
 }
 
+export interface StoredRevisionTreeDeltaRow {
+  ordinal: number;
+  operation: string;
+  folderId: string | null;
+  pageId: string | null;
+  previousPath: string | null;
+  contentHash: string | null;
+}
+
+export interface LoadedRevisionV2Evidence {
+  manifest: TreeRevisionContentManifestV2;
+  calculatedHash: string;
+  manifestBytes: number;
+  bodyBytes: number;
+  folderRowCount: number;
+  hasPlacedPage: boolean;
+  sidecar: unknown;
+  deltaRows: StoredRevisionTreeDeltaRow[];
+}
+
+type LoadedFolderRow = SyncRevisionFolderRow;
+type LoadedPageRow = Prisma.SyncRevisionPageRowGetPayload<{ include: { content: true } }>;
+type LoadedTreeDeltaRow = SyncRevisionTreeDeltaRow;
+
 export async function loadRevisionV2Evidence(
   tx: Prisma.TransactionClient,
   spaceId: string,
   revisionId: string,
-) {
-  const [folderRows, pageRows, sidecarRow, deltaRows] = await Promise.all([
-    tx.syncRevisionFolderRow.findMany({ where: { revisionId } }),
-    tx.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
-    tx.legacyRevisionSidecar.findUnique({ where: { revisionId } }),
-    tx.syncRevisionTreeDeltaRow.findMany({ where: { revisionId }, orderBy: { ordinal: 'asc' } }),
+): Promise<LoadedRevisionV2Evidence> {
+  const evidence = await loadRevisionV2EvidenceBatch(tx, spaceId, [revisionId]);
+  return evidence.get(revisionId)!;
+}
+
+/**
+ * Rebuild a bounded set of immutable v2 revisions with four set-based reads.
+ * The number of database round trips is independent of the revision count.
+ */
+export async function loadRevisionV2EvidenceBatch(
+  tx: Prisma.TransactionClient,
+  spaceId: string,
+  revisionIds: readonly string[],
+): Promise<Map<string, LoadedRevisionV2Evidence>> {
+  const ids = [...new Set(revisionIds)];
+  if (ids.length === 0) return new Map();
+  const [allFolderRows, allPageRows, allSidecarRows, allDeltaRows] = await Promise.all([
+    tx.syncRevisionFolderRow.findMany({ where: { revisionId: { in: ids } } }),
+    tx.syncRevisionPageRow.findMany({
+      where: { revisionId: { in: ids } },
+      include: { content: true },
+    }),
+    tx.legacyRevisionSidecar.findMany({ where: { revisionId: { in: ids } } }),
+    tx.syncRevisionTreeDeltaRow.findMany({
+      where: { revisionId: { in: ids } },
+      orderBy: [{ revisionId: 'asc' }, { ordinal: 'asc' }],
+    }),
   ]);
+  const foldersByRevision = groupRowsByRevision(allFolderRows);
+  const pagesByRevision = groupRowsByRevision(allPageRows);
+  const sidecarsByRevision = new Map(allSidecarRows.map((row) => [row.revisionId, row.sidecar]));
+  const deltasByRevision = groupRowsByRevision(allDeltaRows);
+  const loaded = new Map<string, LoadedRevisionV2Evidence>();
+  for (const revisionId of ids) {
+    loaded.set(revisionId, await buildRevisionV2Evidence(
+      spaceId,
+      foldersByRevision.get(revisionId) ?? [],
+      pagesByRevision.get(revisionId) ?? [],
+      sidecarsByRevision.get(revisionId),
+      deltasByRevision.get(revisionId) ?? [],
+    ));
+  }
+  return loaded;
+}
+
+function groupRowsByRevision<T extends { revisionId: string }>(rows: readonly T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = grouped.get(row.revisionId);
+    if (bucket) bucket.push(row);
+    else grouped.set(row.revisionId, [row]);
+  }
+  return grouped;
+}
+
+async function buildRevisionV2Evidence(
+  spaceId: string,
+  folderRows: LoadedFolderRow[],
+  pageRows: LoadedPageRow[],
+  sidecar: unknown,
+  deltaRows: LoadedTreeDeltaRow[],
+): Promise<LoadedRevisionV2Evidence> {
   for (const folder of folderRows) {
     const portable = validatePortableDirectoryPath(folder.path);
     if (portable.path !== folder.path || portable.key !== folder.pathKey) revisionV2IntegrityFailure();
@@ -369,12 +448,10 @@ export async function loadRevisionV2Evidence(
     ),
     folderRowCount: folderRows.length,
     hasPlacedPage: pageRows.some((page) => page.folderId !== null),
-    sidecar: sidecarRow?.sidecar,
+    sidecar,
     deltaRows,
   };
 }
-
-export type LoadedRevisionV2Evidence = Awaited<ReturnType<typeof loadRevisionV2Evidence>>;
 
 export type RevisionV2IntegrityEvidence = Omit<
   LoadedRevisionV2Evidence,
@@ -445,6 +522,30 @@ export async function hasRetainedRevisionV2Evidence(
     || sidecars.some((row) => hasRevisionV2SidecarMarker(row.sidecar));
 }
 
+/**
+ * A Task 6 genesis may replace history only after its immediate predecessor
+ * has actually disappeared. Any retained sequence-1 row, referenced row in a
+ * different Space, or earlier retained v2 signal makes the boundary untrusted.
+ */
+export async function hasStrictPrunedV2GenesisBoundary(
+  tx: Prisma.TransactionClient,
+  spaceId: string,
+  candidate: RevisionV2ScalarMetadata,
+  retainedBeforeGenesis: readonly RevisionV2ScalarMetadata[],
+): Promise<boolean> {
+  if (
+    candidate.sequence <= 1
+    || !candidate.parentRevisionId
+    || retainedBeforeGenesis.some((revision) => revision.sequence === candidate.sequence - 1)
+  ) return false;
+  const referencedParent = await tx.spaceKnowledgeRevision.findUnique({
+    where: { id: candidate.parentRevisionId },
+    select: { id: true },
+  });
+  return referencedParent === null
+    && !await hasRetainedRevisionV2Evidence(tx, retainedBeforeGenesis);
+}
+
 function expectedStoredTreeDeltaRows(expectedItems: TreeDeltaItemV2[]) {
   return expectedItems.map((item, ordinal) => {
     if (item.operation === 'archive_page') return {
@@ -468,15 +569,6 @@ function expectedStoredTreeDeltaRows(expectedItems: TreeDeltaItemV2[]) {
 
 export function storedTreeDeltaRowsV2(expectedItems: TreeDeltaItemV2[]) {
   return expectedStoredTreeDeltaRows(expectedItems);
-}
-
-export interface StoredRevisionTreeDeltaRow {
-  ordinal: number;
-  operation: string;
-  folderId: string | null;
-  pageId: string | null;
-  previousPath: string | null;
-  contentHash: string | null;
 }
 
 export function revisionTreeDeltaHashV2(
@@ -593,6 +685,30 @@ export async function validateRevisionChainTrust(
     return { checkpoint, trustedGenesis: null };
   }
   if (hasCompleteRevisionChain(current, ancestors)) {
+    const retained = [current, ...ancestors];
+    const retainedGenesis = retained
+      .filter((revision) => (
+        revision.origin === 'migration'
+        && revision.migrationBatchId === `space-folders-v1:${spaceId}`
+        && revision.schemaVersion === 'content-tree@2'
+        && revision.recipeVersion === 'space-folders-v1'
+      ))
+      .sort((left, right) => left.sequence - right.sequence)[0];
+    if (retainedGenesis) {
+      const earlier = retained.filter((revision) => revision.sequence < retainedGenesis.sequence);
+      const predecessor = earlier.find(
+        (revision) => revision.sequence === retainedGenesis.sequence - 1,
+      ) ?? null;
+      const evidence = await loadRevisionV2Evidence(tx, spaceId, retainedGenesis.id);
+      if (
+        (retainedGenesis.sequence === 1
+          ? retainedGenesis.parentRevisionId !== null
+          : !predecessor || retainedGenesis.parentRevisionId !== predecessor.id)
+        || !hasTrustedV2GenesisMarker(spaceId, retainedGenesis, evidence.sidecar)
+        || await hasRetainedRevisionV2Evidence(tx, earlier)
+      ) revisionV2IntegrityFailure();
+      assertCompleteRevisionV2(retainedGenesis, evidence, null);
+    }
     return { checkpoint: null, trustedGenesis: null };
   }
   const candidate = [current, ...ancestors]
@@ -606,7 +722,12 @@ export async function validateRevisionChainTrust(
   if (!candidate) revisionV2IntegrityFailure();
   const retainedBeforeGenesis = [current, ...ancestors]
     .filter((revision) => revision.sequence < candidate.sequence);
-  if (await hasRetainedRevisionV2Evidence(tx, retainedBeforeGenesis)) {
+  if (!await hasStrictPrunedV2GenesisBoundary(
+    tx,
+    spaceId,
+    candidate,
+    retainedBeforeGenesis,
+  )) {
     revisionV2IntegrityFailure();
   }
   const evidence = await loadRevisionV2Evidence(tx, spaceId, candidate.id);
@@ -681,6 +802,7 @@ export function hasCompleteRevisionChain(
       !hasValidChainIdentity(trustedGenesis)
       || trustedGenesis.spaceId !== current.spaceId
       || trustedGenesis.sequence > current.sequence
+      || ancestors.some((ancestor) => ancestor.sequence === trustedGenesis.sequence - 1)
     ) return false;
     const suffix = ancestors.filter((ancestor) => ancestor.sequence >= trustedGenesis.sequence);
     if (suffix.length !== current.sequence - trustedGenesis.sequence) return false;

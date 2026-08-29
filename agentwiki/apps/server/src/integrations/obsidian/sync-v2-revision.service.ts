@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
   canonicalTreeRevisionManifestV2,
@@ -66,7 +66,7 @@ export class SyncV2RevisionService {
   ) {}
 
   async head(spaceId: string) {
-    const loaded = await this.loadRevision(spaceId, 'current');
+    const loaded = await this.consistentRead((tx) => this.loadRevision(tx, spaceId, 'current'));
     return this.headEnvelope(spaceId, loaded);
   }
 
@@ -81,7 +81,7 @@ export class SyncV2RevisionService {
       revision = payload.revision;
       afterKey = payload.lastPageId;
     }
-    const loaded = await this.loadRevision(spaceId, revision);
+    const loaded = await this.consistentRead((tx) => this.loadRevision(tx, spaceId, revision));
     const entries = [
       ...loaded.manifest.folders.map((folder) => ({ key: `folder:${folder.folderId}`, folder })),
       ...loaded.manifest.pages.map((page) => ({ key: `page:${page.pageId}`, page })),
@@ -133,10 +133,10 @@ export class SyncV2RevisionService {
       afterOrdinal = Number(payload.lastPageId);
       if (!Number.isSafeInteger(afterOrdinal) || afterOrdinal! < 0) this.invalidCursor();
     }
-    const [from, to] = await Promise.all([
-      this.loadRevision(spaceId, fromRevision),
-      this.loadRevision(spaceId, toRevision),
-    ]);
+    const [from, to] = await this.consistentRead((tx) => Promise.all([
+      this.loadRevision(tx, spaceId, fromRevision),
+      this.loadRevision(tx, spaceId, toRevision),
+    ]));
     const items = this.deltaItems(from.manifest, to.manifest);
     const start = afterOrdinal === undefined ? 0 : afterOrdinal + 1;
     if (start > items.length) this.invalidCursor();
@@ -178,7 +178,17 @@ export class SyncV2RevisionService {
     return { ...metadata, items: selected, nextCursor };
   }
 
-  private async loadRevision(spaceId: string, revisionRef: string): Promise<LoadedRevision> {
+  private consistentRead<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(callback, {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
+  }
+
+  private async loadRevision(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    revisionRef: string,
+  ): Promise<LoadedRevision> {
     if (revisionRef === '0') {
       return {
         revision: '0', sequence: 0, publishedAt: null,
@@ -187,14 +197,14 @@ export class SyncV2RevisionService {
       };
     }
     const revision = revisionRef === 'current'
-      ? await this.prisma.spaceKnowledgeRevision.findFirst({
+      ? await tx.spaceKnowledgeRevision.findFirst({
         where: { spaceId }, orderBy: { sequence: 'desc' }, select: REVISION_V2_SCALAR_SELECT,
       })
-      : await this.prisma.spaceKnowledgeRevision.findUnique({
+      : await tx.spaceKnowledgeRevision.findUnique({
         where: { id: revisionRef }, select: REVISION_V2_SCALAR_SELECT,
       });
     if (!revision) {
-      if (revisionRef === 'current') return this.loadRevision(spaceId, '0');
+      if (revisionRef === 'current') return this.loadRevision(tx, spaceId, '0');
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
     }
     if (revision.spaceId !== spaceId) {
@@ -202,19 +212,19 @@ export class SyncV2RevisionService {
     }
     try {
       const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
-        this.rebuildImmutableManifest(spaceId, revision.id),
-        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
-        this.prisma.syncRevisionTreeDeltaRow.findMany({
+        this.rebuildImmutableManifest(tx, spaceId, revision.id),
+        tx.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
+        tx.syncRevisionTreeDeltaRow.findMany({
           where: { revisionId: revision.id }, orderBy: { ordinal: 'asc' },
         }),
-        this.prisma.spaceKnowledgeRevision.findMany({
+        tx.spaceKnowledgeRevision.findMany({
           where: { spaceId, sequence: { lt: revision.sequence } },
           orderBy: { sequence: 'desc' },
           select: REVISION_V2_SCALAR_SELECT,
         }),
       ]);
       const chainTrust = await validateRevisionChainTrust(
-        this.prisma as unknown as Prisma.TransactionClient,
+        tx,
         spaceId,
         revision,
         ancestors,
@@ -225,9 +235,9 @@ export class SyncV2RevisionService {
         : null;
       const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
       const parentEvidence = parentRevision ? await Promise.all([
-        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
-        this.rebuildImmutableManifest(spaceId, parentRevision.id),
-        this.prisma.syncRevisionTreeDeltaRow.findMany({
+        tx.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
+        this.rebuildImmutableManifest(tx, spaceId, parentRevision.id),
+        tx.syncRevisionTreeDeltaRow.findMany({
           where: { revisionId: parentRevision.id }, orderBy: { ordinal: 'asc' },
         }),
       ]) : null;
@@ -235,9 +245,9 @@ export class SyncV2RevisionService {
         ? ancestorById.get(parentRevision.parentRevisionId) ?? null
         : null;
       const grandparentEvidence = grandparentRevision ? await Promise.all([
-        this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparentRevision.id } }),
-        this.rebuildImmutableManifest(spaceId, grandparentRevision.id),
-        this.prisma.syncRevisionTreeDeltaRow.findMany({
+        tx.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparentRevision.id } }),
+        this.rebuildImmutableManifest(tx, spaceId, grandparentRevision.id),
+        tx.syncRevisionTreeDeltaRow.findMany({
           where: { revisionId: grandparentRevision.id }, orderBy: { ordinal: 'asc' },
         }),
       ]) : null;
@@ -311,10 +321,14 @@ export class SyncV2RevisionService {
     }
   }
 
-  private async rebuildImmutableManifest(spaceId: string, revisionId: string) {
+  private async rebuildImmutableManifest(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    revisionId: string,
+  ) {
     const [folderRows, pageRows] = await Promise.all([
-      this.prisma.syncRevisionFolderRow.findMany({ where: { revisionId } }),
-      this.prisma.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
+      tx.syncRevisionFolderRow.findMany({ where: { revisionId } }),
+      tx.syncRevisionPageRow.findMany({ where: { revisionId }, include: { content: true } }),
     ]);
     for (const folder of folderRows) {
       const portable = validatePortableDirectoryPath(folder.path);

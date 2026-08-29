@@ -31,6 +31,7 @@ import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { ContentTreeService } from '../../content-tree/content-tree.service';
 import { ContentTreeError, type ContentTreeErrorCode } from '../../content-tree/content-tree.types';
+import { lockContentStore } from '../../core/sync/content-store-lock';
 
 const SESSION_TTL_MS = 900 * 1_000;
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -250,6 +251,7 @@ export class PushSessionService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
+      await lockContentStore(tx);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
       if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
@@ -374,6 +376,7 @@ export class PushSessionService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
+          await lockContentStore(tx);
           await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
           const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
           if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
@@ -473,6 +476,7 @@ export class PushSessionService {
       try {
         const result = await this.prisma.$transaction(async (tx) => {
           const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+          await lockContentStore(lockedTx);
           await this.assertPublishableV2InTx(lockedTx, principal, spaceId);
           await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
           const session = await tx.pushSession.findUnique({ where: { id: sessionId } });
@@ -551,6 +555,7 @@ export class PushSessionService {
       try {
         const result = await this.prisma.$transaction(async (tx) => {
       const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+      await lockContentStore(lockedTx);
       await this.assertPublishableInTx(lockedTx, principal, spaceId);
       await this.assertV1CompatibleInTx(lockedTx, spaceId);
       await tx.$executeRaw`SELECT * FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;

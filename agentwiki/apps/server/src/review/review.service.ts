@@ -29,6 +29,7 @@ import {
   lockLiveAgentAuthorizationAcrossSpaceBoundary,
   type LockedAgentAuthorization,
 } from '../core/authorization/live-agent-authorization';
+import { lockContentStore } from '../core/sync/content-store-lock';
 
 interface AgentAutoPublishContext {
   ownerId?: string;
@@ -1139,6 +1140,7 @@ export class ReviewService {
     submission: { id: string; bundle: unknown; schemaVersion: string; recipeVersion: string; contentHash: string },
     changeSetId: string,
   ): Promise<SpaceKnowledgeRevision> {
+    await lockContentStore(tx);
     const bundle = submission.bundle as NormalizedKnowledgeBundle;
     const submittedPagesById = new Map(bundle.pages.map((page) => [page.pageId, page]));
     const submittedPagesByPath = new Map(bundle.pages.map((page) => [page.path, page]));

@@ -50,9 +50,15 @@ test('revision retention keeps head and cursor window, removes only expired non-
       const spaceId = randomUUID();
       const now = Date.now();
       await prisma.space.create({ data: { id: spaceId, name: 'R', slug: `r-${randomUUID().slice(0, 8)}` } });
-      const createRevision = (id, sequence, createdAt, supersededAt) => prisma.spaceKnowledgeRevision.create({
+      const createRevision = (
+        id,
+        sequence,
+        parentRevisionId,
+        createdAt,
+        supersededAt,
+      ) => prisma.spaceKnowledgeRevision.create({
         data: {
-          id, spaceId, sequence, parentRevisionId: null,
+          id, spaceId, sequence, parentRevisionId,
           schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', contentHash: id,
           revisionContentHash: id, snapshot: null, delta: null,
           pageCount: 0n, revisionBodyBytes: 0n, revisionManifestByteLength: 0n,
@@ -62,9 +68,13 @@ test('revision retention keeps head and cursor window, removes only expired non-
       const expiredId = randomUUID();
       const safeCursorId = randomUUID();
       const headId = randomUUID();
-      await createRevision(expiredId, 1, now - 32 * 24 * 60 * 60 * 1000, now - 32 * 24 * 60 * 60 * 1000);
-      await createRevision(safeCursorId, 2, now, now - 60 * 60 * 1000);
-      await createRevision(headId, 3, now - 365 * 24 * 60 * 60 * 1000, null);
+      await createRevision(
+        expiredId, 1, null,
+        now - 32 * 24 * 60 * 60 * 1000,
+        now - 32 * 24 * 60 * 60 * 1000,
+      );
+      await createRevision(safeCursorId, 2, expiredId, now, now - 60 * 60 * 1000);
+      await createRevision(headId, 3, safeCursorId, now - 365 * 24 * 60 * 60 * 1000, null);
 
       const removed = await service.cleanSpace(spaceId);
       assert.equal(removed, 1);

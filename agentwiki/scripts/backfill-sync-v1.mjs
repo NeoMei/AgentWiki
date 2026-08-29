@@ -15,6 +15,7 @@ const {
 } = protocol;
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+const CONTENT_STORE_ADVISORY_LOCK_KEY = 'agentwiki:sync-page-content-store:v1';
 
 function databaseUrl(env = process.env) {
   const value = env.DATABASE_URL;
@@ -75,6 +76,11 @@ export async function backfillSpace(prisma, spaceId, batchId) {
     await tx.$executeRawUnsafe(
       'SELECT pg_advisory_xact_lock(hashtext($1))',
       spaceId,
+    );
+    await tx.$executeRawUnsafe(
+      'SELECT pg_advisory_xact_lock(hashtext($1), $2::integer)',
+      CONTENT_STORE_ADVISORY_LOCK_KEY,
+      0,
     );
     await migratePages(tx, spaceId, batchId);
     // Release A deliberately leaves the new fields nullable, while the generated

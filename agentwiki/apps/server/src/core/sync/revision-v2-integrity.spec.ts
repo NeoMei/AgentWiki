@@ -112,6 +112,17 @@ describe('hasCompleteRevisionChain', () => {
       { trustedGenesis: genesis },
     )).toBe(false);
   });
+
+  it('rejects trusted-genesis bootstrap while its sequence-1 predecessor is retained', () => {
+    const predecessor = revision(6, 'rev-5');
+    const genesis = revision(7, predecessor.id);
+
+    expect(hasCompleteRevisionChain(
+      revision(9, 'rev-8'),
+      [revision(8, genesis.id), genesis, predecessor],
+      { trustedGenesis: genesis },
+    )).toBe(false);
+  });
 });
 
 describe('revision chain checkpoint evidence', () => {

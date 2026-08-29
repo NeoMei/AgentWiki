@@ -284,7 +284,7 @@ test('every migration-created PageVersion snapshots its current Folder placement
   assert.match(readablePathMigration, /folderId:\s*page\.folderId/);
 });
 
-test('the sync v1 backfill holds the shared Space lock for its mutation window', async () => {
+test('the sync v1 backfill holds the Space lock before the global content lock', async () => {
   const events = [];
   const unlockedClient = {
     $queryRawUnsafe: async (sql) => {
@@ -294,9 +294,16 @@ test('the sync v1 backfill holds the shared Space lock for its mutation window',
     $transaction: async (callback) => {
       events.push('transaction');
       const tx = {
-        $executeRawUnsafe: async (sql) => {
+        $executeRawUnsafe: async (sql, key, namespace) => {
+          if (sql.includes('$2::integer')) {
+            assert.equal(key, 'agentwiki:sync-page-content-store:v1');
+            assert.equal(namespace, 0);
+            events.push('content-lock');
+            return;
+          }
           assert.match(sql, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/);
-          events.push('lock');
+          assert.equal(key, 'space-lock-contract');
+          events.push('space-lock');
         },
         $queryRawUnsafe: async (sql) => {
           events.push(sql.includes('FROM "Page"') ? 'pages' : 'revisions');
@@ -310,7 +317,13 @@ test('the sync v1 backfill holds the shared Space lock for its mutation window',
 
   await backfillSpace(unlockedClient, 'space-lock-contract', 'batch-lock-contract');
 
-  assert.deepEqual(events, ['transaction', 'lock', 'pages', 'revisions']);
+  assert.deepEqual(events, [
+    'transaction',
+    'space-lock',
+    'content-lock',
+    'pages',
+    'revisions',
+  ]);
 });
 
 test('the readable allocator is lock-branded and structural Page paths are centralized in ContentTree', async () => {

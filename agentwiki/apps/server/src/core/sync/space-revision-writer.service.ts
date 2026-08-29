@@ -26,7 +26,7 @@ import {
   assertRevisionV2Metadata,
   assertStoredTreeDeltaV2,
   hasCompleteRevisionChain,
-  hasRetainedRevisionV2Evidence,
+  hasStrictPrunedV2GenesisBoundary,
   hasTrustedV2GenesisInputMarker,
   hasTrustedV2GenesisMarker,
   loadRevisionV2Evidence,
@@ -34,6 +34,7 @@ import {
   revisionShouldBeV2,
   validateRevisionChainTrust,
 } from './revision-v2-integrity';
+import { lockContentStore } from './content-store-lock';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -184,6 +185,7 @@ export class SpaceRevisionWriterService {
     changes: PageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
+    await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },
@@ -520,6 +522,7 @@ export class SpaceRevisionWriterService {
     origin: RevisionOrigin,
     deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
+    await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
       orderBy: { sequence: 'desc' },
@@ -854,7 +857,7 @@ export class SpaceRevisionWriterService {
           where: { spaceId },
         });
         canBootstrapTrustedGenesis = !existingCheckpoint
-          && !await hasRetainedRevisionV2Evidence(tx, ancestors);
+          && await hasStrictPrunedV2GenesisBoundary(tx, spaceId, revision, ancestors);
       } catch {
         canBootstrapTrustedGenesis = false;
       }

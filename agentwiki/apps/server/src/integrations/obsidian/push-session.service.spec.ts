@@ -502,6 +502,11 @@ describe('PushSessionService graph lifecycle', () => {
     )).resolves.toMatchObject({ status: 'published', revision: 'sync-2' });
 
     expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[0]))
+      .toContain('agentwiki:sync-page-content-store:v1');
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[1]))
+      .not.toContain('agentwiki:sync-page-content-store:v1');
     expect(tx.changeSet.create.mock.invocationCallOrder[0])
       .toBeLessThan(service.applyPageChanges.mock.invocationCallOrder[0]);
     expect(service.applyPageChanges).toHaveBeenCalledWith(
@@ -809,6 +814,11 @@ describe('PushSessionService Sync Protocol v2', () => {
 
     await expect(service.uploadV2(principal, 'space-1', session.id, batch))
       .resolves.toEqual(expect.objectContaining({ protocolVersion: '2', batchIndex: 0 }));
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[0]))
+      .toContain('agentwiki:sync-page-content-store:v1');
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[1]))
+      .not.toContain('agentwiki:sync-page-content-store:v1');
     const rows = createMany.mock.calls[0][0].data;
     expect(rows.map((row: any) => row.pageId)).toEqual(['folder:same-id', 'page:same-id']);
     expect(rows).toEqual(expect.arrayContaining([
@@ -876,6 +886,11 @@ describe('PushSessionService Sync Protocol v2', () => {
     expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
     expect(contentTree.lockSyncMutationSpace.mock.invocationCallOrder[0])
       .toBeLessThan(tx.$executeRaw.mock.invocationCallOrder[0]);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[0]))
+      .toContain('agentwiki:sync-page-content-store:v1');
+    expect(JSON.stringify(tx.$executeRaw.mock.calls[1]))
+      .not.toContain('agentwiki:sync-page-content-store:v1');
     expect(contentTree.publishSyncV2BatchLocked).toHaveBeenCalledTimes(1);
     expect(contentTree.publishSyncV2BatchLocked).toHaveBeenCalledWith(tx, expect.objectContaining({
       spaceId: 'space-1', baseRevision: 'rev-1', changes,
