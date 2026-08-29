@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
   canonicalTreeRevisionManifestV2,
@@ -18,9 +19,11 @@ import { SyncApiException } from './sync-error';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import {
-  hasCompleteRevisionChain,
+  assertRevisionV2Metadata,
+  assertStoredTreeDeltaV2,
   REVISION_V2_SCALAR_SELECT,
   revisionShouldBeV2,
+  validateRevisionChainTrust,
 } from '../../core/sync/revision-v2-integrity';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -52,12 +55,6 @@ function folderDepth(folder: SyncFolderV2, folders: ReadonlyMap<string, SyncFold
 
 function revisionGone(): SyncApiException {
   return new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
 }
 
 @Injectable()
@@ -216,7 +213,12 @@ export class SyncV2RevisionService {
           select: REVISION_V2_SCALAR_SELECT,
         }),
       ]);
-      if (!hasCompleteRevisionChain(revision, ancestors)) throw revisionGone();
+      const chainTrust = await validateRevisionChainTrust(
+        this.prisma as unknown as Prisma.TransactionClient,
+        spaceId,
+        revision,
+        ancestors,
+      );
       const ancestorById = new Map(ancestors.map((ancestor) => [ancestor.id, ancestor]));
       const parentRevision = revision.parentRevisionId
         ? ancestorById.get(revision.parentRevisionId) ?? null
@@ -236,7 +238,7 @@ export class SyncV2RevisionService {
         this.prisma.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparentRevision.id } }),
         this.rebuildImmutableManifest(spaceId, grandparentRevision.id),
         this.prisma.syncRevisionTreeDeltaRow.findMany({
-          where: { revisionId: grandparentRevision.id }, select: { ordinal: true },
+          where: { revisionId: grandparentRevision.id }, orderBy: { ordinal: 'asc' },
         }),
       ]) : null;
       const grandparentShouldBeV2 = !!grandparentRevision && !!grandparentEvidence && revisionShouldBeV2({
@@ -269,10 +271,10 @@ export class SyncV2RevisionService {
         parentShouldBeV2,
       });
       if (shouldBeV2) {
-        this.assertV2Metadata(revision, immutable, sidecarRow, deltaRows.length);
+        this.assertV2Metadata(revision, immutable, sidecarRow, deltaRows);
         let parentManifest: TreeRevisionContentManifestV2 | null = null;
         if (parentRevision && parentEvidence && parentShouldBeV2) {
-          this.assertV2Metadata(parentRevision, parentEvidence[1], parentEvidence[0], parentEvidence[2].length);
+          this.assertV2Metadata(parentRevision, parentEvidence[1], parentEvidence[0], parentEvidence[2]);
           parentManifest = parentEvidence[1].manifest;
           let grandparentManifest: TreeRevisionContentManifestV2 | null = null;
           if (grandparentRevision && grandparentEvidence && grandparentShouldBeV2) {
@@ -280,16 +282,20 @@ export class SyncV2RevisionService {
               grandparentRevision,
               grandparentEvidence[1],
               grandparentEvidence[0],
-              grandparentEvidence[2].length,
+              grandparentEvidence[2],
             );
             grandparentManifest = grandparentEvidence[1].manifest;
           }
-          this.assertTreeDeltaContract(
-            parentEvidence[2],
-            treeRevisionDeltaV2(grandparentManifest, parentManifest),
-          );
+          if (chainTrust.checkpoint?.anchorRevisionId !== parentRevision.id) {
+            this.assertTreeDeltaContract(
+              parentEvidence[2],
+              treeRevisionDeltaV2(grandparentManifest, parentManifest),
+            );
+          }
         }
-        this.assertTreeDeltaContract(deltaRows, treeRevisionDeltaV2(parentManifest, manifest));
+        if (chainTrust.checkpoint?.anchorRevisionId !== revision.id) {
+          this.assertTreeDeltaContract(deltaRows, treeRevisionDeltaV2(parentManifest, manifest));
+        }
       }
       return {
         revision: revision.id,
@@ -357,71 +363,35 @@ export class SyncV2RevisionService {
 
   private assertV2Metadata(
     revision: {
-      schemaVersion: string; recipeVersion: string; revisionContentHash: string | null;
-      pageCount: bigint | null; revisionManifestByteLength: bigint | null; revisionBodyBytes: bigint | null;
+      schemaVersion: string; recipeVersion: string; revisionContentHash: string;
+      pageCount: bigint; revisionManifestByteLength: bigint; revisionBodyBytes: bigint;
     },
     immutable: Awaited<ReturnType<SyncV2RevisionService['rebuildImmutableManifest']>>,
     sidecarRow: { sidecar: unknown } | null,
-    deltaCount: number,
+    deltaRows: Array<{
+      ordinal: number; operation: string; folderId: string | null; pageId: string | null;
+      previousPath: string | null; contentHash: string | null;
+    }>,
   ): void {
-    const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
-    if (
-      revision.schemaVersion !== 'content-tree@2'
-      || revision.recipeVersion !== 'space-folders-v1'
-      || revision.revisionContentHash !== calculatedHash
-      || revision.pageCount !== BigInt(manifest.pages.length)
-      || revision.revisionManifestByteLength !== BigInt(manifestBytes)
-      || revision.revisionBodyBytes !== BigInt(bodyBytes)
-    ) throw revisionGone();
-    const sidecar = record(sidecarRow?.sidecar);
-    const migration = record(sidecar?.spaceFolderMigration);
-    const v2 = record(migration?.v2Revision);
-    if (
-      v2?.protocolVersion !== '2'
-      || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
-      || v2.folderCount !== String(manifest.folders.length)
-      || v2.pageCount !== String(manifest.pages.length)
-      || v2.revisionContentHash !== calculatedHash
-      || v2.revisionManifestByteLength !== String(manifestBytes)
-      || v2.revisionBodyBytes !== String(bodyBytes)
-      || v2.treeDeltaCount !== String(deltaCount)
-    ) throw revisionGone();
+    try {
+      assertRevisionV2Metadata(revision, {
+        ...immutable,
+        sidecar: sidecarRow?.sidecar,
+        deltaRows,
+      });
+    } catch {
+      throw revisionGone();
+    }
   }
 
   private assertTreeDeltaContract(rows: Array<{
     ordinal: number; operation: string; folderId: string | null; pageId: string | null;
     previousPath: string | null; contentHash: string | null;
   }>, expectedItems: TreeDeltaItemV2[]): void {
-    const expectedRows = expectedItems.map((item, ordinal) => {
-      if (item.operation === 'archive_page') return {
-        ordinal, operation: item.operation, folderId: null, pageId: item.pageId,
-        previousPath: item.previousPath, contentHash: null,
-      };
-      if (item.operation === 'archive_folder') return {
-        ordinal, operation: item.operation, folderId: item.folderId, pageId: null,
-        previousPath: item.previousPath, contentHash: null,
-      };
-      if (item.operation === 'upsert_folder') return {
-        ordinal, operation: item.operation, folderId: item.folder.folderId, pageId: null,
-        previousPath: null, contentHash: null,
-      };
-      return {
-        ordinal, operation: item.operation, folderId: null, pageId: item.page.pageId,
-        previousPath: null, contentHash: item.page.contentHash,
-      };
-    });
-    if (rows.length !== expectedRows.length) throw revisionGone();
-    for (let index = 0; index < rows.length; index += 1) {
-      const actual = rows[index]!;
-      const expected = expectedRows[index]!;
-      if (
-        actual.ordinal !== expected.ordinal
-        || actual.operation !== expected.operation
-        || actual.folderId !== expected.folderId
-        || actual.pageId !== expected.pageId
-        || actual.previousPath !== expected.previousPath
-        || actual.contentHash !== expected.contentHash
-      ) throw revisionGone();
+    try {
+      assertStoredTreeDeltaV2(rows, expectedItems);
+    } catch {
+      throw revisionGone();
     }
   }
 

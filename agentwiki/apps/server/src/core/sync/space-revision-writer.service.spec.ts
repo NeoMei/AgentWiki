@@ -95,6 +95,7 @@ describe('SpaceRevisionWriterService', () => {
         create: jest.fn().mockResolvedValue(createdRevision),
         update: jest.fn().mockResolvedValue({}),
       },
+      spaceRevisionChainCheckpoint: { findUnique: jest.fn().mockResolvedValue(null) },
       syncRevisionPageRow: {
         findMany: jest.fn().mockResolvedValue([{
           pageId: '11111111-1111-4111-8111-111111111111',
@@ -210,6 +211,7 @@ describe('SpaceRevisionWriterService', () => {
         create: jest.fn().mockResolvedValue({ id: 'rev-bulk', sequence: 1 }),
         update: jest.fn().mockResolvedValue({}),
       },
+      spaceRevisionChainCheckpoint: { findUnique: jest.fn().mockResolvedValue(null) },
       syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue(settled) },
       syncRevisionDeltaRow: { createMany: jest.fn().mockResolvedValue({ count: changes.length }) },
       syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([]) },
@@ -261,6 +263,7 @@ describe('SpaceRevisionWriterService', () => {
     if (parent) revisions.set(parent.id, parent);
     return {
       folder: { findMany: jest.fn().mockResolvedValue([]) },
+      spaceRevisionChainCheckpoint: { findUnique: jest.fn().mockResolvedValue(null) },
       spaceKnowledgeRevision: {
         findUnique: jest.fn(async ({ where }: any) => revisions.get(where.id) ?? null),
         findMany: jest.fn(async ({ where }: any) => [...revisions.values()]

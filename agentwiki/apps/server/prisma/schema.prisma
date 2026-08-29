@@ -208,6 +208,7 @@ model Space {
   changeSets             ChangeSet[]
   knowledgeSubmissions   KnowledgeSubmission[]
   knowledgeRevisions     SpaceKnowledgeRevision[]
+  revisionChainCheckpoint SpaceRevisionChainCheckpoint?
   agentMemories          AgentMemory[]
   assistTasks            AssistTask[]
   graphState             SpaceGraphState?
@@ -959,6 +960,26 @@ model SpaceKnowledgeRevision {
   @@unique([spaceId, migrationBatchId])
   @@index([sourceChangeSetId])
   @@index([spaceId, createdAt])
+}
+
+model SpaceRevisionChainCheckpoint {
+  spaceId                     String   @id
+  contractVersion             String
+  boundarySequence            Int
+  boundaryRevisionId          String
+  boundaryParentRevisionId    String?
+  boundaryRevisionContentHash String
+  rollingChainHash            String
+  anchorSequence              Int
+  anchorRevisionId            String
+  anchorParentRevisionId      String
+  anchorRevisionContentHash   String
+  anchorTreeDeltaHash         String
+  evidenceHash                String
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 }
 
 model OnboardingDeviceSession {

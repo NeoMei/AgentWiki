@@ -22,9 +22,17 @@ import { LegacyBundleHashStream } from './legacy-serializer';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
 import { ContentTreeConflict, ContentTreeError } from '../../content-tree/content-tree.types';
 import {
+  assertCompleteRevisionV2,
+  assertRevisionV2Metadata,
+  assertStoredTreeDeltaV2,
   hasCompleteRevisionChain,
+  hasRetainedRevisionV2Evidence,
+  hasTrustedV2GenesisInputMarker,
+  hasTrustedV2GenesisMarker,
+  loadRevisionV2Evidence,
   REVISION_V2_SCALAR_SELECT,
   revisionShouldBeV2,
+  validateRevisionChainTrust,
 } from './revision-v2-integrity';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -835,7 +843,32 @@ export class SpaceRevisionWriterService {
       orderBy: { sequence: 'desc' },
       select: REVISION_V2_SCALAR_SELECT,
     });
-    if (!hasCompleteRevisionChain(revision, ancestors)) throw this.invalidRevisionChain();
+    let pendingTrustedGenesis = false;
+    let chainTrust: Awaited<ReturnType<typeof validateRevisionChainTrust>>;
+    try {
+      chainTrust = await validateRevisionChainTrust(tx, spaceId, revision, ancestors);
+    } catch {
+      let canBootstrapTrustedGenesis: boolean;
+      try {
+        const existingCheckpoint = await tx.spaceRevisionChainCheckpoint.findUnique({
+          where: { spaceId },
+        });
+        canBootstrapTrustedGenesis = !existingCheckpoint
+          && !await hasRetainedRevisionV2Evidence(tx, ancestors);
+      } catch {
+        canBootstrapTrustedGenesis = false;
+      }
+      if (
+        canBootstrapTrustedGenesis
+        && hasTrustedV2GenesisInputMarker(spaceId, revision, currentSidecarRow?.sidecar)
+        && hasCompleteRevisionChain(revision, ancestors, { trustedGenesis: revision })
+      ) {
+        pendingTrustedGenesis = true;
+        chainTrust = { checkpoint: null, trustedGenesis: revision };
+      } else {
+        throw this.invalidRevisionChain();
+      }
+    }
     const ancestorById = new Map(ancestors.map((ancestor) => [ancestor.id, ancestor]));
     const parent = parentRevisionId ? ancestorById.get(parentRevisionId) ?? null : null;
     const grandparent = parent?.parentRevisionId
@@ -852,7 +885,9 @@ export class SpaceRevisionWriterService {
         tx.syncRevisionFolderRow.findMany({ where: { revisionId: grandparent.id } }),
         tx.syncRevisionPageRow.findMany({ where: { revisionId: grandparent.id }, include: { content: true } }),
         tx.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparent.id } }),
-        tx.syncRevisionTreeDeltaRow.findMany({ where: { revisionId: grandparent.id }, select: { ordinal: true } }),
+        tx.syncRevisionTreeDeltaRow.findMany({
+          where: { revisionId: grandparent.id }, orderBy: { ordinal: 'asc' },
+        }),
       ])
       : [[], [], null, []];
     const grandparentShouldBeV2 = !!grandparent && revisionShouldBeV2({
@@ -893,7 +928,7 @@ export class SpaceRevisionWriterService {
         grandparentFolders,
         grandparentPages,
         grandparentSidecarRow,
-        grandparentDeltaRows.length,
+        grandparentDeltaRows,
       )
       : null;
     const parentManifest = parent && parentShouldBeV2
@@ -903,10 +938,10 @@ export class SpaceRevisionWriterService {
         parentFolders,
         parentPages,
         parentSidecarRow,
-        parentDeltaRows.length,
+        parentDeltaRows,
       )
       : null;
-    if (parentManifest) {
+    if (parentManifest && chainTrust.checkpoint?.anchorRevisionId !== parent?.id) {
       this.assertStoredTreeDelta(parentDeltaRows, treeRevisionDeltaV2(grandparentManifest, parentManifest));
     }
 
@@ -1014,6 +1049,22 @@ export class SpaceRevisionWriterService {
         },
       } },
     });
+    if (pendingTrustedGenesis) {
+      try {
+        const finalized = await tx.spaceKnowledgeRevision.findUnique({
+          where: { id: revisionId },
+          select: REVISION_V2_SCALAR_SELECT,
+        });
+        if (!finalized) throw this.invalidRevisionChain();
+        const evidence = await loadRevisionV2Evidence(tx, spaceId, revisionId);
+        if (!hasTrustedV2GenesisMarker(spaceId, finalized, evidence.sidecar)) {
+          throw this.invalidRevisionChain();
+        }
+        assertCompleteRevisionV2(finalized, evidence, null);
+      } catch {
+        throw this.invalidRevisionChain();
+      }
+    }
     return {
       revisionId,
       sequence: fallback.sequence,
@@ -1042,36 +1093,10 @@ export class SpaceRevisionWriterService {
     }>,
     expectedItems: TreeDeltaItemV2[],
   ): void {
-    const expectedRows = expectedItems.map((item, ordinal) => {
-      if (item.operation === 'archive_page') return {
-        ordinal, operation: item.operation, folderId: null, pageId: item.pageId,
-        previousPath: item.previousPath, contentHash: null,
-      };
-      if (item.operation === 'archive_folder') return {
-        ordinal, operation: item.operation, folderId: item.folderId, pageId: null,
-        previousPath: item.previousPath, contentHash: null,
-      };
-      if (item.operation === 'upsert_folder') return {
-        ordinal, operation: item.operation, folderId: item.folder.folderId, pageId: null,
-        previousPath: null, contentHash: null,
-      };
-      return {
-        ordinal, operation: item.operation, folderId: null, pageId: item.page.pageId,
-        previousPath: null, contentHash: item.page.contentHash,
-      };
-    });
-    if (rows.length !== expectedRows.length) throw this.invalidRevisionChain();
-    for (let index = 0; index < rows.length; index += 1) {
-      const actual = rows[index]!;
-      const expected = expectedRows[index]!;
-      if (
-        actual.ordinal !== expected.ordinal
-        || actual.operation !== expected.operation
-        || actual.folderId !== expected.folderId
-        || actual.pageId !== expected.pageId
-        || actual.previousPath !== expected.previousPath
-        || actual.contentHash !== expected.contentHash
-      ) throw this.invalidRevisionChain();
+    try {
+      assertStoredTreeDeltaV2(rows, expectedItems);
+    } catch {
+      throw this.invalidRevisionChain();
     }
   }
 
@@ -1105,7 +1130,14 @@ export class SpaceRevisionWriterService {
       content: { body: string; byteLength: number };
     }>,
     sidecarRow: { sidecar: unknown } | null,
-    deltaCount: number,
+    deltaRows: Array<{
+      ordinal: number;
+      operation: string;
+      folderId: string | null;
+      pageId: string | null;
+      previousPath: string | null;
+      contentHash: string | null;
+    }>,
   ): Promise<TreeRevisionContentManifestV2> {
     try {
       for (const folder of folderRows) {
@@ -1165,33 +1197,16 @@ export class SpaceRevisionWriterService {
       const revisionBodyBytes = BigInt(manifest.pages.reduce(
         (total, page) => total + Buffer.byteLength(page.body, 'utf8'), 0,
       ));
-      const sidecar = sidecarRow?.sidecar && typeof sidecarRow.sidecar === 'object' && !Array.isArray(sidecarRow.sidecar)
-        ? sidecarRow.sidecar as Record<string, unknown>
-        : null;
-      const migrationValue = sidecar?.spaceFolderMigration;
-      const migration = migrationValue && typeof migrationValue === 'object' && !Array.isArray(migrationValue)
-        ? migrationValue as Record<string, unknown>
-        : null;
-      const v2Value = migration?.v2Revision;
-      const v2 = v2Value && typeof v2Value === 'object' && !Array.isArray(v2Value)
-        ? v2Value as Record<string, unknown>
-        : null;
-      if (
-        revision.schemaVersion !== 'content-tree@2'
-        || revision.recipeVersion !== 'space-folders-v1'
-        || revision.revisionContentHash !== revisionContentHash
-        || revision.pageCount !== BigInt(manifest.pages.length)
-        || revision.revisionManifestByteLength !== revisionManifestByteLength
-        || revision.revisionBodyBytes !== revisionBodyBytes
-        || v2?.protocolVersion !== '2'
-        || v2.manifestSchema !== 'TreeRevisionContentManifestV2'
-        || v2.folderCount !== String(manifest.folders.length)
-        || v2.pageCount !== String(manifest.pages.length)
-        || v2.revisionContentHash !== revisionContentHash
-        || v2.revisionManifestByteLength !== String(revisionManifestByteLength)
-        || v2.revisionBodyBytes !== String(revisionBodyBytes)
-        || v2.treeDeltaCount !== String(deltaCount)
-      ) throw this.invalidRevisionChain();
+      assertRevisionV2Metadata(revision, {
+        manifest,
+        calculatedHash: revisionContentHash,
+        manifestBytes: Number(revisionManifestByteLength),
+        bodyBytes: Number(revisionBodyBytes),
+        folderRowCount: folderRows.length,
+        hasPlacedPage: pageRows.some((page) => page.folderId !== null),
+        sidecar: sidecarRow?.sidecar,
+        deltaRows,
+      });
       return manifest;
     } catch {
       throw this.invalidRevisionChain();

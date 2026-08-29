@@ -116,6 +116,9 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024) {
     } } } }];
   }));
   const prisma = {
+    spaceRevisionChainCheckpoint: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     spaceKnowledgeRevision: {
       findFirst: jest.fn(async () => revisions.get('rev-2')),
       findUnique: jest.fn(async ({ where }: any) => revisions.get(where.id) ?? null),
