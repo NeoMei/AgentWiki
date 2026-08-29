@@ -40,7 +40,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           agentId: 'agent-1',
           credentialId: 'credential-1',
           serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.6.1' as const,
+          pluginVersion: '0.7.0' as const,
           scopes: scopesForAgentAccessRole('publisher'),
           role: 'publisher' as const,
           spaceId: 'space-1',
@@ -56,7 +56,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           expectedSpaceId: 'space-1',
           expectedRole: 'publisher',
           expectedScopes: scopesForAgentAccessRole('publisher'),
-          expectedPluginVersion: '0.6.1',
+          expectedPluginVersion: '0.7.0',
           exchange: { agentId: 'agent-1', credentialId: 'credential-1' },
         });
         return {

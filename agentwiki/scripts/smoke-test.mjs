@@ -113,7 +113,7 @@ export async function runSmoke(environment = process.env) {
     fixture.agentId = agent.data.id;
     const installation = await request(apiUrl, `/agents/${agent.data.id}/local-sync-installations`, {
       method: 'POST', token,
-      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.6.1' },
+      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.7.0' },
     });
     const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
       method: 'POST', body: { code: installation.data.code },

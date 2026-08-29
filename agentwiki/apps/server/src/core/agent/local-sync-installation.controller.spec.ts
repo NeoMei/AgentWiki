@@ -53,7 +53,7 @@ describe('LocalSyncInstallationController', () => {
     await controller.create(request, 'agent-1', {
       spaceId: 'space-1',
       role: 'editor',
-      pluginVersion: '0.6.1',
+      pluginVersion: '0.7.0',
     });
 
     expect(installations.create).toHaveBeenCalledWith(
@@ -61,7 +61,7 @@ describe('LocalSyncInstallationController', () => {
       'agent-1',
       'space-1',
       'editor',
-      '0.6.1',
+      '0.7.0',
       'https://wiki.test/api',
       false,
     );
@@ -74,11 +74,11 @@ describe('LocalSyncInstallationController', () => {
     const request = { user: { userId: 'owner-1', platformRole: 'super_admin' } } as any;
 
     await controller.create(request, 'agent-1', {
-      spaceId: 'space-1', role: 'editor', pluginVersion: '0.6.1',
+      spaceId: 'space-1', role: 'editor', pluginVersion: '0.7.0',
     });
 
     expect(installations.create).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1', 'editor', '0.6.1',
+      'owner-1', 'agent-1', 'space-1', 'editor', '0.7.0',
       'https://wiki.test/api', true,
     );
   });
@@ -96,7 +96,7 @@ describe('LocalSyncInstallationController', () => {
     await controller.create(request, 'agent-1', {
       spaceId: 'space-1',
       role: 'reader',
-      pluginVersion: '0.6.1',
+      pluginVersion: '0.7.0',
     });
 
     expect(installations.create).toHaveBeenCalledWith(
@@ -104,7 +104,7 @@ describe('LocalSyncInstallationController', () => {
       'agent-1',
       'space-1',
       'reader',
-      '0.6.1',
+      '0.7.0',
       'http://localhost:3000/api',
       false,
     );
@@ -119,7 +119,7 @@ describe('LocalSyncInstallationController', () => {
       const request = { user: { userId: 'owner-1' } } as any;
 
       expect(() => controller.create(request, 'agent-1', {
-        spaceId: 'space-1', role: 'reader', pluginVersion: '0.6.1',
+        spaceId: 'space-1', role: 'reader', pluginVersion: '0.7.0',
       })).toThrow(InternalServerErrorException);
       expect(installations.create).not.toHaveBeenCalled();
     },
@@ -132,7 +132,7 @@ describe('LocalSyncInstallationController', () => {
     const request = { user: { userId: 'owner-1' } } as any;
 
     expect(() => controller.create(request, 'agent-1', {
-      spaceId: 'space-1', role: 'reader', pluginVersion: '0.6.1',
+      spaceId: 'space-1', role: 'reader', pluginVersion: '0.7.0',
     })).toThrow(InternalServerErrorException);
     expect(installations.create).not.toHaveBeenCalled();
   });

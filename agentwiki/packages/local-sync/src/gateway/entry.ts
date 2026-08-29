@@ -121,6 +121,6 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
 
 export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
   const { handlers, bridge } = await createGatewayEntry(deps);
-  const { server } = await createGatewayServer({ handlers, bridge, version: '0.6.1' });
+  const { server } = await createGatewayServer({ handlers, bridge, version: '0.7.0' });
   await server.connect(new StdioServerTransport());
 }

@@ -52,7 +52,7 @@ describe('agentPreparationApi', () => {
     expect(api.patch).toHaveBeenCalledWith('/agents/agent-1', { status: 'active' });
     expect(api.put).toHaveBeenCalledWith('/agents/agent-1/grants/space-1', { role: 'editor' });
     expect(api.post).toHaveBeenCalledWith('/agents/agent-1/local-sync-installations', {
-      pluginVersion: '0.6.1', spaceId: 'space-1', role: 'editor',
+      pluginVersion: '0.7.0', spaceId: 'space-1', role: 'editor',
     });
     expect(listedResult).toBe(agents);
     expect(detailResult).toBe(detail);

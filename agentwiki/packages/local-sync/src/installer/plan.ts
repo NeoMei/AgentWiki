@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import type { AgentClient } from '../agent-clients.js';
 
 export const GATEWAY_MCP_NAME = 'agentwiki';
-export const GATEWAY_PACKAGE_VERSION = '0.6.1';
+export const GATEWAY_PACKAGE_VERSION = '0.7.0';
 
 /** The exact command written into every supported client configuration. */
 export function gatewayCommand(connectionId: string): string[] {

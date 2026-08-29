@@ -180,7 +180,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         JWT_SECRET: `attachment-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `attachment-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-        LOCAL_SYNC_PACKAGE_VERSION: '0.6.1',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.7.0',
         ATTACHMENT_STORAGE_PATH: storageRoot,
         ATTACHMENT_MAX_SPACE_BYTES: String(PNG.length * 2),
         ATTACHMENT_MIN_FREE_BYTES: '1',
@@ -288,7 +288,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         `/agents/${agentRecord.id}/local-sync-installations`,
         {
           method: 'POST', token: owner.token,
-          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.6.1' },
+          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.7.0' },
         },
       )).data;
       const exchange = (await request('/integrations/local-sync/exchange', {

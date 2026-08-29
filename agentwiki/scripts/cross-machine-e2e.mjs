@@ -116,7 +116,7 @@ export async function runCrossMachineE2E(environment = process.env) {
 
     const installation = await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
       method: 'POST', token,
-      body: { spaceId: space.id, role: 'publisher', pluginVersion: '0.6.1' },
+      body: { spaceId: space.id, role: 'publisher', pluginVersion: '0.7.0' },
     });
     const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
       method: 'POST', body: { code: installation.code },
@@ -130,7 +130,7 @@ export async function runCrossMachineE2E(environment = process.env) {
       serverUrl: apiUrl,
       agentId: agent.id,
       credentialId: credential.id,
-      pluginVersion: '0.6.1',
+      pluginVersion: '0.7.0',
       client: 'codex',
       mcpName: 'agentwiki',
     };

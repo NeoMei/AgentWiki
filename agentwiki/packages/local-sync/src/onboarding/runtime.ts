@@ -49,7 +49,7 @@ export async function runOnboarding(
     encoder: new ProtocolEncoder(sessionId, sink),
     source,
     serverBaseUrl: input.serverBaseUrl,
-    packageVersion: '0.6.1',
+    packageVersion: '0.7.0',
     home: input.home,
     preflight: overrides.preflight ?? preflight,
     bootstrapInstall: overrides.bootstrapInstall ?? createBootstrapInstaller(),

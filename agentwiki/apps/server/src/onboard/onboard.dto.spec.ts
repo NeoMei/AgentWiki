@@ -30,7 +30,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.6.1',
+  packageVersion: '0.7.0',
 };
 
 const planHashGolden = JSON.parse(readFileSync(join(
@@ -39,7 +39,7 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.6.1'] as const)(
+  it.each(['0.7.0'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {

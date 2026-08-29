@@ -18,7 +18,7 @@ const CAPABILITIES = [
 const context = {
   sessionId: 'device-session-12345678',
   userId: 'user-1',
-  packageVersion: '0.6.1',
+  packageVersion: '0.7.0',
   purpose: 'full-onboarding',
   requestedCapabilities: CAPABILITIES,
 };
@@ -27,7 +27,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.6.1',
+  packageVersion: '0.7.0',
 };
 
 const installation = {
@@ -203,7 +203,7 @@ describe('OnboardBootstrapService', () => {
     expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
     expect(installations.issueForBootstrap).toHaveBeenCalledWith({
       ownerId: 'user-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
-      pluginVersion: '0.6.1', serverUrl: 'https://agentwiki.example/api',
+      pluginVersion: '0.7.0', serverUrl: 'https://agentwiki.example/api',
     });
     expect(result).toEqual({
       space: { id: 'space-1', name: '研发知识库' },

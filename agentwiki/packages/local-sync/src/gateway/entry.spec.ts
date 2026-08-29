@@ -67,7 +67,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.6.1', client: 'codex', mcpName: 'agentwiki' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.7.0', client: 'codex', mcpName: 'agentwiki' },
       },
     });
     await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'test-key' } } });
@@ -132,7 +132,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.6.1', client: 'codex', mcpName: 'agentwiki' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.7.0', client: 'codex', mcpName: 'agentwiki' },
       },
     });
     await saveCredentials(home, {

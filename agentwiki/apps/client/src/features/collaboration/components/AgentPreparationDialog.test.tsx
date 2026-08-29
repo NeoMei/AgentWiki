@@ -93,7 +93,7 @@ const installation = (overrides: Partial<{
   installationId: 'install-1',
   code: 'AW-CODE',
   expiresAt: new Date(Date.now() + 600_000).toISOString(),
-  instructions: 'npx --yes @neomei/agentwiki-local-sync@0.6.1 onboard --code AW-CODE',
+  instructions: 'npx --yes @neomei/agentwiki-local-sync@0.7.0 onboard --code AW-CODE',
   ...overrides,
 });
 

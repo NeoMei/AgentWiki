@@ -6,11 +6,11 @@ import {
 } from './local-sync.dto';
 
 describe('local sync installation DTOs and business errors', () => {
-  it('accepts a Space-bound role and the 0.6.1 protocol version', async () => {
+  it('accepts a Space-bound role and the 0.7.0 protocol version', async () => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {
       spaceId: 'space-1',
       role: 'editor',
-      pluginVersion: '0.6.1',
+      pluginVersion: '0.7.0',
     });
 
     await expect(validate(dto)).resolves.toEqual([]);

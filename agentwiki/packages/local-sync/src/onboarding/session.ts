@@ -176,7 +176,7 @@ const localPlanPreviewSchema = z.object({
 
 const serverPlanSchema = z.object({
   space: z.union([z.object({ mode: z.literal('create'), name: z.string().min(1) }).strict(), z.object({ mode: z.literal('existing'), id: z.string().min(1) }).strict()]),
-  agentName: z.string().min(1), role: AgentAccessRoleSchema, packageVersion: z.literal('0.6.1'),
+  agentName: z.string().min(1), role: AgentAccessRoleSchema, packageVersion: z.literal('0.7.0'),
 }).strict();
 const bootstrapSummarySchema = z.object({
   space: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
