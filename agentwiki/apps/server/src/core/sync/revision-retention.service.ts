@@ -6,7 +6,7 @@ import {
   advanceRevisionChainHash,
   assertCompleteRevisionV2,
   assertRevisionV2Metadata,
-  hasStrictPrunedV2GenesisBoundary,
+  hasTrustedV2GenesisBoundary,
   hasTrustedV2GenesisMarker,
   isValidRevisionChainCheckpoint,
   loadRevisionV2EvidenceBatch,
@@ -234,14 +234,7 @@ export class RevisionRetentionService {
       candidate,
       evidenceByRevision.get(candidate.id)!,
     ))) throw new Error('REVISION_RETENTION_EARLIER_V2_EVIDENCE');
-    const predecessor = earlier[earlier.length - 1];
-    if (predecessor?.sequence === revision.sequence - 1) {
-      if (revision.parentRevisionId !== predecessor.id) {
-        throw new Error('REVISION_RETENTION_GENESIS_PARENT_INVALID');
-      }
-      return;
-    }
-    if (!await hasStrictPrunedV2GenesisBoundary(tx, spaceId, revision, earlier)) {
+    if (!await hasTrustedV2GenesisBoundary(tx, spaceId, revision, earlier)) {
       throw new Error('REVISION_RETENTION_GENESIS_PARENT_INVALID');
     }
   }

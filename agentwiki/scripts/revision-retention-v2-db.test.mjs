@@ -891,13 +891,25 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
       });
       assert.equal((await reader.snapshot(bootstrapSpace, ordinary, undefined, 100)).revision, ordinary);
 
-      // Deleting only older history is not enough to invoke strict bootstrap
-      // while the genesis sequence-1 predecessor is still physically present.
+      // A physically pruned gap before an exact retained legacy predecessor is
+      // valid: the retained suffix still proves genesis -> sequence-1 exactly.
       await prisma.spaceKnowledgeRevision.delete({ where: { id: legacy1 } });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacy2 }, data: { schemaVersion: 'content-tree@2' },
+      });
       await expectSyncCode(reader.snapshot(bootstrapSpace, ordinary, undefined, 100), 'REVISION_GONE');
       await assert.rejects(
         nextRevision(bootstrapSpace),
         (error) => error?.code === 'CONTENT_TREE_REVISION_GONE',
+      );
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacy2 }, data: { schemaVersion: 'knowledge-bundle@1' },
+      });
+      assert.equal((await reader.snapshot(bootstrapSpace, ordinary, undefined, 100)).revision, ordinary);
+      const retainedSuffixChild = await nextRevision(bootstrapSpace);
+      assert.equal(
+        (await reader.snapshot(bootstrapSpace, retainedSuffixChild, undefined, 100)).revision,
+        retainedSuffixChild,
       );
       await prisma.spaceKnowledgeRevision.delete({ where: { id: legacy2 } });
       assert.equal((await reader.snapshot(bootstrapSpace, ordinary, undefined, 100)).revision, ordinary);

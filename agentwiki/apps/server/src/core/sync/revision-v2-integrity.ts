@@ -284,8 +284,15 @@ export function revisionShouldBeV2(evidence: RevisionV2MarkerEvidence): boolean 
     || evidence.parentShouldBeV2 === true;
 }
 
+export class RevisionV2IntegrityError extends Error {
+  constructor() {
+    super('REVISION_V2_INTEGRITY_FAILED');
+    this.name = 'RevisionV2IntegrityError';
+  }
+}
+
 function revisionV2IntegrityFailure(): never {
-  throw new Error('REVISION_V2_INTEGRITY_FAILED');
+  throw new RevisionV2IntegrityError();
 }
 
 function folderDepthV2(
@@ -523,27 +530,49 @@ export async function hasRetainedRevisionV2Evidence(
 }
 
 /**
- * A Task 6 genesis may replace history only after its immediate predecessor
- * has actually disappeared. Any retained sequence-1 row, referenced row in a
- * different Space, or earlier retained v2 signal makes the boundary untrusted.
+ * Validate the legacy boundary immediately before a Task 6 genesis. The
+ * retained sequence-1 suffix must be exact down to sequence one or one
+ * physically pruned parent; disconnected older rows may remain only when no
+ * retained revision before the genesis carries any v2 evidence.
  */
-export async function hasStrictPrunedV2GenesisBoundary(
+export async function hasTrustedV2GenesisBoundary(
   tx: Prisma.TransactionClient,
   spaceId: string,
   candidate: RevisionV2ScalarMetadata,
   retainedBeforeGenesis: readonly RevisionV2ScalarMetadata[],
 ): Promise<boolean> {
-  if (
-    candidate.sequence <= 1
-    || !candidate.parentRevisionId
-    || retainedBeforeGenesis.some((revision) => revision.sequence === candidate.sequence - 1)
-  ) return false;
-  const referencedParent = await tx.spaceKnowledgeRevision.findUnique({
-    where: { id: candidate.parentRevisionId },
-    select: { id: true },
-  });
-  return referencedParent === null
-    && !await hasRetainedRevisionV2Evidence(tx, retainedBeforeGenesis);
+  if (candidate.spaceId !== spaceId || !hasValidChainIdentity(candidate)) return false;
+  if (candidate.sequence === 1) {
+    return candidate.parentRevisionId === null && retainedBeforeGenesis.length === 0;
+  }
+  const bySequence = new Map<number, RevisionV2ScalarMetadata>();
+  for (const revision of retainedBeforeGenesis) {
+    if (
+      revision.spaceId !== spaceId
+      || !Number.isSafeInteger(revision.sequence)
+      || revision.sequence < 1
+      || revision.sequence >= candidate.sequence
+      || bySequence.has(revision.sequence)
+    ) return false;
+    bySequence.set(revision.sequence, revision);
+  }
+  if (await hasRetainedRevisionV2Evidence(tx, retainedBeforeGenesis)) return false;
+
+  let child: RevisionChainNode = candidate;
+  for (let sequence = candidate.sequence - 1; sequence >= 1; sequence -= 1) {
+    const parent = bySequence.get(sequence) ?? null;
+    if (!parent) {
+      if (!child.parentRevisionId) return false;
+      const referencedParent = await tx.spaceKnowledgeRevision.findUnique({
+        where: { id: child.parentRevisionId },
+        select: { id: true },
+      });
+      return referencedParent === null;
+    }
+    if (!hasExactRevisionPredecessor(child, parent)) return false;
+    child = parent;
+  }
+  return hasExactRevisionPredecessor(child, null);
 }
 
 function expectedStoredTreeDeltaRows(expectedItems: TreeDeltaItemV2[]) {
@@ -684,34 +713,8 @@ export async function validateRevisionChainTrust(
     }
     return { checkpoint, trustedGenesis: null };
   }
-  if (hasCompleteRevisionChain(current, ancestors)) {
-    const retained = [current, ...ancestors];
-    const retainedGenesis = retained
-      .filter((revision) => (
-        revision.origin === 'migration'
-        && revision.migrationBatchId === `space-folders-v1:${spaceId}`
-        && revision.schemaVersion === 'content-tree@2'
-        && revision.recipeVersion === 'space-folders-v1'
-      ))
-      .sort((left, right) => left.sequence - right.sequence)[0];
-    if (retainedGenesis) {
-      const earlier = retained.filter((revision) => revision.sequence < retainedGenesis.sequence);
-      const predecessor = earlier.find(
-        (revision) => revision.sequence === retainedGenesis.sequence - 1,
-      ) ?? null;
-      const evidence = await loadRevisionV2Evidence(tx, spaceId, retainedGenesis.id);
-      if (
-        (retainedGenesis.sequence === 1
-          ? retainedGenesis.parentRevisionId !== null
-          : !predecessor || retainedGenesis.parentRevisionId !== predecessor.id)
-        || !hasTrustedV2GenesisMarker(spaceId, retainedGenesis, evidence.sidecar)
-        || await hasRetainedRevisionV2Evidence(tx, earlier)
-      ) revisionV2IntegrityFailure();
-      assertCompleteRevisionV2(retainedGenesis, evidence, null);
-    }
-    return { checkpoint: null, trustedGenesis: null };
-  }
-  const candidate = [current, ...ancestors]
+  const retained = [current, ...ancestors];
+  const candidate = retained
     .filter((revision) => (
       revision.origin === 'migration'
       && revision.migrationBatchId === `space-folders-v1:${spaceId}`
@@ -719,24 +722,25 @@ export async function validateRevisionChainTrust(
       && revision.recipeVersion === 'space-folders-v1'
     ))
     .sort((left, right) => left.sequence - right.sequence)[0];
-  if (!candidate) revisionV2IntegrityFailure();
-  const retainedBeforeGenesis = [current, ...ancestors]
-    .filter((revision) => revision.sequence < candidate.sequence);
-  if (!await hasStrictPrunedV2GenesisBoundary(
-    tx,
-    spaceId,
-    candidate,
-    retainedBeforeGenesis,
-  )) {
-    revisionV2IntegrityFailure();
+  if (candidate) {
+    const retainedBeforeGenesis = retained
+      .filter((revision) => revision.sequence < candidate.sequence);
+    const evidence = await loadRevisionV2Evidence(tx, spaceId, candidate.id);
+    if (
+      !hasTrustedV2GenesisMarker(spaceId, candidate, evidence.sidecar)
+      || !await hasTrustedV2GenesisBoundary(
+        tx,
+        spaceId,
+        candidate,
+        retainedBeforeGenesis,
+      )
+      || !hasCompleteRevisionChain(current, ancestors, { trustedGenesis: candidate })
+    ) revisionV2IntegrityFailure();
+    assertCompleteRevisionV2(candidate, evidence, null);
+    return { checkpoint: null, trustedGenesis: candidate };
   }
-  const evidence = await loadRevisionV2Evidence(tx, spaceId, candidate.id);
-  if (
-    !hasTrustedV2GenesisMarker(spaceId, candidate, evidence.sidecar)
-    || !hasCompleteRevisionChain(current, ancestors, { trustedGenesis: candidate })
-  ) revisionV2IntegrityFailure();
-  assertCompleteRevisionV2(candidate, evidence, null);
-  return { checkpoint: null, trustedGenesis: candidate };
+  if (!hasCompleteRevisionChain(current, ancestors)) revisionV2IntegrityFailure();
+  return { checkpoint: null, trustedGenesis: null };
 }
 
 /**
@@ -802,7 +806,6 @@ export function hasCompleteRevisionChain(
       !hasValidChainIdentity(trustedGenesis)
       || trustedGenesis.spaceId !== current.spaceId
       || trustedGenesis.sequence > current.sequence
-      || ancestors.some((ancestor) => ancestor.sequence === trustedGenesis.sequence - 1)
     ) return false;
     const suffix = ancestors.filter((ancestor) => ancestor.sequence >= trustedGenesis.sequence);
     if (suffix.length !== current.sequence - trustedGenesis.sequence) return false;

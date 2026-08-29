@@ -1,13 +1,24 @@
 import {
   advanceRevisionChainHash,
+  assertStoredTreeDeltaV2,
   hasCompleteRevisionChain,
+  hasTrustedV2GenesisBoundary,
   hasTrustedV2GenesisInputMarker,
   hasTrustedV2GenesisMarker,
   isValidRevisionChainCheckpoint,
+  RevisionV2IntegrityError,
   revisionTreeDeltaHashV2,
   revisionShouldBeV2,
   sealRevisionChainCheckpoint,
 } from './revision-v2-integrity';
+
+it('uses an explicit error type for immutable v2 integrity failures', () => {
+  expect(() => assertStoredTreeDeltaV2([], [{
+    operation: 'archive_page',
+    pageId: 'page-1',
+    previousPath: 'pages/Page.md',
+  }])).toThrow(RevisionV2IntegrityError);
+});
 
 const markerFree = () => ({
   schemaVersion: 'knowledge-bundle@1',
@@ -113,7 +124,7 @@ describe('hasCompleteRevisionChain', () => {
     )).toBe(false);
   });
 
-  it('rejects trusted-genesis bootstrap while its sequence-1 predecessor is retained', () => {
+  it('accepts a verified trusted-genesis suffix with an earlier retained predecessor', () => {
     const predecessor = revision(6, 'rev-5');
     const genesis = revision(7, predecessor.id);
 
@@ -121,7 +132,95 @@ describe('hasCompleteRevisionChain', () => {
       revision(9, 'rev-8'),
       [revision(8, genesis.id), genesis, predecessor],
       { trustedGenesis: genesis },
-    )).toBe(false);
+    )).toBe(true);
+  });
+});
+
+describe('trusted Task 6 genesis legacy suffix', () => {
+  const revision = (
+    sequence: number,
+    id: string,
+    parentRevisionId: string | null,
+    marker: Partial<Record<'schemaVersion' | 'recipeVersion' | 'migrationBatchId', string | null>> = {},
+  ) => ({
+    id, spaceId: 'space-1', sequence, parentRevisionId,
+    schemaVersion: marker.schemaVersion ?? 'knowledge-bundle@1',
+    recipeVersion: marker.recipeVersion ?? 'none',
+    migrationBatchId: marker.migrationBatchId ?? null,
+    origin: sequence === 1 ? 'web_editor' : 'migration',
+    revisionContentHash: 'a'.repeat(64), pageCount: 0n,
+    revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+  });
+  const txFor = (rows: any[], extraRows: any[] = []) => {
+    const byId = new Map([...rows, ...extraRows].map((row) => [row.id, row]));
+    return {
+      spaceKnowledgeRevision: {
+        findUnique: jest.fn(async ({ where }: any) => byId.get(where.id) ?? null),
+      },
+      legacyRevisionSidecar: { findMany: jest.fn().mockResolvedValue([]) },
+      syncRevisionFolderRow: { findFirst: jest.fn().mockResolvedValue(null) },
+      syncRevisionPageRow: { findFirst: jest.fn().mockResolvedValue(null) },
+      syncRevisionTreeDeltaRow: { findFirst: jest.fn().mockResolvedValue(null) },
+    } as any;
+  };
+
+  it('accepts an exact retained sequence-1 predecessor whose own parent was pruned', async () => {
+    const predecessor = revision(2, 'legacy-2', 'pruned-legacy-1');
+    const genesis = revision(3, 'genesis-3', predecessor.id);
+
+    await expect(hasTrustedV2GenesisBoundary(
+      txFor([predecessor]), 'space-1', genesis as any, [predecessor] as any,
+    )).resolves.toBe(true);
+  });
+
+  it('accepts a multi-level exact legacy suffix down to one physical gap', async () => {
+    const legacy2 = revision(2, 'legacy-2', 'pruned-legacy-1');
+    const legacy3 = revision(3, 'legacy-3', legacy2.id);
+    const genesis = revision(4, 'genesis-4', legacy3.id);
+
+    await expect(hasTrustedV2GenesisBoundary(
+      txFor([legacy2, legacy3]), 'space-1', genesis as any, [legacy3, legacy2] as any,
+    )).resolves.toBe(true);
+  });
+
+  it.each([
+    ['missing genesis parent', 'missing-parent', []],
+    ['wrong retained predecessor ID', 'legacy-1', []],
+    ['cross-Space genesis parent', 'cross-parent', [{
+      ...revision(2, 'cross-parent', 'pruned-cross-1'), spaceId: 'space-2',
+    }]],
+  ])('rejects %s while the exact sequence-1 predecessor remains', async (
+    _label, parentRevisionId, extraRows,
+  ) => {
+    const predecessor = revision(2, 'legacy-2', 'pruned-legacy-1');
+    const genesis = revision(3, 'genesis-3', parentRevisionId);
+
+    await expect(hasTrustedV2GenesisBoundary(
+      txFor([predecessor], extraRows), 'space-1', genesis as any, [predecessor] as any,
+    )).resolves.toBe(false);
+  });
+
+  it.each([
+    ['a wrong retained suffix link', [
+      revision(3, 'legacy-3', 'wrong-legacy-2'),
+      revision(2, 'legacy-2', 'pruned-legacy-1'),
+    ], []],
+    ['a cross-Space row at the suffix gap', [
+      revision(2, 'legacy-2', 'cross-legacy-1'),
+    ], [{ ...revision(1, 'cross-legacy-1', null), spaceId: 'space-2' }]],
+    ['a v2 marker in the retained suffix', [
+      revision(2, 'legacy-2', 'pruned-legacy-1', { schemaVersion: 'content-tree@2' }),
+    ], []],
+  ])('rejects %s', async (_label, retained, extraRows) => {
+    const genesis = revision(
+      retained[0]!.sequence + 1,
+      'genesis',
+      retained[0]!.id,
+    );
+
+    await expect(hasTrustedV2GenesisBoundary(
+      txFor(retained, extraRows), 'space-1', genesis as any, retained as any,
+    )).resolves.toBe(false);
   });
 });
 

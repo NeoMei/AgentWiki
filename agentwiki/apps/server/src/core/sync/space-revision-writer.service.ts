@@ -26,7 +26,7 @@ import {
   assertRevisionV2Metadata,
   assertStoredTreeDeltaV2,
   hasCompleteRevisionChain,
-  hasStrictPrunedV2GenesisBoundary,
+  hasTrustedV2GenesisBoundary,
   hasTrustedV2GenesisInputMarker,
   hasTrustedV2GenesisMarker,
   loadRevisionV2Evidence,
@@ -857,7 +857,7 @@ export class SpaceRevisionWriterService {
           where: { spaceId },
         });
         canBootstrapTrustedGenesis = !existingCheckpoint
-          && await hasStrictPrunedV2GenesisBoundary(tx, spaceId, revision, ancestors);
+          && await hasTrustedV2GenesisBoundary(tx, spaceId, revision, ancestors);
       } catch {
         canBootstrapTrustedGenesis = false;
       }

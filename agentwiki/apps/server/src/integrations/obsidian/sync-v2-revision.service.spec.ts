@@ -4,6 +4,8 @@ import {
   contentHash,
   treeRevisionContentHashV2,
 } from '@neomei/agentwiki-sync-protocol';
+import { RevisionV2IntegrityError } from '../../core/sync/revision-v2-integrity';
+import { SyncApiException } from './sync-error';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
 
 const at = (value: string) => new Date(value);
@@ -187,8 +189,69 @@ describe('SyncV2RevisionService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
-      { isolationLevel: 'RepeatableRead' },
+      { isolationLevel: 'RepeatableRead', maxWait: 10_000, timeout: 30_000 },
     );
+  });
+
+  it.each([
+    ['P2028 transaction failure', Object.assign(new Error('transaction expired'), { code: 'P2028' })],
+    ['P2034 serialization failure', Object.assign(new Error('serialization failed'), { code: 'P2034' })],
+    ['unknown transaction failure', new Error('database transport exposed details')],
+  ])('maps %s to one safe retryable v2 INTERNAL_ERROR', async (_label, failure) => {
+    const { service, prisma } = await fixture();
+    prisma.$transaction.mockRejectedValueOnce(failure);
+
+    await expect(service.head('space-1')).rejects.toMatchObject({
+      syncCode: 'INTERNAL_ERROR',
+      retryable: true,
+      status: 500,
+      response: {
+        protocolVersion: '2',
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Revision read temporarily unavailable',
+          retryable: true,
+        },
+      },
+    });
+  });
+
+  it('maps an explicit immutable-integrity error to non-retryable REVISION_GONE', async () => {
+    const { service, prisma } = await fixture();
+    prisma.spaceKnowledgeRevision.findFirst.mockRejectedValueOnce(
+      new RevisionV2IntegrityError(),
+    );
+
+    await expect(service.head('space-1')).rejects.toMatchObject({
+      syncCode: 'REVISION_GONE',
+      retryable: false,
+      status: 410,
+      response: {
+        protocolVersion: '2',
+        error: expect.objectContaining({ code: 'REVISION_GONE', retryable: false }),
+      },
+    });
+  });
+
+  it('does not disguise an unknown immutable-row query failure as REVISION_GONE', async () => {
+    const { service, prisma } = await fixture();
+    prisma.syncRevisionFolderRow.findMany.mockRejectedValueOnce(
+      new Error('database transport exposed details'),
+    );
+
+    await expect(service.head('space-1')).rejects.toMatchObject({
+      syncCode: 'INTERNAL_ERROR', retryable: true, status: 500,
+    });
+  });
+
+  it('preserves an existing v2 SyncApiException unchanged', async () => {
+    const { service, prisma } = await fixture();
+    const expected = new SyncApiException(
+      'CURSOR_INVALID', 'Cursor remains pinned', undefined, '2',
+    );
+    prisma.$transaction.mockRejectedValueOnce(expected);
+
+    await expect(service.head('space-1')).rejects.toBe(expected);
   });
 
   it('serves the empty immutable v2 revision with the canonical empty hash', async () => {

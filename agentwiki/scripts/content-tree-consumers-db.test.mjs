@@ -1864,6 +1864,101 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), revisionCountBeforeFinalizeFailure);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, stableTreeRevision);
         });
+
+        await t.test('Review accepts an exact Task 6 genesis over a retained legacy suffix with an older pruned gap', async () => {
+          const spaceId = await createSpace('review-trusted-genesis-suffix');
+          await seedFolder(spaceId, 'Trusted');
+          const legacy1 = `review-legacy-1-${suffix}`;
+          const legacy2 = `review-legacy-2-${suffix}`;
+          const legacyData = (id, sequence, parentRevisionId) => ({
+            id, spaceId, sequence, parentRevisionId,
+            schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none',
+            contentHash: String(sequence).repeat(64).slice(0, 64),
+            revisionContentHash: String(sequence).repeat(64).slice(0, 64),
+            snapshot: null, delta: null, pageCount: 0n,
+            revisionBodyBytes: 0n, revisionManifestByteLength: 0n,
+            origin: 'web_editor', createdAt: new Date('2026-08-01T00:00:00.000Z'),
+          });
+          await prisma.spaceKnowledgeRevision.create({ data: legacyData(legacy1, 1, null) });
+          await prisma.spaceKnowledgeRevision.create({ data: legacyData(legacy2, 2, legacy1) });
+          const genesis = await prisma.$transaction(async (tx) => {
+            const locked = await writer.lockSpace(tx, spaceId);
+            return writer.advanceStructuralPagesLocked(locked, spaceId, [], {
+              origin: 'migration',
+              migrationBatchId: `space-folders-v1:${spaceId}`,
+              legacySidecarOverride: {
+                spaceFolderMigration: {
+                  version: 1,
+                  status: 'completed',
+                  batchKey: `space-folders-v1:${spaceId}`,
+                  inputHash: '9'.repeat(64),
+                },
+              },
+            });
+          });
+          assert.equal(genesis.sequence, 3);
+          assert.equal((await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
+            where: { id: genesis.revisionId },
+          })).parentRevisionId, legacy2);
+          await prisma.spaceKnowledgeRevision.delete({ where: { id: legacy1 } });
+
+          const agentId = `review-trusted-genesis-agent-${suffix}`;
+          await prisma.agent.create({ data: {
+            id: agentId, name: 'Review trusted genesis agent', ownerId: userId,
+            status: 'active', approvalMode: 'always-review',
+          } });
+          const memory = await prisma.agentMemory.create({ data: {
+            id: `review-trusted-genesis-memory-${suffix}`,
+            type: 'decision', content: 'before', contentHash: '8'.repeat(64),
+            visibility: 'space', agentId, spaceId,
+          } });
+          const changeSet = await prisma.changeSet.create({ data: {
+            title: 'Review trusted genesis suffix',
+            status: 'approved',
+            spaceId,
+            createdByUserId: userId,
+            items: { create: {
+              type: 'upsert_space_memory',
+              status: 'accepted',
+              payload: {
+                knowledgeKey: memory.id,
+                key: 'decision',
+                value: 'after',
+                contentHash: '7'.repeat(64),
+                expectedUpdatedAt: memory.updatedAt.toISOString(),
+              },
+            } },
+          } });
+          const submission = await prisma.knowledgeSubmission.create({ data: {
+            spaceId,
+            principalKey: userId,
+            idempotencyKey: `submission-${changeSet.id}`,
+            schemaVersion: 'knowledge-bundle@1',
+            recipeVersion: 'folder-test',
+            contentHash: '6'.repeat(64),
+            bundle: {
+              schemaVersion: 'knowledge-bundle@1', recipeVersion: 'folder-test',
+              spaceId, baseRevision: null, pages: [], memories: [], relations: [],
+              provenance: [], deletions: [],
+            },
+            changeSetId: changeSet.id,
+          } });
+
+          await reviews.publish(changeSet.id);
+
+          const applied = await prisma.knowledgeSubmission.findUniqueOrThrow({
+            where: { id: submission.id },
+          });
+          assert.ok(applied.appliedRevisionId);
+          const appliedRevision = await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
+            where: { id: applied.appliedRevisionId },
+          });
+          assert.equal(appliedRevision.sequence, 4);
+          assert.equal(appliedRevision.parentRevisionId, genesis.revisionId);
+          assert.equal((await syncV2Revisions.snapshot(
+            spaceId, applied.appliedRevisionId, undefined, 100,
+          )).revision, applied.appliedRevisionId);
+        });
       } finally {
         await prisma.$disconnect();
       }

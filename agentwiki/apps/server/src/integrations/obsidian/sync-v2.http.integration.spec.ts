@@ -98,6 +98,31 @@ describe('sync v2 HTTP contract', () => {
     }));
   });
 
+  it('returns a retryable protocol-v2 INTERNAL_ERROR when a logical read transaction fails', async () => {
+    const failingReader = new SyncV2RevisionService(
+      {
+        $transaction: jest.fn().mockRejectedValue(
+          Object.assign(new Error('transaction expired with private details'), { code: 'P2028' }),
+        ),
+      } as any,
+      {} as any,
+      {} as any,
+    );
+    revisions.head.mockImplementationOnce((spaceId: string) => failingReader.head(spaceId));
+
+    const response = await fetch(`${baseUrl}/sync/v2/spaces/space-1/head`, { headers: auth });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      protocolVersion: '2',
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Revision read temporarily unavailable',
+        retryable: true,
+      },
+    });
+  });
+
   it('reports Space Admin as read-only for Folder-aware publishing', async () => {
     const response = await fetch(`${baseUrl}/sync/v2/spaces`, { headers: auth });
 

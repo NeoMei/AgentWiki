@@ -22,6 +22,7 @@ import {
   assertRevisionV2Metadata,
   assertStoredTreeDeltaV2,
   REVISION_V2_SCALAR_SELECT,
+  RevisionV2IntegrityError,
   revisionShouldBeV2,
   validateRevisionChainTrust,
 } from '../../core/sync/revision-v2-integrity';
@@ -43,10 +44,10 @@ function folderDepth(folder: SyncFolderV2, folders: ReadonlyMap<string, SyncFold
   let current = folder;
   const seen = new Set<string>();
   while (current.parentFolderId !== null) {
-    if (seen.has(current.folderId)) throw new SyncApiException('REVISION_GONE', 'Folder revision contains a cycle', undefined, '2');
+    if (seen.has(current.folderId)) throw new RevisionV2IntegrityError();
     seen.add(current.folderId);
     const parent = folders.get(current.parentFolderId);
-    if (!parent) throw new SyncApiException('REVISION_GONE', 'Folder revision references a missing parent', undefined, '2');
+    if (!parent) throw new RevisionV2IntegrityError();
     current = parent;
     depth += 1;
   }
@@ -55,6 +56,15 @@ function folderDepth(folder: SyncFolderV2, folders: ReadonlyMap<string, SyncFold
 
 function revisionGone(): SyncApiException {
   return new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
+}
+
+function revisionReadUnavailable(): SyncApiException {
+  return new SyncApiException(
+    'INTERNAL_ERROR',
+    'Revision read temporarily unavailable',
+    undefined,
+    '2',
+  );
 }
 
 @Injectable()
@@ -178,10 +188,20 @@ export class SyncV2RevisionService {
     return { ...metadata, items: selected, nextCursor };
   }
 
-  private consistentRead<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-    return this.prisma.$transaction(callback, {
-      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-    });
+  private async consistentRead<T>(
+    callback: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await this.prisma.$transaction(callback, {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        maxWait: 10_000,
+        timeout: 30_000,
+      });
+    } catch (error) {
+      if (error instanceof SyncApiException) throw error;
+      if (error instanceof RevisionV2IntegrityError) throw revisionGone();
+      throw revisionReadUnavailable();
+    }
   }
 
   private async loadRevision(
@@ -316,8 +336,11 @@ export class SyncV2RevisionService {
         revisionManifestByteLength: manifestBytes,
         revisionBodyBytes: bodyBytes,
       };
-    } catch {
-      throw revisionGone();
+    } catch (error) {
+      if (error instanceof SyncApiException || error instanceof RevisionV2IntegrityError) {
+        throw error;
+      }
+      throw revisionReadUnavailable();
     }
   }
 
