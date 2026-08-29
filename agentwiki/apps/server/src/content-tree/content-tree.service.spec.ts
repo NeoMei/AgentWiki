@@ -209,6 +209,7 @@ describe('ContentTreeService create/read core', () => {
   it('lists active Folders through a bounded, query-bound stable cursor', async () => {
     const { service, prisma, tx } = makeHarness();
     tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 7n });
+    tx.folder.findFirst.mockResolvedValue({ id: 'parent-1' });
     tx.folder.findMany
       .mockResolvedValueOnce([
         { id: 'folder-a', parentId: null, name: '项目 A', nameKey: '项目 a', path: 'pages/项目 A', pathKey: 'pages/项目 a', createdAt: now, updatedAt: now },
@@ -218,9 +219,12 @@ describe('ContentTreeService create/read core', () => {
         { id: 'folder-b', parentId: null, name: '项目 B', nameKey: '项目 b', path: 'pages/项目 B', pathKey: 'pages/项目 b', createdAt: now, updatedAt: now },
       ]);
 
-    const first = await service.listFolders({ spaceId: 'space-1', query: ' 项目 ', take: 1 });
+    const first = await service.listFolders({
+      spaceId: 'space-1', parentFolderId: 'parent-1', query: ' 项目 ', take: 1,
+    });
     const second = await service.listFolders({
-      spaceId: 'space-1', query: '项目', take: 1, cursor: first.nextCursor!,
+      spaceId: 'space-1', parentFolderId: 'parent-1', query: '项目',
+      take: 1, cursor: first.nextCursor!,
     });
 
     expect(first).toEqual({
@@ -232,7 +236,7 @@ describe('ContentTreeService create/read core', () => {
     expect(second.nextCursor).toBeNull();
     expect(tx.folder.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: {
-        spaceId: 'space-1', deletedAt: null,
+        spaceId: 'space-1', deletedAt: null, parentId: 'parent-1',
         OR: [{ nameKey: { contains: '项目' } }, { pathKey: { contains: '项目' } }],
       },
       orderBy: [{ pathKey: 'asc' }, { id: 'asc' }],
@@ -240,6 +244,10 @@ describe('ContentTreeService create/read core', () => {
     }));
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'RepeatableRead',
+    });
+    expect(tx.folder.findFirst).toHaveBeenCalledWith({
+      where: { id: 'parent-1', spaceId: 'space-1', deletedAt: null },
+      select: { id: true },
     });
   });
 
@@ -259,6 +267,25 @@ describe('ContentTreeService create/read core', () => {
     await expect(service.listFolders({
       spaceId: 'space-2', query: 'a', take: 1, cursor: first.nextCursor!,
     })).rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CURSOR_INVALID' }));
+    await expect(service.listFolders({
+      spaceId: 'space-1', parentFolderId: null, query: 'a', take: 1,
+      cursor: first.nextCursor!,
+    })).rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CURSOR_INVALID' }));
+    expect(tx.folder.findMany).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a Folder-list parent is missing, deleted, or in another Space', async () => {
+    const { service, tx } = makeHarness();
+    tx.space.findUnique.mockResolvedValue({ contentTreeRevision: 0n });
+    tx.folder.findFirst.mockResolvedValue(null);
+
+    await expect(service.listFolders({
+      spaceId: 'space-1', parentFolderId: 'unavailable-parent', take: 10,
+    })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_NOT_FOUND' }));
+    expect(tx.folder.findFirst).toHaveBeenCalledWith({
+      where: { id: 'unavailable-parent', spaceId: 'space-1', deletedAt: null },
+      select: { id: true },
+    });
     expect(tx.folder.findMany).not.toHaveBeenCalled();
   });
 
@@ -891,7 +918,8 @@ describe('ContentTreeService lifecycle mutations', () => {
     for (const strategy of invalid) {
       await expect((service as any).restoreDeletionBatch({
         spaceId: 'space-1', deletionBatchId: 'batch-1', strategy,
-        expectedTreeRevision: 0n, actor: { userId: 'user-1' },
+        expectedTreeRevision: 0n, expectedUpdatedAt: root.updatedAt,
+        actor: { userId: 'user-1' },
       })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_RESTORE_CONFLICT' }));
     }
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -918,6 +946,7 @@ describe('ContentTreeService lifecycle mutations', () => {
     await expect((service as any).restoreDeletionBatch({
       spaceId: 'space-1', deletionBatchId: 'batch-1',
       strategy: { kind: 'original' }, expectedTreeRevision: 0n,
+      expectedUpdatedAt: deletedRoot.updatedAt,
       actor: { userId: 'user-1' },
     })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_COUNT_LIMIT' }));
     expect(tx.$executeRaw).not.toHaveBeenCalled();
@@ -958,6 +987,7 @@ describe('ContentTreeService lifecycle mutations', () => {
     await expect((service as any).restoreDeletionBatch({
       spaceId: 'space-1', deletionBatchId: 'batch-1',
       strategy: { kind: 'original' }, expectedTreeRevision: 0n,
+      expectedUpdatedAt: deletedRoot.updatedAt,
       actor: { userId: 'user-1' },
     })).rejects.toEqual(expect.objectContaining({ code: 'FOLDER_RESTORE_CONFLICT' }));
     expect(tx.contentDeletionBatch.findFirst).toHaveBeenCalledWith(expect.objectContaining({

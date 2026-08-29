@@ -84,6 +84,69 @@ test('Folder harness creates and removes only generated schemas', {
   assert.equal(await countFolderTestSchemas(baseDatabaseUrl), before);
 });
 
+test('AgentGrant Folder scopes default closed and enforce the canonical persisted subsets', {
+  skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const suffix = schemaName.replace('folder_test_', '');
+    const ownerId = `folder_scope_owner_${suffix}`;
+    const agentId = `folder_scope_agent_${suffix}`;
+    const spaceId = `folder_scope_space_${suffix}`;
+    try {
+      await prisma.user.create({
+        data: { id: ownerId, email: `${ownerId}@folder-scopes.test` },
+      });
+      await prisma.space.create({
+        data: { id: spaceId, name: 'Folder scope test', slug: spaceId },
+      });
+      await prisma.agent.create({
+        data: { id: agentId, ownerId, name: 'Folder scope Agent' },
+      });
+      const grant = await prisma.agentGrant.create({
+        data: { agentId, spaceId, role: 'publisher' },
+      });
+      assert.deepEqual(grant.folderScopes, []);
+
+      for (const invalidScopes of [
+        ['folders:write'],
+        ['folders:read', 'folders:read'],
+        ['folders:write', 'folders:read'],
+        ['folders:read', 'folders:unknown'],
+      ]) {
+        await assert.rejects(
+          prisma.$executeRaw`
+            UPDATE "AgentGrant"
+            SET "folderScopes" = ${invalidScopes}::text[]
+            WHERE "id" = ${grant.id}
+          `,
+          /check|constraint/iu,
+        );
+      }
+      await assert.rejects(
+        prisma.$executeRaw`
+          UPDATE "AgentGrant"
+          SET "folderScopes" = NULL
+          WHERE "id" = ${grant.id}
+        `,
+        /null|constraint/iu,
+      );
+
+      await prisma.agentGrant.update({
+        where: { id: grant.id },
+        data: { folderScopes: ['folders:read', 'folders:write', 'folders:delete'] },
+      });
+      assert.deepEqual(
+        (await prisma.agentGrant.findUnique({ where: { id: grant.id } })).folderScopes,
+        ['folders:read', 'folders:write', 'folders:delete'],
+      );
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('Folder Space-scoped relations reject cross-Space targets', {
   skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
   timeout: 120_000,

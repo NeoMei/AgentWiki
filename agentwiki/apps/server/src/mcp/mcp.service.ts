@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { z } from 'zod';
@@ -31,11 +31,76 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { BusinessException } from '../core/filters/business-error';
 import { ExecutionService } from '../collaboration-workflows/execution.service';
+import { ContentTreeService } from '../content-tree/content-tree.service';
+import { ContentTreeConflict } from '../content-tree/content-tree.types';
 
 // Keep the protocol SDK behind this adapter boundary. Its deeply recursive
 // schema types otherwise make the application's declaration build prohibitively slow.
 const { McpServer, ResourceTemplate } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+
+const MCP_ID = z.string().min(1).max(100);
+const MCP_SPACE_ID = MCP_ID;
+const MCP_TREE_REVISION = z.string().regex(/^(?:0|[1-9]\d*)$/u);
+const MCP_UPDATED_AT = z.string().datetime({ offset: true });
+const LIST_FOLDERS_INPUT = z.object({
+  spaceId: MCP_SPACE_ID,
+  parentFolderId: MCP_ID.nullable().optional(),
+  query: z.string().max(200).optional(),
+  cursor: z.string().min(1).max(2048).optional(),
+  take: z.number().int().min(1).max(200).optional(),
+}).strict();
+const PROPOSE_FOLDER_CHANGE_INPUT = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('create'),
+    spaceId: MCP_SPACE_ID,
+    name: z.string().min(1).max(200),
+    parentId: MCP_ID.nullable(),
+    expectedTreeRevision: MCP_TREE_REVISION,
+  }).strict(),
+  z.object({
+    operation: z.literal('rename'),
+    spaceId: MCP_SPACE_ID,
+    folderId: MCP_ID,
+    name: z.string().min(1).max(200),
+    expectedUpdatedAt: MCP_UPDATED_AT,
+    expectedTreeRevision: MCP_TREE_REVISION,
+  }).strict(),
+  z.object({
+    operation: z.literal('move'),
+    spaceId: MCP_SPACE_ID,
+    folderId: MCP_ID,
+    targetParentFolderId: MCP_ID.nullable(),
+    beforeId: MCP_ID.optional(),
+    expectedUpdatedAt: MCP_UPDATED_AT,
+    expectedTreeRevision: MCP_TREE_REVISION,
+  }).strict(),
+  z.object({
+    operation: z.literal('delete'),
+    spaceId: MCP_SPACE_ID,
+    folderId: MCP_ID,
+    expectedUpdatedAt: MCP_UPDATED_AT,
+    expectedTreeRevision: MCP_TREE_REVISION,
+  }).strict(),
+  z.object({
+    operation: z.literal('restore'),
+    spaceId: MCP_SPACE_ID,
+    folderId: MCP_ID,
+    deletionBatchId: MCP_ID,
+    mode: z.enum(['original', 'root', 'rename-root']),
+    name: z.string().min(1).max(200).optional(),
+    expectedUpdatedAt: MCP_UPDATED_AT,
+    expectedTreeRevision: MCP_TREE_REVISION,
+  }).strict(),
+]).superRefine((value, context) => {
+  if (value.operation !== 'restore') return;
+  if (value.mode === 'rename-root' && !value.name) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['name'], message: 'name is required' });
+  }
+  if (value.mode !== 'rename-root' && value.name !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['name'], message: 'name is not allowed' });
+  }
+});
 
 @Injectable()
 export class McpService {
@@ -54,6 +119,7 @@ export class McpService {
     private prisma: PrismaService,
     private syncs: KnowledgeSyncService,
     private collaborationExecution: ExecutionService,
+    @Optional() private contentTree?: ContentTreeService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -96,6 +162,120 @@ export class McpService {
     }, async ({ spaceId, skip, take }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       return this.text(await this.pages.findAll([spaceId], spaceId, skip || 0, take || 20));
+    });
+    registerTool('list_folders', {
+      description: 'List active Folders in one authorized Space with a stable, parent/query-bound cursor.',
+      inputSchema: LIST_FOLDERS_INPUT,
+    }, async (raw: unknown) => {
+      const input = LIST_FOLDERS_INPUT.parse(raw);
+      await this.authorization.assertLiveAgentAccess(principal, input.spaceId, ['folders:read']);
+      const result = await this.requireContentTree().listFolders(input);
+      return this.text({
+        spaceId: result.spaceId,
+        treeRevision: result.treeRevision.toString(),
+        data: result.data.map((folder) => ({
+          id: folder.id,
+          parentId: folder.parentId,
+          name: folder.name,
+          path: folder.path,
+          createdAt: folder.createdAt.toISOString(),
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        nextCursor: result.nextCursor,
+      });
+    });
+    registerTool('propose_folder_change', {
+      description: 'Create a governed Folder lifecycle ChangeSet. Publishing remains subject to the bound Grant, Agent mode, and Space approval policy.',
+      inputSchema: PROPOSE_FOLDER_CHANGE_INPUT,
+    }, async (raw: unknown) => {
+      const input = PROPOSE_FOLDER_CHANGE_INPUT.parse(raw);
+      let impact: Record<string, unknown> = {
+        operation: input.operation,
+        ...('folderId' in input ? { folderId: input.folderId } : {}),
+      };
+      let payload: Record<string, unknown>;
+      if (input.operation === 'create') {
+        payload = {
+          name: input.name,
+          parentId: input.parentId,
+          expectedTreeRevision: input.expectedTreeRevision,
+        };
+        impact = { ...impact, parentId: input.parentId };
+      } else if (input.operation === 'rename') {
+        payload = {
+          folderId: input.folderId,
+          name: input.name,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          expectedTreeRevision: input.expectedTreeRevision,
+        };
+      } else if (input.operation === 'move') {
+        payload = {
+          folderId: input.folderId,
+          targetParentFolderId: input.targetParentFolderId,
+          ...(input.beforeId ? { beforeId: input.beforeId } : {}),
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          expectedTreeRevision: input.expectedTreeRevision,
+        };
+        impact = {
+          ...impact,
+          targetParentFolderId: input.targetParentFolderId,
+          ...(input.beforeId ? { beforeId: input.beforeId } : {}),
+        };
+      } else if (input.operation === 'delete') {
+        await this.authorization.assertLiveAgentAccess(
+          principal,
+          input.spaceId,
+          ['folders:write', 'folders:delete'],
+        );
+        const preview = await this.requireContentTree().deleteImpact({
+          spaceId: input.spaceId,
+          folderId: input.folderId,
+        });
+        if (preview.treeRevision.toString() !== input.expectedTreeRevision) {
+          throw new ContentTreeConflict(BigInt(input.expectedTreeRevision), preview.treeRevision);
+        }
+        const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
+        if (preview.rootUpdatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+          throw new ContentTreeConflict(expectedUpdatedAt, preview.rootUpdatedAt);
+        }
+        payload = {
+          folderId: input.folderId,
+          expectedTreeRevision: input.expectedTreeRevision,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          expectedImpactHash: preview.impactHash,
+          folderCount: preview.folderCount,
+          pageCount: preview.pageCount,
+        };
+        impact = {
+          ...impact,
+          folderCount: preview.folderCount,
+          pageCount: preview.pageCount,
+          impactHash: preview.impactHash,
+        };
+      } else {
+        payload = {
+          folderId: input.folderId,
+          deletionBatchId: input.deletionBatchId,
+          mode: input.mode,
+          ...(input.name ? { name: input.name } : {}),
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          expectedTreeRevision: input.expectedTreeRevision,
+        };
+        impact = { ...impact, deletionBatchId: input.deletionBatchId, mode: input.mode };
+      }
+      const itemType = `${input.operation}_folder`;
+      const changeSet = await this.review.propose(
+        principal,
+        input.spaceId,
+        `Proposed Folder ${input.operation}`,
+        { type: itemType, payload },
+      );
+      return this.text({
+        changeSetId: changeSet.id,
+        status: changeSet.status,
+        autoPublished: changeSet.autoPublished === true,
+        impact,
+      });
     });
     registerTool('get_page', {
       description: 'Read a page and its provenance.',
@@ -276,6 +456,11 @@ export class McpService {
 
   private text(data: unknown): { content: Array<{ type: 'text'; text: string }> } {
     return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
+  }
+
+  private requireContentTree(): ContentTreeService {
+    if (!this.contentTree) throw new Error('ContentTreeService is required for Folder MCP tools');
+    return this.contentTree;
   }
 
   private assertCollaborationScope(

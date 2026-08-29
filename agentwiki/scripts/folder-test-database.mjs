@@ -17,7 +17,7 @@ import { isDeepStrictEqual } from 'node:util';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^folder_test_[a-z0-9_]+$/u;
-const REVIEWED_MIGRATION_TREE_SHA256 = '5c98f28c79b94eaefe08d5adfb6ea4ad2a3f279df18695c3533784782edfd8d2';
+const REVIEWED_MIGRATION_TREE_SHA256 = 'aea568306ebeb5ce70977a19b205cdb8c2d8bed0bc434e49a2e82a15d477c32e';
 const DEFAULT_MIGRATIONS_ROOT = fileURLToPath(new URL('../apps/server/prisma/migrations/', import.meta.url));
 const DEFAULT_SCHEMA_PATH = fileURLToPath(new URL('../apps/server/prisma/schema.prisma', import.meta.url));
 const VECTOR_EXTENSION_FRAGMENT = 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;';

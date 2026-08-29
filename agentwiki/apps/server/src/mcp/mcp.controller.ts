@@ -20,6 +20,8 @@ export class McpController {
     const toolScopes = {
       list_spaces: 'spaces:read',
       list_pages: 'pages:read', get_page: 'pages:read', search_pages: 'pages:read',
+      list_folders: 'folders:read',
+      propose_folder_change: 'folders:write (+ folders:delete for delete/restore)',
       list_graph: 'graph:read', propose_page: 'pages:write', propose_relation: 'graph:write',
       list_sources: 'sources:read', get_knowledge_sync_state: 'sources:read',
       start_source_run: 'runs:write', recall_memory: 'memory:read',

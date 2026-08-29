@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
-import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { scopesForAgentGrant } from '@neomei/agentwiki-sync-protocol';
 
 const mockPrisma = {
   user: {
@@ -127,7 +127,10 @@ describe('AuthService', () => {
         authorizationId: 'grant-1',
         revokedAt: null,
         expiresAt: null,
-        authorization: { id: 'grant-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor' },
+        authorization: {
+          id: 'grant-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
+          folderScopes: [],
+        },
         agent: {
           status: 'active',
           revokedAt: null,
@@ -143,7 +146,7 @@ describe('AuthService', () => {
         authorizationSpaceId: 'space-1',
         agentRole: 'editor',
         type: 'agent',
-        scopes: scopesForAgentAccessRole('editor'),
+        scopes: scopesForAgentGrant('editor', []),
       });
       expect(mockPrisma.agentCredential.findUnique).toHaveBeenCalledWith({
         where: expect.any(Object),

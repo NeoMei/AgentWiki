@@ -42,7 +42,10 @@ describe('ContentTree DTO contract', () => {
     [RenameFolderDto, { name: '新项目', expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '42' }],
     [MoveContentTreeNodeDto, { kind: 'page', id: 'page-1', targetParentFolderId: null, expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '42' }],
     [DeleteFolderDto, { expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '42', expectedImpactHash: 'a'.repeat(64) }],
-    [RestoreFolderDto, { deletionBatchId: 'batch-1', expectedTreeRevision: '42', mode: 'rename-root', name: '恢复项目' }],
+    [RestoreFolderDto, {
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '42', mode: 'rename-root', name: '恢复项目',
+    }],
   ] as const)('accepts the exact valid shape for %p', async (metatype, input) => {
     await expect(transform(metatype, input)).resolves.toBeDefined();
   });
@@ -55,8 +58,14 @@ describe('ContentTree DTO contract', () => {
     [CreateFolderDto, { name: '项目', parentId: null, expectedTreeRevision: '-1' }],
     [CreateFolderDto, { name: '项目', parentId: null, expectedTreeRevision: 1 }],
     [MoveContentTreeNodeDto, { kind: 'page', id: 'page-1', targetParentFolderId: null, expectedUpdatedAt: 'bad', expectedTreeRevision: '1' }],
-    [RestoreFolderDto, { deletionBatchId: 'batch-1', expectedTreeRevision: '1', mode: 'rename-root' }],
-    [RestoreFolderDto, { deletionBatchId: 'batch-1', expectedTreeRevision: '1', mode: 'original', name: '不允许' }],
+    [RestoreFolderDto, {
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '1', mode: 'rename-root',
+    }],
+    [RestoreFolderDto, {
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '1', mode: 'original', name: '不允许',
+    }],
   ] as const)('rejects an invalid boundary for %p', async (metatype, input) => {
     await expect(transform(metatype, input)).rejects.toMatchObject({ status: 400 });
   });
@@ -66,7 +75,10 @@ describe('ContentTree DTO contract', () => {
     [RenameFolderDto, { name: '项目', expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '1', folderId: 'forged' }],
     [MoveContentTreeNodeDto, { kind: 'page', id: 'page-1', targetParentFolderId: null, expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '1', sortOrder: 4 }],
     [DeleteFolderDto, { expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '1', expectedImpactHash: 'b'.repeat(64), recursive: true }],
-    [RestoreFolderDto, { deletionBatchId: 'batch-1', expectedTreeRevision: '1', mode: 'root', strategy: {} }],
+    [RestoreFolderDto, {
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '1', mode: 'root', strategy: {},
+    }],
   ] as const)('rejects unknown write fields for %p', async (metatype, input) => {
     await expect(transform(metatype, input)).rejects.toMatchObject({ status: 400 });
   });
@@ -180,7 +192,8 @@ describe('ContentTreeController HTTP contract', () => {
       expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '8', expectedImpactHash: 'c'.repeat(64),
     });
     await controller.restoreFolder(request, 'space-1', 'folder-1', {
-      deletionBatchId: 'batch-1', expectedTreeRevision: '9', mode: 'original',
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '9', mode: 'original',
     });
 
     expect(authorization.assertSpaceAccess).toHaveBeenNthCalledWith(
@@ -194,6 +207,7 @@ describe('ContentTreeController HTTP contract', () => {
     );
     expect(tree.restoreDeletionBatch).toHaveBeenCalledWith(expect.objectContaining({
       spaceId: 'space-1', deletionBatchId: 'batch-1', strategy: { kind: 'original' },
+      expectedUpdatedAt: new Date('2026-08-28T00:00:00.000Z'),
       expectedTreeRevision: 9n, actor: { userId: 'user-1' },
     }));
   });
@@ -242,7 +256,8 @@ describe('ContentTreeController HTTP contract', () => {
       expectedImpactHash: 'e'.repeat(64),
     };
     const restoreBody = {
-      deletionBatchId: 'batch-1', expectedTreeRevision: '2', mode: 'original' as const,
+      deletionBatchId: 'batch-1', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '2', mode: 'original' as const,
     };
 
     await expect(exactController.deleteFolder(

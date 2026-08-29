@@ -8,7 +8,6 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, randomBytes } from 'crypto';
 import {
   AgentAccessRoleSchema,
-  scopesForAgentAccessRole,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
 import { RedisService } from '../../database/redis.service';
@@ -221,7 +220,6 @@ export class LocalSyncInstallationService {
     }
     this.assertExactProtocolVersion(payload.pluginVersion);
     this.assertSupportedVersion(payload.pluginVersion);
-    const scopes = scopesForAgentAccessRole(payload.role);
     const rawKey = this.installationApiKey(installationId);
     const credential = await this.agents.exchangeConnectionIntent({
       ownerId: payload.ownerId,
@@ -231,6 +229,7 @@ export class LocalSyncInstallationService {
       installationId,
       rawKey,
     });
+    const scopes = credential.scopes;
     try {
       await this.audit.record({
         action: 'local-sync.installation.exchange',
@@ -329,7 +328,7 @@ export class LocalSyncInstallationService {
       return null;
     }
     try {
-      await this.agents.assertConnectionReceipt({
+      const authorization = await this.agents.assertConnectionReceipt({
         ownerId: receipt.ownerId,
         agentId: receipt.agentId,
         credentialId: receipt.credentialId,
@@ -337,21 +336,21 @@ export class LocalSyncInstallationService {
         spaceId: receipt.spaceId,
         role: receipt.role,
       });
+      return {
+        apiKey: this.installationApiKey(installationId),
+        agentId: receipt.agentId,
+        spaceId: receipt.spaceId,
+        credentialId: receipt.credentialId,
+        role: receipt.role,
+        serverUrl: receipt.serverUrl,
+        pluginVersion: receipt.pluginVersion,
+        scopes: authorization.scopes,
+      };
     } catch (error) {
       if (!(error instanceof ForbiddenException)) throw error;
       await this.deleteReceipt(installationId, credentialId);
       throw new BusinessException('LOCAL_SYNC_CODE_INVALID');
     }
-    return {
-      apiKey: this.installationApiKey(installationId),
-      agentId: receipt.agentId,
-      spaceId: receipt.spaceId,
-      credentialId: receipt.credentialId,
-      role: receipt.role,
-      serverUrl: receipt.serverUrl,
-      pluginVersion: receipt.pluginVersion,
-      scopes: scopesForAgentAccessRole(receipt.role),
-    };
   }
 
   private async deleteReceipt(installationId: string, credentialId?: string): Promise<void> {

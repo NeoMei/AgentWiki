@@ -189,6 +189,96 @@ describe('AuthorizationService', () => {
     }, 'space-1', ['owner', 'editor'], 'pages:write'))
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
+
+  it('fails closed for legacy Folder grants and accepts only a persisted Folder scope', async () => {
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-1', role: 'publisher', folderScopes: [],
+      agent: { status: 'active', revokedAt: null },
+      space: { deletedAt: null },
+    });
+    const principal = {
+      userId: 'owner-1', agentId: 'agent-1', authorizationId: 'grant-1',
+      authorizationSpaceId: 'space-1',
+    };
+
+    await expect(service.assertSpaceAccess(
+      principal, 'space-1', ['owner', 'editor'], 'folders:read',
+    )).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-1', role: 'publisher', folderScopes: ['folders:read'],
+      agent: { status: 'active', revokedAt: null },
+      space: { deletedAt: null },
+    });
+    await expect(service.assertSpaceAccess(
+      principal, 'space-1', ['owner', 'editor'], 'folders:read',
+    )).resolves.toMatchObject({ id: 'grant-1' });
+  });
+});
+
+describe('AuthorizationService live Agent Folder access', () => {
+  const liveState = {
+    credential: { authorizationId: 'grant-1', revokedAt: null as Date | null, expiresAt: null as Date | null },
+    agent: {
+      status: 'active', revokedAt: null as Date | null, approvalMode: 'manual', memoryEnabled: false,
+      owner: { deletedAt: null as Date | null, lockedAt: null as Date | null },
+    },
+    grant: { id: 'grant-1', role: 'publisher', folderScopes: ['folders:read'] as string[] },
+    space: { deletedAt: null as Date | null, approvalPolicy: 'always-review' },
+  };
+  const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
+    agentCredential: { findFirst: jest.fn(async () => liveState.credential) },
+    agent: { findUnique: jest.fn(async () => liveState.agent) },
+    agentGrant: { findUnique: jest.fn(async () => liveState.grant) },
+    space: { findUnique: jest.fn(async () => liveState.space) },
+  } as any;
+  const prisma = {
+    $transaction: jest.fn(async (operation: (db: typeof tx) => Promise<unknown>) => operation(tx)),
+  } as any;
+  const service = new AuthorizationService(prisma);
+  const principal = {
+    userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+    authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+  } as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    tx.$queryRaw.mockResolvedValue([{ id: 'locked' }]);
+    liveState.credential.authorizationId = 'grant-1';
+    liveState.credential.revokedAt = null;
+    liveState.credential.expiresAt = null;
+    liveState.agent.status = 'active';
+    liveState.agent.revokedAt = null;
+    liveState.agent.owner.deletedAt = null;
+    liveState.agent.owner.lockedAt = null;
+    liveState.grant.folderScopes = ['folders:read'];
+    liveState.space.deletedAt = null;
+  });
+
+  it('revalidates the persisted scope and current credential before a Folder read', async () => {
+    await expect((service as any).assertLiveAgentAccess(
+      principal, 'space-1', ['folders:read'],
+    )).resolves.toBeUndefined();
+
+    liveState.grant.folderScopes = [];
+    await expect((service as any).assertLiveAgentAccess(
+      principal, 'space-1', ['folders:read'],
+    )).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+  });
+
+  it.each([
+    ['revoked credential', () => { liveState.credential.revokedAt = new Date(); }],
+    ['expired credential', () => { liveState.credential.expiresAt = new Date(0); }],
+    ['disabled Agent', () => { liveState.agent.status = 'paused'; }],
+    ['revoked Agent', () => { liveState.agent.revokedAt = new Date(); }],
+    ['cross-Space credential', () => { liveState.credential.authorizationId = 'grant-other'; }],
+  ])('fails closed for a %s', async (_label, arrange) => {
+    arrange();
+    await expect((service as any).assertLiveAgentAccess(
+      principal, 'space-1', ['folders:read'],
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
 });
 
 describe('space discovery and self-describing errors', () => {

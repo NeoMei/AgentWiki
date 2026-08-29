@@ -1,4 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
+import {
+  folderScopesForAgentAccessRole,
+  scopesForAgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 import { AgentService } from './agent.service';
 import { LocalSyncInstallationService } from './local-sync-installation.service';
 
@@ -19,7 +23,13 @@ interface CompositionState {
   };
   space: { id: string; deletedAt: Date | null };
   membershipRole: MembershipRole;
-  grant: { id: string; agentId: string; spaceId: string; role: string } | null;
+  grant: {
+    id: string;
+    agentId: string;
+    spaceId: string;
+    role: string;
+    folderScopes: string[];
+  } | null;
   credential: {
     id: string;
     agentId: string;
@@ -102,7 +112,7 @@ function composeInstallationFlow(input?: {
         ? { ...state.grant, ...update }
         : { id: 'grant-1', ...create };
       state.grant = grant;
-      return { id: grant.id, role: grant.role };
+      return { id: grant.id, role: grant.role, folderScopes: grant.folderScopes };
     }),
   };
   prisma.agentCredential = {
@@ -183,10 +193,12 @@ describe('Local Sync installation issue/exchange composition', () => {
         spaceId: 'space-1',
         credentialId: 'credential-1',
         role: 'editor',
+        scopes: scopesForAgentAccessRole('editor'),
       });
 
     expect(composition.state.grant).toMatchObject({
       id: 'grant-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
+      folderScopes: folderScopesForAgentAccessRole('editor'),
     });
     expect(composition.state.credential).toMatchObject({
       id: 'credential-1', agentId: 'agent-1', authorizationId: 'grant-1', revokedAt: null,

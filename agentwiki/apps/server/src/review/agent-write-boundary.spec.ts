@@ -4,8 +4,16 @@ import { AuthorizationService } from '../core/authorization/authorization.servic
 import { SpaceController } from '../core/space/space.controller';
 import { ReviewController } from './review.controller';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { ContentTreeController } from '../content-tree/content-tree.controller';
+import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
+import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 
 describe('Agent write review boundary', () => {
+  it('keeps every human Folder REST route behind the human-only controller guard', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, ContentTreeController))
+      .toEqual([CombinedAuthGuard, HumanOnlyGuard]);
+  });
   it('passes the caller tree CAS value into a human revert', async () => {
     const review = { revert: jest.fn().mockResolvedValue({ id: 'change-1', status: 'reverted' }) } as any;
     const authorization = { assertChangeSetAccess: jest.fn().mockResolvedValue(undefined) } as any;

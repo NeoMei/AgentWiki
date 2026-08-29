@@ -1,5 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
-import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import {
+  scopesForAgentAccessRole,
+  scopesForAgentGrant,
+} from '@neomei/agentwiki-sync-protocol';
 import { createHash } from 'crypto';
 import { LocalSyncInstallationService } from './local-sync-installation.service';
 
@@ -63,7 +66,9 @@ describe('LocalSyncInstallationService', () => {
     });
     agents.listCredentials.mockResolvedValue([]);
     agents.revokeCredential.mockResolvedValue({ success: true });
-    agents.assertConnectionReceipt.mockResolvedValue(undefined);
+    agents.assertConnectionReceipt.mockResolvedValue({
+      scopes: scopesForAgentAccessRole('editor'),
+    });
     audit.record.mockResolvedValue(undefined);
     service = new LocalSyncInstallationService(redis as any, agents as any, config as any, audit as any);
   });
@@ -209,6 +214,25 @@ describe('LocalSyncInstallationService', () => {
     });
   });
 
+  it('returns and audits the persisted Grant scopes from the credential exchange', async () => {
+    const persistedScopes = scopesForAgentGrant('editor', []);
+    agents.exchangeConnectionIntent.mockResolvedValue({
+      id: 'credential-1',
+      grantId: 'grant-1',
+      agentId: 'agent-1',
+      role: 'editor',
+      scopes: persistedScopes,
+      revokedAt: null,
+    });
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toMatchObject({
+      scopes: persistedScopes,
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ scopes: persistedScopes }),
+    }));
+  });
+
   it('replays a completed exchange without creating a second credential', async () => {
     const first = await service.exchange(exchangeCode, '127.0.0.1');
     const receipt = redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1];
@@ -226,6 +250,20 @@ describe('LocalSyncInstallationService', () => {
       grantId: 'grant-1',
       spaceId: 'space-1',
       role: 'editor',
+    });
+  });
+
+  it('revalidates persisted Grant scopes when replaying an exchange receipt', async () => {
+    await service.exchange(exchangeCode, '127.0.0.1');
+    const receipt = redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1];
+    redis.getStrict.mockImplementation(async (key: string) => (
+      key === receiptKey ? receipt : null
+    ));
+    const persistedScopes = scopesForAgentGrant('editor', []);
+    agents.assertConnectionReceipt.mockResolvedValue({ scopes: persistedScopes });
+
+    await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toMatchObject({
+      scopes: persistedScopes,
     });
   });
 

@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, UpdateAgentDto } from '../dto/agent.dto';
-import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import {
+  folderScopesForAgentAccessRole,
+  scopesForAgentGrant,
+  type AgentAccessRole,
+} from '@neomei/agentwiki-sync-protocol';
 
 @Injectable()
 export class AgentService {
@@ -45,7 +49,7 @@ export class AgentService {
   }
 
   async list(ownerId: string) {
-    return this.prisma.agent.findMany({
+    const agents = await this.prisma.agent.findMany({
       where: { ownerId, revokedAt: null },
       include: {
         grants: { include: { space: { select: { id: true, name: true } } } },
@@ -53,6 +57,10 @@ export class AgentService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return agents.map((agent) => ({
+      ...agent,
+      grants: agent.grants.map((grant) => this.grantResponse(grant)),
+    }));
   }
 
   async getOwned(ownerId: string, id: string) {
@@ -66,7 +74,10 @@ export class AgentService {
             id: true, name: true, prefix: true, authorizationId: true,
             expiresAt: true, lastUsedAt: true, createdAt: true,
             authorization: {
-              select: { role: true, space: { select: { id: true, name: true } } },
+              select: {
+                role: true, folderScopes: true,
+                space: { select: { id: true, name: true } },
+              },
             },
           },
         },
@@ -76,6 +87,7 @@ export class AgentService {
     if (agent.ownerId !== ownerId) throw new ForbiddenException('You do not own this agent');
     return {
       ...agent,
+      grants: (agent.grants ?? []).map((grant) => this.grantResponse(grant)),
       credentials: (agent.credentials ?? []).map((credential) => ({
         id: credential.id,
         name: credential.name,
@@ -83,7 +95,10 @@ export class AgentService {
         authorization: {
           id: credential.authorizationId,
           role: credential.authorization.role,
-          scopes: scopesForAgentAccessRole(credential.authorization.role),
+          scopes: scopesForAgentGrant(
+            credential.authorization.role,
+            credential.authorization.folderScopes,
+          ),
           space: credential.authorization.space,
         },
         expiresAt: credential.expiresAt,
@@ -219,9 +234,13 @@ export class AgentService {
           agentId: input.agentId,
           spaceId: input.spaceId,
           role: input.role,
+          folderScopes: folderScopesForAgentAccessRole(input.role),
         },
-        update: { role: input.role },
-        select: { id: true, role: true },
+        update: {
+          role: input.role,
+          folderScopes: folderScopesForAgentAccessRole(input.role),
+        },
+        select: { id: true, role: true, folderScopes: true },
       });
       const credential = await tx.agentCredential.upsert({
         where: { localSyncInstallationId: input.installationId },
@@ -275,7 +294,7 @@ export class AgentService {
         grantId: grant.id,
         agentId: credential.agentId,
         role: grant.role,
-        scopes: scopesForAgentAccessRole(grant.role),
+        scopes: scopesForAgentGrant(grant.role, grant.folderScopes),
         apiKey: input.rawKey,
       };
     });
@@ -288,7 +307,7 @@ export class AgentService {
     grantId: string;
     spaceId: string;
     role: AgentAccessRole;
-  }): Promise<void> {
+  }): Promise<{ scopes: string[] }> {
     const [credential, grant] = await Promise.all([
       this.prisma.agentCredential.findFirst({
         where: {
@@ -313,7 +332,12 @@ export class AgentService {
           spaceId: input.spaceId,
           role: input.role,
         },
-        select: { id: true, role: true, space: { select: { deletedAt: true } } },
+        select: {
+          id: true,
+          role: true,
+          folderScopes: true,
+          space: { select: { deletedAt: true } },
+        },
       }),
     ]);
     if (
@@ -327,6 +351,7 @@ export class AgentService {
     ) {
       throw new ForbiddenException('Connection credential is unavailable');
     }
+    return { scopes: scopesForAgentGrant(grant.role, grant.folderScopes) };
   }
 
   async listCredentials(ownerId: string, agentId: string) {
@@ -337,7 +362,10 @@ export class AgentService {
         id: true, name: true, prefix: true, authorizationId: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
         authorization: {
-          select: { role: true, space: { select: { id: true, name: true } } },
+          select: {
+            role: true, folderScopes: true,
+            space: { select: { id: true, name: true } },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -349,7 +377,10 @@ export class AgentService {
       authorization: {
         id: credential.authorizationId,
         role: credential.authorization.role,
-        scopes: scopesForAgentAccessRole(credential.authorization.role),
+        scopes: scopesForAgentGrant(
+          credential.authorization.role,
+          credential.authorization.folderScopes,
+        ),
         space: credential.authorization.space,
       },
       expiresAt: credential.expiresAt,
@@ -394,8 +425,11 @@ export class AgentService {
       }
       const grant = await tx.agentGrant.upsert({
         where: { agentId_spaceId: { agentId, spaceId } },
-        create: { agentId, spaceId, role },
-        update: { role },
+        create: {
+          agentId, spaceId, role,
+          folderScopes: folderScopesForAgentAccessRole(role),
+        },
+        update: { role, folderScopes: folderScopesForAgentAccessRole(role) },
         include: { space: { select: { id: true, name: true } } },
       });
       if (role === 'publisher') {
@@ -414,7 +448,7 @@ export class AgentService {
           metadata: { oldRole: existingGrant?.role ?? null, newRole: role, spaceId },
         },
       });
-      return grant;
+      return { ...grant, scopes: scopesForAgentGrant(grant.role, grant.folderScopes) };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
@@ -494,7 +528,10 @@ export class AgentService {
         status: true,
         grants: {
           ...(authorizationId ? { where: { id: authorizationId } } : {}),
-          select: { role: true, space: { select: { id: true, name: true } } },
+          select: {
+            role: true, folderScopes: true,
+            space: { select: { id: true, name: true } },
+          },
           orderBy: { createdAt: 'asc' },
         },
         credentials: {
@@ -506,7 +543,10 @@ export class AgentService {
             id: true, name: true, prefix: true, authorizationId: true,
             expiresAt: true, lastUsedAt: true,
             authorization: {
-              select: { role: true, space: { select: { id: true, name: true } } },
+              select: {
+                role: true, folderScopes: true,
+                space: { select: { id: true, name: true } },
+              },
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -517,6 +557,7 @@ export class AgentService {
     const now = Date.now();
     return agents.map((agent) => ({
       ...agent,
+      grants: agent.grants.map((grant) => this.grantResponse(grant)),
       credentials: agent.credentials.map((credential) => ({
         id: credential.id,
         name: credential.name,
@@ -524,7 +565,10 @@ export class AgentService {
         authorization: {
           id: credential.authorizationId,
           role: credential.authorization.role,
-          scopes: scopesForAgentAccessRole(credential.authorization.role),
+          scopes: scopesForAgentGrant(
+            credential.authorization.role,
+            credential.authorization.folderScopes,
+          ),
           space: credential.authorization.space,
         },
         expiresAt: credential.expiresAt,
@@ -545,6 +589,13 @@ export class AgentService {
     await this.prisma.agentAuditEvent.create({
       data: { agentId, action, outcome, resourceType, resourceId, metadata: metadata as any },
     });
+  }
+
+  private grantResponse<T extends { role: AgentAccessRole; folderScopes: string[] }>(grant: T) {
+    return {
+      ...grant,
+      scopes: scopesForAgentGrant(grant.role, grant.folderScopes),
+    };
   }
 
   private async assertGrantMutationAuthority(

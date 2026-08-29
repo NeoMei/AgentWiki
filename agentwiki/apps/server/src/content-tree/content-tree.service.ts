@@ -75,6 +75,7 @@ interface TreeCursor {
 interface FolderListCursor {
   v: 1;
   spaceId: string;
+  parentFolderId?: string | null;
   query: string;
   pathKey: string;
   id: string;
@@ -286,19 +287,26 @@ function afterCursor(cursor: TreeCursor): Prisma.FolderWhereInput[] {
 function encodeFolderListCursor(
   folder: { pathKey: string; id: string },
   spaceId: string,
+  parentFolderId: string | null | undefined,
   query: string,
 ): string {
   return Buffer.from(JSON.stringify({
-    v: 1, spaceId, query, pathKey: folder.pathKey, id: folder.id,
+    v: 1, spaceId, parentFolderId, query, pathKey: folder.pathKey, id: folder.id,
   } satisfies FolderListCursor), 'utf8').toString('base64url');
 }
 
-function decodeFolderListCursor(value: string, spaceId: string, query: string): FolderListCursor {
+function decodeFolderListCursor(
+  value: string,
+  spaceId: string,
+  parentFolderId: string | null | undefined,
+  query: string,
+): FolderListCursor {
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<FolderListCursor>;
     if (
       parsed.v !== 1
       || parsed.spaceId !== spaceId
+      || parsed.parentFolderId !== parentFolderId
       || parsed.query !== query
       || typeof parsed.pathKey !== 'string'
       || typeof parsed.id !== 'string'
@@ -422,9 +430,10 @@ export class ContentTreeService {
     if (!Number.isInteger(take) || take < 1 || take > MAX_TAKE) {
       throw new ContentTreeError('CONTENT_TREE_TAKE_INVALID', 'take must be an integer from 1 through 200');
     }
+    const parentFolderId = input.parentFolderId;
     const query = foldCase((input.query ?? '').normalize('NFC').trim());
     const cursor = input.cursor
-      ? decodeFolderListCursor(input.cursor, input.spaceId, query)
+      ? decodeFolderListCursor(input.cursor, input.spaceId, parentFolderId, query)
       : null;
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET TRANSACTION READ ONLY`;
@@ -433,6 +442,13 @@ export class ContentTreeService {
         select: { contentTreeRevision: true },
       });
       if (!space) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
+      if (typeof parentFolderId === 'string') {
+        const parent = await tx.folder.findFirst({
+          where: { id: parentFolderId, spaceId: input.spaceId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!parent) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+      }
       const queryFilter: Prisma.FolderWhereInput = query
         ? { OR: [{ nameKey: { contains: query } }, { pathKey: { contains: query } }] }
         : {};
@@ -447,6 +463,7 @@ export class ContentTreeService {
       const where: Prisma.FolderWhereInput = {
         spaceId: input.spaceId,
         deletedAt: null,
+        ...(parentFolderId !== undefined ? { parentId: parentFolderId } : {}),
         ...(query && cursor ? { AND: [queryFilter, cursorFilter] } : query ? queryFilter : cursorFilter),
       };
       const folders = await tx.folder.findMany({
@@ -467,7 +484,7 @@ export class ContentTreeService {
         updatedAt: folder.updatedAt,
       }));
       const nextCursor = folders.length > take && data.length > 0
-        ? encodeFolderListCursor(folders[take - 1]!, input.spaceId, query)
+        ? encodeFolderListCursor(folders[take - 1]!, input.spaceId, parentFolderId, query)
         : null;
       return {
         spaceId: input.spaceId,
@@ -478,15 +495,15 @@ export class ContentTreeService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
-  async createFolder(input: CreateFolderInput): Promise<CreatedFolderResult> {
+  async createFolder(
+    input: CreateFolderInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<CreatedFolderResult> {
     assertActor(input.actor);
     const normalized = normalizeFolderName(input.name);
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, input.spaceId);
-      if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
-      if (lockedTx.contentTreeRevision !== input.expectedTreeRevision) {
-        throw new ContentTreeConflict(input.expectedTreeRevision, lockedTx.contentTreeRevision);
-      }
+    const mutate = async (tx: Prisma.TransactionClient): Promise<CreatedFolderResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
 
       const ancestors = await lockedTx.$queryRaw<AncestorRow[]>(Prisma.sql`
         WITH RECURSIVE ancestors AS (
@@ -568,7 +585,10 @@ export class ContentTreeService {
         createdByUserId: input.actor.userId ?? null,
       });
       return { folder: created, treeRevision, syncRevisionId: syncRevision.revisionId };
-    });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate);
   }
 
   async placePage(
@@ -616,6 +636,14 @@ export class ContentTreeService {
       throw new ContentTreeConflict(expectedTreeRevision, lockedTx.contentTreeRevision);
     }
     return lockedTx;
+  }
+
+  async lockFolderMutationSpace(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    expectedTreeRevision: bigint,
+  ): Promise<SpaceTreeLockedTransaction> {
+    return this.lockMutationSpace(tx, spaceId, expectedTreeRevision);
   }
 
   async lockSyncMutationSpace(
@@ -1378,11 +1406,15 @@ export class ContentTreeService {
     return candidates[0].id;
   }
 
-  async renameFolder(input: RenameFolderInput): Promise<RenamedFolderResult> {
+  async renameFolder(
+    input: RenameFolderInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<RenamedFolderResult> {
     assertActor(input.actor);
     const normalized = normalizeFolderName(input.name);
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+    const mutate = async (tx: Prisma.TransactionClient): Promise<RenamedFolderResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
       const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.folderId);
       const root = this.requireAffectedFolder(rows, input.folderId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
@@ -1450,14 +1482,20 @@ export class ContentTreeService {
           updatedAt: changedAt,
         },
       };
-    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
-  async moveNode(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
+  async moveNode(
+    input: MoveTreeNodeInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<MovedTreeNodeResult> {
     assertActor(input.actor);
     return input.kind === 'folder'
-      ? this.moveFolder(input)
-      : this.movePage(input);
+      ? this.moveFolder(input, providedLockedTx)
+      : this.movePage(input, providedLockedTx);
   }
 
   async deleteImpact(input: DeleteImpactInput): Promise<DeleteImpactResult> {
@@ -1483,10 +1521,14 @@ export class ContentTreeService {
     });
   }
 
-  async deleteFolder(input: DeleteFolderInput): Promise<DeletedFolderResult> {
+  async deleteFolder(
+    input: DeleteFolderInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<DeletedFolderResult> {
     assertActor(input.actor);
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+    const mutate = async (tx: Prisma.TransactionClient): Promise<DeletedFolderResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
       const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.folderId);
       const root = this.requireAffectedFolder(rows, input.folderId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
@@ -1577,19 +1619,24 @@ export class ContentTreeService {
           createdAt: batch.createdAt,
         },
       };
-    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   async restoreDeletionBatch(
     input: RestoreDeletionBatchInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
   ): Promise<RestoredDeletionBatchResult> {
     const strategy = parseRestoreStrategy(input.strategy);
     assertActor(input.actor);
     const renamed = strategy.kind === 'rename-root'
       ? normalizeFolderName(strategy.name)
       : null;
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+    const mutate = async (tx: Prisma.TransactionClient): Promise<RestoredDeletionBatchResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
       const batch = await lockedTx.contentDeletionBatch.findFirst({
         where: {
           id: input.deletionBatchId,
@@ -1666,6 +1713,7 @@ export class ContentTreeService {
       }
       const root = folders.find((folder) => folder.id === batch.rootFolderId);
       if (!root) throw new ContentTreeError('FOLDER_RESTORE_CONFLICT', 'Deletion batch root is missing');
+      assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
 
       const activeFolderCount = await lockedTx.folder.count({
         where: { spaceId: input.spaceId, deletedAt: null },
@@ -1814,12 +1862,19 @@ export class ContentTreeService {
           updatedAt: restoredAt,
         },
       };
-    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
-  private async moveFolder(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+  private async moveFolder(
+    input: MoveTreeNodeInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<MovedTreeNodeResult> {
+    const mutate = async (tx: Prisma.TransactionClient): Promise<MovedTreeNodeResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
       const rows = await this.loadActiveSubtree(lockedTx, input.spaceId, input.nodeId);
       const root = this.requireAffectedFolder(rows, input.nodeId);
       assertExpectedUpdatedAt(input.expectedUpdatedAt, root.updatedAt);
@@ -1905,12 +1960,19 @@ export class ContentTreeService {
           sortOrder: rootPlan.sortOrder, updatedAt: changedAt,
         },
       };
-    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
-  private async movePage(input: MoveTreeNodeInput): Promise<MovedTreeNodeResult> {
-    return this.prisma.$transaction(async (tx) => {
-      const lockedTx = await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
+  private async movePage(
+    input: MoveTreeNodeInput,
+    providedLockedTx?: SpaceTreeLockedTransaction,
+  ): Promise<MovedTreeNodeResult> {
+    const mutate = async (tx: Prisma.TransactionClient): Promise<MovedTreeNodeResult> => {
+      const lockedTx = providedLockedTx
+        ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
       const page = await lockedTx.page.findFirst({
         where: { id: input.nodeId, spaceId: input.spaceId, deletedAt: null },
         select: {
@@ -1996,7 +2058,10 @@ export class ContentTreeService {
           sortOrder: plan.sortOrder, updatedAt: changedAt,
         },
       };
-    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
+    };
+    return providedLockedTx
+      ? mutate(providedLockedTx)
+      : this.prisma.$transaction(mutate, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   private async lockMutationSpace(

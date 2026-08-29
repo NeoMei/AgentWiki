@@ -92,6 +92,7 @@ export class DeleteFolderDto {
 
 export class RestoreFolderDto {
   @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(100) deletionBatchId!: string;
+  @PreserveRawInput() @IsISO8601({ strict: true }) expectedUpdatedAt!: string;
   @PreserveRawInput() @IsString() @Matches(TREE_REVISION) expectedTreeRevision!: string;
   @PreserveRawInput()
   @IsIn(['original', 'root', 'rename-root'])

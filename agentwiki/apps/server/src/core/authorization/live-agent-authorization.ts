@@ -20,7 +20,7 @@ export interface LockedAgentAuthorization {
     memoryEnabled: boolean;
   };
   space: { deletedAt: Date | null; approvalPolicy: string };
-  grant: { id: string; role: AgentAccessRole };
+  grant: { id: string; role: AgentAccessRole; folderScopes: string[] };
   credential: { authorizationId: string; revokedAt: Date | null; expiresAt: Date | null };
 }
 
@@ -136,7 +136,7 @@ async function lockAndReadNonSpaceAuthorization(
     }),
     client.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId: context.agentId, spaceId } },
-      select: { id: true, role: true },
+      select: { id: true, role: true, folderScopes: true },
     }),
   ]);
   if (!credential || !agent || !grant || !agent.owner) return null;

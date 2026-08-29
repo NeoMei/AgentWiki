@@ -140,6 +140,7 @@ export interface RestoreDeletionBatchInput {
   deletionBatchId: string;
   strategy: RestoreStrategy;
   expectedTreeRevision: bigint;
+  expectedUpdatedAt: Date;
   actor: ContentTreeActor;
 }
 
@@ -210,6 +211,7 @@ export interface ListChildrenInput {
 
 export interface ListFoldersInput {
   spaceId: string;
+  parentFolderId?: string | null;
   query?: string;
   cursor?: string;
   take?: number;

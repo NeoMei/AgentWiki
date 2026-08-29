@@ -17,7 +17,9 @@ describe('lockLiveAgentAuthorization', () => {
       }),
     },
     agentGrant: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'grant-1', role: 'editor' }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'grant-1', role: 'editor', folderScopes: ['folders:read', 'folders:write'],
+      }),
     },
     space: {
       findUnique: jest.fn().mockResolvedValue({ deletedAt: null, approvalPolicy: 'review' }),
@@ -49,7 +51,12 @@ describe('lockLiveAgentAuthorization', () => {
     expect(queries[3]).toContain('FROM "AgentCredential"');
     expect(queries[4]).toContain('FROM "Space"');
     expect(queries.every((query) => query.includes('FOR NO KEY UPDATE'))).toBe(true);
-    expect(result).toMatchObject({ grant: { id: 'grant-1', role: 'editor' } });
+    expect(result).toMatchObject({
+      grant: { id: 'grant-1', role: 'editor', folderScopes: ['folders:read', 'folders:write'] },
+    });
+    expect(db.agentGrant.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ folderScopes: true }),
+    }));
   });
 
   it('places the Space advisory boundary before the authoritative Space row lock and revalidates policy', async () => {

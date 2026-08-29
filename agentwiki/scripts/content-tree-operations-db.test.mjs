@@ -528,6 +528,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: batch.id,
             strategy: { kind: 'root' },
             expectedTreeRevision: 0n,
+            expectedUpdatedAt: restoreRoot.updatedAt,
             actor,
           }), 'FOLDER_CYCLE');
           assert.ok((await prisma.folder.findUniqueOrThrow({ where: { id: restoreRoot.id } })).deletedAt);
@@ -623,6 +624,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: deleted.batch.id,
             strategy: { kind: 'original' },
             expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt,
             actor,
           }), 'FOLDER_RESTORE_CONFLICT');
           assert.ok((await prisma.folder.findUniqueOrThrow({ where: { id: root.id } })).deletedAt);
@@ -635,6 +637,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: deleted.batch.id,
             strategy: { kind: 'original' },
             expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt,
             actor,
           });
           assert.equal(restored.treeRevision, 2n);
@@ -703,6 +706,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: deletion.batch.id,
             strategy: { kind: 'original' },
             expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt,
             actor,
           }), (error) => {
             assert.equal(error?.code, 'FOLDER_RESTORE_CONFLICT');
@@ -795,6 +799,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: deletion.batch.id,
             strategy: { kind: 'original' },
             expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt,
             actor,
           }), (error) => {
             assert.equal(error?.code, 'FOLDER_RESTORE_CONFLICT');
@@ -835,6 +840,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             deletionBatchId: deletion.batch.id,
             strategy: { kind: 'original' },
             expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt,
             actor,
           }), 'FOLDER_COUNT_LIMIT');
           assert.ok((await prisma.folder.findUniqueOrThrow({ where: { id: root.id } })).deletedAt);
@@ -870,7 +876,8 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           });
           await service.restoreDeletionBatch({
             spaceId: rootSpaceId, deletionBatchId: rootDeletion.batch.id,
-            strategy: { kind: 'root' }, expectedTreeRevision: 1n, actor,
+            strategy: { kind: 'root' }, expectedTreeRevision: 1n,
+            expectedUpdatedAt: root.updatedAt, actor,
           });
           const rootRestored = await prisma.folder.findUniqueOrThrow({ where: { id: root.id } });
           assert.equal(rootRestored.parentId, null);
@@ -903,7 +910,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           await service.restoreDeletionBatch({
             spaceId: renameSpaceId, deletionBatchId: renameDeletion.batch.id,
             strategy: { kind: 'rename-root', name: 'Renamed' },
-            expectedTreeRevision: 1n, actor,
+            expectedTreeRevision: 1n, expectedUpdatedAt: renameRoot.updatedAt, actor,
           });
           const renamedRoot = await prisma.folder.findUniqueOrThrow({ where: { id: renameRoot.id } });
           assert.equal(renamedRoot.parentId, renameParent.id);

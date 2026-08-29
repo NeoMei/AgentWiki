@@ -55,6 +55,14 @@ function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
       };
     }),
     mapLegacyPageParent: jest.fn().mockRejectedValue({ businessCode: 'PAGE_PARENT_DEPRECATED' }),
+    lockFolderMutationSpace: jest.fn(async (tx: any) => Object.assign(tx, {
+      contentTreeRevision: 0n,
+    })),
+    createFolder: jest.fn(),
+    renameFolder: jest.fn(),
+    moveNode: jest.fn(),
+    deleteFolder: jest.fn(),
+    restoreDeletionBatch: jest.fn(),
   };
 }
 
@@ -1691,13 +1699,14 @@ describe('one-shot review-publish and agent auto-publish', () => {
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
   revisionWriter.advanceLocked = revisionWriter.advance;
+  const contentTree = makeReviewContentTree(revisionWriter, syncPaths) as any;
   const service = new ReviewService(
     prisma,
     search,
     revisionWriter,
     syncPaths,
     graphMaintenance,
-    makeReviewContentTree(revisionWriter, syncPaths) as any,
+    contentTree,
   );
 
   beforeEach(() => {
@@ -1742,6 +1751,95 @@ describe('one-shot review-publish and agent auto-publish', () => {
       where: { changeSetId: 'cs-empty', status: 'accepted' },
     });
     expect(prisma.approval.create).not.toHaveBeenCalled();
+  });
+
+  it('uses one canonical Folder scope union for proposal and publish checks', () => {
+    expect((service as any).requiredScopesForItems([{ type: 'create_folder' }]))
+      .toEqual(['folders:write']);
+    expect((service as any).requiredScopesForItems([{ type: 'rename_folder' }]))
+      .toEqual(['folders:write']);
+    expect((service as any).requiredScopesForItems([{ type: 'move_folder' }]))
+      .toEqual(['folders:write']);
+    expect((service as any).requiredScopesForItems([{ type: 'delete_folder' }]))
+      .toEqual(['folders:write', 'folders:delete']);
+    expect((service as any).requiredScopesForItems([{ type: 'restore_folder' }]))
+      .toEqual(['folders:write', 'folders:delete']);
+  });
+
+  it('publishes an approved Folder create through the already locked ContentTree transaction', async () => {
+    const approved = {
+      id: 'cs-folder', status: 'approved', spaceId: 'space-1',
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{
+        id: 'folder-item', type: 'create_folder', status: 'accepted',
+        payload: { name: 'Docs', parentId: null, expectedTreeRevision: '0' },
+      }],
+      approvals: [], space: {}, run: null,
+    };
+    prisma.changeSet.findUnique
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce({ ...approved, status: 'published' });
+    contentTree.createFolder.mockResolvedValue({
+      folder: { id: 'folder-1' }, treeRevision: 1n, syncRevisionId: 'revision-1',
+    });
+
+    await expect(service.publish('cs-folder')).resolves.toMatchObject({ status: 'published' });
+
+    expect(contentTree.lockFolderMutationSpace).toHaveBeenCalledWith(
+      prisma, 'space-1', 0n,
+    );
+    expect(contentTree.createFolder).toHaveBeenCalledWith({
+      spaceId: 'space-1', name: 'Docs', parentId: null, expectedTreeRevision: 0n,
+      actor: { userId: 'user-1' },
+    }, expect.objectContaining({ contentTreeRevision: 0n }));
+    expect(prisma.changeItem.update).toHaveBeenCalledWith({
+      where: { id: 'folder-item' },
+      data: { status: 'published', publishedResourceId: 'folder-1' },
+    });
+  });
+
+  it('demotes auto-publish before mutation when the persisted Folder scope is lost', async () => {
+    const approved = {
+      id: 'cs-folder-race', status: 'approved', spaceId: 'space-1',
+      createdByUserId: null, createdByAgentId: 'agent-1',
+      items: [{
+        id: 'folder-item', type: 'delete_folder', status: 'accepted',
+        payload: {
+          folderId: 'folder-1', expectedTreeRevision: '0',
+          expectedUpdatedAt: '2026-08-29T00:00:00.000Z',
+          expectedImpactHash: 'a'.repeat(64), folderCount: 1, pageCount: 0,
+        },
+      }],
+      approvals: [], space: {}, run: null,
+    };
+    prisma.changeSet.findUnique
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce({ ...approved, status: 'pending_review' });
+    prisma.space.findUnique.mockResolvedValue({
+      approvalPolicy: 'scoped-auto-publish', deletedAt: null,
+    });
+    prisma.agent.findUnique.mockResolvedValue({
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      owner: { deletedAt: null, lockedAt: null },
+    });
+    prisma.agentCredential.findFirst.mockResolvedValue({
+      authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue({
+      id: 'grant-1', role: 'publisher', folderScopes: ['folders:read', 'folders:write'],
+    });
+    prisma.$queryRaw.mockResolvedValue([{ id: 'locked' }]);
+
+    await expect(service.publish('cs-folder-race', {
+      ownerId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+    })).resolves.toMatchObject({ status: 'pending_review' });
+
+    expect(prisma.changeSet.updateMany).toHaveBeenCalledWith({
+      where: { id: 'cs-folder-race', status: 'approved' },
+      data: { status: 'pending_review', reviewedAt: null },
+    });
+    expect(contentTree.deleteFolder).not.toHaveBeenCalled();
+    expect(contentTree.lockFolderMutationSpace).not.toHaveBeenCalled();
   });
 
   it.each([

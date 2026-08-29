@@ -18,7 +18,7 @@ import { ContentTreeError } from '../content-tree/content-tree.types';
 import {
   canonicalBytes,
   contentHash as syncContentHash,
-  agentRoleAllowsScope,
+  agentGrantAllowsScope,
   normalizeMarkdown,
   pathKey,
   revisionContentHash,
@@ -251,13 +251,23 @@ export class ReviewService {
       : null;
     const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted');
     const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
+    const folderItems = acceptedItems.filter((item) => [
+      'create_folder', 'rename_folder', 'move_folder', 'delete_folder', 'restore_folder',
+    ].includes(item.type));
     const memoryItems = acceptedItems.filter((item) => ['upsert_space_memory', 'archive_space_memory'].includes(item.type));
     const relationItems = acceptedItems.filter((item) => ['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type));
-    const requestedTreeRevisions = Array.from(new Set(pageItems.flatMap((item) => {
+    if (folderItems.length > 1 || (folderItems.length === 1 && acceptedItems.length !== 1)) {
+      throw new ContentTreeError(
+        'CONTENT_TREE_CONFLICT',
+        'A Folder lifecycle ChangeSet must contain exactly one accepted item',
+      );
+    }
+    const requestedTreeRevisions = Array.from(new Set([...pageItems, ...folderItems].flatMap((item) => {
       const payload = item.payload as any;
       const value = payload.expectedTreeRevision ?? payload.changes?.expectedTreeRevision;
       const changes = payload.changes ?? {};
-      const structural = item.type === 'create_page'
+      const structural = folderItems.includes(item)
+        || item.type === 'create_page'
         || item.type === 'archive_page'
         || changes.title !== undefined
         || changes.folderId !== undefined;
@@ -290,7 +300,13 @@ export class ReviewService {
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
-      const acquireSpaceMutationLock = () => pageItems.length > 0
+      const acquireSpaceMutationLock = () => folderItems.length > 0
+        ? this.requireContentTree().lockFolderMutationSpace(
+          tx,
+          changeSet.spaceId,
+          requestedTreeRevision!,
+        )
+        : pageItems.length > 0
         ? this.requireContentTree().lockPageMutationSpace(
           tx,
           changeSet.spaceId,
@@ -341,7 +357,7 @@ export class ReviewService {
       const pageIds: string[] = [];
       const pageIdBySourcePath = new Map<string, string>();
       const pageIdByKnowledgeKey = new Map<string, string>();
-      const expectedTreeRevision = pageItems.length > 0
+      const expectedTreeRevision = pageItems.length > 0 || folderItems.length > 0
         ? requestedTreeRevision ?? (lockedTx as any).contentTreeRevision
         : 0n;
       const structuralPageMutation = pageItems.some((item) => {
@@ -358,6 +374,22 @@ export class ReviewService {
         await tx.$queryRaw(Prisma.sql`
           SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${changeSet.spaceId} FOR UPDATE
         `);
+      }
+
+      for (const item of folderItems) {
+        const resourceId = await this.publishFolderItem(
+          lockedTx as any,
+          changeSet.spaceId,
+          item,
+          expectedTreeRevision,
+          changeSet.createdByAgentId
+            ? { agentId: changeSet.createdByAgentId }
+            : { userId: changeSet.createdByUserId ?? authorId },
+        );
+        await tx.changeItem.update({
+          where: { id: item.id },
+          data: { status: 'published', publishedResourceId: resourceId },
+        });
       }
 
       for (const item of pageItems) {
@@ -961,6 +993,7 @@ export class ReviewService {
       }
       const unsupported = acceptedItems.filter((item) => ![
         'create_page', 'update_page', 'archive_page',
+        'create_folder', 'rename_folder', 'move_folder', 'delete_folder', 'restore_folder',
         'upsert_space_memory', 'archive_space_memory',
         'create_relation', 'update_relation', 'archive_relation', 'update_relation_strength',
       ].includes(item.type));
@@ -1071,10 +1104,120 @@ export class ReviewService {
     return this.get(id);
   }
 
+  private async publishFolderItem(
+    lockedTx: any,
+    spaceId: string,
+    item: { type: string; payload: unknown },
+    expectedTreeRevision: bigint,
+    actor: { userId?: string; agentId?: string },
+  ): Promise<string> {
+    const payload = item.payload as Record<string, unknown>;
+    const tree = this.requireContentTree();
+    if (item.type === 'create_folder') {
+      const result = await tree.createFolder({
+        spaceId,
+        name: String(payload.name ?? ''),
+        parentId: payload.parentId === null ? null : String(payload.parentId ?? ''),
+        expectedTreeRevision,
+        actor,
+      }, lockedTx);
+      return result.folder.id;
+    }
+
+    const folderId = String(payload.folderId ?? '');
+    const expectedUpdatedAt = this.parseFolderExpectedUpdatedAt(payload.expectedUpdatedAt);
+    if (item.type === 'rename_folder') {
+      const result = await tree.renameFolder({
+        spaceId,
+        folderId,
+        name: String(payload.name ?? ''),
+        expectedTreeRevision,
+        expectedUpdatedAt,
+        actor,
+      }, lockedTx);
+      return result.folder.id;
+    }
+    if (item.type === 'move_folder') {
+      const result = await tree.moveNode({
+        spaceId,
+        kind: 'folder',
+        nodeId: folderId,
+        targetFolderId: payload.targetParentFolderId === null
+          ? null
+          : String(payload.targetParentFolderId ?? ''),
+        ...(typeof payload.beforeId === 'string' ? { beforeId: payload.beforeId } : {}),
+        expectedTreeRevision,
+        expectedUpdatedAt,
+        actor,
+      }, lockedTx);
+      return result.node.id;
+    }
+    if (item.type === 'delete_folder') {
+      if (
+        typeof payload.expectedImpactHash !== 'string'
+        || !/^[0-9a-f]{64}$/u.test(payload.expectedImpactHash)
+        || !Number.isInteger(payload.folderCount)
+        || !Number.isInteger(payload.pageCount)
+      ) {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The Folder deletion impact is invalid');
+      }
+      await tree.deleteFolder({
+        spaceId,
+        folderId,
+        expectedTreeRevision,
+        expectedUpdatedAt,
+        expectedImpactHash: payload.expectedImpactHash,
+        actor,
+      }, lockedTx);
+      return folderId;
+    }
+    if (item.type === 'restore_folder') {
+      const mode = payload.mode;
+      const strategy = mode === 'rename-root'
+        ? { kind: 'rename-root' as const, name: String(payload.name ?? '') }
+        : mode === 'root'
+          ? { kind: 'root' as const }
+          : mode === 'original'
+            ? { kind: 'original' as const }
+            : null;
+      if (!strategy || typeof payload.deletionBatchId !== 'string') {
+        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The Folder restore strategy is invalid');
+      }
+      const result = await tree.restoreDeletionBatch({
+        spaceId,
+        rootFolderId: folderId,
+        deletionBatchId: payload.deletionBatchId,
+        strategy,
+        expectedTreeRevision,
+        expectedUpdatedAt,
+        actor,
+      }, lockedTx);
+      return result.folder.id;
+    }
+    throw new BadRequestException(`Unsupported Folder change item type: ${item.type}`);
+  }
+
+  private parseFolderExpectedUpdatedAt(value: unknown): Date {
+    if (typeof value !== 'string') {
+      throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The Folder version is missing');
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'The Folder version is invalid');
+    }
+    return parsed;
+  }
+
   private requiredScopesForItems(items: Array<{ type: string }>): string[] | null {
     const scopes = new Set<string>();
     for (const item of items) {
       if (['create_page', 'update_page', 'archive_page'].includes(item.type)) scopes.add('pages:write');
+      else if (['create_folder', 'rename_folder', 'move_folder'].includes(item.type)) {
+        scopes.add('folders:write');
+      } else if (['delete_folder', 'restore_folder'].includes(item.type)) {
+        scopes.add('folders:write');
+        scopes.add('folders:delete');
+      }
       else if (['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type)) scopes.add('graph:write');
       else if (['upsert_space_memory', 'archive_space_memory'].includes(item.type)) scopes.add('memory:write');
       else return null;
@@ -1106,9 +1249,17 @@ export class ReviewService {
       !state.user.deletedAt &&
       !state.user.lockedAt &&
       state.credential.authorizationId === state.grant.id &&
-      !state.space.deletedAt &&
-      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
+      !state.space.deletedAt;
     if (!authorized) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
+    }
+    const missingScope = requiredScopes.find((scope) => !agentGrantAllowsScope(
+      state.grant.role, state.grant.folderScopes, scope,
+    ));
+    if (missingScope?.startsWith('folders:')) {
+      throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${missingScope}`);
+    }
+    if (missingScope) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
     }
     return state;
@@ -1131,7 +1282,9 @@ export class ReviewService {
       state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt &&
       state.space.approvalPolicy === 'scoped-auto-publish' &&
-      gatedScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
+      gatedScopes.every((scope) => agentGrantAllowsScope(
+        state.grant.role, state.grant.folderScopes, scope,
+      ));
   }
 
   private async createKnowledgeRevision(

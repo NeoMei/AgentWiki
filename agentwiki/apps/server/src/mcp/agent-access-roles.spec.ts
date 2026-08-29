@@ -7,11 +7,13 @@ describe('MCP Agent access roles', () => {
   const grant: {
     id: string;
     role: AgentAccessRole;
+    folderScopes: string[];
     agent: { status: string; revokedAt: null };
     space: { id: string; name: string; deletedAt: null };
   } = {
     id: 'grant-1',
     role: 'reader',
+    folderScopes: [],
     agent: { status: 'active', revokedAt: null },
     space: { id: 'space-1', name: 'NeoMei-Space', deletedAt: null },
   };
@@ -32,6 +34,15 @@ describe('MCP Agent access roles', () => {
     $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma)),
   } as any;
   const pages = { findAll: jest.fn() } as any;
+  const contentTree = {
+    listFolders: jest.fn().mockResolvedValue({
+      spaceId: 'space-1', treeRevision: 0n, data: [], nextCursor: null,
+    }),
+    deleteImpact: jest.fn().mockResolvedValue({
+      treeRevision: 0n, rootUpdatedAt: new Date('2026-08-29T00:00:00.000Z'),
+      folderCount: 1, pageCount: 0, impactHash: 'b'.repeat(64),
+    }),
+  } as any;
   const review = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any);
   const propose = jest.spyOn(review, 'propose');
   const approve = jest.spyOn(review, 'approve');
@@ -47,6 +58,7 @@ describe('MCP Agent access roles', () => {
     spaceApprovalPolicy = 'scoped-auto-publish';
     agentApprovalMode = 'scoped-auto-publish';
     credentialAuthorizationId = 'grant-1';
+    grant.folderScopes = [];
     prisma.space.findUnique.mockImplementation(async ({ select }: any) =>
       select?.approvalPolicy
         ? { approvalPolicy: spaceApprovalPolicy, deletedAt: null }
@@ -93,6 +105,8 @@ describe('MCP Agent access roles', () => {
       audit,
       prisma,
       {},
+      {},
+      contentTree,
     );
     return service.createServer(principal)._registeredTools;
   }
@@ -164,6 +178,92 @@ describe('MCP Agent access roles', () => {
     await expect(tools.approve_change_set.handler({ changeSetId: 'change-1' }))
       .rejects.toThrow('Agents cannot approve change sets');
     expect(approve).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a legacy grant with no persisted Folder scopes', async () => {
+    grant.role = 'publisher';
+    grant.folderScopes = [];
+    const tools = createTools({
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+    });
+
+    await expect(tools.list_folders.handler({ spaceId: 'space-1' }))
+      .rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+    await expect(tools.propose_folder_change.handler({
+      operation: 'create', spaceId: 'space-1', name: 'Docs', parentId: null,
+      expectedTreeRevision: '0',
+    })).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+    expect(contentTree.listFolders).not.toHaveBeenCalled();
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['reader', ['folders:read'], true, false],
+    ['editor', ['folders:read', 'folders:write'], true, true],
+    ['publisher', ['folders:read', 'folders:write', 'folders:delete'], true, true],
+  ] as const)('enforces persisted Folder scopes for %s', async (role, folderScopes, canList, canWrite) => {
+    grant.role = role;
+    grant.folderScopes = [...folderScopes];
+    const principal: Principal = {
+      userId: 'owner-1', agentId: 'agent-1', credentialId: `credential-${role}`,
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: role, scopes: scopesForAgentAccessRole(role),
+    };
+    const tools = createTools(principal);
+
+    const listing = tools.list_folders.handler({ spaceId: 'space-1' });
+    if (canList) await expect(listing).resolves.toBeDefined();
+    else await expect(listing).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+
+    const proposal = tools.propose_folder_change.handler({
+      operation: 'create', spaceId: 'space-1', name: 'Docs', parentId: null,
+      expectedTreeRevision: '0',
+    });
+    if (canWrite) await expect(proposal).resolves.toBeDefined();
+    else await expect(proposal).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+  });
+
+  it('requires folders:delete in addition to folders:write for delete and restore', async () => {
+    grant.role = 'publisher';
+    grant.folderScopes = ['folders:read', 'folders:write'];
+    const tools = createTools({
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+    });
+    const version = { expectedTreeRevision: '0', expectedUpdatedAt: '2026-08-29T00:00:00.000Z' };
+
+    await expect(tools.propose_folder_change.handler({
+      operation: 'delete', spaceId: 'space-1', folderId: 'folder-1', ...version,
+    })).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+    await expect(tools.propose_folder_change.handler({
+      operation: 'restore', spaceId: 'space-1', folderId: 'folder-1',
+      deletionBatchId: 'batch-1', mode: 'original', ...version,
+    })).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Publisher Folder proposal pending when the Space approval policy requires review', async () => {
+    grant.role = 'publisher';
+    grant.folderScopes = ['folders:read', 'folders:write', 'folders:delete'];
+    spaceApprovalPolicy = 'always-review';
+    const tools = createTools({
+      userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+      authorizationId: 'grant-1', authorizationSpaceId: 'space-1',
+      agentRole: 'publisher', scopes: scopesForAgentAccessRole('publisher'),
+    });
+
+    const response = await tools.propose_folder_change.handler({
+      operation: 'create', spaceId: 'space-1', name: 'Docs', parentId: null,
+      expectedTreeRevision: '0',
+    });
+
+    expect(JSON.parse(response.content[0].text)).toMatchObject({
+      status: 'pending_review', autoPublished: false,
+    });
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('rejects the MCP proposal when the live Credential authorization binding is missing', async () => {

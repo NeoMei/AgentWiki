@@ -4,8 +4,11 @@ import {
   FOLDER_DELETE_SCOPES,
   FOLDER_READ_SCOPES,
   FOLDER_WRITE_SCOPES,
+  agentGrantAllowsScope,
   agentRoleAllowsScope,
   agentRoleSpaceCapability,
+  folderScopesForAgentAccessRole,
+  scopesForAgentGrant,
   scopesForAgentAccessRole,
 } from "./agent-access-role.js";
 
@@ -57,5 +60,24 @@ describe("Agent access roles", () => {
     expect(agentRoleSpaceCapability("reader")).toBe("viewer");
     expect(agentRoleSpaceCapability("editor")).toBe("editor");
     expect(agentRoleSpaceCapability("publisher")).toBe("editor");
+  });
+
+  it("keeps persisted Folder opt-in separate from the role ceiling", () => {
+    expect(folderScopesForAgentAccessRole("reader")).toEqual(["folders:read"]);
+    expect(folderScopesForAgentAccessRole("editor")).toEqual(["folders:read", "folders:write"]);
+    expect(folderScopesForAgentAccessRole("publisher")).toEqual([
+      "folders:read", "folders:write", "folders:delete",
+    ]);
+
+    expect(agentGrantAllowsScope("publisher", [], "pages:write")).toBe(true);
+    expect(agentGrantAllowsScope("publisher", [], "folders:read")).toBe(false);
+    expect(agentGrantAllowsScope("publisher", ["folders:read"], "folders:read")).toBe(true);
+    expect(agentGrantAllowsScope("reader", ["folders:read", "folders:write"], "folders:write")).toBe(false);
+    expect(scopesForAgentGrant("editor", [])).toEqual([
+      "collaboration:execute", "collaboration:read", "graph:read", "graph:write", "pages:read",
+      "pages:write", "review:read", "runs:read", "runs:write", "sources:read", "sources:write", "spaces:read",
+    ]);
+    expect(scopesForAgentGrant("editor", ["folders:read", "folders:write"]))
+      .toEqual(scopesForAgentAccessRole("editor"));
   });
 });

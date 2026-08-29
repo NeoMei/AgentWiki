@@ -173,6 +173,7 @@ export class ContentTreeController {
       rootFolderId: folderId,
       deletionBatchId: body.deletionBatchId,
       strategy,
+      expectedUpdatedAt: new Date(body.expectedUpdatedAt),
       expectedTreeRevision: parseTreeRevision(body.expectedTreeRevision),
       actor: { userId: principal.userId },
     }));

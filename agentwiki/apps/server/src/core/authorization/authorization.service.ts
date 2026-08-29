@@ -3,7 +3,7 @@ import { BusinessException } from '../filters/business-error';
 import { PrismaService } from '../../database/prisma.service';
 import {
   AgentAccessRoleSchema,
-  agentRoleAllowsScope,
+  agentGrantAllowsScope,
   agentRoleSpaceCapability,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
@@ -107,7 +107,7 @@ export class AuthorizationService {
       ) {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent does not have permission to access this space');
       }
-      this.assertScope(requiredScope, grant.role);
+      this.assertScope(requiredScope, grant.role, grant.folderScopes);
       return grant;
     }
     const member = await this.prisma.spaceMember.findUnique({
@@ -246,6 +246,41 @@ export class AuthorizationService {
     }
   }
 
+  async assertLiveAgentAccess(
+    principal: Principal,
+    spaceId: string,
+    requiredScopes: string[],
+  ): Promise<void> {
+    if (!principal.agentId) {
+      const requiresWrite = requiredScopes.some((scope) => scope.endsWith(':write') || scope.endsWith(':delete'));
+      await this.assertSpaceAccess(
+        principal,
+        spaceId,
+        requiresWrite ? ['owner', 'editor'] : ['owner', 'admin', 'editor', 'viewer'],
+      );
+      return;
+    }
+    if (!principal.credentialId) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent authorization is unavailable');
+    }
+    const state = await this.prisma.$transaction((db) => lockLiveAgentAuthorization(db, {
+      ownerId: principal.userId,
+      agentId: principal.agentId!,
+      credentialId: principal.credentialId!,
+    }, spaceId));
+    if (!state || !this.isLiveAgentBaseAuthorized(state, principal, spaceId)) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent authorization is no longer valid');
+    }
+    const missingScope = requiredScopes.find((scope) => !agentGrantAllowsScope(
+      state.grant.role,
+      state.grant.folderScopes,
+      scope,
+    ));
+    if (missingScope) {
+      throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${missingScope}`);
+    }
+  }
+
   async lockLiveAgentWriteAccessAcrossSpaceBoundary<T>(
     db: Prisma.TransactionClient,
     principal: Principal,
@@ -292,10 +327,12 @@ export class AuthorizationService {
           agent: { status: 'active', revokedAt: null },
           space: { deletedAt: null },
         },
-        select: { spaceId: true, role: true },
+        select: { spaceId: true, role: true, folderScopes: true },
       });
       return grants
-        .filter((grant) => !requiredScope || agentRoleAllowsScope(grant.role, requiredScope))
+        .filter((grant) => !requiredScope || agentGrantAllowsScope(
+          grant.role, grant.folderScopes, requiredScope,
+        ))
         .map((grant) => grant.spaceId);
     }
     const memberships = await this.prisma.spaceMember.findMany({
@@ -332,11 +369,16 @@ export class AuthorizationService {
           agent: { status: 'active', revokedAt: null },
           space: { deletedAt: null },
         },
-        select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
+        select: {
+          role: true, folderScopes: true,
+          space: { select: { id: true, name: true, deletedAt: true } },
+        },
         orderBy: { createdAt: 'asc' },
       });
       return grants
-        .filter((grant) => !grant.space.deletedAt && (!requiredScope || agentRoleAllowsScope(grant.role, requiredScope)))
+        .filter((grant) => !grant.space.deletedAt && (!requiredScope || agentGrantAllowsScope(
+          grant.role, grant.folderScopes, requiredScope,
+        )))
         .map((grant) => ({ id: grant.space.id, name: grant.space.name, role: grant.role }));
     }
     const memberships = await this.prisma.spaceMember.findMany({
@@ -353,11 +395,36 @@ export class AuthorizationService {
     return typeof principal === 'string' ? { userId: principal } : principal;
   }
 
-  private assertScope(requiredScope?: string, grantRole?: AgentAccessRole) {
+  private assertScope(
+    requiredScope?: string,
+    grantRole?: AgentAccessRole,
+    folderScopes: readonly string[] = [],
+  ) {
     if (!requiredScope) return;
-    if (grantRole && !agentRoleAllowsScope(grantRole, requiredScope)) {
+    if (grantRole && !agentGrantAllowsScope(grantRole, folderScopes, requiredScope)) {
+      if (requiredScope.startsWith('folders:')) {
+        throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${requiredScope}`);
+      }
       throw new BusinessException('SPACE_ACCESS_DENIED', `Agent role is not granted scope ${requiredScope} in this space`);
     }
+  }
+
+  private isLiveAgentBaseAuthorized(
+    state: LockedAgentAuthorization,
+    principal: Principal,
+    spaceId: string,
+  ): boolean {
+    const now = new Date();
+    return !state.user.deletedAt &&
+      !state.user.lockedAt &&
+      state.agent.status === 'active' &&
+      !state.agent.revokedAt &&
+      !state.space.deletedAt &&
+      !state.credential.revokedAt &&
+      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
+      state.credential.authorizationId === state.grant.id &&
+      principal.authorizationId === state.grant.id &&
+      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId);
   }
 
   private isLiveAgentWriteAuthorized(
@@ -366,19 +433,11 @@ export class AuthorizationService {
     spaceId: string,
     requiredScopes: string[],
   ): boolean {
-    const now = new Date();
-    return !state.user.deletedAt &&
-      !state.user.lockedAt &&
-      state.agent.status === 'active' &&
-      !state.agent.revokedAt &&
+    return this.isLiveAgentBaseAuthorized(state, principal, spaceId) &&
       (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
-      !state.space.deletedAt &&
-      !state.credential.revokedAt &&
-      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
-      state.credential.authorizationId === state.grant.id &&
-      principal.authorizationId === state.grant.id &&
-      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId) &&
-      requiredScopes.every((scope) => agentRoleAllowsScope(state.grant.role, scope));
+      requiredScopes.every((scope) => agentGrantAllowsScope(
+        state.grant.role, state.grant.folderScopes, scope,
+      ));
   }
 }
 

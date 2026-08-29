@@ -12,11 +12,13 @@ import { McpController } from './mcp.controller';
 import { McpService } from './mcp.service';
 import { DatabaseModule } from '../database/database.module';
 import { CollaborationWorkflowsModule } from '../collaboration-workflows/collaboration-workflows.module';
+import { ContentTreeModule } from '../content-tree/content-tree.module';
 
 @Module({
   imports: [
     DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule,
     KnowledgePipelineModule, ReviewModule, MemoryModule, CollaborationWorkflowsModule,
+    ContentTreeModule,
   ],
   providers: [McpService],
   controllers: [McpController],

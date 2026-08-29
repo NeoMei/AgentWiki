@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
-import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { scopesForAgentGrant, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 export interface User {
   id: string;
@@ -145,7 +145,10 @@ export class AuthService {
       authorizationSpaceId: agentCredential.authorization.spaceId,
       agentRole: agentCredential.authorization.role,
       credentialId: agentCredential.id,
-      scopes: scopesForAgentAccessRole(agentCredential.authorization.role),
+      scopes: scopesForAgentGrant(
+        agentCredential.authorization.role,
+        agentCredential.authorization.folderScopes,
+      ),
     };
   }
 
