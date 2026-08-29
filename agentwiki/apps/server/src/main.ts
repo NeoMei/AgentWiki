@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { installBigIntJsonSerialization } from './bigint-json';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
 import { json } from 'express';
 import { randomUUID } from 'crypto';
@@ -30,6 +31,7 @@ export async function listenApi(
 }
 
 export async function bootstrap() {
+  installBigIntJsonSerialization();
   process.env.PROCESS_ROLE ||= 'api';
   const app = await NestFactory.create(AppModule);
   if (process.env.NODE_ENV === 'production') {

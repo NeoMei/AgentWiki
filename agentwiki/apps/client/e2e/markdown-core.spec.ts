@@ -286,9 +286,13 @@ test.describe.serial('Markdown core browser acceptance', () => {
       }), `add ${role}`);
     }
 
+    const treeRevision = (await json<{ treeRevision: string }>(await api.get(`spaces/${spaceId}/content-tree`, {
+      params: { take: 1 },
+      headers: ownerHeaders(),
+    }), 'read tree revision')).treeRevision;
     const created = await json<PersistedPage>(await api.post('pages', {
       headers: ownerHeaders(),
-      data: { spaceId, title: pageTitle, content: source },
+      data: { spaceId, title: pageTitle, content: source, expectedTreeRevision: treeRevision },
     }), 'create Markdown page');
     pageId = created.id;
   });

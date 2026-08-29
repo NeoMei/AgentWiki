@@ -60,7 +60,6 @@ const catalog: PageTemplateListResponse = {
   capabilities: { canManage: true },
 };
 
-const parentOptions = [{ id: 'parent-1', title: '上级页面' }];
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -80,7 +79,7 @@ const renderDialog = (overrides: Partial<React.ComponentProps<typeof NewPageDial
       <MemoryRouter>
         <NewPageDialog
           spaceId="space-1"
-          parentOptions={parentOptions}
+          folderId={null}
           onClose={onClose}
           onCreated={onCreated}
           now={new Date(2026, 7, 25, 12)}
@@ -98,7 +97,7 @@ const DeferredCatalogHarness: React.FC = () => {
     <button type="button" onClick={() => setSpaceId('space-new')}>Switch space</button>
     <NewPageDialog
       spaceId={spaceId}
-      parentOptions={[]}
+      folderId={null}
       onClose={() => undefined}
       onCreated={() => undefined}
       now={new Date(2026, 7, 25, 12)}
@@ -116,7 +115,7 @@ const LanguageIdentityHarness: React.FC = () => (
     <LanguageIdentityControls />
     <NewPageDialog
       spaceId="space-1"
-      parentOptions={parentOptions}
+      folderId={null}
       onClose={() => undefined}
       onCreated={() => undefined}
       now={new Date(2026, 7, 25, 12)}
@@ -131,7 +130,7 @@ const OpenerHarness: React.FC = () => {
     <button ref={openerRef} type="button" onClick={() => setOpen(true)}>Open new page</button>
     {open ? <NewPageDialog
       spaceId="space-1"
-      parentOptions={[]}
+      folderId={null}
       returnFocusTo={openerRef.current}
       onClose={() => setOpen(false)}
       onCreated={() => undefined}
@@ -165,17 +164,16 @@ describe('NewPageDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^周报(?:\s|$)/ }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     expect(screen.getByLabelText('标题')).toHaveValue('周报 2026年第35周');
-    fireEvent.change(screen.getByLabelText('父页面（可选）'), { target: { value: 'parent-1' } });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: '周报 2026年第35周',
       spaceId: 'space-1',
-      parentId: 'parent-1',
+      folderId: null,
+      expectedTreeRevision: '11',
       templateId: 'system-weekly',
       templateVersion: 1,
       templateLocale: 'zh-CN',
-      expectedTreeRevision: '11',
     }));
     expect(mocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
     expect(onCreated).toHaveBeenCalledWith('page-new');
@@ -195,8 +193,26 @@ describe('NewPageDialog', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.getByLabelText('标题')).toHaveValue('My page');
     expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
-      title: 'My page', spaceId: 'space-1', expectedTreeRevision: '11',
+      title: 'My page', spaceId: 'space-1', folderId: null, expectedTreeRevision: '11',
     });
+  });
+
+  it('passes the current folder into the create payload', async () => {
+    mocks.listPageTemplates.mockResolvedValue(catalog);
+    mocks.api.post.mockResolvedValue({ data: { id: 'page-new' } });
+    renderDialog({ folderId: 'folder-9' });
+
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Nested page' } });
+    expect(screen.getByTestId('new-page-folder-hint')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', expect.objectContaining({
+      title: 'Nested page',
+      spaceId: 'space-1',
+      folderId: 'folder-9',
+      expectedTreeRevision: '11',
+    })));
   });
 
   it('does not create after the dialog unmounts while the tree head is pending', async () => {
@@ -377,14 +393,12 @@ describe('NewPageDialog', () => {
     await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Keep this title' } });
-    fireEvent.change(screen.getByLabelText('父页面（可选）'), { target: { value: 'parent-1' } });
     fireEvent.click(screen.getByRole('button', { name: '上一步' }));
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await screen.findByRole('button', { name: /任务清单/ });
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
     expect(screen.getByLabelText('标题')).toHaveValue('Keep this title');
-    expect(screen.getByLabelText('父页面（可选）')).toHaveValue('parent-1');
   });
 
   it('prevents duplicate create and closing while the request is pending', async () => {

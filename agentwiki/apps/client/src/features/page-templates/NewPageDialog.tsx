@@ -13,7 +13,7 @@ import { truncateValidatorLength } from './validatorLength';
 
 export interface NewPageDialogProps {
   spaceId: string;
-  parentOptions: Array<{ id: string; title: string }>;
+  folderId?: string | null;
   returnFocusTo?: HTMLElement | null;
   onClose: () => void;
   onCreated: (pageId: string) => void;
@@ -44,7 +44,7 @@ export const NewPageDialog: React.FC<NewPageDialogProps> = ({
 
 const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   spaceId,
-  parentOptions,
+  folderId,
   returnFocusTo,
   onClose,
   onCreated,
@@ -55,7 +55,6 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [selected, setSelected] = useState<PageTemplateSummary | null>(null);
   const [filter, setFilter] = useState<TemplateFilter>('all');
   const [title, setTitle] = useState('');
-  const [parentId, setParentId] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -145,7 +144,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         title: normalizedTitle,
         spaceId,
         expectedTreeRevision,
-        ...(parentId ? { parentId } : {}),
+        folderId: folderId ?? null,
         ...(selected ? {
           templateId: selected.id,
           templateVersion: selected.currentVersion,
@@ -318,19 +317,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             />
           </label>
 
-          <label className="mt-4 block text-sm font-medium text-gray-800">
-            {t('page.parent')}
-            <select
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">{t('page.noParent')}</option>
-              {parentOptions.map((parent) => (
-                <option key={parent.id} value={parent.id}>{parent.title}</option>
-              ))}
-            </select>
-          </label>
+          {folderId ? (
+            <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">
+              {t('page.intoCurrentFolder')}
+            </p>
+          ) : null}
 
           {createError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{createError}</p> : null}
 

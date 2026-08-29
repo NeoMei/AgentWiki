@@ -1,111 +1,33 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
-import { getContentTreeRevision } from '../../api/content-tree';
-import { FileText, Plus, X } from 'lucide-react';
+import { Plus, RotateCcw, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { PageTree, PageTreeNode } from '../../components/PageTree';
 import { NewPageDialog } from '../page-templates/NewPageDialog';
-
-// Compute the new parent/sortOrder for every page after a drag move.
-export const applyMove = (
-  nodes: PageTreeNode[],
-  dragId: string,
-  targetId: string,
-  position: 'into' | 'before' | 'after',
-): Array<{ id: string; parentId: string | null; sortOrder: number }> => {
-  // Deep clone so we never mutate React state directly.
-  const clone = JSON.parse(JSON.stringify(nodes)) as PageTreeNode[];
-  const parentOf = new Map<string, string | null>();
-  const childrenOf = new Map<string | null, PageTreeNode[]>();
-  const register = (list: PageTreeNode[], parent: string | null) => {
-    childrenOf.set(parent, list);
-    for (const node of list) {
-      parentOf.set(node.id, parent);
-      if (node.children?.length) register(node.children, node.id);
-    }
-  };
-  register(clone, null);
-
-  const findNode = (list: PageTreeNode[], id: string): PageTreeNode | null => {
-    for (const node of list) {
-      if (node.id === id) return node;
-      const found = node.children ? findNode(node.children, id) : null;
-      if (found) return found;
-    }
-    return null;
-  };
-  const dragNode = findNode(clone, dragId);
-  if (!dragNode) return [];
-
-  // detach drag node from its siblings
-  for (const list of childrenOf.values()) {
-    const index = list.findIndex((node) => node.id === dragId);
-    if (index >= 0) list.splice(index, 1);
-  }
-
-  const newParent = position === 'into' ? targetId : parentOf.get(targetId) ?? null;
-  // prevent dropping into its own subtree
-  let cursor: string | null = newParent;
-  while (cursor) {
-    if (cursor === dragId) return [];
-    cursor = parentOf.get(cursor) ?? null;
-  }
-  dragNode.children = dragNode.children || [];
-  const siblings = childrenOf.get(newParent) || [];
-  childrenOf.set(newParent, siblings);
-  if (position === 'into') siblings.push(dragNode);
-  else {
-    const index = siblings.findIndex((node) => node.id === targetId);
-    siblings.splice(position === 'before' ? index : index + 1, 0, dragNode);
-  }
-  parentOf.set(dragId, newParent);
-  // keep each node's own children array in sync with the rebuilt map so the
-  // emit walk below sees the moved node under its new parent
-  if (position === 'into') {
-    const target = findNode(clone, targetId);
-    if (target) target.children = siblings;
-  }
-
-  // flatten in order, assigning sequential sortOrder per sibling group
-  const items: Array<{ id: string; parentId: string | null; sortOrder: number }> = [];
-  const emit = (list: PageTreeNode[], parent: string | null) => {
-    list.forEach((node, index) => {
-      items.push({ id: node.id, parentId: parent, sortOrder: index });
-      const childList = childrenOf.get(node.id) || node.children || [];
-      if (childList.length) emit(childList, node.id);
-    });
-  };
-  emit(childrenOf.get(null) || [], null);
-  return items;
-};
-
-interface Page {
-  id: string;
-  title: string;
-  slug: string;
-  updatedAt: string;
-  parentId?: string | null;
-}
-
-const flattenTree = (nodes: PageTreeNode[]): Page[] => {
-  const out: Page[] = [];
-  const walk = (list: PageTreeNode[], parentId: string | null) => {
-    for (const node of list) {
-      out.push({ id: node.id, title: node.title, slug: '', updatedAt: node.updatedAt || '', parentId });
-      if (node.children?.length) walk(node.children, node.id);
-    }
-  };
-  walk(nodes, null);
-  return out;
-};
-
-const removeFromTree = (nodes: PageTreeNode[], id: string): PageTreeNode[] =>
-  nodes
-    .filter((node) => node.id !== id)
-    .map((node) => (node.children?.length ? { ...node, children: removeFromTree(node.children, id) } : node));
+import {
+  createFolder,
+  deleteFolder,
+  getContentTreeRevision,
+  listTreeChildren,
+  moveTreeNode,
+  renameFolder,
+  restoreFolder,
+} from '../content-tree/contentTreeApi';
+import { ContentBreadcrumbs } from '../content-tree/ContentBreadcrumbs';
+import { ContentTree } from '../content-tree/ContentTree';
+import type { ContentMoveRequest } from '../content-tree/ContentTree';
+import { crumbsForFolder, createFolderIndex, registerFolders } from '../content-tree/contentTreeState';
+import type { FolderIndex } from '../content-tree/contentTreeState';
+import { FolderDialog } from '../content-tree/FolderDialog';
+import { FolderDeleteDialog } from '../content-tree/FolderDeleteDialog';
+import type {
+  ContentTreeNode,
+  ContentTreePageNode,
+  ContentTreeFolderNode,
+  DeleteImpactResponse,
+} from '../content-tree/contentTreeTypes';
 
 interface SpaceMemberSummary {
   userId: string;
@@ -119,6 +41,19 @@ interface Space {
   members: SpaceMemberSummary[];
 }
 
+interface PendingFolderDialog {
+  mode: 'create' | 'rename';
+  parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null;
+  target?: ContentTreeFolderNode;
+}
+
+interface RestoreInfo {
+  folderId: string;
+  folderName: string;
+  deletionBatchId: string;
+  folderUpdatedAt: string;
+}
+
 export const SpaceView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -126,22 +61,34 @@ export const SpaceView: React.FC = () => {
   const { user } = useAuth();
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
+  const treeSequenceRef = useRef(0);
   const fetchedRouteIdRef = useRef<string | undefined>(undefined);
   const activeRouteIdRef = useRef<string | undefined>(id);
   const mountedRef = useRef(false);
   const archiveOperationRef = useRef(0);
   const archiveControllerRef = useRef<AbortController | null>(null);
   const archiveInFlightRef = useRef<string | null>(null);
+  const folderOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   const [space, setSpace] = useState<Space | null>(null);
-  const [pages, setPages] = useState<Page[]>([]);
-  const [pageTree, setPageTree] = useState<PageTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
+
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [nodes, setNodes] = useState<ContentTreeNode[]>([]);
+  const [pageCount, setPageCount] = useState(0);
+  const [treeLoading, setTreeLoading] = useState(true);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [treeRevision, setTreeRevision] = useState<string | null>(null);
+  const [folderIndex, setFolderIndex] = useState<FolderIndex>(() => createFolderIndex());
+  const [folderDialog, setFolderDialog] = useState<PendingFolderDialog | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ContentTreeFolderNode | null>(null);
+  const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   activeRouteIdRef.current = id;
 
@@ -156,7 +103,7 @@ export const SpaceView: React.FC = () => {
     };
   }, []);
 
-  const fetchData = useCallback(async (resetForRoute = false) => {
+  const fetchSpace = useCallback(async (resetForRoute: boolean) => {
     const requestSequence = ++requestSequenceRef.current;
     setRequestSpaceId(id);
     if (resetForRoute) {
@@ -164,23 +111,17 @@ export const SpaceView: React.FC = () => {
       setError(null);
       setActionError(null);
       setSpace(null);
-      setPages([]);
-      setPageTree([]);
+      setCurrentFolderId(null);
+      setRestoreInfo(null);
     }
     if (!id) {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
       return;
     }
     try {
-      const [spaceRes, pagesRes] = await Promise.all([
-        api.get(`/spaces/${id}`),
-        api.get(`/pages/hierarchy/${id}`),
-      ]);
+      const spaceRes = await api.get('/spaces/' + id);
       if (requestSequenceRef.current !== requestSequence) return;
       setSpace(spaceRes.data);
-      const tree: PageTreeNode[] = Array.isArray(pagesRes.data) ? pagesRes.data : pagesRes.data.data || [];
-      setPageTree(tree);
-      setPages(flattenTree(tree));
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
       setError(err.response?.data?.message || t('page.loadSpaceFailed'));
@@ -188,6 +129,29 @@ export const SpaceView: React.FC = () => {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
   }, [id, t]);
+
+  const loadTreeLevel = useCallback(async (spaceId: string, folderId: string | null) => {
+    const sequence = ++treeSequenceRef.current;
+    setTreeLoading(true);
+    setTreeError(null);
+    try {
+      const level = await listTreeChildren(spaceId, folderId);
+      if (treeSequenceRef.current !== sequence) return;
+      setNodes(level.data);
+      setTreeRevision(level.treeRevision);
+      setPageCount(level.data.filter((node) => node.kind === 'page').length);
+      setFolderIndex((prev) => {
+        const next = new Map(prev);
+        registerFolders(next, level.data, folderId);
+        return next;
+      });
+    } catch (err: any) {
+      if (treeSequenceRef.current !== sequence) return;
+      setTreeError(err.response?.data?.message || t('page.loadSpaceFailed'));
+    } finally {
+      if (treeSequenceRef.current === sequence) setTreeLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     const routeChanged = fetchedRouteIdRef.current !== id;
@@ -199,29 +163,136 @@ export const SpaceView: React.FC = () => {
       archiveInFlightRef.current = null;
       setArchivingPageId(null);
       setShowCreate(false);
+      setFolderDialog(null);
+      setDeleteTarget(null);
     }
-    void fetchData(routeChanged);
+    void fetchSpace(routeChanged);
     return () => {
       requestSequenceRef.current += 1;
     };
-  }, [fetchData, id]);
+  }, [fetchSpace, id]);
 
-  const handleDeletePage = async (pageId: string, pageTitle: string, expectedUpdatedAt?: string) => {
+  useEffect(() => {
+    if (!id || requestSpaceId !== id) return;
+    void loadTreeLevel(id, currentFolderId);
+  }, [id, currentFolderId, requestSpaceId, loadTreeLevel]);
+
+  const requireTreeRevision = (): string | null => {
+    if (treeRevision) return treeRevision;
+    setActionError(t('folder.revisionMissing'));
+    return null;
+  };
+
+  const reloadTree = () => {
+    if (id) void loadTreeLevel(id, currentFolderId);
+  };
+
+  const handleCreateFolder = async (name: string) => {
+    if (!id || !folderDialog) return;
+    const revision = requireTreeRevision();
+    if (!revision) throw new Error('missing revision');
+    const parent = folderDialog.parent;
+    const result = await createFolder(id, name, parent?.id ?? null, revision);
+    setTreeRevision(result.treeRevision);
+    if (parent && parent.id !== currentFolderId) {
+      setFolderIndex((prev) => {
+        const next = new Map(prev);
+        next.set(result.folder.id, {
+          id: result.folder.id,
+          parentId: parent.id,
+          name: result.folder.name,
+        });
+        return next;
+      });
+    } else {
+      reloadTree();
+    }
+  };
+
+  const handleRenameFolder = async (name: string) => {
+    if (!id || !folderDialog?.target) return;
+    const revision = requireTreeRevision();
+    if (!revision) throw new Error('missing revision');
+    const result = await renameFolder(id, folderDialog.target.id, name, revision, folderDialog.target.updatedAt);
+    setTreeRevision(result.treeRevision);
+    reloadTree();
+  };
+
+  const handleDeleteFolderConfirm = async (impact: DeleteImpactResponse) => {
+    if (!id || !deleteTarget) return;
+    const result = await deleteFolder(id, deleteTarget.id, {
+      expectedTreeRevision: impact.treeRevision,
+      expectedUpdatedAt: impact.rootUpdatedAt,
+      expectedImpactHash: impact.impactHash,
+    });
+    setRestoreInfo({
+      folderId: deleteTarget.id,
+      folderName: deleteTarget.name,
+      deletionBatchId: result.batch.id,
+      folderUpdatedAt: impact.rootUpdatedAt,
+    });
+    setTreeRevision(result.treeRevision);
+    reloadTree();
+  };
+
+  const handleRestore = async () => {
+    if (!id || !restoreInfo || restoring) return;
+    setRestoring(true);
+    setActionError(null);
+    try {
+      const result = await restoreFolder(id, restoreInfo.folderId, {
+        deletionBatchId: restoreInfo.deletionBatchId,
+        expectedUpdatedAt: restoreInfo.folderUpdatedAt,
+        expectedTreeRevision: treeRevision ?? (await getContentTreeRevision(id)),
+        mode: 'original',
+      });
+      setRestoreInfo(null);
+      setTreeRevision(result.treeRevision);
+      reloadTree();
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || t('folder.restoreFailed'));
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const handleContentMove = async (request: ContentMoveRequest) => {
+    if (!id || !treeRevision) return;
+    const dragNode = nodes.find((node) => node.id === request.id);
+    if (!dragNode) return;
+    setActionError(null);
+    try {
+      const result = await moveTreeNode(id, {
+        kind: request.kind,
+        id: request.id,
+        targetParentFolderId: request.targetFolderId,
+        ...(request.beforeId ? { beforeId: request.beforeId } : {}),
+        expectedTreeRevision: treeRevision,
+        expectedUpdatedAt: dragNode.updatedAt,
+      });
+      setTreeRevision(result.treeRevision);
+    } catch (err: any) {
+      setActionError(err.response?.data?.message || t('folder.moveFailed'));
+    } finally {
+      reloadTree();
+    }
+  };
+
+  const handleDeletePage = async (page: ContentTreePageNode) => {
     if (archiveInFlightRef.current !== null) return;
-    if (!window.confirm(t('page.deleteConfirm', { title: pageTitle }))) return;
-    if (!id || !expectedUpdatedAt) {
+    if (!window.confirm(t('page.deleteConfirm', { title: page.title }))) return;
+    if (!id) {
       setActionError(t('page.deleteFailed'));
       return;
     }
     const requestedSpaceId = id;
-    const requestedPageId = pageId;
-    const requestedUpdatedAt = expectedUpdatedAt;
+    const requestedPageId = page.id;
     const operation = ++archiveOperationRef.current;
-    archiveInFlightRef.current = pageId;
+    archiveInFlightRef.current = page.id;
     archiveControllerRef.current?.abort();
     const controller = new AbortController();
     archiveControllerRef.current = controller;
-    setArchivingPageId(pageId);
+    setArchivingPageId(page.id);
     try {
       const expectedTreeRevision = await getContentTreeRevision(requestedSpaceId, controller.signal);
       if (
@@ -233,8 +304,8 @@ export const SpaceView: React.FC = () => {
         || fetchedRouteIdRef.current !== requestedSpaceId
         || id !== requestedSpaceId
       ) return;
-      await api.delete(`/pages/${requestedPageId}`, {
-        data: { expectedUpdatedAt: requestedUpdatedAt, expectedTreeRevision },
+      await api.delete('/pages/' + requestedPageId, {
+        data: { expectedUpdatedAt: page.updatedAt, expectedTreeRevision },
       });
       if (
         !mountedRef.current
@@ -243,8 +314,8 @@ export const SpaceView: React.FC = () => {
         || activeRouteIdRef.current !== requestedSpaceId
         || fetchedRouteIdRef.current !== requestedSpaceId
       ) return;
-      setPages((prev) => prev.filter((p) => p.id !== requestedPageId));
-      setPageTree((prev) => removeFromTree(prev, requestedPageId));
+      setNodes((prev) => prev.filter((node) => node.id !== requestedPageId));
+      setPageCount((prev) => Math.max(0, prev - 1));
     } catch (err: any) {
       if (
         mountedRef.current
@@ -266,22 +337,6 @@ export const SpaceView: React.FC = () => {
     }
   };
 
-  const handleMove = async (dragId: string, targetId: string | null, position: 'into' | 'before' | 'after') => {
-    if (!id || !targetId) return;
-    const items = applyMove(pageTree, dragId, targetId, position);
-    if (!items.length) return;
-    try {
-      const res = await api.patch(`/pages/reorder/${id}`, { items });
-      const tree: PageTreeNode[] = Array.isArray(res.data) ? res.data : res.data.data || [];
-      setPageTree(tree);
-      setPages(flattenTree(tree));
-    } catch (err: any) {
-      setActionError(err.response?.data?.message || t('page.loadSpaceFailed'));
-      // Rollback: refetch from server to restore correct state
-      void fetchData();
-    }
-  };
-
   if (requestSpaceId !== id || loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
     <div className="text-center py-8">
@@ -292,12 +347,13 @@ export const SpaceView: React.FC = () => {
   if (!space || space.id !== id) return <div className="text-center py-8 text-gray-500">{t('page.spaceNotFound')}</div>;
 
   const currentRole = space.members.find((member) => member.userId === user?.id)?.role;
-  const canCreatePages = space.id === id && (
+  const canEdit = (
     user?.platformRole === 'super_admin'
       || currentRole === 'owner'
       || currentRole === 'admin'
       || currentRole === 'editor'
   );
+  const crumbs = crumbsForFolder(folderIndex, currentFolderId, space.name);
 
   return (
     <div>
@@ -306,6 +362,21 @@ export const SpaceView: React.FC = () => {
           <span>{actionError}</span>
           <button onClick={() => setActionError(null)} className="ml-2 text-red-400 hover:text-red-600">
             <X size={16} />
+          </button>
+        </div>
+      )}
+      {restoreInfo && (
+        <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-md text-sm flex items-center justify-between" data-testid="folder-restored-banner">
+          <span>{t('folder.deletedBanner', { name: restoreInfo.folderName })}</span>
+          <button
+            type="button"
+            onClick={handleRestore}
+            disabled={restoring}
+            data-testid="folder-restore-button"
+            className="ml-3 inline-flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-medium text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RotateCcw size={13} />
+            {t('folder.restore')}
           </button>
         </div>
       )}
@@ -325,51 +396,98 @@ export const SpaceView: React.FC = () => {
 
       <SpaceNav spaceId={id} />
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">{t('space.pages')} ({pages.length})</h2>
-        {canCreatePages ? (
-          <button
-            ref={createPageOpenerRef}
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
-          >
-            <Plus size={18} />
-            {t('page.new')}
-          </button>
-        ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <ContentBreadcrumbs
+          crumbs={crumbs}
+          onSelect={(folderId) => setCurrentFolderId(folderId)}
+        />
+        <div className="flex items-center gap-2">
+          {canEdit ? (
+            <button
+              ref={folderOpenerRef}
+              type="button"
+              onClick={() => setFolderDialog({
+                mode: 'create',
+                parent: currentFolderId
+                  ? { id: currentFolderId, name: folderIndex.get(currentFolderId)?.name ?? '' }
+                  : null,
+              })}
+              data-testid="new-folder-button"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {t('folder.createTitle')}
+            </button>
+          ) : null}
+          {canEdit ? (
+            <button
+              ref={createPageOpenerRef}
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
+            >
+              <Plus size={18} />
+              {t('page.new')}
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {pages.length === 0 ? (
-        <div className="text-center py-12">
-          <FileText size={36} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500">{t('page.empty')}</p>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
+        <div className="mb-2 flex items-center justify-between text-xs text-gray-400">
+          <span data-testid="folder-page-count">{t('space.pages')} ({pageCount})</span>
         </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
-          <PageTree
-            nodes={pageTree}
-            emptyText={t('page.empty')}
-            onEdit={(node) => navigate(`/pages/${node.id}/edit`)}
-            onDelete={(node) => handleDeletePage(node.id, node.title, node.updatedAt)}
-            editLabel={t('page.edit')}
-            deleteLabel={t('page.delete')}
-            deleteDisabled={archivingPageId !== null}
-            onMove={handleMove}
-          />
-        </div>
-      )}
+        <ContentTree
+          nodes={nodes}
+          loading={treeLoading}
+          error={treeError}
+          canEdit={canEdit}
+          pageDeleteDisabled={archivingPageId !== null}
+          emptyText={t('page.empty')}
+          onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
+          onOpenPage={(page) => navigate('/pages/' + page.id)}
+          onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
+          onDeletePage={(page) => { void handleDeletePage(page); }}
+          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
+          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
+          onDeleteFolder={(folder) => setDeleteTarget(folder)}
+          onMove={(request) => { void handleContentMove(request); }}
+        />
+      </div>
 
-      {showCreate && canCreatePages && id ? (
+      {showCreate && canEdit && id ? (
         <NewPageDialog
           spaceId={id}
-          parentOptions={pages.map(({ id: pageId, title }) => ({ id: pageId, title }))}
+          folderId={currentFolderId}
           returnFocusTo={createPageOpenerRef.current}
           onClose={() => setShowCreate(false)}
           onCreated={(pageId) => {
             setShowCreate(false);
-            navigate(`/pages/${pageId}/edit`);
+            reloadTree();
+            navigate('/pages/' + pageId + '/edit');
           }}
+        />
+      ) : null}
+
+      {folderDialog && canEdit && id ? (
+        <FolderDialog
+          mode={folderDialog.mode}
+          initialName={folderDialog.target?.name ?? ''}
+          returnFocusTo={folderOpenerRef.current}
+          onClose={() => setFolderDialog(null)}
+          onSubmit={async (name) => {
+            if (folderDialog.mode === 'create') await handleCreateFolder(name);
+            else await handleRenameFolder(name);
+          }}
+        />
+      ) : null}
+
+      {deleteTarget && canEdit && id ? (
+        <FolderDeleteDialog
+          spaceId={id}
+          folderId={deleteTarget.id}
+          folderName={deleteTarget.name}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteFolderConfirm}
         />
       ) : null}
     </div>

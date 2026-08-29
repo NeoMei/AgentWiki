@@ -88,6 +88,14 @@ const json = async <T,>(response: APIResponse, operation: string): Promise<T> =>
 
 const headers = (account: AuthAccount) => ({ Authorization: `Bearer ${account.access_token}` });
 
+const getTreeRevision = async (space: string): Promise<string> => json<{ treeRevision: string }>(
+  await api.get(`spaces/${space}/content-tree`, {
+    params: { take: 1 },
+    headers: headers(owner),
+  }),
+  'read tree revision',
+).then((value) => value.treeRevision);
+
 const register = async (role: string): Promise<AuthAccount> => json<AuthAccount>(
   await api.post('auth/register', {
     data: {
@@ -102,7 +110,7 @@ const register = async (role: string): Promise<AuthAccount> => json<AuthAccount>
 const createPage = async (spaceId: string, title: string, content: string) => json<PersistedPage>(
   await api.post('pages', {
     headers: headers(owner),
-    data: { spaceId, title, content, format: 'markdown' },
+    data: { spaceId, title, content, format: 'markdown', expectedTreeRevision: await getTreeRevision(spaceId) },
   }),
   `create page ${title}`,
 );

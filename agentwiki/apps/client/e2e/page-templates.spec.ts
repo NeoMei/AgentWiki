@@ -195,12 +195,17 @@ test.describe.serial('page template library', () => {
       }), `add ${role}`);
     }
 
+    const treeRevision = (await json<{ treeRevision: string }>(await api.get(`spaces/${spaceId}/content-tree`, {
+      params: { take: 1 },
+      headers: ownerHeaders(),
+    }), 'read tree revision')).treeRevision;
     const source = await json<PersistedPage>(await api.post('pages', {
       headers: ownerHeaders(),
       data: {
         spaceId,
         title: 'Team source',
         content: '# Team source\n\n## Shared section\n- [ ] First version',
+        expectedTreeRevision: treeRevision,
       },
     }), 'create source page');
     sourcePageId = source.id;
@@ -270,7 +275,6 @@ test.describe.serial('page template library', () => {
     await json(await api.patch(`pages/${sourcePageId}`, {
       headers: ownerHeaders(),
       data: {
-        title: source.title,
         content: '# Team source\n\n## Shared section\n- [ ] Second version',
         expectedUpdatedAt: source.updatedAt,
       },
@@ -560,23 +564,22 @@ test.describe.serial('page template library', () => {
     }
   });
 
-  test('Blank creation keeps parent-page behavior and has no template provenance', async ({ page }) => {
+  test('Blank creation lands at the space root and has no template provenance', async ({ page }) => {
     await authenticate(page, owner!, 'zh-CN');
     await page.goto(`/spaces/${spaceId}`);
     await page.getByRole('button', { name: '新建页面' }).click();
     await expect(page.getByRole('button', { name: /空白页面/u })).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: '下一步' }).click();
-    await page.getByLabel('标题').fill('空白子页面');
-    await page.getByLabel('父页面（可选）').selectOption(sourcePageId);
+    await page.getByLabel('标题').fill('空白新页面');
     await page.getByRole('button', { name: '创建' }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
     const blankPageId = new URL(page.url()).pathname.split('/').at(-2)!;
     const blankPage = await json<PersistedPage>(
       await api.get(`pages/${blankPageId}`, { headers: ownerHeaders() }),
-      'read blank child page',
+      'read blank page',
     );
     expect(blankPage).toMatchObject({
-      parentId: sourcePageId,
+      parentId: null,
       content: '',
       sourceTemplateId: null,
       sourceTemplateVersion: null,
@@ -612,7 +615,7 @@ test.describe.serial('page template library', () => {
     await expectNoDocumentOverflow(page);
     for (const [label, locator] of [
       ['NewPageDialog title', page.getByLabel('Title')],
-      ['NewPageDialog parent', page.getByLabel('Parent page (optional)')],
+      ['NewPageDialog step details', newPageDialog.getByText('Page details', { exact: true })],
       ['NewPageDialog back', page.getByRole('button', { name: 'Back', exact: true })],
       ['NewPageDialog create', page.getByRole('button', { name: 'Create', exact: true })],
     ] as const) {

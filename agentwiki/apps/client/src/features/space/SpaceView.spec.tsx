@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-d
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
+import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
 
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
@@ -32,6 +33,27 @@ const spaceResponse = (id: string, name: string, role: 'owner' | 'admin' | 'edit
     description: '',
     members: [{ userId: 'user-1', role }],
   },
+});
+
+const treeResponse = (spaceId: string, nodes: ContentTreeNode[] = []) => ({
+  data: {
+    spaceId,
+    treeRevision: '7',
+    parentFolderId: null,
+    data: nodes,
+    nextCursor: null,
+  },
+});
+
+const pageNode = (id: string, title: string): ContentTreeNode => ({
+  kind: 'page',
+  id,
+  folderId: null,
+  title,
+  path: '/' + title,
+  sortOrder: 0,
+  createdAt: '2026-08-28T09:00:00.000Z',
+  updatedAt: '2026-08-28T10:00:00.000Z',
 });
 
 const deferred = <T,>() => {
@@ -110,7 +132,8 @@ const mockNavigableGets = (spaceRequests: Record<string, Promise<ReturnType<type
       if (!request) return Promise.reject(new Error(`Unexpected Space GET ${url}`));
       return request;
     }
-    if (url.startsWith('/pages/hierarchy/')) return Promise.resolve({ data: [] });
+    const treeMatch = /^\/spaces\/([^/]+)\/content-tree$/.exec(url);
+    if (treeMatch) return Promise.resolve(treeResponse(treeMatch[1]));
     if (/^\/spaces\/[^/]+\/page-templates$/.test(url)) return Promise.resolve({ data: emptyCatalog });
     return Promise.reject(new Error(`Unexpected GET ${url}`));
   });
@@ -132,7 +155,7 @@ describe('SpaceView new-page flow', () => {
   ] as const)('shows the new-page trigger for %s according to live Space membership', async (role, visible) => {
     mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
       ? { data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role }] } }
-      : { data: [] });
+      : treeResponse('space-1'));
     renderSpaceView();
 
     await screen.findByRole('heading', { name: 'Role Space' });
@@ -143,7 +166,7 @@ describe('SpaceView new-page flow', () => {
     mocks.auth.user = { id: 'super-1', platformRole: 'super_admin' };
     mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
       ? { data: { id: 'space-1', name: 'Admin Space', members: [] } }
-      : { data: [] });
+      : treeResponse('space-1'));
     renderSpaceView();
 
     await screen.findByRole('heading', { name: 'Admin Space' });
@@ -155,7 +178,7 @@ describe('SpaceView new-page flow', () => {
       if (url === '/spaces/space-1') {
         return { data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role: 'owner' }] } };
       }
-      if (url === '/pages/hierarchy/space-1') return { data: [] };
+      if (url === '/spaces/space-1/content-tree') return treeResponse('space-1');
       if (url === '/spaces/space-1/page-templates') return { data: emptyCatalog };
       throw new Error(`Unexpected GET ${url}`);
     });
@@ -170,6 +193,7 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'Created page',
       spaceId: 'space-1',
+      folderId: null,
       expectedTreeRevision: '43',
     }));
     expect(await screen.findByRole('heading', { name: 'Editing created page' })).toBeInTheDocument();
@@ -181,15 +205,13 @@ describe('SpaceView new-page flow', () => {
       if (url === '/spaces/space-1') return {
         data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role: 'owner' }] },
       };
-      if (url === '/pages/hierarchy/space-1') return {
-        data: [{ id: 'page-1', title: 'Delete me', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
-      };
+      if (url === '/spaces/space-1/content-tree') return treeResponse('space-1', [pageNode('page-1', 'Delete me')]);
       throw new Error(`Unexpected GET ${url}`);
     });
     mocks.api.delete.mockResolvedValue({ data: {} });
     renderSpaceView();
 
-    fireEvent.click(await screen.findByTestId('tree-delete-page-1'));
+    fireEvent.click(await screen.findByTestId('content-deletepage-page-1'));
 
     await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledWith('/pages/page-1', {
       data: {
@@ -208,15 +230,13 @@ describe('SpaceView new-page flow', () => {
     mocks.api.get.mockImplementation(async (url: string) => {
       if (url === '/spaces/space-a') return spaceResponse('space-a', 'Owner A', 'owner');
       if (url === '/spaces/space-b') return spaceResponse('space-b', 'Owner B', 'owner');
-      if (url === '/pages/hierarchy/space-a') return {
-        data: [{ id: 'page-a', title: 'Archive A', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
-      };
-      if (url === '/pages/hierarchy/space-b') return { data: [] };
+      if (url === '/spaces/space-a/content-tree') return treeResponse('space-a', [pageNode('page-a', 'Archive A')]);
+      if (url === '/spaces/space-b/content-tree') return treeResponse('space-b');
       throw new Error(`Unexpected GET ${url}`);
     });
     const { navigateTo } = renderNavigableSpaceView();
 
-    fireEvent.click(await screen.findByTestId('tree-delete-page-a'));
+    fireEvent.click(await screen.findByTestId('content-deletepage-page-a'));
     await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
     navigateTo('space-b');
     expect(await screen.findByRole('heading', { name: 'Owner B' })).toBeInTheDocument();
@@ -233,15 +253,13 @@ describe('SpaceView new-page flow', () => {
     mocks.api.get.mockImplementation(async (url: string) => {
       if (url === '/spaces/space-a') return spaceResponse('space-a', 'Owner A', 'owner');
       if (url === '/spaces/space-b') return spaceResponse('space-b', 'Owner B', 'owner');
-      if (url === '/pages/hierarchy/space-a') return {
-        data: [{ id: 'page-a', title: 'Archive A', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
-      };
-      if (url === '/pages/hierarchy/space-b') return { data: [] };
+      if (url === '/spaces/space-a/content-tree') return treeResponse('space-a', [pageNode('page-a', 'Archive A')]);
+      if (url === '/spaces/space-b/content-tree') return treeResponse('space-b');
       throw new Error(`Unexpected GET ${url}`);
     });
     const harness = await renderCommitNavigableSpaceView();
     try {
-      fireEvent.click(await screen.findByTestId('tree-delete-page-a'));
+    fireEvent.click(await screen.findByTestId('content-deletepage-page-a'));
       await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
       harness.commitNavigateTo('space-b');
       head.resolve('43');
@@ -259,15 +277,13 @@ describe('SpaceView new-page flow', () => {
     mocks.getContentTreeRevision.mockReturnValue(head.promise);
     mocks.api.get.mockImplementation(async (url: string) => {
       if (url === '/spaces/space-1') return spaceResponse('space-1', 'Owner Space', 'owner');
-      if (url === '/pages/hierarchy/space-1') return {
-        data: [{ id: 'page-1', title: 'Archive once', updatedAt: '2026-08-28T10:00:00.000Z', children: [] }],
-      };
+      if (url === '/spaces/space-1/content-tree') return treeResponse('space-1', [pageNode('page-1', 'Archive once')]);
       throw new Error(`Unexpected GET ${url}`);
     });
     mocks.api.delete.mockResolvedValue({ data: {} });
     renderSpaceView();
 
-    const button = await screen.findByTestId('tree-delete-page-1');
+    const button = await screen.findByTestId('content-deletepage-page-1');
     fireEvent.click(button);
     fireEvent.click(button);
     await waitFor(() => expect(mocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
@@ -355,6 +371,7 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'B page',
       spaceId: 'space-b',
+      folderId: null,
       expectedTreeRevision: '43',
     }));
   });
@@ -378,6 +395,7 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
       title: 'Late A page',
       spaceId: 'space-a',
+      folderId: null,
       expectedTreeRevision: '43',
     }));
 

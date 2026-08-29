@@ -29,11 +29,14 @@ test.beforeAll(async () => {
   user = auth.user;
   const headers = { Authorization: `Bearer ${token}` };
 
-  const createdSpace = await api.post('spaces', { headers, data: { name: 'UI QA Space', description: 'Temporary browser validation' } });
-  expect(createdSpace.ok()).toBeTruthy();
-  spaceId = (await createdSpace.json()).id;
-  const createdPage = await api.post('pages', { headers, data: { title: 'Editor QA', content: '# Preview heading\n\nA bilingual Markdown workspace.', spaceId } });
-  expect(createdPage.ok()).toBeTruthy();
+ const createdSpace = await api.post('spaces', { headers, data: { name: 'UI QA Space', description: 'Temporary browser validation' } });
+ expect(createdSpace.ok()).toBeTruthy();
+ spaceId = (await createdSpace.json()).id;
+  const treeRevisionResponse = await api.get(`spaces/${spaceId}/content-tree`, { headers, params: { take: 1 } });
+  expect(treeRevisionResponse.ok()).toBeTruthy();
+  const treeRevision = (await treeRevisionResponse.json()).treeRevision;
+  const createdPage = await api.post('pages', { headers, data: { title: 'Editor QA', content: '# Preview heading\n\nA bilingual Markdown workspace.', spaceId, expectedTreeRevision: treeRevision } });
+ expect(createdPage.ok()).toBeTruthy();
   pageId = (await createdPage.json()).id;
 });
 
@@ -61,23 +64,30 @@ test('desktop editor uses one surface and persists language selection', async ({
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/pages/${pageId}/edit`);
 
-  await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Edit');
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await page.getByTestId('mode-toggle').click();
+  // The Obsidian-style editor opens in edit mode; rendered headings appear only in preview mode.
   await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Edit mode');
   await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Preview');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toHaveCount(0);
   await page.screenshot({ path: path.join(artifacts, 'editor-desktop-edit.png'), fullPage: true });
 
   await page.getByTestId('mode-toggle').click();
-  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(0);
+  await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Preview mode');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Edit');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'false');
+
+  await page.getByTestId('mode-toggle').click();
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
+
+  await page.getByTestId('mode-toggle').click();
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Switch language' }).click();
   await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '编辑');
   await page.reload();
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '编辑');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '预览');
   expect(consoleErrors).toEqual([]);
 });
 
@@ -85,8 +95,6 @@ test('mobile editor controls fit without a two-column workspace', async ({ page 
   await authenticate(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/pages/${pageId}/edit`);
-  await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
-  await page.getByTestId('mode-toggle').click();
   await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Edit mode');
   await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
   await page.getByTestId('mode-toggle').click();

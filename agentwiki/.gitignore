@@ -25,3 +25,5 @@ apps/server/src/**/*.js
 apps/client/**/*.js
 !apps/client/vite.config.js
 packages/local-sync/src/**/*.js
+test-results/
+playwright-report/
