@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildMoveRequest,
   crumbsForFolder,
   createFolderIndex,
   isSelfOrDescendantFolder,
@@ -70,5 +71,33 @@ describe('isSelfOrDescendantFolder', () => {
     expect(isSelfOrDescendantFolder(index, 'a', 'a1')).toBe(true);
     expect(isSelfOrDescendantFolder(index, 'a', 'b')).toBe(false);
     expect(isSelfOrDescendantFolder(index, 'a', null)).toBe(false);
+  });
+});
+
+describe('buildMoveRequest', () => {
+  it('drops into folders and rejects drops into pages', () => {
+    expect(buildMoveRequest({ kind: 'page', id: 'p1' }, folder('f1', 'A'), 'into', null))
+      .toMatchObject({ kind: 'page', id: 'p1', targetFolderId: 'f1' });
+    expect(buildMoveRequest({ kind: 'page', id: 'p1' }, page('p2', 'B', null), 'into', null)).toBeNull();
+  });
+
+  it('ignores self drops', () => {
+    expect(buildMoveRequest({ kind: 'folder', id: 'f1' }, folder('f1', 'A'), 'before', null)).toBeNull();
+    expect(buildMoveRequest(null, folder('f1', 'A'), 'into', null)).toBeNull();
+  });
+
+  it('reorders relative to pages using the page folder as the parent', () => {
+    const request = buildMoveRequest({ kind: 'page', id: 'p1' }, page('p2', 'B', 'f1'), 'after', null);
+    expect(request).toMatchObject({ kind: 'page', id: 'p1', targetFolderId: 'f1', beforeId: 'p2' });
+  });
+
+  it('reorders relative to folder rows using the listed level parent, not the root', () => {
+    const request = buildMoveRequest({ kind: 'folder', id: 'f1' }, folder('f2', 'B'), 'before', 'parent-1');
+    expect(request).toMatchObject({ kind: 'folder', id: 'f1', targetFolderId: 'parent-1', beforeId: 'f2' });
+  });
+
+  it('rejects cross-kind reordering the server cannot represent', () => {
+    expect(buildMoveRequest({ kind: 'page', id: 'p1' }, folder('f1', 'A'), 'before', 'parent-1')).toBeNull();
+    expect(buildMoveRequest({ kind: 'folder', id: 'f1' }, page('p1', 'A', 'parent-1'), 'after', 'parent-1')).toBeNull();
   });
 });

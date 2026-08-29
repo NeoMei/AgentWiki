@@ -441,6 +441,7 @@ export const SpaceView: React.FC = () => {
           loading={treeLoading}
           error={treeError}
           canEdit={canEdit}
+          levelParentFolderId={currentFolderId}
           pageDeleteDisabled={archivingPageId !== null}
           emptyText={t('page.empty')}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}

@@ -1,24 +1,19 @@
 import React, { useState } from 'react';
 import { Edit, FileText, Folder, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { sortNodes } from './contentTreeState';
+import { buildMoveRequest, sortNodes } from './contentTreeState';
+import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
 import type { ContentTreeFolderNode, ContentTreeNode, ContentTreePageNode } from './contentTreeTypes';
 
-export type MovePosition = 'into' | 'before' | 'after';
-
-export interface ContentMoveRequest {
-  kind: 'folder' | 'page';
-  id: string;
-  targetFolderId: string | null;
-  beforeId?: string;
-  position: MovePosition;
-}
+export type { ContentMoveRequest, MovePosition };
 
 export interface ContentTreeProps {
   nodes: ContentTreeNode[];
   loading: boolean;
   error: string | null;
   canEdit: boolean;
+  /** Parent folder of the currently listed level; reorder target for before/after drops. */
+  levelParentFolderId: string | null;
   currentPageId?: string;
   pageDeleteDisabled: boolean;
   emptyText: string;
@@ -30,11 +25,6 @@ export interface ContentTreeProps {
   onRenameFolder: (folder: ContentTreeFolderNode) => void;
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onMove: (request: ContentMoveRequest) => void;
-}
-
-interface DragInfo {
-  kind: 'folder' | 'page';
-  id: string;
 }
 
 interface NodeRowLabels {
@@ -50,6 +40,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   loading,
   error,
   canEdit,
+  levelParentFolderId,
   currentPageId,
   pageDeleteDisabled,
   emptyText,
@@ -90,22 +81,6 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     );
   }
 
-  const buildMoveRequest = (target: ContentTreeNode, position: MovePosition): ContentMoveRequest | null => {
-    if (!drag || drag.id === target.id) return null;
-    if (position === 'into') {
-      if (target.kind !== 'folder') return null;
-      return { kind: drag.kind, id: drag.id, targetFolderId: target.id, position };
-    }
-    const targetParent = target.kind === 'page' ? target.folderId : null;
-    return {
-      kind: drag.kind,
-      id: drag.id,
-      targetFolderId: targetParent,
-      beforeId: target.id,
-      position,
-    };
-  };
-
   const labels: NodeRowLabels = {
     edit: t('page.edit'),
     delete: t('page.delete'),
@@ -135,7 +110,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
-            const request = buildMoveRequest(target, position);
+            const request = buildMoveRequest(drag, target, position, levelParentFolderId);
             setDrag(null);
             if (request) onMove(request);
           }}
@@ -181,6 +156,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const ratio = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
     const next: MovePosition = ratio < 0.35 ? 'before' : ratio > 0.65 ? 'after' : 'into';
+    if (next !== 'into' && dragActive.kind !== node.kind) return;
     if (next === 'into' && isPage) {
       setDropHint(null);
     } else {
@@ -194,6 +170,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
       {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
       <div
         draggable
+        data-testid={'content-row-' + node.id}
         onDragStart={(event) => {
           event.dataTransfer.setData('text/agentwiki-node-id', node.id);
           event.dataTransfer.effectAllowed = 'move';

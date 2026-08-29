@@ -1,5 +1,20 @@
 import type { ContentTreeNode } from './contentTreeTypes';
 
+export type MovePosition = 'into' | 'before' | 'after';
+
+export interface ContentMoveRequest {
+  kind: 'folder' | 'page';
+  id: string;
+  targetFolderId: string | null;
+  beforeId?: string;
+  position: MovePosition;
+}
+
+export interface DragInfo {
+  kind: 'folder' | 'page';
+  id: string;
+}
+
 export interface Crumb {
   id: string | null;
   name: string;
@@ -75,4 +90,32 @@ export const isSelfOrDescendantFolder = (
     cursor = entry.parentId;
   }
   return false;
+};
+
+/**
+ * Build a move request for a drag onto a visible sibling row.
+ * "into" targets the row itself (folders only); "before"/"after" reorder
+ * within the currently listed level, so the move parent must be that level's
+ * parent folder — the server requires beforeId to be a sibling of it.
+ */
+export const buildMoveRequest = (
+  drag: DragInfo | null,
+  target: ContentTreeNode,
+  position: MovePosition,
+  levelParentFolderId: string | null,
+): ContentMoveRequest | null => {
+  if (!drag || drag.id === target.id) return null;
+  if (position !== 'into' && drag.kind !== target.kind) return null;
+  if (position === 'into') {
+    if (target.kind !== 'folder') return null;
+    return { kind: drag.kind, id: drag.id, targetFolderId: target.id, position };
+  }
+  const targetParent = target.kind === 'page' ? target.folderId : levelParentFolderId;
+  return {
+    kind: drag.kind,
+    id: drag.id,
+    targetFolderId: targetParent,
+    beforeId: target.id,
+    position,
+  };
 };

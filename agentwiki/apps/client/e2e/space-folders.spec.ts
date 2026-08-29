@@ -131,7 +131,7 @@ test.describe.serial('space folder hierarchy', () => {
     watchConsole(page);
   });
 
-  test.afterEach(({ page }) => {
+  test.afterEach(async () => {
     expect(consoleIssues).toEqual([]);
   });
 
@@ -262,6 +262,41 @@ test.describe.serial('space folder hierarchy', () => {
     const restoredChildren = await listTree(rootFolderId);
     expect(restoredChildren.find((node) => node.kind === 'page')).toBeTruthy();
     await page.screenshot({ path: path.join(artifacts, 'folder-restored.png'), fullPage: true });
+  });
+
+  test('Owner reorders a nested folder before a sibling with drag and drop', async ({ page }) => {
+    const createNestedFolder = async (name: string) => json<{ folder: { id: string } }>(await api.post(`spaces/${spaceId}/folders`, {
+      headers: ownerHeaders(),
+      data: { name, parentId: subFolderId, expectedTreeRevision: await getTreeRevision() },
+    }), `create nested folder ${name}`);
+    const folderA = (await createNestedFolder(`嵌套A-${runId}`)).folder;
+    const folderB = (await createNestedFolder(`嵌套B-${runId}`)).folder;
+
+    await authenticate(page, owner!);
+    await page.goto(`/spaces/${spaceId}`);
+    await openFolder(page, rootFolderId, rootFolderName);
+    await openFolder(page, subFolderId, subFolderName);
+    const source = page.getByTestId(`content-node-${folderB.id}`);
+    const targetRow = page.getByTestId(`content-row-${folderA.id}`);
+    await expect(source).toBeVisible();
+    await expect(targetRow).toBeVisible();
+
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await source.dispatchEvent('dragstart', { dataTransfer });
+    const box = await targetRow.boundingBox();
+    expect(box).not.toBeNull();
+    const dropPoint = { dataTransfer, clientY: box!.y + 3 };
+    await targetRow.dispatchEvent('dragover', dropPoint);
+    await expect(page.getByTestId('drop-before')).toBeVisible();
+    await targetRow.dispatchEvent('drop', dropPoint);
+    await expect(page.getByTestId('drop-before')).not.toBeVisible();
+
+    await expect(async () => {
+      const nodes = await listTree(subFolderId);
+      const orderA = nodes.find((node) => node.id === folderA.id)!;
+      const orderB = nodes.find((node) => node.id === folderB.id)!;
+      expect(orderB.sortOrder, 'folder B should now sit before folder A').toBeLessThan(orderA.sortOrder);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('A 390px viewport keeps folder management usable without horizontal overflow', async ({ page }) => {
