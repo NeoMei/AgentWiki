@@ -25,6 +25,7 @@ describe('AgentWikiClient', () => {
   const v2Capabilities = {
     maxPageBytes: 1_048_576, maxBatchBytes: 4_194_304, maxBatchItems: 100,
     maxChangeCount: 100, maxConfirmationBytes: 4_194_304, maxClientSpacePages: 5_000,
+    maxClientSpaceFolders: 10_000, maxSnapshotObjects: 15_000,
     maxClientManifestBytes: 4_194_304, maxClientTotalBodyBytes: 2_097_152,
     maxResponseBytes: 4_194_304, maxPageItems: 100, pushSessionTtlSeconds: 900,
   };
@@ -54,6 +55,40 @@ describe('AgentWikiClient', () => {
     const oversized = vi.fn().mockResolvedValue(jsonResponse({ payload: 'x'.repeat(1024) }));
     await expect(new AgentWikiClient(oversized as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret', 64))
       .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+  });
+
+  it('cancels a no-content-length response stream as soon as UTF-8 bytes exceed the hard discovery ceiling', async () => {
+    const cancel = vi.fn();
+    const encoder = new TextEncoder();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('汉'.repeat(12_000)));
+      },
+      pull(controller) {
+        controller.enqueue(encoder.encode('汉'.repeat(12_000)));
+      },
+      cancel,
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const request = vi.fn().mockResolvedValue(response);
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret'))
+      .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a streamed response when strict UTF-8 decoding fails', async () => {
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0xff]));
+      },
+      cancel,
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const request = vi.fn().mockResolvedValue(response);
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeCapabilitiesV2(connection, 'device-secret'))
+      .rejects.toMatchObject({ code: 'RESPONSE_BODY_ERROR' });
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   it('re-fetches capabilities once and pushes one atomic v2 session', async () => {
@@ -110,6 +145,135 @@ describe('AgentWikiClient', () => {
     expect(requests.every(({ init }) => (init?.headers as Record<string, string> | undefined)?.Authorization === 'Bearer device-secret')).toBe(true);
   });
 
+  it('derives a stable idempotency UUID from the confirmation and capabilities binding', async () => {
+    const idempotencyKeys: string[] = [];
+    const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith('/sync/v2/capabilities')) {
+        return jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: 'a'.repeat(64) });
+      }
+      if (url.endsWith('/push-sessions')) {
+        idempotencyKeys.push((JSON.parse(String(init?.body)) as { idempotencyKey: string }).idempotencyKey);
+        return jsonResponse({
+          protocolVersion: '2', sessionId: '11111111-1111-4111-8111-111111111111',
+          status: 'uploading', expiresAt: '2026-08-29T01:00:00.000Z', result: null,
+        }, 201);
+      }
+      if (url.includes('/batches/0')) return jsonResponse({
+        protocolVersion: '2', sessionId: '11111111-1111-4111-8111-111111111111',
+        batchIndex: 0, batchHash: JSON.parse(String(init?.body)).batchHash,
+        receipt: 'receipt', receivedBatchCount: 1,
+      });
+      return jsonResponse({
+        protocolVersion: '2', status: 'published', revision: 'rev-2', sequence: 2,
+        publishedAt: '2026-08-29T00:00:00.000Z', revisionContentHash: 'c'.repeat(64),
+        folderCount: '1', pageCount: '0', revisionManifestByteLength: '1', revisionBodyBytes: '0', changeSetId: null,
+      });
+    });
+    const changes: TreePushChangeV2[] = [{
+      operation: 'upsert_folder',
+      folder: { folderId: 'folder-1', parentFolderId: null, name: 'Project', path: 'pages/Project', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' },
+    }];
+    const client = new AgentWikiClient(request as typeof fetch);
+
+    await client.pushTreeChangesV2(connection, 'device-secret', 'space-1', 'rev-1', changes);
+    await client.pushTreeChangesV2(connection, 'device-secret', 'space-1', 'rev-1', structuredClone(changes));
+
+    expect(idempotencyKeys).toHaveLength(2);
+    expect(idempotencyKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
+  });
+
+  it.each(['upload', 'finalize'] as const)(
+    'rebuilds the complete push exactly once when capabilities drift during %s',
+    async (driftPhase) => {
+      let capabilityReads = 0;
+      let createAttempts = 0;
+      let uploadAttempts = 0;
+      let finalizeAttempts = 0;
+      const createBodies: Array<{ idempotencyKey: string; capabilitiesHash: string }> = [];
+      const request = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url.endsWith('/sync/v2/capabilities')) {
+          capabilityReads += 1;
+          return jsonResponse({
+            protocolVersion: '2', capabilities: v2Capabilities,
+            capabilitiesHash: (capabilityReads === 1 ? 'a' : 'b').repeat(64),
+          });
+        }
+        if (url.endsWith('/push-sessions')) {
+          createAttempts += 1;
+          createBodies.push(JSON.parse(String(init?.body)) as { idempotencyKey: string; capabilitiesHash: string });
+          return jsonResponse({
+            protocolVersion: '2',
+            sessionId: createAttempts === 1
+              ? '11111111-1111-4111-8111-111111111111'
+              : '22222222-2222-4222-8222-222222222222',
+            status: 'uploading', expiresAt: '2026-08-29T01:00:00.000Z', result: null,
+          }, 201);
+        }
+        if (url.includes('/batches/0')) {
+          uploadAttempts += 1;
+          if (driftPhase === 'upload' && createAttempts === 1) {
+            return jsonResponse({ protocolVersion: '2', error: { code: 'CAPABILITIES_CHANGED', message: 'changed', retryable: true } }, 409);
+          }
+          return jsonResponse({
+            protocolVersion: '2',
+            sessionId: createAttempts === 1
+              ? '11111111-1111-4111-8111-111111111111'
+              : '22222222-2222-4222-8222-222222222222',
+            batchIndex: 0, batchHash: JSON.parse(String(init?.body)).batchHash,
+            receipt: 'receipt', receivedBatchCount: 1,
+          });
+        }
+        finalizeAttempts += 1;
+        if (driftPhase === 'finalize' && createAttempts === 1) {
+          return jsonResponse({ protocolVersion: '2', error: { code: 'CAPABILITIES_CHANGED', message: 'changed', retryable: true } }, 409);
+        }
+        return jsonResponse({
+          protocolVersion: '2', status: 'published', revision: 'rev-2', sequence: 2,
+          publishedAt: '2026-08-29T00:00:00.000Z', revisionContentHash: 'c'.repeat(64),
+          folderCount: '1', pageCount: '0', revisionManifestByteLength: '1', revisionBodyBytes: '0', changeSetId: null,
+        });
+      });
+      const changes: TreePushChangeV2[] = [{
+        operation: 'upsert_folder',
+        folder: { folderId: 'folder-1', parentFolderId: null, name: 'Project', path: 'pages/Project', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' },
+      }];
+
+      await expect(new AgentWikiClient(request as typeof fetch).pushTreeChangesV2(
+        connection, 'device-secret', 'space-1', 'rev-1', changes,
+      )).resolves.toMatchObject({ revision: 'rev-2' });
+
+      expect({ capabilityReads, createAttempts, uploadAttempts, finalizeAttempts }).toEqual({
+        capabilityReads: 2,
+        createAttempts: 2,
+        uploadAttempts: 2,
+        finalizeAttempts: driftPhase === 'finalize' ? 2 : 1,
+      });
+      expect(createBodies.map((body) => body.capabilitiesHash)).toEqual(['a'.repeat(64), 'b'.repeat(64)]);
+      expect(createBodies[1]!.idempotencyKey).not.toBe(createBodies[0]!.idempotencyKey);
+    },
+  );
+
+  it('fails after a second capability drift without entering an unbounded rebuild loop', async () => {
+    let capabilityReads = 0;
+    let createAttempts = 0;
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString().endsWith('/sync/v2/capabilities')) {
+        capabilityReads += 1;
+        return jsonResponse({ protocolVersion: '2', capabilities: v2Capabilities, capabilitiesHash: `${capabilityReads}`.repeat(64) });
+      }
+      createAttempts += 1;
+      return jsonResponse({ protocolVersion: '2', error: { code: 'CAPABILITIES_CHANGED', message: 'changed again', retryable: true } }, 409);
+    });
+
+    await expect(new AgentWikiClient(request as typeof fetch).pushTreeChangesV2(
+      connection, 'device-secret', 'space-1', 'rev-1', [],
+    )).rejects.toMatchObject({ code: 'CAPABILITIES_CHANGED' });
+    expect({ capabilityReads, createAttempts }).toEqual({ capabilityReads: 2, createAttempts: 2 });
+  });
+
   it('strictly assembles a paginated v2 snapshot and sends only the device credential', async () => {
     const folder = { folderId: 'f1', parentFolderId: null, name: 'Dir', path: 'pages/Dir', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' };
     const page = { pageId: 'p1', folderId: 'f1', path: 'pages/Dir/Page.md', title: 'Page', body: 'body', contentHash: await contentHash('body'), updatedAt: '2026-08-29T00:00:00.000Z' };
@@ -136,6 +300,51 @@ describe('AgentWikiClient', () => {
     expect(snapshot.manifest.folders.map((folder) => folder.folderId)).toEqual(['f1']);
     expect(snapshot.manifest.pages.map((page) => page.pageId)).toEqual(['p1']);
     expect(request.mock.calls[2]?.[0].toString()).toContain('cursor=cursor-1');
+  });
+
+  it('accepts a Folder-rich snapshot within separate Folder/Page/total negotiated limits', async () => {
+    const capabilities = { ...v2Capabilities, maxClientSpacePages: 1, maxClientSpaceFolders: 2, maxSnapshotObjects: 3 };
+    const folders = [
+      { folderId: 'f1', parentFolderId: null, name: 'One', path: 'pages/One', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' },
+      { folderId: 'f2', parentFolderId: null, name: 'Two', path: 'pages/Two', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' },
+    ];
+    const manifest: TreeRevisionContentManifestV2 = { protocolVersion: '2', spaceId: 'space-1', folders, pages: [] };
+    const request = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/capabilities')
+      ? jsonResponse({ protocolVersion: '2', capabilities, capabilitiesHash: 'a'.repeat(64) })
+      : jsonResponse({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+        revisionContentHash: await treeRevisionContentHashV2(manifest), folderCount: '2', pageCount: '0',
+        revisionManifestByteLength: String(canonicalBytes(manifest).byteLength), revisionBodyBytes: '0',
+        folders, pages: [], nextCursor: null,
+      }));
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeSnapshotV2(connection, 'device-secret', 'space-1'))
+      .resolves.toMatchObject({ manifest: { folders: expect.arrayContaining([expect.objectContaining({ folderId: 'f2' })]) } });
+  });
+
+  it('enforces Folder, Page, and aggregate snapshot counts as three distinct negotiated ceilings', async () => {
+    const folderOne = { folderId: 'f1', parentFolderId: null, name: 'One', path: 'pages/One', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' };
+    const folderTwo = { folderId: 'f2', parentFolderId: null, name: 'Two', path: 'pages/Two', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' };
+    const pageOne = { pageId: 'p1', folderId: null, path: 'pages/One.md', title: 'One', body: 'one', contentHash: await contentHash('one'), updatedAt: '2026-08-29T00:00:00.000Z' };
+    const pageTwo = { pageId: 'p2', folderId: null, path: 'pages/Two.md', title: 'Two', body: 'two', contentHash: await contentHash('two'), updatedAt: '2026-08-29T00:00:00.000Z' };
+    const cases = [
+      { capabilities: { ...v2Capabilities, maxClientSpaceFolders: 1 }, folders: [folderOne, folderTwo], pages: [] },
+      { capabilities: { ...v2Capabilities, maxClientSpacePages: 1 }, folders: [], pages: [pageOne, pageTwo] },
+      { capabilities: { ...v2Capabilities, maxSnapshotObjects: 1 }, folders: [folderOne], pages: [pageOne] },
+    ];
+
+    for (const testCase of cases) {
+      const request = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/capabilities')
+        ? jsonResponse({ protocolVersion: '2', capabilities: testCase.capabilities, capabilitiesHash: 'a'.repeat(64) })
+        : jsonResponse({
+          protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+          revisionContentHash: 'b'.repeat(64), folderCount: String(testCase.folders.length), pageCount: String(testCase.pages.length),
+          revisionManifestByteLength: '1', revisionBodyBytes: '0',
+          folders: testCase.folders, pages: testCase.pages, nextCursor: null,
+        }));
+      await expect(new AgentWikiClient(request as typeof fetch).getTreeSnapshotV2(connection, 'device-secret', 'space-1'))
+        .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+    }
   });
 
   it('rejects cursor replay and duplicate identities in v2 reads', async () => {
@@ -180,6 +389,24 @@ describe('AgentWikiClient', () => {
 
     await expect(new AgentWikiClient(request as typeof fetch).getTreeDeltaV2(connection, 'device-secret', 'space-1', 'rev-1'))
       .rejects.toMatchObject({ code: 'RESPONSE_INVALID' });
+  });
+
+  it('rejects a delta whose aggregate change count exceeds maxChangeCount', async () => {
+    const capabilities = { ...v2Capabilities, maxChangeCount: 1 };
+    const request = vi.fn(async (input: RequestInfo | URL) => input.toString().endsWith('/capabilities')
+      ? jsonResponse({ protocolVersion: '2', capabilities, capabilitiesHash: 'a'.repeat(64) })
+      : jsonResponse({
+        protocolVersion: '2', spaceId: 'space-1', fromRevision: 'rev-1', toRevision: 'rev-2', toSequence: 2,
+        toRevisionContentHash: 'b'.repeat(64), toFolderCount: '0', toPageCount: '0',
+        toRevisionManifestByteLength: '0', toRevisionBodyBytes: '0',
+        items: [
+          { operation: 'archive_page', pageId: 'p1', previousPath: 'pages/One.md' },
+          { operation: 'archive_page', pageId: 'p2', previousPath: 'pages/Two.md' },
+        ], nextCursor: null,
+      }));
+
+    await expect(new AgentWikiClient(request as typeof fetch).getTreeDeltaV2(connection, 'device-secret', 'space-1', 'rev-1'))
+      .rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
   });
   it('redacts API keys and one-time installation codes', () => {
     expect(redactSecrets('agk_secret AW-ABCDEFGHIJKLMNOPQRSTUVWX AW-ABCD-EFGH awk_other')).toBe(

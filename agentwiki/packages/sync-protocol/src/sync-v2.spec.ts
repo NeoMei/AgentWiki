@@ -47,6 +47,8 @@ describe("Sync Protocol v2", () => {
       maxChangeCount: 100,
       maxConfirmationBytes: 4_194_304,
       maxClientSpacePages: 5_000,
+      maxClientSpaceFolders: 10_000,
+      maxSnapshotObjects: 15_000,
       maxClientManifestBytes: 4_194_304,
       maxClientTotalBodyBytes: 2_097_152,
       maxResponseBytes: 4_194_304,
@@ -58,6 +60,10 @@ describe("Sync Protocol v2", () => {
     })).toEqual({ protocolVersion: "2", capabilities, capabilitiesHash: hash });
     expect(() => TreeCapabilitiesResponseV2Schema.parse({
       protocolVersion: "2", capabilities, capabilitiesHash: hash, unexpected: true,
+    })).toThrow();
+    const { maxSnapshotObjects: _missing, ...incomplete } = capabilities;
+    expect(() => TreeCapabilitiesResponseV2Schema.parse({
+      protocolVersion: "2", capabilities: incomplete, capabilitiesHash: hash,
     })).toThrow();
   });
 

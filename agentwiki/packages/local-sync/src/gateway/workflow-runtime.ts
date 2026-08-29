@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { SourceAdapter } from '../protocol/adapter.js';
 import type { SourceArtifact } from '../protocol/artifact.js';
 import { KnowledgeBundleSchema, type KnowledgeBundle } from '../protocol/bundle.js';
+import { TreeRevisionContentManifestV2Schema } from '@neomei/agentwiki-sync-protocol';
 import { MarkitdownAdapter } from '../adapter/markitdown.js';
 import type { Recipe } from '../protocol/recipe.js';
 import { organizeArtifacts, reconcileAnalysisLayers, validateKnowledgeBundle } from '../organize/index.js';
@@ -160,7 +161,7 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         try {
           const baseData = await readBase(workspacePaths(options.home, input.spaceId), baseRevision);
           if (baseData === null) throw new Error('Confirmed base bundle is missing');
-          const base = KnowledgeBundleSchema.parse(baseData);
+          const base = confirmedBaseBundle(baseData, baseRevision);
           if (codeBearing) {
             const reconciled = reconcileAnalysisLayers(base, bundle, {
               sourceKeys: new Set(codeSourceKeys),
@@ -219,6 +220,39 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         ...(diff ? { diff } : {}),
       };
     },
+  });
+}
+
+function confirmedBaseBundle(value: unknown, revision: string): KnowledgeBundle {
+  const legacy = KnowledgeBundleSchema.safeParse(value);
+  if (legacy.success) return legacy.data;
+  const tree = TreeRevisionContentManifestV2Schema.parse(value);
+  return KnowledgeBundleSchema.parse({
+    schemaVersion: 'knowledge-bundle@1',
+    recipeVersion: 'document-library@1',
+    spaceId: tree.spaceId,
+    baseRevision: revision,
+    pages: tree.pages.map((page) => {
+      const artifactId = `sync-v2:${revision}:${page.pageId}`;
+      return {
+        pageId: page.pageId,
+        spaceId: tree.spaceId,
+        path: page.path,
+        title: page.title,
+        body: page.body,
+        artifactIds: [artifactId],
+        contentHash: page.contentHash,
+        updatedAt: page.updatedAt,
+      };
+    }),
+    memories: [],
+    relations: [],
+    provenance: tree.pages.map((page) => ({
+      itemId: page.pageId,
+      artifactIds: [`sync-v2:${revision}:${page.pageId}`],
+      sensitivity: 'shareable',
+    })),
+    deletions: [],
   });
 }
 

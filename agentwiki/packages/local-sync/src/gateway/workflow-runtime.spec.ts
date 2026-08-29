@@ -211,6 +211,39 @@ describe('createKnowledgeWorkflowRuntime', () => {
     expect(stored.data.deletions).toEqual([]);
   });
 
+  it('projects a private v2 tree base into preparation while retaining each stable Page path', async () => {
+    const home = await temporaryHome();
+    const source = await temporaryHome();
+    const spaceId = 'space-tree-base';
+    const paths = workspacePaths(home, spaceId);
+    await ensureWorkspace(paths);
+    await writeBase(paths, 'rev-1', {
+      protocolVersion: '2', spaceId,
+      folders: [{ folderId: 'folder-1', parentFolderId: null, name: 'Folder', path: 'pages/Folder', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' }],
+      pages: [{ pageId: 'page-1', folderId: 'folder-1', path: 'pages/Folder/Page.md', title: 'Page', body: 'retained tree body', contentHash: 'a'.repeat(64), updatedAt: '2026-08-29T00:00:00.000Z' }],
+    });
+    await writeManifest(paths, {
+      schemaVersion: '1.0', spaceId, createdAt: '2026-08-29T00:00:00.000Z', updatedAt: '2026-08-29T00:00:00.000Z',
+      baseRevision: { revision: 'rev-1', contentHash: 'b'.repeat(64), pulledAt: '2026-08-29T00:00:00.000Z' },
+      pendingRevision: null, sources: [], checkpoints: [],
+    });
+    const runtime = createKnowledgeWorkflowRuntime({
+      home,
+      adapters: { ensure: vi.fn(async () => adapter('document')) },
+      scanSources: documentOnlyPipeline(),
+      sync: { pull: vi.fn(), push: vi.fn() },
+    });
+
+    const preview = await runtime.prepare({ spaceId, sourcePaths: [source], sourceType: 'documents' });
+    const stored = JSON.parse(await readFile(join(home, '.agentwiki', 'runtime', 'previews', `${preview.jobId}.json`), 'utf8')) as {
+      data: { pages: Array<{ pageId: string; path: string; body: string }> };
+    };
+
+    expect(stored.data.pages).toEqual([
+      expect.objectContaining({ pageId: 'page-1', path: 'pages/Folder/Page.md', body: 'retained tree body' }),
+    ]);
+  });
+
   it.each(['missing', 'malformed', 'incomplete'] as const)('fails closed without a preview when the confirmed documents base is %s', async (state) => {
     const home = await temporaryHome();
     const source = await temporaryHome();

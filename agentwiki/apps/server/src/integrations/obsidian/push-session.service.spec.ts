@@ -532,6 +532,94 @@ describe('PushSessionService Sync Protocol v2', () => {
     credentialId: 'credential-1', credentialFamilyId: 'family-1',
   };
 
+  it('uses SyncCapabilitiesService as the single v2 capability and hash source', async () => {
+    const capabilitySource = {
+      capabilities: jest.fn().mockReturnValue({ maxBatchItems: 1 }),
+      hash: jest.fn().mockResolvedValue('v1-hash'),
+      capabilitiesV2: jest.fn().mockReturnValue({ maxBatchBytes: 321 }),
+      hashV2: jest.fn().mockResolvedValue('v2-hash'),
+    };
+    const service: any = new (PushSessionService as any)({}, {}, {}, {}, undefined, undefined, capabilitySource);
+
+    expect(service.capabilitiesV2()).toEqual({ maxBatchBytes: 321 });
+    await expect(service.capabilityHashV2()).resolves.toBe('v2-hash');
+    expect(capabilitySource.capabilitiesV2).toHaveBeenCalledTimes(1);
+    expect(capabilitySource.hashV2).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports capability drift on an existing v2 session instead of hiding it as missing', async () => {
+    const capabilitySource = {
+      capabilitiesV2: jest.fn(),
+      hashV2: jest.fn().mockResolvedValue('current-hash'),
+    };
+    const service: any = new (PushSessionService as any)({}, {}, {}, {}, undefined, undefined, capabilitySource);
+
+    await expect(service.assertV2Session({ protocolVersion: '2', capabilitiesHash: 'old-hash' }))
+      .rejects.toMatchObject({ syncCode: 'CAPABILITIES_CHANGED' });
+  });
+
+  it.each(['create', 'upload', 'finalize', 'get', 'abort'] as const)(
+    'reports CAPABILITIES_CHANGED during the v2 %s phase before mutating the session',
+    async (phase) => {
+      const session: any = {
+        id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2',
+        userId: 'user-1', spaceId: 'space-1', credentialId: 'credential-1', credentialFamilyId: 'family-1',
+        baseRevisionId: 'rev-1', idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        capabilitiesHash: 'old-hash', confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
+        changeCount: 0, totalBodyBytes: 0n, status: 'ready_to_finalize', result: null,
+        expiresAt: new Date(Date.now() + 60_000), batches: [], receivedBatchCount: 0,
+      };
+      const tx: any = {
+        $executeRaw: jest.fn(),
+        space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+        pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+        pushSessionBatch: { findUnique: jest.fn(), deleteMany: jest.fn() },
+        pushSessionChange: { deleteMany: jest.fn() },
+      };
+      const prisma: any = phase === 'create' || phase === 'get'
+        ? { pushSession: { findUnique: jest.fn().mockResolvedValue(session) } }
+        : phase === 'finalize'
+          ? {
+              pushSession: { findUnique: jest.fn().mockResolvedValue({ id: session.id, spaceId: 'space-1', protocolVersion: '2' }) },
+              $transaction: jest.fn((callback: any) => callback(tx)),
+            }
+          : { $transaction: jest.fn((callback: any) => callback(tx)) };
+      const capabilitySource = {
+        capabilitiesV2: jest.fn().mockReturnValue({ maxChangeCount: 100, maxConfirmationBytes: 4_194_304 }),
+        hashV2: jest.fn().mockResolvedValue('current-hash'),
+      };
+      const contentTree = { lockSyncMutationSpace: jest.fn(async () => tx) };
+      const service: any = new (PushSessionService as any)(
+        prisma, {}, contentTree, {}, undefined, undefined, capabilitySource,
+      );
+      let action: Promise<unknown>;
+      if (phase === 'create') {
+        action = service.createV2(principal, 'space-1', {
+          protocolVersion: '2', baseRevision: 'rev-1', idempotencyKey: session.idempotencyKey,
+          capabilitiesHash: 'old-hash', confirmationHash: session.confirmationHash,
+          confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+        });
+      } else if (phase === 'upload') {
+        action = service.uploadV2(principal, 'space-1', session.id, {
+          protocolVersion: '2', batchIndex: 0, batchHash: 'a'.repeat(64), changes: [],
+        });
+      } else if (phase === 'finalize') {
+        action = service.finalizeV2(principal, 'space-1', session.id, {
+          protocolVersion: '2', confirmationHash: session.confirmationHash, userConfirmed: true,
+        });
+      } else if (phase === 'get') {
+        action = service.getV2(principal, 'space-1', session.id);
+      } else {
+        action = service.abortV2(principal, 'space-1', session.id);
+      }
+
+      await expect(action).rejects.toMatchObject({ syncCode: 'CAPABILITIES_CHANGED' });
+      expect(tx.pushSession.update).not.toHaveBeenCalled();
+      expect(tx.pushSessionChange.deleteMany).not.toHaveBeenCalled();
+      expect(tx.pushSessionBatch.deleteMany).not.toHaveBeenCalled();
+    },
+  );
+
   it('persists an explicit protocol version for both v1 and v2 sessions', async () => {
     const created: any[] = [];
     const prisma: any = {

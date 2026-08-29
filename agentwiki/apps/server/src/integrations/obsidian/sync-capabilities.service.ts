@@ -22,6 +22,8 @@ export class SyncCapabilitiesService {
       maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
       maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
       maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+      maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
+      maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
     };
   }
 

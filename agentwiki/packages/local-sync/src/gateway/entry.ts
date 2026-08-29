@@ -49,12 +49,24 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
   });
   const remoteSync: RemoteSync = {
     pull: async (spaceId) => {
-      const result = await syncEngine(spaceId).pull();
+      const engine = syncEngine(spaceId);
+      const result = credential.syncDeviceCredential
+        ? await engine.pullTreeV2()
+        : await engine.pull();
       return { revisionId: result.revisionId };
     },
     push: async (spaceId, bundle) => {
       try {
-        const result = await syncEngine(spaceId).push(bundle);
+        const engine = syncEngine(spaceId);
+        if (credential.syncDeviceCredential) {
+          const result = await engine.pushTreeV2(bundle);
+          return {
+            conflict: false,
+            revisionId: result.revision,
+            status: result.status,
+          };
+        }
+        const result = await engine.push(bundle);
         return {
           conflict: false,
           revisionId: result.currentRevision,

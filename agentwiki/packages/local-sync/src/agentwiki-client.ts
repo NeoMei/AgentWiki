@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   CreateTreePushSessionResponseV2Schema,
   TreeCapabilitiesResponseV2Schema,
@@ -7,6 +7,7 @@ import {
   TreePushBatchReceiptV2Schema,
   TreeRevisionHeadResponseV2Schema,
   TreeSnapshotPageV2Schema,
+  TREE_SYNC_V2_LIMITS,
   canonicalTreeRevisionManifestV2,
   canonicalBytes,
   contentHash as treePageContentHash,
@@ -162,12 +163,42 @@ async function responseBody(response: Response, maximumBytes?: number): Promise<
   if (maximumBytes !== undefined) {
     const declared = response.headers.get('content-length');
     if (declared !== null && Number(declared) > maximumBytes) {
+      await response.body?.cancel('declared response byte limit exceeded').catch(() => undefined);
       throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
     }
   }
-  const body = await response.text();
-  if (maximumBytes !== undefined && new TextEncoder().encode(body).byteLength > maximumBytes) {
-    throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
+  let body = '';
+  if (response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let receivedBytes = 0;
+    let cancelled = false;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        receivedBytes += next.value.byteLength;
+        if (maximumBytes !== undefined && receivedBytes > maximumBytes) {
+          cancelled = true;
+          await reader.cancel('response byte limit exceeded');
+          throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
+        }
+        body += decoder.decode(next.value, { stream: true });
+      }
+      body += decoder.decode();
+    } catch (error) {
+      if (!cancelled) {
+        await reader.cancel('response stream rejected').catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+  } else if (response.status !== 204) {
+    body = await response.text();
+    if (maximumBytes !== undefined && new TextEncoder().encode(body).byteLength > maximumBytes) {
+      throw new AgentWikiClientError('Response exceeded the negotiated byte limit', response.status, 'RESPONSE_TOO_LARGE');
+    }
   }
   if (!body) return undefined;
 
@@ -176,6 +207,22 @@ async function responseBody(response: Response, maximumBytes?: number): Promise<
   } catch {
     return body;
   }
+}
+
+function capabilityBoundIdempotencyKey(
+  spaceId: string,
+  baseRevision: string,
+  confirmationHash: string,
+  capabilitiesHash: string,
+): string {
+  const bytes = createHash('sha256')
+    .update(JSON.stringify({ protocolVersion: '2', spaceId, baseRevision, confirmationHash, capabilitiesHash }))
+    .digest()
+    .subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function errorDetails(body: unknown, status: number): { code: string; message: string } {
@@ -341,7 +388,7 @@ export class AgentWikiClient {
   async getTreeCapabilitiesV2(
     connection: LocalSyncConnection,
     syncDeviceCredential: string,
-    maximumResponseBytes = 64 * 1024,
+    maximumResponseBytes = TREE_SYNC_V2_LIMITS.capabilitiesDiscoveryBytes,
   ): Promise<TreeCapabilitiesResponseV2> {
     const body = await this.send<unknown>(endpoint(connection.serverUrl, '/sync/v2/capabilities'), {
       method: 'GET',
@@ -397,7 +444,9 @@ export class AgentWikiClient {
       counts = nextCounts;
       folders.push(...page.folders);
       pages.push(...page.pages);
-      if (folders.length + pages.length > negotiated.capabilities.maxClientSpacePages) {
+      if (folders.length > negotiated.capabilities.maxClientSpaceFolders
+        || pages.length > negotiated.capabilities.maxClientSpacePages
+        || folders.length + pages.length > negotiated.capabilities.maxSnapshotObjects) {
         throw new AgentWikiClientError('Snapshot exceeded the negotiated object limit', 502, 'RESPONSE_TOO_LARGE');
       }
       if (page.nextCursor !== null && cursors.has(page.nextCursor)) {
@@ -473,7 +522,7 @@ export class AgentWikiClient {
         identities.add(entityId);
         items.push(item);
       }
-      if (items.length > negotiated.capabilities.maxClientSpacePages * 2) {
+      if (items.length > negotiated.capabilities.maxChangeCount) {
         throw new AgentWikiClientError('Delta exceeded the negotiated object limit', 502, 'RESPONSE_TOO_LARGE');
       }
       if (page.nextCursor !== null && cursors.has(page.nextCursor)) {
@@ -521,7 +570,12 @@ export class AgentWikiClient {
         const createBody = {
           protocolVersion: '2' as const,
           baseRevision,
-          idempotencyKey: randomUUID(),
+          idempotencyKey: capabilityBoundIdempotencyKey(
+            spaceId,
+            baseRevision,
+            confirmationHash,
+            negotiated.capabilitiesHash,
+          ),
           capabilitiesHash: negotiated.capabilitiesHash,
           confirmationHash,
           confirmationByteLength,

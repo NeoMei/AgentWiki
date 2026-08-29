@@ -17,6 +17,9 @@ export const SYNC_PROTOCOL_V2 = "2" as const;
 export const TREE_SYNC_V2_LIMITS = {
   maxPushChanges: 100,
   maxDocumentTreeBytes: 2 * 1024 * 1024,
+  maxClientSpaceFolders: 10_000,
+  maxSnapshotObjects: 15_000,
+  capabilitiesDiscoveryBytes: 64 * 1024,
 } as const;
 
 export const TreeSyncCapabilitiesV2Schema = z.object({
@@ -26,6 +29,8 @@ export const TreeSyncCapabilitiesV2Schema = z.object({
   maxChangeCount: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxPushChanges),
   maxConfirmationBytes: z.number().int().positive(),
   maxClientSpacePages: z.number().int().positive(),
+  maxClientSpaceFolders: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxClientSpaceFolders),
+  maxSnapshotObjects: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxSnapshotObjects),
   maxClientManifestBytes: z.number().int().positive(),
   maxClientTotalBodyBytes: z.number().int().positive().max(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes),
   maxResponseBytes: z.number().int().positive(),

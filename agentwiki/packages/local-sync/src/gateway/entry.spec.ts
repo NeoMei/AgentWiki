@@ -8,14 +8,23 @@ import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { PublicLocalScanPlanSchema } from '../codegraph/contracts.js';
 import type { CodeGraphProvider } from '../codegraph/provider.js';
 import type { KnowledgeWorkflows } from './knowledge-workflows.js';
+import type { RemoteSync } from './knowledge-workflows.js';
+import type { KnowledgeBundle } from '../protocol/bundle.js';
 import { createGatewayServer } from './server.js';
 
 const construction = vi.hoisted(() => ({
   provider: undefined as unknown as CodeGraphProvider,
   pipeline: undefined as unknown as { plan: ReturnType<typeof vi.fn>; collect: ReturnType<typeof vi.fn> },
   workflows: undefined as unknown as KnowledgeWorkflows,
+  syncEngines: [] as Array<{
+    options: Record<string, unknown>;
+    pull: ReturnType<typeof vi.fn>;
+    push: ReturnType<typeof vi.fn>;
+    pullTreeV2: ReturnType<typeof vi.fn>;
+    pushTreeV2: ReturnType<typeof vi.fn>;
+  }>,
   pipelineInput: undefined as unknown as { home: string; provider: CodeGraphProvider },
-  runtimeInput: undefined as unknown as { scanSources?: unknown },
+  runtimeInput: undefined as unknown as { scanSources?: unknown; sync?: RemoteSync },
   createProvider: vi.fn(() => construction.provider),
   createPipeline: vi.fn(function (input: { home: string; provider: CodeGraphProvider }) { construction.pipelineInput = input; return construction.pipeline; }),
   createRuntime: vi.fn((input: { scanSources?: unknown }) => { construction.runtimeInput = input; return construction.workflows; }),
@@ -24,6 +33,18 @@ const construction = vi.hoisted(() => ({
 vi.mock('../codegraph/provider.js', () => ({ createCodeGraphProvider: construction.createProvider }));
 vi.mock('../codegraph/pipeline.js', () => ({ CodeGraphPipeline: construction.createPipeline }));
 vi.mock('./workflow-runtime.js', () => ({ createKnowledgeWorkflowRuntime: construction.createRuntime }));
+vi.mock('../sync/sync-engine.js', () => ({
+  SyncEngine: class {
+    pull = vi.fn(async () => { throw new Error('legacy pull must not run for a v2 credential'); });
+    push = vi.fn(async () => { throw new Error('legacy push must not run for a v2 credential'); });
+    pullTreeV2 = vi.fn(async () => ({ revisionId: 'rev-1', conflicts: [] }));
+    pushTreeV2 = vi.fn(async () => ({ revision: 'rev-2', status: 'published' }));
+
+    constructor(readonly options: Record<string, unknown>) {
+      construction.syncEngines.push(this);
+    }
+  },
+}));
 
 const { createGatewayEntry } = await import('./entry.js');
 
@@ -36,6 +57,7 @@ async function temporaryHome(): Promise<string> {
 }
 
 afterEach(async () => {
+  construction.syncEngines.splice(0);
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
 
@@ -103,5 +125,47 @@ describe('gateway entry', () => {
     expect(construction.pipelineInput.home).toBe(home);
     expect(construction.pipelineInput.provider).toBe(provider);
     expect(construction.runtimeInput.scanSources).toBe(pipeline);
+  });
+
+  it('routes a private device credential through the v2 tree pull and push path without legacy fallback', async () => {
+    const home = await temporaryHome();
+    await saveConfig(home, {
+      version: 1,
+      connections: {
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.6.1', client: 'codex', mcpName: 'agentwiki' },
+      },
+    });
+    await saveCredentials(home, {
+      version: 2,
+      credentials: { 'credential-1': { apiKey: 'agent-key-must-not-authorize-v2', syncDeviceCredential: 'private-device-token' } },
+    });
+    construction.provider = { identity: 'provider-instance' } as unknown as CodeGraphProvider;
+    construction.pipeline = {
+      plan: vi.fn(async () => null),
+      collect: vi.fn(async () => ({ artifacts: [], sourceKeys: [], processedFiles: 0, warnings: [] })),
+    };
+    construction.workflows = {
+      prepare: vi.fn(), confirmAndSync: vi.fn(), pull: vi.fn(),
+    } as unknown as KnowledgeWorkflows;
+    construction.syncEngines.splice(0);
+
+    await createGatewayEntry({ home, connectionId: 'primary' });
+    const remote = construction.runtimeInput.sync!;
+    const bundle: KnowledgeBundle = {
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'document-library@1', spaceId: 'space-1', baseRevision: 'rev-1',
+      pages: [], memories: [], relations: [], provenance: [], deletions: [],
+    };
+
+    await expect(remote.pull('space-1')).resolves.toEqual({ revisionId: 'rev-1' });
+    await expect(remote.push('space-1', bundle)).resolves.toMatchObject({ conflict: false, revisionId: 'rev-2', status: 'published' });
+
+    expect(construction.syncEngines).toHaveLength(2);
+    for (const engine of construction.syncEngines) {
+      expect(engine.options).toMatchObject({ apiKey: 'agent-key-must-not-authorize-v2', syncDeviceCredential: 'private-device-token' });
+      expect(engine.pull).not.toHaveBeenCalled();
+      expect(engine.push).not.toHaveBeenCalled();
+    }
+    expect(construction.syncEngines[0]!.pullTreeV2).toHaveBeenCalledTimes(1);
+    expect(construction.syncEngines[1]!.pushTreeV2).toHaveBeenCalledWith(bundle);
   });
 });

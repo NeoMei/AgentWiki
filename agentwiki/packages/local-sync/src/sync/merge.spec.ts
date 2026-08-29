@@ -189,4 +189,47 @@ describe('Folder-aware tree merge v2', () => {
     const result = mergeTreeManifestsV2(tree([folder('f1', 'One'), folder('f2', 'Two')]), tree(), tree(), [{ path: 'pages/Moved', empty: false, possibleFolderIds: ['f1', 'f2'] }]);
     expect(result.conflicts).toEqual([expect.objectContaining({ conflictKind: 'folder-identity-ambiguous' })]);
   });
+
+  it('recovers one missing Folder identity from unique descendant Page evidence', () => {
+    const base = tree([folder('f1', 'Before')]);
+    const result = mergeTreeManifestsV2(base, tree(), structuredClone(base), [{
+      path: 'pages/After',
+      empty: false,
+      possibleFolderIds: ['f1'],
+    }]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.manifest?.folders).toEqual([
+      expect.objectContaining({ folderId: 'f1', parentFolderId: null, name: 'After', path: 'pages/After' }),
+    ]);
+  });
+
+  it('keeps a genuinely new empty Folder with its proposed stable UUID', () => {
+    const proposedFolderId = '11111111-1111-4111-8111-111111111111';
+    const result = mergeTreeManifestsV2(tree(), tree(), tree(), [{
+      path: 'pages/New Empty',
+      empty: true,
+      possibleFolderIds: [],
+      proposedFolderId,
+    }]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.manifest?.folders).toEqual([
+      expect.objectContaining({ folderId: proposedFolderId, parentFolderId: null, name: 'New Empty', path: 'pages/New Empty' }),
+    ]);
+  });
+
+  it('does not guess between a new empty Folder and a renamed missing known empty Folder', () => {
+    const result = mergeTreeManifestsV2(tree([folder('known-empty', 'Before')]), tree(), tree(), [{
+      path: 'pages/New Empty',
+      empty: true,
+      possibleFolderIds: [],
+      proposedFolderId: '11111111-1111-4111-8111-111111111111',
+    }]);
+
+    expect(result.manifest).toBeNull();
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({ itemKind: 'folder', conflictKind: 'folder-identity-ambiguous' }),
+    ]);
+  });
 });

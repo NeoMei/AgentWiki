@@ -303,6 +303,8 @@ export interface UnidentifiedLocalFolderV2 {
   path: string;
   empty: boolean;
   possibleFolderIds: string[];
+  proposedFolderId?: string;
+  updatedAt?: string;
 }
 
 export interface TreeMergeResultV2 {
@@ -345,6 +347,77 @@ export function mergeTreeManifestsV2(
     id: canonicalHash({ itemKind, conflictKind, itemId, baseItem, localItem, remoteItem, conflictingFields }).slice(0, 16),
     itemId, itemKind, conflictKind, base: baseItem, local: localItem, remote: remoteItem, conflictingFields,
   });
+  const localFolders = [...local.folders];
+  const missingBaseFolders = new Map(
+    base.folders
+      .filter((folder) => !localFolders.some((candidate) => candidate.folderId === folder.folderId))
+      .map((folder) => [folder.folderId, folder]),
+  );
+  const claimedFolderIds = new Set<string>();
+  const pathFolderId = new Map(localFolders.map((folder) => [pathKey(folder.path), folder.folderId]));
+  const baseEmptyFolderIds = new Set(base.folders
+    .filter((folder) => !base.folders.some((child) => child.parentFolderId === folder.folderId)
+      && !base.pages.some((page) => page.folderId === folder.folderId))
+    .map((folder) => folder.folderId));
+  const parentFolderIdFor = (folderPath: string): string | null | undefined => {
+    const separator = folderPath.lastIndexOf('/');
+    const parentPath = separator < 0 ? '' : folderPath.slice(0, separator);
+    if (parentPath === 'pages') return null;
+    return pathFolderId.get(pathKey(parentPath));
+  };
+  for (const unknown of [...unidentifiedLocalFolders].sort((left, right) => {
+    const depth = left.path.split('/').length - right.path.split('/').length;
+    return depth || left.path.localeCompare(right.path);
+  })) {
+    const possibleFolderIds = [...new Set(unknown.possibleFolderIds)]
+      .filter((folderId) => missingBaseFolders.has(folderId) && !claimedFolderIds.has(folderId));
+    if (unknown.possibleFolderIds.length !== possibleFolderIds.length || possibleFolderIds.length > 1) {
+      conflict('folder', 'folder-identity-ambiguous', unknown.possibleFolderIds.join(',') || unknown.path, null, null, null, ['path']);
+      continue;
+    }
+    const parentFolderId = parentFolderIdFor(unknown.path);
+    if (parentFolderId === undefined) {
+      conflict('folder', 'folder-identity-ambiguous', unknown.path, null, null, null, ['parentFolderId', 'path']);
+      continue;
+    }
+    const name = unknown.path.slice(unknown.path.lastIndexOf('/') + 1);
+    if (possibleFolderIds.length === 1) {
+      const folderId = possibleFolderIds[0]!;
+      const previous = missingBaseFolders.get(folderId)!;
+      const recovered: SyncFolderV2 = {
+        ...previous,
+        parentFolderId,
+        name,
+        path: unknown.path,
+        ...(unknown.updatedAt ? { updatedAt: unknown.updatedAt } : {}),
+      };
+      localFolders.push(recovered);
+      pathFolderId.set(pathKey(recovered.path), folderId);
+      claimedFolderIds.add(folderId);
+      continue;
+    }
+    const unmatchedKnownEmpty = [...missingBaseFolders.keys()]
+      .some((folderId) => baseEmptyFolderIds.has(folderId) && !claimedFolderIds.has(folderId));
+    if (!unknown.proposedFolderId || (unknown.empty && unmatchedKnownEmpty)) {
+      conflict('folder', 'folder-identity-ambiguous', unknown.path, null, null, null, ['path']);
+      continue;
+    }
+    if (localFolders.some((folder) => folder.folderId === unknown.proposedFolderId)
+      || pathFolderId.has(pathKey(unknown.path))) {
+      conflict('folder', 'folder-identity-ambiguous', unknown.proposedFolderId, null, null, null, ['folderId', 'path']);
+      continue;
+    }
+    const created: SyncFolderV2 = {
+      folderId: unknown.proposedFolderId,
+      parentFolderId,
+      name,
+      path: unknown.path,
+      sortOrder: 0,
+      updatedAt: unknown.updatedAt ?? '1970-01-01T00:00:00.000Z',
+    };
+    localFolders.push(created);
+    pathFolderId.set(pathKey(created.path), created.folderId);
+  }
   const mergeKind = <T extends SyncFolderV2 | SyncPageV2>(
     itemKind: 'folder' | 'page', idOf: (item: T) => string, baseItems: T[], localItems: T[], remoteItems: T[],
   ): T[] => {
@@ -373,10 +446,10 @@ export function mergeTreeManifestsV2(
     }
     return merged;
   };
-  const folders = mergeKind('folder', (item) => item.folderId, base.folders, local.folders, remote.folders);
+  const folders = mergeKind('folder', (item) => item.folderId, base.folders, localFolders, remote.folders);
   const pages = mergeKind('page', (item) => item.pageId, base.pages, local.pages, remote.pages);
   const baseFolderIds = new Set(base.folders.map((item) => item.folderId));
-  const localNew = local.folders.filter((item) => !baseFolderIds.has(item.folderId));
+  const localNew = localFolders.filter((item) => !baseFolderIds.has(item.folderId));
   const remoteNew = remote.folders.filter((item) => !baseFolderIds.has(item.folderId));
   for (const left of localNew) for (const right of remoteNew) {
     if (left.folderId !== right.folderId && pathKey(left.path) === pathKey(right.path)) {
@@ -384,22 +457,16 @@ export function mergeTreeManifestsV2(
     }
   }
   for (const parent of base.folders) {
-    const localDeleted = !local.folders.some((folder) => folder.folderId === parent.folderId);
+    const localDeleted = !localFolders.some((folder) => folder.folderId === parent.folderId);
     const remoteDeleted = !remote.folders.some((folder) => folder.folderId === parent.folderId);
     const remoteChildAdded = remote.folders.some((folder) => !baseFolderIds.has(folder.folderId) && folder.parentFolderId === parent.folderId)
       || remote.pages.some((page) => !base.pages.some((basePage) => basePage.pageId === page.pageId) && page.folderId === parent.folderId);
-    const localChildAdded = local.folders.some((folder) => !baseFolderIds.has(folder.folderId) && folder.parentFolderId === parent.folderId)
+    const localChildAdded = localFolders.some((folder) => !baseFolderIds.has(folder.folderId) && folder.parentFolderId === parent.folderId)
       || local.pages.some((page) => !base.pages.some((basePage) => basePage.pageId === page.pageId) && page.folderId === parent.folderId);
     if ((localDeleted && remoteChildAdded) || (remoteDeleted && localChildAdded)) {
       conflict('folder', 'folder-parent-delete-child-add', parent.folderId, parent,
-        local.folders.find((folder) => folder.folderId === parent.folderId) ?? null,
+        localFolders.find((folder) => folder.folderId === parent.folderId) ?? null,
         remote.folders.find((folder) => folder.folderId === parent.folderId) ?? null);
-    }
-  }
-  const missingFolderIds = base.folders.filter((folder) => !local.folders.some((candidate) => candidate.folderId === folder.folderId));
-  for (const unknown of unidentifiedLocalFolders) {
-    if (unknown.possibleFolderIds.length > 1 || (unknown.empty && missingFolderIds.length > 0)) {
-      conflict('folder', 'folder-identity-ambiguous', unknown.possibleFolderIds.join(',') || unknown.path, null, null, null, ['path']);
     }
   }
   if (conflicts.length > 0) return { manifest: null, conflicts };

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SyncEngine, SyncError } from './sync-engine.js';
@@ -9,6 +9,17 @@ import type { KnowledgeBundle, WikiPage } from '../protocol/bundle.js';
 import type { RevisionHead, RevisionSnapshot, KnowledgeSubmissionResult } from '../agentwiki-client.js';
 import { workspacePaths } from '../workspace/layout.js';
 import { contentHash } from '../utils/hash.js';
+import {
+  applyFolderTreeTransactionV2,
+  ensureWorkspace,
+  initManifest,
+  readBase,
+  readFolderIdentityStateV2,
+  writeBase,
+  writeFolderIdentityStateV2,
+  writeManifest,
+} from '../workspace/state.js';
+import { contentHash as treePageContentHash, treeRevisionContentHashV2, type TreeRevisionContentManifestV2 } from '@neomei/agentwiki-sync-protocol';
 
 function makeBundle(overrides: Partial<KnowledgeBundle> = {}): KnowledgeBundle {
   return {
@@ -160,13 +171,14 @@ describe('SyncEngine', () => {
       folders: [{ folderId: 'f1', parentFolderId: null, name: 'Folder', path: 'pages/Folder', sortOrder: 0, updatedAt }],
       pages: [{ pageId: 'p1', folderId: 'f1', path: 'pages/Folder/Page.md', title: 'Page', body: 'Hello', contentHash: contentHash('Hello'), updatedAt }],
     };
+    const remoteTreeHash = await treeRevisionContentHashV2(remoteTree);
     const v2Client = {
       getRevisionHead: async () => { throw new AgentWikiClientError('upgrade', 409, 'SYNC_PROTOCOL_UPGRADE_REQUIRED'); },
       getTreeRevisionHeadV2: async () => ({
         protocolVersion: '2', spaceId: 'space-1', revision: 'rev-2', sequence: 2,
-        revisionContentHash: 'a'.repeat(64), folderCount: '1', pageCount: '1', revisionManifestByteLength: '1', revisionBodyBytes: '5', publishedAt: updatedAt,
+        revisionContentHash: remoteTreeHash, folderCount: '1', pageCount: '1', revisionManifestByteLength: '1', revisionBodyBytes: '5', publishedAt: updatedAt,
       }),
-      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash: 'a'.repeat(64), manifest: remoteTree }),
+      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash: remoteTreeHash, manifest: remoteTree }),
     } as unknown as AgentWikiClient;
     const engine = new SyncEngine({
       connection, apiKey: 'agk_must-not-be-used-for-v2', syncDeviceCredential: 'device-secret',
@@ -177,6 +189,182 @@ describe('SyncEngine', () => {
 
     expect(result.updated).toBe(true);
     expect(await import('node:fs/promises').then(({ readFile }) => readFile(join(workspacePaths(tempHome, 'space-1').pagesDir, 'Folder', 'Page.md'), 'utf8'))).toBe('Hello');
+  });
+
+  it('fails closed instead of declaring a v2 no-op when its private base binding is missing', async () => {
+    const paths = workspacePaths(tempHome, 'space-1');
+    await ensureWorkspace(paths);
+    await initManifest(paths, 'space-1');
+    await import('../workspace/state.js').then(({ writeFolderIdentityStateV2 }) => writeFolderIdentityStateV2(paths, {
+      schemaVersion: 2, spaceId: 'space-1', revision: 'rev-1', folders: {},
+    }));
+    const client = {
+      getTreeRevisionHeadV2: async () => ({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-1', sequence: 1,
+        revisionContentHash: 'a'.repeat(64), folderCount: '0', pageCount: '0', revisionManifestByteLength: '1', revisionBodyBytes: '0', publishedAt: '2026-08-29T00:00:00.000Z',
+      }),
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    });
+
+    await expect(engine.pullTreeV2()).rejects.toMatchObject({ code: 'V2_CONTROL_STATE_INVALID' });
+  });
+
+  it('recovers a renamed Folder from one stable descendant Page and keeps the rename pending locally', async () => {
+    const paths = workspacePaths(tempHome, 'space-1');
+    await ensureWorkspace(paths);
+    const localManifest = await initManifest(paths, 'space-1', '2026-08-29T00:00:00.000Z');
+    const body = '# Stable descendant\n';
+    const baseTree: TreeRevisionContentManifestV2 = {
+      protocolVersion: '2', spaceId: 'space-1',
+      folders: [{ folderId: 'f1', parentFolderId: null, name: 'Before', path: 'pages/Before', sortOrder: 0, updatedAt: '2026-08-29T00:00:00.000Z' }],
+      pages: [{ pageId: 'p1', folderId: 'f1', path: 'pages/Before/Page.md', title: 'Page', body, contentHash: await treePageContentHash(body), updatedAt: '2026-08-29T00:00:00.000Z' }],
+    };
+    await applyFolderTreeTransactionV2(paths, { protocolVersion: '2', spaceId: 'space-1', folders: [], pages: [] }, baseTree, {
+      schemaVersion: 2, spaceId: 'space-1', revision: '0', folders: {},
+    }, { revision: 'rev-1' });
+    const rev1Hash = await treeRevisionContentHashV2(baseTree);
+    await writeBase(paths, 'rev-1', baseTree);
+    await writeManifest(paths, {
+      ...localManifest,
+      baseRevision: { revision: 'rev-1', pulledAt: '2026-08-29T00:00:00.000Z', contentHash: rev1Hash },
+      updatedAt: '2026-08-29T00:00:00.000Z',
+    });
+    await rename(join(paths.pagesDir, 'Before'), join(paths.pagesDir, 'After'));
+    const rev2Hash = await treeRevisionContentHashV2(baseTree);
+    const client = {
+      getTreeRevisionHeadV2: async () => ({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-2', sequence: 2,
+        revisionContentHash: rev2Hash, folderCount: '1', pageCount: '1', revisionManifestByteLength: '1', revisionBodyBytes: String(Buffer.byteLength(body)), publishedAt: '2026-08-29T00:00:00.000Z',
+      }),
+      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash: rev2Hash, manifest: baseTree }),
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    });
+
+    await expect(engine.pullTreeV2()).resolves.toMatchObject({ updated: true, revisionId: 'rev-2', conflicts: [] });
+    expect(await readFolderIdentityStateV2(paths)).toMatchObject({ revision: 'rev-2', folders: { f1: { path: 'pages/After' } } });
+    expect(await readBase(paths, 'rev-2')).toEqual(baseTree);
+  });
+
+  it.each([0, 2])('rejects an externally moved Page with %i stable identity candidates', async (candidateCount) => {
+    const paths = workspacePaths(tempHome, 'space-1');
+    await ensureWorkspace(paths);
+    const timestamp = '2026-08-29T00:00:00.000Z';
+    const localManifest = await initManifest(paths, 'space-1', timestamp);
+    const matchingBody = '# Same body\n';
+    const matchingHash = await treePageContentHash(matchingBody);
+    const baseTree: TreeRevisionContentManifestV2 = {
+      protocolVersion: '2',
+      spaceId: 'space-1',
+      folders: Array.from({ length: Math.max(candidateCount, 1) }, (_, index) => ({
+        folderId: `f${index + 1}`,
+        parentFolderId: null,
+        name: `Before ${index + 1}`,
+        path: `pages/Before ${index + 1}`,
+        sortOrder: 0,
+        updatedAt: timestamp,
+      })),
+      pages: Array.from({ length: Math.max(candidateCount, 1) }, (_, index) => ({
+        pageId: `p${index + 1}`,
+        folderId: `f${index + 1}`,
+        path: `pages/Before ${index + 1}/Page.md`,
+        title: 'Page',
+        body: matchingBody,
+        contentHash: matchingHash,
+        updatedAt: timestamp,
+      })),
+    };
+    await applyFolderTreeTransactionV2(paths, { protocolVersion: '2', spaceId: 'space-1', folders: [], pages: [] }, baseTree, {
+      schemaVersion: 2, spaceId: 'space-1', revision: '0', folders: {},
+    }, { revision: 'rev-1' });
+    const rev1Hash = await treeRevisionContentHashV2(baseTree);
+    await writeBase(paths, 'rev-1', baseTree);
+    await writeManifest(paths, {
+      ...localManifest,
+      baseRevision: { revision: 'rev-1', pulledAt: timestamp, contentHash: rev1Hash },
+      updatedAt: timestamp,
+    });
+    for (const folder of baseTree.folders) {
+      await rm(join(paths.pagesDir, folder.name), { recursive: true });
+    }
+    await mkdir(join(paths.pagesDir, 'After'));
+    await writeFile(join(paths.pagesDir, 'After', 'Page.md'), candidateCount === 0 ? '# No match\n' : matchingBody);
+    const client = {
+      getTreeRevisionHeadV2: async () => ({
+        protocolVersion: '2', spaceId: 'space-1', revision: 'rev-2', sequence: 2,
+        revisionContentHash: rev1Hash, folderCount: String(baseTree.folders.length), pageCount: String(baseTree.pages.length),
+        revisionManifestByteLength: '1', revisionBodyBytes: '1', publishedAt: timestamp,
+      }),
+      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash: rev1Hash, manifest: baseTree }),
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    });
+
+    await expect(engine.pullTreeV2()).rejects.toMatchObject({
+      code: 'PAGE_IDENTITY_AMBIGUOUS',
+      message: expect.stringContaining(`${candidateCount} stable identity matches`),
+    });
+  });
+
+  it('assigns a UUID to a new empty local Folder and publishes it as an upsert without flattening', async () => {
+    const paths = workspacePaths(tempHome, 'space-1');
+    await ensureWorkspace(paths);
+    const initialManifest = await initManifest(paths, 'space-1', '2026-08-29T00:00:00.000Z');
+    const emptyTree: TreeRevisionContentManifestV2 = { protocolVersion: '2', spaceId: 'space-1', folders: [], pages: [] };
+    const rev1Hash = await treeRevisionContentHashV2(emptyTree);
+    await writeBase(paths, 'rev-1', emptyTree);
+    await writeFolderIdentityStateV2(paths, { schemaVersion: 2, spaceId: 'space-1', revision: 'rev-1', folders: {} });
+    await writeManifest(paths, {
+      ...initialManifest,
+      baseRevision: { revision: 'rev-1', pulledAt: '2026-08-29T00:00:00.000Z', contentHash: rev1Hash },
+      updatedAt: '2026-08-29T00:00:00.000Z',
+    });
+    await mkdir(join(paths.pagesDir, 'New Empty'));
+    let published = emptyTree;
+    let pushedChanges: import('@neomei/agentwiki-sync-protocol').TreePushChangeV2[] = [];
+    let revisionContentHash = rev1Hash;
+    const client = {
+      pushTreeChangesV2: async (_connection: unknown, credential: string, spaceId: string, baseRevision: string, changes: import('@neomei/agentwiki-sync-protocol').TreePushChangeV2[]) => {
+        expect(credential).toBe('private-device-token');
+        expect(spaceId).toBe('space-1');
+        expect(baseRevision).toBe('rev-1');
+        pushedChanges = changes;
+        published = {
+          protocolVersion: '2', spaceId: 'space-1', pages: [],
+          folders: changes.filter((change) => change.operation === 'upsert_folder').map((change) => change.folder),
+        };
+        revisionContentHash = await treeRevisionContentHashV2(published);
+        return { protocolVersion: '2', status: 'published', revision: 'rev-2', sequence: 2, publishedAt: '2026-08-29T00:00:00.000Z', revisionContentHash, folderCount: '1', pageCount: '0', revisionManifestByteLength: '1', revisionBodyBytes: '0', changeSetId: null };
+      },
+      getTreeSnapshotV2: async () => ({ revision: 'rev-2', sequence: 2, revisionContentHash, manifest: published }),
+    } as unknown as AgentWikiClient;
+    const engine = new SyncEngine({
+      connection, apiKey: 'agent-key-must-not-be-used', syncDeviceCredential: 'private-device-token',
+      client, home: tempHome, spaceId: 'space-1',
+    });
+    const bundle = makeBundle({ spaceId: 'space-1', baseRevision: 'rev-1' });
+
+    await expect(engine.pushTreeV2(bundle)).resolves.toEqual({ revision: 'rev-2', status: 'published' });
+
+    expect(pushedChanges).toEqual([
+      expect.objectContaining({
+        operation: 'upsert_folder',
+        folder: expect.objectContaining({
+          folderId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u),
+          parentFolderId: null,
+          path: 'pages/New Empty',
+        }),
+      }),
+    ]);
+    expect(await readBase(paths, 'rev-2')).toEqual(published);
+    expect(await readFolderIdentityStateV2(paths)).toMatchObject({ revision: 'rev-2' });
   });
 
   it('pull is noop when local base revision matches remote head', async () => {

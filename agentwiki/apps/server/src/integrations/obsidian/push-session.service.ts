@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client';
 import {
   batchHash,
   canonicalBytes,
-  capabilitiesHash,
   comparePushChanges,
   confirmationHash,
   contentHash,
@@ -12,7 +11,6 @@ import {
   pathKey,
   treeBatchHashV2,
   treeConfirmationHashV2,
-  TREE_SYNC_V2_LIMITS,
   TreePushChangeV2Schema,
   type PushBatch,
   type PushConfirmationManifest,
@@ -24,7 +22,8 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
-import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
+import { ObsidianCryptoService } from './obsidian-crypto.service';
 import type { StructuralPageChange } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SearchService } from '../../core/search/search.service';
@@ -91,6 +90,7 @@ export class PushSessionService {
     private readonly search: SearchService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly graphMaintenance?: GraphMaintenance,
+    @Optional() private readonly syncCapabilities?: SyncCapabilitiesService,
   ) {}
 
   async create(principal: HumanDevicePrincipal, spaceId: string, input: {
@@ -102,11 +102,12 @@ export class PushSessionService {
     changeCount: number;
     totalBodyBytes: number;
   }) {
-    if (input.changeCount > 5_000) {
-      throw new SyncApiException('BATCH_TOO_LARGE', 'changeCount exceeds the maximum of 5000');
+    const capabilities = await this.capabilities();
+    if (input.changeCount > capabilities.maxClientSpacePages) {
+      throw new SyncApiException('BATCH_TOO_LARGE', `changeCount exceeds the maximum of ${capabilities.maxClientSpacePages}`);
     }
-    if (input.confirmationByteLength > 4_194_304) {
-      throw new SyncApiException('BATCH_TOO_LARGE', 'confirmationByteLength exceeds 4 MiB');
+    if (input.confirmationByteLength > capabilities.maxConfirmationBytes) {
+      throw new SyncApiException('BATCH_TOO_LARGE', 'confirmationByteLength exceeds the negotiated limit');
     }
     if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
       throw new SyncApiException('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
@@ -180,11 +181,14 @@ export class PushSessionService {
     changeCount: number;
     totalBodyBytes: number;
   }) {
-    if (input.changeCount > 100) throw this.v2Error('BATCH_TOO_LARGE', 'changeCount exceeds the maximum of 100');
-    if (input.confirmationByteLength > 4_194_304) {
-      throw this.v2Error('BATCH_TOO_LARGE', 'confirmationByteLength exceeds 4 MiB');
+    const capabilities = this.capabilitiesV2();
+    if (input.changeCount > capabilities.maxChangeCount) {
+      throw this.v2Error('BATCH_TOO_LARGE', `changeCount exceeds the maximum of ${capabilities.maxChangeCount}`);
     }
-    if (input.totalBodyBytes > TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes) {
+    if (input.confirmationByteLength > capabilities.maxConfirmationBytes) {
+      throw this.v2Error('BATCH_TOO_LARGE', 'confirmationByteLength exceeds the negotiated limit');
+    }
+    if (input.totalBodyBytes > capabilities.maxClientTotalBodyBytes) {
       throw this.v2Error('SPACE_TOO_LARGE', 'totalBodyBytes exceeds the v2 document-tree limit');
     }
     if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
@@ -283,10 +287,11 @@ export class PushSessionService {
       if (batch.changes.length === 0) {
         throw new SyncApiException('PAYLOAD_INVALID', 'Batch cannot be empty');
       }
-      if (batch.changes.length > DEFAULT_SYNC_CAPABILITIES.maxBatchItems) {
+      const capabilities = await this.capabilities();
+      if (batch.changes.length > capabilities.maxBatchItems) {
         throw new SyncApiException('BATCH_TOO_LARGE', 'Batch exceeds maxBatchItems');
       }
-      if (canonicalBytes(batch).byteLength > DEFAULT_SYNC_CAPABILITIES.maxBatchBytes) {
+      if (canonicalBytes(batch).byteLength > capabilities.maxBatchBytes) {
         throw new SyncApiException('BATCH_TOO_LARGE', 'Batch exceeds maxBatchBytes');
       }
       let bodyBytes = 0;
@@ -297,7 +302,7 @@ export class PushSessionService {
           throw new SyncApiException('PAYLOAD_INVALID', 'Page body must not begin with U+FEFF');
         }
         const pageBytes = new TextEncoder().encode(normalizedBody).byteLength;
-        if (pageBytes > DEFAULT_SYNC_CAPABILITIES.maxPageBytes) {
+        if (pageBytes > capabilities.maxPageBytes) {
           throw new SyncApiException('PAGE_TOO_LARGE', 'Page exceeds maxPageBytes');
         }
         bodyBytes += pageBytes;
@@ -1001,24 +1006,23 @@ export class PushSessionService {
     );
   }
   private async capabilities(): Promise<SyncCapabilities> {
-    return { ...DEFAULT_SYNC_CAPABILITIES };
+    return this.capabilityService().capabilities();
   }
 
   private async capabilityHash(): Promise<string> {
-    return capabilitiesHash(DEFAULT_SYNC_CAPABILITIES);
+    return this.capabilityService().hash();
   }
 
   private capabilitiesV2(): SyncCapabilities {
-    return {
-      ...DEFAULT_SYNC_CAPABILITIES,
-      maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
-      maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
-      maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
-    };
+    return this.capabilityService().capabilitiesV2();
   }
 
   private async capabilityHashV2(): Promise<string> {
-    return capabilitiesHash(this.capabilitiesV2());
+    return this.capabilityService().hashV2();
+  }
+
+  private capabilityService(): SyncCapabilitiesService {
+    return this.syncCapabilities ?? new SyncCapabilitiesService(this.prisma);
   }
 
   private assertV1Session(session: { protocolVersion?: string | null }): void {
@@ -1053,8 +1057,11 @@ export class PushSessionService {
   }
 
   private async assertV2Session(session: { protocolVersion?: string | null; capabilitiesHash?: string | null }) {
-    if (session.protocolVersion !== '2' || session.capabilitiesHash !== await this.capabilityHashV2()) {
+    if (session.protocolVersion !== '2') {
       throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
+    }
+    if (session.capabilitiesHash !== await this.capabilityHashV2()) {
+      throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
     }
   }
 
