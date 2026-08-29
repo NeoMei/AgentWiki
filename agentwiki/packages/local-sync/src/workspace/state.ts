@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants, existsSync } from 'node:fs';
-import { link, lstat, mkdir, open, readFile, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
   canonicalTreeRevisionManifestV2,
@@ -243,18 +243,28 @@ type FolderTreeOperationV2 =
   | { kind: 'mkdir'; path: string }
   | { kind: 'link'; from: string; to: string }
   | { kind: 'write'; path: string; before: null; after: string }
-  | { kind: 'unlink'; path: string; before: string }
-  | { kind: 'rmdir'; path: string };
+  | { kind: 'unlink'; path: string; before: string };
+
+interface FolderTreeDirectoryCleanupV2 {
+  kind: 'remove' | 'rename-case';
+  path: string;
+  target?: string;
+  dev?: string;
+  ino?: string;
+}
 
 interface FolderTreeJournalV2 {
   schemaVersion: 2;
   spaceId: string;
   revision: string;
-  phase: 'applying' | 'committing' | 'committed' | 'rolling-back';
+  phase: 'applying' | 'committing' | 'committed-cleanup' | 'committed' | 'rolling-back';
   nextOperation: number;
   rollbackNextOperation?: number;
+  cleanupNextOperation?: number;
   operations: FolderTreeOperationV2[];
   operationStates?: FolderTreeOperationStateV2[];
+  directoryCleanup?: FolderTreeDirectoryCleanupV2[];
+  rollbackArtifactRoot?: RollbackArtifactRootV2;
   rootIdentity?: { dev: string; ino: string };
   finalState: FolderIdentityStateV2;
   finalTree?: TreeRevisionContentManifestV2;
@@ -284,10 +294,24 @@ interface RollbackArtifactV2 {
   status: 'prepared' | 'ambiguous';
   source: string;
   target: string;
-  kind: 'file' | 'directory';
+  kind: 'file';
   dev: string;
   ino: string;
 }
+
+interface PlannedRollbackArtifactRootV2 {
+  status: 'planned';
+  source: string;
+}
+
+interface IdentifiedRollbackArtifactRootV2 {
+  status: 'active' | 'garbage';
+  source: string;
+  dev: string;
+  ino: string;
+}
+
+type RollbackArtifactRootV2 = PlannedRollbackArtifactRootV2 | IdentifiedRollbackArtifactRootV2;
 
 export interface FolderTreeTransactionOptionsV2 {
   revision: string;
@@ -460,7 +484,7 @@ function assertRollbackTransition(
   expectedBefore: PersistedPathIdentityV2[],
   rollbackAfter: PersistedPathIdentityV2[],
 ): void {
-  const recreatesIdentity = operation.kind === 'unlink' || operation.kind === 'rmdir';
+  const recreatesIdentity = operation.kind === 'unlink';
   if (recreatesIdentity ? !samePathKinds(rollbackAfter, expectedBefore) : !samePathIdentities(rollbackAfter, expectedBefore)) {
     throw new TypeError('Folder transaction rollback produced an invalid path transition');
   }
@@ -514,7 +538,7 @@ function assertOperationTransition(
     if (before[0]?.kind !== 'file' || after[0]?.kind !== 'missing') invalid();
     return;
   }
-  if (before[0]?.kind !== 'directory' || after[0]?.kind !== 'missing') invalid();
+  invalid();
 }
 
 async function assertJournalRootIdentity(paths: SpaceWorkspacePaths, journal: FolderTreeJournalV2): Promise<void> {
@@ -615,8 +639,9 @@ async function buildFolderTreeOperationsV2(
   paths: SpaceWorkspacePaths,
   base: TreeRevisionContentManifestV2,
   target: TreeRevisionContentManifestV2,
-): Promise<FolderTreeOperationV2[]> {
+): Promise<{ operations: FolderTreeOperationV2[]; directoryCleanup: FolderTreeDirectoryCleanupV2[] }> {
   const operations: FolderTreeOperationV2[] = [];
+  const directoryCleanup: FolderTreeDirectoryCleanupV2[] = [];
   const baseFolders = new Map(base.folders.map((folder) => [folder.folderId, folder]));
   const targetFolders = new Map(target.folders.map((folder) => [folder.folderId, folder]));
   const basePages = new Map(base.pages.map((page) => [page.pageId, page]));
@@ -629,7 +654,11 @@ async function buildFolderTreeOperationsV2(
     const before = baseFolders.get(folder.folderId);
     return !before || before.path !== folder.path;
   }).sort((left, right) => depth(left.path) - depth(right.path) || left.path.localeCompare(right.path));
-  const removableFolderPathKeys = new Set(foldersToRemove.map((folder) => pathKey(folder.path)));
+  const baseFoldersByPath = new Map(base.folders.map((folder) => [folder.path, folder]));
+  const baseFoldersByPathKey = new Map(base.folders.map((folder) => [pathKey(folder.path), folder]));
+  const targetFolderPaths = new Set(target.folders.map((folder) => folder.path));
+  const caseRenameSources = new Set<string>();
+  const foldersToMaterialize: typeof foldersToCreate = [];
 
   for (const folder of foldersToRemove) {
     const source = localRelativePath(folder.path, 'folder');
@@ -640,9 +669,32 @@ async function buildFolderTreeOperationsV2(
   for (const folder of foldersToCreate) {
     const destination = localRelativePath(folder.path, 'folder');
     const occupied = await managedPathKind(paths.pagesDir, destination);
-    if (occupied !== 'missing' && !(occupied === 'directory' && removableFolderPathKeys.has(pathKey(folder.path)))) {
+    if (occupied === 'missing') {
+      foldersToMaterialize.push(folder);
+      continue;
+    }
+    if (occupied !== 'directory') throw new TypeError(`Unknown Folder already occupies destination: ${folder.path}`);
+    if (baseFoldersByPath.has(folder.path)) continue;
+    const caseEquivalent = baseFoldersByPathKey.get(pathKey(folder.path));
+    if (!caseEquivalent || caseEquivalent.path === folder.path) {
       throw new TypeError(`Unknown Folder already occupies destination: ${folder.path}`);
     }
+    const sourceIdentity = await capturePathIdentity(paths.pagesDir, localRelativePath(caseEquivalent.path, 'folder'));
+    const targetIdentity = await capturePathIdentity(paths.pagesDir, destination);
+    if (sourceIdentity.kind !== 'directory' || targetIdentity.kind !== 'directory'
+      || sourceIdentity.dev !== targetIdentity.dev || sourceIdentity.ino !== targetIdentity.ino) {
+      throw new TypeError(`Unknown Folder already occupies destination: ${folder.path}`);
+    }
+    caseRenameSources.add(caseEquivalent.path);
+    directoryCleanup.push({
+      kind: 'rename-case',
+      path: localRelativePath(caseEquivalent.path, 'folder'),
+      target: destination,
+    });
+  }
+  for (const folder of foldersToRemove) {
+    if (targetFolderPaths.has(folder.path) || caseRenameSources.has(folder.path)) continue;
+    directoryCleanup.push({ kind: 'remove', path: localRelativePath(folder.path, 'folder') });
   }
 
   const stagedPages = new Map<string, { path: string; body: string }>();
@@ -668,7 +720,7 @@ async function buildFolderTreeOperationsV2(
     }
   }
 
-  const needsStagingContainer = pagesNeedingStage.length > 0 || foldersToRemove.length > 0 || foldersToCreate.length > 0;
+  const needsStagingContainer = pagesNeedingStage.length > 0;
   const stagingDirectory = `AgentWiki Rename ${randomUUID().slice(0, 8)}`;
   if (needsStagingContainer) {
     if (await managedPathKind(paths.pagesDir, stagingDirectory) !== 'missing') {
@@ -684,10 +736,7 @@ async function buildFolderTreeOperationsV2(
     operations.push({ kind: 'unlink', path: page.path, before: page.body });
   }
 
-  for (const folder of foldersToRemove) {
-    operations.push({ kind: 'rmdir', path: localRelativePath(folder.path, 'folder') });
-  }
-  for (const folder of foldersToCreate) {
+  for (const folder of foldersToMaterialize) {
     operations.push({ kind: 'mkdir', path: localRelativePath(folder.path, 'folder') });
   }
 
@@ -709,8 +758,9 @@ async function buildFolderTreeOperationsV2(
       operations.push({ kind: 'unlink', path: staged.path, before: staged.body });
     }
   }
-  if (needsStagingContainer) operations.push({ kind: 'rmdir', path: stagingDirectory });
-  return operations;
+  if (needsStagingContainer) directoryCleanup.push({ kind: 'remove', path: stagingDirectory });
+  directoryCleanup.sort((left, right) => depth(right.path) - depth(left.path) || right.path.localeCompare(left.path));
+  return { operations, directoryCleanup };
 }
 
 async function executeOperation(
@@ -764,9 +814,6 @@ async function executeOperation(
     await fsyncDirectory(dirname(localPath(root, operation.path)));
     return;
   }
-  await checkedPath(root, operation.path, false, options);
-  await rmdir(localPath(root, operation.path));
-  await fsyncDirectory(dirname(localPath(root, operation.path)));
 }
 
 async function reverseOperationWithoutArtifact(
@@ -803,18 +850,36 @@ async function reverseOperationWithoutArtifact(
 
 function rollbackArtifactKind(operation: FolderTreeOperationV2): RollbackArtifactV2['kind'] | null {
   if (operation.kind === 'unlink') return 'file';
-  if (operation.kind === 'rmdir') return 'directory';
   return null;
 }
 
-function assertRollbackArtifactSource(source: string): void {
-  if (!/^folder-tree-rollback-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(source)) {
+const ROLLBACK_ROOT_PATTERN = /^folder-tree-rollback-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const ROLLBACK_ARTIFACT_PATTERN = /^artifact-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function assertRollbackArtifactRootSource(source: string): void {
+  if (!ROLLBACK_ROOT_PATTERN.test(source)) {
+    throw new TypeError('Folder transaction rollback artifact root is invalid');
+  }
+}
+
+function assertRollbackArtifactSource(source: string, root: RollbackArtifactRootV2): void {
+  const parts = source.split('/');
+  if (parts.length !== 2 || parts[0] !== root.source || !ROLLBACK_ARTIFACT_PATTERN.test(parts[1]!)) {
     throw new TypeError('Folder transaction rollback artifact source is invalid');
   }
 }
 
-function rollbackArtifactPath(paths: SpaceWorkspacePaths, artifact: RollbackArtifactV2): string {
-  assertRollbackArtifactSource(artifact.source);
+function rollbackArtifactRootPath(paths: SpaceWorkspacePaths, root: RollbackArtifactRootV2): string {
+  assertRollbackArtifactRootSource(root.source);
+  return join(paths.runtimeDir, root.source);
+}
+
+function rollbackArtifactPath(
+  paths: SpaceWorkspacePaths,
+  artifact: RollbackArtifactV2,
+  root: RollbackArtifactRootV2,
+): string {
+  assertRollbackArtifactSource(artifact.source, root);
   return join(paths.runtimeDir, artifact.source);
 }
 
@@ -825,17 +890,104 @@ async function assertPrivateRuntimeRoot(paths: SpaceWorkspacePaths): Promise<voi
   }
 }
 
+async function requirePrivateRollbackRoot(
+  paths: SpaceWorkspacePaths,
+  root: IdentifiedRollbackArtifactRootV2,
+): Promise<void> {
+  await assertPrivateRuntimeRoot(paths);
+  let entry;
+  try { entry = await lstat(rollbackArtifactRootPath(paths, root), { bigint: true }); }
+  catch (error) {
+    if (missing(error)) {
+      throw new TypeError(`Folder transaction private rollback root is missing: ${root.source}`, { cause: error });
+    }
+    throw error;
+  }
+  if (entry.isSymbolicLink() || !entry.isDirectory()
+    || entry.dev.toString() !== root.dev || entry.ino.toString() !== root.ino) {
+    throw new TypeError(`Folder transaction private rollback root was replaced; journal preserved at ${root.source}`);
+  }
+}
+
+async function ensurePrivateRollbackRoot(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<IdentifiedRollbackArtifactRootV2> {
+  if (journal.rollbackArtifactRoot) {
+    if (journal.rollbackArtifactRoot.status === 'active') {
+      await requirePrivateRollbackRoot(paths, journal.rollbackArtifactRoot);
+      return journal.rollbackArtifactRoot;
+    }
+    if (journal.rollbackArtifactRoot.status === 'garbage') {
+      throw new TypeError('Folder transaction rollback artifact root is already garbage');
+    }
+    await assertPrivateRuntimeRoot(paths);
+    const plannedPath = rollbackArtifactRootPath(paths, journal.rollbackArtifactRoot);
+    try {
+      await lstat(plannedPath);
+      throw new TypeError(
+        `Folder transaction private rollback root has an unidentified inode; journal preserved at ${journal.rollbackArtifactRoot.source}`,
+      );
+    } catch (error) {
+      if (!missing(error)) throw error;
+    }
+  } else {
+    journal.rollbackArtifactRoot = { status: 'planned', source: `folder-tree-rollback-${randomUUID()}` };
+    await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    await options?.onCheckpoint?.('rollback-root:planned');
+  }
+  await assertPrivateRuntimeRoot(paths);
+  const source = journal.rollbackArtifactRoot.source;
+  const absolute = join(paths.runtimeDir, source);
+  try {
+    await mkdir(absolute, { recursive: false, mode: 0o700 });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') {
+      throw new TypeError(
+        `Folder transaction private rollback root appeared before creation; journal preserved at ${source}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  await fsyncDirectory(absolute);
+  await fsyncDirectory(paths.runtimeDir);
+  const entry = await lstat(absolute, { bigint: true });
+  if (entry.isSymbolicLink() || !entry.isDirectory()) {
+    throw new TypeError('Folder transaction private rollback root identity is invalid');
+  }
+  const identified: IdentifiedRollbackArtifactRootV2 = {
+    status: 'active', source, dev: entry.dev.toString(), ino: entry.ino.toString(),
+  };
+  await options?.onCheckpoint?.('rollback-root:created-unidentified');
+  journal.rollbackArtifactRoot = identified;
+  await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+  return identified;
+}
+
+function journalRollbackArtifactRoot(journal: FolderTreeJournalV2): IdentifiedRollbackArtifactRootV2 {
+  if (!journal.rollbackArtifactRoot || journal.rollbackArtifactRoot.status === 'planned') {
+    throw new TypeError('Folder transaction private rollback root is missing from its journal');
+  }
+  return journal.rollbackArtifactRoot;
+}
+
 async function capturePrivateRollbackArtifact(
   paths: SpaceWorkspacePaths,
   artifact: RollbackArtifactV2,
-): Promise<{ kind: 'file' | 'directory'; dev: string; ino: string } | null> {
-  await assertPrivateRuntimeRoot(paths);
+  root: IdentifiedRollbackArtifactRootV2,
+): Promise<{ kind: 'file'; dev: string; ino: string } | null> {
+  await requirePrivateRollbackRoot(paths, root);
   try {
-    const entry = await lstat(rollbackArtifactPath(paths, artifact), { bigint: true });
-    if (entry.isSymbolicLink()) throw new TypeError('Folder transaction private rollback artifact is unsafe');
-    const kind = entry.isFile() ? 'file' : entry.isDirectory() ? 'directory' : null;
-    if (!kind) throw new TypeError('Folder transaction private rollback artifact has an unsupported type');
-    return { kind, dev: entry.dev.toString(), ino: entry.ino.toString() };
+    const entry = await lstat(rollbackArtifactPath(paths, artifact, root), { bigint: true });
+    if (entry.isSymbolicLink()) {
+      throw new TypeError(`Folder transaction private rollback artifact is unsafe; journal preserved at ${root.source}`);
+    }
+    if (!entry.isFile()) {
+      throw new TypeError(`Folder transaction private rollback artifact has an unsupported type; journal preserved at ${root.source}`);
+    }
+    return { kind: 'file', dev: entry.dev.toString(), ino: entry.ino.toString() };
   } catch (error) {
     if (missing(error)) return null;
     throw error;
@@ -853,39 +1005,37 @@ function sameRollbackArtifactIdentity(
 async function requirePrivateRollbackArtifact(
   paths: SpaceWorkspacePaths,
   artifact: RollbackArtifactV2,
+  root: IdentifiedRollbackArtifactRootV2,
 ): Promise<void> {
-  const current = await capturePrivateRollbackArtifact(paths, artifact);
+  const current = await capturePrivateRollbackArtifact(paths, artifact, root);
   if (!sameRollbackArtifactIdentity(current, artifact)) {
-    throw new TypeError('Folder transaction private rollback artifact was replaced; journal was preserved');
+    throw new TypeError(`Folder transaction private rollback artifact was replaced; journal preserved at ${root.source}`);
   }
 }
 
 async function preparePrivateRollbackArtifact(
   paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
   operation: FolderTreeOperationV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<RollbackArtifactV2> {
   const kind = rollbackArtifactKind(operation);
-  if (!kind || (operation.kind !== 'unlink' && operation.kind !== 'rmdir')) {
+  if (!kind || operation.kind !== 'unlink') {
     throw new TypeError('Rollback operation does not create a new identity');
   }
-  await assertPrivateRuntimeRoot(paths);
-  const source = `folder-tree-rollback-${randomUUID()}`;
+  const root = await ensurePrivateRollbackRoot(paths, journal, options);
+  const source = `${root.source}/artifact-${randomUUID()}`;
   const absoluteSource = join(paths.runtimeDir, source);
-  if (operation.kind === 'unlink') {
-    const handle = await open(absoluteSource, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    try {
-      await handle.writeFile(operation.before, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-  } else {
-    await mkdir(absoluteSource, { recursive: false });
-    await fsyncDirectory(absoluteSource);
+  const handle = await open(absoluteSource, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  try {
+    await handle.writeFile(operation.before, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
-  await fsyncDirectory(paths.runtimeDir);
+  await fsyncDirectory(rollbackArtifactRootPath(paths, root));
   const entry = await lstat(absoluteSource, { bigint: true });
-  if (entry.isSymbolicLink() || (kind === 'file' ? !entry.isFile() : !entry.isDirectory())) {
+  if (entry.isSymbolicLink() || !entry.isFile()) {
     throw new TypeError('Folder transaction private rollback artifact identity is invalid');
   }
   return {
@@ -901,59 +1051,75 @@ async function preparePrivateRollbackArtifact(
 async function removeOwnedPrivateRollbackArtifact(
   paths: SpaceWorkspacePaths,
   artifact: RollbackArtifactV2,
+  root: IdentifiedRollbackArtifactRootV2,
+  rollbackIndex: number,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<void> {
-  const current = await capturePrivateRollbackArtifact(paths, artifact);
+  const current = await capturePrivateRollbackArtifact(paths, artifact, root);
   if (current === null) return;
   if (!sameRollbackArtifactIdentity(current, artifact)) {
-    throw new TypeError('Folder transaction private rollback artifact was replaced; journal was preserved');
+    throw new TypeError(`Folder transaction private rollback artifact was replaced; journal preserved at ${root.source}`);
   }
-  if (artifact.kind === 'file') await unlink(rollbackArtifactPath(paths, artifact));
-  else await rmdir(rollbackArtifactPath(paths, artifact));
-  await fsyncDirectory(paths.runtimeDir);
+  await options?.onCheckpoint?.(`rollback:${rollbackIndex}:before-source-release-final-check`);
+  await requirePrivateRollbackRoot(paths, root);
+  const source = rollbackArtifactPath(paths, artifact, root);
+  const immediatelyBefore = await lstat(source, { bigint: true });
+  if (immediatelyBefore.isSymbolicLink() || !immediatelyBefore.isFile()
+    || immediatelyBefore.dev.toString() !== artifact.dev || immediatelyBefore.ino.toString() !== artifact.ino) {
+    throw new TypeError(`Folder transaction private rollback artifact was replaced; journal preserved at ${root.source}`);
+  }
+  await unlink(source);
+  await fsyncDirectory(rollbackArtifactRootPath(paths, root));
 }
 
 async function materializePrivateRollbackArtifact(
   paths: SpaceWorkspacePaths,
-  operation: Extract<FolderTreeOperationV2, { kind: 'unlink' | 'rmdir' }>,
+  operation: Extract<FolderTreeOperationV2, { kind: 'unlink' }>,
   artifact: RollbackArtifactV2,
+  root: IdentifiedRollbackArtifactRootV2,
   expectedCurrent: PersistedPathIdentityV2[],
+  rollbackIndex: number,
   options?: Partial<FolderTreeTransactionOptionsV2>,
 ): Promise<PersistedPathIdentityV2[]> {
   const current = await captureOperationIdentity(paths.pagesDir, operation);
   const currentTarget = current[0] ?? null;
   if (sameRollbackArtifactIdentity(currentTarget, artifact)) {
-    await removeOwnedPrivateRollbackArtifact(paths, artifact);
+    await fsyncDirectory(dirname(localPath(paths.pagesDir, operation.path)));
+    await options?.onCheckpoint?.(`rollback:${rollbackIndex}:materialized-parent-fsynced`);
+    await removeOwnedPrivateRollbackArtifact(paths, artifact, root, rollbackIndex, options);
     return current;
   }
   if (!samePathIdentities(current, expectedCurrent)) {
     throw new TypeError('Folder transaction rollback artifact target was replaced; journal was preserved');
   }
-  await requirePrivateRollbackArtifact(paths, artifact);
+  await requirePrivateRollbackArtifact(paths, artifact, root);
   await checkedPath(paths.pagesDir, operation.path, true, options);
   const immediatelyBefore = await captureOperationIdentity(paths.pagesDir, operation);
   if (!samePathIdentities(immediatelyBefore, expectedCurrent)) {
     throw new TypeError('Folder transaction rollback artifact target changed before materialization');
   }
-  await requirePrivateRollbackArtifact(paths, artifact);
-  const source = rollbackArtifactPath(paths, artifact);
+  await options?.onCheckpoint?.(`rollback:${rollbackIndex}:before-materialization-final-check`);
+  await requirePrivateRollbackRoot(paths, root);
+  const source = rollbackArtifactPath(paths, artifact, root);
   const target = localPath(paths.pagesDir, operation.path);
-  if (artifact.kind === 'file') {
-    await link(source, target);
-    const linked = await capturePathIdentity(paths.pagesDir, operation.path);
-    if (!sameRollbackArtifactIdentity(linked, artifact)) {
-      throw new TypeError('Folder transaction rollback artifact link identity is invalid');
-    }
-    await unlink(source);
-  } else {
-    await rename(source, target);
+  const sourceImmediatelyBefore = await lstat(source, { bigint: true });
+  if (sourceImmediatelyBefore.isSymbolicLink() || !sourceImmediatelyBefore.isFile()
+    || sourceImmediatelyBefore.dev.toString() !== artifact.dev || sourceImmediatelyBefore.ino.toString() !== artifact.ino) {
+    throw new TypeError(`Folder transaction private rollback artifact was replaced before materialization; journal preserved at ${root.source}`);
+  }
+  await link(source, target);
+  const linked = await capturePathIdentity(paths.pagesDir, operation.path);
+  if (!sameRollbackArtifactIdentity(linked, artifact)) {
+    throw new TypeError('Folder transaction rollback artifact link identity is invalid');
   }
   await fsyncDirectory(dirname(target));
-  await fsyncDirectory(paths.runtimeDir);
+  await options?.onCheckpoint?.(`rollback:${rollbackIndex}:materialized-parent-fsynced`);
+  await removeOwnedPrivateRollbackArtifact(paths, artifact, root, rollbackIndex, options);
   const materialized = await captureOperationIdentity(paths.pagesDir, operation);
   if (!sameRollbackArtifactIdentity(materialized[0] ?? null, artifact)) {
     throw new TypeError('Folder transaction rollback artifact was replaced during materialization');
   }
-  if (await capturePrivateRollbackArtifact(paths, artifact)) {
+  if (await capturePrivateRollbackArtifact(paths, artifact, root)) {
     throw new TypeError('Folder transaction rollback artifact source remained after materialization');
   }
   return materialized;
@@ -963,11 +1129,11 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Folder transaction journal is invalid');
   const journal = value as FolderTreeJournalV2;
   if (Object.keys(journal as unknown as Record<string, unknown>).some((key) => ![
-    'schemaVersion', 'spaceId', 'revision', 'phase', 'nextOperation', 'rollbackNextOperation', 'operations', 'operationStates', 'rootIdentity', 'finalState', 'finalTree', 'control',
+    'schemaVersion', 'spaceId', 'revision', 'phase', 'nextOperation', 'rollbackNextOperation', 'cleanupNextOperation', 'operations', 'operationStates', 'directoryCleanup', 'rollbackArtifactRoot', 'rootIdentity', 'finalState', 'finalTree', 'control',
   ].includes(key))
     || (journal as { schemaVersion?: unknown }).schemaVersion !== 2
     || typeof journal.spaceId !== 'string' || typeof journal.revision !== 'string'
-    || !['applying', 'committing', 'committed', 'rolling-back'].includes(journal.phase)
+    || !['applying', 'committing', 'committed-cleanup', 'committed', 'rolling-back'].includes(journal.phase)
     || !Number.isSafeInteger(journal.nextOperation) || journal.nextOperation < 0
     || !Array.isArray(journal.operations) || journal.operations.length > 20_000
     || journal.nextOperation > journal.operations.length
@@ -975,6 +1141,11 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
       !Number.isSafeInteger(journal.rollbackNextOperation)
       || journal.rollbackNextOperation < -1
       || journal.rollbackNextOperation >= journal.operations.length
+    ))
+    || (journal.cleanupNextOperation !== undefined && (
+      !Number.isSafeInteger(journal.cleanupNextOperation)
+      || journal.cleanupNextOperation < 0
+      || journal.cleanupNextOperation > (journal.directoryCleanup?.length ?? 0)
     ))) {
     throw new TypeError('Folder transaction journal version or shape is invalid');
   }
@@ -999,12 +1170,60 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
         throw new TypeError('Folder transaction journal unlink is invalid');
       }
       assertManagedRelativePath(operation.path);
-    } else if (operation.kind === 'mkdir' || operation.kind === 'rmdir') {
+    } else if (operation.kind === 'mkdir') {
       if (Object.keys(operation).some((key) => !['kind', 'path'].includes(key)) || typeof operation.path !== 'string') {
         throw new TypeError('Folder transaction journal directory operation is invalid');
       }
       assertManagedRelativePath(operation.path);
     } else throw new TypeError('Folder transaction journal operation kind is invalid');
+  }
+  if (journal.directoryCleanup !== undefined) {
+    if (!Array.isArray(journal.directoryCleanup) || journal.directoryCleanup.length > 20_000) {
+      throw new TypeError('Folder transaction directory cleanup is invalid');
+    }
+    for (const entry of journal.directoryCleanup) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+        || Object.keys(entry).some((key) => !['kind', 'path', 'target', 'dev', 'ino'].includes(key))
+        || !['remove', 'rename-case'].includes(entry.kind)
+        || typeof entry.path !== 'string') {
+        throw new TypeError('Folder transaction directory cleanup entry is invalid');
+      }
+      assertManagedRelativePath(entry.path);
+      if (entry.kind === 'rename-case') {
+        if (typeof entry.target !== 'string' || entry.target === entry.path) {
+          throw new TypeError('Folder transaction case cleanup target is invalid');
+        }
+        assertManagedRelativePath(entry.target);
+      } else if (entry.target !== undefined) {
+        throw new TypeError('Folder transaction remove cleanup has an unexpected target');
+      }
+      if ((entry.dev === undefined) !== (entry.ino === undefined)
+        || (entry.dev !== undefined && (!/^\d+$/u.test(entry.dev) || !/^\d+$/u.test(entry.ino!)))) {
+        throw new TypeError('Folder transaction directory cleanup identity is invalid');
+      }
+      if (['committing', 'committed-cleanup', 'committed'].includes(journal.phase)
+        && (entry.dev === undefined || entry.ino === undefined)) {
+        throw new TypeError('Committed Folder cleanup is missing its exact identity');
+      }
+    }
+  } else if (journal.cleanupNextOperation !== undefined) {
+    throw new TypeError('Folder transaction cleanup cursor has no cleanup entries');
+  }
+  if (journal.rollbackArtifactRoot !== undefined) {
+    const root = journal.rollbackArtifactRoot;
+    if (journal.phase !== 'rolling-back'
+      || !root || typeof root !== 'object' || Array.isArray(root)
+      || Object.keys(root).some((key) => !['status', 'source', 'dev', 'ino'].includes(key))
+      || !['planned', 'active', 'garbage'].includes(root.status)
+      || typeof root.source !== 'string'
+      || (root.status === 'planned'
+        ? ('dev' in root || 'ino' in root)
+        : (typeof root.dev !== 'string' || typeof root.ino !== 'string'
+          || !/^\d+$/u.test(root.dev) || !/^\d+$/u.test(root.ino)))
+      || (root.status === 'garbage' && journal.rollbackNextOperation !== -1)) {
+      throw new TypeError('Folder transaction rollback artifact root binding is invalid');
+    }
+    assertRollbackArtifactRootSource(root.source);
   }
   journal.finalState = assertFolderIdentityStateV2(journal.finalState);
   if (journal.finalState.spaceId !== journal.spaceId || journal.finalState.revision !== journal.revision) {
@@ -1029,8 +1248,6 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
       || journal.control.manifest.baseRevision.contentHash !== journal.control.revisionContentHash) {
       throw new TypeError('Folder transaction control commit binding is invalid');
     }
-  } else if (journal.phase === 'committed') {
-    throw new TypeError('Folder transaction committed phase is missing its control commit');
   }
   if (!journal.rootIdentity || !/^\d+$/u.test(journal.rootIdentity.dev) || !/^\d+$/u.test(journal.rootIdentity.ino)) {
     throw new TypeError('Folder transaction journal root identity is invalid');
@@ -1078,7 +1295,8 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
       const artifact = state.rollbackArtifact;
       const operation = journal.operations[index]!;
       const expectedKind = rollbackArtifactKind(operation);
-      if (journal.phase !== 'rolling-back'
+      if (journal.phase !== 'rolling-back' || !journal.rollbackArtifactRoot
+        || journal.rollbackArtifactRoot.status === 'planned'
         || !artifact || typeof artifact !== 'object' || Array.isArray(artifact)
         || Object.keys(artifact).some((key) => !['status', 'source', 'target', 'kind', 'dev', 'ino'].includes(key))
         || !['prepared', 'ambiguous'].includes(artifact.status)
@@ -1089,7 +1307,7 @@ function parseFolderTreeJournalV2(value: unknown): FolderTreeJournalV2 {
         || !/^\d+$/u.test(artifact.dev) || !/^\d+$/u.test(artifact.ino)) {
         throw new TypeError('Folder transaction rollback artifact binding is invalid');
       }
-      assertRollbackArtifactSource(artifact.source);
+      assertRollbackArtifactSource(artifact.source, journal.rollbackArtifactRoot);
     }
   }
   return journal;
@@ -1103,6 +1321,177 @@ async function readFolderTreeJournalV2(paths: SpaceWorkspacePaths): Promise<Fold
 async function clearFolderTreeJournalV2(paths: SpaceWorkspacePaths): Promise<void> {
   try { await unlink(paths.folderTransactionJournalFile); } catch (error) { if (!missing(error)) throw error; }
   await fsyncDirectory(dirname(paths.folderTransactionJournalFile));
+}
+
+async function garbageCollectPrivateRollbackRootV2(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<void> {
+  const root = journal.rollbackArtifactRoot;
+  if (!root) return;
+  if (root.status === 'planned') {
+    throw new TypeError(`Folder transaction private rollback root has an unidentified inode; journal preserved at ${root.source}`);
+  }
+  if (root.status === 'active') {
+    root.status = 'garbage';
+    await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    await options?.onCheckpoint?.('rollback-root:garbage');
+  }
+  await assertPrivateRuntimeRoot(paths);
+  const rootPath = rollbackArtifactRootPath(paths, root);
+  let names: string[];
+  try {
+    const current = await lstat(rootPath, { bigint: true });
+    if (current.isSymbolicLink() || !current.isDirectory()
+      || current.dev.toString() !== root.dev || current.ino.toString() !== root.ino) {
+      throw new TypeError(`Folder transaction private rollback root was replaced; journal preserved at ${root.source}`);
+    }
+    names = await readdir(rootPath);
+  } catch (error) {
+    if (!missing(error)) throw error;
+    await fsyncDirectory(paths.runtimeDir);
+    await options?.onCheckpoint?.('rollback-root:missing-parent-fsynced');
+    return;
+  }
+  if (names.length > 0) {
+    throw new TypeError(`Folder transaction private rollback root is not empty; journal preserved at ${root.source}`);
+  }
+  await options?.onCheckpoint?.('rollback-root:before-final-check');
+  const immediatelyBefore = await lstat(rootPath, { bigint: true });
+  if (immediatelyBefore.isSymbolicLink() || !immediatelyBefore.isDirectory()
+    || immediatelyBefore.dev.toString() !== root.dev || immediatelyBefore.ino.toString() !== root.ino) {
+    throw new TypeError(`Folder transaction private rollback root was replaced; journal preserved at ${root.source}`);
+  }
+  await rmdir(rootPath);
+  await options?.onCheckpoint?.('rollback-root:after-syscall');
+  await fsyncDirectory(paths.runtimeDir);
+  await options?.onCheckpoint?.('rollback-root:parent-fsynced');
+}
+
+function cleanupIdentityMatches(
+  entry: FolderTreeDirectoryCleanupV2,
+  value: { isDirectory(): boolean; isSymbolicLink(): boolean; dev: bigint; ino: bigint },
+): boolean {
+  return value.isDirectory() && !value.isSymbolicLink()
+    && value.dev.toString() === entry.dev && value.ino.toString() === entry.ino;
+}
+
+async function prepareDirectoryCleanupV2(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<void> {
+  const entries = journal.directoryCleanup ?? [];
+  for (const entry of entries) {
+    if (entry.dev !== undefined && entry.ino !== undefined) continue;
+    await checkedPath(paths.pagesDir, entry.path, false, options);
+    const source = await lstat(localPath(paths.pagesDir, entry.path), { bigint: true });
+    if (!source.isDirectory() || source.isSymbolicLink()) {
+      throw new TypeError('Folder transaction cleanup source is unsafe');
+    }
+    if (entry.kind === 'rename-case') {
+      await checkedPath(paths.pagesDir, entry.target!, false, options);
+      const target = await lstat(localPath(paths.pagesDir, entry.target!), { bigint: true });
+      if (!target.isDirectory() || target.isSymbolicLink()
+        || target.dev !== source.dev || target.ino !== source.ino) {
+        throw new TypeError('Folder transaction case cleanup does not bind one directory identity');
+      }
+    }
+    entry.dev = source.dev.toString();
+    entry.ino = source.ino.toString();
+  }
+  journal.cleanupNextOperation = 0;
+  await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+}
+
+async function exactDirectoryEntryExists(path: string): Promise<boolean> {
+  return (await readdir(dirname(path))).includes(basename(path));
+}
+
+async function advanceDirectoryCleanupV2(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  index: number,
+  checkpoint: string,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<void> {
+  journal.cleanupNextOperation = index + 1;
+  await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+  await options?.onCheckpoint?.(checkpoint);
+}
+
+async function replayCommittedDirectoryCleanupV2(
+  paths: SpaceWorkspacePaths,
+  journal: FolderTreeJournalV2,
+  options?: Partial<FolderTreeTransactionOptionsV2>,
+): Promise<void> {
+  if (journal.phase !== 'committed-cleanup') throw new TypeError('Folder transaction is not in committed cleanup');
+  const entries = journal.directoryCleanup ?? [];
+  const start = journal.cleanupNextOperation ?? 0;
+  for (let index = start; index < entries.length; index += 1) {
+    const entry = entries[index]!;
+    const source = localPath(paths.pagesDir, entry.path);
+    const sourceParent = dirname(source);
+    if (entry.kind === 'rename-case') {
+      const target = localPath(paths.pagesDir, entry.target!);
+      const sourceExact = await exactDirectoryEntryExists(source);
+      const targetExact = await exactDirectoryEntryExists(target);
+      if (!sourceExact && targetExact) {
+        await checkedPath(paths.pagesDir, entry.target!, false, options);
+        const current = await lstat(target, { bigint: true });
+        if (!cleanupIdentityMatches(entry, current)) {
+          throw new TypeError('Folder transaction case cleanup target was replaced; journal was preserved');
+        }
+        await fsyncDirectory(dirname(target));
+        await advanceDirectoryCleanupV2(paths, journal, index, `cleanup:${index}:committed`, options);
+        continue;
+      }
+      if (!sourceExact || targetExact) {
+        throw new TypeError('Folder transaction case cleanup spelling is ambiguous; journal was preserved');
+      }
+      await options?.onCheckpoint?.(`cleanup:${index}:before-final-check`);
+      await checkedPath(paths.pagesDir, entry.path, false, options);
+      await checkedPath(paths.pagesDir, entry.target!, false, options);
+      const current = await lstat(source, { bigint: true });
+      const targetCurrent = await lstat(target, { bigint: true });
+      if (!cleanupIdentityMatches(entry, current) || !cleanupIdentityMatches(entry, targetCurrent)) {
+        throw new TypeError('Folder transaction case cleanup identity was replaced; journal was preserved');
+      }
+      await rename(source, target);
+      await options?.onCheckpoint?.(`cleanup:${index}:after-syscall`);
+      await fsyncDirectory(sourceParent);
+      if (dirname(target) !== sourceParent) await fsyncDirectory(dirname(target));
+      await options?.onCheckpoint?.(`cleanup:${index}:parent-fsynced`);
+      await advanceDirectoryCleanupV2(paths, journal, index, `cleanup:${index}:committed`, options);
+      continue;
+    }
+
+    await options?.onCheckpoint?.(`cleanup:${index}:before-final-check`);
+    await checkedPath(paths.pagesDir, entry.path, true, options);
+    let current;
+    try {
+      current = await lstat(source, { bigint: true });
+    } catch (error) {
+      if (!missing(error)) throw error;
+      await fsyncDirectory(sourceParent);
+      await options?.onCheckpoint?.(`cleanup:${index}:missing-parent-fsynced`);
+      await advanceDirectoryCleanupV2(paths, journal, index, `cleanup:${index}:committed`, options);
+      continue;
+    }
+    if (!cleanupIdentityMatches(entry, current)) {
+      throw new TypeError('Folder transaction cleanup directory was replaced; journal was preserved');
+    }
+    await rmdir(source);
+    await options?.onCheckpoint?.(`cleanup:${index}:after-syscall`);
+    await fsyncDirectory(sourceParent);
+    await options?.onCheckpoint?.(`cleanup:${index}:parent-fsynced`);
+    await advanceDirectoryCleanupV2(paths, journal, index, `cleanup:${index}:committed`, options);
+  }
+  await options?.onCheckpoint?.('cleanup:complete');
+  journal.phase = 'committed';
+  await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+  await clearFolderTreeJournalV2(paths);
 }
 
 function sameJson(left: unknown, right: unknown): boolean {
@@ -1158,10 +1547,6 @@ async function commitFolderTreeControlV2(
   await writeManifest(paths, journal.control.manifest);
   await options?.onCheckpoint?.('control:manifest');
   await assertFolderTreeControlCommitV2(paths, journal);
-  journal.phase = 'committed';
-  await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
-  await options?.onCheckpoint?.('control:committed');
-  await clearFolderTreeJournalV2(paths);
 }
 
 async function replayFolderTreeJournalV2(
@@ -1222,22 +1607,27 @@ async function replayFolderTreeJournalV2(
     await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
     await options?.onCheckpoint?.(`operation:${index}:committed`);
   }
-  if (journal.control) {
-    if (journal.phase === 'applying') {
-      journal.phase = 'committing';
-      await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
-      await options?.onCheckpoint?.('control:prepared');
-    }
-    await commitFolderTreeControlV2(paths, journal, options);
-    return;
-  }
   if (journal.phase === 'applying') {
+    await prepareDirectoryCleanupV2(paths, journal, options);
     journal.phase = 'committing';
     await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    if (journal.control) await options?.onCheckpoint?.('control:prepared');
   }
-  await writeFolderIdentityStateV2(paths, journal.finalState);
-  await options?.onCheckpoint?.('state:committed');
-  await clearFolderTreeJournalV2(paths);
+  if (journal.phase === 'committing') {
+    if (journal.control) await commitFolderTreeControlV2(paths, journal, options);
+    else await writeFolderIdentityStateV2(paths, journal.finalState);
+    journal.phase = 'committed-cleanup';
+    journal.cleanupNextOperation ??= 0;
+    await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
+    if (journal.control) await options?.onCheckpoint?.('control:committed');
+    else await options?.onCheckpoint?.('state:committed');
+    await options?.onCheckpoint?.('cleanup:prepared');
+  }
+  if (journal.phase === 'committed-cleanup') {
+    await replayCommittedDirectoryCleanupV2(paths, journal, options);
+    return;
+  }
+  if (journal.phase === 'committed') await clearFolderTreeJournalV2(paths);
 }
 
 export async function applyFolderTreeTransactionV2(
@@ -1291,14 +1681,16 @@ export async function applyFolderTreeTransactionV2(
     throw new TypeError('Folder transaction final identity binding does not match its revision');
   }
   assertIdentityMatchesBase(target, finalState);
+  const plan = await buildFolderTreeOperationsV2(paths, base, target);
   const journal: FolderTreeJournalV2 = {
     schemaVersion: 2,
     spaceId: target.spaceId,
     revision: options.revision,
     phase: 'applying',
     nextOperation: 0,
-    operations: await buildFolderTreeOperationsV2(paths, base, target),
+    operations: plan.operations,
     operationStates: [],
+    directoryCleanup: plan.directoryCleanup,
     rootIdentity: undefined,
     finalState,
     ...(control ? { finalTree: target, control } : {}),
@@ -1324,7 +1716,7 @@ export async function recoverFolderTreeTransactionV2(
     return;
   }
   await assertJournalRootIdentity(paths, journal);
-  if (journal.phase === 'committing' || journal.phase === 'committed') {
+  if (journal.phase === 'committing' || journal.phase === 'committed-cleanup' || journal.phase === 'committed') {
     await replayFolderTreeJournalV2(paths, journal, options);
     return;
   }
@@ -1357,7 +1749,15 @@ async function rollbackFolderTreeJournalV2(
       if (!samePathIdentities(current, state.rollbackAfter)) {
         throw new TypeError('Folder transaction rollback identity was replaced; journal was preserved');
       }
-      if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
+      if (state.rollbackArtifact) {
+        await removeOwnedPrivateRollbackArtifact(
+          paths,
+          state.rollbackArtifact,
+          journalRollbackArtifactRoot(journal),
+          index,
+          options,
+        );
+      }
       journal.rollbackNextOperation = index - 1;
       await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
       await options?.onCheckpoint?.(`rollback:${index}:committed`);
@@ -1374,7 +1774,15 @@ async function rollbackFolderTreeJournalV2(
       : false;
     if (state.status === 'ambiguous') {
       if (samePathIdentities(current, state.before)) {
-        if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
+        if (state.rollbackArtifact) {
+          await removeOwnedPrivateRollbackArtifact(
+            paths,
+            state.rollbackArtifact,
+            journalRollbackArtifactRoot(journal),
+            index,
+            options,
+          );
+        }
         state.rollbackAfter = current;
         await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
         await options?.onCheckpoint?.(`rollback:${index}:applied`);
@@ -1390,16 +1798,17 @@ async function rollbackFolderTreeJournalV2(
     let rollbackAfter: PersistedPathIdentityV2[];
     const artifactKind = rollbackArtifactKind(operation);
     if (artifactKind) {
-      if (operation.kind !== 'unlink' && operation.kind !== 'rmdir') {
+      if (operation.kind !== 'unlink') {
         throw new TypeError('Folder transaction rollback artifact operation is invalid');
       }
       if (!state.rollbackArtifact) {
-        state.rollbackArtifact = await preparePrivateRollbackArtifact(paths, operation);
+        state.rollbackArtifact = await preparePrivateRollbackArtifact(paths, journal, operation, options);
         await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
         await options?.onCheckpoint?.(`rollback:${index}:artifact-prepared`);
       }
+      const root = journalRollbackArtifactRoot(journal);
       if (state.rollbackArtifact.status === 'prepared') {
-        await requirePrivateRollbackArtifact(paths, state.rollbackArtifact);
+        await requirePrivateRollbackArtifact(paths, state.rollbackArtifact, root);
         state.rollbackArtifact.status = 'ambiguous';
         await writeJsonAtomic(paths.folderTransactionJournalFile, journal);
         await options?.onCheckpoint?.(`rollback:${index}:before-syscall`);
@@ -1408,7 +1817,9 @@ async function rollbackFolderTreeJournalV2(
         paths,
         operation,
         state.rollbackArtifact,
+        root,
         state.after!,
+        index,
         options,
       );
       await options?.onCheckpoint?.(`rollback:${index}:after-syscall`);
@@ -1423,9 +1834,21 @@ async function rollbackFolderTreeJournalV2(
     await options?.onCheckpoint?.(`rollback:${index}:applied`);
   }
   await fsyncDirectory(paths.pagesDir);
-  for (const state of journal.operationStates ?? []) {
-    if (state.rollbackArtifact) await removeOwnedPrivateRollbackArtifact(paths, state.rollbackArtifact);
+  if (journal.rollbackArtifactRoot?.status !== 'garbage') {
+    for (let index = 0; index < (journal.operationStates?.length ?? 0); index += 1) {
+      const state = journal.operationStates![index]!;
+      if (state.rollbackArtifact) {
+        await removeOwnedPrivateRollbackArtifact(
+          paths,
+          state.rollbackArtifact,
+          journalRollbackArtifactRoot(journal),
+          index,
+          options,
+        );
+      }
+    }
   }
+  await garbageCollectPrivateRollbackRootV2(paths, journal, options);
   await options?.onCheckpoint?.('rollback:complete');
   await clearFolderTreeJournalV2(paths);
 }

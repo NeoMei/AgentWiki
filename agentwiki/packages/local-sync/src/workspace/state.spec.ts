@@ -32,6 +32,13 @@ describe('workspace state persistence', () => {
   const folderState = (revision = 'rev-0'): FolderIdentityStateV2 => ({
     schemaVersion: 2, spaceId: 'space-1', revision, folders: {},
   });
+  const singleEmptyFolderTree = (name = 'Obsolete'): TreeRevisionContentManifestV2 => ({
+    protocolVersion: '2', spaceId: 'space-1', pages: [],
+    folders: [{
+      folderId: 'f1', parentFolderId: null, name, path: `pages/${name}`,
+      sortOrder: 0, updatedAt: timestamp,
+    }],
+  });
   const interruptCompletedPageMove = async (paths: ReturnType<typeof workspacePaths>) => {
     const body = 'stable body';
     const initial: TreeRevisionContentManifestV2 = {
@@ -50,7 +57,7 @@ describe('workspace state persistence', () => {
       paths, initial, target, (await readFolderIdentityStateV2(paths))!, {
         revision: 'rev-2',
         onCheckpoint: async (checkpoint) => {
-          if (checkpoint === 'operation:5:committed') throw new Error('interrupt completed Page move');
+          if (checkpoint === 'operation:4:committed') throw new Error('interrupt completed Page move');
         },
       },
     )).rejects.toThrow('interrupt completed Page move');
@@ -350,7 +357,7 @@ describe('workspace state persistence', () => {
     await expect(applyFolderTreeTransactionV2(paths, emptyTree(), target, folderState(), {
       revision: 'rev-1',
       onCheckpoint: async (checkpoint) => {
-        if (checkpoint === 'operation:1:syscall') throw new Error('power loss after syscall');
+        if (checkpoint === 'operation:0:syscall') throw new Error('power loss after syscall');
       },
     })).rejects.toThrow('power loss after syscall');
 
@@ -397,10 +404,10 @@ describe('workspace state persistence', () => {
 
   it.each([
     'rollback:prepared',
-    'rollback:5:prepared',
-    'rollback:5:applied',
-    'rollback:5:committed',
+    'rollback:4:prepared',
     'rollback:4:applied',
+    'rollback:4:committed',
+    'rollback:0:applied',
     'rollback:complete',
   ])('replays a rolling-back multi-operation journal after %s', async (crashCheckpoint) => {
     const paths = workspacePaths(base, 'space-1');
@@ -423,15 +430,11 @@ describe('workspace state persistence', () => {
   });
 
   it.each([
-    ['directory', 'rollback:5:artifact-prepared'],
-    ['directory', 'rollback:5:before-syscall'],
-    ['directory', 'rollback:5:after-syscall'],
-    ['directory', 'rollback:5:applied'],
-    ['file', 'rollback:4:artifact-prepared'],
-    ['file', 'rollback:4:before-syscall'],
-    ['file', 'rollback:4:after-syscall'],
-    ['file', 'rollback:4:applied'],
-  ])('replays a pre-identified %s rollback artifact after %s', async (_kind, crashCheckpoint) => {
+    'rollback:4:artifact-prepared',
+    'rollback:4:before-syscall',
+    'rollback:4:after-syscall',
+    'rollback:4:applied',
+  ])('replays a pre-identified file rollback artifact after %s', async (crashCheckpoint) => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);
     const { body } = await interruptCompletedPageMove(paths);
@@ -450,61 +453,302 @@ describe('workspace state persistence', () => {
     await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('fails closed when an external directory replaces a materialized rollback artifact', async () => {
+  it.each([
+    'cleanup:prepared',
+    'cleanup:0:before-final-check',
+    'cleanup:0:after-syscall',
+    'cleanup:0:parent-fsynced',
+    'cleanup:0:committed',
+    'cleanup:complete',
+  ])('forward-completes committed Folder cleanup after %s', async (crashCheckpoint) => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);
-    await interruptCompletedPageMove(paths);
+    const initial = singleEmptyFolderTree();
+    await applyFolderTreeTransactionV2(paths, emptyTree(), initial, folderState(), { revision: 'rev-1' });
 
-    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
-      onCheckpoint: async (checkpoint) => {
-        if (checkpoint === 'rollback:5:after-syscall') throw new Error('pause after directory materialization');
+    await expect(applyFolderTreeTransactionV2(
+      paths,
+      initial,
+      emptyTree(),
+      (await readFolderIdentityStateV2(paths))!,
+      {
+        revision: 'rev-2',
+        onCheckpoint: async (checkpoint) => {
+          if (checkpoint === crashCheckpoint) throw new Error(`cleanup crash at ${checkpoint}`);
+        },
       },
-    })).rejects.toThrow('pause after directory materialization');
+    )).rejects.toThrow(`cleanup crash at ${crashCheckpoint}`);
 
-    const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
-      operations: Array<{ kind: string; path?: string }>;
-      operationStates: Array<{ rollbackArtifact?: { target: string } }>;
-    };
-    const target = journal.operationStates[5]?.rollbackArtifact?.target ?? journal.operations[5]?.path;
-    expect(target).toBeDefined();
-    const targetPath = join(paths.pagesDir, target!);
-    const transactionOriginal = `${targetPath}.transaction-original`;
-    await rename(targetPath, transactionOriginal);
-    await mkdir(targetPath);
+    await recoverFolderTreeTransactionV2(paths, 'replay');
+
+    await expect(lstat(join(paths.pagesDir, 'Obsolete'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await readFolderIdentityStateV2(paths))?.revision).toBe('rev-2');
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves an unknown empty Folder replacement at the final committed-cleanup boundary', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    const initial = singleEmptyFolderTree();
+    await applyFolderTreeTransactionV2(paths, emptyTree(), initial, folderState(), { revision: 'rev-1' });
+    const targetPath = join(paths.pagesDir, 'Obsolete');
+    const transactionOriginal = join(paths.pagesDir, 'Obsolete.transaction-original');
     const outside = join(base, 'outside-sentinel.md');
     await writeFile(outside, 'outside', 'utf8');
+    let replaced = false;
 
-    await expect(recoverFolderTreeTransactionV2(paths, 'replay')).rejects.toThrow(/replaced|identity|ambiguous/i);
+    await expect(applyFolderTreeTransactionV2(
+      paths,
+      initial,
+      emptyTree(),
+      (await readFolderIdentityStateV2(paths))!,
+      {
+        revision: 'rev-2',
+        onCheckpoint: async (checkpoint) => {
+          if (checkpoint === 'cleanup:0:before-final-check') {
+            await rename(targetPath, transactionOriginal);
+            await mkdir(targetPath);
+            replaced = true;
+          }
+        },
+      },
+    )).rejects.toThrow(/cleanup|identity|replaced|journal/i);
+
+    expect(replaced).toBe(true);
     expect((await lstat(targetPath)).isDirectory()).toBe(true);
     expect((await lstat(transactionOriginal)).isDirectory()).toBe(true);
     expect(await readFile(outside, 'utf8')).toBe('outside');
     expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
   });
 
-  it('does not clean an externally replaced private rollback artifact', async () => {
+  it('fsyncs a missing cleanup target parent before advancing replay after a crash', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    const initial = singleEmptyFolderTree();
+    await applyFolderTreeTransactionV2(paths, emptyTree(), initial, folderState(), { revision: 'rev-1' });
+
+    await expect(applyFolderTreeTransactionV2(
+      paths,
+      initial,
+      emptyTree(),
+      (await readFolderIdentityStateV2(paths))!,
+      {
+        revision: 'rev-2',
+        onCheckpoint: async (checkpoint) => {
+          if (checkpoint === 'cleanup:0:after-syscall') throw new Error('crash before cleanup parent fsync');
+        },
+      },
+    )).rejects.toThrow('crash before cleanup parent fsync');
+
+    let observedMissingParentFsync = false;
+    await recoverFolderTreeTransactionV2(paths, 'replay', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'cleanup:0:missing-parent-fsynced') observedMissingParentFsync = true;
+      },
+    });
+
+    expect(observedMissingParentFsync).toBe(true);
+    await expect(lstat(join(paths.pagesDir, 'Obsolete'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fsyncs the target parent before replay advances an already-materialized file artifact', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    const { body } = await interruptCompletedPageMove(paths);
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'rollback:4:after-syscall') throw new Error('crash after file materialization');
+      },
+    })).rejects.toThrow('crash after file materialization');
+
+    let observedMaterializedParentFsync = false;
+    await recoverFolderTreeTransactionV2(paths, 'replay', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'rollback:4:materialized-parent-fsynced') observedMaterializedParentFsync = true;
+      },
+    });
+
+    expect(observedMaterializedParentFsync).toBe(true);
+    expect(await readFile(join(paths.pagesDir, 'Before.md'), 'utf8')).toBe(body);
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves a private file artifact replaced immediately before source release', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    await interruptCompletedPageMove(paths);
+    let replacementPath: string | undefined;
+    let transactionOriginal: string | undefined;
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint !== 'rollback:4:before-source-release-final-check') return;
+        const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
+          operationStates: Array<{ rollbackArtifact?: { source: string } }>;
+        };
+        const source = journal.operationStates[4]?.rollbackArtifact?.source;
+        expect(source).toBeDefined();
+        replacementPath = join(paths.runtimeDir, source!);
+        transactionOriginal = `${replacementPath}.transaction-original`;
+        await rename(replacementPath, transactionOriginal);
+        await writeFile(replacementPath, 'external replacement', 'utf8');
+      },
+    })).rejects.toThrow(/artifact|identity|replaced|journal/i);
+
+    expect(replacementPath).toBeDefined();
+    expect(await readFile(replacementPath!, 'utf8')).toBe('external replacement');
+    expect(await readFile(transactionOriginal!, 'utf8')).toBe('stable body');
+    expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
+  });
+
+  it('preserves a private file artifact replaced at the materialization final-check boundary', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    await interruptCompletedPageMove(paths);
+    let replacementPath: string | undefined;
+    let transactionOriginal: string | undefined;
+    let targetPath: string | undefined;
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint !== 'rollback:4:before-materialization-final-check') return;
+        const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
+          operationStates: Array<{ rollbackArtifact?: { source: string; target: string } }>;
+        };
+        const artifact = journal.operationStates[4]?.rollbackArtifact;
+        expect(artifact).toBeDefined();
+        replacementPath = join(paths.runtimeDir, artifact!.source);
+        transactionOriginal = `${replacementPath}.transaction-original`;
+        targetPath = join(paths.pagesDir, artifact!.target);
+        await rename(replacementPath, transactionOriginal);
+        await writeFile(replacementPath, 'external replacement', 'utf8');
+      },
+    })).rejects.toThrow(/artifact|identity|replaced|journal/i);
+
+    expect(replacementPath).toBeDefined();
+    expect(await readFile(replacementPath!, 'utf8')).toBe('external replacement');
+    expect(await readFile(transactionOriginal!, 'utf8')).toBe('stable body');
+    await expect(lstat(targetPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
+  });
+
+  it('never replaces an unknown file target that appears in the final materialization window', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    await interruptCompletedPageMove(paths);
+    let targetPath: string | undefined;
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint !== 'rollback:4:before-materialization-final-check') return;
+        const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
+          operationStates: Array<{ rollbackArtifact?: { target: string } }>;
+        };
+        const target = journal.operationStates[4]?.rollbackArtifact?.target;
+        expect(target).toBeDefined();
+        targetPath = join(paths.pagesDir, target!);
+        await writeFile(targetPath, 'unknown target', 'utf8');
+      },
+    })).rejects.toMatchObject({ code: 'EEXIST' });
+
+    expect(targetPath).toBeDefined();
+    expect(await readFile(targetPath!, 'utf8')).toBe('unknown target');
+    expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
+  });
+
+  it('preserves an externally replaced private rollback root and reports its locator', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    await interruptCompletedPageMove(paths);
+    let rootPath: string | undefined;
+    let transactionOriginal: string | undefined;
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint !== 'rollback-root:before-final-check') return;
+        const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
+          rollbackArtifactRoot?: { source: string };
+        };
+        expect(journal.rollbackArtifactRoot).toBeDefined();
+        rootPath = join(paths.runtimeDir, journal.rollbackArtifactRoot!.source);
+        transactionOriginal = `${rootPath}.transaction-original`;
+        await rename(rootPath, transactionOriginal);
+        await mkdir(rootPath, { mode: 0o700 });
+        await writeFile(join(rootPath, 'external-sentinel'), 'external replacement', 'utf8');
+      },
+    })).rejects.toThrow(/rollback root|replaced|locator|journal/i);
+
+    expect(rootPath).toBeDefined();
+    expect(await readFile(join(rootPath!, 'external-sentinel'), 'utf8')).toBe('external replacement');
+    expect((await lstat(transactionOriginal!)).isDirectory()).toBe(true);
+    expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
+  });
+
+  it.each([
+    'rollback-root:garbage',
+    'rollback-root:after-syscall',
+    'rollback-root:parent-fsynced',
+  ])('forward-completes private rollback-root cleanup after %s', async (crashCheckpoint) => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);
     await interruptCompletedPageMove(paths);
 
     await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
       onCheckpoint: async (checkpoint) => {
-        if (checkpoint === 'rollback:5:artifact-prepared') throw new Error('pause after private artifact fsync');
+        if (checkpoint === crashCheckpoint) throw new Error(`rollback-root crash at ${checkpoint}`);
       },
-    })).rejects.toThrow('pause after private artifact fsync');
+    })).rejects.toThrow(`rollback-root crash at ${crashCheckpoint}`);
+
+    await recoverFolderTreeTransactionV2(paths, 'replay');
+
+    expect((await readdir(paths.runtimeDir)).some((name) => name.startsWith('folder-tree-rollback-'))).toBe(false);
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('replays automatically after the private rollback-root locator becomes durable', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    const { body } = await interruptCompletedPageMove(paths);
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'rollback-root:planned') throw new Error('crash after rollback-root locator');
+      },
+    })).rejects.toThrow('crash after rollback-root locator');
+
+    await recoverFolderTreeTransactionV2(paths, 'replay');
+
+    expect(await readFile(join(paths.pagesDir, 'Before.md'), 'utf8')).toBe(body);
+    expect((await readdir(paths.runtimeDir)).some((name) => name.startsWith('folder-tree-rollback-'))).toBe(false);
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fails closed with a locator when a crash leaves an unidentified private rollback-root inode', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    await ensureWorkspace(paths);
+    await interruptCompletedPageMove(paths);
+    const outside = join(base, 'outside-sentinel.md');
+    await writeFile(outside, 'outside', 'utf8');
+
+    await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'rollback-root:created-unidentified') throw new Error('crash before rollback-root identity');
+      },
+    })).rejects.toThrow('crash before rollback-root identity');
 
     const journal = JSON.parse(await readFile(paths.folderTransactionJournalFile, 'utf8')) as {
-      operationStates: Array<{ rollbackArtifact?: { source: string } }>;
+      rollbackArtifactRoot?: { status: string; source: string };
     };
-    const source = journal.operationStates[5]?.rollbackArtifact?.source;
-    expect(source).toBeDefined();
-    const sourcePath = join(paths.runtimeDir, source!);
-    const transactionOriginal = `${sourcePath}.transaction-original`;
-    await rename(sourcePath, transactionOriginal);
-    await mkdir(sourcePath);
+    expect(journal.rollbackArtifactRoot?.status).toBe('planned');
+    const rootPath = join(paths.runtimeDir, journal.rollbackArtifactRoot!.source);
+    expect((await lstat(rootPath)).isDirectory()).toBe(true);
 
-    await expect(recoverFolderTreeTransactionV2(paths, 'replay')).rejects.toThrow(/artifact|replaced|identity/i);
-    expect((await lstat(sourcePath)).isDirectory()).toBe(true);
-    expect((await lstat(transactionOriginal)).isDirectory()).toBe(true);
+    await expect(recoverFolderTreeTransactionV2(paths, 'replay')).rejects.toThrow(/unidentified|uncertain|locator|journal/i);
+
+    expect((await lstat(rootPath)).isDirectory()).toBe(true);
+    expect(await readFile(outside, 'utf8')).toBe('outside');
     expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
   });
 
@@ -515,11 +759,14 @@ describe('workspace state persistence', () => {
     const outside = join(base, 'outside-sentinel.md');
     await writeFile(outside, 'outside', 'utf8');
     let replacementPath: string | undefined;
+    let transactionOriginal: string | undefined;
 
     await expect(recoverFolderTreeTransactionV2(paths, 'rollback', {
       afterPathCheck: async (checked) => {
         if (!replacementPath && checked.startsWith(paths.pagesDir) && basename(checked).startsWith('AgentWiki Rename ')) {
           replacementPath = checked;
+          transactionOriginal = `${checked}.transaction-original`;
+          await rename(checked, transactionOriginal);
           await mkdir(checked);
         }
       },
@@ -527,6 +774,7 @@ describe('workspace state persistence', () => {
 
     expect(replacementPath).toBeDefined();
     expect((await lstat(replacementPath!)).isDirectory()).toBe(true);
+    expect((await lstat(transactionOriginal!)).isDirectory()).toBe(true);
     expect(await readFile(outside, 'utf8')).toBe('outside');
     await expect(recoverFolderTreeTransactionV2(paths, 'replay')).rejects.toThrow(/replaced|identity|ambiguous/i);
     expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
@@ -645,7 +893,7 @@ describe('workspace state persistence', () => {
     expect(await lstat(paths.folderTransactionJournalFile)).toBeDefined();
   });
 
-  it('rolls back an interrupted child-first removal without advancing identity state', async () => {
+  it('forward-completes an interrupted child-first removal after identity commit', async () => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);
     const initial: TreeRevisionContentManifestV2 = {
@@ -660,17 +908,18 @@ describe('workspace state persistence', () => {
     await expect(applyFolderTreeTransactionV2(paths, initial, emptyTree(), state, {
       revision: 'rev-2',
       onCheckpoint: async (checkpoint) => {
-        if (checkpoint === 'operation:0:committed') throw new Error('stop after child removal');
+        if (checkpoint === 'cleanup:0:after-syscall') throw new Error('stop after child removal');
       },
     })).rejects.toThrow('stop after child removal');
 
     await recoverFolderTreeTransactionV2(paths, 'rollback');
 
-    expect((await lstat(join(paths.pagesDir, 'Parent', 'Child'))).isDirectory()).toBe(true);
-    expect((await readFolderIdentityStateV2(paths))?.revision).toBe('rev-1');
+    await expect(lstat(join(paths.pagesDir, 'Parent'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect((await readFolderIdentityStateV2(paths))?.revision).toBe('rev-2');
+    await expect(lstat(paths.folderTransactionJournalFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('uses a safe intermediate path for a case-only Folder rename', async () => {
+  it('performs a case-only Folder rename only during committed cleanup', async () => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);
     const initial: TreeRevisionContentManifestV2 = {
@@ -680,18 +929,18 @@ describe('workspace state persistence', () => {
     await applyFolderTreeTransactionV2(paths, emptyTree(), initial, folderState(), { revision: 'rev-1' });
     const target = structuredClone(initial);
     target.folders[0] = { ...target.folders[0]!, name: 'project', path: 'pages/project' };
-    let observedIntermediate = false;
+    let observedCommittedCleanup = false;
 
     await applyFolderTreeTransactionV2(paths, initial, target, (await readFolderIdentityStateV2(paths))!, {
       revision: 'rev-2',
       onCheckpoint: async (checkpoint) => {
-        if (checkpoint === 'operation:0:fsync') {
-          observedIntermediate = (await readdir(paths.pagesDir)).some((name) => name.startsWith('AgentWiki Rename '));
+        if (checkpoint === 'cleanup:0:parent-fsynced') {
+          observedCommittedCleanup = (await readdir(paths.pagesDir)).includes('project');
         }
       },
     });
 
-    expect(observedIntermediate).toBe(true);
+    expect(observedCommittedCleanup).toBe(true);
     expect((await lstat(join(paths.pagesDir, 'project'))).isDirectory()).toBe(true);
     expect((await readdir(paths.pagesDir)).some((name) => name.startsWith('AgentWiki Rename '))).toBe(false);
   });
