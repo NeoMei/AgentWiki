@@ -6,7 +6,7 @@
  * same way globally.
  */
 export function installBigIntJsonSerialization(target: typeof globalThis = globalThis): void {
-  const prototype = target.BigInt?.prototype as (BigInt & { toJSON?: unknown }) | undefined;
+  const prototype = target.BigInt?.prototype as { toJSON?: unknown } | undefined;
   if (!prototype || typeof prototype.toJSON === 'function') return;
   Object.defineProperty(prototype, 'toJSON', {
     value: function toJSON(this: bigint): string {
