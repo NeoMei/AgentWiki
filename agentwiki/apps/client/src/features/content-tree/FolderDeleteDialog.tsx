@@ -68,6 +68,7 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
       onRequestClose={() => { if (!submitting) onClose(); }}
       closeDisabled={submitting}
       returnFocusTo={returnFocusTo}
+      className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white shadow-xl"
     >
       <div className="p-6" data-testid="folder-delete-dialog">
         <div className="flex items-center justify-between">

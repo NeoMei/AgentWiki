@@ -61,6 +61,7 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({
       onRequestClose={() => { if (!submitting) onClose(); }}
       closeDisabled={submitting}
       returnFocusTo={returnFocusTo}
+      className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white shadow-xl"
     >
       <div className="p-6" data-testid="folder-dialog">
         <div className="flex items-center justify-between">
@@ -132,4 +133,3 @@ const errorMessage = (err: unknown, fallback: string): string => {
   const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
   return typeof message === 'string' && message ? message : fallback;
 };
-

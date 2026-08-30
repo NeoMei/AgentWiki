@@ -23,6 +23,7 @@ const DetachedOpenerHarness: React.FC = () => {
         labelledBy="dialog-title"
         fallbackFocusRef={fallbackRef}
         onRequestClose={closeAfterReplacingFallback}
+        className="bg-white"
       >
         <h3 id="dialog-title">Prepare Agent</h3>
         <button type="button" onClick={closeAfterReplacingFallback}>Complete preparation</button>
