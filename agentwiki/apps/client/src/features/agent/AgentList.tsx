@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bot, KeyRound, Pause, Play, Plus, X } from 'lucide-react';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
+import { ModalDialog } from '../../components/ModalDialog';
 
 interface Agent {
   id: string;
@@ -59,6 +60,10 @@ export const AgentList: React.FC = () => {
     await load();
   };
 
+  const closeCreateDialog = () => {
+    if (!saving) setShowCreate(false);
+  };
+
   if (loading) return <div className="py-12 text-center text-gray-500">{t('common.loading')}</div>;
 
   return (
@@ -110,22 +115,33 @@ export const AgentList: React.FC = () => {
       )}
 
       {showCreate ? (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <form onSubmit={createAgent} onClick={(event) => event.stopPropagation()} className="bg-white border rounded-[14px] w-full max-w-md p-6">
+        <ModalDialog
+          labelledBy="create-agent-dialog-title"
+          onRequestClose={closeCreateDialog}
+          closeDisabled={saving}
+          className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] border bg-white p-6 shadow-xl"
+        >
+          <form onSubmit={createAgent}>
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-xl font-semibold">{t('agent.create')}</h2>
-              <button type="button" onClick={() => setShowCreate(false)} className="p-1 rounded hover:bg-gray-100"><X size={18} /></button>
+              <h2 id="create-agent-dialog-title" className="text-xl font-semibold">{t('agent.create')}</h2>
+              <button
+                type="button"
+                onClick={closeCreateDialog}
+                disabled={saving}
+                aria-label={t('common.close')}
+                className="p-1 rounded hover:bg-gray-100 disabled:opacity-50"
+              ><X size={18} /></button>
             </div>
             <label className="block text-sm font-medium mb-1">{t('common.name')}</label>
             <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="w-full h-8 px-3 border rounded-lg mb-4" required />
             <label className="block text-sm font-medium mb-1">{t('common.description')}</label>
             <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="w-full px-3 py-2 border rounded-lg mb-5" rows={3} />
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowCreate(false)} className="h-8 px-3 border rounded-lg text-sm">{t('common.cancel')}</button>
+              <button type="button" onClick={closeCreateDialog} disabled={saving} className="h-8 px-3 border rounded-lg text-sm disabled:opacity-50">{t('common.cancel')}</button>
               <button disabled={saving || !form.name.trim()} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{saving ? t('common.creating') : t('common.create')}</button>
             </div>
           </form>
-        </div>
+        </ModalDialog>
       ) : null}
     </div>
   );

@@ -162,4 +162,12 @@ describe('AddSpaceMemberDialog', () => {
     expect(await screen.findByText('No available agents')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add agent' })).toBeDisabled();
   });
+
+  it('closes with Escape through the shared modal behavior', () => {
+    renderDialog();
+
+    fireEvent.keyDown(screen.getByRole('dialog', { name: '添加成员' }), { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

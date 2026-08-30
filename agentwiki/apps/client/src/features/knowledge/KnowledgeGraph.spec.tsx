@@ -62,4 +62,43 @@ describe('KnowledgeGraph origin filters', () => {
       expect(screen.getByText('自动·链接')).toHaveClass('line-through');
     });
   });
+
+  it('closes the relation dialog with Escape, exits linking mode, and restores focus', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url.includes('/knowledge/graph/')) {
+        return Promise.resolve({ data: {
+          nodes: [node('p1', 'Alpha'), { ...node('p2', 'Beta'), x: 200 }],
+          edges: [],
+        } });
+      }
+      return Promise.resolve({ data: { data: [{ id: 'p1', title: 'Alpha' }, { id: 'p2', title: 'Beta' }] } });
+    });
+
+    const { container } = render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/spaces/s1/graph']}>
+          <Routes>
+            <Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const canvas = await waitFor(() => {
+      const value = container.querySelector('canvas');
+      expect(value).toBeInTheDocument();
+      return value!;
+    });
+    fireEvent.click(canvas, { clientX: 100, clientY: 100 });
+    const opener = screen.getByRole('button', { name: '建立关系…' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog', { name: '创建关系' });
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText(/正在从以下页面建立关系/)).not.toBeInTheDocument();
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
 });

@@ -61,4 +61,18 @@ describe('AdminPage password reset', () => {
     expect(await screen.findByText('Temp_Aa1!')).toBeInTheDocument();
     expect(screen.getAllByText(target.email).length).toBeGreaterThan(1);
   });
+
+  it('closes the action dialog with Escape and restores focus to its opener', async () => {
+    render(<LanguageProvider><AdminPage /></LanguageProvider>);
+
+    const opener = await screen.findByTitle('重置密码');
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog', { name: '重置密码' });
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
 });

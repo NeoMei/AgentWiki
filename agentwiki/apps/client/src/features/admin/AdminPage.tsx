@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
+import { ModalDialog } from '../../components/ModalDialog';
 
 interface Stats {
   users: { total: number; active: number; locked: number; deleted: number; new7d: number; new30d: number };
@@ -236,9 +237,13 @@ export const AdminPage: React.FC = () => {
       </div>
 
       {actionTarget && actionType && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={closeAction}>
-          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-2">
+        <ModalDialog
+          labelledBy="admin-action-dialog-title"
+          onRequestClose={closeAction}
+          closeDisabled={actionBusy}
+          className="max-h-[calc(100vh-2rem)] w-full max-w-sm overflow-y-auto rounded-[14px] bg-white p-6 shadow-xl"
+        >
+            <h3 id="admin-action-dialog-title" className="text-lg font-semibold mb-2">
               {actionType === 'reset-password' ? t('admin.confirmReset') : actionType === 'lock' ? t('admin.confirmLock') : actionType === 'unlock' ? t('admin.confirmUnlock') : t('admin.confirmDelete')}
             </h3>
             <p className="text-sm text-gray-500">{actionTarget.name || actionTarget.email}</p>
@@ -263,8 +268,7 @@ export const AdminPage: React.FC = () => {
               <button disabled={actionBusy} onClick={closeAction} className="px-4 py-2 border rounded-lg text-sm disabled:opacity-50">{actionResult ? t('common.close') : t('common.cancel')}</button>
               {!actionResult && <button disabled={actionBusy} onClick={performAction} className={`px-4 py-2 rounded-lg text-sm text-white disabled:opacity-50 ${actionType === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{actionBusy ? t('common.loading') : t('common.confirm')}</button>}
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import { Bot, Loader2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
+import { ModalDialog } from '../../components/ModalDialog';
 import { filterAvailableAgents, type AgentOption } from './spaceMemberAgentOptions';
 
 export interface AddSpaceMemberDialogProps {
@@ -114,17 +115,12 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
       };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+    <ModalDialog
+      labelledBy="add-space-member-title"
+      onRequestClose={onClose}
+      closeDisabled={submitting}
+      className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white p-5 shadow-xl sm:p-6"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-space-member-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-5 shadow-xl sm:p-6"
-        onClick={(event) => event.stopPropagation()}
-      >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id="add-space-member-title" className="text-xl font-bold">
             {zh ? '添加成员' : 'Add member'}
@@ -132,8 +128,9 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
           <button
             type="button"
             onClick={onClose}
+            disabled={submitting}
             aria-label={zh ? '关闭添加成员窗口' : 'Close add member dialog'}
-            className="rounded p-1 text-gray-500 hover:bg-gray-100"
+            className="rounded p-1 text-gray-500 hover:bg-gray-100 disabled:opacity-50"
           >
             <X size={20} />
           </button>
@@ -273,7 +270,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
           {submitError ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{submitError}</div> : null}
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-gray-600 hover:bg-gray-100">
+            <button type="button" onClick={onClose} disabled={submitting} className="rounded-md px-4 py-2 text-gray-600 hover:bg-gray-100 disabled:opacity-50">
               {zh ? '取消' : 'Cancel'}
             </button>
             <button
@@ -289,7 +286,6 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </ModalDialog>
   );
 };

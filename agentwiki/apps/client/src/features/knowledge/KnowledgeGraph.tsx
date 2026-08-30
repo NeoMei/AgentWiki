@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
+import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -240,6 +241,12 @@ export const KnowledgeGraph: React.FC = () => {
     setShowLinkModal(true);
   };
 
+  const closeLinkDialog = () => {
+    if (creating) return;
+    setShowLinkModal(false);
+    setLinkingFrom(null);
+  };
+
   if (loading) return <div className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
   if (error) return (
     <div className="text-center py-8">
@@ -381,11 +388,21 @@ export const KnowledgeGraph: React.FC = () => {
       )}
 
       {showLinkModal && linkingFrom && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowLinkModal(false)}>
-          <div className="bg-white rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <ModalDialog
+          labelledBy="knowledge-link-dialog-title"
+          onRequestClose={closeLinkDialog}
+          closeDisabled={creating}
+          className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white p-6 shadow-xl"
+        >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">{zh ? '创建关系' : 'Create link'}</h2>
-              <button onClick={() => { setShowLinkModal(false); setLinkingFrom(null); }} className="p-1 hover:bg-gray-100 rounded">
+              <h2 id="knowledge-link-dialog-title" className="text-xl font-bold">{zh ? '创建关系' : 'Create link'}</h2>
+              <button
+                type="button"
+                onClick={closeLinkDialog}
+                disabled={creating}
+                aria-label={zh ? '关闭创建关系窗口' : 'Close create link dialog'}
+                className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -432,7 +449,7 @@ export const KnowledgeGraph: React.FC = () => {
                 />
               </div>
               <div className="flex justify-end gap-2">
-                <button onClick={() => { setShowLinkModal(false); setLinkingFrom(null); }} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md">
+                <button type="button" onClick={closeLinkDialog} disabled={creating} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md disabled:opacity-50">
                   {zh ? '取消' : 'Cancel'}
                 </button>
                 <button
@@ -445,8 +462,7 @@ export const KnowledgeGraph: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );
