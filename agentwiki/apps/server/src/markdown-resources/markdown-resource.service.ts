@@ -70,7 +70,7 @@ function directoryOf(syncPath: string): string | null {
 function referencePathKeys(target: string, sourceSyncPath?: string): string[] {
   const normalized = target.normalize('NFC').trim();
   const markdownTarget = /\.md$/iu.test(normalized) ? normalized : `${normalized}.md`;
-  const candidates: string[] = [pathKey(normalized)];
+  const candidates: string[] = [];
   const addPortable = (value: string) => {
     const key = portablePathKey(value);
     if (key) candidates.push(key);
@@ -78,9 +78,11 @@ function referencePathKeys(target: string, sourceSyncPath?: string): string[] {
   if (!normalized.includes('/')) {
     const sourceDirectory = sourceSyncPath ? directoryOf(sourceSyncPath) : null;
     if (sourceDirectory) addPortable(`${sourceDirectory}/${markdownTarget}`);
+    candidates.push(pathKey(normalized));
     addPortable(markdownTarget);
     addPortable(`pages/${markdownTarget}`);
   } else {
+    candidates.push(pathKey(normalized));
     addPortable(markdownTarget);
     if (!/^pages\//iu.test(markdownTarget)) addPortable(`pages/${markdownTarget}`);
   }

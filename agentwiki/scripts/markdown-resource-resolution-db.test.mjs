@@ -138,6 +138,16 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
           syncPath: 'pages/Project/Target.md', syncPathKey: 'pages/project/target.md',
         },
         {
+          id: `target-legacy_${schemaName}`, spaceId, authorId: userId,
+          title: 'Target', slug: `target-legacy-${schemaName}`,
+          syncPath: 'Target.md', syncPathKey: 'target.md',
+        },
+        {
+          id: `legacy-only_${schemaName}`, spaceId, authorId: userId,
+          title: 'Legacy only', slug: `legacy-only-${schemaName}`,
+          syncPath: 'LegacyOnly.md', syncPathKey: 'legacyonly.md',
+        },
+        {
           id: `target-root_${schemaName}`, spaceId, authorId: userId,
           title: 'Target', slug: `target-root-${schemaName}`,
           syncPath: 'pages/Target.md', syncPathKey: 'pages/target.md',
@@ -207,6 +217,11 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       ], { userId }, `source-project_${schemaName}`);
       assert.equal(historicalRelative[0].pageId, `moved-alias_${schemaName}`);
 
+      const legacyFallback = await resolver.resolve(spaceId, [
+        { key: 'legacy-only', kind: 'page', target: 'LegacyOnly.md' },
+      ], { userId }, `source-project_${schemaName}`);
+      assert.equal(legacyFallback[0].pageId, `legacy-only_${schemaName}`);
+
       const rootRelative = await resolver.resolve(spaceId, [
         { key: 'target', kind: 'page', target: 'Target.md' },
       ], { userId }, `source-root_${schemaName}`);
@@ -215,7 +230,7 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       const rootWithoutSource = await resolver.resolve(spaceId, [
         { key: 'target', kind: 'page', target: 'Target.md' },
       ], { userId });
-      assert.equal(rootWithoutSource[0].pageId, `target-root_${schemaName}`);
+      assert.equal(rootWithoutSource[0].pageId, `target-legacy_${schemaName}`);
 
       const plans = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');

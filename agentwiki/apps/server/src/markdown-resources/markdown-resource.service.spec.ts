@@ -364,6 +364,10 @@ describe('MarkdownResourceService', () => {
       id: 'root-canonical', folderId: null, title: 'Target',
       syncPath: 'pages/Target.md', syncPathKey: 'pages/target.md',
     });
+    const legacyRoot = page({
+      id: 'legacy-root', folderId: null, title: 'Target',
+      syncPath: 'Target.md', syncPathKey: 'target.md',
+    });
     const duplicateTitle = page({
       id: 'duplicate-title', folderId: 'folder-other', title: 'Target',
       syncPath: 'pages/Other/Target-copy.md', syncPathKey: 'pages/other/target-copy.md',
@@ -373,8 +377,8 @@ describe('MarkdownResourceService', () => {
       const sql = query.strings.join('?');
       if (sql.includes('"id" IN')) {
         return query.values.includes('pages/project/target.md')
-          ? [sameDirectory, rootCanonical]
-          : [rootCanonical];
+          ? [legacyRoot, sameDirectory, rootCanonical]
+          : [legacyRoot, rootCanonical];
       }
       if (sql.includes('markdown_page_identity("title")')) {
         return [sameDirectory, rootCanonical, duplicateTitle];
@@ -387,6 +391,30 @@ describe('MarkdownResourceService', () => {
     ], principal, source.id)).resolves.toEqual([{
       key: 'target', status: 'resolved', kind: 'page',
       pageId: sameDirectory.id, title: 'Target', slug: 'default',
+    }]);
+  });
+
+  it('falls back to a legacy root md path when the source-relative path is absent', async () => {
+    const source = page({
+      id: 'source-page', folderId: 'folder-project', title: 'Source',
+      syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+    });
+    const legacyRoot = page({
+      id: 'legacy-root', folderId: null, title: 'Legacy only',
+      syncPath: 'LegacyOnly.md', syncPathKey: 'legacyonly.md',
+    });
+    prisma.page.findFirst.mockResolvedValue(source);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([legacyRoot])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'legacy-only', kind: 'page', target: 'LegacyOnly.md' },
+    ], principal, source.id)).resolves.toEqual([{
+      key: 'legacy-only', status: 'resolved', kind: 'page',
+      pageId: legacyRoot.id, title: 'Legacy only', slug: 'default',
     }]);
   });
 
