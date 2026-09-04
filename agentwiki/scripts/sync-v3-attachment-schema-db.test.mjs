@@ -1,16 +1,40 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
-import {
+import * as syncV3TestDatabase from './sync-v3-test-database.mjs';
+
+const {
   validateSyncV3TestDatabaseUrl,
   withSyncV3TestDatabase,
-} from './sync-v3-test-database.mjs';
+} = syncV3TestDatabase;
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.SYNC_V3_TEST_DATABASE_URL;
 const UNIQUE_VIOLATION = /23505|already exists|unique constraint/iu;
 const FOREIGN_KEY_VIOLATION = /23503|is still referenced|foreign key constraint/iu;
+
+test('migration deploy keeps credentials out of argv and redacts failure diagnostics', () => {
+  assert.equal(typeof syncV3TestDatabase.buildMigrationDeployProcess, 'function');
+  assert.equal(typeof syncV3TestDatabase.redactMigrationDiagnostics, 'function');
+
+  const secretUrl = 'postgresql://sync-user:secret-password@localhost/agentwiki_test';
+  const invocation = syncV3TestDatabase.buildMigrationDeployProcess({
+    databaseUrl: secretUrl,
+    prismaRoot: '/tmp/sync-v3-prisma',
+  });
+  assert.equal(invocation.args.some((argument) => argument.includes(secretUrl)), false);
+  assert.equal(invocation.args.some((argument) => argument.includes('secret-password')), false);
+  assert.equal(invocation.options.env.DATABASE_URL, secretUrl);
+  assert.equal('SYNC_V3_TEST_DATABASE_URL' in invocation.options.env, false);
+  assert.equal(
+    syncV3TestDatabase.redactMigrationDiagnostics(
+      `migration failed for ${secretUrl}: secret-password`,
+      new Set([secretUrl, 'secret-password']),
+    ),
+    'migration failed for [REDACTED]: [REDACTED]',
+  );
+});
 
 test('Sync v3 database URLs fail closed outside a dedicated test database and schema', () => {
   assert.throws(() => validateSyncV3TestDatabaseUrl(undefined), /required/iu);
@@ -117,7 +141,26 @@ test('backfills one immutable version for every active attachment', {
       );
       assert.equal(historicalRevisionCount[0].count, 2);
 
-      await applySyncV3Migration();
+      const deployment = await applySyncV3Migration();
+      assert.match(deployment.firstDeployOutput, /1 migration found|Applying migration/iu);
+      assert.match(deployment.secondDeployOutput, /No pending migrations to apply/iu);
+      const deploymentDiagnostics = JSON.stringify(deployment);
+      assert.equal(deploymentDiagnostics.includes(baseDatabaseUrl), false);
+      const configuredPassword = decodeURIComponent(
+        validateSyncV3TestDatabaseUrl(baseDatabaseUrl).password,
+      );
+      if (configuredPassword) {
+        assert.equal(deploymentDiagnostics.includes(configuredPassword), false);
+      }
+      const migrationLedger = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (WHERE finished_at IS NOT NULL)::int AS finished,
+          COUNT(*) FILTER (WHERE rolled_back_at IS NOT NULL)::int AS rolled_back
+        FROM "_prisma_migrations"
+        WHERE migration_name = '20260904120000_add_sync_v3_attachments'
+      `);
+      assert.deepEqual(migrationLedger[0], { count: 1, finished: 1, rolled_back: 0 });
 
       const rows = await prisma.$queryRawUnsafe(`
         SELECT a.id, v."contentHash", v."storageKey"
@@ -155,6 +198,20 @@ test('backfills one immutable version for every active attachment', {
         FROM "AttachmentVersion"
         ORDER BY "attachmentId"
       `);
+      const insertRevisionAttachment = ({
+        revisionId = `revision_v2_${suffix}`,
+        attachmentId,
+        attachmentVersionId,
+        rowSpaceId = spaceId,
+        path,
+        pathKey = path,
+        ordinal,
+      }) => prisma.$executeRawUnsafe(`
+        INSERT INTO "SyncRevisionAttachmentRow" (
+          "revisionId", "attachmentId", "attachmentVersionId", "spaceId",
+          path, "pathKey", ordinal
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, revisionId, attachmentId, attachmentVersionId, rowSpaceId, path, pathKey, ordinal);
       await assert.rejects(
         prisma.$executeRawUnsafe(`
           INSERT INTO "AttachmentVersion" (
@@ -180,47 +237,138 @@ test('backfills one immutable version for every active attachment', {
         /23514|check constraint/iu,
       );
 
+      await insertRevisionAttachment({
+        attachmentId: versions[0].attachmentId,
+        attachmentVersionId: versions[0].id,
+        path: 'assets/a.png',
+        ordinal: 0,
+      });
+      await assert.rejects(
+        insertRevisionAttachment({
+          attachmentId: versions[0].attachmentId,
+          attachmentVersionId: versions[0].id,
+          path: 'assets/a-renamed.png',
+          ordinal: 1,
+        }),
+        UNIQUE_VIOLATION,
+      );
+      await assert.rejects(
+        insertRevisionAttachment({
+          attachmentId: versions[1].attachmentId,
+          attachmentVersionId: versions[1].id,
+          path: 'assets/different.png',
+          pathKey: 'assets/a.png',
+          ordinal: 1,
+        }),
+        UNIQUE_VIOLATION,
+      );
+      await assert.rejects(
+        insertRevisionAttachment({
+          attachmentId: versions[1].attachmentId,
+          attachmentVersionId: versions[1].id,
+          path: 'assets/b.webp',
+          ordinal: 0,
+        }),
+        UNIQUE_VIOLATION,
+      );
+
+      await assert.rejects(
+        insertRevisionAttachment({
+          attachmentId: versions[1].attachmentId,
+          attachmentVersionId: versions[0].id,
+          path: 'assets/wrong-version.webp',
+          ordinal: 1,
+        }),
+        FOREIGN_KEY_VIOLATION,
+      );
+
+      const secondSpaceId = `space_other_${suffix}`;
+      const secondAttachmentId = `other_attachment_${suffix}`;
+      const secondVersionId = `other_version_${suffix}`;
+      await prisma.space.create({
+        data: { id: secondSpaceId, name: 'Other Sync v3', slug: secondSpaceId },
+      });
+      await prisma.spaceAttachment.create({
+        data: {
+          id: secondAttachmentId,
+          spaceId: secondSpaceId,
+          displayName: 'other.jpeg',
+          nameKey: 'other.jpeg',
+          contentHash: '6'.repeat(64),
+          storageKey: `66/${'6'.repeat(64)}`,
+          mimeType: 'image/jpeg',
+          sizeBytes: 4n,
+          width: 1,
+          height: 1,
+          status: 'active',
+        },
+      });
       await prisma.$executeRawUnsafe(`
-        INSERT INTO "SyncRevisionAttachmentRow" (
-          "revisionId", "attachmentId", "attachmentVersionId", path, "pathKey", ordinal
-        ) VALUES (
-          'revision_v2_${suffix}', '${versions[0].attachmentId}', '${versions[0].id}',
-          'assets/a.png', 'assets/a.png', 0
-        )
-      `);
+        INSERT INTO "AttachmentVersion" (
+          id, "attachmentId", "contentHash", "storageKey", "mimeType",
+          "sizeBytes", width, height
+        ) VALUES ($1, $2, $3, $4, 'image/jpeg', 4, 1, 1)
+      `, secondVersionId, secondAttachmentId, '6'.repeat(64), `66/${'6'.repeat(64)}`);
       await assert.rejects(
-        prisma.$executeRawUnsafe(`
-          INSERT INTO "SyncRevisionAttachmentRow" (
-            "revisionId", "attachmentId", "attachmentVersionId", path, "pathKey", ordinal
-          ) VALUES (
-            'revision_v2_${suffix}', '${versions[0].attachmentId}', '${versions[0].id}',
-            'assets/a-renamed.png', 'assets/a-renamed.png', 1
-          )
-        `),
-        UNIQUE_VIOLATION,
+        insertRevisionAttachment({
+          attachmentId: secondAttachmentId,
+          attachmentVersionId: secondVersionId,
+          path: 'assets/other.jpeg',
+          ordinal: 1,
+        }),
+        FOREIGN_KEY_VIOLATION,
       );
-      await assert.rejects(
-        prisma.$executeRawUnsafe(`
-          INSERT INTO "SyncRevisionAttachmentRow" (
-            "revisionId", "attachmentId", "attachmentVersionId", path, "pathKey", ordinal
-          ) VALUES (
-            'revision_v2_${suffix}', '${versions[1].attachmentId}', '${versions[1].id}',
-            'assets/different.png', 'assets/a.png', 1
-          )
-        `),
-        UNIQUE_VIOLATION,
-      );
-      await assert.rejects(
-        prisma.$executeRawUnsafe(`
-          INSERT INTO "SyncRevisionAttachmentRow" (
-            "revisionId", "attachmentId", "attachmentVersionId", path, "pathKey", ordinal
-          ) VALUES (
-            'revision_v2_${suffix}', '${versions[1].attachmentId}', '${versions[1].id}',
-            'assets/b.webp', 'assets/b.webp', 0
-          )
-        `),
-        UNIQUE_VIOLATION,
-      );
+
+      for (const invalidPath of [
+        'assets/',
+        'assets/sub/a.png',
+        'assets/../a.png',
+        'assets/..',
+        String.raw`assets\a.png`,
+        String.raw`assets/a\b.png`,
+      ]) {
+        await assert.rejects(
+          insertRevisionAttachment({
+            attachmentId: versions[1].attachmentId,
+            attachmentVersionId: versions[1].id,
+            path: invalidPath,
+            pathKey: 'assets/valid.png',
+            ordinal: 1,
+          }),
+          /23514|check constraint/iu,
+          `expected database to reject invalid attachment path: ${invalidPath}`,
+        );
+        await assert.rejects(
+          insertRevisionAttachment({
+            attachmentId: versions[1].attachmentId,
+            attachmentVersionId: versions[1].id,
+            path: 'assets/valid.png',
+            pathKey: invalidPath,
+            ordinal: 1,
+          }),
+          /23514|check constraint/iu,
+          `expected database to reject invalid attachment pathKey: ${invalidPath}`,
+        );
+      }
+
+      for (const validPath of [
+        'assets/image.png',
+        'assets/image.jpg',
+        'assets/image.jpeg',
+        'assets/image.webp',
+        'assets/image.gif',
+      ]) {
+        await insertRevisionAttachment({
+          attachmentId: versions[1].attachmentId,
+          attachmentVersionId: versions[1].id,
+          path: validPath,
+          ordinal: 1,
+        });
+        await prisma.$executeRawUnsafe(`
+          DELETE FROM "SyncRevisionAttachmentRow"
+          WHERE "revisionId" = $1 AND "attachmentId" = $2
+        `, `revision_v2_${suffix}`, versions[1].attachmentId);
+      }
 
       await assert.rejects(
         prisma.$executeRawUnsafe(`DELETE FROM "AttachmentVersion" WHERE id = '${versions[0].id}'`),

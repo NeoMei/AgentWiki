@@ -241,6 +241,7 @@ model SpaceAttachment {
   revisionRows   SyncRevisionAttachmentRow[]
 
   @@unique([spaceId, nameKey])
+  @@unique([id, spaceId])
   @@index([spaceId, status, updatedAt])
   @@index([contentHash])
   @@index([status, archivedAt])
@@ -261,6 +262,7 @@ model AttachmentVersion {
   revisionRows SyncRevisionAttachmentRow[]
 
   @@unique([attachmentId, contentHash])
+  @@unique([id, attachmentId])
   @@index([contentHash])
 }
 
@@ -980,6 +982,7 @@ model SpaceKnowledgeRevision {
   attachmentRows        SyncRevisionAttachmentRow[]
 
   @@unique([spaceId, sequence])
+  @@unique([id, spaceId])
   @@index([spaceId, contentHash])
   @@unique([spaceId, migrationBatchId])
   @@index([sourceChangeSetId])
@@ -990,13 +993,14 @@ model SyncRevisionAttachmentRow {
   revisionId          String
   attachmentId        String
   attachmentVersionId String
+  spaceId             String
   path                String
   pathKey             String
   ordinal             Int
 
-  revision          SpaceKnowledgeRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
-  attachment        SpaceAttachment        @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
-  attachmentVersion AttachmentVersion      @relation(fields: [attachmentVersionId], references: [id], onDelete: Restrict)
+  revision          SpaceKnowledgeRevision @relation(fields: [revisionId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  attachment        SpaceAttachment        @relation(fields: [attachmentId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  attachmentVersion AttachmentVersion      @relation(fields: [attachmentVersionId, attachmentId], references: [id, attachmentId], onDelete: Restrict)
 
   @@id([revisionId, attachmentId])
   @@unique([revisionId, pathKey])

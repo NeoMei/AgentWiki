@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,47 @@ const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^sync_v3_test_[a-z0-9_]+$/u;
 const EMPTY_AUTHORITY_SOCKET_URL = /^(postgres(?:ql)?:\/\/)([^/?#]+@)\/([^?#]+)(\?[^#]*)?$/iu;
 const SYNC_V3_MIGRATION = '20260904120000_add_sync_v3_attachments';
+
+export function redactMigrationDiagnostics(value, sensitiveValues) {
+  let redacted = value;
+  for (const sensitiveValue of [...sensitiveValues].sort((a, b) => b.length - a.length)) {
+    if (sensitiveValue) redacted = redacted.replaceAll(sensitiveValue, '[REDACTED]');
+  }
+  return redacted;
+}
+
+export function buildMigrationDeployProcess({ databaseUrl, prismaRoot }) {
+  const childEnvironment = { ...process.env, DATABASE_URL: databaseUrl };
+  delete childEnvironment.SYNC_V3_TEST_DATABASE_URL;
+  return {
+    command: 'pnpm',
+    args: [
+      '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+      '--schema', join(prismaRoot, 'schema.prisma'),
+    ],
+    options: {
+      cwd: new URL('..', import.meta.url),
+      encoding: 'utf8',
+      timeout: 120_000,
+      env: childEnvironment,
+    },
+  };
+}
+
+function runMigrationDeploy({ databaseUrl, prismaRoot, sensitiveValues, stage }) {
+  const invocation = buildMigrationDeployProcess({ databaseUrl, prismaRoot });
+  const migration = spawnSync(invocation.command, invocation.args, invocation.options);
+  const diagnostics = redactMigrationDiagnostics(
+    [migration.error?.message, migration.stdout, migration.stderr]
+      .filter(Boolean)
+      .join('\n'),
+    sensitiveValues,
+  );
+  if (migration.error || migration.status !== 0) {
+    throw new Error(`Sync v3 ${stage} migration failed:\n${diagnostics}`);
+  }
+  return diagnostics;
+}
 
 function normalizeEmptyAuthoritySocketUrl(value) {
   const match = EMPTY_AUTHORITY_SOCKET_URL.exec(value);
@@ -64,6 +105,13 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
   const testUrl = new URL(administrativeUrl);
   testUrl.searchParams.set('schema', schemaName);
   const databaseUrl = testUrl.toString();
+  const sensitiveValues = new Set([
+    baseDatabaseUrl,
+    administrativeUrl,
+    databaseUrl,
+    parsed.password,
+    decodeURIComponent(parsed.password),
+  ]);
   const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl } } });
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'agentwiki-sync-v3-migrations-'));
   const temporaryPrismaRoot = join(temporaryRoot, 'prisma');
@@ -90,45 +138,31 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       recursive: true,
       force: true,
     });
-    const migration = spawnSync(
-      'pnpm',
-      [
-        '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
-        '--schema', join(temporaryPrismaRoot, 'schema.prisma'),
-      ],
-      {
-        cwd: new URL('..', import.meta.url),
-        encoding: 'utf8',
-        timeout: 120_000,
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-      },
-    );
-    if (migration.error || migration.status !== 0) {
-      const details = [migration.error?.message, migration.stdout, migration.stderr]
-        .filter(Boolean)
-        .join('\n');
-      throw new Error(`Sync v3 test migration failed:\n${details}`);
-    }
+    runMigrationDeploy({
+      databaseUrl,
+      prismaRoot: temporaryPrismaRoot,
+      sensitiveValues,
+      stage: 'baseline',
+    });
     const applySyncV3Migration = async () => {
-      const migrationSql = await readFile(new URL(
-        `../apps/server/prisma/migrations/${SYNC_V3_MIGRATION}/migration.sql`,
-        import.meta.url,
-      ), 'utf8');
-      const result = spawnSync(
-        'psql',
-        ['--no-psqlrc', '--set', 'ON_ERROR_STOP=1', '--dbname', administrativeUrl],
-        {
-          encoding: 'utf8',
-          input: `SET search_path TO ${schemaSql};\n${migrationSql}`,
-          timeout: 60_000,
-        },
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_MIGRATION),
+        { recursive: true },
       );
-      if (result.error || result.status !== 0) {
-        const details = [result.error?.message, result.stdout, result.stderr]
-          .filter(Boolean)
-          .join('\n');
-        throw new Error(`Sync v3 attachment migration failed:\n${details}`);
-      }
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
     };
     return await callback({ applySyncV3Migration, databaseUrl, schemaName });
   } finally {

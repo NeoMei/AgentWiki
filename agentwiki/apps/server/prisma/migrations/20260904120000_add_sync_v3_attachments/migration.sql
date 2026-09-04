@@ -28,6 +28,7 @@ CREATE TABLE "SyncRevisionAttachmentRow" (
   "revisionId" TEXT NOT NULL,
   "attachmentId" TEXT NOT NULL,
   "attachmentVersionId" TEXT NOT NULL,
+  "spaceId" TEXT NOT NULL,
   "path" TEXT NOT NULL,
   "pathKey" TEXT NOT NULL,
   "ordinal" INTEGER NOT NULL,
@@ -72,6 +73,12 @@ CREATE INDEX "AttachmentVersion_contentHash_idx"
   ON "AttachmentVersion"("contentHash");
 CREATE UNIQUE INDEX "AttachmentVersion_attachmentId_contentHash_key"
   ON "AttachmentVersion"("attachmentId", "contentHash");
+CREATE UNIQUE INDEX "AttachmentVersion_id_attachmentId_key"
+  ON "AttachmentVersion"("id", "attachmentId");
+CREATE UNIQUE INDEX "SpaceAttachment_id_spaceId_key"
+  ON "SpaceAttachment"("id", "spaceId");
+CREATE UNIQUE INDEX "SpaceKnowledgeRevision_id_spaceId_key"
+  ON "SpaceKnowledgeRevision"("id", "spaceId");
 CREATE UNIQUE INDEX "SyncRevisionAttachmentRow_revisionId_pathKey_key"
   ON "SyncRevisionAttachmentRow"("revisionId", "pathKey");
 CREATE UNIQUE INDEX "SyncRevisionAttachmentRow_revisionId_ordinal_key"
@@ -93,10 +100,10 @@ ALTER TABLE "AttachmentVersion" ADD CONSTRAINT "AttachmentVersion_content_check"
   );
 ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_fields_check"
   CHECK (
-    char_length("path") > 0
-    AND char_length("pathKey") > 0
-    AND "path" LIKE 'assets/%'
-    AND "pathKey" LIKE 'assets/%'
+    "path" ~* '^assets/[^/\\]+\.(png|jpe?g|webp|gif)$'
+    AND "pathKey" ~* '^assets/[^/\\]+\.(png|jpe?g|webp|gif)$'
+    AND substring("path" FROM 8) NOT IN ('.', '..')
+    AND substring("pathKey" FROM 8) NOT IN ('.', '..')
     AND "ordinal" BETWEEN 0 AND 999
   );
 ALTER TABLE "PushSessionV3Change" ADD CONSTRAINT "PushSessionV3Change_fields_check"
@@ -136,14 +143,14 @@ ALTER TABLE "PushSession" ADD CONSTRAINT "PushSession_attachment_counts_check"
 ALTER TABLE "AttachmentVersion" ADD CONSTRAINT "AttachmentVersion_attachmentId_fkey"
   FOREIGN KEY ("attachmentId") REFERENCES "SpaceAttachment"("id")
   ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_revisionId_fkey"
-  FOREIGN KEY ("revisionId") REFERENCES "SpaceKnowledgeRevision"("id")
+ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_revisionId_spaceId_fkey"
+  FOREIGN KEY ("revisionId", "spaceId") REFERENCES "SpaceKnowledgeRevision"("id", "spaceId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_attachmentId_fkey"
-  FOREIGN KEY ("attachmentId") REFERENCES "SpaceAttachment"("id")
+ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_attachmentId_spaceId_fkey"
+  FOREIGN KEY ("attachmentId", "spaceId") REFERENCES "SpaceAttachment"("id", "spaceId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_attachmentVersionId_fkey"
-  FOREIGN KEY ("attachmentVersionId") REFERENCES "AttachmentVersion"("id")
+ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_attachmentVersionId_attachmentId_fkey"
+  FOREIGN KEY ("attachmentVersionId", "attachmentId") REFERENCES "AttachmentVersion"("id", "attachmentId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "PushSessionV3Change" ADD CONSTRAINT "PushSessionV3Change_sessionId_fkey"
   FOREIGN KEY ("sessionId") REFERENCES "PushSession"("id")
