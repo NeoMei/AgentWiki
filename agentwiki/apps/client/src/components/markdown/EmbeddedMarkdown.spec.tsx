@@ -70,6 +70,11 @@ describe('EmbeddedMarkdown resource rendering', () => {
       width: 1280, height: 720, alt: 'Diagram alt',
     })));
     expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-1/markdown/resolve',
+      expect.objectContaining({ sourcePageId: 'root-page' }),
+      { signal: expect.any(AbortSignal) },
+    );
     expect(api.get).toHaveBeenCalledWith('/pages/embedded%20%2F%3F%23', { signal: expect.any(AbortSignal) });
   });
 
@@ -129,7 +134,7 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(screen.getByText('![[image.png#Heading]]')).toBeInTheDocument();
     expect(screen.getByText('![[Page#^bad id]]')).toBeInTheDocument();
     expect(screen.getByText('![[Page#^block-one]]')).toBeInTheDocument();
-    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ sourcePageId: 'root-page', references: [
       { key: 'r0', kind: 'page', target: 'Good Page' },
     ] });
     expect(api.get).not.toHaveBeenCalled();
@@ -150,7 +155,7 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(screen.getByText('![[image.png#^|Picture]]')).toBeInTheDocument();
     expect(screen.getByText('Embedded attachment fragments are not supported.')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: '' })).toBeInTheDocument();
-    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ sourcePageId: 'root-page', references: [
       { key: 'r0', kind: 'page', target: 'Good Page' },
     ] });
     expect(api.get).not.toHaveBeenCalled();
@@ -169,7 +174,7 @@ describe('EmbeddedMarkdown resource rendering', () => {
     expect(screen.getByText('[[Page#|Empty heading]]')).toBeInTheDocument();
     expect(screen.getByText('[[Page#^bad id|Invalid block]]')).toBeInTheDocument();
     expect(screen.getAllByText('Invalid reference fragment.')).toHaveLength(2);
-    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ references: [
+    expect(vi.mocked(api.post).mock.calls[0]?.[1]).toEqual({ sourcePageId: 'root-page', references: [
       { key: 'r0', kind: 'page', target: 'Good Page' },
     ] });
     expect(api.get).not.toHaveBeenCalled();

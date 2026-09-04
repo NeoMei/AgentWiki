@@ -505,7 +505,8 @@ export const Markdown: React.FC<MarkdownProps> = ({
     }
     let current = true;
     setResourceSnapshot({ tree, key: documentKey, state: { status: 'loading', resources: emptyResources } });
-    void loadTreeResources(tree, documentKey, resourceCollection.references).then((resources) => {
+    const sourcePageId = branch.documentId === 'root' ? undefined : branch.documentId;
+    void loadTreeResources(tree, documentKey, resourceCollection.references, sourcePageId).then((resources) => {
       if (current) setResourceSnapshot({ tree, key: documentKey, state: { status: 'ready', resources } });
     }).catch(() => {
       if (current) setResourceSnapshot({ tree, key: documentKey, state: { status: 'error', resources: emptyResources } });
@@ -513,7 +514,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
     return () => {
       current = false;
     };
-  }, [documentKey, resourceCollection, tree]);
+  }, [branch.documentId, documentKey, resourceCollection, tree]);
 
   const tasks = useMemo(() => collectMarkdownTasks(children), [children]);
   const taskInputsEnabled = Boolean(

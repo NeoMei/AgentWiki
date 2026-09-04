@@ -469,7 +469,7 @@ describe('resolveMarkdownResources', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it('uses an encoded Space path, excludes source/aliases and maps strict keyed responses', async () => {
+  it('uses an encoded Space path, sends the source Page, excludes aliases and maps strict keyed responses', async () => {
     const references = collectMarkdownResourceRefs('[[Page#Heading|Alias]] ![[diagram.png|Picture]]');
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string; kind: string }> }).references.map((ref) => ref.kind === 'page'
@@ -478,12 +478,12 @@ describe('resolveMarkdownResources', () => {
     }));
     const signal = new AbortController().signal;
 
-    const result = await resolveMarkdownResources('space /?#', references, signal);
+    const result = await resolveMarkdownResources('space /?#', references, signal, 'source-page');
 
     const [url, body, config] = vi.mocked(api.post).mock.calls[0];
     expect(url).toBe('/spaces/space%20%2F%3F%23/markdown/resolve');
     expect(config).toEqual({ signal });
-    expect(body).toEqual({ references: [
+    expect(body).toEqual({ sourcePageId: 'source-page', references: [
       { key: 'r0', kind: 'page', target: 'Page', heading: 'Heading' },
       { key: 'r1', kind: 'attachment', target: 'diagram.png' },
     ] });
@@ -511,6 +511,31 @@ describe('resolveMarkdownResources', () => {
     }));
 
     await expect(resolveMarkdownResources('space-1', references)).resolves.toHaveProperty('size', 2);
+  });
+
+  it('accepts the server ambiguity contract with strictly shaped Page candidates', async () => {
+    const references = collectMarkdownResourceRefs('[[Duplicate]]');
+    vi.mocked(api.post).mockResolvedValue({
+      data: [{
+        key: 'r0',
+        status: 'ambiguous',
+        candidates: [
+          { pageId: 'page-a', title: 'Duplicate', path: 'Folder A/Duplicate.md' },
+          { pageId: 'page-b', title: 'Duplicate', path: 'Folder B/Duplicate.md' },
+        ],
+      }],
+    });
+
+    const result = await resolveMarkdownResources('space-1', references);
+
+    expect(result.get(references[0].canonicalKey)).toEqual({
+      key: 'r0',
+      status: 'ambiguous',
+      candidates: [
+        { pageId: 'page-a', title: 'Duplicate', path: 'Folder A/Duplicate.md' },
+        { pageId: 'page-b', title: 'Duplicate', path: 'Folder B/Duplicate.md' },
+      ],
+    });
   });
 
   it.each([

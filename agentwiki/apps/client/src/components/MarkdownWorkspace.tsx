@@ -360,7 +360,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
 
     const startResolution = () => {
       controller = new AbortController();
-      void resolveMarkdownResources(spaceId, references, controller.signal)
+      void resolveMarkdownResources(spaceId, references, controller.signal, pageId)
         .then((resources) => {
           if (current && !controller?.signal.aborted) {
             setResourceSnapshot({ identity: resolutionIdentity, resources });
@@ -376,7 +376,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       if (debounceTimer !== null) window.clearTimeout(debounceTimer);
       controller?.abort();
     };
-  }, [isEdit, resolutionIdentity, resolutionScopeIdentity, spaceId]);
+  }, [isEdit, pageId, resolutionIdentity, resolutionScopeIdentity, spaceId]);
 
   useLayoutEffect(() => {
     uploadGenerationRef.current += 1;

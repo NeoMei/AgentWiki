@@ -197,7 +197,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(container.querySelector('.cm-editor')).toBeInTheDocument();
     expect(resourceMocks.post).toHaveBeenCalledWith(
       '/spaces/space-authoritative/markdown/resolve',
-      { references: expect.arrayContaining([
+      { sourcePageId: 'page-editor', references: expect.arrayContaining([
         expect.objectContaining({ target: 'Page 201', heading: 'Heading Name' }),
         expect.objectContaining({ target: 'Page 201', blockId: 'block-one' }),
       ]) },

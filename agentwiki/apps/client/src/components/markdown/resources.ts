@@ -68,7 +68,11 @@ export type ResolvedMarkdownResource =
   | { key: string; status: 'resolved'; kind: 'page'; pageId: string; title: string; slug: string }
   | { key: string; status: 'resolved'; kind: 'attachment'; attachmentId: string; displayName: string; mimeType: string; width: number; height: number }
   | { key: string; status: 'unresolved' }
-  | { key: string; status: 'ambiguous' };
+  | {
+      key: string;
+      status: 'ambiguous';
+      candidates?: Array<{ pageId: string; title: string; path: string }>;
+    };
 
 export type MarkdownResourceMap = ReadonlyMap<string, ResolvedMarkdownResource>;
 
@@ -155,6 +159,7 @@ export function loadTreeResources(
   tree: MarkdownTreeState,
   documentKey: string,
   references: readonly MarkdownResourceRef[],
+  sourcePageId?: string,
 ): Promise<MarkdownResourceMap> {
   const cached = tree.resourceRequests.get(documentKey);
   if (cached) return cached;
@@ -165,7 +170,7 @@ export function loadTreeResources(
   }
   const controller = new AbortController();
   tree.controllers.add(controller);
-  const request = resolveMarkdownResources(tree.spaceId, references, controller.signal)
+  const request = resolveMarkdownResources(tree.spaceId, references, controller.signal, sourcePageId)
     .catch((error) => {
       tree.resourceRequests.delete(documentKey);
       throw error;
@@ -1095,8 +1100,27 @@ function validateResponseItem(value: unknown, expected: MarkdownResourceRequest)
   if (!value || typeof value !== 'object') throw new Error('Invalid Markdown resource response');
   const item = value as Record<string, unknown>;
   if (item.key !== expected.key) throw new Error('Invalid Markdown resource response');
-  if (item.status === 'unresolved' || item.status === 'ambiguous') {
+  if (item.status === 'unresolved') {
     if (!exactKeys(item, ['key', 'status'])) throw new Error('Invalid Markdown resource response');
+    return item as ResolvedMarkdownResource;
+  }
+  if (item.status === 'ambiguous') {
+    if (item.candidates === undefined) {
+      if (!exactKeys(item, ['key', 'status'])) throw new Error('Invalid Markdown resource response');
+    } else if (
+      !exactKeys(item, ['key', 'status', 'candidates'])
+      || !Array.isArray(item.candidates)
+      || item.candidates.length === 0
+      || item.candidates.some((candidate) => (
+        !candidate || typeof candidate !== 'object'
+        || !exactKeys(candidate, ['pageId', 'title', 'path'])
+        || !isNonEmptyString((candidate as Record<string, unknown>).pageId)
+        || typeof (candidate as Record<string, unknown>).title !== 'string'
+        || typeof (candidate as Record<string, unknown>).path !== 'string'
+      ))
+    ) {
+      throw new Error('Invalid Markdown resource response');
+    }
     return item as ResolvedMarkdownResource;
   }
   if (item.status !== 'resolved' || item.kind !== expected.kind) {
@@ -1119,6 +1143,7 @@ export async function resolveMarkdownResources(
   spaceId: string,
   references: readonly MarkdownResourceRef[],
   signal?: AbortSignal,
+  sourcePageId?: string,
 ): Promise<MarkdownResourceMap> {
   if (!Array.isArray(references) || references.length === 0) {
     throw new Error('Invalid Markdown resource request');
@@ -1166,7 +1191,7 @@ export async function resolveMarkdownResources(
   const result = new Map<string, ResolvedMarkdownResource>();
   const response = await api.post(
     `/spaces/${encodeURIComponent(spaceId)}/markdown/resolve`,
-    { references: requests },
+    { ...(sourcePageId ? { sourcePageId } : {}), references: requests },
     { signal },
   );
   if (!Array.isArray(response.data) || response.data.length !== requests.length) {
