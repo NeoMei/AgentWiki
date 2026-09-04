@@ -5,13 +5,16 @@ import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
   CreateTreePushSessionRequestV3Schema,
+  SYNC_ERROR_CODES,
   SYNC_V3_ERROR_CODES,
   SYNC_PROTOCOL_V3,
   TREE_SYNC_V3_HARD_LIMITS,
   SyncAttachmentV3Schema,
+  SyncErrorCodeSchema,
   SyncPageV3Schema,
   SyncV3ErrorCodeSchema,
   SyncV3ErrorEnvelopeSchema,
+  SyncV3WireErrorCodeSchema,
   TreeBootstrapPreviewV3Schema,
   TreeCapabilitiesResponseV3Schema,
   TreeDetachAttachmentV3Schema,
@@ -39,6 +42,8 @@ import {
   treeRevisionDeltaHashV3,
   treeRevisionDeltaV3,
   type TreeDeltaItemV3,
+  type SyncErrorCode,
+  type SyncV3WireErrorCode,
 } from "./index.js";
 
 const hash = "a".repeat(64);
@@ -54,6 +59,58 @@ const malformedAttachmentIds = [
   String.raw`attachment\id`,
   "a".repeat(129),
 ];
+const inheritedSyncErrorCodes = [
+  "AUTHENTICATION_REQUIRED",
+  "DEVICE_CREDENTIAL_REVOKED",
+  "DEVICE_CREDENTIAL_EXPIRED",
+  "USER_INACTIVE",
+  "SPACE_FORBIDDEN",
+  "SPACE_READ_ONLY",
+  "INSTALLATION_NOT_FOUND",
+  "INSTALLATION_REVOKED",
+  "INSTALLATION_ALREADY_EXCHANGED",
+  "INSTALLATION_CODE_INVALID",
+  "INSTALLATION_CODE_EXPIRED",
+  "CREDENTIAL_COLLISION",
+  "PROTOCOL_UNSUPPORTED",
+  "SYNC_PROTOCOL_UPGRADE_REQUIRED",
+  "REVISION_GONE",
+  "CURSOR_INVALID",
+  "BASE_STALE",
+  "CONFIRMATION_REQUIRED",
+  "CONFIRMATION_MISMATCH",
+  "PAYLOAD_INVALID",
+  "PATH_COLLISION",
+  "PAGE_ID_CONFLICT",
+  "PAGE_TOO_LARGE",
+  "BATCH_TOO_LARGE",
+  "SPACE_TOO_LARGE",
+  "BATCH_MISMATCH",
+  "PUSH_SESSION_EXPIRED",
+  "PUSH_SESSION_NOT_FOUND",
+  "PUSH_SESSION_STATE_INVALID",
+  "PUSH_SESSION_INCOMPLETE",
+  "IDEMPOTENCY_MISMATCH",
+  "CAPABILITIES_CHANGED",
+  "QUOTA_EXCEEDED",
+  "RATE_LIMITED",
+  "INTERNAL_ERROR",
+] as const satisfies readonly SyncErrorCode[];
+const requiredInheritedV3WireCodes = [
+  "CURSOR_INVALID",
+  "REVISION_GONE",
+  "SPACE_FORBIDDEN",
+  "DEVICE_CREDENTIAL_REVOKED",
+] as const satisfies readonly SyncV3WireErrorCode[];
+const forbiddenV3ErrorEnvelopeFields = [
+  ["message", "internal diagnostic"],
+  ["details", { internal: true }],
+  ["path", "/Users/example/private.png"],
+  ["credential", "secret"],
+  ["markdown", "![private](assets/private.png)"],
+  ["blob", [1, 2, 3]],
+  ["storageKey", "internal/blob/key"],
+] as const;
 const vector = JSON.parse(readFileSync("test-vectors/sync-v3.json", "utf8")) as {
   errorCodes: string[];
   revision: { input: unknown; expectedHash: string };
@@ -454,7 +511,26 @@ describe("Sync Protocol v3", () => {
     expect(TreeDeltaItemV3Schema.parse(valid)).toEqual(valid);
   });
 
-  it("exports one strict, data-free envelope for the eight approved v3 error codes", () => {
+  it.each(requiredInheritedV3WireCodes)("accepts inherited %s in the strict v3 wire envelope", (code) => {
+    expect(SyncV3ErrorEnvelopeSchema.parse({
+      protocolVersion: "3",
+      error: { code, retryable: false },
+    })).toEqual({ protocolVersion: "3", error: { code, retryable: false } });
+  });
+
+  it("exports one runtime source for inherited errors and a de-duplicated v3 wire schema", () => {
+    expect(SYNC_ERROR_CODES).toEqual(inheritedSyncErrorCodes);
+    for (const code of inheritedSyncErrorCodes) {
+      expect(SyncErrorCodeSchema.parse(code)).toBe(code);
+      expect(SyncV3WireErrorCodeSchema.parse(code)).toBe(code);
+    }
+    for (const code of vector.errorCodes) {
+      expect(SyncV3WireErrorCodeSchema.parse(code)).toBe(code);
+    }
+    expect(new Set([...inheritedSyncErrorCodes, ...vector.errorCodes]).size).toBe(42);
+  });
+
+  it("keeps eight v3-specific action codes exact and the wire envelope data-free", () => {
     expect([...SYNC_V3_ERROR_CODES]).toEqual(vector.errorCodes);
     for (const code of vector.errorCodes) {
       expect(SyncV3ErrorCodeSchema.parse(code)).toBe(code);
@@ -463,16 +539,27 @@ describe("Sync Protocol v3", () => {
         error: { code, retryable: false },
       })).toEqual({ protocolVersion: "3", error: { code, retryable: false } });
     }
+    for (const code of requiredInheritedV3WireCodes) {
+      expect(() => SyncV3ErrorCodeSchema.parse(code)).toThrow();
+    }
+    expect(() => SyncV3ErrorEnvelopeSchema.parse({
+      protocolVersion: "3",
+      error: { code: "UNLISTED_WIRE_ERROR", retryable: false },
+    })).toThrow();
+    expect(() => SyncV3ErrorEnvelopeSchema.parse({
+      protocolVersion: "3",
+      error: { code: "ATTACHMENT_MISSING", retryable: false },
+      extra: true,
+    })).toThrow();
+  });
+
+  it.each(forbiddenV3ErrorEnvelopeFields)("rejects error.%s from the strict v3 wire envelope", (field, value) => {
     expect(() => SyncV3ErrorEnvelopeSchema.parse({
       protocolVersion: "3",
       error: {
         code: "ATTACHMENT_MISSING",
         retryable: false,
-        path: "/Users/example/private.png",
-        credential: "secret",
-        markdown: "![private](assets/private.png)",
-        blob: [1, 2, 3],
-        storageKey: "internal/blob/key",
+        [field]: value,
       },
     })).toThrow();
   });

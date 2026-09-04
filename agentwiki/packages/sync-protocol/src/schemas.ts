@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validatePortablePath } from "./normalize.js";
+import { SYNC_ERROR_CODES } from "./types.js";
 
 export const PublicIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 const HashSchema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -19,6 +20,7 @@ export const DecimalCountSchema = z
     "Decimal count exceeds signed bigint",
   );
 export const DecimalByteCountSchema = DecimalCountSchema;
+export const SyncErrorCodeSchema = z.enum(SYNC_ERROR_CODES);
 
 export const SyncCapabilitiesSchema = z
   .object({

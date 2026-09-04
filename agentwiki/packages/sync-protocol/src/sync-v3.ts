@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { canonicalBytes } from "./canonical.js";
 import { sha256Hex } from "./hash.js";
-import { PublicIdSchema } from "./schemas.js";
+import { PublicIdSchema, SyncErrorCodeSchema } from "./schemas.js";
 import {
   pathKey,
   validatePortableDirectoryPath,
@@ -42,10 +42,16 @@ export const SYNC_V3_ERROR_CODES = Object.freeze([
 export const SyncV3ErrorCodeSchema = z.enum(SYNC_V3_ERROR_CODES);
 export type SyncV3ErrorCode = z.infer<typeof SyncV3ErrorCodeSchema>;
 
+export const SyncV3WireErrorCodeSchema = z.union([
+  SyncErrorCodeSchema,
+  SyncV3ErrorCodeSchema,
+]);
+export type SyncV3WireErrorCode = z.infer<typeof SyncV3WireErrorCodeSchema>;
+
 export interface SyncV3ErrorEnvelope {
   protocolVersion: "3";
   error: {
-    code: SyncV3ErrorCode;
+    code: SyncV3WireErrorCode;
     retryable: boolean;
   };
 }
@@ -53,7 +59,7 @@ export interface SyncV3ErrorEnvelope {
 export const SyncV3ErrorEnvelopeSchema: z.ZodType<SyncV3ErrorEnvelope> = z.object({
   protocolVersion: z.literal(SYNC_PROTOCOL_V3),
   error: z.object({
-    code: SyncV3ErrorCodeSchema,
+    code: SyncV3WireErrorCodeSchema,
     retryable: z.boolean(),
   }).strict(),
 }).strict();
