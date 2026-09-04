@@ -257,6 +257,8 @@ export class SpaceRevisionWriterService {
       previousPath: string | null;
       contentHash: string | null;
     }> = [];
+    const ensuredContentHashes = new Set<string>();
+    let nextLegacyOrdinal: number | null = null;
 
     let ordinal = 0;
     for (const change of changes) {
@@ -282,20 +284,23 @@ export class SpaceRevisionWriterService {
       }
       const body = normalizeMarkdown(change.body ?? '');
       const hash = await contentHash(body);
-      await tx.syncPageContentRow.upsert({
-        where: { contentHash: hash },
-        create: {
-          contentHash: hash,
-          body,
-          byteLength: new TextEncoder().encode(body).byteLength,
-        },
-        update: {},
-      });
-      await tx.legacyPageBodyRow.upsert({
-        where: { contentHash: hash },
-        create: { contentHash: hash, body },
-        update: {},
-      });
+      if (!ensuredContentHashes.has(hash)) {
+        await tx.syncPageContentRow.upsert({
+          where: { contentHash: hash },
+          create: {
+            contentHash: hash,
+            body,
+            byteLength: new TextEncoder().encode(body).byteLength,
+          },
+          update: {},
+        });
+        await tx.legacyPageBodyRow.upsert({
+          where: { contentHash: hash },
+          create: { contentHash: hash, body },
+          update: {},
+        });
+        ensuredContentHashes.add(hash);
+      }
       const prior = await tx.syncRevisionPageRow.findUnique({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         select: { path: true, pathKey: true },
@@ -329,11 +334,14 @@ export class SpaceRevisionWriterService {
       } else if (existingExtra) {
         legacyOrdinal = existingExtra.ordinal;
       } else {
-        const nextOrdinalAgg = await tx.legacyRevisionPageExtra.aggregate({
-          where: { revisionId: created.id },
-          _max: { ordinal: true },
-        });
-        legacyOrdinal = (nextOrdinalAgg._max.ordinal ?? -1) + 1;
+        if (nextLegacyOrdinal === null) {
+          const nextOrdinalAgg = await tx.legacyRevisionPageExtra.aggregate({
+            where: { revisionId: created.id },
+            _max: { ordinal: true },
+          });
+          nextLegacyOrdinal = (nextOrdinalAgg._max.ordinal ?? -1) + 1;
+        }
+        legacyOrdinal = nextLegacyOrdinal++;
       }
       await tx.legacyRevisionPageExtra.upsert({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },

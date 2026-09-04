@@ -81,7 +81,7 @@ describe('SpaceRevisionWriterService', () => {
     };
     const tx = {
       $executeRaw: jest.fn(),
-      $queryRaw: jest.fn().mockResolvedValue([{ bytes: 6n }]),
+      $queryRaw: jest.fn().mockResolvedValue([{ bytes: 12n }]),
       space: {
         findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 0n }),
       },
@@ -97,13 +97,22 @@ describe('SpaceRevisionWriterService', () => {
       },
       spaceRevisionChainCheckpoint: { findUnique: jest.fn().mockResolvedValue(null) },
       syncRevisionPageRow: {
-        findMany: jest.fn().mockResolvedValue([{
-          pageId: '11111111-1111-4111-8111-111111111111',
-          folderId: null,
-          path: 'Guide.md',
-          title: 'Guide',
-          contentHash: '66a045b452102c59d840ec097d59d9467e13a3f34f6494e539ffd32c1bb35f18',
-        }]),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            pageId: '11111111-1111-4111-8111-111111111111',
+            folderId: null,
+            path: 'Guide.md',
+            title: 'Guide',
+            contentHash: '66a045b452102c59d840ec097d59d9467e13a3f34f6494e539ffd32c1bb35f18',
+          },
+          {
+            pageId: '22222222-2222-4222-8222-222222222222',
+            folderId: null,
+            path: 'Second.md',
+            title: 'Second',
+            contentHash: '66a045b452102c59d840ec097d59d9467e13a3f34f6494e539ffd32c1bb35f18',
+          },
+        ]),
         findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -143,16 +152,25 @@ describe('SpaceRevisionWriterService', () => {
       },
     };
     const body = 'Hello\n';
-    const result = await service.advanceLocked(tx as any, 'space-1', [{
-      operation: 'upsert',
-      pageId: '11111111-1111-4111-8111-111111111111',
-      path: 'Guide.md',
-      title: 'Guide',
-      body,
-    }], { origin: 'obsidian_sync' });
+    const result = await service.advanceLocked(tx as any, 'space-1', [
+      {
+        operation: 'upsert',
+        pageId: '11111111-1111-4111-8111-111111111111',
+        path: 'Guide.md',
+        title: 'Guide',
+        body,
+      },
+      {
+        operation: 'upsert',
+        pageId: '22222222-2222-4222-8222-222222222222',
+        path: 'Second.md',
+        title: 'Second',
+        body,
+      },
+    ], { origin: 'obsidian_sync' });
 
     expect(result.sequence).toBe(1);
-    expect(result.pageCount).toBe(1n);
+    expect(result.pageCount).toBe(2n);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(tx.$executeRaw.mock.calls[0])).toContain('agentwiki:sync-page-content-store:v1');
     expect(JSON.stringify(tx.$executeRaw.mock.calls[0])).not.toContain('space-1');
@@ -168,6 +186,11 @@ describe('SpaceRevisionWriterService', () => {
         contentHash: await contentHash(body),
       }),
     }));
+    expect(tx.legacyRevisionPageExtra.aggregate).toHaveBeenCalledTimes(1);
+    expect(tx.legacyRevisionPageExtra.upsert.mock.calls.map(([call]: any[]) => call.create.ordinal))
+      .toEqual([0, 1]);
+    expect(tx.syncPageContentRow.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.legacyPageBodyRow.upsert).toHaveBeenCalledTimes(1);
   });
 
   it('advances 10,000 structural Page changes with a bounded database query budget', async () => {
