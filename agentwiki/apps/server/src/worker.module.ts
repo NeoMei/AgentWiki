@@ -18,7 +18,7 @@ import { RunEventStore } from './collaboration-workflows/run-event.store';
 import { CollaborationEventsService } from './collaboration-workflows/collaboration-events.service';
 import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
 import { AttachmentCleanupWorker } from './attachments/attachment-cleanup.worker';
-import { AttachmentStorageModule } from './attachments/attachment.module';
+import { AttachmentStorageModule } from './attachments/attachment-storage.module';
 import { ContentTreeService } from './content-tree/content-tree.service';
 
 @Module({

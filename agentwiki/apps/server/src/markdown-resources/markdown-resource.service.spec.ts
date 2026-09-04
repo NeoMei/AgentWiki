@@ -48,6 +48,29 @@ describe('MarkdownResourceService', () => {
     service = new MarkdownResourceService(prisma, authorization);
   });
 
+  it('resolves every Page attachment reference from one bounded Attachment query', async () => {
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({ id: 'attachment-a', displayName: 'a.png', nameKey: 'a.png' }),
+      attachment({ id: 'attachment-b', displayName: 'b.png', nameKey: 'b.png' }),
+    ]);
+
+    await expect(service.resolveReferencedAttachmentsBatch([
+      { spaceId: 'space-1', sourceSyncPath: 'pages/A.md', body: '![[assets/a.png]]' },
+      { spaceId: 'space-1', sourceSyncPath: 'pages/topic/B.md', body: '![B](../assets/b.png)' },
+    ], prisma)).resolves.toEqual([
+      expect.objectContaining({ attachmentIds: ['attachment-a'], errors: [] }),
+      expect.objectContaining({ attachmentIds: ['attachment-b'], errors: [] }),
+    ]);
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        spaceId: 'space-1',
+        status: 'active',
+        nameKey: { in: ['a.png', 'b.png'] },
+      },
+    }));
+  });
+
   it('authorizes the Space once and resolves pages by stable id, current path, title, then legacy slug', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([
@@ -329,7 +352,11 @@ describe('MarkdownResourceService', () => {
       errors: [],
     });
     expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith({
-      where: { spaceId: 'space-1', status: 'active' },
+      where: {
+        spaceId: 'space-1',
+        status: 'active',
+        nameKey: { in: ['caf\u00e9.png'] },
+      },
       select: { id: true, displayName: true, nameKey: true },
       orderBy: [{ nameKey: 'asc' }, { id: 'asc' }],
     });

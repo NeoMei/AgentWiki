@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
@@ -6,6 +6,11 @@ import {
   contentHash,
   normalizeMarkdown,
   pathKey,
+  SyncAttachmentV3Schema,
+  SyncFolderV3Schema,
+  SyncPageV3Schema,
+  TREE_SYNC_V2_LIMITS,
+  TREE_SYNC_V3_HARD_LIMITS,
   treeRevisionContentHashV3,
   treeRevisionDeltaV3,
   type SyncAttachmentV3,
@@ -15,13 +20,33 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { MarkdownResourceService } from '../../markdown-resources/markdown-resource.service';
 import { resolveReferencedAttachments } from '../../markdown-resources/attachment-reference';
+import { normalizeAttachmentName } from '../../attachments/attachment-name';
 import { SyncApiException } from '../../integrations/obsidian/sync-error';
-import type { RevisionOrigin, RevisionWriteResult } from './space-revision-writer.service';
+import {
+  ATTACHMENT_STORAGE,
+  type AttachmentStorage,
+} from '../../attachments/attachment-storage';
+import type {
+  PageChange,
+  RevisionOrigin,
+  RevisionWriteResult,
+  StructuralPageChange,
+} from './space-revision-writer.service';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
 
 const V3_SCHEMA_VERSION = 'content-tree@3';
 const V3_RECIPE_VERSION = 'referenced-images-v1';
+const WRITE_BATCH_SIZE = 500;
 const encoder = new TextEncoder();
+
+async function writeBatches<T>(
+  rows: readonly T[],
+  write: (batch: T[]) => Promise<unknown>,
+): Promise<void> {
+  for (let offset = 0; offset < rows.length; offset += WRITE_BATCH_SIZE) {
+    await write(rows.slice(offset, offset + WRITE_BATCH_SIZE));
+  }
+}
 
 export interface SyncV3Candidate {
   folders: SyncFolderV3[];
@@ -83,9 +108,85 @@ function sidecarObject(value: Prisma.JsonValue | null | undefined): Prisma.Input
     : {};
 }
 
+function assertSupportedRevisionHead(
+  revision: { schemaVersion: string; recipeVersion: string } | null,
+): void {
+  if (!revision) return;
+  const supported = (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
+    || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1')
+    || (revision.schemaVersion === V3_SCHEMA_VERSION && revision.recipeVersion === V3_RECIPE_VERSION);
+  if (!supported) {
+    throw new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+      'Latest revision uses a newer or unsupported Sync protocol',
+      undefined,
+      '3',
+    );
+  }
+}
+
+export function assertSyncV3CandidateHardLimits(candidate: SyncV3Candidate): void {
+  if (candidate.folders.length + candidate.pages.length > TREE_SYNC_V2_LIMITS.maxSnapshotObjects) {
+    throw new SyncApiException(
+      'ATTACHMENT_CONTENT_INVALID',
+      'Sync v3 candidate contains too many Folder/Page objects',
+      undefined,
+      '3',
+    );
+  }
+  const bodyBytes = candidate.pages.reduce(
+    (total, page) => total + encoder.encode(page.body).byteLength,
+    0,
+  );
+  if (bodyBytes > TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes) {
+    throw new SyncApiException(
+      'ATTACHMENT_CONTENT_INVALID',
+      'Sync v3 Page bodies exceed the hard limit',
+      undefined,
+      '3',
+    );
+  }
+  if (candidate.attachments.length > TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments) {
+    throw new SyncApiException(
+      'ATTACHMENT_QUOTA_EXCEEDED',
+      'Sync v3 attachment count exceeds the hard limit',
+      undefined,
+      '3',
+    );
+  }
+  let transferBytes = 0n;
+  try {
+    for (const attachment of candidate.attachments) {
+      const sizeBytes = BigInt(attachment.sizeBytes);
+      if (sizeBytes > BigInt(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes)) {
+        throw new RangeError('per-attachment');
+      }
+      transferBytes += sizeBytes;
+    }
+  } catch {
+    throw new SyncApiException(
+      'ATTACHMENT_QUOTA_EXCEEDED',
+      'Sync v3 attachment size is invalid',
+      undefined,
+      '3',
+    );
+  }
+  if (transferBytes > BigInt(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes)) {
+    throw new SyncApiException(
+      'ATTACHMENT_QUOTA_EXCEEDED',
+      'Sync v3 attachment transfer bytes exceed the hard limit',
+      undefined,
+      '3',
+    );
+  }
+}
+
 @Injectable()
 export class SyncV3RevisionWriterService {
-  constructor(private readonly markdownResources: MarkdownResourceService) {}
+  constructor(
+    private readonly markdownResources: MarkdownResourceService,
+    @Inject(ATTACHMENT_STORAGE) private readonly storage: AttachmentStorage,
+  ) {}
 
   async inspectCurrentLocked(
     tx: SpaceLockedTransaction,
@@ -93,12 +194,14 @@ export class SyncV3RevisionWriterService {
   ): Promise<SyncV3CandidateInspection> {
     const [latest, historicalV3] = await Promise.all([
       tx.spaceKnowledgeRevision.findFirst({
-        where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },
+        where: { spaceId }, orderBy: { sequence: 'desc' },
+        select: { id: true, schemaVersion: true, recipeVersion: true },
       }),
       tx.spaceKnowledgeRevision.findFirst({
         where: { spaceId, schemaVersion: V3_SCHEMA_VERSION }, select: { id: true },
       }),
     ]);
+    assertSupportedRevisionHead(latest);
     if (!latest) return this.inspectLiveCurrentLocked(tx, spaceId, historicalV3 !== null);
     const [folders, pages] = await Promise.all([
       tx.syncRevisionFolderRow.findMany({
@@ -138,7 +241,8 @@ export class SyncV3RevisionWriterService {
   ): Promise<SyncV3CandidateInspection> {
     const [latest, historicalV3, folders, pages] = await Promise.all([
       tx.spaceKnowledgeRevision.findFirst({
-        where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },
+        where: { spaceId }, orderBy: { sequence: 'desc' },
+        select: { id: true, schemaVersion: true, recipeVersion: true },
       }),
       nativeV3 === undefined ? tx.spaceKnowledgeRevision.findFirst({
         where: { spaceId, schemaVersion: V3_SCHEMA_VERSION }, select: { id: true },
@@ -150,6 +254,7 @@ export class SyncV3RevisionWriterService {
         where: { spaceId, deletedAt: null }, orderBy: [{ syncPathKey: 'asc' }, { knowledgeKey: 'asc' }],
       }),
     ]);
+    assertSupportedRevisionHead(latest);
     return this.inspectCandidate(tx, spaceId, latest?.id ?? '0', historicalV3 !== null, {
       folders: folders.map((folder): SyncFolderV3 => ({
         folderId: folder.id,
@@ -183,17 +288,30 @@ export class SyncV3RevisionWriterService {
       }>;
     },
   ): Promise<SyncV3CandidateInspection> {
-
+    assertSyncV3CandidateHardLimits({ folders: source.folders, pages: source.pages.map((page) => ({
+      ...page,
+      contentHash: '0'.repeat(64),
+      updatedAt: page.updatedAt.toISOString(),
+      referencedAttachmentIds: [],
+    })), attachments: [] });
     const blockers: SyncV3CandidateInspection['blockers'] = [];
     const syncPages: SyncPageV3[] = [];
     const referencedIds = new Set<string>();
-    for (const page of source.pages) {
-      const body = normalizeMarkdown(page.body);
-      const resolved = await this.markdownResources.resolveReferencedAttachments({
+    const preparedPages = source.pages.map((page) => ({
+      page,
+      body: normalizeMarkdown(page.body),
+    }));
+    const resolvedPages = await this.markdownResources.resolveReferencedAttachmentsBatch(
+      preparedPages.map(({ page, body }) => ({
         spaceId,
         sourceSyncPath: page.path,
         body,
-      }, tx);
+      })),
+      tx,
+    );
+    for (const [index, prepared] of preparedPages.entries()) {
+      const { page, body } = prepared;
+      const resolved = resolvedPages[index]!;
       for (const error of resolved.errors) blockers.push({ pageId: page.pageId, code: error.code });
       for (const attachmentId of resolved.attachmentIds) referencedIds.add(attachmentId);
       syncPages.push({
@@ -227,6 +345,7 @@ export class SyncV3RevisionWriterService {
       pages: syncPages,
       attachments: syncAttachments,
     });
+    assertSyncV3CandidateHardLimits(candidate);
     const candidateHash = await treeRevisionContentHashV3({
       protocolVersion: '3', spaceId, ...candidate,
     });
@@ -250,15 +369,47 @@ export class SyncV3RevisionWriterService {
   async advanceCurrentIfRequiredLocked(
     tx: SpaceLockedTransaction,
     spaceId: string,
+    changes: Array<PageChange | StructuralPageChange>,
     origin: RevisionOrigin,
   ): Promise<SyncV3RevisionWriteResult | null> {
     const inspection = await this.inspectLiveCurrentLocked(tx, spaceId);
     if (inspection.mode !== 'native_v3') return null;
+    this.assertChangesApplied(inspection.candidate, changes);
     const blocker = inspection.blockers[0];
     if (blocker) {
       throw new SyncApiException(blocker.code, 'Page attachment reference cannot be resolved', undefined, '3');
     }
     return this.advanceV3Locked(tx, spaceId, inspection.candidate, origin);
+  }
+
+  private assertChangesApplied(
+    candidate: SyncV3Candidate,
+    changes: Array<PageChange | StructuralPageChange>,
+  ): void {
+    const pages = new Map(candidate.pages.map((page) => [page.pageId, page]));
+    for (const change of changes) {
+      const page = pages.get(change.pageId);
+      if (change.operation === 'archive') {
+        if (!page) continue;
+      } else if (
+        page
+        && change.path !== undefined
+        && page.path === change.path
+        && change.title !== undefined
+        && page.title === change.title
+        && change.body !== undefined
+        && page.body === normalizeMarkdown(change.body)
+        && (!('folderId' in change) || page.folderId === change.folderId)
+      ) {
+        continue;
+      }
+      throw new SyncApiException(
+        'ATTACHMENT_CONTENT_INVALID',
+        'Declared Page change is not reflected in the locked Space state',
+        undefined,
+        '3',
+      );
+    }
   }
 
   async advanceV3Locked(
@@ -267,11 +418,23 @@ export class SyncV3RevisionWriterService {
     candidateInput: SyncV3Candidate,
     origin: RevisionOrigin,
   ): Promise<SyncV3RevisionWriteResult> {
-    const resolverCandidates = candidateInput.attachments.map((attachment) => ({
-      id: attachment.attachmentId,
-      displayName: attachmentName(attachment.path),
-      nameKey: attachmentName(attachment.path).normalize('NFC').toLocaleLowerCase('en-US'),
-    }));
+    assertSyncV3CandidateHardLimits(candidateInput);
+    try {
+      for (const folder of candidateInput.folders) SyncFolderV3Schema.parse(folder);
+      for (const page of candidateInput.pages) SyncPageV3Schema.parse(page);
+      for (const attachment of candidateInput.attachments) SyncAttachmentV3Schema.parse(attachment);
+    } catch {
+      throw new SyncApiException(
+        'ATTACHMENT_CONTENT_INVALID',
+        'Candidate manifest is invalid',
+        undefined,
+        '3',
+      );
+    }
+    const resolverCandidates = candidateInput.attachments.map((attachment) => {
+      const name = normalizeAttachmentName(attachmentName(attachment.path));
+      return { id: attachment.attachmentId, ...name };
+    });
     for (const page of candidateInput.pages) {
       const normalizedBody = normalizeMarkdown(page.body);
       if (await contentHash(normalizedBody) !== page.contentHash) {
@@ -311,8 +474,9 @@ export class SyncV3RevisionWriterService {
 
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId }, orderBy: { sequence: 'desc' },
-      select: { id: true, sequence: true, schemaVersion: true },
+      select: { id: true, sequence: true, schemaVersion: true, recipeVersion: true },
     });
+    assertSupportedRevisionHead(latest);
     const parentManifest = latest?.schemaVersion === V3_SCHEMA_VERSION
       ? await this.loadManifest(tx, spaceId, latest.id)
       : null;
@@ -332,26 +496,51 @@ export class SyncV3RevisionWriterService {
       throw new SyncApiException('ATTACHMENT_MISSING', 'Candidate attachment is not active in this Space', undefined, '3');
     }
     const activeById = new Map(activeAttachments.map((attachment) => [attachment.id, attachment]));
+    const versionKey = (attachmentId: string, hash: string) => `${attachmentId}:${hash}`;
+    const loadedVersions = candidate.attachments.length === 0 ? [] : await tx.attachmentVersion.findMany({
+      where: { OR: candidate.attachments.map((attachment) => ({
+        attachmentId: attachment.attachmentId,
+        contentHash: attachment.contentHash,
+      })) },
+    });
+    const versionsByKey = new Map(loadedVersions.map((version) => [
+      versionKey(version.attachmentId, version.contentHash),
+      version,
+    ]));
     const attachmentVersions = new Map<string, string>();
+    const missingVersions: Array<{
+      attachmentId: string;
+      contentHash: string;
+      storageKey: string;
+      mimeType: string;
+      sizeBytes: bigint;
+      width: number;
+      height: number;
+    }> = [];
     for (const attachment of candidate.attachments) {
       const active = activeById.get(attachment.attachmentId)!;
-      let version = await tx.attachmentVersion.findUnique({
-        where: { attachmentId_contentHash: {
-          attachmentId: attachment.attachmentId,
-          contentHash: attachment.contentHash,
-        } },
-      });
+      const name = normalizeAttachmentName(attachmentName(attachment.path));
+      if (
+        active.displayName !== name.displayName
+        || active.nameKey !== name.nameKey
+        || active.contentHash !== attachment.contentHash
+        || active.mimeType !== attachment.mimeType
+        || active.sizeBytes.toString() !== attachment.sizeBytes
+        || active.width !== attachment.width
+        || active.height !== attachment.height
+        || active.updatedAt.toISOString() !== attachment.updatedAt
+        || active.storageKey.length === 0
+      ) {
+        throw new SyncApiException(
+          'ATTACHMENT_CONTENT_INVALID',
+          'Candidate attachment is not reflected in the active Space state',
+          undefined,
+          '3',
+        );
+      }
+      const version = versionsByKey.get(versionKey(attachment.attachmentId, attachment.contentHash));
       if (!version) {
-        const metadataMatches = active.contentHash === attachment.contentHash
-          && active.mimeType === attachment.mimeType
-          && active.sizeBytes.toString() === attachment.sizeBytes
-          && active.width === attachment.width
-          && active.height === attachment.height
-          && active.storageKey.length > 0;
-        if (!metadataMatches) {
-          throw new SyncApiException('ATTACHMENT_BLOB_MISSING', 'Candidate attachment version is not staged', undefined, '3');
-        }
-        version = await tx.attachmentVersion.create({ data: {
+        missingVersions.push({
           attachmentId: attachment.attachmentId,
           contentHash: attachment.contentHash,
           storageKey: active.storageKey,
@@ -359,10 +548,10 @@ export class SyncV3RevisionWriterService {
           sizeBytes: BigInt(attachment.sizeBytes),
           width: attachment.width,
           height: attachment.height,
-        } });
-      }
-      if (
+        });
+      } else if (
         version.contentHash !== attachment.contentHash
+        || version.storageKey !== active.storageKey
         || version.mimeType !== attachment.mimeType
         || version.sizeBytes.toString() !== attachment.sizeBytes
         || version.width !== attachment.width
@@ -375,51 +564,51 @@ export class SyncV3RevisionWriterService {
           '3',
         );
       }
-      attachmentVersions.set(attachment.attachmentId, version.id);
-      const name = attachmentName(attachment.path);
-      if (
-        active.displayName !== name
-        || active.nameKey !== pathKey(name)
-        || active.contentHash !== attachment.contentHash
-        || active.mimeType !== attachment.mimeType
-        || active.sizeBytes.toString() !== attachment.sizeBytes
-        || active.width !== attachment.width
-        || active.height !== attachment.height
-        || active.updatedAt.toISOString() !== attachment.updatedAt
-      ) {
-        await tx.spaceAttachment.update({
-          where: { id: active.id },
-          data: {
-            displayName: name,
-            nameKey: pathKey(name),
-            contentHash: attachment.contentHash,
-            storageKey: version.storageKey,
-            mimeType: attachment.mimeType,
-            sizeBytes: BigInt(attachment.sizeBytes),
-            width: attachment.width,
-            height: attachment.height,
-            updatedAt: new Date(attachment.updatedAt),
-          },
-        });
+      await this.assertBlobReadable(active.storageKey);
+      if (version) attachmentVersions.set(attachment.attachmentId, version.id);
+    }
+    if (missingVersions.length > 0) {
+      await writeBatches(missingVersions, (data) => tx.attachmentVersion.createMany({
+        data,
+        skipDuplicates: true,
+      }));
+      const createdVersions = await tx.attachmentVersion.findMany({
+        where: { OR: missingVersions.map(({ attachmentId, contentHash: hash }) => ({
+          attachmentId,
+          contentHash: hash,
+        })) },
+      });
+      for (const version of createdVersions) {
+        attachmentVersions.set(version.attachmentId, version.id);
+      }
+      if (attachmentVersions.size !== candidate.attachments.length) {
+        throw new SyncApiException(
+          'ATTACHMENT_BLOB_MISSING',
+          'Candidate attachment version could not be persisted',
+          undefined,
+          '3',
+        );
       }
     }
 
-    await this.persistPages(tx, spaceId, candidate.pages, origin);
-    for (const page of candidate.pages) {
-      await tx.syncPageContentRow.upsert({
-        where: { contentHash: page.contentHash },
-        create: {
+    if (candidate.pages.length > 0) {
+      const contentRows = candidate.pages.map((page) => ({
           contentHash: page.contentHash,
           body: page.body,
           byteLength: encoder.encode(page.body).byteLength,
-        },
-        update: {},
-      });
-      await tx.legacyPageBodyRow.upsert({
-        where: { contentHash: page.contentHash },
-        create: { contentHash: page.contentHash, body: page.body },
-        update: {},
-      });
+      }));
+      await writeBatches(contentRows, (data) => tx.syncPageContentRow.createMany({
+        data,
+        skipDuplicates: true,
+      }));
+      const legacyBodyRows = candidate.pages.map((page) => ({
+        contentHash: page.contentHash,
+        body: page.body,
+      }));
+      await writeBatches(legacyBodyRows, (data) => tx.legacyPageBodyRow.createMany({
+        data,
+        skipDuplicates: true,
+      }));
     }
 
     const revisionContentHash = await treeRevisionContentHashV3(manifest);
@@ -453,7 +642,7 @@ export class SyncV3RevisionWriterService {
     } });
 
     if (candidate.folders.length > 0) {
-      await tx.syncRevisionFolderRow.createMany({ data: candidate.folders.map((folder) => ({
+      const folderRows = candidate.folders.map((folder) => ({
         revisionId: created.id,
         folderId: folder.folderId,
         parentFolderId: folder.parentFolderId,
@@ -462,10 +651,11 @@ export class SyncV3RevisionWriterService {
         pathKey: pathKey(folder.path),
         sortOrder: folder.sortOrder,
         updatedAt: new Date(folder.updatedAt),
-      })) });
+      }));
+      await writeBatches(folderRows, (data) => tx.syncRevisionFolderRow.createMany({ data }));
     }
     if (candidate.pages.length > 0) {
-      await tx.syncRevisionPageRow.createMany({ data: candidate.pages.map((page) => ({
+      const pageRows = candidate.pages.map((page) => ({
         revisionId: created.id,
         pageId: page.pageId,
         folderId: page.folderId,
@@ -474,8 +664,9 @@ export class SyncV3RevisionWriterService {
         title: page.title,
         contentHash: page.contentHash,
         updatedAt: new Date(page.updatedAt),
-      })) });
-      await tx.legacyRevisionPageExtra.createMany({ data: candidate.pages.map((page, ordinal) => ({
+      }));
+      await writeBatches(pageRows, (data) => tx.syncRevisionPageRow.createMany({ data }));
+      const pageExtraRows = candidate.pages.map((page, ordinal) => ({
         revisionId: created.id,
         pageId: page.pageId,
         ordinal,
@@ -491,10 +682,11 @@ export class SyncV3RevisionWriterService {
           path: page.path,
           updatedAt: page.updatedAt,
         }),
-      })) });
+      }));
+      await writeBatches(pageExtraRows, (data) => tx.legacyRevisionPageExtra.createMany({ data }));
     }
     if (candidate.attachments.length > 0) {
-      await tx.syncRevisionAttachmentRow.createMany({ data: candidate.attachments.map((attachment, ordinal) => ({
+      const attachmentRows = candidate.attachments.map((attachment, ordinal) => ({
         revisionId: created.id,
         attachmentId: attachment.attachmentId,
         attachmentVersionId: attachmentVersions.get(attachment.attachmentId)!,
@@ -502,7 +694,8 @@ export class SyncV3RevisionWriterService {
         path: attachment.path,
         pathKey: pathKey(attachment.path),
         ordinal,
-      })) });
+      }));
+      await writeBatches(attachmentRows, (data) => tx.syncRevisionAttachmentRow.createMany({ data }));
     }
 
     const representableDelta: Array<{
@@ -529,9 +722,10 @@ export class SyncV3RevisionWriterService {
       representableDelta.push({ operation: item.operation, folderId: null, pageId: item.page.pageId, previousPath: null, contentHash: item.page.contentHash });
     }
     if (representableDelta.length > 0) {
-      await tx.syncRevisionTreeDeltaRow.createMany({ data: representableDelta.map((row, ordinal) => ({
+      const deltaRows = representableDelta.map((row, ordinal) => ({
         revisionId: created.id, ordinal, ...row,
-      })) });
+      }));
+      await writeBatches(deltaRows, (data) => tx.syncRevisionTreeDeltaRow.createMany({ data }));
     }
     const priorSidecar = latest ? await tx.legacyRevisionSidecar.findUnique({
       where: { revisionId: latest.id }, select: { sidecar: true },
@@ -587,54 +781,18 @@ export class SyncV3RevisionWriterService {
     return { folders: manifest.folders, pages: manifest.pages, attachments: manifest.attachments };
   }
 
-  private async persistPages(
-    tx: SpaceLockedTransaction,
-    spaceId: string,
-    pages: SyncPageV3[],
-    origin: RevisionOrigin,
-  ): Promise<void> {
-    if (pages.length === 0) return;
-    const existing = await tx.page.findMany({
-      where: { spaceId, knowledgeKey: { in: pages.map((page) => page.pageId) } },
-    });
-    const byKnowledgeKey = new Map(existing.map((page) => [page.knowledgeKey, page]));
-    if (existing.length !== pages.length) {
-      throw new SyncApiException('ATTACHMENT_CONTENT_INVALID', 'Candidate Page does not exist in this Space', undefined, '3');
-    }
-    for (const page of pages) {
-      const current = byKnowledgeKey.get(page.pageId)!;
-      const changed = current.title !== page.title
-        || normalizeMarkdown(current.content) !== page.body
-        || current.folderId !== page.folderId
-        || current.syncPath !== page.path;
-      if (!changed) continue;
-      await tx.pageVersion.create({ data: {
-        pageId: current.id,
-        title: current.title,
-        content: current.content,
-        authorId: current.authorId,
-        slug: current.slug,
-        format: current.format,
-        parentId: current.parentId,
-        folderId: current.folderId,
-        syncPath: current.syncPath,
-        syncPathKey: current.syncPathKey,
-        migrationBatchId: origin.migrationBatchId ?? null,
-      } });
-      await tx.page.update({
-        where: { id: current.id },
-        data: {
-          title: page.title,
-          content: page.body,
-          folderId: page.folderId,
-          syncPath: page.path,
-          syncPathKey: pathKey(page.path),
-          updatedAt: new Date(page.updatedAt),
-          lastModifiedAt: new Date(page.updatedAt),
-          lastModifiedByUserId: origin.createdByUserId ?? null,
-          lastChangeSetId: origin.sourceChangeSetId ?? null,
-        },
-      });
+  private async assertBlobReadable(storageKey: string): Promise<void> {
+    try {
+      const stream = await this.storage.open(storageKey);
+      const destroy = (stream as NodeJS.ReadableStream & { destroy?: () => void }).destroy;
+      if (typeof destroy === 'function') destroy.call(stream);
+    } catch {
+      throw new SyncApiException(
+        'ATTACHMENT_BLOB_MISSING',
+        'Candidate attachment content is not readable',
+        undefined,
+        '3',
+      );
     }
   }
 

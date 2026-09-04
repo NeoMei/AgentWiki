@@ -2,6 +2,8 @@ import { homedir, tmpdir } from 'node:os';
 import { cwd } from 'node:process';
 import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 
+export const ATTACHMENT_CONFIG = 'ATTACHMENT_CONFIG';
+
 const MIB = 1024n * 1024n;
 const GENERATED_DEVELOPMENT_PATH = resolve(
   join(tmpdir(), 'agentwiki-development-attachments'),

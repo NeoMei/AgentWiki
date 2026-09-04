@@ -4,7 +4,7 @@ import {
   ATTACHMENT_STORAGE,
   type AttachmentStorage,
 } from './attachments/attachment-storage';
-import { ATTACHMENT_CONFIG } from './attachments/attachment.service';
+import { ATTACHMENT_CONFIG } from './attachments/attachment.config';
 import { PrismaService } from './database/prisma.service';
 import { RedisService } from './database/redis.service';
 

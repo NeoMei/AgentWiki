@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
@@ -90,7 +90,7 @@ export type SpaceTreeLockedTransaction = SpaceLockedTransaction & {
 export class SpaceRevisionWriterService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+    private readonly v3Writer: SyncV3RevisionWriterService,
   ) {}
 
   /**
@@ -189,7 +189,7 @@ export class SpaceRevisionWriterService {
     changes: PageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
-    const v3Result = await this.v3Writer?.advanceCurrentIfRequiredLocked(tx, spaceId, origin);
+    const v3Result = await this.v3Writer.advanceCurrentIfRequiredLocked(tx, spaceId, changes, origin);
     if (v3Result) return v3Result;
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
@@ -528,7 +528,7 @@ export class SpaceRevisionWriterService {
     origin: RevisionOrigin,
     deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
-    const v3Result = await this.v3Writer?.advanceCurrentIfRequiredLocked(tx, spaceId, origin);
+    const v3Result = await this.v3Writer.advanceCurrentIfRequiredLocked(tx, spaceId, changes, origin);
     if (v3Result) return v3Result;
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({

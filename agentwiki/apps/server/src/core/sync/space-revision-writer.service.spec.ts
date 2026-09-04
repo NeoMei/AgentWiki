@@ -1,12 +1,27 @@
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
 import { contentHash, pathKey } from '@neomei/agentwiki-sync-protocol';
+import { Test } from '@nestjs/testing';
+import { PrismaService } from '../../database/prisma.service';
 
 describe('SpaceRevisionWriterService', () => {
   const prisma = {} as any;
+  const inactiveV3Writer = {
+    advanceCurrentIfRequiredLocked: jest.fn().mockResolvedValue(null),
+  };
   let service: SpaceRevisionWriterService;
 
   beforeEach(() => {
-    service = new SpaceRevisionWriterService(prisma);
+    inactiveV3Writer.advanceCurrentIfRequiredLocked.mockClear();
+    service = new SpaceRevisionWriterService(prisma, inactiveV3Writer as any);
+  });
+
+  it('fails module construction when the required v3 writer is not wired', async () => {
+    await expect(Test.createTestingModule({
+      providers: [
+        SpaceRevisionWriterService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile()).rejects.toThrow();
   });
 
   it('delegates a native v3 Space before creating any legacy revision row', async () => {
@@ -23,11 +38,18 @@ describe('SpaceRevisionWriterService', () => {
       $executeRaw: jest.fn(),
     };
 
+    const changes = [{
+      operation: 'upsert' as const,
+      pageId: 'page-1',
+      path: 'pages/Renamed.md',
+      title: 'Renamed',
+      body: '# changed\n',
+    }];
     await expect(service.advanceLocked(
-      tx as any, 'space-1', [], { origin: 'web_editor' },
+      tx as any, 'space-1', changes, { origin: 'web_editor' },
     )).resolves.toBe(result);
     expect(v3Writer.advanceCurrentIfRequiredLocked).toHaveBeenCalledWith(
-      tx, 'space-1', { origin: 'web_editor' },
+      tx, 'space-1', changes, { origin: 'web_editor' },
     );
     expect(tx.spaceKnowledgeRevision.create).not.toHaveBeenCalled();
     expect(tx.$executeRaw).not.toHaveBeenCalled();

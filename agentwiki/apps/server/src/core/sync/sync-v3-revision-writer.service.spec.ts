@@ -1,4 +1,7 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import {
   TreeFinalizePushResponseV3Schema,
@@ -9,8 +12,13 @@ import {
 import { AuthorizationService } from '../authorization/authorization.service';
 import { MarkdownResourceService } from '../../markdown-resources/markdown-resource.service';
 import { SyncV3BootstrapService } from '../../integrations/obsidian/sync-v3-bootstrap.service';
+import type { AttachmentConfig } from '../../attachments/attachment.config';
+import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
-import { SyncV3RevisionWriterService } from './sync-v3-revision-writer.service';
+import {
+  SyncV3RevisionWriterService,
+  assertSyncV3CandidateHardLimits,
+} from './sync-v3-revision-writer.service';
 
 describe('SyncV3RevisionWriterService', () => {
   const attachmentId = '11111111-1111-4111-8111-111111111111';
@@ -34,7 +42,7 @@ describe('SyncV3RevisionWriterService', () => {
         errors: [],
       }),
     };
-    const service = new SyncV3RevisionWriterService(markdownResources as any);
+    const service = new SyncV3RevisionWriterService(markdownResources as any, {} as any);
 
     await expect(service.advanceV3Locked({} as any, 'space-1', {
       folders: [],
@@ -56,7 +64,7 @@ describe('SyncV3RevisionWriterService', () => {
 
   it('rejects a Page body whose declared content hash is stale before resolving references', async () => {
     const markdownResources = { resolveReferencedAttachments: jest.fn() };
-    const service = new SyncV3RevisionWriterService(markdownResources as any);
+    const service = new SyncV3RevisionWriterService(markdownResources as any, {} as any);
     const page: SyncPageV3 = {
       pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page',
       body: 'changed\n', contentHash: 'a'.repeat(64),
@@ -70,6 +78,448 @@ describe('SyncV3RevisionWriterService', () => {
     }));
     expect(markdownResources.resolveReferencedAttachments).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['body update', {
+      operation: 'upsert' as const, pageId: 'page-1', path: 'pages/Page.md',
+      title: 'Page', body: '# changed\n',
+    }, { folderId: null, path: 'pages/Page.md', title: 'Page', body: '# changed\n' }],
+    ['rename', {
+      operation: 'upsert' as const, pageId: 'page-1', path: 'pages/Renamed.md',
+      title: 'Renamed', body: '# body\n',
+    }, { folderId: null, path: 'pages/Renamed.md', title: 'Renamed', body: '# body\n' }],
+    ['structural move', {
+      operation: 'upsert' as const, pageId: 'page-1', folderId: 'folder-2',
+      path: 'pages/Folder/Page.md', title: 'Page', body: '# body\n',
+    }, { folderId: 'folder-2', path: 'pages/Folder/Page.md', title: 'Page', body: '# body\n' }],
+  ])('accepts a %s only when the live candidate already contains it', async (_label, change, live) => {
+    const service = new SyncV3RevisionWriterService({} as any, {} as any);
+    const candidate = {
+      folders: [], attachments: [], pages: [{
+        pageId: 'page-1', ...live, contentHash: await contentHash(live.body),
+        updatedAt: '2026-09-04T00:00:00.000Z', referencedAttachmentIds: [],
+      }],
+    };
+    jest.spyOn(service as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'native_v3', blockers: [], candidate,
+    });
+    jest.spyOn(service, 'advanceV3Locked').mockResolvedValue({
+      revisionId: 'rev-2', sequence: 2, revisionContentHash: 'a'.repeat(64),
+      pageCount: 1n, revisionManifestByteLength: 1n, revisionBodyBytes: 1n,
+      attachmentCount: 0n, revisionAttachmentBytes: 0n, publishedAt: new Date(),
+    });
+
+    await expect(service.advanceCurrentIfRequiredLocked(
+      {} as any, 'space-1', [change], { origin: 'web_editor' },
+    )).resolves.toMatchObject({ revisionId: 'rev-2' });
+  });
+
+  it('accepts archive only when the live candidate no longer contains the Page', async () => {
+    const service = new SyncV3RevisionWriterService({} as any, {} as any);
+    jest.spyOn(service as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'native_v3', blockers: [], candidate: { folders: [], pages: [], attachments: [] },
+    });
+    jest.spyOn(service, 'advanceV3Locked').mockResolvedValue({
+      revisionId: 'rev-2', sequence: 2, revisionContentHash: 'a'.repeat(64),
+      pageCount: 0n, revisionManifestByteLength: 1n, revisionBodyBytes: 0n,
+      attachmentCount: 0n, revisionAttachmentBytes: 0n, publishedAt: new Date(),
+    });
+
+    await expect(service.advanceCurrentIfRequiredLocked(
+      {} as any,
+      'space-1',
+      [{ operation: 'archive', pageId: 'page-1', previousPath: 'pages/Page.md' }],
+      { origin: 'web_editor' },
+    )).resolves.toMatchObject({ revisionId: 'rev-2' });
+  });
+
+  it('fails before publication when a declared change was not applied to live rows', async () => {
+    const service = new SyncV3RevisionWriterService({} as any, {} as any);
+    const candidate = {
+      folders: [], attachments: [], pages: [{
+        pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Old', body: '# old\n',
+        contentHash: await contentHash('# old\n'), updatedAt: '2026-09-04T00:00:00.000Z',
+        referencedAttachmentIds: [],
+      }],
+    };
+    jest.spyOn(service as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'native_v3', blockers: [], candidate,
+    });
+    const publish = jest.spyOn(service, 'advanceV3Locked');
+
+    await expect(service.advanceCurrentIfRequiredLocked(
+      {} as any,
+      'space-1',
+      [{
+        operation: 'upsert', pageId: 'page-1', path: 'pages/Renamed.md',
+        title: 'Renamed', body: '# changed\n',
+      }],
+      { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['future schema', 'content-tree@4', 'referenced-images-v1'],
+    ['future recipe', 'content-tree@3', 'referenced-images-v2'],
+    ['unknown legacy recipe', 'knowledge-bundle@1', 'referenced-images-v1'],
+  ])('fails closed on a latest %s before creating a revision', async (_label, schemaVersion, recipeVersion) => {
+    const create = jest.fn();
+    const open = jest.fn();
+    const body = '![[assets/photo.png]]\n';
+    const tx = {
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'future-head', sequence: 9, schemaVersion, recipeVersion,
+        }),
+        create,
+      },
+      page: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const service = new SyncV3RevisionWriterService({} as any, { open } as any);
+
+    await expect(service.advanceV3Locked(
+      tx as any,
+      'space-1',
+      {
+        folders: [],
+        pages: [{
+          pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body,
+          contentHash: await contentHash(body), updatedAt: '2026-09-04T00:00:00.000Z',
+          referencedAttachmentIds: [attachmentId],
+        }],
+        attachments: [{
+          attachmentId, path: 'assets/photo.png', mimeType: 'image/png', sizeBytes: '4',
+          width: 1, height: 1, contentHash: 'b'.repeat(64),
+          updatedAt: '2026-09-04T00:00:00.000Z',
+        }],
+      },
+      { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+    expect(create).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('inspects multiple immutable Pages through one batch attachment resolution', async () => {
+    const batch = jest.fn().mockResolvedValue([
+      { attachmentIds: [], references: [], errors: [] },
+      { attachmentIds: [], references: [], errors: [] },
+    ]);
+    const service = new SyncV3RevisionWriterService({
+      resolveReferencedAttachmentsBatch: batch,
+    } as any, {} as any);
+    const tx = {
+      spaceKnowledgeRevision: { findFirst: jest.fn()
+        .mockResolvedValueOnce({
+          id: 'rev-1', schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none',
+        })
+        .mockResolvedValueOnce(null) },
+      syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([]) },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([
+        { pageId: 'page-a', folderId: null, path: 'pages/A.md', pathKey: 'pages/a.md', title: 'A', contentHash: 'a'.repeat(64), updatedAt: new Date('2026-09-04T00:00:00Z'), content: { body: '# A\n' } },
+        { pageId: 'page-b', folderId: null, path: 'pages/B.md', pathKey: 'pages/b.md', title: 'B', contentHash: 'b'.repeat(64), updatedAt: new Date('2026-09-04T00:00:00Z'), content: { body: '# B\n' } },
+      ]) },
+    };
+
+    await expect(service.inspectCurrentLocked(tx as any, 'space-1'))
+      .resolves.toMatchObject({ mode: 'legacy_v2' });
+    expect(batch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an immutable version whose storage authority differs from the active Attachment', async () => {
+    const { candidate, active, version, pageRow } = await attachmentAuthorityFixture();
+    const storage = { open: jest.fn() };
+    const create = jest.fn();
+    const tx = {
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null), create },
+      spaceAttachment: { findMany: jest.fn().mockResolvedValue([active]) },
+      attachmentVersion: { findMany: jest.fn().mockResolvedValue([{
+        ...version, storageKey: 'private/mismatched-key',
+      }]) },
+      page: { findMany: jest.fn().mockResolvedValue([pageRow]) },
+    };
+    const service = new SyncV3RevisionWriterService({} as any, storage as any);
+
+    await expect(service.advanceV3Locked(
+      tx as any, 'space-1', candidate, { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
+    expect(storage.open).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('maps an unreadable or deleted blob to a path-safe blocker before publication', async () => {
+    const { candidate, active, version, pageRow } = await attachmentAuthorityFixture();
+    const privateStorageKey = 'private/do-not-leak/content-key';
+    const storageError = Object.assign(new Error(`ENOENT ${privateStorageKey}`), { code: 'ENOENT' });
+    const storage = { open: jest.fn().mockRejectedValue(storageError) };
+    const create = jest.fn();
+    const tx = {
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null), create },
+      spaceAttachment: { findMany: jest.fn().mockResolvedValue([{ ...active, storageKey: privateStorageKey }]) },
+      attachmentVersion: { findMany: jest.fn().mockResolvedValue([{ ...version, storageKey: privateStorageKey }]) },
+      page: { findMany: jest.fn().mockResolvedValue([pageRow]) },
+    };
+    const service = new SyncV3RevisionWriterService({} as any, storage as any);
+
+    let caught: any;
+    try {
+      await service.advanceV3Locked(tx as any, 'space-1', candidate, { origin: 'web_editor' });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ syncCode: 'ATTACHMENT_BLOB_MISSING' });
+    expect(JSON.stringify(caught.getResponse())).not.toContain(privateStorageKey);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects active Attachment metadata drift before reading storage or publishing', async () => {
+    const { candidate, active, version, pageRow } = await attachmentAuthorityFixture();
+    const storage = { open: jest.fn() };
+    const create = jest.fn();
+    const tx = {
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null), create },
+      spaceAttachment: { findMany: jest.fn().mockResolvedValue([{ ...active, width: 2 }]) },
+      attachmentVersion: { findMany: jest.fn().mockResolvedValue([version]) },
+      page: { findMany: jest.fn().mockResolvedValue([pageRow]) },
+    };
+    const service = new SyncV3RevisionWriterService({} as any, storage as any);
+
+    await expect(service.advanceV3Locked(
+      tx as any, 'space-1', candidate, { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
+    expect(storage.open).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('loads immutable attachment authority in one batch and never rewrites live rows', async () => {
+    const body = '![[assets/a.png]]\n![[assets/b.png]]\n';
+    const updatedAt = new Date('2026-09-04T00:00:00.000Z');
+    const attachment = (suffix: string, hash: string) => ({
+      attachmentId: `attachment-${suffix}`,
+      path: `assets/${suffix}.png`,
+      mimeType: 'image/png' as const,
+      sizeBytes: '4',
+      width: 1,
+      height: 1,
+      contentHash: hash,
+      updatedAt: updatedAt.toISOString(),
+    });
+    const candidate = {
+      folders: [],
+      pages: [{
+        pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body,
+        contentHash: await contentHash(body), updatedAt: updatedAt.toISOString(),
+        referencedAttachmentIds: ['attachment-a', 'attachment-b'],
+      }],
+      attachments: [attachment('a', 'a'.repeat(64)), attachment('b', 'b'.repeat(64))],
+    };
+    const active = candidate.attachments.map((item) => ({
+      id: item.attachmentId,
+      spaceId: 'space-1',
+      displayName: item.path.slice('assets/'.length),
+      nameKey: item.path.slice('assets/'.length),
+      contentHash: item.contentHash,
+      storageKey: `${item.attachmentId}/blob`,
+      mimeType: item.mimeType,
+      sizeBytes: BigInt(item.sizeBytes),
+      width: item.width,
+      height: item.height,
+      status: 'active',
+      updatedAt,
+    }));
+    const versions = active.map((item, index) => ({
+      id: `version-${index}`,
+      attachmentId: item.id,
+      contentHash: item.contentHash,
+      storageKey: item.storageKey,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      width: item.width,
+      height: item.height,
+    }));
+    const findVersions = jest.fn().mockResolvedValue(versions);
+    const findVersion = jest.fn(() => { throw new Error('N+1 version lookup'); });
+    const createVersions = jest.fn();
+    const updateAttachment = jest.fn(() => { throw new Error('live Attachment rewrite'); });
+    const findPages = jest.fn(() => { throw new Error('live Page rewrite'); });
+    const createAttachmentRows = jest.fn().mockResolvedValue({ count: 2 });
+    const tx = {
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'revision-1', sequence: 1, createdAt: new Date('2026-09-04T01:00:00.000Z'),
+        }),
+      },
+      spaceAttachment: { findMany: jest.fn().mockResolvedValue(active), update: updateAttachment },
+      attachmentVersion: {
+        findMany: findVersions,
+        findUnique: findVersion,
+        createMany: createVersions,
+      },
+      page: { findMany: findPages },
+      syncPageContentRow: { createMany: jest.fn() },
+      legacyPageBodyRow: { createMany: jest.fn() },
+      syncRevisionPageRow: { createMany: jest.fn() },
+      legacyRevisionPageExtra: { createMany: jest.fn() },
+      syncRevisionAttachmentRow: { createMany: createAttachmentRows },
+      syncRevisionTreeDeltaRow: { createMany: jest.fn() },
+      legacyRevisionSidecar: { create: jest.fn() },
+    };
+    const storage = { open: jest.fn().mockResolvedValue({ destroy: jest.fn() }) };
+    const service = new SyncV3RevisionWriterService({} as any, storage as any);
+
+    await expect(service.advanceV3Locked(
+      tx as any, 'space-1', candidate, { origin: 'web_editor' },
+    )).resolves.toMatchObject({ attachmentCount: 2n });
+    expect(findVersions).toHaveBeenCalledTimes(1);
+    expect(findVersion).not.toHaveBeenCalled();
+    expect(createVersions).not.toHaveBeenCalled();
+    expect(updateAttachment).not.toHaveBeenCalled();
+    expect(findPages).not.toHaveBeenCalled();
+    expect(createAttachmentRows).toHaveBeenCalledTimes(1);
+    expect(createAttachmentRows.mock.calls[0]?.[0].data).toHaveLength(2);
+  });
+
+  it('writes a large Page snapshot through bounded createMany batches', async () => {
+    const pages = await Promise.all(Array.from({ length: 501 }, async (_, index) => {
+      const body = `# Page ${index}\n`;
+      return {
+        pageId: `page-${index}`,
+        folderId: null,
+        path: `pages/Page-${index}.md`,
+        title: `Page ${index}`,
+        body,
+        contentHash: await contentHash(body),
+        updatedAt: '2026-09-04T00:00:00.000Z',
+        referencedAttachmentIds: [],
+      };
+    }));
+    const createContent = jest.fn();
+    const createPageRows = jest.fn();
+    const createExtras = jest.fn();
+    const createDelta = jest.fn();
+    const tx = {
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'revision-1', sequence: 1, createdAt: new Date('2026-09-04T01:00:00.000Z'),
+        }),
+      },
+      syncPageContentRow: { createMany: createContent },
+      legacyPageBodyRow: { createMany: jest.fn() },
+      syncRevisionPageRow: { createMany: createPageRows },
+      legacyRevisionPageExtra: { createMany: createExtras },
+      syncRevisionTreeDeltaRow: { createMany: createDelta },
+      legacyRevisionSidecar: { create: jest.fn() },
+    };
+    const service = new SyncV3RevisionWriterService({} as any, {} as any);
+
+    await service.advanceV3Locked(
+      tx as any,
+      'space-1',
+      { folders: [], pages, attachments: [] },
+      { origin: 'web_editor' },
+    );
+
+    for (const writer of [createContent, createPageRows, createExtras, createDelta]) {
+      expect(writer).toHaveBeenCalledTimes(2);
+      expect(writer.mock.calls.every((call) => call[0].data.length <= 500)).toBe(true);
+    }
+  });
+});
+
+async function attachmentAuthorityFixture() {
+  const body = '![[assets/photo.png]]\n';
+  const hash = 'b'.repeat(64);
+  const updatedAt = new Date('2026-09-04T00:00:00.000Z');
+  const candidate = {
+    folders: [],
+    pages: [{
+      pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body,
+      contentHash: await contentHash(body), updatedAt: updatedAt.toISOString(),
+      referencedAttachmentIds: ['attachment-1'],
+    }],
+    attachments: [{
+      attachmentId: 'attachment-1', path: 'assets/photo.png', mimeType: 'image/png' as const,
+      sizeBytes: '4', width: 1, height: 1, contentHash: hash,
+      updatedAt: updatedAt.toISOString(),
+    }],
+  };
+  const active = {
+    id: 'attachment-1', spaceId: 'space-1', displayName: 'photo.png', nameKey: 'photo.png',
+    contentHash: hash, storageKey: 'bb/content-key', mimeType: 'image/png', sizeBytes: 4n,
+    width: 1, height: 1, status: 'active', updatedAt,
+  };
+  const version = {
+    id: 'version-1', attachmentId: active.id, contentHash: hash,
+    storageKey: active.storageKey, mimeType: active.mimeType, sizeBytes: active.sizeBytes,
+    width: active.width, height: active.height,
+  };
+  const pageRow = {
+    id: 'row-1', knowledgeKey: 'page-1', spaceId: 'space-1', title: 'Page', slug: 'page',
+    content: body, format: 'markdown', parentId: null, folderId: null,
+    syncPath: 'pages/Page.md', syncPathKey: 'pages/page.md', authorId: 'user-1',
+  };
+  return { candidate, active, version, pageRow };
+}
+
+describe('Sync v3 candidate hard limits', () => {
+  const attachment = {
+    attachmentId: 'attachment-1', path: 'assets/image.png', mimeType: 'image/png' as const,
+    sizeBytes: '1', width: 1, height: 1, contentHash: 'a'.repeat(64),
+    updatedAt: '2026-09-04T00:00:00.000Z',
+  };
+  const page = {
+    pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body: '',
+    contentHash: 'a'.repeat(64), updatedAt: '2026-09-04T00:00:00.000Z',
+    referencedAttachmentIds: [],
+  };
+
+  it('accepts exactly 1,000 attachments and rejects 1,001 before iteration', () => {
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [], attachments: Array(1_000).fill(attachment),
+    })).not.toThrow();
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [], attachments: Array(1_001).fill(attachment),
+    })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_QUOTA_EXCEEDED' }));
+  });
+
+  it('rejects an over-limit candidate before DB or Blob access', async () => {
+    const findFirst = jest.fn();
+    const open = jest.fn();
+    const service = new SyncV3RevisionWriterService({} as any, { open } as any);
+
+    await expect(service.advanceV3Locked(
+      { spaceKnowledgeRevision: { findFirst } } as any,
+      'space-1',
+      { folders: [], pages: [], attachments: Array(1_001).fill(attachment) },
+      { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_QUOTA_EXCEEDED' });
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('accepts exactly 100 MiB of attachments and rejects one extra byte', () => {
+    const tenMiB = { ...attachment, sizeBytes: String(10 * 1024 * 1024) };
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [], attachments: Array(10).fill(tenMiB),
+    })).not.toThrow();
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [], attachments: [...Array(10).fill(tenMiB), attachment],
+    })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_QUOTA_EXCEEDED' }));
+  });
+
+  it('bounds Page/Folder object count and total Page body bytes before per-Page work', () => {
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: Array(15_000).fill(page), attachments: [],
+    })).not.toThrow();
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: Array(15_001).fill(page), attachments: [],
+    })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_CONTENT_INVALID' }));
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [{ ...page, body: 'x'.repeat(2 * 1024 * 1024 + 1) }], attachments: [],
+    })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_CONTENT_INVALID' }));
+  });
 });
 
 const syncV3DatabaseUrl = safeSyncV3DatabaseUrl();
@@ -78,6 +528,8 @@ const dbIt = syncV3DatabaseUrl ? it : it.skip;
 describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
   dbIt('previews without writes, publishes one v3 head, reuses stable versions, and detaches without archiving', async () => {
     const prisma = new PrismaClient({ datasources: { db: { url: syncV3DatabaseUrl } } });
+    const storageRoot = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-'));
+    const storage = new LocalAttachmentStorage(syncV3StorageConfig(storageRoot));
     const suffix = randomUUID().replaceAll('-', '');
     const userId = `user_${suffix}`;
     const spaceId = `space_${suffix}`;
@@ -88,6 +540,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
     const principal = { userId };
 
     try {
+      const photoBlob = await publishSyncV3Blob(storage, Buffer.alloc(4, 0xb));
       await prisma.user.create({ data: { id: userId, email: `${suffix}@writer.sync-v3.test` } });
       await prisma.space.create({ data: { id: spaceId, name: 'Sync v3 writer', slug: spaceId } });
       await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
@@ -98,7 +551,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       } });
       const attachment = await prisma.spaceAttachment.create({ data: {
         spaceId, displayName: 'photo.png', nameKey: 'photo.png',
-        contentHash: 'b'.repeat(64), storageKey: `bb/${'b'.repeat(64)}`,
+        contentHash: photoBlob.contentHash, storageKey: photoBlob.storageKey,
         mimeType: 'image/png', sizeBytes: 4n, width: 1, height: 1,
         uploadedByUserId: userId,
       } });
@@ -110,7 +563,9 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
         sizeBytes: attachment.sizeBytes, width: attachment.width, height: attachment.height,
       } });
 
-      const legacyWriter = new SpaceRevisionWriterService(prisma as any);
+      const legacyWriter = new SpaceRevisionWriterService(prisma as any, {
+        advanceCurrentIfRequiredLocked: jest.fn().mockResolvedValue(null),
+      } as any);
       await prisma.$transaction(async (tx) => legacyWriter.advance(tx, spaceId, [{
         operation: 'upsert', pageId, path: page.syncPath, title: page.title, body: page.content,
       }], { origin: 'web_editor', createdByUserId: userId }));
@@ -119,7 +574,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
         prisma as any,
         new AuthorizationService(prisma as any),
       );
-      const v3Writer = new SyncV3RevisionWriterService(markdownResources);
+      const v3Writer = new SyncV3RevisionWriterService(markdownResources, storage);
       const bootstrap = new SyncV3BootstrapService(
         prisma as any,
         new AuthorizationService(prisma as any),
@@ -179,6 +634,28 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       };
       const detached = await prisma.$transaction(async (tx) => {
         const locked = await legacyWriter.lockSpace(tx, spaceId);
+        const current = await tx.page.findUniqueOrThrow({ where: { id: pageRowId } });
+        await tx.pageVersion.create({ data: {
+          pageId: current.id,
+          title: current.title,
+          content: current.content,
+          authorId: current.authorId,
+          slug: current.slug,
+          format: current.format,
+          parentId: current.parentId,
+          folderId: current.folderId,
+          syncPath: current.syncPath,
+          syncPathKey: current.syncPathKey,
+        } });
+        await tx.page.update({
+          where: { id: pageRowId },
+          data: {
+            content: detachedBody,
+            updatedAt: detachedAt,
+            lastModifiedAt: detachedAt,
+            lastModifiedByUserId: userId,
+          },
+        });
         return v3Writer.advanceV3Locked(
           locked,
           spaceId,
@@ -203,9 +680,10 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       });
       expect(nativeInspection.mode).toBe('native_v3');
 
+      const stagedBlob = await publishSyncV3Blob(storage, Buffer.alloc(8, 0xc));
       const stagedAttachment = await prisma.spaceAttachment.create({ data: {
         spaceId, displayName: 'staged.png', nameKey: 'staged.png',
-        contentHash: 'c'.repeat(64), storageKey: `cc/${'c'.repeat(64)}`,
+        contentHash: stagedBlob.contentHash, storageKey: stagedBlob.storageKey,
         mimeType: 'image/png', sizeBytes: 8n, width: 2, height: 1,
         uploadedByUserId: userId,
       } });
@@ -231,7 +709,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       const stableRevisionCount = await prisma.spaceKnowledgeRevision.count({ where: { spaceId } });
       const stablePage = await prisma.page.findUniqueOrThrow({ where: { id: pageRowId } });
       const checkpoints = [
-        ['attachmentVersion', 'create'],
+        ['attachmentVersion', 'createMany'],
         ['pageVersion', 'create'],
         ['syncRevisionAttachmentRow', 'createMany'],
         ['spaceKnowledgeRevision', 'create'],
@@ -239,8 +717,32 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       for (const [delegate, method] of checkpoints) {
         await expect(prisma.$transaction(async (tx) => {
           const locked = await legacyWriter.lockSpace(tx, spaceId);
+          const failing = failDelegate(locked, delegate, method);
+          const current = await failing.page.findUniqueOrThrow({ where: { id: pageRowId } });
+          await failing.pageVersion.create({ data: {
+            pageId: current.id,
+            title: current.title,
+            content: current.content,
+            authorId: current.authorId,
+            slug: current.slug,
+            format: current.format,
+            parentId: current.parentId,
+            folderId: current.folderId,
+            syncPath: current.syncPath,
+            syncPathKey: current.syncPathKey,
+          } });
+          await failing.page.update({
+            where: { id: pageRowId },
+            data: {
+              title: 'Changed title',
+              content: stagedBody,
+              updatedAt: new Date('2026-09-04T02:00:00.000Z'),
+              lastModifiedAt: new Date('2026-09-04T02:00:00.000Z'),
+              lastModifiedByUserId: userId,
+            },
+          });
           return v3Writer.advanceV3Locked(
-            failDelegate(locked, delegate, method),
+            failing,
             spaceId,
             stagedCandidate,
             { origin: 'obsidian_sync', createdByUserId: userId },
@@ -273,9 +775,37 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       await prisma.space.deleteMany({ where: { id: spaceId } });
       await prisma.user.deleteMany({ where: { id: userId } });
       await prisma.$disconnect();
+      await storage.onModuleDestroy();
+      await rm(storageRoot, { recursive: true, force: true });
     }
   }, 30_000);
 });
+
+function syncV3StorageConfig(storagePath: string): AttachmentConfig {
+  return {
+    storagePath,
+    maxFileBytes: 10n * 1024n * 1024n,
+    maxSpaceBytes: 500n * 1024n * 1024n,
+    maxDimension: 10_000,
+    maxPixels: 40_000_000n,
+    minFreeBytes: 1n,
+    retentionMs: 30 * 24 * 60 * 60 * 1000,
+    orphanGraceMs: 24 * 60 * 60 * 1000,
+    contentLockTimeoutMs: 5_000,
+  };
+}
+
+async function publishSyncV3Blob(storage: LocalAttachmentStorage, bytes: Buffer) {
+  const contentHashValue = createHash('sha256').update(bytes).digest('hex');
+  const reservation = await storage.createReservedTempPath(BigInt(bytes.length), 1n);
+  await writeFile(reservation.path, bytes, { mode: 0o600 });
+  return storage.withContentLock(contentHashValue, (lease) => storage.publish(
+    reservation,
+    contentHashValue,
+    BigInt(bytes.length),
+    lease,
+  ));
+}
 
 function safeSyncV3DatabaseUrl(): string | undefined {
   const explicit = process.env.SYNC_V3_TEST_DATABASE_URL;
