@@ -138,8 +138,8 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-8">
         {/* Sidebar */}
-        <aside className={(sidebarOpen ? 'block' : 'hidden') + ' lg:block w-64 shrink-0 py-8'}>
-          <div className="sticky top-20 space-y-5">
+        <aside className={(sidebarOpen ? 'block' : 'hidden') + ' fixed inset-x-0 bottom-0 top-[61px] z-40 w-full shrink-0 overflow-y-auto bg-white px-4 py-6 shadow-xl lg:static lg:block lg:w-64 lg:overflow-visible lg:bg-transparent lg:px-0 lg:py-8 lg:shadow-none'}>
+          <div className="space-y-5 lg:sticky lg:top-20">
             {guideGroups.map((group) => (
               <div key={group.labelEn}>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-3">

@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureFile = resolve(repositoryRoot, 'scripts/onboarding-prompt-fixture.mjs');
 
-function runFixture({ invalidConfirmation = false, startupDelayMs, authorizationDelayMs } = {}) {
+function runFixture({
+  invalidConfirmation = false,
+  prematurePlanConfirmation = false,
+  startupDelayMs,
+  authorizationDelayMs,
+} = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const args = [fixtureFile];
     if (startupDelayMs !== undefined) args.push('--startup-delay-ms', String(startupDelayMs));
@@ -33,7 +38,16 @@ function runFixture({ invalidConfirmation = false, startupDelayMs, authorization
         if (!line.trim()) continue;
         const event = JSON.parse(line);
         firstEventDelayMs ??= Date.now() - startedAt;
-        if (event.type === 'authorization_required') authorizationReceivedAt = Date.now();
+        if (event.type === 'authorization_required') {
+          authorizationReceivedAt = Date.now();
+          if (prematurePlanConfirmation) {
+            child.stdin.write(`${JSON.stringify({
+              requestId: 'plan-1',
+              confirmed: true,
+              planHash: 'plan-hash-1',
+            })}\n`);
+          }
+        }
         else if (authorizationReceivedAt !== undefined && firstPostAuthorizationEventDelayMs === undefined) {
           firstPostAuthorizationEventDelayMs = Date.now() - authorizationReceivedAt;
         }
@@ -89,6 +103,17 @@ describe('onboarding prompt consumer fixture', () => {
 
   test('rejects an Agent-invented approved confirmation field', async () => {
     const result = await runFixture({ invalidConfirmation: true, startupDelayMs: 0, authorizationDelayMs: 0 });
+    assert.equal(result.code, 1);
+    assert.equal(result.events.at(-1)?.type, 'failed');
+    assert.equal(result.events.at(-1)?.code, 'BAD_DRIVER_REPLY');
+  });
+
+  test('rejects plan confirmation before the confirmation request is emitted', async () => {
+    const result = await runFixture({
+      prematurePlanConfirmation: true,
+      startupDelayMs: 0,
+      authorizationDelayMs: 1_000,
+    });
     assert.equal(result.code, 1);
     assert.equal(result.events.at(-1)?.type, 'failed');
     assert.equal(result.events.at(-1)?.code, 'BAD_DRIVER_REPLY');

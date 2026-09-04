@@ -91,7 +91,7 @@ input.on('line', (line) => {
       fail('input reply must preserve requestId, field names, declared field types, and no extra keys');
       return;
     }
-    state = 'plan';
+    state = 'authorization';
     emit({
       type: 'authorization_required',
       requestId: 'authorization-1',
@@ -102,6 +102,7 @@ input.on('line', (line) => {
     const heartbeatDelayMs = Math.min(1_000, authorizationDelayMs);
     setTimeout(() => emit({ type: 'heartbeat', step: 'authorization' }), heartbeatDelayMs);
     setTimeout(() => {
+      state = 'plan';
       emit({
         type: 'preview',
         plan: {
@@ -111,6 +112,11 @@ input.on('line', (line) => {
       });
       emit({ type: 'confirmation_required', requestId: 'plan-1', planHash: 'plan-hash-1' });
     }, authorizationDelayMs);
+    return;
+  }
+
+  if (state === 'authorization') {
+    fail('the fixture received stdin before the plan confirmation request was emitted');
     return;
   }
 

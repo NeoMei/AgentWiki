@@ -9,6 +9,20 @@ const { PrismaClient } = requireFromServer('@prisma/client');
 const { foldCase } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const baseDatabaseUrl = process.env.MARKDOWN_TEST_DATABASE_URL;
 
+const countResolverQueries = (queries) => ({
+  page: queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"Page"/u.test(query)).length,
+  attachment: queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"SpaceAttachment"/u.test(query)).length,
+});
+
+async function waitForResolverQueryEvents(queries) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const counts = countResolverQueries(queries);
+    if (counts.page >= 3 && counts.attachment >= 1) return counts;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  }
+  return countResolverQueries(queries);
+}
+
 test('page identity migration matches Unicode 15.1 folding and exposes indexed lookups', {
   skip: baseDatabaseUrl ? false : 'MARKDOWN_TEST_DATABASE_URL is not configured',
   timeout: 120_000,
@@ -204,8 +218,9 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'nfc-title', status: 'resolved', kind: 'page' },
         { key: 'attachment', status: 'resolved', kind: 'attachment' },
       ]);
-      assert.equal(queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"Page"/u.test(query)).length, 3);
-      assert.equal(queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"SpaceAttachment"/u.test(query)).length, 1);
+      const resolverQueryCounts = await waitForResolverQueryEvents(queries);
+      assert.equal(resolverQueryCounts.page, 3);
+      assert.equal(resolverQueryCounts.attachment, 1);
 
       const sourceRelative = await resolver.resolve(spaceId, [
         { key: 'target', kind: 'page', target: 'Target.md' },
