@@ -121,12 +121,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (isSyncV3) {
       const safeException = statusCode === HttpStatus.BAD_REQUEST
         ? new SyncApiException('PAYLOAD_INVALID', 'Invalid Sync v3 request', undefined, '3')
-        : new SyncApiException('INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3');
+        : statusCode === HttpStatus.PAYLOAD_TOO_LARGE
+          ? new SyncApiException('BATCH_TOO_LARGE', 'Sync v3 request is too large', undefined, '3')
+          : statusCode === HttpStatus.TOO_MANY_REQUESTS
+            ? new SyncApiException('RATE_LIMITED', 'Sync v3 request is rate limited', undefined, '3')
+            : new SyncApiException('INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3');
       const safeBody = SyncV3ErrorEnvelopeSchema.parse(safeException.getResponse());
       this.logger.error(
         `[${request.method}] ${request.url} - ${safeException.getStatus()}: Sync v3 request failed safely`,
       );
       httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+      if (safeException.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        httpAdapter.setHeader(response, 'Retry-After', '1');
+      }
       httpAdapter.reply(response, safeBody, safeException.getStatus());
       return;
     }

@@ -1,4 +1,9 @@
-import { INestApplication } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  INestApplication,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import {
@@ -222,6 +227,37 @@ describe('sync v3 HTTP contract', () => {
       protocolVersion: '3', error: { code: 'INTERNAL_ERROR', retryable: true },
     });
     expect(JSON.stringify(body)).not.toMatch(/private|storageKey|secret|credential|message|details|path/u);
+  });
+
+  it.each([
+    ['oversized request', new PayloadTooLargeException('private body detail'), 413, 'BATCH_TOO_LARGE', false],
+    [
+      'rate limit',
+      new HttpException('private rate detail', HttpStatus.TOO_MANY_REQUESTS),
+      429,
+      'RATE_LIMITED',
+      true,
+    ],
+  ])('preserves the %s HTTP contract while sanitizing its v3 envelope', async (
+    _name,
+    error,
+    status,
+    code,
+    retryable,
+  ) => {
+    revisions.head.mockRejectedValueOnce(error);
+
+    const response = await fetch(`${baseUrl}/sync/v3/spaces/space-1/head`, {
+      headers: { Authorization: 'Bearer device-secret' },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(status);
+    expect(SyncV3ErrorEnvelopeSchema.parse(body)).toEqual({
+      protocolVersion: '3', error: { code, retryable },
+    });
+    if (status === 429) expect(response.headers.get('retry-after')).toBe('1');
+    expect(JSON.stringify(body)).not.toMatch(/private|detail|message|path/u);
   });
 
   it('sanitizes a legacy-versioned sync exception thrown on a v3 route', async () => {
