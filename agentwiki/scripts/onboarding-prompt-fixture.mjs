@@ -99,7 +99,10 @@ input.on('line', (line) => {
       userCode: 'TEST-CODE',
       expiresInSeconds: 600,
     });
-    const heartbeatDelayMs = Math.min(1_000, authorizationDelayMs);
+    // Keep a small cushion above the one-second behavioral contract. Node timers
+    // and millisecond timestamp rounding may otherwise make a nominal 1000ms
+    // delay observable as 998-999ms across the child-process boundary.
+    const heartbeatDelayMs = Math.min(1_100, authorizationDelayMs);
     setTimeout(() => emit({ type: 'heartbeat', step: 'authorization' }), heartbeatDelayMs);
     setTimeout(() => {
       state = 'plan';

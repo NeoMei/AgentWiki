@@ -19,8 +19,6 @@ function runFixture({
     if (authorizationDelayMs !== undefined) args.push('--authorization-delay-ms', String(authorizationDelayMs));
     const startedAt = Date.now();
     let firstEventDelayMs;
-    let authorizationReceivedAt;
-    let firstPostAuthorizationEventDelayMs;
     const child = spawn(process.execPath, args, {
       cwd: repositoryRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -39,7 +37,6 @@ function runFixture({
         const event = JSON.parse(line);
         firstEventDelayMs ??= Date.now() - startedAt;
         if (event.type === 'authorization_required') {
-          authorizationReceivedAt = Date.now();
           if (prematurePlanConfirmation) {
             child.stdin.write(`${JSON.stringify({
               requestId: 'plan-1',
@@ -47,9 +44,6 @@ function runFixture({
               planHash: 'plan-hash-1',
             })}\n`);
           }
-        }
-        else if (authorizationReceivedAt !== undefined && firstPostAuthorizationEventDelayMs === undefined) {
-          firstPostAuthorizationEventDelayMs = Date.now() - authorizationReceivedAt;
         }
         events.push(event);
         if (event.type === 'input_required') {
@@ -79,7 +73,7 @@ function runFixture({
     child.once('close', (code) => {
       clearTimeout(watchdog);
       if (stderr) rejectPromise(new Error(stderr));
-      else resolvePromise({ code, events, firstEventDelayMs, firstPostAuthorizationEventDelayMs });
+      else resolvePromise({ code, events, firstEventDelayMs });
     });
   });
 }
@@ -121,10 +115,16 @@ describe('onboarding prompt consumer fixture', () => {
 
   test('delays startup and browser authorization so an Agent must keep polling one process session', async () => {
     const result = await runFixture();
+    const authorizationEventIndex = result.events.findIndex((event) => event.type === 'authorization_required');
+    const heartbeatEventIndex = result.events.findIndex((event) => event.type === 'heartbeat');
+    const authorizationEvent = result.events[authorizationEventIndex];
+    const heartbeatEvent = result.events[heartbeatEventIndex];
     assert.ok(result.firstEventDelayMs >= 1_000, `first event arrived after only ${result.firstEventDelayMs}ms`);
+    assert.ok(authorizationEventIndex >= 0, 'authorization_required event was not emitted');
+    assert.ok(heartbeatEventIndex > authorizationEventIndex, 'heartbeat was not emitted after authorization_required');
     assert.ok(
-      result.firstPostAuthorizationEventDelayMs >= 1_000,
-      `post-authorization event arrived after only ${result.firstPostAuthorizationEventDelayMs}ms`,
+      Date.parse(heartbeatEvent.timestamp) - Date.parse(authorizationEvent.timestamp) >= 1_000,
+      'fixture heartbeat was emitted less than 1000ms after authorization_required',
     );
     assert.equal(result.events.at(-1)?.type, 'completed');
   });
