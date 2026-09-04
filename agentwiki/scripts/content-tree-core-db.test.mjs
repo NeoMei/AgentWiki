@@ -474,7 +474,7 @@ test('ContentTree production advisory lock serializes create, commit, and rollba
 }, async () => {
   await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
     const service = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
     const suffix = schemaName.replace('folder_test_', '');
     const userId = `user_${suffix}`;
@@ -650,7 +650,7 @@ test('blocking probe releases latches and the Folder harness cleans a controlled
   await assert.rejects(
     withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
       const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const spaceId = `cleanup_${schemaName.replace('folder_test_', '')}`;
       try {
         await prisma.space.create({ data: { id: spaceId, name: 'Cleanup', slug: spaceId } });

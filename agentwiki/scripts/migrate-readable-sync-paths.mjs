@@ -29,7 +29,7 @@ async function loadServices() {
 export async function migrateReadablePathsForSpace(prisma, spaceId, batchId) {
   if (!spaceId || !batchId) throw new Error('spaceId and batchId are required');
   const { SpaceRevisionWriterService, ReadableSyncPathService } = await loadServices();
-  const writer = new SpaceRevisionWriterService(prisma);
+  const writer = SpaceRevisionWriterService.legacyOnly(prisma);
   const allocator = new ReadableSyncPathService();
 
   return prisma.$transaction(async (tx) => {

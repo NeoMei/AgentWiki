@@ -84,7 +84,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
   try {
     await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
       const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const syncPaths = new ReadableSyncPathService();
       const contentTree = new ContentTreeService(prisma, writer, syncPaths);
       const authorization = new AuthorizationService(prisma);

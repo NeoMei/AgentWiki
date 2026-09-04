@@ -365,7 +365,7 @@ test('web create and readable migration wait before allocating the same title', 
         allocatorCalls.push(allocatorContext.getStore() ?? 'unknown');
         return originalAllocate.apply(this, args);
       };
-      const writer = new SpaceRevisionWriterService(pagePrisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(pagePrisma);
       const allocator = new ReadableSyncPathService();
       const authorization = new AuthorizationService(pagePrisma);
       const contentTree = new ContentTreeService(pagePrisma, writer, allocator);

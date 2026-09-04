@@ -57,7 +57,7 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         credentialHash: `credential-hash-${suffix}`, status: 'active', activatedAt: new Date(),
       } });
 
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const tree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
       const now = '2026-08-29T00:00:00.000Z';
       const body = '# Child\n';
@@ -565,7 +565,7 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
       let archiveQueryCount = 0;
       queryPrisma.$on('query', () => { archiveQueryCount += 1; });
       try {
-        const queryWriter = new SpaceRevisionWriterService(queryPrisma);
+        const queryWriter = SpaceRevisionWriterService.legacyOnly(queryPrisma);
         const queryTree = new ContentTreeService(
           queryPrisma, queryWriter, new ReadableSyncPathService(),
         );

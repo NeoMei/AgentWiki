@@ -1195,7 +1195,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
     throw new TypeError('expectedInputHash must be a lowercase SHA-256 digest');
   }
   const SpaceRevisionWriterService = await loadRevisionWriter();
-  const writer = new SpaceRevisionWriterService(prisma);
+  const writer = SpaceRevisionWriterService.legacyOnly(prisma);
   let stableReport = null;
   try {
     return await prisma.$transaction(async (tx) => {

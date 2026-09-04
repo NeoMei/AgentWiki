@@ -13,6 +13,7 @@ import {
   TREE_SYNC_V3_HARD_LIMITS,
   treeRevisionContentHashV3,
   treeRevisionDeltaV3,
+  validatePortableMarkdownPath,
   type SyncAttachmentV3,
   type SyncFolderV3,
   type SyncPageV3,
@@ -38,6 +39,11 @@ const V3_SCHEMA_VERSION = 'content-tree@3';
 const V3_RECIPE_VERSION = 'referenced-images-v1';
 const WRITE_BATCH_SIZE = 500;
 const encoder = new TextEncoder();
+
+function v3PagePath(path: string): string {
+  const portable = validatePortableMarkdownPath(path).path;
+  return portable.startsWith('pages/') ? portable : `pages/${portable}`;
+}
 
 async function writeBatches<T>(
   rows: readonly T[],
@@ -267,7 +273,7 @@ export class SyncV3RevisionWriterService {
       pages: pages.map((page) => ({
         pageId: page.knowledgeKey,
         folderId: page.folderId,
-        path: page.syncPath,
+        path: v3PagePath(page.syncPath),
         title: page.title,
         body: page.content,
         updatedAt: page.updatedAt,
@@ -317,7 +323,7 @@ export class SyncV3RevisionWriterService {
       syncPages.push({
         pageId: page.pageId,
         folderId: page.folderId,
-        path: page.path,
+        path: v3PagePath(page.path),
         title: page.title,
         body,
         contentHash: await contentHash(body),
@@ -410,7 +416,7 @@ export class SyncV3RevisionWriterService {
       } else if (
         page
         && change.path !== undefined
-        && page.path === change.path
+        && page.path === v3PagePath(change.path)
         && change.title !== undefined
         && page.title === change.title
         && change.body !== undefined

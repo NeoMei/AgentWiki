@@ -46,7 +46,7 @@ test('5000 pages and 100 MiB body metrics advance through the bounded writer', {
     const { PrismaClient } = require('@prisma/client');
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
     try {
       const spaceId = randomUUID();
       const body = 'x'.repeat(20 * 1024 - 1) + '\n';

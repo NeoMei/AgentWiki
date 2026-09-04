@@ -26,6 +26,32 @@ import {
 describe('SyncV3RevisionWriterService', () => {
   const attachmentId = '11111111-1111-4111-8111-111111111111';
 
+  it('normalizes a legacy root-relative Page path into the v3 pages namespace', async () => {
+    const markdownResources = {
+      resolveReferencedAttachmentsBatch: jest.fn().mockResolvedValue([{
+        attachmentIds: [], references: [], errors: [],
+      }]),
+    };
+    const service = new SyncV3RevisionWriterService(markdownResources as any, {} as any);
+
+    await expect(service.inspectCandidate(
+      {} as any,
+      'space-1',
+      '0',
+      false,
+      {
+        folders: [],
+        pages: [{
+          pageId: 'page-1', folderId: null, path: 'hello.md', title: 'Hello',
+          body: '# Hello\n', updatedAt: new Date('2026-09-04T00:00:00.000Z'),
+        }],
+      },
+    )).resolves.toMatchObject({
+      mode: 'legacy_v2',
+      candidate: { pages: [{ path: 'pages/hello.md' }] },
+    });
+  });
+
   it('rejects a Page whose declared attachment IDs differ from authoritative Markdown parsing', async () => {
     const body = '![[assets/photo.png]]\n';
     const page: SyncPageV3 = {

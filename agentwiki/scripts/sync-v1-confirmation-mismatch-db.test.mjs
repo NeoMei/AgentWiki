@@ -50,7 +50,7 @@ test('confirmation mismatch rejects before page write and keeps session ready', 
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { contentHash, confirmationHash, canonicalBytes } = await import('../packages/sync-protocol/dist/esm/index.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
     const contentTree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
     const service = new PushSessionService(prisma, {}, contentTree, {});
     try {

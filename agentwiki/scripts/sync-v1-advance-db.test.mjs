@@ -47,7 +47,7 @@ test('advance copies parent rows via INSERT SELECT and aggregates metrics in SQL
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { LegacyBundleHashStream } = await import('../apps/server/dist/core/sync/legacy-serializer.js');
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
     try {
       const spaceId = randomUUID();
       const pageA = randomUUID();

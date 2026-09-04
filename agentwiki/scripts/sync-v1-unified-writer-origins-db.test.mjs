@@ -46,7 +46,7 @@ test('web, changeset, and obsidian origins share one authoritative revision sequ
     const { PrismaClient } = require('@prisma/client');
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
 
     try {
       const spaceId = randomUUID();

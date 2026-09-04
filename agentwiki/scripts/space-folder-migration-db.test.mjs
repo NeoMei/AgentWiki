@@ -108,7 +108,7 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
         rootDirectory,
         'apps/server/dist/core/sync/space-revision-writer.service.js',
       )).href);
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const priorRevision = await prisma.$transaction((tx) => writer.advanceStructuralPages(
         tx,
         seeded.spaceId,

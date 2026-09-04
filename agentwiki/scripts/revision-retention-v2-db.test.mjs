@@ -95,7 +95,7 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
         activatedAt: new Date(),
       } });
 
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const tree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
       const retention = new RevisionRetentionService(prisma);
       const pushes = new PushSessionService(

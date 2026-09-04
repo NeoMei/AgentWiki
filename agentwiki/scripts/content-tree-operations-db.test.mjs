@@ -74,7 +74,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
         if (trackQueries) trackedQueryCount += 1;
         return next(params);
       });
-      const writer = new SpaceRevisionWriterService(prisma);
+      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
       const paths = new ReadableSyncPathService();
       const service = new ContentTreeService(prisma, writer, paths);
       const suffix = schemaName.slice('folder_test_'.length);

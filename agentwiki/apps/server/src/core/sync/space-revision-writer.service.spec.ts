@@ -24,6 +24,13 @@ describe('SpaceRevisionWriterService', () => {
     }).compile()).rejects.toThrow();
   });
 
+  it('offers an explicit legacy-only writer for migration and legacy protocol harnesses', async () => {
+    const legacy = SpaceRevisionWriterService.legacyOnly(prisma);
+    await expect((legacy as any).v3Writer.advanceCurrentIfRequiredLocked(
+      {}, 'space-1', [], { origin: 'migration' },
+    )).resolves.toBeNull();
+  });
+
   it('delegates a native v3 Space before creating any legacy revision row', async () => {
     const result = {
       revisionId: 'rev-v3', sequence: 3, revisionContentHash: 'a'.repeat(64),

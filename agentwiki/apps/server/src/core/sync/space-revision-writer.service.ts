@@ -88,6 +88,17 @@ export type SpaceTreeLockedTransaction = SpaceLockedTransaction & {
 
 @Injectable()
 export class SpaceRevisionWriterService {
+  /**
+   * Legacy migration and protocol harnesses intentionally exercise the v1/v2
+   * writer without promoting a Space to v3. Runtime Nest modules must still
+   * inject the real v3 writer through the public constructor.
+   */
+  static legacyOnly(prisma: PrismaService): SpaceRevisionWriterService {
+    return new SpaceRevisionWriterService(prisma, {
+      advanceCurrentIfRequiredLocked: async () => null,
+    } as unknown as SyncV3RevisionWriterService);
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly v3Writer: SyncV3RevisionWriterService,

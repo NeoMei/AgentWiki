@@ -50,7 +50,7 @@ test('finalize rolls back pages, change set, revision, and keeps session ready',
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { contentHash, confirmationHash, canonicalBytes } = await import('../packages/sync-protocol/dist/esm/index.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const writer = new SpaceRevisionWriterService(prisma);
+    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
     const contentTree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
     contentTree.advancePageMutation = async () => { throw new Error('boom'); };
     const service = new PushSessionService(prisma, {}, contentTree, {});
