@@ -230,6 +230,13 @@ export async function main(environment = process.env) {
     });
     spaceId = space.id;
 
+    const contentTree = await apiRequest(
+      apiUrl,
+      `/spaces/${encodeURIComponent(spaceId)}/content-tree?take=1`,
+      { token },
+    );
+    assert.match(contentTree.treeRevision, /^(?:0|[1-9]\d*)$/u);
+
     const page = await apiRequest(apiUrl, '/pages', {
       method: 'POST',
       token,
@@ -237,6 +244,7 @@ export async function main(environment = process.env) {
         spaceId,
         title: 'Routing test',
         content: '# Draft\n\nMake this clearer.',
+        expectedTreeRevision: contentTree.treeRevision,
       },
     });
     const task = await apiRequest(apiUrl, '/assist/tasks', {
