@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import * as protocol from "./index.js";
 import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
@@ -13,13 +14,17 @@ import {
   SyncV3ErrorEnvelopeSchema,
   TreeBootstrapPreviewV3Schema,
   TreeCapabilitiesResponseV3Schema,
+  TreeDetachAttachmentV3Schema,
   TreeDeltaItemV3Schema,
   TreeDeltaPageV3Schema,
   TreeFinalizePushRequestV3Schema,
   TreeFinalizePushResponseV3Schema,
   TreePushBatchV3Schema,
   TreePushBatchReceiptV3Schema,
+  TreePushConfirmationManifestV3Schema,
+  TreePushChangeV3Schema,
   TreeRevisionContentManifestV3Schema,
+  TreeRevisionDeltaManifestV3Schema,
   TreeRevisionHeadResponseV3Schema,
   TreeSnapshotPageV3Schema,
   TreeSyncCapabilitiesV3Schema,
@@ -38,6 +43,17 @@ import {
 
 const hash = "a".repeat(64);
 const timestamp = "2026-09-04T00:00:00.000Z";
+const cuidAttachmentId = "cmf6z2k8a0001qwertyuiop12";
+const malformedAttachmentIds = [
+  "",
+  " attachment-id",
+  "attachment-id ",
+  "attachment id",
+  "attachment\tid",
+  "attachment/id",
+  String.raw`attachment\id`,
+  "a".repeat(129),
+];
 const vector = JSON.parse(readFileSync("test-vectors/sync-v3.json", "utf8")) as {
   errorCodes: string[];
   revision: { input: unknown; expectedHash: string };
@@ -111,6 +127,119 @@ const capabilities = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("Sync Protocol v3", () => {
+  it("exports the shared Public ID schema and accepts existing CUID attachment identities", () => {
+    const publicIdSchema = (protocol as unknown as {
+      PublicIdSchema?: { parse(value: unknown): string };
+    }).PublicIdSchema;
+    expect(publicIdSchema).toBeDefined();
+    expect(publicIdSchema?.parse(cuidAttachmentId)).toBe(cuidAttachmentId);
+    expect(publicIdSchema?.parse("a".repeat(128))).toBe("a".repeat(128));
+    for (const invalidId of malformedAttachmentIds) {
+      expect(() => publicIdSchema?.parse(invalidId)).toThrow();
+    }
+    expect(SyncAttachmentV3Schema.parse(attachment({ attachmentId: cuidAttachmentId })).attachmentId)
+      .toBe(cuidAttachmentId);
+    expect(SyncPageV3Schema.parse(page({ referencedAttachmentIds: [cuidAttachmentId] })).referencedAttachmentIds)
+      .toEqual([cuidAttachmentId]);
+    expect(TreeDetachAttachmentV3Schema.parse({
+      operation: "detach_attachment",
+      attachmentId: cuidAttachmentId,
+      previousPath: "assets/photo.png",
+    }).attachmentId).toBe(cuidAttachmentId);
+  });
+
+  it.each(malformedAttachmentIds)("rejects malformed Public ID %j in every attachment identity field", (invalidId) => {
+    expect(() => SyncAttachmentV3Schema.parse(attachment({ attachmentId: invalidId }))).toThrow();
+    expect(() => SyncPageV3Schema.parse(page({ referencedAttachmentIds: [invalidId] }))).toThrow();
+    expect(() => TreeDetachAttachmentV3Schema.parse({
+      operation: "detach_attachment",
+      attachmentId: invalidId,
+      previousPath: "assets/photo.png",
+    })).toThrow();
+  });
+
+  it("carries CUID attachment identities through revision, snapshot, delta, confirmation and batch schemas", () => {
+    const cuidAttachment = attachment({ attachmentId: cuidAttachmentId });
+    const cuidPage = page({ referencedAttachmentIds: [cuidAttachmentId] });
+    const revision = {
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders: [],
+      pages: [cuidPage],
+      attachments: [cuidAttachment],
+    };
+    const changes = [
+      { operation: "upsert_attachment" as const, attachment: cuidAttachment },
+      { operation: "upsert_page" as const, page: cuidPage },
+      {
+        operation: "detach_attachment" as const,
+        attachmentId: cuidAttachmentId,
+        previousPath: "assets/old.png",
+      },
+    ];
+    const { body: _body, ...cuidPageManifest } = cuidPage;
+    const manifestChanges = [
+      changes[0],
+      { operation: "upsert_page" as const, page: cuidPageManifest },
+      changes[2],
+    ];
+    expect(TreeRevisionContentManifestV3Schema.parse(revision)).toEqual(revision);
+    expect(TreeSnapshotPageV3Schema.parse({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      revision: "rev-1",
+      sequence: 1,
+      revisionContentHash: hash,
+      folderCount: "0",
+      pageCount: "1",
+      attachmentCount: "1",
+      revisionManifestByteLength: "1",
+      revisionBodyBytes: "1",
+      revisionAttachmentBytes: "1",
+      folders: [],
+      pages: [cuidPage],
+      attachments: [cuidAttachment],
+      nextCursor: null,
+    }).attachments[0]?.attachmentId).toBe(cuidAttachmentId);
+    expect(TreeRevisionDeltaManifestV3Schema.parse({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      fromRevision: "rev-1",
+      toRevision: "rev-2",
+      items: changes,
+    }).items).toEqual(changes);
+    expect(TreeDeltaPageV3Schema.parse({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      fromRevision: "rev-1",
+      toRevision: "rev-2",
+      toSequence: 2,
+      toRevisionContentHash: hash,
+      toFolderCount: "0",
+      toPageCount: "1",
+      toAttachmentCount: "1",
+      toRevisionManifestByteLength: "1",
+      toRevisionBodyBytes: "1",
+      toRevisionAttachmentBytes: "1",
+      items: changes,
+      nextCursor: null,
+    }).items).toEqual(changes);
+    expect(TreePushConfirmationManifestV3Schema.parse({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      baseRevision: "rev-1",
+      capabilitiesHash: hash,
+      changes: manifestChanges,
+    }).changes).toEqual(manifestChanges);
+    expect(TreePushBatchV3Schema.parse({
+      protocolVersion: "3",
+      batchIndex: 0,
+      changes,
+      batchHash: hash,
+    }).changes).toEqual(changes);
+    for (const change of changes) expect(TreePushChangeV3Schema.parse(change)).toEqual(change);
+  });
+
   it("rejects unknown fields and non-flat attachment paths", () => {
     const valid = attachment();
     expect(() => SyncAttachmentV3Schema.parse({ ...valid, extra: true })).toThrow();

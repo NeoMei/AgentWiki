@@ -31,7 +31,7 @@ const manifest = TreeRevisionContentManifestV3Schema.parse(input);
 const revisionContentHash = await treeRevisionContentHashV3(manifest);
 ```
 
-The schemas reject unknown fields. Attachment paths are portable, flat `assets/<file>` paths; Page paths retain the v2 `pages/**/*.md` rules. `referencedAttachmentIds` must contain sorted unique UUIDs, and a revision's Attachment set must exactly equal the union referenced by its Pages.
+The schemas reject unknown fields. Attachment paths are portable, flat `assets/<file>` paths; Page paths retain the v2 `pages/**/*.md` rules. Attachment identities use the same public ID grammar as existing AgentWiki Space, Page, and Revision IDs (`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`), accepting both existing CUIDs and UUIDs. `referencedAttachmentIds` must contain sorted unique public IDs, and a revision's Attachment set must exactly equal the union referenced by its Pages.
 
 Canonical revision order is Folder parent-first, then Page and Attachment by Unicode `pathKey` and ID. Canonical delta/confirmation/batch order guarantees Attachment upserts precede dependent Page upserts and detaches follow Page changes. Structured v3 hashes are SHA-256 over `domain + NUL + canonical JSON`, with these domains:
 

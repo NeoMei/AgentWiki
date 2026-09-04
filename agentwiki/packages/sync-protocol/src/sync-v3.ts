@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canonicalBytes } from "./canonical.js";
 import { sha256Hex } from "./hash.js";
+import { PublicIdSchema } from "./schemas.js";
 import {
   pathKey,
   validatePortableDirectoryPath,
@@ -15,7 +16,6 @@ import {
   type TreeDeltaItemV2,
 } from "./sync-v2.js";
 
-const PublicIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 const HashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const UuidSchema = z.string().uuid();
 const Rfc3339Schema = z.string().datetime({ offset: true });
@@ -104,7 +104,7 @@ const PortableMarkdownPathSchema = z.string().transform((value, context) => {
 });
 
 const SortedUniqueAttachmentIdsSchema = z
-  .array(UuidSchema)
+  .array(PublicIdSchema)
   .max(TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments)
   .superRefine((ids, context) => {
     for (let index = 1; index < ids.length; index += 1) {
@@ -131,7 +131,7 @@ export interface SyncAttachmentV3 {
 
 export const SyncAttachmentV3Schema: z.ZodType<SyncAttachmentV3> = z
   .object({
-    attachmentId: UuidSchema,
+    attachmentId: PublicIdSchema,
     path: FlatAttachmentPathSchema,
     mimeType: AttachmentMimeTypeSchema,
     sizeBytes: BoundedDecimalSchema,
@@ -249,7 +249,7 @@ export const TreeArchivePageV3Schema = z.object({
 }).strict();
 export const TreeDetachAttachmentV3Schema = z.object({
   operation: z.literal("detach_attachment"),
-  attachmentId: UuidSchema,
+  attachmentId: PublicIdSchema,
   previousPath: FlatAttachmentPathSchema,
 }).strict();
 

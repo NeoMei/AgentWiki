@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { validatePortablePath } from "./normalize.js";
 
-const PublicIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
+export const PublicIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 const HashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const UuidSchema = z.string().uuid();
 const CursorSchema = z.string().max(4096);
