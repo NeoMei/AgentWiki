@@ -29,6 +29,24 @@ async function requestJson<T>(request: APIRequestContext, path: string, init: {
   return response.json() as Promise<T>;
 }
 
+async function cleanupFixture(request: APIRequestContext, fixture: Fixture | undefined) {
+  if (!fixture) return;
+  const failures: string[] = [];
+  for (const [kind, id, path] of [
+    ['agent', fixture.agentId, `/agents/${fixture.agentId}`],
+    ['space', fixture.spaceId, `/spaces/${fixture.spaceId}`],
+    ['user', fixture.userId, `/users/${fixture.userId}`],
+  ]) {
+    if (!id) continue;
+    try {
+      await requestJson(request, path, { method: 'DELETE', token: fixture.token });
+    } catch {
+      failures.push(kind);
+    }
+  }
+  if (failures.length > 0) throw new Error(`Cleanup failed for ${failures.join(', ')}`);
+}
+
 test.describe('local sync enrollment card', () => {
   test.skip(!enabled, 'requires AGENTWIKI_LOCAL_SYNC_E2E=1 and a running local stack');
 
@@ -62,9 +80,7 @@ test.describe('local sync enrollment card', () => {
   });
 
   test.afterEach(async ({ request }) => {
-    if (fixture?.agentId) await requestJson(request, `/agents/${fixture.agentId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
-    if (fixture?.spaceId) await requestJson(request, `/spaces/${fixture.spaceId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
-    if (fixture?.userId) await requestJson(request, `/users/${fixture.userId}`, { method: 'DELETE', token: fixture.token }).catch(() => undefined);
+    await cleanupFixture(request, fixture);
   });
 
   test('logs in and generates, copies, and expires a one-shot instruction', async ({ page }) => {

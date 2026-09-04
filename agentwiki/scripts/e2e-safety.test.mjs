@@ -245,6 +245,15 @@ test('destructive E2E harnesses share target validation and fixture cleanup', as
   }
 });
 
+test('Playwright local-sync cleanup does not hide failed fixture deletion', async () => {
+  const source = await readFile(
+    new URL('../apps/client/e2e/local-sync.spec.ts', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /requestJson\([^\n]+\)\.catch\(\(\) => undefined\)/u);
+  assert.match(source, /Cleanup failed for/u);
+});
+
 test('active Agent E2E requests use roles without legacy permission inputs', async () => {
   for (const file of [
     'smoke-test.mjs',
