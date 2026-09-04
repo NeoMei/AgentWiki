@@ -100,8 +100,10 @@ ALTER TABLE "AttachmentVersion" ADD CONSTRAINT "AttachmentVersion_content_check"
   );
 ALTER TABLE "SyncRevisionAttachmentRow" ADD CONSTRAINT "SyncRevisionAttachmentRow_fields_check"
   CHECK (
-    "path" ~* '^assets/[^/\\]+\.(png|jpe?g|webp|gif)$'
-    AND "pathKey" ~* '^assets/[^/\\]+\.(png|jpe?g|webp|gif)$'
+    left("path", 7) = 'assets/'
+    AND left("pathKey", 7) = 'assets/'
+    AND substring("path" FROM 8) ~* '^[^/\\]+\.(png|jpe?g|webp|gif)$'
+    AND substring("pathKey" FROM 8) ~* '^[^/\\]+\.(png|jpe?g|webp|gif)$'
     AND substring("path" FROM 8) NOT IN ('.', '..')
     AND substring("pathKey" FROM 8) NOT IN ('.', '..')
     AND "ordinal" BETWEEN 0 AND 999

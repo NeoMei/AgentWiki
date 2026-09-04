@@ -18,7 +18,7 @@ import { spawnPnpmSync } from './package-manager-process.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^folder_test_[a-z0-9_]+$/u;
-const REVIEWED_MIGRATION_TREE_SHA256 = 'f4c5a54320ed22f86c26e6998c441a8ac9c64d31ae1ea3f8d7ad32929c9bc7dc';
+const REVIEWED_MIGRATION_TREE_SHA256 = 'a9df765539a99252a6547a83a80549fcce2d109d395e4b7a595cf6bb07a622bc';
 const DEFAULT_MIGRATIONS_ROOT = fileURLToPath(new URL('../apps/server/prisma/migrations/', import.meta.url));
 const DEFAULT_SCHEMA_PATH = fileURLToPath(new URL('../apps/server/prisma/schema.prisma', import.meta.url));
 const VECTOR_EXTENSION_FRAGMENT = 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;';

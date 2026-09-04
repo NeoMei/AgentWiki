@@ -321,6 +321,8 @@ test('backfills one immutable version for every active attachment', {
 
       for (const invalidPath of [
         'assets/',
+        'ASSETS/a.png',
+        'Assets/a.png',
         'assets/sub/a.png',
         'assets/../a.png',
         'assets/..',
@@ -357,6 +359,10 @@ test('backfills one immutable version for every active attachment', {
         'assets/image.jpeg',
         'assets/image.webp',
         'assets/image.gif',
+        'assets/image.PNG',
+        'assets/image.JPEG',
+        'assets/image.WebP',
+        'assets/image.GIF',
       ]) {
         await insertRevisionAttachment({
           attachmentId: versions[1].attachmentId,
