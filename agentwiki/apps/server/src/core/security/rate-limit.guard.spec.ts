@@ -10,6 +10,48 @@ describe('RateLimitGuard identity boundaries', () => {
     switchToHttp: () => ({ getRequest: () => request }),
   }) as ExecutionContext;
 
+  const isolatedE2EEnvironment: Record<string, string> = {
+    NODE_ENV: 'test',
+    AGENTWIKI_LISTEN_HOST: '127.0.0.1',
+    DATABASE_URL:
+      'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_20260904_1234',
+  };
+
+  const withEnvironment = async (
+    values: Record<string, string | undefined>,
+    run: () => Promise<void>,
+  ) => {
+    const previous = new Map<string, string | undefined>();
+    for (const [name, value] of Object.entries(values)) {
+      previous.set(name, process.env[name]);
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    try {
+      await run();
+    } finally {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  };
+
+  const expectAuthRequestElevenToBeLimited = async () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await guard.canActivate(contextFor({
+        originalUrl: '/api/auth/register',
+        headers: {},
+        ip: '127.0.0.1',
+      }));
+    }
+    await expect(guard.canActivate(contextFor({
+      originalUrl: '/api/auth/register',
+      headers: {},
+      ip: '127.0.0.1',
+    }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+  };
+
   beforeEach(() => {
     counts = new Map();
     redis = {
@@ -39,11 +81,10 @@ describe('RateLimitGuard identity boundaries', () => {
   });
 
   it('raises the auth ceiling for an explicitly configured E2E test runtime', async () => {
-    const previousEnvironment = process.env.NODE_ENV;
-    const previousLimit = process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
-    process.env.NODE_ENV = 'test';
-    process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = '20';
-    try {
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      AGENTWIKI_E2E_AUTH_RATE_LIMIT: '20',
+    }, async () => {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await expect(guard.canActivate(contextFor({
           originalUrl: '/api/auth/register',
@@ -51,46 +92,64 @@ describe('RateLimitGuard identity boundaries', () => {
           ip: '127.0.0.1',
         }))).resolves.toBe(true);
       }
-    } finally {
-      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousEnvironment;
-      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
-      else process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = previousLimit;
-    }
+    });
   });
 
   it('ignores the E2E auth ceiling outside the test runtime', async () => {
-    const previousEnvironment = process.env.NODE_ENV;
-    const previousLimit = process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
-    process.env.NODE_ENV = 'production';
-    process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = '20';
-    try {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        await guard.canActivate(contextFor({
-          originalUrl: '/api/auth/register',
-          headers: {},
-          ip: '127.0.0.1',
-        }));
-      }
-      await expect(guard.canActivate(contextFor({
-        originalUrl: '/api/auth/register',
-        headers: {},
-        ip: '127.0.0.1',
-      }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
-    } finally {
-      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousEnvironment;
-      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
-      else process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = previousLimit;
-    }
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      NODE_ENV: 'production',
+      AGENTWIKI_E2E_AUTH_RATE_LIMIT: '20',
+    }, expectAuthRequestElevenToBeLimited);
   });
 
+  it.each([
+    ['missing listen host', { AGENTWIKI_LISTEN_HOST: undefined }],
+    ['non-loopback listen host', { AGENTWIKI_LISTEN_HOST: '0.0.0.0' }],
+    ['non-loopback database host', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@database.internal:5432/agentwiki_test_task3?schema=mac_e2e_20260904_1234',
+    }],
+    ['database name without test', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki?schema=mac_e2e_20260904_1234',
+    }],
+    ['missing schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3',
+    }],
+    ['non-E2E schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=public',
+    }],
+    ['malformed E2E schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_bad-name',
+    }],
+    ['malformed database URL', { DATABASE_URL: 'not-a-database-url' }],
+  ])('ignores E2E ceilings with %s', async (_label, override) => {
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      ...override,
+      AGENTWIKI_E2E_AUTH_RATE_LIMIT: '20',
+    }, expectAuthRequestElevenToBeLimited);
+  });
+
+  it.each(['0', '-1', '+20', '20.5', '9007199254740992', '1001'])(
+    'ignores the invalid E2E auth ceiling %s',
+    async (limit) => {
+      await withEnvironment({
+        ...isolatedE2EEnvironment,
+        AGENTWIKI_E2E_AUTH_RATE_LIMIT: limit,
+      }, expectAuthRequestElevenToBeLimited);
+    },
+  );
+
   it('raises the API IP ceiling for an explicitly configured E2E test runtime', async () => {
-    const previousEnvironment = process.env.NODE_ENV;
-    const previousLimit = process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
-    process.env.NODE_ENV = 'test';
-    process.env.AGENTWIKI_E2E_API_RATE_LIMIT = '400';
-    try {
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      AGENTWIKI_E2E_API_RATE_LIMIT: '400',
+    }, async () => {
       for (let attempt = 0; attempt < 400; attempt += 1) {
         await expect(guard.canActivate(contextFor({
           originalUrl: '/api/pages',
@@ -98,20 +157,15 @@ describe('RateLimitGuard identity boundaries', () => {
           ip: '127.0.0.1',
         }))).resolves.toBe(true);
       }
-    } finally {
-      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousEnvironment;
-      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
-      else process.env.AGENTWIKI_E2E_API_RATE_LIMIT = previousLimit;
-    }
+    });
   });
 
   it('ignores the E2E API IP ceiling outside the test runtime', async () => {
-    const previousEnvironment = process.env.NODE_ENV;
-    const previousLimit = process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
-    process.env.NODE_ENV = 'production';
-    process.env.AGENTWIKI_E2E_API_RATE_LIMIT = '400';
-    try {
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      NODE_ENV: 'production',
+      AGENTWIKI_E2E_API_RATE_LIMIT: '400',
+    }, async () => {
       for (let attempt = 0; attempt < 300; attempt += 1) {
         await guard.canActivate(contextFor({
           originalUrl: '/api/pages',
@@ -124,12 +178,7 @@ describe('RateLimitGuard identity boundaries', () => {
         headers: {},
         ip: '127.0.0.1',
       }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
-    } finally {
-      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousEnvironment;
-      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
-      else process.env.AGENTWIKI_E2E_API_RATE_LIMIT = previousLimit;
-    }
+    });
   });
 
   it('treats the exact /api/auth pathname as an auth route', async () => {

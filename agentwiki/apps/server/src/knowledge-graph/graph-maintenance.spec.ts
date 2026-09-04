@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { GraphMaintenance } from './graph-maintenance';
 
 describe('GraphMaintenance', () => {
@@ -37,6 +38,30 @@ describe('GraphMaintenance', () => {
     jest.advanceTimersByTime(30_000);
     expect(refresh.refresh).toHaveBeenCalledTimes(1);
     expect(refresh.refresh).toHaveBeenCalledWith('space-1');
+  });
+
+  it('does not log an error when a queued refresh finds its Space deleted', async () => {
+    jest.useFakeTimers();
+    const { maintenance, refresh } = build('api');
+    refresh.refresh.mockRejectedValue(new ForbiddenException('Space not found'));
+    const error = jest.spyOn((maintenance as any).logger, 'error').mockImplementation();
+
+    maintenance.enqueue('deleted-space');
+    await jest.advanceTimersByTimeAsync(30_000);
+
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('still logs real queued refresh failures', async () => {
+    jest.useFakeTimers();
+    const { maintenance, refresh } = build('api');
+    refresh.refresh.mockRejectedValue(new Error('database offline'));
+    const error = jest.spyOn((maintenance as any).logger, 'error').mockImplementation();
+
+    maintenance.enqueue('space-1');
+    await jest.advanceTimersByTimeAsync(30_000);
+
+    expect(error).toHaveBeenCalledWith('graph refresh failed for space-1: database offline');
   });
 
   it('skips spaces whose content hash is unchanged during sweep', async () => {

@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { GraphRefreshService, graphSnapshotHash } from './graph-refresh.service';
@@ -31,6 +37,7 @@ export class GraphMaintenance implements OnModuleInit, OnModuleDestroy {
     this.pending.set(spaceId, setTimeout(() => {
       this.pending.delete(spaceId);
       void this.refresh.refresh(spaceId).catch((error: unknown) => {
+        if (error instanceof ForbiddenException && error.message === 'Space not found') return;
         this.logger.error(`graph refresh failed for ${spaceId}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }, 30_000));

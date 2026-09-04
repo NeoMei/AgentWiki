@@ -1,5 +1,8 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { createRequire } from 'node:module';
+
+const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
+const { PrismaClient } = requireFromServer('@prisma/client');
 
 function requiredEnv(name) {
   const value = process.env[name];

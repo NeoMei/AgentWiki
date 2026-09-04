@@ -9,6 +9,7 @@ const AUTH_RATE_LIMIT = 10;
 const MAX_E2E_AUTH_RATE_LIMIT = 1_000;
 const API_IP_RATE_LIMIT = 300;
 const MAX_E2E_API_IP_RATE_LIMIT = 10_000;
+const E2E_SCHEMA_PATTERN = /^mac_e2e_[A-Za-z0-9_]+$/;
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -69,7 +70,7 @@ export class RateLimitGuard implements CanActivate {
   }
 
   private e2eRateLimit(name: string, defaultLimit: number, maximum: number): number {
-    if (process.env.NODE_ENV !== 'test') return defaultLimit;
+    if (!this.isolatedE2EOverrideAllowed()) return defaultLimit;
     const configured = process.env[name];
     if (!configured || !/^[1-9][0-9]*$/.test(configured)) return defaultLimit;
     const parsed = Number(configured);
@@ -81,6 +82,30 @@ export class RateLimitGuard implements CanActivate {
       return defaultLimit;
     }
     return parsed;
+  }
+
+  private isolatedE2EOverrideAllowed(): boolean {
+    if (process.env.NODE_ENV !== 'test') return false;
+    if (!this.isLoopbackHost(process.env.AGENTWIKI_LISTEN_HOST, false)) return false;
+    try {
+      const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
+      if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)) return false;
+      if (!this.isLoopbackHost(databaseUrl.hostname, true)) return false;
+      const databaseName = decodeURIComponent(databaseUrl.pathname.slice(1));
+      if (!databaseName.toLowerCase().includes('test')) return false;
+      const schemas = databaseUrl.searchParams.getAll('schema');
+      return schemas.length === 1 && E2E_SCHEMA_PATTERN.test(schemas[0]);
+    } catch {
+      return false;
+    }
+  }
+
+  private isLoopbackHost(value: string | undefined, allowLocalhost: boolean): boolean {
+    if (!value || value !== value.trim()) return false;
+    const normalized = value.toLowerCase().replace(/^\[|\]$/g, '');
+    if (allowLocalhost && normalized === 'localhost') return true;
+    if (normalized === '::1') return true;
+    return isIP(normalized) === 4 && normalized.startsWith('127.');
   }
 
   private async consume(key: string, limit: number, windowSeconds: number) {
