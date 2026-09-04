@@ -8,7 +8,7 @@
 
 - Windows 侧已完成 4044 passed / 79 skipped / 0 failed、typecheck、lint、build、依赖审计和公开 UI Chromium 验收。
 - Mac 执行清单已写入 `agentwiki/docs/superpowers/plans/2026-09-04-macos-release-verification.md`。
-- 等待 Mac 从 `origin/master` 拉取本轮候选并执行清单。
+- Windows 修复代码候选已发布为 `7db186b fix(windows): complete release-readiness remediation`；等待 Mac 从 `origin/master` 拉取包含该提交的版本并执行清单。
 
 ## 完成条件
 

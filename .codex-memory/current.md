@@ -21,6 +21,7 @@
 - 验收计划与证据：`agentwiki/docs/superpowers/plans/2026-09-03-release-readiness-audit.md`。
 - 已归档任务：`.codex-memory/tasks/archive/windows-release-readiness-2026-09-04/`。
 - Mac 交接任务已建立：`agentwiki/docs/superpowers/plans/2026-09-04-macos-release-verification.md` 与 `.codex-memory/tasks/active/macos-release-verification-2026-09-04/`。
+- Windows 修复代码候选已提交并推送到 GitHub `master`：`7db186b fix(windows): complete release-readiness remediation`。
 
 # 稳定约束
 
@@ -41,5 +42,5 @@
 
 # 风险 / 下一步
 
-- Mac 需要按交接清单提供隔离 PostgreSQL/pgvector、Redis AOF 和真实 CodeGraph，再消除数据库/真实运行时 skip 并执行 25 个 Playwright 测试。
+- Mac 需要从 `origin/master` 拉取包含 `7db186b` 的候选，按交接清单提供隔离 PostgreSQL/pgvector、Redis AOF 和真实 CodeGraph，再消除数据库/真实运行时 skip 并执行 25 个 Playwright 测试。
 - 本轮用户已授权把候选提交并推送 GitHub；npm 发布和生产部署仍需单独授权。
