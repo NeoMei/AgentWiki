@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalBytes } from "./canonical.js";
+import { CONTENT_TREE_HARD_LIMITS } from "./content-tree-limits.js";
 import { sha256Hex } from "./hash.js";
 import { pathKey, validatePortableDirectoryPath, validatePortableMarkdownPath } from "./normalize.js";
 
@@ -17,7 +18,7 @@ export const SYNC_PROTOCOL_V2 = "2" as const;
 export const TREE_SYNC_V2_LIMITS = {
   maxPushChanges: 100,
   maxDocumentTreeBytes: 2 * 1024 * 1024,
-  maxClientSpaceFolders: 10_000,
+  maxClientSpaceFolders: CONTENT_TREE_HARD_LIMITS.maxActiveFolders,
   maxSnapshotObjects: 15_000,
   maxDeltaItems: 15_000,
   maxResponseBytes: 4 * 1024 * 1024,

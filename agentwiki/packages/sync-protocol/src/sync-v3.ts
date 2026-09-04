@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalBytes } from "./canonical.js";
+import { CONTENT_TREE_HARD_LIMITS } from "./content-tree-limits.js";
 import { sha256Hex } from "./hash.js";
 import { PublicIdSchema, SyncErrorCodeSchema } from "./schemas.js";
 import {
@@ -717,9 +718,15 @@ function folderDepths(folders: ReadonlyMap<string, SyncFolderV3>): ReadonlyMap<s
 
 export function canonicalTreeRevisionManifestV3(manifest: TreeRevisionContentManifestV3): TreeRevisionContentManifestV3 {
   const parsed = TreeRevisionContentManifestV3Schema.parse(manifest);
+  if (parsed.folders.length > CONTENT_TREE_HARD_LIMITS.maxActiveFolders) {
+    throw new TypeError("Folder manifest exceeds 10,000 active Folders");
+  }
   const foldersById = new Map(parsed.folders.map((folder) => [folder.folderId, folder]));
   if (foldersById.size !== parsed.folders.length) throw new TypeError("Folder manifest contains duplicate IDs");
   const depthByFolderId = folderDepths(foldersById);
+  if ([...depthByFolderId.values()].some((depth) => depth >= CONTENT_TREE_HARD_LIMITS.maxFolderDepth)) {
+    throw new TypeError("Folder manifest exceeds 32 levels");
+  }
   const folderPathKeys = new Set<string>();
   for (const folder of parsed.folders) {
     const folderPathKey = pathKey(folder.path);

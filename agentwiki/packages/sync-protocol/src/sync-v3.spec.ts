@@ -813,8 +813,8 @@ describe("Sync Protocol v3", () => {
     expect(source).not.toContain("BLOB_CHUNK_TOO_LARGE");
   });
 
-  it("canonicalizes 10,000 root Folders without recursive depth walks", () => {
-    const folders = Array.from({ length: 10_000 }, (_, index) => {
+  it("accepts 10,000 active Folders and rejects 10,001", () => {
+    const folders = Array.from({ length: 10_001 }, (_, index) => {
       const id = `folder-${String(index).padStart(5, "0")}`;
       return folder({
         folderId: id,
@@ -822,17 +822,51 @@ describe("Sync Protocol v3", () => {
         name: id,
         path: `pages/${id}`,
       });
-    }).reverse();
+    });
     const manifest = canonicalTreeRevisionManifestV3({
       protocolVersion: "3",
       spaceId: "space-a",
-      folders,
+      folders: folders.slice(0, 10_000).reverse(),
       pages: [],
       attachments: [],
     });
     expect(manifest.folders[0]?.folderId).toBe("folder-00000");
     expect(manifest.folders.at(-1)?.folderId).toBe("folder-09999");
+    expect(() => canonicalTreeRevisionManifestV3({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    })).toThrow(/10,000 active Folders/iu);
   }, 10_000);
+
+  it("accepts exactly 32 Folder levels and rejects level 33", () => {
+    const nestedFolders = Array.from({ length: 33 }, (_, index) => {
+      const folderId = `level-${String(index + 1).padStart(2, "0")}`;
+      const segments = Array.from(
+        { length: index + 1 },
+        (_unused, segment) => `level-${String(segment + 1).padStart(2, "0")}`,
+      );
+      return folder({
+        folderId,
+        parentFolderId: index === 0 ? null : `level-${String(index).padStart(2, "0")}`,
+        name: folderId,
+        path: `pages/${segments.join("/")}`,
+      });
+    });
+    const manifest = (folders: ReturnType<typeof folder>[]) => ({
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    });
+    expect(canonicalTreeRevisionManifestV3(manifest(nestedFolders.slice(0, 32))).folders)
+      .toHaveLength(32);
+    expect(() => canonicalTreeRevisionManifestV3(manifest(nestedFolders)))
+      .toThrow(/32 levels/iu);
+  });
 
   it("fails closed for folder cycles and missing parents", () => {
     const manifest = (folders: ReturnType<typeof folder>[]) => ({

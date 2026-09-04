@@ -632,3 +632,143 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
     }
   });
 });
+
+test('Sync v3 atomically rejects Folder depth and active-count boundary overflow on PostgreSQL', {
+  skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
+  timeout: 240_000,
+}, async () => {
+  await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3Migration, applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
+  }) => {
+    await applySyncV3Migration();
+    await applySyncV3PushOrdinalMigration();
+    const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    await prisma.$connect();
+    const suffix = schemaName.slice(-12);
+    const userId = `limits-user-${suffix}`;
+    const familyId = randomUUID();
+    const credentialId = randomUUID();
+    const principal = {
+      userId, credentialId, credentialFamilyId: familyId,
+      deviceId: `limits-device-${suffix}`, vaultId: `limits-vault-${suffix}`,
+      status: 'active', platformRole: 'user',
+    };
+    try {
+      await prisma.user.create({ data: { id: userId, email: `${userId}@push-v3.test` } });
+      await prisma.humanDeviceCredentialFamily.create({ data: {
+        id: familyId, userId, deviceId: principal.deviceId, vaultId: principal.vaultId,
+      } });
+      await prisma.humanDeviceCredential.create({ data: {
+        id: credentialId, credentialFamilyId: familyId, userId,
+        deviceId: principal.deviceId, vaultId: principal.vaultId,
+        deviceName: 'PG limits test', credentialHash: `limits-${suffix}`, status: 'active',
+      } });
+      const graph = serviceGraph(prisma);
+
+      const createBoundary = async (label, folders) => {
+        const spaceId = `limits-${label}-${suffix}`;
+        await prisma.space.create({ data: { id: spaceId, name: `Limits ${label}`, slug: spaceId } });
+        await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+        for (let offset = 0; offset < folders.length; offset += 500) {
+          await prisma.folder.createMany({ data: folders.slice(offset, offset + 500).map((folder) => ({
+            id: folder.folderId, spaceId, parentId: folder.parentFolderId,
+            name: folder.name, nameKey: folder.name.toLowerCase(),
+            path: folder.path, pathKey: folder.path.toLowerCase(), sortOrder: folder.sortOrder,
+            createdByUserId: userId, lastModifiedByUserId: userId,
+            lastModifiedAt: new Date(folder.updatedAt), createdAt: new Date(folder.updatedAt),
+            updatedAt: new Date(folder.updatedAt),
+          })) });
+        }
+        const initial = await prisma.$transaction(async (tx) => {
+          const locked = await graph.spaceWriter.lockSpace(tx, spaceId);
+          return graph.writer.advanceV3Locked(locked, spaceId, {
+            folders, pages: [], attachments: [],
+          }, { origin: 'manual', createdByUserId: userId });
+        }, { isolationLevel: 'Serializable', timeout: 120_000 });
+        return { spaceId, revision: initial.revisionId };
+      };
+
+      const boundaryResult = async (boundary, change) => {
+        const staged = await stageChanges(
+          graph, principal, boundary.spaceId, boundary.revision,
+          [{ operation: 'upsert_folder', folder: change }],
+        );
+        const before = {
+          revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: boundary.spaceId } }),
+          changeSets: await prisma.changeSet.count({ where: { spaceId: boundary.spaceId } }),
+          folders: await prisma.folder.count({ where: { spaceId: boundary.spaceId, deletedAt: null } }),
+        };
+        let errorCode = null;
+        try {
+          await graph.service.finalize(principal, boundary.spaceId, staged.sessionId, {
+            protocolVersion: '3', confirmationHash: staged.confirmationHash, userConfirmed: true,
+          });
+        } catch (error) {
+          errorCode = error?.syncCode ?? error?.code ?? error?.name;
+        }
+        const session = await prisma.pushSession.findUnique({ where: { id: staged.sessionId } });
+        return {
+          errorCode,
+          revisionDelta: await prisma.spaceKnowledgeRevision.count({
+            where: { spaceId: boundary.spaceId },
+          }) - before.revisions,
+          changeSetDelta: await prisma.changeSet.count({
+            where: { spaceId: boundary.spaceId },
+          }) - before.changeSets,
+          liveFolderDelta: await prisma.folder.count({
+            where: { spaceId: boundary.spaceId, deletedAt: null },
+          }) - before.folders,
+          sessionStatus: session.status,
+          hasSessionResult: session.result !== null,
+        };
+      };
+
+      const depthFolders = Array.from({ length: 32 }, (_, index) => {
+        const name = `d${String(index + 1).padStart(2, '0')}`;
+        return {
+          folderId: `depth-${name}-${suffix}`,
+          parentFolderId: index === 0 ? null : `depth-d${String(index).padStart(2, '0')}-${suffix}`,
+          name,
+          path: `pages/${Array.from({ length: index + 1 }, (_, part) => (
+            `d${String(part + 1).padStart(2, '0')}`
+          )).join('/')}`,
+          sortOrder: index, updatedAt: '2026-09-05T01:00:00.000Z',
+        };
+      });
+      const depthBoundary = await createBoundary('depth', depthFolders);
+      const depthOverflow = {
+        folderId: `depth-d33-${suffix}`, parentFolderId: `depth-d32-${suffix}`,
+        name: 'd33', path: `${depthFolders.at(-1).path}/d33`, sortOrder: 32,
+        updatedAt: '2026-09-05T01:00:01.000Z',
+      };
+
+      const countFolders = Array.from({ length: 10_000 }, (_, index) => {
+        const name = `f${String(index).padStart(5, '0')}`;
+        return {
+          folderId: `count-${name}-${suffix}`, parentFolderId: null, name,
+          path: `pages/${name}`, sortOrder: index, updatedAt: '2026-09-05T01:01:00.000Z',
+        };
+      });
+      const countBoundary = await createBoundary('count', countFolders);
+      const countOverflow = {
+        folderId: `count-f10000-${suffix}`, parentFolderId: null, name: 'f10000',
+        path: 'pages/f10000', sortOrder: 10_000, updatedAt: '2026-09-05T01:01:01.000Z',
+      };
+
+      const [depth, count] = await Promise.all([
+        boundaryResult(depthBoundary, depthOverflow),
+        boundaryResult(countBoundary, countOverflow),
+      ]);
+      const rejectedAtomically = {
+        errorCode: 'ATTACHMENT_REFERENCE_INVALID', revisionDelta: 0, changeSetDelta: 0,
+        liveFolderDelta: 0, sessionStatus: 'ready_to_finalize', hasSessionResult: false,
+      };
+      assert.deepEqual({ depth, count }, {
+        depth: rejectedAtomically,
+        count: rejectedAtomically,
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
