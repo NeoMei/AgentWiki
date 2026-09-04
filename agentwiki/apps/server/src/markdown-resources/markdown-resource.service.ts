@@ -163,6 +163,39 @@ export class MarkdownResourceService {
     return parsed.map((references) => resolveParsedAttachmentReferences(references, attachments));
   }
 
+  async resolveReferencedAttachmentsAcrossSpacesBatch(inputs: Array<{
+    spaceId: string;
+    sourceSyncPath: string;
+    body: string;
+  }>, reader: Pick<Prisma.TransactionClient, 'spaceAttachment'> = this.prisma): Promise<ResolvedAttachmentReferences[]> {
+    const parsed = inputs.map((input) => parseImageReferences(input.body, input.sourceSyncPath));
+    const targetsBySpace = new Map<string, Set<string>>();
+    parsed.forEach((references, index) => {
+      const target = targetsBySpace.get(inputs[index]!.spaceId) ?? new Set<string>();
+      for (const reference of references) {
+        if (reference.classification === 'managed_candidate' && reference.resolvedPath !== null) {
+          target.add(normalizeAttachmentName(reference.resolvedPath.slice('assets/'.length)).nameKey);
+        }
+      }
+      targetsBySpace.set(inputs[index]!.spaceId, target);
+    });
+    const scopes = [...targetsBySpace].filter(([, names]) => names.size > 0);
+    const attachments = scopes.length > 0
+      ? await reader.spaceAttachment.findMany({
+          where: {
+            status: 'active',
+            OR: scopes.map(([spaceId, names]) => ({ spaceId, nameKey: { in: [...names].sort() } })),
+          },
+          select: { id: true, spaceId: true, displayName: true, nameKey: true },
+          orderBy: [{ spaceId: 'asc' }, { nameKey: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+    return parsed.map((references, index) => resolveParsedAttachmentReferences(
+      references,
+      attachments.filter((attachment) => attachment.spaceId === inputs[index]!.spaceId),
+    ));
+  }
+
   async resolve(
     spaceId: string,
     references: MarkdownResourceReferenceDto[],

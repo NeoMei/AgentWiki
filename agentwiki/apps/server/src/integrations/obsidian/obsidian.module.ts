@@ -20,6 +20,7 @@ import { SyncModule } from '../../core/sync/sync.module';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3Controller } from './sync-v3.controller';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
+import { SyncV3ImmutableRevisionService } from './sync-v3-immutable-revision.service';
 
 @Module({
   imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule, SyncModule],
@@ -34,6 +35,7 @@ import { SyncV3RevisionService } from './sync-v3-revision.service';
     PushSessionService,
     SyncV3BootstrapService,
     SyncV3RevisionService,
+    SyncV3ImmutableRevisionService,
   ],
   controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller, SyncV3Controller],
   exports: [
@@ -47,6 +49,7 @@ import { SyncV3RevisionService } from './sync-v3-revision.service';
     PushSessionService,
     SyncV3BootstrapService,
     SyncV3RevisionService,
+    SyncV3ImmutableRevisionService,
   ],
 })
 export class ObsidianModule {}

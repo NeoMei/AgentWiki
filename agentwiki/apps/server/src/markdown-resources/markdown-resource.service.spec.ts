@@ -71,6 +71,28 @@ describe('MarkdownResourceService', () => {
     }));
   });
 
+  it('resolves attachment references for multiple Spaces with one scoped Attachment query', async () => {
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({ id: 'attachment-a', spaceId: 'space-1', displayName: 'pic.png', nameKey: 'pic.png' }),
+      attachment({ id: 'attachment-b', spaceId: 'space-2', displayName: 'pic.png', nameKey: 'pic.png' }),
+    ]);
+
+    await expect(service.resolveReferencedAttachmentsAcrossSpacesBatch([
+      { spaceId: 'space-1', sourceSyncPath: 'pages/A.md', body: '![[assets/pic.png]]' },
+      { spaceId: 'space-2', sourceSyncPath: 'pages/B.md', body: '![[assets/pic.png]]' },
+    ], prisma)).resolves.toEqual([
+      expect.objectContaining({ attachmentIds: ['attachment-a'] }),
+      expect.objectContaining({ attachmentIds: ['attachment-b'] }),
+    ]);
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: 'active', OR: expect.arrayContaining([
+        { spaceId: 'space-1', nameKey: { in: ['pic.png'] } },
+        { spaceId: 'space-2', nameKey: { in: ['pic.png'] } },
+      ]) }),
+    }));
+  });
+
   it('authorizes the Space once and resolves pages by stable id, current path, title, then legacy slug', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([

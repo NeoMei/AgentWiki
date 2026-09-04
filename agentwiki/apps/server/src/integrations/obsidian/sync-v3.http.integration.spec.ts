@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { HttpException, INestApplication } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import {
@@ -20,6 +20,7 @@ import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncV3Controller } from './sync-v3.controller';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
+import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import { SyncApiException } from './sync-error';
 
 describe('sync v3 HTTP contract', () => {
@@ -89,6 +90,9 @@ describe('sync v3 HTTP contract', () => {
         { provide: ObsidianCryptoService, useValue: { credentialHash: (value: string) => `h:${value}` } },
         { provide: PrismaService, useValue: prisma },
         SyncCapabilitiesService,
+        { provide: SyncV3RevisionWriterService, useValue: {
+          inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }),
+        } },
         { provide: SyncV3RevisionService, useValue: revisions },
         { provide: SyncV3BootstrapService, useValue: bootstrap },
       ],
@@ -236,10 +240,38 @@ describe('sync v3 HTTP contract', () => {
     });
     const body = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(410);
     expect(SyncV3ErrorEnvelopeSchema.parse(body)).toEqual({
-      protocolVersion: '3', error: { code: 'INTERNAL_ERROR', retryable: true },
+      protocolVersion: '3', error: { code: 'REVISION_GONE', retryable: false },
     });
     expect(JSON.stringify(body)).not.toMatch(/private|storageKey|secret|message|details|path/u);
+  });
+
+  it.each([
+    [400, 'PAYLOAD_INVALID', false],
+    [401, 'AUTHENTICATION_REQUIRED', false],
+    [403, 'SPACE_FORBIDDEN', false],
+    [404, 'REVISION_GONE', false],
+    [409, 'BASE_STALE', false],
+    [410, 'REVISION_GONE', false],
+    [413, 'BATCH_TOO_LARGE', false],
+    [429, 'RATE_LIMITED', true],
+    [503, 'INTERNAL_ERROR', true],
+  ] as const)('maps framework HTTP %i to a safe strict v3 error', async (status, code, retryable) => {
+    revisions.head.mockRejectedValueOnce(new HttpException({
+      message: 'private /vault/page.md', details: { credential: 'secret' },
+    }, status));
+
+    const response = await fetch(`${baseUrl}/sync/v3/spaces/space-1/head`, {
+      headers: { Authorization: 'Bearer device-secret' },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(status);
+    expect(SyncV3ErrorEnvelopeSchema.parse(body)).toEqual({
+      protocolVersion: '3', error: { code, retryable },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/private|vault|credential|secret|message|details|path/u);
+    if (status === 429) expect(response.headers.get('retry-after')).toBe('1');
   });
 });

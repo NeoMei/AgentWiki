@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import {
   batchHash,
   canonicalBytes,
+  capabilitiesHash,
   comparePushChanges,
   confirmationHash,
   contentHash,
@@ -12,6 +13,7 @@ import {
   treeBatchHashV2,
   treeConfirmationHashV2,
   TreePushChangeV2Schema,
+  TREE_SYNC_V2_LIMITS,
   type PushBatch,
   type PushConfirmationManifest,
   type SyncCapabilities,
@@ -23,7 +25,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
-import { ObsidianCryptoService } from './obsidian-crypto.service';
+import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
 import type { StructuralPageChange } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SearchService } from '../../core/search/search.service';
@@ -91,8 +93,8 @@ export class PushSessionService {
     private readonly search: SearchService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly graphMaintenance?: GraphMaintenance,
-    @Optional() private readonly syncCapabilities?: SyncCapabilitiesService,
-    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+    private readonly syncCapabilities?: SyncCapabilitiesService,
+    private readonly v3Writer?: SyncV3RevisionWriterService,
   ) {}
 
   async create(principal: HumanDevicePrincipal, spaceId: string, input: {
@@ -158,9 +160,17 @@ export class PushSessionService {
       }, { isolationLevel: 'ReadCommitted' });
     } catch (error: unknown) {
       if ((error as any)?.code === 'P2002') {
-        const created = await this.prisma.pushSession.findUnique({
-          where: { credentialFamilyId_idempotencyKey: { credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey } },
-        });
+        const created = await this.prisma.$transaction(async (tx) => {
+          const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+          await this.assertPublishableInTx(lockedTx, principal, spaceId);
+          await this.assertV1CompatibleInTx(lockedTx, spaceId);
+          return lockedTx.pushSession.findUnique({
+            where: { credentialFamilyId_idempotencyKey: {
+              credentialFamilyId: principal.credentialFamilyId,
+              idempotencyKey: input.idempotencyKey,
+            } },
+          });
+        }, { isolationLevel: 'ReadCommitted' });
         if (created) {
           this.assertV1IdempotencyBinding(created, principal, spaceId, input);
           return this.sessionResponse(created, await this.capabilities());
@@ -971,8 +981,7 @@ export class PushSessionService {
     spaceId: string,
     protocolVersion: '1' | '2',
   ): Promise<void> {
-    if (!this.v3Writer) return;
-    const inspection = await this.v3Writer.inspectCurrentLocked(tx, spaceId);
+    const inspection = await this.v3Writer!.inspectCurrentLocked(tx, spaceId);
     if (inspection.mode !== 'legacy_v2') {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',
@@ -1053,7 +1062,31 @@ export class PushSessionService {
   }
 
   private capabilityService(): SyncCapabilitiesService {
-    return this.syncCapabilities ?? new SyncCapabilitiesService(this.prisma);
+    if (this.syncCapabilities) return this.syncCapabilities;
+    return {
+      capabilities: () => ({ ...DEFAULT_SYNC_CAPABILITIES }),
+      hash: () => capabilitiesHash(DEFAULT_SYNC_CAPABILITIES),
+      capabilitiesV2: () => ({
+        ...DEFAULT_SYNC_CAPABILITIES,
+        maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
+        maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
+        maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+        maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
+        maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
+        maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems,
+        maxResponseBytes: Math.min(DEFAULT_SYNC_CAPABILITIES.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes),
+      }),
+      hashV2: async () => capabilitiesHash({
+        ...DEFAULT_SYNC_CAPABILITIES,
+        maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
+        maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
+        maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+        maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
+        maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
+        maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems,
+        maxResponseBytes: Math.min(DEFAULT_SYNC_CAPABILITIES.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes),
+      }),
+    } as SyncCapabilitiesService;
   }
 
   private assertV1Session(session: { protocolVersion?: string | null }): void {

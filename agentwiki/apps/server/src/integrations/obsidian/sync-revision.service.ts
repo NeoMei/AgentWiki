@@ -6,6 +6,10 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -22,7 +26,10 @@ export interface SyncHead {
 
 @Injectable()
 export class SyncRevisionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly immutableV3: SyncV3ImmutableRevisionService,
+  ) {}
 
   async head(spaceId: string): Promise<SyncHead> {
     const revision = await this.prisma.spaceKnowledgeRevision.findFirst({
@@ -63,11 +70,31 @@ export class SyncRevisionService {
       );
     }
     if (isV2 || isV3) {
-      const rows = await this.prisma.syncRevisionPageRow.findMany({
-        where: { revisionId: revision.id },
-        select: { pageId: true, path: true, title: true, contentHash: true },
-        orderBy: { pageId: 'asc' },
-      });
+      let rows: Array<{ pageId: string; path: string; title: string; contentHash: string }>;
+      let bodyBytes = revision.revisionBodyBytes ?? 0n;
+      if (isV3) {
+        try {
+          const verify = (reader: any) => this.immutableV3.verify(reader, spaceId, revision);
+          const verified = typeof (this.prisma as any).$transaction === 'function'
+            ? await this.prisma.$transaction(verify, { isolationLevel: 'RepeatableRead' })
+            : await verify(this.prisma);
+          rows = verified.manifest.pages.map(({ pageId, path, title, contentHash }) => ({
+            pageId, path, title, contentHash,
+          }));
+          bodyBytes = BigInt(verified.revisionBodyBytes);
+        } catch (error) {
+          if (error instanceof SyncV3AuthorityError) {
+            throw new SyncApiException('REVISION_GONE', 'Revision is not available');
+          }
+          throw error;
+        }
+      } else {
+        rows = await this.prisma.syncRevisionPageRow.findMany({
+          where: { revisionId: revision.id },
+          select: { pageId: true, path: true, title: true, contentHash: true },
+          orderBy: { pageId: 'asc' },
+        });
+      }
       const manifest: RevisionContentManifest = {
         protocolVersion: '1', spaceId,
         pages: rows.map((row) => ({
@@ -81,7 +108,7 @@ export class SyncRevisionService {
         revisionContentHash: empty ? EMPTY_REVISION_HASH : await computeRevisionContentHash(manifest),
         pageCount: BigInt(rows.length),
         revisionManifestByteLength: BigInt(empty ? 0 : canonicalBytes(manifest).byteLength),
-        revisionBodyBytes: revision.revisionBodyBytes ?? 0n,
+        revisionBodyBytes: bodyBytes,
         publishedAt: revision.createdAt.toISOString(),
       };
     }
@@ -109,6 +136,7 @@ export class SyncRevisionService {
     if (found.attachmentCount > 0n) {
       throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'This revision requires Sync v3');
     }
+    await this.v1HeadForRevision(spaceId, found);
     return found.id;
   }
 
@@ -152,8 +180,9 @@ export class SyncRevisionService {
     fromRevision: string,
     limit: number,
     afterPageId?: string,
+    toRevision?: string,
   ) {
-    const head = await this.head(spaceId);
+    const head = await this.deltaHead(spaceId, toRevision);
     if (fromRevision === head.revision) {
       return {
         items: [],
@@ -171,6 +200,7 @@ export class SyncRevisionService {
     if (!from || from.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'from revision is not available');
     }
+    await this.v1HeadForRevision(spaceId, from);
     if (from.sequence >= head.sequence) {
       return { items: [], nextPageId: undefined, toRevision: head.revision, head };
     }
@@ -215,6 +245,24 @@ export class SyncRevisionService {
       toRevision: head.revision,
       head,
     };
+  }
+
+  private async deltaHead(spaceId: string, revisionId?: string): Promise<SyncHead> {
+    if (!revisionId || revisionId === 'current') return this.head(spaceId);
+    if (revisionId === '0') {
+      return {
+        revision: '0', sequence: 0, revisionContentHash: EMPTY_REVISION_HASH,
+        pageCount: 0n, revisionManifestByteLength: 0n, revisionBodyBytes: 0n,
+        publishedAt: null,
+      };
+    }
+    const revision = await this.prisma.spaceKnowledgeRevision.findUnique({
+      where: { id: revisionId },
+    });
+    if (!revision || revision.spaceId !== spaceId) {
+      throw new SyncApiException('REVISION_GONE', 'Delta target revision is not available');
+    }
+    return this.v1HeadForRevision(spaceId, revision);
   }
 
   private async deltaFromEmpty(

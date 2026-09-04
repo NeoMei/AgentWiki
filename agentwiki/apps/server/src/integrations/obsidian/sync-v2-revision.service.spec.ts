@@ -7,6 +7,7 @@ import {
 import { RevisionV2IntegrityError } from '../../core/sync/revision-v2-integrity';
 import { SyncApiException } from './sync-error';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
+import { SyncV3AuthorityError } from './sync-v3-immutable-revision.service';
 
 const at = (value: string) => new Date(value);
 const root = {
@@ -167,7 +168,13 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
   const cursors = cursorCodec();
   const capabilities = { capabilitiesV2: jest.fn(() => ({ maxResponseBytes, maxDeltaItems })) };
   return {
-    service: new SyncV2RevisionService(prisma, cursors as any, capabilities as any),
+    service: new SyncV2RevisionService(
+      prisma,
+      cursors as any,
+      capabilities as any,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) } as any,
+      { verify: jest.fn() } as any,
+    ),
     prisma, cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
   };
 }
@@ -649,6 +656,22 @@ describe('SyncV2RevisionService', () => {
     ));
   });
 
+  it('fails closed when attachment-free native v3 authority is corrupt before v2 projection', async () => {
+    const state = await fixture();
+    const revision = state.revisions.get('rev-2');
+    revision.schemaVersion = 'content-tree@3';
+    revision.recipeVersion = 'referenced-images-v1';
+    const service = new SyncV2RevisionService(
+      state.prisma,
+      state.cursors as any,
+      { capabilitiesV2: () => ({ maxResponseBytes: 4_194_304, maxDeltaItems: 15_000 }) } as any,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'native_v3' }) } as any,
+      { verify: jest.fn().mockRejectedValue(new SyncV3AuthorityError()) } as any,
+    );
+
+    await expect(service.head('space-1')).rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+  });
+
   it('blocks the current legacy endpoint while Markdown attachment candidates require bootstrap', async () => {
     const state = await fixture();
     const v3Writer = {
@@ -659,6 +682,7 @@ describe('SyncV2RevisionService', () => {
       state.cursors as any,
       { capabilitiesV2: () => ({ maxResponseBytes: 4_194_304, maxDeltaItems: 15_000 }) } as any,
       v3Writer as any,
+      { verify: jest.fn() } as any,
     );
 
     await expect(service.head('space-1'))

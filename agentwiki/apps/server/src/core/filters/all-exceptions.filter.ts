@@ -11,6 +11,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { SyncV3ErrorEnvelopeSchema } from '@neomei/agentwiki-sync-protocol';
 import { SyncApiException } from '../../integrations/obsidian/sync-error';
+import { syncProtocolFromRequestPath } from '../../integrations/obsidian/sync-request-protocol';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -34,7 +35,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const request = ctx.getRequest();
     const response = ctx.getResponse();
-    const isSyncV3 = /(?:^|\/)sync\/v3(?:\/|\?|$)/u.test(String(request.url ?? ''));
+    const isSyncV3 = syncProtocolFromRequestPath(request) === '3';
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string = 'Internal server error';
@@ -44,13 +45,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
       const responseBody = exception.getResponse();
-      if (typeof responseBody === 'object' && responseBody !== null && 'protocolVersion' in responseBody) {
+      if (!isSyncV3 && typeof responseBody === 'object' && responseBody !== null && 'protocolVersion' in responseBody) {
         // Versioned sync errors are returned verbatim only when the strict v3
         // contract accepts them. Older protocols retain their established
         // envelope until their compatibility window closes.
         const body = responseBody as Record<string, any>;
         const strictV3 = SyncV3ErrorEnvelopeSchema.safeParse(body);
-        if ((isSyncV3 || body.protocolVersion === '3') && !strictV3.success) {
+        if (body.protocolVersion === '3' && !strictV3.success) {
           const safeException = new SyncApiException(
             'INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3',
           );
@@ -119,15 +120,26 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (isSyncV3) {
-      const safeException = statusCode === HttpStatus.BAD_REQUEST
-        ? new SyncApiException('PAYLOAD_INVALID', 'Invalid Sync v3 request', undefined, '3')
-        : new SyncApiException('INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3');
-      const safeBody = SyncV3ErrorEnvelopeSchema.parse(safeException.getResponse());
+      const safeException = exception instanceof SyncApiException
+        ? exception
+        : new SyncApiException(
+          this.syncV3Code(statusCode), 'Sync v3 request failed', undefined, '3',
+        );
+      const safeBody = SyncV3ErrorEnvelopeSchema.parse({
+        protocolVersion: '3',
+        error: { code: safeException.syncCode, retryable: safeException.retryable },
+      });
+      const safeStatus = exception instanceof SyncApiException
+        ? exception.getStatus()
+        : this.syncV3Status(statusCode);
       this.logger.error(
-        `[${request.method}] ${request.url} - ${safeException.getStatus()}: Sync v3 request failed safely`,
+        `[${request.method}] ${request.url} - ${safeStatus}: Sync v3 request failed safely`,
       );
       httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
-      httpAdapter.reply(response, safeBody, safeException.getStatus());
+      if (safeStatus === HttpStatus.TOO_MANY_REQUESTS) {
+        httpAdapter.setHeader(response, 'Retry-After', '1');
+      }
+      httpAdapter.reply(response, safeBody, safeStatus);
       return;
     }
 
@@ -159,6 +171,26 @@ export class AllExceptionsFilter implements ExceptionFilter {
       413: 'REQUEST_TOO_LARGE',
       503: 'SERVICE_UNAVAILABLE',
     } as Record<number, string>)[statusCode] || 'INTERNAL_ERROR';
+  }
+
+  private syncV3Code(statusCode: number) {
+    return ({
+      400: 'PAYLOAD_INVALID',
+      401: 'AUTHENTICATION_REQUIRED',
+      403: 'SPACE_FORBIDDEN',
+      404: 'REVISION_GONE',
+      409: 'BASE_STALE',
+      410: 'REVISION_GONE',
+      413: 'BATCH_TOO_LARGE',
+      429: 'RATE_LIMITED',
+      503: 'INTERNAL_ERROR',
+    } as const)[statusCode as 400] ?? 'INTERNAL_ERROR';
+  }
+
+  private syncV3Status(statusCode: number): number {
+    return [400, 401, 403, 404, 409, 410, 413, 429, 503].includes(statusCode)
+      ? statusCode
+      : HttpStatus.INTERNAL_SERVER_ERROR;
   }
 
   private mapPrismaError(

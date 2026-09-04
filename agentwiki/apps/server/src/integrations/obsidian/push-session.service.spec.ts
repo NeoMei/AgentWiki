@@ -476,7 +476,8 @@ describe('PushSessionService graph lifecycle', () => {
       }),
     };
     const service: any = new (PushSessionService as any)(
-      prisma, {}, writer, {}, undefined, undefined,
+      prisma, {}, writer, {}, undefined, undefined, undefined,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) },
     );
     service.contentTree = contentTree;
     service.redis = undefined;
@@ -639,7 +640,10 @@ describe('PushSessionService Sync Protocol v2', () => {
     const contentTree = {
       lockSyncMutationSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 0n })),
     };
-    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const service: any = new (PushSessionService as any)(
+      prisma, {}, contentTree, {}, undefined, undefined, undefined,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) },
+    );
     const v1Hash = await service.capabilityHash();
     const v2Hash = await service.capabilityHashV2();
 
@@ -676,7 +680,10 @@ describe('PushSessionService Sync Protocol v2', () => {
       ...tx,
       $transaction: jest.fn((callback: any) => callback(tx)),
     };
-    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const service: any = new (PushSessionService as any)(
+      prisma, {}, contentTree, {}, undefined, undefined, undefined,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) },
+    );
 
     await expect(service.create(principal, 'space-1', {
       baseRevision: '0', idempotencyKey: '33333333-3333-4333-8333-333333333333',
@@ -740,7 +747,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     };
     const tx: any = {
       pushSession: {
-        findUnique: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValue(raced),
         create: jest.fn().mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' })),
       },
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -755,13 +762,57 @@ describe('PushSessionService Sync Protocol v2', () => {
     const contentTree = {
       lockSyncMutationSpace: jest.fn(async () => Object.assign(tx, { contentTreeRevision: 0n })),
     };
-    const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const service: any = new (PushSessionService as any)(
+      prisma, {}, contentTree, {}, undefined, undefined, undefined,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) },
+    );
 
     await expect(service.create(principal, 'space-1', {
       baseRevision: '0', idempotencyKey: raced.idempotencyKey,
       capabilitiesHash: await service.capabilityHash(), confirmationHash: raced.confirmationHash,
       confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
     })).rejects.toMatchObject({ syncCode: 'IDEMPOTENCY_MISMATCH' });
+  });
+
+  it('does not recover a v1 create uniqueness race after the locked Space becomes native v3', async () => {
+    const raced = {
+      id: 'session-raced', protocolVersion: '1', userId: 'user-1', spaceId: 'space-1',
+      credentialId: 'credential-1', credentialFamilyId: 'family-1', baseRevisionId: '0',
+      idempotencyKey: '88888888-8888-4888-8888-888888888888',
+      capabilitiesHash: 'unused', confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
+      changeCount: 0, totalBodyBytes: 0n, status: 'published', result: {},
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx: any = {
+      pushSession: {
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValue(raced),
+        create: jest.fn().mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' })),
+      },
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+      folder: { count: jest.fn().mockResolvedValue(0) },
+      page: { count: jest.fn().mockResolvedValue(0) },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+    };
+    const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const contentTree = { lockSyncMutationSpace: jest.fn(async () => tx) };
+    const v3Writer = {
+      inspectCurrentLocked: jest.fn()
+        .mockResolvedValueOnce({ mode: 'legacy_v2' })
+        .mockResolvedValueOnce({ mode: 'native_v3' }),
+    };
+    const service: any = new (PushSessionService as any)(
+      prisma, {}, contentTree, {}, undefined, undefined, undefined, v3Writer,
+    );
+    const capabilitiesHash = await service.capabilityHash();
+    raced.capabilitiesHash = capabilitiesHash;
+
+    await expect(service.create(principal, 'space-1', {
+      baseRevision: '0', idempotencyKey: raced.idempotencyKey, capabilitiesHash,
+      confirmationHash: raced.confirmationHash, confirmationByteLength: 1,
+      changeCount: 0, totalBodyBytes: 0,
+    })).rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+    expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledTimes(2);
+    expect(tx.pushSession.findUnique).toHaveBeenCalledTimes(1);
   });
 
   it('maps a missing v1 create Space to the non-enumerating Sync error envelope', async () => {

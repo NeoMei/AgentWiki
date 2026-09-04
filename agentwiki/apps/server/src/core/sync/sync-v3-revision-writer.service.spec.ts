@@ -659,12 +659,24 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
     const pageId = `page_${suffix}`;
     const pageRowId = randomUUID();
     const attachmentVersionId = randomUUID();
+    const credentialFamilyId = randomUUID();
+    const credentialId = randomUUID();
+    const deviceId = randomUUID();
+    const vaultId = randomUUID();
     const initialBody = '![[assets/photo.png]]\n';
-    const principal = { userId };
+    const principal = { userId, credentialId };
 
     try {
       const photoBlob = await publishSyncV3Blob(storage, Buffer.alloc(4, 0xb));
       await prisma.user.create({ data: { id: userId, email: `${suffix}@writer.sync-v3.test` } });
+      await prisma.humanDeviceCredentialFamily.create({ data: {
+        id: credentialFamilyId, userId, deviceId, vaultId,
+      } });
+      await prisma.humanDeviceCredential.create({ data: {
+        id: credentialId, credentialFamilyId, userId, deviceId, vaultId,
+        deviceName: 'Task 5 bootstrap writer', credentialHash: `hash_${suffix}`,
+        status: 'active', activatedAt: new Date(),
+      } });
       await prisma.space.create({ data: { id: spaceId, name: 'Sync v3 writer', slug: spaceId } });
       await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
       const page = await prisma.page.create({ data: {

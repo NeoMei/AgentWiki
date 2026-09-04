@@ -14,7 +14,12 @@ describe('SyncV3BootstrapService', () => {
   };
 
   function setup() {
-    const tx = {};
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: principal.credentialId }]),
+      humanDeviceCredential: { findUnique: jest.fn().mockResolvedValue({
+        id: principal.credentialId, userId: principal.userId, status: 'active', provisionalExpiresAt: null,
+      }) },
+    };
     const prisma = {
       $transaction: jest.fn(async (callback: (transaction: unknown) => unknown) => callback(tx)),
     };
@@ -103,6 +108,19 @@ describe('SyncV3BootstrapService', () => {
       baseRevision: inspection.baseRevision,
       confirmationHash: inspection.candidateHash,
     })).rejects.toEqual(expect.objectContaining({ syncCode: 'CONFIRMATION_MISMATCH' }));
+    expect(v3Writer.advanceV3Locked).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the locked Human Device Credential after guard success and before publishing', async () => {
+    const { service, tx, v3Writer } = setup();
+    tx.humanDeviceCredential.findUnique.mockResolvedValue({
+      id: principal.credentialId, userId: principal.userId, status: 'revoked', provisionalExpiresAt: null,
+    });
+
+    await expect(service.bootstrapConfirmed('space-1', principal, {
+      baseRevision: inspection.baseRevision,
+      confirmationHash: inspection.candidateHash,
+    })).rejects.toEqual(expect.objectContaining({ syncCode: 'DEVICE_CREDENTIAL_REVOKED' }));
     expect(v3Writer.advanceV3Locked).not.toHaveBeenCalled();
   });
 });

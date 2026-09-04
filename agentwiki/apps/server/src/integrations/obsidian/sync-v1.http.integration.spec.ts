@@ -12,6 +12,7 @@ import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { PushSessionService } from './push-session.service';
 import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
+import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import { SyncApiException } from './sync-error';
 
 describe('sync v1 HTTP contract', () => {
@@ -28,6 +29,7 @@ describe('sync v1 HTTP contract', () => {
     user: { deletedAt: null, lockedAt: null, type: 'human', platformRole: 'user' },
   };
   const prisma = {
+    $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(prisma)),
     humanDeviceCredential: {
       findUnique: jest.fn(async ({ where }: any) => (
         where.credentialHash === 'h:device-secret' ? activeCredential : null
@@ -83,8 +85,13 @@ describe('sync v1 HTTP contract', () => {
             },
           }),
         } },
-        { provide: SyncCursorService, useValue: {} },
+        { provide: SyncCursorService, useValue: new SyncCursorService({
+          get: () => 'task5-v1-http-cursor-pepper',
+        } as any) },
         SyncCapabilitiesService,
+        { provide: SyncV3RevisionWriterService, useValue: {
+          inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }),
+        } },
         { provide: PushSessionService, useValue: {
           create: jest.fn().mockResolvedValue({ protocolVersion: '1', sessionId: 'session-1' }),
         } },
@@ -100,6 +107,7 @@ describe('sync v1 HTTP contract', () => {
 
   afterAll(async () => { await app.close(); });
   beforeEach(() => {
+    jest.restoreAllMocks();
     jest.clearAllMocks();
     prisma.folder.count.mockResolvedValue(0);
     prisma.page.count.mockResolvedValue(0);
@@ -135,6 +143,19 @@ describe('sync v1 HTTP contract', () => {
     const response = await fetch(`${baseUrl}/sync/v1/spaces/space-1/head`, { redirect: 'manual' });
     expect(response.status).toBe(401);
     expect([301, 302, 303, 307, 308]).not.toContain(response.status);
+  });
+
+  it('does not let a query-string path spoof change the v1 guard error protocol', async () => {
+    const response = await fetch(
+      `${baseUrl}/sync/v1/spaces/space-1/head?next=/sync/v3/spaces/private/head`,
+      { redirect: 'manual' },
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      protocolVersion: '1',
+      error: expect.objectContaining({ code: 'AUTHENTICATION_REQUIRED' }),
+    }));
   });
 
   it.each([
@@ -193,6 +214,97 @@ describe('sync v1 HTTP contract', () => {
       pageCount: '0', revisionManifestByteLength: '0', revisionBodyBytes: '0',
       publishedAt: null,
     });
+  });
+
+  it('does not apply the new current bootstrap gate to a fixed historical snapshot', async () => {
+    const capabilities = app.get(SyncCapabilitiesService);
+    jest.spyOn(capabilities, 'assertV1Compatible').mockRejectedValueOnce(new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED', 'Current candidate now requires v3', undefined, '1',
+    ));
+    const reader: any = app.get(SyncRevisionService);
+    reader.resolveRevision.mockResolvedValueOnce('rev-fixed');
+
+    const response = await fetch(
+      `${baseUrl}/sync/v1/spaces/space-1/snapshot?revision=rev-fixed&limit=1`,
+      { headers: { Authorization: 'Bearer device-secret' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).revision).toBe('rev-fixed');
+    expect(capabilities.assertV1Compatible).not.toHaveBeenCalled();
+  });
+
+  it('keeps snapshot cursor continuation fixed after the current candidate changes', async () => {
+    const cursors = app.get(SyncCursorService);
+    const cursor = cursors.encode({
+      kind: 'snapshot', spaceId: 'space-1', revision: 'rev-fixed', lastPageId: 'page-1',
+    });
+    const capabilities = app.get(SyncCapabilitiesService);
+    jest.spyOn(capabilities, 'assertV1Compatible').mockRejectedValueOnce(new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED', 'Current candidate now requires v3', undefined, '1',
+    ));
+    const reader: any = app.get(SyncRevisionService);
+
+    const response = await fetch(
+      `${baseUrl}/sync/v1/spaces/space-1/snapshot?cursor=${encodeURIComponent(cursor)}&limit=1`,
+      { headers: { Authorization: 'Bearer device-secret' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).revision).toBe('rev-fixed');
+    expect(reader.snapshotPage).toHaveBeenCalledWith('space-1', 'rev-fixed', 1, 'page-1');
+    expect(capabilities.assertV1Compatible).not.toHaveBeenCalled();
+  });
+
+  it('uses the signed fixed delta endpoint on continuation after a new head appears', async () => {
+    const fixedHead = {
+      revision: 'rev-fixed', sequence: 7, revisionContentHash: 'c'.repeat(64),
+      pageCount: 2n, revisionManifestByteLength: 200n, revisionBodyBytes: 20n,
+      publishedAt: new Date('2026-09-04T00:00:00.000Z').toISOString(),
+    };
+    const reader: any = app.get(SyncRevisionService);
+    reader.deltaPage
+      .mockResolvedValueOnce({
+        items: [{ operation: 'archive', pageId: 'page-1', previousPath: 'pages/one.md' }],
+        nextPageId: 'page-1', toRevision: 'rev-fixed', head: fixedHead,
+      })
+      .mockImplementationOnce(async (
+        _spaceId: string, _from: string, _limit: number, _after: string, toRevision?: string,
+      ) => toRevision === 'rev-fixed'
+        ? {
+          items: [{ operation: 'archive', pageId: 'page-2', previousPath: 'pages/two.md' }],
+          nextPageId: undefined, toRevision: 'rev-fixed', head: fixedHead,
+        }
+        : {
+          items: [], nextPageId: undefined, toRevision: 'rev-new',
+          head: { ...fixedHead, revision: 'rev-new', sequence: 8 },
+        });
+
+    const firstResponse = await fetch(`${baseUrl}/sync/v1/spaces/space-1/delta?from=0&limit=1`, {
+      headers: { Authorization: 'Bearer device-secret' },
+    });
+    const first = await firstResponse.json();
+    expect(first.nextCursor).not.toBeNull();
+
+    const capabilities = app.get(SyncCapabilitiesService);
+    jest.spyOn(capabilities, 'assertV1Compatible').mockRejectedValueOnce(new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED', 'New current candidate requires v3', undefined, '1',
+    ));
+    const secondResponse = await fetch(
+      `${baseUrl}/sync/v1/spaces/space-1/delta?from=0&limit=1&cursor=${encodeURIComponent(first.nextCursor)}`,
+      { headers: { Authorization: 'Bearer device-secret' } },
+    );
+    const second = await secondResponse.json();
+
+    expect(secondResponse.status).toBe(200);
+    expect(second).toEqual(expect.objectContaining({
+      fromRevision: '0', toRevision: 'rev-fixed', toSequence: 7,
+      items: [{ operation: 'archive', pageId: 'page-2', previousPath: 'pages/two.md' }],
+    }));
+    expect(reader.deltaPage).toHaveBeenLastCalledWith(
+      'space-1', '0', 1, 'page-1', 'rev-fixed',
+    );
+    expect(capabilities.assertV1Compatible).not.toHaveBeenCalled();
   });
 
   it.each([

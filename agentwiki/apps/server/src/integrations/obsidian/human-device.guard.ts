@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { ObsidianCryptoService } from './obsidian-crypto.service';
 import { SyncApiException } from './sync-error';
+import { syncProtocolFromRequestPath } from './sync-request-protocol';
 
 export interface HumanDevicePrincipal {
   userId: string;
@@ -22,11 +23,7 @@ export class HumanDeviceGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const protocolVersion = String(request.originalUrl ?? request.url ?? '').includes('/sync/v3/')
-      ? '3' as const
-      : String(request.originalUrl ?? request.url ?? '').includes('/sync/v2/')
-        ? '2' as const
-        : '1' as const;
+    const protocolVersion = syncProtocolFromRequestPath(request) ?? '1';
     const error = (code: 'AUTHENTICATION_REQUIRED' | 'USER_INACTIVE' | 'DEVICE_CREDENTIAL_EXPIRED' | 'DEVICE_CREDENTIAL_REVOKED', message: string) => (
       new SyncApiException(code, message, undefined, protocolVersion)
     );

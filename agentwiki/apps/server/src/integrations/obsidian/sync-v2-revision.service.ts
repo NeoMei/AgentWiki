@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
@@ -28,6 +28,10 @@ import {
   validateRevisionChainTrust,
 } from '../../core/sync/revision-v2-integrity';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -75,7 +79,8 @@ export class SyncV2RevisionService {
     private readonly prisma: PrismaService,
     private readonly cursors: SyncCursorService,
     private readonly capabilities: SyncCapabilitiesService,
-    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+    private readonly v3Writer: SyncV3RevisionWriterService,
+    private readonly immutableV3: SyncV3ImmutableRevisionService,
   ) {}
 
   async head(spaceId: string) {
@@ -219,7 +224,7 @@ export class SyncV2RevisionService {
     spaceId: string,
     revisionRef: string,
   ): Promise<LoadedRevision> {
-    if (revisionRef === 'current' && this.v3Writer) {
+    if (revisionRef === 'current') {
       const inspection = await this.v3Writer.inspectCurrentLocked(tx as any, spaceId);
       if (inspection.mode === 'bootstrap_required') {
         throw new SyncApiException(
@@ -264,6 +269,14 @@ export class SyncV2RevisionService {
     const isKnownLegacy = (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
       || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
     try {
+      if (isNativeV3) {
+        try {
+          await this.immutableV3.verify(tx, spaceId, revision.id);
+        } catch (error) {
+          if (error instanceof SyncV3AuthorityError) throw revisionGone();
+          throw error;
+        }
+      }
       const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
         this.rebuildImmutableManifest(tx, spaceId, revision.id),
         tx.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),

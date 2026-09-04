@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import {
   canonicalBytes,
+  canonicalTreeDeltaItemsV3,
   canonicalTreeRevisionManifestV3,
   contentHash,
   TreeDeltaPageV3Schema,
@@ -22,6 +23,7 @@ import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-wr
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
+import { SyncV3ImmutableRevisionService } from './sync-v3-immutable-revision.service';
 
 describe('SyncV3RevisionService', () => {
   const principal = {
@@ -123,6 +125,7 @@ describe('SyncV3RevisionService', () => {
     const writer = { inspectCurrentLocked: jest.fn(), inspectCandidate: jest.fn() };
     const service = new SyncV3RevisionService(
       prisma as any, cursors, capabilities as any, writer as any,
+      new SyncV3ImmutableRevisionService(),
     );
     return { service, prisma, tx, revision, manifest, pageRows, attachmentRows, sidecar };
   }
@@ -139,8 +142,9 @@ describe('SyncV3RevisionService', () => {
         { id: 'bootstrap', name: 'Bootstrap', createdAt: new Date('2026-09-02T00:00:00.000Z') },
         { id: 'legacy', name: 'Legacy', createdAt: new Date('2026-09-03T00:00:00.000Z') },
       ]) },
-      spaceKnowledgeRevision: { findMany: jest.fn().mockResolvedValue([
-        {
+      spaceKnowledgeRevision: { findMany: jest.fn().mockImplementation(async ({ select }: any) => select ? [
+        { spaceId: 'native' },
+      ] : [{
           id: 'rev-native', spaceId: 'native', sequence: 3,
           schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
           pageCount: 2n, attachmentCount: 1n, revisionManifestByteLength: 100n,
@@ -149,8 +153,7 @@ describe('SyncV3RevisionService', () => {
         {
           id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
           schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
-        },
-      ]) },
+        }]) },
       syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([
         { revisionId: 'rev-native' },
       ]) },
@@ -158,9 +161,8 @@ describe('SyncV3RevisionService', () => {
       folder: { findMany: jest.fn().mockResolvedValue([]) },
       page: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const writer = {
-      inspectCandidate: jest.fn(async (_tx: unknown, spaceId: string) => spaceId === 'bootstrap'
-        ? {
+    const inspections = new Map<string, any>([
+      ['bootstrap', {
           mode: 'bootstrap_required', baseRevision: '0', candidate: {
             folders: [],
             pages: [{
@@ -174,17 +176,27 @@ describe('SyncV3RevisionService', () => {
               updatedAt: '2026-09-04T00:00:00.000Z',
             }],
           },
-        }
-        : {
+        }],
+      ['legacy', {
           mode: 'legacy_v2', baseRevision: 'rev-legacy',
           candidate: { folders: [], pages: [], attachments: [] },
-        }),
+        }],
+    ]);
+    const writer = {
+      inspectCandidates: jest.fn().mockResolvedValue(inspections),
+    };
+    const immutable = {
+      verifyMany: jest.fn().mockResolvedValue(new Map([['native', {
+        manifest: { folders: [{}], pages: [{}, {}], attachments: [{}] },
+        revisionManifestByteLength: 100, revisionBodyBytes: 20, revisionAttachmentBytes: 4,
+      }]])),
     };
     const service = new SyncV3RevisionService(
       { $transaction: jest.fn((callback: (value: unknown) => unknown) => callback(tx)) } as any,
       new SyncCursorService({ get: () => 'test-pepper' } as any),
       { capabilitiesV3: () => ({ maxDeltaItems: 15_000, maxResponseBytes: 4_194_304 }) } as any,
       writer as any,
+      immutable as any,
     );
 
     const response = await service.listSpaces(principal);
@@ -195,12 +207,16 @@ describe('SyncV3RevisionService', () => {
     expect(response.spaces[1]).toEqual(expect.objectContaining({
       pageCount: '1', attachmentCount: '1', revisionAttachmentBytes: '4',
     }));
-    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenCalledTimes(2);
+    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      distinct: ['spaceId'],
+    }));
     expect(tx.syncRevisionFolderRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.syncRevisionPageRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.folder.findMany).toHaveBeenCalledTimes(1);
     expect(tx.page.findMany).toHaveBeenCalledTimes(1);
-    expect(writer.inspectCandidate).toHaveBeenCalledTimes(2);
+    expect(writer.inspectCandidates).toHaveBeenCalledTimes(1);
+    expect(immutable.verifyMany).toHaveBeenCalledTimes(1);
   });
 
   it('rebuilds an immutable v3 revision and returns strict head/snapshot/delta envelopes', async () => {
@@ -277,6 +293,17 @@ describe('SyncV3RevisionService', () => {
       .rejects.toEqual(expect.objectContaining({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' }));
   });
 
+  it('rejects a canonical stored delta whose items do not describe parent to current semantics', async () => {
+    const state = await fixture();
+    state.revision.delta = canonicalTreeDeltaItemsV3(state.revision.delta.map((item: any) => (
+      item.operation === 'upsert_page'
+        ? { ...item, page: { ...item.page, title: 'Canonical but false' } }
+        : item
+    )));
+    await expect(state.service.head(principal, 'space-1'))
+      .rejects.toEqual(expect.objectContaining({ syncCode: 'REVISION_GONE' }));
+  });
+
   it.each([
     ['credential revoked', (state: Awaited<ReturnType<typeof fixture>>) => state.tx.humanDeviceCredential.findUnique.mockResolvedValue(null), 'DEVICE_CREDENTIAL_REVOKED'],
     ['role removed', (state: Awaited<ReturnType<typeof fixture>>) => state.tx.spaceMember.findUnique.mockResolvedValue(null), 'SPACE_FORBIDDEN'],
@@ -301,6 +328,7 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
     const userId = `user_${suffix}`;
     const spaceId = `space_${suffix}`;
     const otherSpaceId = `other_${suffix}`;
+    const legacySpaceId = `legacy_${suffix}`;
     const credentialFamilyId = randomUUID();
     const credentialId = randomUUID();
     const pageId = `page_${suffix}`;
@@ -317,10 +345,12 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
       await prisma.space.createMany({ data: [
         { id: spaceId, name: 'Sync v3 reader', slug: spaceId },
         { id: otherSpaceId, name: 'Other reader', slug: otherSpaceId },
+        { id: legacySpaceId, name: 'Deep legacy reader', slug: legacySpaceId },
       ] });
       await prisma.spaceMember.createMany({ data: [
         { userId, spaceId, role: 'owner' },
         { userId, spaceId: otherSpaceId, role: 'owner' },
+        { userId, spaceId: legacySpaceId, role: 'admin' },
       ] });
       await prisma.humanDeviceCredentialFamily.create({ data: {
         id: credentialFamilyId, userId, deviceId: principal.deviceId, vaultId: principal.vaultId,
@@ -398,7 +428,51 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
 
       const cursors = new SyncCursorService({ get: () => 'task5-db-cursor-pepper' } as any);
       const capabilities = new SyncCapabilitiesService(prisma as any, v3Writer);
-      const reader = new SyncV3RevisionService(prisma as any, cursors, capabilities, v3Writer);
+      const reader = new SyncV3RevisionService(
+        prisma as any, cursors, capabilities, v3Writer, new SyncV3ImmutableRevisionService(),
+      );
+
+      const legacyRevision = (sequence: number) => ({
+        spaceId: legacySpaceId, sequence,
+        schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+        contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        pageCount: 0n, attachmentCount: 0n, revisionBodyBytes: 0n,
+        revisionManifestByteLength: 0n, revisionAttachmentBytes: 0n,
+        delta: [],
+      });
+      await prisma.spaceKnowledgeRevision.create({ data: legacyRevision(1) });
+      const countedPrisma = new PrismaClient({
+        datasources: { db: { url: syncV3ReadDatabaseUrl } },
+        log: [{ emit: 'event', level: 'query' }],
+      });
+      let queryCount = 0;
+      countedPrisma.$on('query', () => { queryCount += 1; });
+      const countedMarkdown = new MarkdownResourceService(
+        countedPrisma as any, new AuthorizationService(countedPrisma as any),
+      );
+      const countedWriter = new SyncV3RevisionWriterService(countedMarkdown, storage);
+      const countedReader = new SyncV3RevisionService(
+        countedPrisma as any,
+        cursors,
+        new SyncCapabilitiesService(countedPrisma as any, countedWriter),
+        countedWriter,
+        new SyncV3ImmutableRevisionService(),
+      );
+      queryCount = 0;
+      const shallowSpaces = await countedReader.listSpaces(principal);
+      expect(shallowSpaces.spaces.find((space) => space.spaceId === legacySpaceId))
+        .toMatchObject({ syncMode: 'legacy_v2', canPublish: true });
+      queryCount = 0;
+      await countedReader.listSpaces(principal);
+      const shallowQueryCount = queryCount;
+      await prisma.spaceKnowledgeRevision.createMany({
+        data: Array.from({ length: 49 }, (_, index) => legacyRevision(index + 2)),
+      });
+      queryCount = 0;
+      await countedReader.listSpaces(principal);
+      expect(Math.abs(queryCount - shallowQueryCount)).toBeLessThanOrEqual(1);
+      await countedPrisma.$disconnect();
       const fixed = await reader.snapshot(principal, spaceId, second.revisionId, undefined, 10);
       expect(TreeSnapshotPageV3Schema.parse(fixed)).toMatchObject({
         revision: second.revisionId,
@@ -480,6 +554,21 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
         restore: () => Promise<unknown>;
       }> = [
         {
+          apply: () => {
+            const wrong = canonicalTreeDeltaItemsV3((revision.delta as any[]).map((item: any) => (
+              item.operation === 'upsert_page'
+                ? { ...item, page: { ...item.page, title: 'Canonical but false' } }
+                : item
+            )));
+            return prisma.spaceKnowledgeRevision.update({
+              where: { id: second.revisionId }, data: { delta: wrong as any },
+            });
+          },
+          restore: () => prisma.spaceKnowledgeRevision.update({
+            where: { id: second.revisionId }, data: { delta: revision.delta as any },
+          }),
+        },
+        {
           apply: () => prisma.syncPageContentRow.update({
             where: { contentHash: pageRow.contentHash }, data: { body: `${pageRow.content.body}corrupt` },
           }),
@@ -515,7 +604,7 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
     } finally {
       await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
       await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });
-      await prisma.space.deleteMany({ where: { id: { in: [spaceId, otherSpaceId] } } });
+      await prisma.space.deleteMany({ where: { id: { in: [spaceId, otherSpaceId, legacySpaceId] } } });
       await prisma.user.deleteMany({ where: { id: userId } });
       await prisma.$disconnect();
       await storage.onModuleDestroy();

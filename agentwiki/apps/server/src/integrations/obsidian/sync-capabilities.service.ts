@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   capabilitiesHash,
   TREE_SYNC_V2_LIMITS,
@@ -15,7 +15,7 @@ import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-wr
 export class SyncCapabilitiesService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+    private readonly v3Writer: SyncV3RevisionWriterService,
   ) {}
 
   capabilities() {
@@ -65,9 +65,9 @@ export class SyncCapabilitiesService {
   }
 
   async assertV1Compatible(spaceId: string): Promise<void> {
-    if (this.v3Writer) {
+    {
       const inspection = await this.prisma.$transaction(
-        (tx) => this.v3Writer!.inspectCurrentLocked(tx as any, spaceId),
+        (tx) => this.v3Writer.inspectCurrentLocked(tx as any, spaceId),
         { isolationLevel: 'RepeatableRead' },
       );
       if (inspection.mode === 'bootstrap_required') {

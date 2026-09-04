@@ -121,7 +121,6 @@ export class SyncV1Controller {
   ) {
     const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
-    await this.capabilities.assertV1Compatible(spaceId);
     let limit: number;
     try {
       limit = limitQuery ? parsePageLimit(limitQuery) : 100;
@@ -138,7 +137,9 @@ export class SyncV1Controller {
       revision = payload.revision;
       afterPageId = payload.lastPageId;
     } else {
-      revision = await this.revisions.resolveRevision(spaceId, revisionQuery ?? 'current');
+      const revisionRef = revisionQuery ?? 'current';
+      if (revisionRef === 'current') await this.capabilities.assertV1Compatible(spaceId);
+      revision = await this.revisions.resolveRevision(spaceId, revisionRef);
     }
     const page = await this.revisions.snapshotPage(spaceId, revision, limit, afterPageId);
     const nextCursor = page.nextPageId
@@ -175,7 +176,6 @@ export class SyncV1Controller {
   ) {
     const spaceId = this.parseSpaceId(spaceIdParam);
     await this.assertReadable(request.user, spaceId);
-    await this.capabilities.assertV1Compatible(spaceId);
     if (!fromQuery) {
       throw new SyncApiException('PAYLOAD_INVALID', 'Missing from query parameter');
     }
@@ -187,14 +187,24 @@ export class SyncV1Controller {
     }
     const from = fromQuery;
     let afterPageId: string | undefined;
+    let toRevision: string | undefined;
     if (cursor) {
       const payload = this.cursors.decode(cursor);
-      if (payload.kind !== 'delta' || payload.spaceId !== spaceId || payload.fromRevision !== fromQuery) {
+      if (
+        payload.kind !== 'delta'
+        || payload.spaceId !== spaceId
+        || payload.fromRevision !== fromQuery
+        || typeof payload.revision !== 'string'
+        || payload.revision.length === 0
+      ) {
         throw new SyncApiException('CURSOR_INVALID', 'Cursor does not match this route');
       }
       afterPageId = payload.lastPageId;
+      toRevision = payload.revision;
+    } else {
+      await this.capabilities.assertV1Compatible(spaceId);
     }
-    const page = await this.revisions.deltaPage(spaceId, from, limit, afterPageId);
+    const page = await this.revisions.deltaPage(spaceId, from, limit, afterPageId, toRevision);
     const deltaRows = page.items ?? [];
     const items = [];
     let totalBytes = 0;

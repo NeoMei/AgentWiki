@@ -73,6 +73,19 @@ export interface SyncV3CandidateInspection {
   candidate: SyncV3Candidate;
 }
 
+export interface SyncV3CandidateInput {
+  spaceId: string;
+  baseRevision: string;
+  nativeV3: boolean;
+  source: {
+    folders: SyncFolderV3[];
+    pages: Array<{
+      pageId: string; folderId: string | null; path: string; title: string;
+      body: string; updatedAt: Date;
+    }>;
+  };
+}
+
 interface V3Sidecar {
   protocolVersion: '3';
   manifestSchema: 'TreeRevisionContentManifestV3';
@@ -288,6 +301,46 @@ export class SyncV3RevisionWriterService {
       }>;
     },
   ): Promise<SyncV3CandidateInspection> {
+    return (await this.inspectCandidates(tx, [{ spaceId, baseRevision, nativeV3, source }])).get(spaceId)!;
+  }
+
+  async inspectCandidates(
+    tx: SpaceLockedTransaction,
+    inputs: SyncV3CandidateInput[],
+  ): Promise<Map<string, SyncV3CandidateInspection>> {
+    const preparedByInput = inputs.map((input) => input.source.pages.map((page) => ({
+      page,
+      body: normalizeMarkdown(page.body),
+      spaceId: input.spaceId,
+    })));
+    const preparedPages = preparedByInput.flat();
+    const resolveBatch = typeof this.markdownResources.resolveReferencedAttachmentsAcrossSpacesBatch === 'function'
+      ? this.markdownResources.resolveReferencedAttachmentsAcrossSpacesBatch.bind(this.markdownResources)
+      : this.markdownResources.resolveReferencedAttachmentsBatch.bind(this.markdownResources);
+    const resolvedPages = await resolveBatch(
+      preparedPages.map(({ page, body, spaceId }) => ({ spaceId, sourceSyncPath: page.path, body })),
+      tx,
+    );
+    const referencedBySpace = new Map<string, Set<string>>();
+    const resolvedByPage = new Map<string, (typeof resolvedPages)[number]>();
+    preparedPages.forEach((prepared, index) => {
+      const resolved = resolvedPages[index]!;
+      resolvedByPage.set(`${prepared.spaceId}\0${prepared.page.pageId}`, resolved);
+      const ids = referencedBySpace.get(prepared.spaceId) ?? new Set<string>();
+      for (const attachmentId of resolved.attachmentIds) ids.add(attachmentId);
+      referencedBySpace.set(prepared.spaceId, ids);
+    });
+    const attachmentScopes = [...referencedBySpace].filter(([, ids]) => ids.size > 0);
+    const allAttachments = attachmentScopes.length === 0 ? [] : await tx.spaceAttachment.findMany({
+      where: {
+        status: 'active',
+        OR: attachmentScopes.map(([spaceId, ids]) => ({ spaceId, id: { in: [...ids] } })),
+      },
+      orderBy: [{ spaceId: 'asc' }, { nameKey: 'asc' }, { id: 'asc' }],
+    });
+    const results = new Map<string, SyncV3CandidateInspection>();
+    for (const input of inputs) {
+      const { spaceId, baseRevision, nativeV3, source } = input;
     assertSyncV3CandidateHardLimits({ folders: source.folders, pages: source.pages.map((page) => ({
       ...page,
       contentHash: '0'.repeat(64),
@@ -297,21 +350,13 @@ export class SyncV3RevisionWriterService {
     const blockers: SyncV3CandidateInspection['blockers'] = [];
     const syncPages: SyncPageV3[] = [];
     const referencedIds = new Set<string>();
-    const preparedPages = source.pages.map((page) => ({
+    const localPreparedPages = source.pages.map((page) => ({
       page,
       body: normalizeMarkdown(page.body),
     }));
-    const resolvedPages = await this.markdownResources.resolveReferencedAttachmentsBatch(
-      preparedPages.map(({ page, body }) => ({
-        spaceId,
-        sourceSyncPath: page.path,
-        body,
-      })),
-      tx,
-    );
-    for (const [index, prepared] of preparedPages.entries()) {
+    for (const prepared of localPreparedPages) {
       const { page, body } = prepared;
-      const resolved = resolvedPages[index]!;
+      const resolved = resolvedByPage.get(`${spaceId}\0${page.pageId}`)!;
       for (const error of resolved.errors) blockers.push({ pageId: page.pageId, code: error.code });
       for (const attachmentId of resolved.attachmentIds) referencedIds.add(attachmentId);
       syncPages.push({
@@ -326,10 +371,7 @@ export class SyncV3RevisionWriterService {
       });
     }
 
-    const attachments = referencedIds.size === 0 ? [] : await tx.spaceAttachment.findMany({
-      where: { spaceId, status: 'active', id: { in: [...referencedIds] } },
-      orderBy: [{ nameKey: 'asc' }, { id: 'asc' }],
-    });
+    const attachments = allAttachments.filter((attachment) => attachment.spaceId === spaceId);
     const syncAttachments = attachments.map((attachment): SyncAttachmentV3 => ({
       attachmentId: attachment.id,
       path: `assets/${attachment.displayName}`,
@@ -349,7 +391,7 @@ export class SyncV3RevisionWriterService {
     const candidateHash = await treeRevisionContentHashV3({
       protocolVersion: '3', spaceId, ...candidate,
     });
-    return {
+    results.set(spaceId, {
       mode: nativeV3
         ? 'native_v3'
         : referencedIds.size > 0 || blockers.length > 0
@@ -363,7 +405,9 @@ export class SyncV3RevisionWriterService {
       ).toString(),
       blockers,
       candidate,
-    };
+    });
+    }
+    return results;
   }
 
   async advanceCurrentIfRequiredLocked(

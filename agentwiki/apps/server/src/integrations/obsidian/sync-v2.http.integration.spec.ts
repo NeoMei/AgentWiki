@@ -133,6 +133,8 @@ describe('sync v2 HTTP contract', () => {
       } as any,
       {} as any,
       {} as any,
+      {} as any,
+      {} as any,
     );
     revisions.head.mockImplementationOnce((spaceId: string) => failingReader.head(spaceId));
 

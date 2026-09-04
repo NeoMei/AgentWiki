@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
-  canonicalTreeDeltaItemsV3,
   canonicalTreeRevisionManifestV3,
-  contentHash,
-  normalizeMarkdown,
   pathKey,
   TREE_SYNC_V2_LIMITS,
   TreeDeltaPageV3Schema,
@@ -26,38 +23,22 @@ import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncApiException } from './sync-error';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+  V3_RECIPE_VERSION,
+  V3_SCHEMA_VERSION,
+  type VerifiedSyncV3Revision,
+} from './sync-v3-immutable-revision.service';
 
-const V3_SCHEMA_VERSION = 'content-tree@3';
-const V3_RECIPE_VERSION = 'referenced-images-v1';
 const encoder = new TextEncoder();
 
-class RevisionV3IntegrityError extends Error {}
-
-interface LoadedRevisionV3 {
-  revision: string;
-  sequence: number;
-  publishedAt: string | null;
-  manifest: TreeRevisionContentManifestV3;
-  revisionContentHash: string;
-  revisionManifestByteLength: number;
-  revisionBodyBytes: number;
-  revisionAttachmentBytes: number;
-}
+type LoadedRevisionV3 = VerifiedSyncV3Revision;
 
 type SnapshotEntry =
   | { objectKind: 'folder'; canonicalKey: string; folder: SyncFolderV3 }
   | { objectKind: 'page'; canonicalKey: string; page: SyncPageV3 }
   | { objectKind: 'attachment'; canonicalKey: string; attachment: SyncAttachmentV3 };
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  return Object.keys(value).sort().join('\0') === [...expected].sort().join('\0');
-}
 
 function revisionGone(): SyncApiException {
   return new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '3');
@@ -74,6 +55,7 @@ export class SyncV3RevisionService {
     private readonly cursors: SyncCursorService,
     private readonly capabilities: SyncCapabilitiesService,
     private readonly writer: SyncV3RevisionWriterService,
+    private readonly immutable: SyncV3ImmutableRevisionService,
   ) {}
 
   async listSpaces(principal: HumanDevicePrincipal) {
@@ -98,18 +80,24 @@ export class SyncV3RevisionService {
       if (spaceIds.length === 0) {
         return TreeSyncSpaceListResponseV3Schema.parse({ protocolVersion: '3', spaces: [] });
       }
-      const revisions = await tx.spaceKnowledgeRevision.findMany({
-        where: { spaceId: { in: spaceIds } },
-        orderBy: [{ spaceId: 'asc' }, { sequence: 'desc' }],
-      });
-      const latestBySpace = new Map<string, any>();
-      const nativeSpaces = new Set<string>();
-      for (const revision of revisions) {
-        if (!latestBySpace.has(revision.spaceId)) latestBySpace.set(revision.spaceId, revision);
-        if (revision.schemaVersion === V3_SCHEMA_VERSION && revision.recipeVersion === V3_RECIPE_VERSION) {
-          nativeSpaces.add(revision.spaceId);
-        }
-      }
+      const [latestRevisions, v3Histories] = await Promise.all([
+        tx.spaceKnowledgeRevision.findMany({
+          where: { spaceId: { in: spaceIds } },
+          orderBy: [{ spaceId: 'asc' }, { sequence: 'desc' }],
+          distinct: ['spaceId'],
+        }),
+        tx.spaceKnowledgeRevision.findMany({
+          where: {
+            spaceId: { in: spaceIds },
+            schemaVersion: V3_SCHEMA_VERSION,
+            recipeVersion: V3_RECIPE_VERSION,
+          },
+          select: { spaceId: true },
+          distinct: ['spaceId'],
+        }),
+      ]);
+      const latestBySpace = new Map(latestRevisions.map((revision) => [revision.spaceId, revision]));
+      const nativeSpaces = new Set(v3Histories.map((revision) => revision.spaceId));
       const headIds = [...latestBySpace.values()].map((revision) => revision.id);
       const emptySpaceIds = spaceIds.filter((spaceId) => !latestBySpace.has(spaceId));
       const [folderRows, pageRows, liveFolders, livePages] = await Promise.all([
@@ -128,49 +116,21 @@ export class SyncV3RevisionService {
       const pagesByRevision = this.groupBy(pageRows, (row: any) => row.revisionId);
       const liveFoldersBySpace = this.groupBy(liveFolders, (row: any) => row.spaceId);
       const livePagesBySpace = this.groupBy(livePages, (row: any) => row.spaceId);
-
-      const spaces = [];
-      for (const space of accessible) {
+      const nativeTargets = accessible.flatMap((space) => {
         const latest = latestBySpace.get(space.id);
-        if (nativeSpaces.has(space.id)) {
-          if (!latest || latest.schemaVersion !== V3_SCHEMA_VERSION || latest.recipeVersion !== V3_RECIPE_VERSION) {
-            throw revisionGone();
-          }
-          const folderCount = (foldersByRevision.get(latest.id) ?? []).length;
-          if (latest.pageCount < 0n || latest.attachmentCount < 0n) throw revisionGone();
-          spaces.push({
-            spaceId: space.id,
-            displayName: space.name,
-            role: space.role,
-            canRead: true,
-            canPublish: space.role === 'owner' || space.role === 'editor',
-            syncMode: 'native_v3' as const,
-            currentRevision: latest.id,
-            folderCount: String(folderCount),
-            pageCount: latest.pageCount.toString(),
-            attachmentCount: latest.attachmentCount.toString(),
-            revisionManifestByteLength: latest.revisionManifestByteLength.toString(),
-            revisionBodyBytes: latest.revisionBodyBytes.toString(),
-            revisionAttachmentBytes: latest.revisionAttachmentBytes.toString(),
-          });
-          continue;
-        }
-        if (latest && !this.isSupportedLegacy(latest)) {
-          throw new SyncApiException(
-            'SYNC_PROTOCOL_UPGRADE_REQUIRED',
-            'Latest revision uses an unsupported Sync protocol',
-            undefined,
-            '3',
-          );
-        }
+        return nativeSpaces.has(space.id) && latest ? [{ spaceId: space.id, revision: latest }] : [];
+      });
+      const verifiedNative = await this.immutable.verifyMany(tx, nativeTargets);
+      const legacyInputs = accessible.flatMap((space) => {
+        if (nativeSpaces.has(space.id)) return [];
+        const latest = latestBySpace.get(space.id);
         const revisionFolders = latest ? foldersByRevision.get(latest.id) ?? [] : liveFoldersBySpace.get(space.id) ?? [];
         const revisionPages = latest ? pagesByRevision.get(latest.id) ?? [] : livePagesBySpace.get(space.id) ?? [];
-        const inspection = await this.writer.inspectCandidate(
-          tx as any,
-          space.id,
-          latest?.id ?? '0',
-          false,
-          {
+        return [{
+          spaceId: space.id,
+          baseRevision: latest?.id ?? '0',
+          nativeV3: false,
+          source: {
             folders: revisionFolders.map((folder: any) => ({
               folderId: folder.folderId ?? folder.id,
               parentFolderId: folder.parentFolderId ?? folder.parentId,
@@ -188,7 +148,46 @@ export class SyncV3RevisionService {
               updatedAt: page.updatedAt,
             })),
           },
-        );
+        }];
+      });
+      const legacyInspections = await this.writer.inspectCandidates(tx as any, legacyInputs);
+
+      const spaces = [];
+      for (const space of accessible) {
+        const latest = latestBySpace.get(space.id);
+        if (nativeSpaces.has(space.id)) {
+          if (!latest || latest.schemaVersion !== V3_SCHEMA_VERSION || latest.recipeVersion !== V3_RECIPE_VERSION) {
+            throw revisionGone();
+          }
+          const verified = verifiedNative.get(space.id);
+          if (!verified) throw revisionGone();
+          spaces.push({
+            spaceId: space.id,
+            displayName: space.name,
+            role: space.role,
+            canRead: true,
+            canPublish: ['owner', 'admin', 'editor'].includes(space.role),
+            syncMode: 'native_v3' as const,
+            currentRevision: latest.id,
+            folderCount: String(verified.manifest.folders.length),
+            pageCount: String(verified.manifest.pages.length),
+            attachmentCount: String(verified.manifest.attachments.length),
+            revisionManifestByteLength: String(verified.revisionManifestByteLength),
+            revisionBodyBytes: String(verified.revisionBodyBytes),
+            revisionAttachmentBytes: String(verified.revisionAttachmentBytes),
+          });
+          continue;
+        }
+        if (latest && !this.isSupportedLegacy(latest)) {
+          throw new SyncApiException(
+            'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+            'Latest revision uses an unsupported Sync protocol',
+            undefined,
+            '3',
+          );
+        }
+        const inspection = legacyInspections.get(space.id);
+        if (!inspection) throw revisionGone();
         const manifest = canonicalTreeRevisionManifestV3({
           protocolVersion: '3', spaceId: space.id, ...inspection.candidate,
         });
@@ -197,7 +196,7 @@ export class SyncV3RevisionService {
           displayName: space.name,
           role: space.role,
           canRead: true,
-          canPublish: space.role === 'owner' || space.role === 'editor',
+          canPublish: ['owner', 'admin', 'editor'].includes(space.role),
           syncMode: inspection.mode,
           currentRevision: inspection.baseRevision,
           folderCount: String(manifest.folders.length),
@@ -346,22 +345,6 @@ export class SyncV3RevisionService {
     });
   }
 
-  async assertLegacyPushAllowed(
-    tx: Prisma.TransactionClient,
-    spaceId: string,
-    protocolVersion: '1' | '2',
-  ): Promise<void> {
-    const inspection = await this.writer.inspectCurrentLocked(tx as any, spaceId);
-    if (inspection.mode !== 'legacy_v2') {
-      throw new SyncApiException(
-        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
-        'This Space requires Sync v3',
-        undefined,
-        protocolVersion,
-      );
-    }
-  }
-
   private async consistentRead<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     try {
       return await this.prisma.$transaction(callback, {
@@ -371,7 +354,7 @@ export class SyncV3RevisionService {
       });
     } catch (error) {
       if (error instanceof SyncApiException) throw error;
-      if (error instanceof RevisionV3IntegrityError) throw revisionGone();
+      if (error instanceof SyncV3AuthorityError) throw revisionGone();
       throw readUnavailable();
     }
   }
@@ -450,158 +433,7 @@ export class SyncV3RevisionService {
         '3',
       );
     }
-    const [folderRows, pageRows, attachmentRows, sidecarRow] = await Promise.all([
-      tx.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),
-      tx.syncRevisionPageRow.findMany({ where: { revisionId: revision.id }, include: { content: true } }),
-      tx.syncRevisionAttachmentRow.findMany({
-        where: { revisionId: revision.id },
-        include: {
-          attachment: { select: { id: true, spaceId: true } },
-          attachmentVersion: { include: { attachment: { select: { id: true, spaceId: true } } } },
-        },
-      }),
-      tx.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id }, select: { sidecar: true } }),
-    ]);
-    const sidecarRoot = record(sidecarRow?.sidecar);
-    const sidecar = record(sidecarRoot?.syncV3Revision);
-    if (!sidecar || !exactKeys(sidecar, [
-      'protocolVersion', 'manifestSchema', 'revisionContentHash', 'folderCount', 'pageCount',
-      'attachmentCount', 'revisionManifestByteLength', 'revisionBodyBytes',
-      'revisionAttachmentBytes', 'treeDeltaCount', 'pageAttachmentIds', 'attachmentUpdatedAt',
-    ])) throw new RevisionV3IntegrityError();
-    if (sidecar.protocolVersion !== '3' || sidecar.manifestSchema !== 'TreeRevisionContentManifestV3') {
-      throw new RevisionV3IntegrityError();
-    }
-    const refs = this.sidecarMap(sidecar.pageAttachmentIds, 'pageId', 'referencedAttachmentIds');
-    const updatedAt = this.sidecarMap(sidecar.attachmentUpdatedAt, 'attachmentId', 'updatedAt');
-    if (refs.size !== pageRows.length || updatedAt.size !== attachmentRows.length) {
-      throw new RevisionV3IntegrityError();
-    }
-    const folders: SyncFolderV3[] = folderRows.map((folder) => {
-      if (pathKey(folder.path) !== folder.pathKey) throw new RevisionV3IntegrityError();
-      return {
-        folderId: folder.folderId, parentFolderId: folder.parentFolderId, name: folder.name,
-        path: folder.path, sortOrder: folder.sortOrder, updatedAt: folder.updatedAt.toISOString(),
-      };
-    });
-    const pages: SyncPageV3[] = [];
-    for (const page of pageRows) {
-      const body = normalizeMarkdown(page.content.body);
-      if (
-        pathKey(page.path) !== page.pathKey
-        || body !== page.content.body
-        || await contentHash(body) !== page.contentHash
-        || encoder.encode(body).byteLength !== page.content.byteLength
-      ) throw new RevisionV3IntegrityError();
-      const pageRefs = refs.get(page.pageId);
-      if (!Array.isArray(pageRefs)) throw new RevisionV3IntegrityError();
-      pages.push({
-        pageId: page.pageId, folderId: page.folderId, path: page.path, title: page.title,
-        body, contentHash: page.contentHash, updatedAt: page.updatedAt.toISOString(),
-        referencedAttachmentIds: pageRefs as string[],
-      });
-    }
-    const attachments: SyncAttachmentV3[] = attachmentRows.map((row) => {
-      if (
-        row.spaceId !== spaceId
-        || row.attachmentId !== row.attachment.id
-        || row.attachment.spaceId !== spaceId
-        || row.attachmentVersionId !== row.attachmentVersion.id
-        || row.attachmentId !== row.attachmentVersion.attachmentId
-        || row.attachmentVersion.attachment.id !== row.attachmentId
-        || row.attachmentVersion.attachment.spaceId !== spaceId
-        || pathKey(row.path) !== row.pathKey
-        || row.attachmentVersion.storageKey !== this.storageKey(row.attachmentVersion.contentHash)
-      ) throw new RevisionV3IntegrityError();
-      const timestamp = updatedAt.get(row.attachmentId);
-      if (typeof timestamp !== 'string') throw new RevisionV3IntegrityError();
-      return {
-        attachmentId: row.attachmentId,
-        path: row.path,
-        mimeType: row.attachmentVersion.mimeType as SyncAttachmentV3['mimeType'],
-        sizeBytes: row.attachmentVersion.sizeBytes.toString(),
-        width: row.attachmentVersion.width,
-        height: row.attachmentVersion.height,
-        contentHash: row.attachmentVersion.contentHash,
-        updatedAt: timestamp,
-      };
-    });
-    let manifest: TreeRevisionContentManifestV3;
-    try {
-      manifest = canonicalTreeRevisionManifestV3({
-        protocolVersion: '3', spaceId, folders, pages, attachments,
-      });
-    } catch {
-      throw new RevisionV3IntegrityError();
-    }
-    const canonicalAttachmentIds = manifest.attachments.map((attachment) => attachment.attachmentId);
-    const storedAttachmentIds = [...attachmentRows]
-      .sort((left, right) => left.ordinal - right.ordinal)
-      .map((row, ordinal) => {
-        if (row.ordinal !== ordinal) throw new RevisionV3IntegrityError();
-        return row.attachmentId;
-      });
-    if (canonicalAttachmentIds.join('\0') !== storedAttachmentIds.join('\0')) {
-      throw new RevisionV3IntegrityError();
-    }
-    const revisionContentHash = await treeRevisionContentHashV3(manifest);
-    const revisionManifestByteLength = canonicalBytes(manifest).byteLength;
-    const revisionBodyBytes = manifest.pages.reduce(
-      (total, page) => total + encoder.encode(page.body).byteLength, 0,
-    );
-    const revisionAttachmentBytes = manifest.attachments.reduce(
-      (total, attachment) => total + Number(BigInt(attachment.sizeBytes)), 0,
-    );
-    const delta = Array.isArray(revision.delta) ? revision.delta : null;
-    let canonicalDelta: TreeDeltaItemV3[];
-    try {
-      canonicalDelta = canonicalTreeDeltaItemsV3((delta ?? []) as TreeDeltaItemV3[]);
-    } catch {
-      throw new RevisionV3IntegrityError();
-    }
-    if (
-      !delta
-      || !Buffer.from(canonicalBytes(delta)).equals(Buffer.from(canonicalBytes(canonicalDelta)))
-    ) throw new RevisionV3IntegrityError();
-    const metadataMatches = revision.revisionContentHash === revisionContentHash
-      && revision.contentHash === revisionContentHash
-      && revision.pageCount === BigInt(manifest.pages.length)
-      && revision.attachmentCount === BigInt(manifest.attachments.length)
-      && revision.revisionManifestByteLength === BigInt(revisionManifestByteLength)
-      && revision.revisionBodyBytes === BigInt(revisionBodyBytes)
-      && revision.revisionAttachmentBytes === BigInt(revisionAttachmentBytes)
-      && sidecar.revisionContentHash === revisionContentHash
-      && sidecar.folderCount === String(manifest.folders.length)
-      && sidecar.pageCount === String(manifest.pages.length)
-      && sidecar.attachmentCount === String(manifest.attachments.length)
-      && sidecar.revisionManifestByteLength === String(revisionManifestByteLength)
-      && sidecar.revisionBodyBytes === String(revisionBodyBytes)
-      && sidecar.revisionAttachmentBytes === String(revisionAttachmentBytes)
-      && sidecar.treeDeltaCount === String(canonicalDelta.length);
-    if (!metadataMatches) throw new RevisionV3IntegrityError();
-    return {
-      revision: revision.id,
-      sequence: revision.sequence,
-      publishedAt: revision.createdAt.toISOString(),
-      manifest,
-      revisionContentHash,
-      revisionManifestByteLength,
-      revisionBodyBytes,
-      revisionAttachmentBytes,
-    };
-  }
-
-  private sidecarMap(value: unknown, idKey: string, valueKey: string): Map<string, unknown> {
-    if (!Array.isArray(value)) throw new RevisionV3IntegrityError();
-    const result = new Map<string, unknown>();
-    for (const item of value) {
-      const row = record(item);
-      if (!row || !exactKeys(row, [idKey, valueKey]) || typeof row[idKey] !== 'string' || result.has(row[idKey] as string)) {
-        throw new RevisionV3IntegrityError();
-      }
-      result.set(row[idKey] as string, row[valueKey]);
-    }
-    return result;
+    return this.immutable.verify(tx, spaceId, revision);
   }
 
   private headEnvelope(spaceId: string, loaded: LoadedRevisionV3) {
@@ -753,10 +585,6 @@ export class SyncV3RevisionService {
   private isSupportedLegacy(revision: { schemaVersion: string; recipeVersion: string }): boolean {
     return (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
       || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
-  }
-
-  private storageKey(contentHashValue: string): string {
-    return `sha256/${contentHashValue.slice(0, 2)}/${contentHashValue.slice(2, 4)}/${contentHashValue}`;
   }
 
   private groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {

@@ -18,7 +18,7 @@ describe('SyncRevisionService v1 compatibility over folder-free v2 history', () 
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(revision) },
       syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue(rows) },
     };
-    const service = new SyncRevisionService(prisma);
+    const service = new SyncRevisionService(prisma, { verify: jest.fn() } as any);
     const manifest = {
       protocolVersion: '1' as const, spaceId: 'space-1',
       pages: rows.map(({ pageId, path, title, contentHash }) => ({ pageId, path, title, contentHash })),
@@ -40,10 +40,13 @@ describe('SyncRevisionService v1 compatibility over folder-free v2 history', () 
       createdAt: new Date('2026-09-04T00:00:00.000Z'),
     };
     const rows = [{ pageId: 'page-1', path: 'pages/Page.md', title: 'Page', contentHash: 'a'.repeat(64) }];
+    const verify = jest.fn().mockResolvedValue({
+      manifest: { pages: rows }, revisionBodyBytes: 7,
+    });
     const service = new SyncRevisionService({
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(revision) },
       syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue(rows) },
-    } as any);
+    } as any, { verify } as any);
 
     const head = await service.head('space-1');
 
@@ -51,6 +54,22 @@ describe('SyncRevisionService v1 compatibility over folder-free v2 history', () 
     expect(head.revisionContentHash).toBe(await revisionContentHash({
       protocolVersion: '1', spaceId: 'space-1', pages: rows,
     }));
+    expect(verify).toHaveBeenCalledWith(expect.anything(), 'space-1', revision);
+  });
+
+  it('fails closed when the native v3 authority is corrupt even if a v1 projection could be self-consistent', async () => {
+    const revision = {
+      id: 'rev-v3', spaceId: 'space-1', sequence: 4, schemaVersion: 'content-tree@3',
+      recipeVersion: 'referenced-images-v1', attachmentCount: 0n,
+      createdAt: new Date('2026-09-04T00:00:00.000Z'),
+    };
+    const { SyncV3AuthorityError } = await import('./sync-v3-immutable-revision.service');
+    const service = new SyncRevisionService({
+      spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(revision) },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any, { verify: jest.fn().mockRejectedValue(new SyncV3AuthorityError()) } as any);
+
+    await expect(service.head('space-1')).rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
   });
 
   it('blocks v1 reads when the fixed native v3 target contains attachments', async () => {
@@ -65,7 +84,7 @@ describe('SyncRevisionService v1 compatibility over folder-free v2 history', () 
         findUnique: jest.fn().mockResolvedValue(revision),
       },
       syncRevisionPageRow: { findMany: jest.fn() },
-    } as any);
+    } as any, { verify: jest.fn() } as any);
 
     await expect(service.head('space-1'))
       .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
@@ -83,7 +102,7 @@ describe('SyncRevisionService v1 compatibility over folder-free v2 history', () 
     };
     const service = new SyncRevisionService({
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(revision) },
-    } as any);
+    } as any, { verify: jest.fn() } as any);
 
     await expect(service.head('space-1'))
       .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });

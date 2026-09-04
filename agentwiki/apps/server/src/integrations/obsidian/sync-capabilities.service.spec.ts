@@ -1,9 +1,23 @@
 import { TreeSyncCapabilitiesV3Schema } from '@neomei/agentwiki-sync-protocol';
+import { Test } from '@nestjs/testing';
+import { PrismaService } from '../../database/prisma.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 
 describe('SyncCapabilitiesService v3 compatibility gates', () => {
+  it('fails Nest construction when the mandatory v3 compatibility verifier provider is missing', async () => {
+    await expect(Test.createTestingModule({
+      providers: [
+        SyncCapabilitiesService,
+        { provide: PrismaService, useValue: {} },
+      ],
+    }).compile()).rejects.toThrow(/SyncV3RevisionWriterService|dependencies/u);
+  });
+
   it('returns capabilities accepted by the public strict v3 schema', async () => {
-    const service = new SyncCapabilitiesService({} as any);
+    const service = new SyncCapabilitiesService(
+      { $transaction: jest.fn(async (callback: any) => callback({})) } as any,
+      { inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'legacy_v2' }) } as any,
+    );
 
     expect(TreeSyncCapabilitiesV3Schema.parse(service.capabilitiesV3()))
       .toEqual(service.capabilitiesV3());

@@ -55,6 +55,7 @@ export class SyncV3BootstrapService {
   ) {
     return this.prisma.$transaction(async (tx) => {
       await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      await this.assertLiveCredentialLocked(tx, principal);
       const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
       await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx,
@@ -121,6 +122,34 @@ export class SyncV3BootstrapService {
       maxWait: 10_000,
       timeout: 30_000,
     });
+  }
+
+  private async assertLiveCredentialLocked(
+    tx: Prisma.TransactionClient,
+    principal: Principal,
+  ): Promise<void> {
+    if (!principal.credentialId) {
+      throw new SyncApiException('DEVICE_CREDENTIAL_REVOKED', 'Device credential is unavailable', undefined, '3');
+    }
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "HumanDeviceCredential"
+      WHERE "id" = ${principal.credentialId}
+      FOR NO KEY UPDATE
+    `);
+    const credential = rows.length === 1
+      ? await tx.humanDeviceCredential.findUnique({
+        where: { id: principal.credentialId },
+        select: { id: true, userId: true, status: true, provisionalExpiresAt: true },
+      })
+      : null;
+    if (!credential || credential.userId !== principal.userId
+      || !['active', 'provisional'].includes(credential.status)) {
+      throw new SyncApiException('DEVICE_CREDENTIAL_REVOKED', 'Device credential is unavailable', undefined, '3');
+    }
+    if (credential.status === 'provisional'
+      && (!credential.provisionalExpiresAt || credential.provisionalExpiresAt <= new Date())) {
+      throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Device credential is expired', undefined, '3');
+    }
   }
 
   private previewEnvelope(inspection: SyncV3CandidateInspection): BootstrapPreview {
