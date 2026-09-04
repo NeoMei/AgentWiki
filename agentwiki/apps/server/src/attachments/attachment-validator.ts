@@ -288,8 +288,14 @@ function parseImageDimensions(
   }
 }
 
-export async function validateUploadedImage(
-  file: Express.Multer.File,
+export interface StagedImageFile {
+  originalname: string;
+  mimetype: string;
+  path: string;
+}
+
+export async function validateStagedImage(
+  file: StagedImageFile,
   config: AttachmentConfig,
 ): Promise<PreparedAttachment> {
   const { displayName, nameKey } = validateFilename(file.originalname);
@@ -394,4 +400,11 @@ export async function validateUploadedImage(
   } finally {
     await handle.close();
   }
+}
+
+export async function validateUploadedImage(
+  file: Express.Multer.File,
+  config: AttachmentConfig,
+): Promise<PreparedAttachment> {
+  return validateStagedImage(file, config);
 }

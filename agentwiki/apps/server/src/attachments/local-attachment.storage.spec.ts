@@ -1006,6 +1006,35 @@ describe('LocalAttachmentStorage', () => {
     expect((await stat(root)).isDirectory()).toBe(true);
   });
 
+  it('opens a protected blob only when its storage key, hash, and size agree', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    const bytes = Buffer.from('immutable revision bytes');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const reservation = await reservedBytes(storage, bytes);
+    const published = await publishLocked(storage, reservation, hash, BigInt(bytes.length));
+
+    const stream = await storage.openVerified(
+      published.storageKey,
+      hash,
+      BigInt(bytes.length),
+    );
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
+
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+    await expect(storage.openVerified(
+      published.storageKey,
+      'b'.repeat(64),
+      BigInt(bytes.length),
+    )).rejects.toThrow(/storage key|hash/u);
+    await expect(storage.openVerified(
+      published.storageKey,
+      hash,
+      BigInt(bytes.length + 1),
+    )).rejects.toThrow(/size/u);
+  });
+
   it.each([
     '../outside',
     'sha256/ab/cd/../../outside',

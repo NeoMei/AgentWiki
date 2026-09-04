@@ -7,6 +7,8 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import {
+  BlobChunkReceiptV3Schema,
+  CompletedBlobV3Schema,
   SyncV3ErrorEnvelopeSchema,
   TreeBootstrapPreviewV3Schema,
   TreeCapabilitiesResponseV3Schema,
@@ -26,11 +28,17 @@ import { SyncV3Controller } from './sync-v3.controller';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
 import { SyncApiException } from './sync-error';
+import { SyncV3BlobService } from './sync-v3-blob.service';
+import { Readable } from 'node:stream';
 
 describe('sync v3 HTTP contract', () => {
   let app: INestApplication;
   let baseUrl: string;
   const hash = 'a'.repeat(64);
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3GAAAAAASUVORK5CYII=',
+    'base64',
+  );
 
   const prisma = {
     humanDeviceCredential: {
@@ -85,6 +93,27 @@ describe('sync v3 HTTP contract', () => {
       changeSetId: null,
     }),
   };
+  const blobs = {
+    putChunk: jest.fn(async (_principal, _spaceId, _sessionId, contentHash, chunkIndex, input) => {
+      const received: Buffer[] = [];
+      for await (const chunk of input) received.push(Buffer.from(chunk));
+      if (Buffer.concat(received).length === 0) throw new Error('expected streamed bytes');
+      return { contentHash, chunkIndex, chunkHash: hash, receipt: 'receipt-1' };
+    }),
+    complete: jest.fn().mockResolvedValue({
+      contentHash: hash,
+      sizeBytes: String(png.length),
+      mimeType: 'image/png',
+      width: 1,
+      height: 1,
+      verifiedAt: '2026-09-05T00:00:00.000Z',
+    }),
+    openRevisionAttachment: jest.fn().mockResolvedValue({
+      stream: Readable.from([png]),
+      mimeType: 'image/png',
+      sizeBytes: png.length,
+    }),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -96,6 +125,7 @@ describe('sync v3 HTTP contract', () => {
         SyncCapabilitiesService,
         { provide: SyncV3RevisionService, useValue: revisions },
         { provide: SyncV3BootstrapService, useValue: bootstrap },
+        { provide: SyncV3BlobService, useValue: blobs },
       ],
     }).compile();
     app = moduleRef.createNestApplication();
@@ -151,6 +181,185 @@ describe('sync v3 HTTP contract', () => {
       expect.objectContaining({ userId: 'user-1', credentialId: 'cred-1' }),
       { baseRevision: 'rev-1', confirmationHash: hash },
     );
+  });
+
+  it('streams an octet-stream chunk and returns a strict receipt without JSON/base64 aggregation', async () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/blobs/${hash}/chunks/0`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer device-secret',
+          'content-type': 'application/octet-stream',
+        },
+        body: png,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(BlobChunkReceiptV3Schema.parse(await response.json())).toEqual({
+      contentHash: hash, chunkIndex: 0, chunkHash: hash, receipt: 'receipt-1',
+    });
+    expect(blobs.putChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialId: 'cred-1' }),
+      'space-1', sessionId, hash, 0, expect.anything(),
+    );
+  });
+
+  it.each([
+    ['application/json', '{}'],
+    ['text/plain', 'bytes'],
+    ['application/octet-stream; charset=utf-8', 'bytes'],
+  ])('rejects chunk content type %s before the Blob service', async (contentType, body) => {
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/0`,
+      {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer device-secret', 'content-type': contentType },
+        body,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code)
+      .toBe('PAYLOAD_INVALID');
+    expect(blobs.putChunk).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized declared chunk before reading or recording it', async () => {
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/0`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer device-secret',
+          'content-type': 'application/octet-stream',
+          'content-length': String(1024 * 1024 + 1),
+        },
+        body: Buffer.alloc(1024 * 1024 + 1),
+      },
+    );
+
+    expect(response.status).toBe(413);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code)
+      .toBe('ATTACHMENT_QUOTA_EXCEEDED');
+    expect(blobs.putChunk).not.toHaveBeenCalled();
+  });
+
+  it('strictly validates the complete request and path hash binding', async () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const auth = { Authorization: 'Bearer device-secret', 'content-type': 'application/json' };
+    const valid = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/blobs/${hash}/complete`,
+      {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({
+          protocolVersion: '3', contentHash: hash,
+          sizeBytes: String(png.length), chunkCount: 1,
+        }),
+      },
+    );
+    expect(CompletedBlobV3Schema.parse(await valid.json()).contentHash).toBe(hash);
+
+    const spoofed = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/blobs/${hash}/complete`,
+      {
+        method: 'POST', headers: auth,
+        body: JSON.stringify({
+          protocolVersion: '3', contentHash: 'b'.repeat(64),
+          sizeBytes: String(png.length), chunkCount: 1,
+        }),
+      },
+    );
+    expect(spoofed.status).toBe(400);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await spoofed.json()).error.code)
+      .toBe('PAYLOAD_INVALID');
+  });
+
+  it('streams fixed-revision content with private immutable-response headers', async () => {
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/revisions/revision-1/attachments/attachment-1/content`,
+      { headers: { Authorization: 'Bearer device-secret' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
+    expect(response.headers.get('content-type')).toMatch(/^image\/png/u);
+    expect(response.headers.get('content-length')).toBe(String(png.length));
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(JSON.stringify([...response.headers])).not.toMatch(/storage|sha256|credential/u);
+  });
+
+  it.each([
+    ['chunk query spoof', `/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/0?spaceId=space-2`, 'PUT'],
+    ['download query spoof', '/sync/v3/spaces/space-1/revisions/revision-1/attachments/attachment-1/content?revision=current', 'GET'],
+  ])('rejects %s with a strict v3 error', async (_name, path, method) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: 'Bearer device-secret',
+        ...(method === 'PUT' ? { 'content-type': 'application/octet-stream' } : {}),
+      },
+      ...(method === 'PUT' ? { body: png } : {}),
+    });
+    expect(response.status).toBe(400);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code)
+      .toBe('PAYLOAD_INVALID');
+  });
+
+  it.each([
+    ['invalid session', `/sync/v3/spaces/space-1/push-sessions/not-a-session/blobs/${hash}/chunks/0`],
+    ['invalid hash', '/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/not-a-hash/chunks/0'],
+    ['invalid index', `/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/01`],
+  ])('rejects %s path spoofing before the Blob service', async (_name, path) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer device-secret',
+        'content-type': 'application/octet-stream',
+      },
+      body: png,
+    });
+    expect(response.status).toBe(400);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code)
+      .toBe('PAYLOAD_INVALID');
+    expect(blobs.putChunk).not.toHaveBeenCalled();
+  });
+
+  it('preserves a post-guard credential revocation as a strict v3 error', async () => {
+    blobs.putChunk.mockRejectedValueOnce(new SyncApiException(
+      'DEVICE_CREDENTIAL_REVOKED', 'private credential state', { credentialId: 'cred-1' }, '3',
+    ));
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/0`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer device-secret',
+          'content-type': 'application/octet-stream',
+        },
+        body: png,
+      },
+    );
+    const body = await response.json();
+    expect(response.status).toBe(401);
+    expect(SyncV3ErrorEnvelopeSchema.parse(body).error.code).toBe('DEVICE_CREDENTIAL_REVOKED');
+    expect(JSON.stringify(body)).not.toMatch(/credential|cred-1|message|details/u);
+  });
+
+  it('keeps cross-scope Blob service failures inside the strict v3 envelope', async () => {
+    blobs.openRevisionAttachment.mockRejectedValueOnce(new SyncApiException(
+      'ATTACHMENT_MISSING', 'private storage key', { storageKey: 'sha256/secret' }, '3',
+    ));
+    const response = await fetch(
+      `${baseUrl}/sync/v3/spaces/space-2/revisions/revision-1/attachments/attachment-1/content`,
+      { headers: { Authorization: 'Bearer device-secret' } },
+    );
+    const body = await response.json();
+    expect(SyncV3ErrorEnvelopeSchema.parse(body).error.code).toBe('ATTACHMENT_MISSING');
+    expect(JSON.stringify(body)).not.toMatch(/storage|secret|message|details/u);
   });
 
   it('strictly rejects unknown bootstrap fields', async () => {

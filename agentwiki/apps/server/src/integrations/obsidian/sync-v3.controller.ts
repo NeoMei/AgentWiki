@@ -2,16 +2,23 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Req,
+  Res,
+  StreamableFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import {
+  BlobChunkReceiptV3Schema,
+  CompleteBlobRequestV3Schema,
+  CompletedBlobV3Schema,
   DeltaQuerySchema,
   SnapshotQuerySchema,
   SpaceParamsSchema,
@@ -23,7 +30,9 @@ import {
   TreeRevisionHeadResponseV3Schema,
   TreeSnapshotPageV3Schema,
   TreeSyncSpaceListResponseV3Schema,
+  TREE_SYNC_V3_HARD_LIMITS,
 } from '@neomei/agentwiki-sync-protocol';
+import type { Response } from 'express';
 import type { Principal } from '../../core/authorization/authorization.service';
 import { HumanDeviceGuard, type HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
@@ -31,6 +40,11 @@ import { SyncApiException } from './sync-error';
 import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
+import { SyncV3BlobService } from './sync-v3-blob.service';
+
+const HASH_PATTERN = /^[0-9a-f]{64}$/u;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const PUBLIC_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 @Controller('sync/v3')
 @UseGuards(HumanDeviceGuard)
@@ -40,6 +54,7 @@ export class SyncV3Controller {
     private readonly revisions: SyncV3RevisionService,
     private readonly capabilities: SyncCapabilitiesService,
     private readonly bootstrap: SyncV3BootstrapService,
+    private readonly blobs: SyncV3BlobService,
   ) {}
 
   @Get('capabilities')
@@ -134,10 +149,154 @@ export class SyncV3Controller {
     ), TreeFinalizePushResponseV3Schema);
   }
 
+  @Put('spaces/:spaceId/push-sessions/:sessionId/blobs/:contentHash/chunks/:chunkIndex')
+  async putBlobChunk(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Param('contentHash') contentHash: string,
+    @Param('chunkIndex') chunkIndexValue: string,
+    @Query() query: unknown,
+    @Headers('content-type') contentType: string | undefined,
+    @Headers('content-length') contentLength: string | undefined,
+    @Req() request: { user: HumanDevicePrincipal } & AsyncIterable<Uint8Array>,
+  ) {
+    this.assertEmptyQuery(query);
+    const { spaceId, chunkIndex } = this.parseBlobChunkParams(
+      spaceValue,
+      sessionId,
+      contentHash,
+      chunkIndexValue,
+    );
+    if (contentType !== 'application/octet-stream') {
+      throw this.invalid('Blob chunks require application/octet-stream');
+    }
+    if (contentLength !== undefined) {
+      if (!/^(0|[1-9][0-9]*)$/u.test(contentLength)) {
+        throw this.invalid('Invalid Blob chunk Content-Length');
+      }
+      if (BigInt(contentLength) > BigInt(this.capabilities.capabilitiesV3().blobChunkBytes)) {
+        throw new SyncApiException(
+          'ATTACHMENT_QUOTA_EXCEEDED',
+          'Blob chunk exceeds the negotiated byte limit',
+          undefined,
+          '3',
+        );
+      }
+    }
+    return BlobChunkReceiptV3Schema.parse(await this.blobs.putChunk(
+      request.user,
+      spaceId,
+      sessionId,
+      contentHash,
+      chunkIndex,
+      request,
+    ));
+  }
+
+  @Post('spaces/:spaceId/push-sessions/:sessionId/blobs/:contentHash/complete')
+  @HttpCode(HttpStatus.OK)
+  async completeBlob(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Param('contentHash') contentHash: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const spaceId = this.parseBlobParams(spaceValue, sessionId, contentHash);
+    const parsed = CompleteBlobRequestV3Schema.safeParse(body);
+    if (!parsed.success || parsed.data.contentHash !== contentHash) {
+      throw this.invalid('Invalid Blob completion request');
+    }
+    return CompletedBlobV3Schema.parse(await this.blobs.complete(
+      request.user,
+      spaceId,
+      sessionId,
+      contentHash,
+      { sizeBytes: parsed.data.sizeBytes, chunkCount: parsed.data.chunkCount },
+    ));
+  }
+
+  @Get('spaces/:spaceId/revisions/:revisionId/attachments/:attachmentId/content')
+  async revisionAttachmentContent(
+    @Param('spaceId') spaceValue: string,
+    @Param('revisionId') revisionId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Query() query: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    this.assertEmptyQuery(query);
+    const spaceId = this.parseSpaceId(spaceValue);
+    if (
+      revisionId === 'current'
+      || !PUBLIC_ID_PATTERN.test(revisionId)
+      || !PUBLIC_ID_PATTERN.test(attachmentId)
+    ) throw this.invalid('A valid fixed Revision and Attachment are required');
+    const download = await this.blobs.openRevisionAttachment(
+      request.user,
+      spaceId,
+      revisionId,
+      attachmentId,
+    );
+    response.setHeader('Content-Type', download.mimeType);
+    response.setHeader('Content-Length', String(download.sizeBytes));
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    return new StreamableFile(download.stream);
+  }
+
   private parseSpaceId(value: string): string {
     const parsed = SpaceParamsSchema.safeParse({ spaceId: value });
     if (!parsed.success) throw this.invalid('Invalid spaceId');
     return parsed.data.spaceId;
+  }
+
+  private parseBlobParams(
+    spaceValue: string,
+    sessionId: string,
+    contentHash: string,
+  ): string {
+    const spaceId = this.parseSpaceId(spaceValue);
+    if (!UUID_PATTERN.test(sessionId) || !HASH_PATTERN.test(contentHash)) {
+      throw this.invalid('Invalid Blob path parameters');
+    }
+    return spaceId;
+  }
+
+  private parseBlobChunkParams(
+    spaceValue: string,
+    sessionId: string,
+    contentHash: string,
+    chunkIndexValue: string,
+  ): { spaceId: string; chunkIndex: number } {
+    const spaceId = this.parseBlobParams(spaceValue, sessionId, contentHash);
+    if (!/^(0|[1-9][0-9]*)$/u.test(chunkIndexValue)) {
+      throw this.invalid('Invalid Blob chunk index');
+    }
+    const chunkIndex = Number(chunkIndexValue);
+    if (
+      !Number.isSafeInteger(chunkIndex)
+      || chunkIndex >= TREE_SYNC_V3_HARD_LIMITS.maxBlobChunks
+    ) {
+      throw new SyncApiException(
+        'ATTACHMENT_QUOTA_EXCEEDED',
+        'Blob chunk index exceeds the hard limit',
+        undefined,
+        '3',
+      );
+    }
+    return { spaceId, chunkIndex };
+  }
+
+  private assertEmptyQuery(query: unknown): void {
+    if (
+      !query
+      || typeof query !== 'object'
+      || Array.isArray(query)
+      || Object.keys(query as Record<string, unknown>).length !== 0
+    ) throw this.invalid('Unexpected query parameters');
   }
 
   private principal(principal: HumanDevicePrincipal): Principal {

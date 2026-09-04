@@ -607,6 +607,51 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     return handle.createReadStream({ autoClose: true, start: 0 });
   }
 
+  async openVerified(
+    storageKey: string,
+    contentHash: string,
+    sizeBytes: bigint,
+  ): Promise<NodeJS.ReadableStream> {
+    if (!HASH_PATTERN.test(contentHash) || storageKey !== this.storageKey(contentHash)) {
+      throw new Error('Attachment storage key does not match the expected content hash');
+    }
+    if (sizeBytes <= 0n) {
+      throw new Error('Attachment size must be positive');
+    }
+    const path = this.pathForStorageKey(storageKey);
+    let handle: FileHandle;
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (isNodeError(error, 'ELOOP')) {
+        throw errorWithCause('Attachment content path must not be a symbolic link', error);
+      }
+      throw error;
+    }
+    try {
+      const opened = await handle.stat({ bigint: true });
+      if (!opened.isFile() || opened.size !== sizeBytes) {
+        throw new Error('Attachment content size does not match immutable metadata');
+      }
+      if ((await hashHandle(handle)) !== contentHash) {
+        throw new Error('Attachment content hash does not match immutable metadata');
+      }
+      const current = await lstat(path, { bigint: true });
+      if (
+        !current.isFile()
+        || current.isSymbolicLink()
+        || !sameBigIntFile(opened, current)
+        || current.size !== sizeBytes
+      ) {
+        throw new Error('Attachment content changed during immutable verification');
+      }
+      return handle.createReadStream({ autoClose: true, start: 0 });
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
+  }
+
   async removeIfUnreferenced(
     storageKey: string,
     lease: AttachmentContentLease,

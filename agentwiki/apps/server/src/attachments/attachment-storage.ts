@@ -39,6 +39,11 @@ export interface AttachmentStorage {
     work: (lease: AttachmentContentLease) => Promise<T>,
   ): Promise<T>;
   open(storageKey: string): Promise<NodeJS.ReadableStream>;
+  openVerified(
+    storageKey: string,
+    contentHash: string,
+    sizeBytes: bigint,
+  ): Promise<NodeJS.ReadableStream>;
   removeIfUnreferenced(
     storageKey: string,
     lease: AttachmentContentLease,

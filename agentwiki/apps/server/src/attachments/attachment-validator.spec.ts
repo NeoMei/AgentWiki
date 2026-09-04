@@ -2,7 +2,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import type { AttachmentConfig } from './attachment.config';
-import { AttachmentValidationError, validateUploadedImage } from './attachment-validator';
+import {
+  AttachmentValidationError,
+  validateStagedImage,
+  validateUploadedImage,
+} from './attachment-validator';
 
 type MulterFile = Express.Multer.File;
 
@@ -111,6 +115,23 @@ describe('validateUploadedImage', () => {
       expect(prepared.contentHash).toMatch(/^[0-9a-f]{64}$/);
     },
   );
+
+  it('validates an internal staged image without fabricating Multer transport fields', async () => {
+    const root = await makeRoot();
+    const file = await uploadedFile(root, 'photo.png', 'image/png', FIXTURES.png);
+
+    await expect(validateStagedImage({
+      path: file.path,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+    }, config(root))).resolves.toMatchObject({
+      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      mimeType: 'image/png',
+      sizeBytes: BigInt(FIXTURES.png.length),
+      width: 1,
+      height: 1,
+    });
+  });
 
   it('normalizes a filename to NFC for display and key identity', async () => {
     const root = await makeRoot();
