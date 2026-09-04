@@ -15,9 +15,11 @@ import {
   type TreeDeltaItemV3,
   type TreeRevisionContentManifestV3,
 } from '@neomei/agentwiki-sync-protocol';
+import {
+  isSupportedLegacySyncRevisionFormat,
+  isSyncV3RevisionFormat,
+} from '../../core/sync/sync-revision-format';
 
-export const V3_SCHEMA_VERSION = 'content-tree@3';
-export const V3_RECIPE_VERSION = 'referenced-images-v1';
 const encoder = new TextEncoder();
 
 export class SyncV3AuthorityError extends Error {}
@@ -62,17 +64,28 @@ export class SyncV3ImmutableRevisionService {
         : await tx.spaceKnowledgeRevision.findUnique({ where: { id: revisionRef } })
       : revisionRef;
     if (!revision || revision.spaceId !== spaceId) throw new SyncV3AuthorityError();
-    if (revision.schemaVersion !== V3_SCHEMA_VERSION || revision.recipeVersion !== V3_RECIPE_VERSION) {
+    if (!isSyncV3RevisionFormat(revision)) {
       throw new SyncV3AuthorityError('unsupported-v3-revision');
     }
-    const parent = (revision as any).parentRevisionId
-      ? await tx.spaceKnowledgeRevision.findUnique({ where: { id: (revision as any).parentRevisionId } })
-      : null;
-    if (parent && parent.spaceId !== spaceId) throw new SyncV3AuthorityError();
+    const parentId = (revision as any).parentRevisionId;
+    const sequence = (revision as any).sequence;
+    if (!Number.isSafeInteger(sequence) || sequence < 1) throw new SyncV3AuthorityError();
+    let parent: any = null;
+    if (parentId === null || parentId === undefined) {
+      if (sequence !== 1) throw new SyncV3AuthorityError();
+    } else {
+      if (typeof parentId !== 'string' || parentId.length === 0) throw new SyncV3AuthorityError();
+      parent = await tx.spaceKnowledgeRevision.findUnique({ where: { id: parentId } });
+      if (!parent || parent.spaceId !== spaceId
+        || !Number.isSafeInteger(parent.sequence) || parent.sequence < 1
+        || parent.sequence !== sequence - 1) throw new SyncV3AuthorityError();
+      if (!isSyncV3RevisionFormat(parent) && !isSupportedLegacySyncRevisionFormat(parent)) {
+        throw new SyncV3AuthorityError();
+      }
+    }
     const current = await this.rebuild(tx, spaceId, revision as any);
     const parentManifest = parent
-      && parent.schemaVersion === V3_SCHEMA_VERSION
-      && parent.recipeVersion === V3_RECIPE_VERSION
+      && isSyncV3RevisionFormat(parent)
       ? (await this.rebuild(tx, spaceId, parent as any, false)).manifest
       : emptyManifest(spaceId);
     let storedDelta: TreeDeltaItemV3[];

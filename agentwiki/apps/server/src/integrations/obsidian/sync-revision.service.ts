@@ -7,6 +7,11 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 import {
+  isSyncV1RevisionFormat,
+  isSyncV2RevisionFormat,
+  isSyncV3RevisionFormat,
+} from '../../core/sync/sync-revision-format';
+import {
   SyncV3AuthorityError,
   SyncV3ImmutableRevisionService,
 } from './sync-v3-immutable-revision.service';
@@ -57,12 +62,9 @@ export class SyncRevisionService {
         'This revision requires Sync v3',
       );
     }
-    const isV1 = revision.schemaVersion === 'knowledge-bundle@1'
-      && revision.recipeVersion === 'none';
-    const isV2 = revision.schemaVersion === 'content-tree@2'
-      && revision.recipeVersion === 'space-folders-v1';
-    const isV3 = revision.schemaVersion === 'content-tree@3'
-      && revision.recipeVersion === 'referenced-images-v1';
+    const isV1 = isSyncV1RevisionFormat(revision);
+    const isV2 = isSyncV2RevisionFormat(revision);
+    const isV3 = isSyncV3RevisionFormat(revision);
     if (!isV1 && !isV2 && !isV3) {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',

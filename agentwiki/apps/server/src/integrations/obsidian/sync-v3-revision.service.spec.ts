@@ -23,7 +23,10 @@ import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-wr
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
-import { SyncV3ImmutableRevisionService } from './sync-v3-immutable-revision.service';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
 
 describe('SyncV3RevisionService', () => {
   const principal = {
@@ -142,9 +145,9 @@ describe('SyncV3RevisionService', () => {
         { id: 'bootstrap', name: 'Bootstrap', createdAt: new Date('2026-09-02T00:00:00.000Z') },
         { id: 'legacy', name: 'Legacy', createdAt: new Date('2026-09-03T00:00:00.000Z') },
       ]) },
-      spaceKnowledgeRevision: { findMany: jest.fn().mockImplementation(async ({ select }: any) => select ? [
-        { spaceId: 'native' },
-      ] : [{
+      $queryRaw: jest.fn().mockImplementation(async (query: any) => {
+        const sql = query.strings.join('?');
+        if (sql.includes('DISTINCT ON')) return [{
           id: 'rev-native', spaceId: 'native', sequence: 3,
           schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
           pageCount: 2n, attachmentCount: 1n, revisionManifestByteLength: 100n,
@@ -153,7 +156,10 @@ describe('SyncV3RevisionService', () => {
         {
           id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
           schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
-        }]) },
+        }];
+        if (sql.includes('GROUP BY')) return [{ spaceId: 'native' }];
+        throw new Error(`Unexpected revision summary query: ${sql}`);
+      }),
       syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([
         { revisionId: 'rev-native' },
       ]) },
@@ -207,10 +213,6 @@ describe('SyncV3RevisionService', () => {
     expect(response.spaces[1]).toEqual(expect.objectContaining({
       pageCount: '1', attachmentCount: '1', revisionAttachmentBytes: '4',
     }));
-    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenCalledTimes(2);
-    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      distinct: ['spaceId'],
-    }));
     expect(tx.syncRevisionFolderRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.syncRevisionPageRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.folder.findMany).toHaveBeenCalledTimes(1);
@@ -229,6 +231,86 @@ describe('SyncV3RevisionService', () => {
     expect(TreeDeltaPageV3Schema.parse(delta).items.map((item) => item.operation)).toEqual([
       'upsert_attachment', 'upsert_page',
     ]);
+  });
+
+  it.each([
+    ['missing parent', { id: 'missing', parent: null }],
+    ['cross-Space parent', { id: 'parent-1', parent: {
+      id: 'parent-1', spaceId: 'space-2', sequence: 1,
+      schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+    } }],
+    ['future parent schema', { id: 'parent-1', parent: {
+      id: 'parent-1', spaceId: 'space-1', sequence: 1,
+      schemaVersion: 'content-tree@4', recipeVersion: 'referenced-images-v1',
+    } }],
+    ['unknown parent recipe', { id: 'parent-1', parent: {
+      id: 'parent-1', spaceId: 'space-1', sequence: 1,
+      schemaVersion: 'content-tree@2', recipeVersion: 'future-recipe',
+    } }],
+    ['wrong parent sequence', { id: 'parent-1', parent: {
+      id: 'parent-1', spaceId: 'space-1', sequence: 3,
+      schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+    } }],
+    ['non-positive parent sequence', { id: 'parent-1', currentSequence: 1, parent: {
+      id: 'parent-1', spaceId: 'space-1', sequence: 0,
+      schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none',
+    } }],
+  ])('rejects a v3 revision with %s', async (_label, state) => {
+    const { tx, revision } = await fixture();
+    revision.sequence = 'currentSequence' in state ? state.currentSequence : 2;
+    revision.parentRevisionId = state.id;
+    tx.spaceKnowledgeRevision.findUnique.mockImplementation(async ({ where }: any) => (
+      where.id === revision.id ? revision : state.parent
+    ));
+
+    await expect(new SyncV3ImmutableRevisionService().verify(tx, 'space-1', revision))
+      .rejects.toBeInstanceOf(SyncV3AuthorityError);
+  });
+
+  it.each([
+    ['v1', { schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none' }],
+    ['v2', { schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1' }],
+  ])('accepts a legal %s parent immediately before the first v3 revision', async (_label, format) => {
+    const { tx, revision } = await fixture();
+    revision.sequence = 2;
+    revision.parentRevisionId = 'parent-1';
+    const parent = { id: 'parent-1', spaceId: 'space-1', sequence: 1, ...format };
+    tx.spaceKnowledgeRevision.findUnique.mockImplementation(async ({ where }: any) => (
+      where.id === revision.id ? revision : parent
+    ));
+
+    await expect(new SyncV3ImmutableRevisionService().verify(tx, 'space-1', revision))
+      .resolves.toMatchObject({ revision: revision.id, sequence: 2 });
+  });
+
+  it('accepts only sequence one as a parentless v3 genesis', async () => {
+    const { tx, revision } = await fixture();
+    const verifier = new SyncV3ImmutableRevisionService();
+    await expect(verifier.verify(tx, 'space-1', revision))
+      .resolves.toMatchObject({ revision: revision.id, sequence: 1 });
+    revision.sequence = 2;
+    await expect(verifier.verify(tx, 'space-1', revision))
+      .rejects.toBeInstanceOf(SyncV3AuthorityError);
+  });
+
+  it('fails closed in batched verification when a declared parent row is missing', async () => {
+    const { tx, revision, pageRows, attachmentRows, sidecar } = await fixture();
+    revision.sequence = 2;
+    revision.parentRevisionId = 'missing-parent';
+    tx.spaceKnowledgeRevision.findMany = jest.fn().mockResolvedValue([]);
+    tx.syncRevisionPageRow.findMany.mockImplementation(async ({ where }: any) => (
+      where.revisionId?.in ? pageRows : where.revisionId === revision.id ? pageRows : []
+    ));
+    tx.syncRevisionAttachmentRow.findMany.mockImplementation(async ({ where }: any) => (
+      where.revisionId?.in ? attachmentRows : where.revisionId === revision.id ? attachmentRows : []
+    ));
+    tx.legacyRevisionSidecar.findMany = jest.fn().mockResolvedValue([
+      { revisionId: revision.id, sidecar },
+    ]);
+
+    await expect(new SyncV3ImmutableRevisionService().verifyMany(tx, [
+      { spaceId: 'space-1', revision },
+    ])).rejects.toBeInstanceOf(SyncV3AuthorityError);
   });
 
   it('pins snapshot and delta cursors to the original fixed endpoint revisions', async () => {
@@ -442,27 +524,66 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
         delta: [],
       });
       await prisma.spaceKnowledgeRevision.create({ data: legacyRevision(1) });
+      await prisma.spaceKnowledgeRevision.createMany({ data: [
+        {
+          ...legacyRevision(1), spaceId: otherSpaceId,
+          schemaVersion: 'content-tree@3', recipeVersion: 'future-recipe',
+        },
+        { ...legacyRevision(2), spaceId: otherSpaceId },
+      ] });
       const countedPrisma = new PrismaClient({
         datasources: { db: { url: syncV3ReadDatabaseUrl } },
         log: [{ emit: 'event', level: 'query' }],
       });
       let queryCount = 0;
-      countedPrisma.$on('query', () => { queryCount += 1; });
+      const revisionSummarySql: string[] = [];
+      countedPrisma.$on('query', (event) => {
+        queryCount += 1;
+        if (event.query.includes('SpaceKnowledgeRevision')) revisionSummarySql.push(event.query);
+      });
+      const revisionSummaryRowCounts: number[] = [];
+      const measuredPrisma = new Proxy(countedPrisma as any, {
+        get(target, property) {
+          if (property !== '$transaction') return Reflect.get(target, property, target);
+          return (callback: (tx: unknown) => Promise<unknown>, options: unknown) => target.$transaction(
+            (tx: any) => callback(new Proxy(tx, {
+              get(transaction, transactionProperty) {
+                if (transactionProperty !== '$queryRaw') {
+                  return Reflect.get(transaction, transactionProperty, transaction);
+                }
+                return async (...args: unknown[]) => {
+                  const rows = await transaction.$queryRaw(...args);
+                  revisionSummaryRowCounts.push(rows.length);
+                  return rows;
+                };
+              },
+            })),
+            options,
+          );
+        },
+      });
       const countedMarkdown = new MarkdownResourceService(
         countedPrisma as any, new AuthorizationService(countedPrisma as any),
       );
       const countedWriter = new SyncV3RevisionWriterService(countedMarkdown, storage);
       const countedReader = new SyncV3RevisionService(
-        countedPrisma as any,
+        measuredPrisma,
         cursors,
         new SyncCapabilitiesService(countedPrisma as any, countedWriter),
         countedWriter,
         new SyncV3ImmutableRevisionService(),
       );
       queryCount = 0;
+      revisionSummaryRowCounts.length = 0;
+      revisionSummarySql.length = 0;
       const shallowSpaces = await countedReader.listSpaces(principal);
       expect(shallowSpaces.spaces.find((space) => space.spaceId === legacySpaceId))
         .toMatchObject({ syncMode: 'legacy_v2', canPublish: true });
+      expect(revisionSummaryRowCounts).toHaveLength(2);
+      expect([...revisionSummaryRowCounts].sort((left, right) => left - right)).toEqual([1, 3]);
+      expect(revisionSummaryRowCounts.every((count) => count <= shallowSpaces.spaces.length)).toBe(true);
+      expect(revisionSummarySql.some((sql) => sql.includes('DISTINCT ON'))).toBe(true);
+      expect(revisionSummarySql.some((sql) => sql.includes('GROUP BY'))).toBe(true);
       queryCount = 0;
       await countedReader.listSpaces(principal);
       const shallowQueryCount = queryCount;
@@ -470,9 +591,93 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
         data: Array.from({ length: 49 }, (_, index) => legacyRevision(index + 2)),
       });
       queryCount = 0;
+      revisionSummaryRowCounts.length = 0;
       await countedReader.listSpaces(principal);
       expect(Math.abs(queryCount - shallowQueryCount)).toBeLessThanOrEqual(1);
+      expect(revisionSummaryRowCounts).toHaveLength(2);
+      expect([...revisionSummaryRowCounts].sort((left, right) => left - right)).toEqual([1, 3]);
+      expect(revisionSummaryRowCounts.every((count) => count <= shallowSpaces.spaces.length)).toBe(true);
       await countedPrisma.$disconnect();
+
+      const legacyToV3 = await prisma.$transaction(async (tx) => {
+        const locked = await legacyWriter.lockSpace(tx, legacySpaceId);
+        return v3Writer.advanceV3Locked(locked, legacySpaceId, {
+          folders: [], pages: [], attachments: [],
+        }, {
+          origin: 'obsidian_sync', createdByUserId: userId,
+          humanDeviceCredentialId: credentialId,
+        });
+      });
+      const legacyV3Revision = await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
+        where: { id: legacyToV3.revisionId },
+      });
+      if (!legacyV3Revision.parentRevisionId) throw new Error('Expected a legacy parent');
+      const legacyParent = await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
+        where: { id: legacyV3Revision.parentRevisionId },
+      });
+      await expect(reader.snapshot(principal, legacySpaceId, legacyV3Revision.id, undefined, 10))
+        .resolves.toMatchObject({ revision: legacyV3Revision.id, pages: [], attachments: [] });
+      await expect(reader.snapshot(principal, spaceId, first.revisionId, undefined, 10))
+        .resolves.toMatchObject({ revision: first.revisionId });
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { parentRevisionId: 'missing-parent' },
+      });
+      await expect(reader.snapshot(principal, legacySpaceId, legacyV3Revision.id, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await expect(reader.listSpaces(principal))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { parentRevisionId: legacyParent.id },
+      });
+
+      const crossSpaceParent = await prisma.spaceKnowledgeRevision.create({ data: {
+        ...legacyRevision(50), spaceId: otherSpaceId,
+      } });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { parentRevisionId: crossSpaceParent.id },
+      });
+      await expect(reader.snapshot(principal, legacySpaceId, legacyV3Revision.id, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { parentRevisionId: legacyParent.id },
+      });
+
+      for (const parentFormat of [
+        { schemaVersion: 'content-tree@4', recipeVersion: 'referenced-images-v1' },
+        { schemaVersion: 'content-tree@2', recipeVersion: 'future-recipe' },
+      ]) {
+        await prisma.spaceKnowledgeRevision.update({
+          where: { id: legacyParent.id }, data: parentFormat,
+        });
+        await expect(reader.snapshot(principal, legacySpaceId, legacyV3Revision.id, undefined, 10))
+          .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+        await prisma.spaceKnowledgeRevision.update({
+          where: { id: legacyParent.id }, data: {
+            schemaVersion: legacyParent.schemaVersion,
+            recipeVersion: legacyParent.recipeVersion,
+          },
+        });
+      }
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { sequence: legacyV3Revision.sequence + 1 },
+      });
+      await expect(reader.snapshot(principal, legacySpaceId, legacyV3Revision.id, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: legacyV3Revision.id }, data: { sequence: legacyV3Revision.sequence },
+      });
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: first.revisionId }, data: { sequence: 0 },
+      });
+      await expect(reader.snapshot(principal, spaceId, first.revisionId, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: first.revisionId }, data: { sequence: 1 },
+      });
+
       const fixed = await reader.snapshot(principal, spaceId, second.revisionId, undefined, 10);
       expect(TreeSnapshotPageV3Schema.parse(fixed)).toMatchObject({
         revision: second.revisionId,

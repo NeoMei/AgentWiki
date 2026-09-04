@@ -19,6 +19,12 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
+import {
+  isSupportedLegacySyncRevisionFormat,
+  isSyncV3RevisionFormat,
+  SYNC_V3_RECIPE_VERSION,
+  SYNC_V3_SCHEMA_VERSION,
+} from '../../core/sync/sync-revision-format';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
@@ -26,14 +32,30 @@ import { SyncApiException } from './sync-error';
 import {
   SyncV3AuthorityError,
   SyncV3ImmutableRevisionService,
-  V3_RECIPE_VERSION,
-  V3_SCHEMA_VERSION,
   type VerifiedSyncV3Revision,
 } from './sync-v3-immutable-revision.service';
 
 const encoder = new TextEncoder();
 
 type LoadedRevisionV3 = VerifiedSyncV3Revision;
+
+interface SpaceRevisionSummaryRow {
+  id: string;
+  spaceId: string;
+  sequence: number;
+  parentRevisionId: string | null;
+  schemaVersion: string;
+  recipeVersion: string;
+  contentHash: string;
+  delta: Prisma.JsonValue | null;
+  revisionContentHash: string;
+  pageCount: bigint;
+  revisionBodyBytes: bigint;
+  revisionManifestByteLength: bigint;
+  attachmentCount: bigint;
+  revisionAttachmentBytes: bigint;
+  createdAt: Date;
+}
 
 type SnapshotEntry =
   | { objectKind: 'folder'; canonicalKey: string; folder: SyncFolderV3 }
@@ -81,20 +103,24 @@ export class SyncV3RevisionService {
         return TreeSyncSpaceListResponseV3Schema.parse({ protocolVersion: '3', spaces: [] });
       }
       const [latestRevisions, v3Histories] = await Promise.all([
-        tx.spaceKnowledgeRevision.findMany({
-          where: { spaceId: { in: spaceIds } },
-          orderBy: [{ spaceId: 'asc' }, { sequence: 'desc' }],
-          distinct: ['spaceId'],
-        }),
-        tx.spaceKnowledgeRevision.findMany({
-          where: {
-            spaceId: { in: spaceIds },
-            schemaVersion: V3_SCHEMA_VERSION,
-            recipeVersion: V3_RECIPE_VERSION,
-          },
-          select: { spaceId: true },
-          distinct: ['spaceId'],
-        }),
+        tx.$queryRaw<SpaceRevisionSummaryRow[]>(Prisma.sql`
+          SELECT DISTINCT ON ("spaceId")
+            "id", "spaceId", "sequence", "parentRevisionId", "schemaVersion", "recipeVersion",
+            "contentHash", "delta", "revisionContentHash", "pageCount", "revisionBodyBytes",
+            "revisionManifestByteLength", "attachmentCount", "revisionAttachmentBytes", "createdAt"
+          FROM "SpaceKnowledgeRevision"
+          WHERE "spaceId" IN (${Prisma.join(spaceIds)})
+          ORDER BY "spaceId" ASC, "sequence" DESC, "id" DESC
+        `),
+        tx.$queryRaw<Array<{ spaceId: string }>>(Prisma.sql`
+          SELECT "spaceId"
+          FROM "SpaceKnowledgeRevision"
+          WHERE "spaceId" IN (${Prisma.join(spaceIds)})
+            AND "schemaVersion" = ${SYNC_V3_SCHEMA_VERSION}
+            AND "recipeVersion" = ${SYNC_V3_RECIPE_VERSION}
+          GROUP BY "spaceId"
+          ORDER BY "spaceId" ASC
+        `),
       ]);
       const latestBySpace = new Map(latestRevisions.map((revision) => [revision.spaceId, revision]));
       const nativeSpaces = new Set(v3Histories.map((revision) => revision.spaceId));
@@ -156,7 +182,7 @@ export class SyncV3RevisionService {
       for (const space of accessible) {
         const latest = latestBySpace.get(space.id);
         if (nativeSpaces.has(space.id)) {
-          if (!latest || latest.schemaVersion !== V3_SCHEMA_VERSION || latest.recipeVersion !== V3_RECIPE_VERSION) {
+          if (!latest || !isSyncV3RevisionFormat(latest)) {
             throw revisionGone();
           }
           const verified = verifiedNative.get(space.id);
@@ -178,7 +204,7 @@ export class SyncV3RevisionService {
           });
           continue;
         }
-        if (latest && !this.isSupportedLegacy(latest)) {
+        if (latest && !isSupportedLegacySyncRevisionFormat(latest)) {
           throw new SyncApiException(
             'SYNC_PROTOCOL_UPGRADE_REQUIRED',
             'Latest revision uses an unsupported Sync protocol',
@@ -425,7 +451,7 @@ export class SyncV3RevisionService {
       : await tx.spaceKnowledgeRevision.findUnique({ where: { id: revisionRef } });
     if (!revision) throw revisionGone();
     if (revision.spaceId !== spaceId) throw revisionGone();
-    if (revision.schemaVersion !== V3_SCHEMA_VERSION || revision.recipeVersion !== V3_RECIPE_VERSION) {
+    if (!isSyncV3RevisionFormat(revision)) {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',
         'Revision is not a supported Sync v3 revision',
@@ -580,11 +606,6 @@ export class SyncV3RevisionService {
         '3',
       );
     }
-  }
-
-  private isSupportedLegacy(revision: { schemaVersion: string; recipeVersion: string }): boolean {
-    return (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
-      || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
   }
 
   private groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
