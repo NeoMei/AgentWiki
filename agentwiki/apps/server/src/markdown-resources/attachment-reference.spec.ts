@@ -244,6 +244,59 @@ describe('parseImageReferences', () => {
       .toEqual(['assets/quote.png', '../assets/list.png']);
   });
 
+  it.each([
+    [
+      'four-space list continuation',
+      '- item\n    ![[assets/real.png]]',
+    ],
+    [
+      'five-space list continuation',
+      '- item\n     ![[assets/real.png]]',
+    ],
+    [
+      'multi-level list continuation',
+      '- outer\n  - inner\n      ![[assets/real.png]]',
+    ],
+  ])('keeps a real image in %s', (_label, body) => {
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('ignores indented code relative to list content while keeping its following continuation image', () => {
+    const body = '- item\n      ![[assets/hidden.png]]\n  ![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('ends an unclosed blockquote fence when top-level content resumes', () => {
+    const body = '> ```md\n> ![[assets/hidden.png]]\n![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it.each([
+    [
+      'list fence followed by a blockquote fence',
+      '- ```md\n  ![[assets/list-hidden.png]]\n> ```md\n> ![[assets/quote-hidden.png]]\n![[assets/real.png]]',
+    ],
+    [
+      'blockquote fence followed by a list fence',
+      '> ```md\n> ![[assets/quote-hidden.png]]\n- ```md\n  ![[assets/list-hidden.png]]\n- ![[assets/real.png]]',
+    ],
+  ])('does not cross-close or leak a %s', (_label, body) => {
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('keeps explicit fence closing scoped to the same list item', () => {
+    const body = '- ```md\n  ![[assets/hidden.png]]\n  ```\n  ![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
   it('scans a long backslash-heavy alt in a linear number of indexed reads', () => {
     const raw = `![${'\\'.repeat(512)}alt](../assets/a.png)`;
     const counted = countIndexedReads(raw);
