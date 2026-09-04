@@ -155,7 +155,11 @@ export async function runUiRouteSmoke(environment = process.env) {
     mobile.on('pageerror', (error) => browserErrors.push(error.message));
     mobile.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
     await mobile.setViewportSize({ width: 390, height: 844 });
-    for (const path of ['/', '/guide', '/guide/obsidian', '/guide/docs', '/dashboard', `/spaces/${space.id}`, `/pages/${pageId}`]) {
+    const mobileRoutes = [
+      '/', '/guide', '/guide/obsidian', '/guide/docs', '/dashboard',
+      `/spaces/${space.id}`, `/pages/${pageId}`,
+    ];
+    for (const path of mobileRoutes) {
       await assertRoute(mobile, webUrl, path);
       await assertNoHorizontalOverflow(mobile, path);
     }
@@ -163,7 +167,12 @@ export async function runUiRouteSmoke(environment = process.env) {
 
     assert.deepEqual(browserErrors, [], `Browser page errors: ${browserErrors.join('; ')}`);
     assert.deepEqual(failedResponses, [], `Server failures observed in browser: ${failedResponses.join('; ')}`);
-    return { status: 'passed', publicRoutes: publicRoutes.length, authenticatedRoutes: authenticatedRoutes.length, mobileRoutes: 6 };
+    return {
+      status: 'passed',
+      publicRoutes: publicRoutes.length,
+      authenticatedRoutes: authenticatedRoutes.length,
+      mobileRoutes: mobileRoutes.length,
+    };
   } finally {
     await browser?.close();
     if (token) {

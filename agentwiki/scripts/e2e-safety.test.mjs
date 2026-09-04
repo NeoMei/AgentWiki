@@ -254,6 +254,12 @@ test('Playwright local-sync cleanup does not hide failed fixture deletion', asyn
   assert.match(source, /Cleanup failed for/u);
 });
 
+test('UI route smoke reports the number of mobile routes it actually checks', async () => {
+  const source = await readFile(new URL('ui-route-smoke.mjs', import.meta.url), 'utf8');
+  assert.match(source, /const mobileRoutes = \[/u);
+  assert.match(source, /mobileRoutes: mobileRoutes\.length/u);
+});
+
 test('active Agent E2E requests use roles without legacy permission inputs', async () => {
   for (const file of [
     'smoke-test.mjs',
