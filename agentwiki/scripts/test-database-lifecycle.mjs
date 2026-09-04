@@ -22,3 +22,32 @@ export function errorWithTestDatabaseCleanup(primary, cleanupErrors, label) {
     { cause: primary },
   );
 }
+
+export async function withTestDatabaseCleanup(label, operation, cleanupActions) {
+  let operationFailed = false;
+  let primaryError;
+  let result;
+
+  try {
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    primaryError = error;
+  }
+
+  const cleanupErrors = [];
+  for (const cleanup of cleanupActions) {
+    try {
+      await cleanup();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+
+  if (operationFailed) {
+    throw errorWithTestDatabaseCleanup(primaryError, cleanupErrors, label);
+  }
+  const cleanupError = errorWithTestDatabaseCleanup(undefined, cleanupErrors, label);
+  if (cleanupError) throw cleanupError;
+  return result;
+}

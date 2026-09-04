@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import test from 'node:test';
-import { basename, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +33,7 @@ function completeFullTestEnvironment() {
     COLLABORATION_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_COLLABORATION@127.0.0.1/agentwiki_test',
     PAGE_TEMPLATE_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_TEMPLATE@127.0.0.1/agentwiki_test',
     TEST_REDIS_URL: 'redis://:HARNESS_SECRET_REDIS@127.0.0.1:6379/1',
+    AGENTWIKI_PSQL_BIN: process.execPath,
   };
 }
 
@@ -60,6 +61,7 @@ test('runtime plan assigns every test exactly once and serializes only database 
   assert.equal(plan.parallelArgs[0], '--test');
   assert.equal(plan.parallelArgs.includes('--test-concurrency=1'), false);
   assert.equal(plan.databaseArgs.includes('--test-concurrency=1'), true);
+  assert.equal(plan.databaseArgs.includes('--test-reporter=tap'), true);
 });
 
 test('runtime plan remains available without database services for the ordinary development gate', () => {
@@ -99,4 +101,41 @@ test('runtime plan full gate succeeds when every database and Redis prerequisite
 
   assert.equal(result.status, 0, result.stderr);
   assert.ok(JSON.parse(result.stdout).databaseTests.length > 0);
+});
+
+test('runtime full gate fails closed before database tests when psql is unavailable', () => {
+  const environment = completeFullTestEnvironment();
+  delete environment.AGENTWIKI_PSQL_BIN;
+  environment.PATH = '';
+
+  const result = spawnSync(process.execPath, [harness, 'plan'], {
+    encoding: 'utf8',
+    env: environment,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /psql.*required|psql.*unavailable/iu);
+});
+
+test('full database phase rejects skipped tests without counting known non-database skips', async () => {
+  const resultSafety = await import('./runtime-test-result-safety.mjs');
+  assert.doesNotThrow(() => resultSafety.assertZeroSkippedDatabaseTests([
+    'TAP version 13',
+    '1..139',
+    '# tests 139',
+    '# pass 139',
+    '# fail 0',
+    '# skipped 0',
+  ].join('\n')));
+  assert.throws(
+    () => resultSafety.assertZeroSkippedDatabaseTests([
+      'TAP version 13',
+      '1..139',
+      '# tests 139',
+      '# pass 111',
+      '# fail 0',
+      '# skipped 28',
+    ].join('\n')),
+    /database phase skipped 28 tests/iu,
+  );
 });

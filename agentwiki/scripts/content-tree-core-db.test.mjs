@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import test, { before } from 'node:test';
 import * as folderDatabaseSafety from './folder-test-database.mjs';
+import * as testDatabaseLifecycle from './test-database-lifecycle.mjs';
 import {
   assertFolderDatabaseSafetyPreflight,
   captureFolderDatabaseSafetyInventory,
@@ -247,6 +248,49 @@ test('Folder sanitized bundle ownership preserves a primary failure when cleanup
   assert.equal(caught, primary);
   assert.ok(caught.cause instanceof AggregateError);
   assert.deepEqual(caught.cause.errors, [cleanup]);
+});
+
+test('shared database lifecycle preserves the primary error and aggregates every cleanup failure', async () => {
+  assert.equal(typeof testDatabaseLifecycle.withTestDatabaseCleanup, 'function');
+  const primary = new Error('injected database operation failure');
+  const cleanupFailures = [
+    new Error('injected inventory failure'),
+    new Error('injected schema drop failure'),
+    new Error('injected disconnect failure'),
+  ];
+  const calls = [];
+  let caught;
+  try {
+    await testDatabaseLifecycle.withTestDatabaseCleanup(
+      'Injected database harness',
+      async () => {
+        throw primary;
+      },
+      cleanupFailures.map((failure, index) => async () => {
+        calls.push(index);
+        throw failure;
+      }),
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  assert.equal(caught, primary);
+  assert.deepEqual(calls, [0, 1, 2]);
+  assert.ok(caught.cause instanceof AggregateError);
+  assert.deepEqual(caught.cause.errors, cleanupFailures);
+});
+
+test('folder, collaboration, and pgvector wrappers use the shared cleanup lifecycle', async () => {
+  for (const file of [
+    'folder-test-database.mjs',
+    'collaboration-test-database.mjs',
+    'pgvector-test-database.mjs',
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /import\s+\{[^}]*\bwithTestDatabaseCleanup\b[^}]*\}\s+from\s+'\.\/test-database-lifecycle\.mjs'/su, file);
+    assert.match(source, /return withTestDatabaseCleanup\(/u, file);
+  }
 });
 
 test('Folder structural inventory distinguishes same-name public objects with different definitions', () => {

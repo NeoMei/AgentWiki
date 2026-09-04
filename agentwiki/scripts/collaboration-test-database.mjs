@@ -9,6 +9,7 @@ import {
 } from './folder-test-database.mjs';
 import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
 import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
+import { withTestDatabaseCleanup } from './test-database-lifecycle.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -69,52 +70,51 @@ export async function withCollaborationTestDatabase(baseDatabaseUrl, callback) {
     let schemaCreated = false;
     let safetyInventory;
 
-    try {
-      await assertCollaborationDatabaseSafetyPreflight(prisma);
-      safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-      await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
-      schemaCreated = true;
-      const migration = spawnPnpmSync(
-        [
-          '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
-          '--schema', preparedMigrations.schemaPath,
-        ],
-        boundedMigrationOptions({
-          cwd: new URL('..', import.meta.url),
-          encoding: 'utf8',
-          env: { ...process.env, DATABASE_URL: databaseUrl },
-        }),
-      );
-      if (migration.error || migration.status !== 0) {
-        const details = [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n');
-        throw new Error(`Collaboration test migration failed:\n${details}`);
-      }
-      const postMigrationInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-      assertSafetyInventoryUnchanged(safetyInventory, postMigrationInventory, 'migration');
-      return await callback({
-        databaseUrl,
-        schemaName,
-        migrationTreeDigest: preparedMigrations.treeDigest,
-        publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
-      });
-    } finally {
-      let safetyError;
-      if (safetyInventory) {
-        try {
-          const finalInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-          assertSafetyInventoryUnchanged(safetyInventory, finalInventory, 'test');
-        } catch (error) {
-          safetyError = error;
+    return withTestDatabaseCleanup(
+      'Collaboration test database',
+      async () => {
+        await assertCollaborationDatabaseSafetyPreflight(prisma);
+        safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+        await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
+        schemaCreated = true;
+        const migration = spawnPnpmSync(
+          [
+            '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+            '--schema', preparedMigrations.schemaPath,
+          ],
+          boundedMigrationOptions({
+            cwd: new URL('..', import.meta.url),
+            encoding: 'utf8',
+            env: { ...process.env, DATABASE_URL: databaseUrl },
+          }),
+        );
+        if (migration.error || migration.status !== 0) {
+          const details = [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n');
+          throw new Error(`Collaboration test migration failed:\n${details}`);
         }
-      }
-      try {
-        if (schemaCreated) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
-      } catch (error) {
-        safetyError ??= error;
-      } finally {
-        await prisma.$disconnect();
-      }
-      if (safetyError) throw safetyError;
-    }
+        const postMigrationInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+        assertSafetyInventoryUnchanged(safetyInventory, postMigrationInventory, 'migration');
+        return callback({
+          databaseUrl,
+          schemaName,
+          migrationTreeDigest: preparedMigrations.treeDigest,
+          publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
+        });
+      },
+      [
+        async () => {
+          if (safetyInventory) {
+            const finalInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+            assertSafetyInventoryUnchanged(safetyInventory, finalInventory, 'test');
+          }
+        },
+        async () => {
+          if (schemaCreated) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
+        },
+        async () => {
+          await prisma.$disconnect();
+        },
+      ],
+    );
   });
 }

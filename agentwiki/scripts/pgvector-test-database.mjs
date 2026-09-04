@@ -8,6 +8,7 @@ import {
   withFolderMigrationBundle,
 } from './folder-test-database.mjs';
 import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
+import { withTestDatabaseCleanup } from './test-database-lifecycle.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -79,37 +80,36 @@ export async function withPgvectorTestDatabase(baseDatabaseUrl, callback) {
     let schemaCreated = false;
     let safetyInventory;
 
-    try {
-      await assertPgvectorDatabaseSafetyPreflight(prisma);
-      safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-      await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
-      schemaCreated = true;
-      return await callback({
-        databaseUrl,
-        schemaName,
-        schemaPath: preparedMigrations.schemaPath,
-        migrationsRoot: preparedMigrations.migrationsRoot,
-        migrationTreeDigest: preparedMigrations.treeDigest,
-        publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
-      });
-    } finally {
-      let safetyError;
-      if (safetyInventory) {
-        try {
-          const finalInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-          assertSafetyInventoryUnchanged(safetyInventory, finalInventory, 'test');
-        } catch (error) {
-          safetyError = error;
-        }
-      }
-      try {
-        if (schemaCreated) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
-      } catch (error) {
-        safetyError ??= error;
-      } finally {
-        await prisma.$disconnect();
-      }
-      if (safetyError) throw safetyError;
-    }
+    return withTestDatabaseCleanup(
+      'pgvector test database',
+      async () => {
+        await assertPgvectorDatabaseSafetyPreflight(prisma);
+        safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+        await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
+        schemaCreated = true;
+        return callback({
+          databaseUrl,
+          schemaName,
+          schemaPath: preparedMigrations.schemaPath,
+          migrationsRoot: preparedMigrations.migrationsRoot,
+          migrationTreeDigest: preparedMigrations.treeDigest,
+          publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
+        });
+      },
+      [
+        async () => {
+          if (safetyInventory) {
+            const finalInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+            assertSafetyInventoryUnchanged(safetyInventory, finalInventory, 'test');
+          }
+        },
+        async () => {
+          if (schemaCreated) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
+        },
+        async () => {
+          await prisma.$disconnect();
+        },
+      ],
+    );
   });
 }
