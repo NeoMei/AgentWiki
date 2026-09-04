@@ -31,7 +31,8 @@
     "build:cjs": "tsc -p tsconfig.cjs.json && node scripts/write-cjs-package.mjs",
     "typecheck": "tsc --noEmit --incremental false",
     "test": "vitest run",
-    "prepack": "pnpm build && pnpm test"
+    "verify:sync-v3-builds": "node scripts/verify-sync-v3-builds.mjs",
+    "prepack": "pnpm build && pnpm test && pnpm verify:sync-v3-builds"
   },
   "dependencies": {
     "zod": "^3.25.76"

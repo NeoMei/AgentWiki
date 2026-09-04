@@ -28,6 +28,36 @@ const AttachmentMimeTypeSchema = z.enum([
 
 export const SYNC_PROTOCOL_V3 = "3" as const;
 
+export const SYNC_V3_ERROR_CODES = Object.freeze([
+  "ATTACHMENT_REFERENCE_INVALID",
+  "ATTACHMENT_MISSING",
+  "ATTACHMENT_CONTENT_INVALID",
+  "ATTACHMENT_NAME_CONFLICT",
+  "ATTACHMENT_REFERENCED",
+  "ATTACHMENT_BLOB_MISSING",
+  "ATTACHMENT_QUOTA_EXCEEDED",
+  "SYNC_PROTOCOL_UPGRADE_REQUIRED",
+] as const);
+
+export const SyncV3ErrorCodeSchema = z.enum(SYNC_V3_ERROR_CODES);
+export type SyncV3ErrorCode = z.infer<typeof SyncV3ErrorCodeSchema>;
+
+export interface SyncV3ErrorEnvelope {
+  protocolVersion: "3";
+  error: {
+    code: SyncV3ErrorCode;
+    retryable: boolean;
+  };
+}
+
+export const SyncV3ErrorEnvelopeSchema: z.ZodType<SyncV3ErrorEnvelope> = z.object({
+  protocolVersion: z.literal(SYNC_PROTOCOL_V3),
+  error: z.object({
+    code: SyncV3ErrorCodeSchema,
+    retryable: z.boolean(),
+  }).strict(),
+}).strict();
+
 export const TREE_SYNC_V3_HARD_LIMITS = Object.freeze({
   maxAttachmentBytes: 10 * 1024 * 1024,
   maxRevisionAttachments: 1_000,
@@ -245,7 +275,8 @@ export type TreePushManifestChangeV3 = z.infer<typeof TreePushManifestChangeV3Sc
 export type TreePushChangeV3 = z.infer<typeof TreePushChangeV3Schema>;
 
 export type TreeDeltaItemV3 =
-  | TreeDeltaItemV2
+  | Exclude<TreeDeltaItemV2, { operation: "upsert_page" }>
+  | { operation: "upsert_page"; page: SyncPageV3 }
   | { operation: "upsert_attachment"; attachment: SyncAttachmentV3 }
   | { operation: "detach_attachment"; attachmentId: string; previousPath: string };
 
@@ -550,29 +581,47 @@ function compareStrings(left: string, right: string): number {
   return leftCodePoints.length - rightCodePoints.length;
 }
 
-function folderDepth(folder: SyncFolderV3, folders: ReadonlyMap<string, SyncFolderV3>, visiting = new Set<string>()): number {
-  if (folder.parentFolderId === null) return 0;
-  if (visiting.has(folder.folderId)) throw new TypeError("Folder hierarchy contains a cycle");
-  const parent = folders.get(folder.parentFolderId);
-  if (!parent) throw new TypeError("Folder hierarchy references an unknown parent");
-  visiting.add(folder.folderId);
-  try {
-    return folderDepth(parent, folders, visiting) + 1;
-  } finally {
-    visiting.delete(folder.folderId);
+function folderDepths(folders: ReadonlyMap<string, SyncFolderV3>): ReadonlyMap<string, number> {
+  const depths = new Map<string, number>();
+  for (const folderId of folders.keys()) {
+    if (depths.has(folderId)) continue;
+    const chain: SyncFolderV3[] = [];
+    const chainIds = new Set<string>();
+    let current = folders.get(folderId);
+    let baseDepth = -1;
+    while (current) {
+      const cachedDepth = depths.get(current.folderId);
+      if (cachedDepth !== undefined) {
+        baseDepth = cachedDepth;
+        break;
+      }
+      if (chainIds.has(current.folderId)) throw new TypeError("Folder hierarchy contains a cycle");
+      chainIds.add(current.folderId);
+      chain.push(current);
+      if (current.parentFolderId === null) break;
+      const parent = folders.get(current.parentFolderId);
+      if (!parent) throw new TypeError("Folder hierarchy references an unknown parent");
+      current = parent;
+    }
+    for (let index = chain.length - 1; index >= 0; index -= 1) {
+      baseDepth += 1;
+      depths.set(chain[index]!.folderId, baseDepth);
+    }
   }
+  return depths;
 }
 
 export function canonicalTreeRevisionManifestV3(manifest: TreeRevisionContentManifestV3): TreeRevisionContentManifestV3 {
   const parsed = TreeRevisionContentManifestV3Schema.parse(manifest);
   const foldersById = new Map(parsed.folders.map((folder) => [folder.folderId, folder]));
   if (foldersById.size !== parsed.folders.length) throw new TypeError("Folder manifest contains duplicate IDs");
+  const depthByFolderId = folderDepths(foldersById);
   const pageIds = new Set(parsed.pages.map((page) => page.pageId));
   if (pageIds.size !== parsed.pages.length) throw new TypeError("Page manifest contains duplicate IDs");
   return {
     ...parsed,
     folders: [...parsed.folders].sort((left, right) =>
-      folderDepth(left, foldersById) - folderDepth(right, foldersById)
+      depthByFolderId.get(left.folderId)! - depthByFolderId.get(right.folderId)!
       || compareStrings(pathKey(left.path), pathKey(right.path))
       || compareStrings(left.folderId, right.folderId)),
     pages: [...parsed.pages].sort((left, right) =>

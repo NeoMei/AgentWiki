@@ -1,5 +1,15 @@
 {
   "schemaVersion": "agentwiki-sync-v3-test-vectors@1",
+  "errorCodes": [
+    "ATTACHMENT_REFERENCE_INVALID",
+    "ATTACHMENT_MISSING",
+    "ATTACHMENT_CONTENT_INVALID",
+    "ATTACHMENT_NAME_CONFLICT",
+    "ATTACHMENT_REFERENCED",
+    "ATTACHMENT_BLOB_MISSING",
+    "ATTACHMENT_QUOTA_EXCEEDED",
+    "SYNC_PROTOCOL_UPGRADE_REQUIRED"
+  ],
   "revision": {
     "input": {
       "protocolVersion": "3",

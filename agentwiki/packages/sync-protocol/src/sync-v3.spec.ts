@@ -4,11 +4,15 @@ import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
   CreateTreePushSessionRequestV3Schema,
+  SYNC_V3_ERROR_CODES,
   SYNC_PROTOCOL_V3,
   TREE_SYNC_V3_HARD_LIMITS,
   SyncAttachmentV3Schema,
   SyncPageV3Schema,
+  SyncV3ErrorCodeSchema,
+  SyncV3ErrorEnvelopeSchema,
   TreeCapabilitiesResponseV3Schema,
+  TreeDeltaItemV3Schema,
   TreeDeltaPageV3Schema,
   TreeFinalizePushRequestV3Schema,
   TreeFinalizePushResponseV3Schema,
@@ -28,11 +32,13 @@ import {
   treeRevisionContentHashV3,
   treeRevisionDeltaHashV3,
   treeRevisionDeltaV3,
+  type TreeDeltaItemV3,
 } from "./index.js";
 
 const hash = "a".repeat(64);
 const timestamp = "2026-09-04T00:00:00.000Z";
 const vector = JSON.parse(readFileSync("test-vectors/sync-v3.json", "utf8")) as {
+  errorCodes: string[];
   revision: { input: unknown; expectedHash: string };
   delta: { input: unknown; expectedHash: string };
   confirmation: { input: unknown; expectedHash: string };
@@ -48,6 +54,16 @@ const attachment = (overrides: Record<string, unknown> = {}) => ({
   width: 1,
   height: 1,
   contentHash: hash,
+  updatedAt: timestamp,
+  ...overrides,
+});
+
+const folder = (overrides: Record<string, unknown> = {}) => ({
+  folderId: "folder-a",
+  parentFolderId: null,
+  name: "folder-a",
+  path: "pages/folder-a",
+  sortOrder: 0,
   updatedAt: timestamp,
   ...overrides,
 });
@@ -292,5 +308,76 @@ describe("Sync Protocol v3", () => {
     const oversizedChunk = new Uint8Array(TREE_SYNC_V3_HARD_LIMITS.blobChunkBytes + 1);
     await expect(blobChunkHashV3(oversizedChunk)).rejects.toThrow("BLOB_CHUNK_TOO_LARGE");
     await expect(blobContentHashV3(oversizedChunk)).resolves.toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  it("keeps the static v3 upsert_page type aligned with its strict runtime schema", () => {
+    const { referencedAttachmentIds: _references, ...legacyPage } = page();
+    // @ts-expect-error Sync v3 Page delta items must declare referencedAttachmentIds.
+    const invalid: TreeDeltaItemV3 = { operation: "upsert_page", page: legacyPage };
+    expect(() => TreeDeltaItemV3Schema.parse(invalid)).toThrow();
+
+    const valid: TreeDeltaItemV3 = { operation: "upsert_page", page: page() };
+    expect(TreeDeltaItemV3Schema.parse(valid)).toEqual(valid);
+  });
+
+  it("exports one strict, data-free envelope for the eight approved v3 error codes", () => {
+    expect([...SYNC_V3_ERROR_CODES]).toEqual(vector.errorCodes);
+    for (const code of vector.errorCodes) {
+      expect(SyncV3ErrorCodeSchema.parse(code)).toBe(code);
+      expect(SyncV3ErrorEnvelopeSchema.parse({
+        protocolVersion: "3",
+        error: { code, retryable: false },
+      })).toEqual({ protocolVersion: "3", error: { code, retryable: false } });
+    }
+    expect(() => SyncV3ErrorEnvelopeSchema.parse({
+      protocolVersion: "3",
+      error: {
+        code: "ATTACHMENT_MISSING",
+        retryable: false,
+        path: "/Users/example/private.png",
+        credential: "secret",
+        markdown: "![private](assets/private.png)",
+        blob: [1, 2, 3],
+        storageKey: "internal/blob/key",
+      },
+    })).toThrow();
+  });
+
+  it("canonicalizes a 10,000-folder parent chain without recursive depth walks", () => {
+    const folders = Array.from({ length: 10_000 }, (_, index) => {
+      const id = `folder-${String(index).padStart(5, "0")}`;
+      return folder({
+        folderId: id,
+        parentFolderId: index === 0 ? null : `folder-${String(index - 1).padStart(5, "0")}`,
+        name: id,
+        path: `pages/${id}`,
+      });
+    }).reverse();
+    const manifest = canonicalTreeRevisionManifestV3({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    });
+    expect(manifest.folders[0]?.folderId).toBe("folder-00000");
+    expect(manifest.folders.at(-1)?.folderId).toBe("folder-09999");
+  }, 10_000);
+
+  it("fails closed for folder cycles and missing parents", () => {
+    const manifest = (folders: ReturnType<typeof folder>[]) => ({
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    });
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", parentFolderId: "b", path: "pages/a" }),
+      folder({ folderId: "b", parentFolderId: "a", path: "pages/b" }),
+    ]))).toThrow(/cycle/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", parentFolderId: "missing", path: "pages/a" }),
+    ]))).toThrow(/unknown parent/iu);
   });
 });

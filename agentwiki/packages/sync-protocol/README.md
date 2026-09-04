@@ -45,4 +45,6 @@ Blob and chunk content hashes remain lowercase SHA-256 of the raw bytes so conte
 
 The fixed client/server safety ceiling is exported as `TREE_SYNC_V3_HARD_LIMITS`: 10 MiB per image, 1,000 referenced images per revision, 100 MiB transferred per revision, 1 MiB chunks, at most 10 chunks per image, concurrency 2, 10,000 pixels per side, and 40,000,000 decoded pixels. Negotiated capabilities may only lower these values.
 
+Sync v3 errors use `SyncV3ErrorEnvelopeSchema`, whose only payload fields are `protocolVersion`, `error.code`, and `error.retryable`. `SYNC_V3_ERROR_CODES` is the shared, closed set of attachment and protocol-upgrade codes; the strict envelope intentionally has no free-form message or data field that could carry paths, credentials, Markdown, Blob bytes, or storage keys.
+
 Shared cross-runtime fixtures are published at `@neomei/agentwiki-sync-protocol/test-vectors/sync-v3.json`. They pin revision, delta, confirmation, batch, and raw Blob digests for ESM/CJS consumers.
