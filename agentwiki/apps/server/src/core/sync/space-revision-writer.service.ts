@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
@@ -35,6 +35,7 @@ import {
   validateRevisionChainTrust,
 } from './revision-v2-integrity';
 import { lockContentStore } from './content-store-lock';
+import { SyncV3RevisionWriterService } from './sync-v3-revision-writer.service';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -87,7 +88,10 @@ export type SpaceTreeLockedTransaction = SpaceLockedTransaction & {
 
 @Injectable()
 export class SpaceRevisionWriterService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+  ) {}
 
   /**
    * This advisory lock is the first Space-scoped lock for every structural
@@ -185,6 +189,8 @@ export class SpaceRevisionWriterService {
     changes: PageChange[],
     origin: RevisionOrigin,
   ): Promise<RevisionWriteResult> {
+    const v3Result = await this.v3Writer?.advanceCurrentIfRequiredLocked(tx, spaceId, origin);
+    if (v3Result) return v3Result;
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
@@ -522,6 +528,8 @@ export class SpaceRevisionWriterService {
     origin: RevisionOrigin,
     deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
+    const v3Result = await this.v3Writer?.advanceCurrentIfRequiredLocked(tx, spaceId, origin);
+    if (v3Result) return v3Result;
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },

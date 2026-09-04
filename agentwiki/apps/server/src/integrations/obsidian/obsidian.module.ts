@@ -12,14 +12,15 @@ import { SyncV2RevisionService } from './sync-v2-revision.service';
 import { SyncRevisionService } from './sync-revision.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
-import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
 import { PushSessionService } from './push-session.service';
 import { SearchModule } from '../../core/search/search.module';
 import { KnowledgeGraphModule } from '../../knowledge-graph/knowledge-graph.module';
 import { ContentTreeModule } from '../../content-tree/content-tree.module';
+import { SyncModule } from '../../core/sync/sync.module';
+import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule],
+  imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule, SyncModule],
   providers: [
     ObsidianCryptoService,
     HumanDeviceGuard,
@@ -28,8 +29,8 @@ import { ContentTreeModule } from '../../content-tree/content-tree.module';
     SyncV2RevisionService,
     SyncCursorService,
     SyncCapabilitiesService,
-    SpaceRevisionWriterService,
     PushSessionService,
+    SyncV3BootstrapService,
   ],
   controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller],
   exports: [
@@ -40,8 +41,8 @@ import { ContentTreeModule } from '../../content-tree/content-tree.module';
     SyncV2RevisionService,
     SyncCursorService,
     SyncCapabilitiesService,
-    SpaceRevisionWriterService,
     PushSessionService,
+    SyncV3BootstrapService,
   ],
 })
 export class ObsidianModule {}

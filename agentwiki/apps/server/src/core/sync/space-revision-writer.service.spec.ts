@@ -9,6 +9,30 @@ describe('SpaceRevisionWriterService', () => {
     service = new SpaceRevisionWriterService(prisma);
   });
 
+  it('delegates a native v3 Space before creating any legacy revision row', async () => {
+    const result = {
+      revisionId: 'rev-v3', sequence: 3, revisionContentHash: 'a'.repeat(64),
+      pageCount: 1n, attachmentCount: 0n, revisionManifestByteLength: 100n,
+      revisionBodyBytes: 4n, revisionAttachmentBytes: 0n,
+      publishedAt: new Date('2026-09-04T00:00:00.000Z'),
+    };
+    const v3Writer = { advanceCurrentIfRequiredLocked: jest.fn().mockResolvedValue(result) };
+    service = new SpaceRevisionWriterService(prisma, v3Writer as any);
+    const tx = {
+      spaceKnowledgeRevision: { create: jest.fn() },
+      $executeRaw: jest.fn(),
+    };
+
+    await expect(service.advanceLocked(
+      tx as any, 'space-1', [], { origin: 'web_editor' },
+    )).resolves.toBe(result);
+    expect(v3Writer.advanceCurrentIfRequiredLocked).toHaveBeenCalledWith(
+      tx, 'space-1', { origin: 'web_editor' },
+    );
+    expect(tx.spaceKnowledgeRevision.create).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
   it('locks a space with a transaction-scoped advisory lock', async () => {
     const tx = { $executeRaw: jest.fn() };
     const locked = await service.lockSpace(tx as any, 'space-1');

@@ -1,12 +1,14 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
-import type { SyncErrorCode } from '@neomei/agentwiki-sync-protocol';
+import type { SyncErrorCode, SyncV3ErrorCode } from '@neomei/agentwiki-sync-protocol';
+
+type AnySyncErrorCode = SyncErrorCode | SyncV3ErrorCode;
 
 interface SyncErrorDefinition {
   status: HttpStatus;
   retryable: boolean;
 }
 
-const SYNC_ERROR_MAP: Record<SyncErrorCode, SyncErrorDefinition> = {
+const SYNC_ERROR_MAP: Record<AnySyncErrorCode, SyncErrorDefinition> = {
   AUTHENTICATION_REQUIRED: { status: HttpStatus.UNAUTHORIZED, retryable: false },
   DEVICE_CREDENTIAL_REVOKED: { status: HttpStatus.UNAUTHORIZED, retryable: false },
   DEVICE_CREDENTIAL_EXPIRED: { status: HttpStatus.UNAUTHORIZED, retryable: false },
@@ -42,17 +44,24 @@ const SYNC_ERROR_MAP: Record<SyncErrorCode, SyncErrorDefinition> = {
   QUOTA_EXCEEDED: { status: HttpStatus.PAYLOAD_TOO_LARGE, retryable: false },
   RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, retryable: true },
   INTERNAL_ERROR: { status: HttpStatus.INTERNAL_SERVER_ERROR, retryable: true },
+  ATTACHMENT_REFERENCE_INVALID: { status: HttpStatus.BAD_REQUEST, retryable: false },
+  ATTACHMENT_MISSING: { status: HttpStatus.CONFLICT, retryable: false },
+  ATTACHMENT_CONTENT_INVALID: { status: HttpStatus.BAD_REQUEST, retryable: false },
+  ATTACHMENT_NAME_CONFLICT: { status: HttpStatus.CONFLICT, retryable: false },
+  ATTACHMENT_REFERENCED: { status: HttpStatus.CONFLICT, retryable: false },
+  ATTACHMENT_BLOB_MISSING: { status: HttpStatus.CONFLICT, retryable: false },
+  ATTACHMENT_QUOTA_EXCEEDED: { status: HttpStatus.PAYLOAD_TOO_LARGE, retryable: false },
 };
 
 export class SyncApiException extends HttpException {
-  readonly syncCode: SyncErrorCode;
+  readonly syncCode: AnySyncErrorCode;
   readonly retryable: boolean;
 
   constructor(
-    code: SyncErrorCode,
+    code: AnySyncErrorCode,
     message: string,
     details?: Record<string, string | number | boolean | null>,
-    protocolVersion: '1' | '2' = '1',
+    protocolVersion: '1' | '2' | '3' = '1',
   ) {
     const definition = SYNC_ERROR_MAP[code];
     const body = {
@@ -70,6 +79,6 @@ export class SyncApiException extends HttpException {
   }
 }
 
-export function syncErrorStatus(code: SyncErrorCode): number {
+export function syncErrorStatus(code: AnySyncErrorCode): number {
   return SYNC_ERROR_MAP[code].status;
 }
