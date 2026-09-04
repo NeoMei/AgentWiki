@@ -22,20 +22,22 @@ const renderPage = (language: 'zh-CN' | 'en') => {
   );
 };
 
-describe('OnboardPage 0.6 onboarding guide', () => {
+describe('OnboardPage Agent-driven onboarding guide', () => {
   beforeEach(() => {
     localStorage.clear();
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
-  it('shows one pinned command and the three human actions in Chinese', () => {
+  it('presents the pinned command as an Agent prompt instead of a terminal command', () => {
     const { container } = renderPage('zh-CN');
 
     expect(screen.getByText(COMMAND)).toBeInTheDocument();
-    expect(LOCAL_SYNC_VERSION).toBe('0.7.0');
-    expect(container.textContent?.match(/@neomei\/agentwiki-local-sync@0\.7\.0/g)).toHaveLength(1);
-    expect(screen.getByText('AgentWiki 0.5')).toBeInTheDocument();
-    expect(container).not.toHaveTextContent('AgentWiki 0.3');
+    expect((container.textContent || '').split(COMMAND)).toHaveLength(2);
+    expect(screen.getByText(`AgentWiki ${LOCAL_SYNC_VERSION}`)).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('AgentWiki 0.5');
+    expect(screen.getByText('复制整段提示词到你的 Agent')).toBeInTheDocument();
+    expect(screen.queryByText('在本地终端运行')).not.toBeInTheDocument();
+    expect(screen.getByText(/这不是普通终端命令/)).toBeInTheDocument();
     expect(screen.getByText(/在浏览器中登录或注册并授权/)).toBeInTheDocument();
     expect(screen.getByText(/确认 Agent、Space、权限和本地扫描计划/)).toBeInTheDocument();
     expect(screen.getByText(/预览整理后的知识并确认同步/)).toBeInTheDocument();
@@ -57,16 +59,22 @@ describe('OnboardPage 0.6 onboarding guide', () => {
     expect(text).not.toContain('start_knowledge_job');
   });
 
-  it('copies the pinned command and reports blocked clipboard access', async () => {
+  it('copies an executable Agent task prompt and reports blocked clipboard access', async () => {
     const { unmount } = renderPage('zh-CN');
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(COMMAND));
-    expect(await screen.findByRole('button', { name: '已复制' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '复制提示词' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1));
+    const copiedPrompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0]?.[0];
+    expect(copiedPrompt).not.toBe(COMMAND);
+    expect(copiedPrompt).toContain(COMMAND);
+    expect(copiedPrompt).toContain('请帮我完成 AgentWiki 自助接入');
+    expect(copiedPrompt).toContain('持续读取 stdout 中的逐行 NDJSON');
+    expect(copiedPrompt).toContain('把带相同 requestId 的 JSON 回复写回进程 stdin');
+    expect(await screen.findByRole('button', { name: '已复制提示词' })).toBeInTheDocument();
 
     unmount();
     vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
     renderPage('zh-CN');
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    fireEvent.click(screen.getByRole('button', { name: '复制提示词' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('浏览器未允许复制');
   });
 });

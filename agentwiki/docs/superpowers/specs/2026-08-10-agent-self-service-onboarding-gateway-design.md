@@ -17,7 +17,7 @@ AgentWiki 当前已经能够通过 `/api/onboard.json` 引导本地 Agent 完成
 
 ## 2. 目标
 
-用户只需把一条固定版本命令交给 Codex、Claude Code、OpenCode 或其他能运行本地命令的 Agent。接入脚本负责：
+用户只需把 AgentWiki 生成的完整任务提示词作为一条消息粘贴到 Codex、Claude Code、OpenCode 或其他能运行本地命令的 Agent。提示词包含精确版本的 NDJSON 命令与协议驱动规则；不将裸命令作为人类直接终端入口。接入脚本负责：
 
 1. 通过网页 Device Auth 完成注册或登录，不让密码进入 Agent 对话。
 2. 通过 NDJSON 表单协议让 Agent 向用户收集必要参数。
@@ -382,7 +382,8 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 
 ## 14. 验收标准
 
-- 用户只把一条命令交给 Agent。
+- 首页自助接入页面展示并复制一段完整 Agent 任务提示词，其中只包含一条精确版本接入命令。
+- 提示词告诉 Agent 持续驱动 NDJSON stdout/stdin 协议直到终态，页面不得将 `--protocol ndjson` 标记为人类可直接运行的普通终端命令。
 - 密码和网页登录信息不进入 Agent 上下文。
 - Agent 通过 schema 填空，不需要解释自由格式提示词。
 - 正常流程只有网页 Auth、接入计划确认和首次同步预览确认三个用户动作。
