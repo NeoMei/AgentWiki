@@ -17,7 +17,7 @@
 - 任何 bug 修复必须先确认根因并观察失败回归，然后做最小修复和 GREEN 复验。
 - PostgreSQL 只允许 loopback、名称含 `test` 的 disposable 数据库和随机前缀 schema；不迁移、清理或污染 shared `public`。
 - PostgreSQL/Redis/API/Vite 仅绑定 loopback；使用前必须检查 `3000/5173/55432/56379`，完成后精确清理所有本轮资源。
-- 真实 CodeGraph 和 Chrome Playwright 不得用 mock 或旧日志代替；UI 验收使用 7 files / 25 tests，单 worker、0 retry。
+- 真实 CodeGraph 和 Chrome Playwright 不得用 mock 或旧日志代替；UI 验收使用最终 collection 的 8 files / 26 tests，单 worker、0 retry。
 - 三项既有 skip 只有在原因仍为平台或显式 opt-in 且非缺失 DB/Redis/Playwright/CodeGraph 时可接受。
 - 重复审查至少包含首轮三视角、修复后 scoped re-review 以及最终整分支审查；Critical/Important 不得遗留，Minor 要根据实际价值裁决。
 
@@ -37,11 +37,11 @@
 - Consumes: user requirements, archived Windows handoff, macOS evidence, Git history.
 - Produces: a requirement-by-requirement verdict and actionable task findings.
 
-- [ ] Build a checklist mapping every requested deliverable and release gate to current evidence.
-- [ ] Verify every claimed commit, test count, skip reason, cleanup fact and deferred item against repository state.
-- [ ] Classify every gap as Critical, Important, Minor, or no-fix with technical reasoning.
-- [ ] If findings exist, reproduce and fix them with TDD where executable behavior is involved.
-- [ ] Run a fresh scoped re-review until no worthwhile task gap remains.
+- [x] Build a checklist mapping every requested deliverable and release gate to current evidence.
+- [x] Verify every claimed commit, test count, skip reason, cleanup fact and deferred item against repository state.
+- [x] Classify every gap as Critical, Important, Minor, or no-fix with technical reasoning.
+- [x] If findings exist, reproduce and fix them with TDD where executable behavior is involved.
+- [x] Run a fresh scoped re-review until no worthwhile task gap remains.
 
 ### Task 2: Audit the complete code branch
 
@@ -54,11 +54,11 @@
 - Consumes: `origin/master..HEAD`, project specs and test contracts.
 - Produces: whole-branch bug/security/portability/concurrency/data-safety findings and fixes.
 
-- [ ] Review the diff in multiple passes: security/data loss, concurrency/atomicity, cross-platform/process, API/UI contracts, test honesty.
-- [ ] Reproduce each valid finding and trace it to root cause before proposing a fix.
-- [ ] Add the smallest failing regression, observe RED, implement minimal fix, observe GREEN.
-- [ ] Run affected suites after each fix and a scoped reviewer after each fix batch.
-- [ ] Repeat whole-branch review with a fresh reviewer until no worthwhile bug remains.
+- [x] Review the diff in multiple passes: security/data loss, concurrency/atomicity, cross-platform/process, API/UI contracts, test honesty.
+- [x] Reproduce each valid finding and trace it to root cause before proposing a fix.
+- [x] Add the smallest failing regression, observe RED, implement minimal fix, observe GREEN.
+- [x] Run affected suites after each fix and a scoped reviewer after each fix batch.
+- [x] Repeat whole-branch review with a fresh reviewer until no worthwhile bug remains.
 
 ### Task 3: Test full-stack and UI behavior
 
@@ -72,13 +72,13 @@
 - Consumes: isolated PostgreSQL/pgvector, Redis AOF, API/worker/client, Chrome and test fixtures.
 - Produces: full repository, real CodeGraph and 25-scenario UI evidence with cleanup.
 
-- [ ] Start exact Docker services after port/name guards and verify versions, loopback binding, pgvector and Redis AOF.
-- [ ] Run root `pnpm test`, typecheck, lint, build, audit and missing-prerequisite/skip checks.
-- [ ] Run real CodeGraph standard scan.
-- [ ] Start an isolated `mac_e2e_*` full stack; verify health and collect exactly 7 files / 25 tests.
-- [ ] Run Chrome Playwright with `--workers=1 --retries=0`; inspect service logs and failure artifacts.
-- [ ] For every failure, trace root cause, write RED, fix, rerun affected and full-stack/UI gates.
-- [ ] Repeat the full-stack/UI round until the final round finds no worthwhile issue.
+- [x] Start exact Docker services after port/name guards and verify versions, loopback binding, pgvector and Redis AOF.
+- [x] Run root `pnpm test:full`, typecheck, lint, build, audit and missing-prerequisite/skip checks.
+- [x] Run real CodeGraph standard scan.
+- [x] Start an isolated `mac_e2e_*` full stack; verify health and collect exactly 8 files / 26 tests.
+- [x] Run Chrome Playwright with `--workers=1 --retries=0`; inspect service logs and failure artifacts.
+- [x] For every failure, trace root cause, write RED, fix, rerun affected and full-stack/UI gates.
+- [x] Repeat the full-stack/UI round until the final round finds no worthwhile issue.
 
 ### Task 4: Final immutable-code verification and cleanup
 
@@ -91,9 +91,9 @@
 - Consumes: all review reports, fix commits, test logs and resource handles.
 - Produces: a clean final HEAD, final evidence commit, cleanup proof and integration options.
 
-- [ ] Dispatch a fresh whole-branch reviewer after all scoped loops; fix and re-review any valid finding.
-- [ ] Create a fresh `--no-local` clean clone at the final code SHA and rerun required gates.
-- [ ] Verify zero generated schema residue and unchanged protected `public` inventory.
-- [ ] Stop only exact owned processes/containers; remove exact E2E schema; move temporary artifacts recoverably where applicable; prove four ports clear.
-- [ ] Update formal evidence and project memory with exact SHAs and counts, then commit separately.
-- [ ] Run the full test suite on the final evidence HEAD and present integration choices without pushing automatically.
+- [x] Dispatch fresh whole-branch review after all scoped loops; fix and re-review every valid finding.
+- [x] Create a fresh `--no-local` clean clone at the final code SHA and rerun required gates.
+- [x] Verify zero generated schema residue and unchanged protected `public` inventory.
+- [x] Stop only exact owned processes/containers; remove exact E2E schema; move temporary artifacts recoverably where applicable; prove four ports clear.
+- [x] Update formal evidence and project memory with exact SHAs and counts, then commit separately.
+- [x] Confirm the evidence-only HEAD changes no executable files and present integration status without pushing automatically.

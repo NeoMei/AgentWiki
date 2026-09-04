@@ -4,12 +4,12 @@
 
 ## 结论与代码身份
 
-- 最终结论：**PASS**。
-- 最终已测试代码提交：`23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`（`fix(test): close macOS release verification gaps`）。
-- 该 SHA 在无预存 `node_modules` / `dist`、未初始化 CodeGraph 的真实 clean clone 中完成锁定安装、完整 `pnpm test`、静态门禁、构建、裸审计和真实 CodeGraph；随后同一 SHA 在当前 clean worktree 完成隔离全栈与 Chrome Playwright 25/25。
-- 本文件、最终修复报告与项目记忆位于代码提交之后的独立证据提交，不改变已测试代码；本任务未 push、未发布 npm、未部署生产。
+- Mac 本机最终结论：**PASS**；Windows same-code native 与 Assist 外部凭据成功路径仍是独立验收边界。
+- 最终已测试代码提交：`e94fa7ba0b2a49f39a19be8405b582e213ec4c88`（`test(runtime): tolerate loaded process scheduling`）。
+- 该 SHA 在当前工作树和无预存 `node_modules` / client dist 的真实 `--no-local` clean clone 中分别完成完整 `pnpm test:full`、静态门禁、构建和真实 CodeGraph；工作树裸审计为零已知漏洞，同一代码完成隔离全栈与 Chrome Playwright 26/26。
+- 本文件、最终交接与项目记忆位于代码提交之后的独立证据提交，不改变已测试运行时代码；本任务未 push、未发布 npm、未部署生产。
 - 没有因缺少 PostgreSQL、Redis、Playwright 或 CodeGraph 前提而跳过门禁；最终完整仓库保留的 3 个 skip 分别是显式 opt-in CodeGraph acceptance、macOS 上的 Windows OpenCode 可执行文件实跑和 macOS 上的 Windows ACL 断言。
-- 下方“初始验证历史”保留此前 Task 1–6 的失败与修复；其旧 SHA/计数均是历史阶段证据，最终判断以后附的“最终审查修复波”为准。
+- 下方“初始验证历史”保留此前 Task 1–6 的失败与修复；其旧 SHA/计数均是历史阶段证据，最终判断以文末“最终发布候选审计”为准。
 
 ## macOS 与工具链
 
@@ -200,3 +200,46 @@ RED 共 15 个失败 case（launcher 2、server 11、pg_dump 1、真实 Markdown
 - 独立只读复审 `821a0b1..4a9ac92`：Critical 0 / Important 0 / Minor 0，`Ready to merge: Yes`。
 
 最终 authoritative 代码基线更新为 `4a9ac92`。该基线关闭了最后一个 Windows 跨平台门禁缺口，Mac 全套验证仍为 **PASS**；推送、npm 发布与生产部署仍是独立动作。
+
+---
+
+## 最终发布候选审计（代码 `e94fa7b`）
+
+用户要求继续进行多轮任务完整性审查、整分支代码审查和前后端/UI 全面测试。本轮在 `4a9ac92` 之后继续发现并修复有效问题，最终不可变代码提交为 `e94fa7ba0b2a49f39a19be8405b582e213ec4c88`（`test(runtime): tolerate loaded process scheduling`）。本节取代此前 SHA 的最终候选地位，但保留上文历史审计链。
+
+### 多轮审查与修复结论
+
+- 任务完整性审查、代码安全/并发/跨平台/API/UI 契约审查、测试真实性审查均经过首轮、修复后 scoped re-review 和最终整分支复核；最终未遗留值得修复的 Critical、Important 或 Minor finding。
+- 协作实时链路修复了 Socket.IO 已报告 connected、但异步认证尚未完成时首个 `joinCollaborationRun` 被静默丢弃的竞态；服务端将认证 Promise 同步登记并让 refresh 等待认证，客户端延迟连接以规避 React StrictMode probe socket。服务端 focused 23/23，客户端 focused 21/21，真实协作浏览器流程重复通过。
+- UI 测试不再只检查模糊事件计数，而是解析 Socket.IO frame，并证明外部 pause 的精确 `eventSequence` 提示发生在后续 GET 前；协作 workspace、启动向导和 dashboard 都增加 390px 无水平溢出断言。
+- PostgreSQL 安全 fixture 不再用连接池 session-local `SET hnsw.ef_search` 制造不稳定 inventory；改为只作用于 disposable 临时数据库的 database-level 设置并重连。两个真实 DB focused 文件合计 10/10。
+- 进程树超时回归在全仓高负载下暴露出测试调度窗口过窄；保留 `ETIMEDOUT`、有界返回和孙进程不得写 sentinel 的原契约，仅扩大测试时序窗口。新窗口重复 10/10，文件整体 10/10。
+- Assist 真实任务已进入并由 worker 处理，但因环境未提供 OpenRouter API key 而失败；付费 fallback 始终关闭。这是外部凭据门禁，不记作产品 PASS，也不伪装为代码失败。
+
+### 最终代码 SHA 上的门禁
+
+- 当前工作树 `pnpm test:full` 明确 exit 0：**4265 total = 4262 pass / 0 fail / 3 skip**。
+  - runtime Node：206 total，205 pass，1 个显式 opt-in CodeGraph skip；database serial：146/146。
+  - server Jest：114 suites，1856 total，1855 pass，1 个 macOS 上的 Windows-only skip。
+  - client：82 files，1122/1122；sync-protocol：8 files，57/57。
+  - local-sync：61 files，878 total，877 pass，1 个 macOS 上的 Windows-only skip。
+- 当前工作树 `pnpm typecheck`、`pnpm lint`、`pnpm build`、`git diff --check`、真实 CodeGraph 1.6.0 standard scan 和裸 `pnpm audit` 均 exit 0；构建只有既有 Vite chunk-size warning，audit 为零已知漏洞。
+- 全新 `git clone --no-local` clean clone 精确 checkout `e94fa7b`，无预存 `node_modules` / client dist；`pnpm install --frozen-lockfile` exit 0。clone 内再次运行 `pnpm test:full` 得到同样的 4265 / 4262 / 0 / 3，随后 typecheck、lint、build、`git diff --check` 与真实 CodeGraph 均 exit 0。
+- 两轮完整 DB 门禁中的 protected inventory 均满足 `before == after == 22620ff9007390b20a7cd973956a9f7bf8b891dd7d0cdf3e75622c5c0656b1a9`；最终测试前缀 schema 和 `aw_*_global_test_*` 临时数据库均为 0。
+
+### 最终全栈与 UI
+
+- 使用独立 `mac_e2e_20260904_final_review` schema、loopback PostgreSQL/pgvector 与 Redis AOF、真实 API/worker/Vite/Chrome。
+- 协作 E2E 在增强精确事件因果和 390px 断言后重复两轮，2/2。
+- 最终 Chrome Playwright collection 为 **8 files / 26 tests**；单 worker、无 retry 的完整运行为 **26 passed / 0 failed / 0 skipped**（约 1.1 分钟）。此前一次并发运行虽显示 26 个测试体通过，但因控制会话消失未取得最终进程 exit，因此没有将其计入 authoritative evidence。
+- 既有真实 smoke 31 项、cross-machine SyncEngine、Space Agent 桌面/移动、公开/认证/UI route smoke、协作 standalone workflow，以及 Codex/Claude/OpenCode onboarding loop 均通过；本轮新代码改动后由最终 26/26 与完整测试覆盖相关契约。
+
+### 最终清理与发布边界
+
+- 清理前对可连接数据库枚举：所有已知测试前缀 schema 为 0，`aw_*_global_test_*` 临时数据库为 0；`agentwiki_test.public` 和 `postgres.public` 均为 0 张表，受保护的 `agentwiki_sync_v3_test.public` 保持 68 张表且完整测试 digest 前后一致。
+- 本轮 isolated E2E schema 已精确 DROP；API/worker/client 已结束，3000/5173 无监听。
+- PostgreSQL 容器 `9b60cff0bd93eee9531f736bd1abb33a4184de3baf543d1cb2504001f01fb0cb` 与 Redis 容器 `6e1ca01698445e14b553da03389a0f452e028aedac4281faece0eb4c5608e946` 在名称、完整 ID、`auto_remove=true` 和 loopback 端口 guard 后按完整 ID停止并消失；停止后的即时复核中 3000/5173/55432/56379 均无 listener。22:55 另一个并行任务新建了非本任务容器 `agentwiki-sync-v3-task4-postgres` 并重新占用 55432；本任务未越界停止它，因此当前 55432 有 listener，但不是本轮资源残留。
+- clean clone、两个陈旧 clone、陈旧 folder-migration 临时目录、测试附件和两个 runtime env 均未 broad delete，已可恢复地移动到 `/Users/neomei/.Trash/agentwiki-final-review-temp-20260904/`；原 `/tmp` / `/private/tmp` 匹配路径为 0。
+- **Mac 本机范围结论：PASS。** 对 `e94fa7b` 的任务、代码、后端、前端和真实 UI 审查/测试已完成，当前没有值得继续修复的已知 bug。
+- **全平台最终结论：仍有两个外部验收边界。** Windows 必须在真实 Windows 11 x64 上对该代码候选做 same-code native 复验；Assist 的真实成功路径需要有效 OpenRouter API key。二者都不是本轮 Mac 环境可诚实证明的事项。
+- 本轮仍未获得 push、npm publish 或生产部署授权；因此 `e94fa7b` 及其后续证据提交当前只存在于本地分支，不能声称已同步 GitHub 或生产。
