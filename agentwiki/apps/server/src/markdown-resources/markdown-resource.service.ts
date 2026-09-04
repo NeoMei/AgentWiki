@@ -13,6 +13,11 @@ import {
   type ResolvedMarkdownResource,
   normalizeMarkdownPageIdentity,
 } from './markdown-resource.dto';
+import {
+  parseImageReferences,
+  resolveParsedAttachmentReferences,
+  type ResolvedAttachmentReferences,
+} from './attachment-reference';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const IMAGE_EXTENSION = /\.(?:png|jpe?g|webp|gif)$/iu;
@@ -124,6 +129,25 @@ export class MarkdownResourceService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
   ) {}
+
+  async resolveReferencedAttachments(input: {
+    spaceId: string;
+    sourceSyncPath: string;
+    body: string;
+  }, reader: Pick<Prisma.TransactionClient, 'spaceAttachment'> = this.prisma): Promise<ResolvedAttachmentReferences> {
+    const references = parseImageReferences(input.body, input.sourceSyncPath);
+    const needsAttachments = references.some((reference) => (
+      reference.classification === 'managed_candidate'
+    ));
+    const attachments = needsAttachments
+      ? await reader.spaceAttachment.findMany({
+          where: { spaceId: input.spaceId, status: 'active' },
+          select: { id: true, displayName: true, nameKey: true },
+          orderBy: [{ nameKey: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+    return resolveParsedAttachmentReferences(references, attachments);
+  }
 
   async resolve(
     spaceId: string,

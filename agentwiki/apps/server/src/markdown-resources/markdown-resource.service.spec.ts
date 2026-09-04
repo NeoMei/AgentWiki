@@ -310,6 +310,60 @@ describe('MarkdownResourceService', () => {
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
   });
 
+  it('authoritatively resolves body references from active same-Space attachments', async () => {
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({ id: 'active-image', displayName: 'Caf\u00e9.png', nameKey: 'caf\u00e9.png' }),
+    ]);
+
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/topic/note.md',
+      body: '![](../assets/CAFE\u0301.PNG "title")',
+    })).resolves.toEqual({
+      attachmentIds: ['active-image'],
+      references: [expect.objectContaining({
+        rawTarget: '../assets/CAFE\u0301.PNG',
+        resolvedPath: 'assets/CAFÉ.PNG',
+        attachmentId: 'active-image',
+      })],
+      errors: [],
+    });
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', status: 'active' },
+      select: { id: true, displayName: true, nameKey: true },
+      orderBy: [{ nameKey: 'asc' }, { id: 'asc' }],
+    });
+  });
+
+  it('does not query attachments when a body has no local image references', async () => {
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/topic/note.md',
+      body: '[page](Page.md)\n![](https://example.com/a.png)',
+    })).resolves.toEqual({ attachmentIds: [], references: [], errors: [] });
+
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('can resolve through the caller transaction so a locked writer sees one snapshot', async () => {
+    const transaction = {
+      spaceAttachment: {
+        findMany: jest.fn().mockResolvedValue([
+          attachment({ id: 'locked-image', displayName: 'locked.png', nameKey: 'locked.png' }),
+        ]),
+      },
+    } as any;
+
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/topic/note.md',
+      body: '![[assets/locked.png]]',
+    }, transaction)).resolves.toMatchObject({ attachmentIds: ['locked-image'], errors: [] });
+
+    expect(transaction.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
   it('uses four constant-count bounded Page and alias queries for one hundred references', async () => {
     const references = Array.from({ length: 100 }, (_, index) => index % 2 === 0
       ? { key: `page-${index}`, kind: 'page' as const, target: `Page ${index}` }
