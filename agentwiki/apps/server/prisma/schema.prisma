@@ -237,11 +237,31 @@ model SpaceAttachment {
 
   space          Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   uploadedByUser User? @relation("AttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  versions       AttachmentVersion[]
+  revisionRows   SyncRevisionAttachmentRow[]
 
   @@unique([spaceId, nameKey])
   @@index([spaceId, status, updatedAt])
   @@index([contentHash])
   @@index([status, archivedAt])
+}
+
+model AttachmentVersion {
+  id           String   @id @default(cuid())
+  attachmentId String
+  contentHash  String
+  storageKey   String
+  mimeType     String
+  sizeBytes    BigInt
+  width        Int
+  height       Int
+  createdAt    DateTime @default(now())
+
+  attachment   SpaceAttachment             @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+  revisionRows SyncRevisionAttachmentRow[]
+
+  @@unique([attachmentId, contentHash])
+  @@index([contentHash])
 }
 
 model AssistTask {
@@ -942,6 +962,8 @@ model SpaceKnowledgeRevision {
   pageCount                  BigInt
   revisionBodyBytes          BigInt
   revisionManifestByteLength BigInt
+  attachmentCount            BigInt    @default(0)
+  revisionAttachmentBytes    BigInt    @default(0)
   supersededAt               DateTime?
   origin                     String?
   createdByUserId            String?
@@ -955,12 +977,30 @@ model SpaceKnowledgeRevision {
   sourceChangeSet       ChangeSet?             @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
   createdByUser         User?                  @relation("RevisionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
   humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
+  attachmentRows        SyncRevisionAttachmentRow[]
 
   @@unique([spaceId, sequence])
   @@index([spaceId, contentHash])
   @@unique([spaceId, migrationBatchId])
   @@index([sourceChangeSetId])
   @@index([spaceId, createdAt])
+}
+
+model SyncRevisionAttachmentRow {
+  revisionId          String
+  attachmentId        String
+  attachmentVersionId String
+  path                String
+  pathKey             String
+  ordinal             Int
+
+  revision          SpaceKnowledgeRevision @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  attachment        SpaceAttachment        @relation(fields: [attachmentId], references: [id], onDelete: Restrict)
+  attachmentVersion AttachmentVersion      @relation(fields: [attachmentVersionId], references: [id], onDelete: Restrict)
+
+  @@id([revisionId, attachmentId])
+  @@unique([revisionId, pathKey])
+  @@unique([revisionId, ordinal])
 }
 
 model SpaceRevisionChainCheckpoint {
@@ -1130,6 +1170,8 @@ model PushSession {
   confirmationByteLength Int
   changeCount            Int
   totalBodyBytes         BigInt
+  attachmentCount        Int      @default(0)
+  transferBlobBytes      BigInt   @default(0)
   receivedBatchCount     Int      @default(0)
   receivedChangeCount    Int      @default(0)
   receivedBodyBytes      BigInt   @default(0)
@@ -1141,11 +1183,59 @@ model PushSession {
 
   batches           PushSessionBatch[]
   PushSessionChange PushSessionChange[]
+  v3Changes         PushSessionV3Change[]
+  blobs             PushSessionBlob[]
 
   @@unique([credentialFamilyId, idempotencyKey])
   @@unique([spaceId, publishedChangeSetId])
   @@index([spaceId, status, expiresAt])
   @@index([credentialId, spaceId])
+}
+
+model PushSessionV3Change {
+  sessionId  String
+  ordinal    Int
+  entityType String
+  entityId   String
+  operation  String
+  payload    Json
+
+  session PushSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, ordinal])
+  @@unique([sessionId, entityType, entityId])
+}
+
+model PushSessionBlob {
+  sessionId   String
+  contentHash String
+  sizeBytes   BigInt
+  mimeType    String
+  width       Int
+  height      Int
+  status      String
+  storageKey  String?
+  verifiedAt  DateTime?
+
+  session PushSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  chunks  PushSessionBlobChunk[]
+
+  @@id([sessionId, contentHash])
+}
+
+model PushSessionBlobChunk {
+  sessionId   String
+  contentHash String
+  chunkIndex  Int
+  chunkHash   String
+  sizeBytes   Int
+  receipt     String
+  createdAt   DateTime @default(now())
+
+  blob PushSessionBlob @relation(fields: [sessionId, contentHash], references: [sessionId, contentHash], onDelete: Cascade)
+
+  @@id([sessionId, contentHash, chunkIndex])
+  @@unique([sessionId, contentHash, receipt])
 }
 
 model PushSessionBatch {
