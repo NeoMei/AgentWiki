@@ -5,10 +5,12 @@ import {
   validateCollaborationTestDatabaseUrl,
   withCollaborationTestDatabase,
 } from './collaboration-test-database.mjs';
+import * as collaborationDatabase from './collaboration-test-database.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.COLLABORATION_TEST_DATABASE_URL;
+const REVIEWED_MIGRATION_TREE_SHA256 = 'aea568306ebeb5ce70977a19b205cdb8c2d8bed0bc434e49a2e82a15d477c32e';
 
 test('dedicated collaboration database URLs fail closed', () => {
   assert.throws(() => validateCollaborationTestDatabaseUrl(undefined), /required/i);
@@ -18,11 +20,58 @@ test('dedicated collaboration database URLs fail closed', () => {
   assert.doesNotThrow(() => validateCollaborationTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=collaboration_test_existing'));
 });
 
+test('collaboration preflight rejects a missing or non-public vector extension', async () => {
+  assert.equal(typeof collaborationDatabase.assertCollaborationDatabaseSafetyPreflight, 'function');
+  await assert.rejects(
+    collaborationDatabase.assertCollaborationDatabaseSafetyPreflight({ $queryRaw: async () => [] }),
+    /vector extension must be preconfigured in public/iu,
+  );
+  await assert.rejects(
+    collaborationDatabase.assertCollaborationDatabaseSafetyPreflight({
+      $queryRaw: async () => [{ name: 'vector', schema: 'private' }],
+    }),
+    /vector extension must be preconfigured in public/iu,
+  );
+});
+
+test('collaboration harness removes its random schema when the callback fails', {
+  skip: baseDatabaseUrl ? false : 'COLLABORATION_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  let createdSchema;
+  await assert.rejects(
+    withCollaborationTestDatabase(baseDatabaseUrl, async ({ schemaName }) => {
+      createdSchema = schemaName;
+      throw new Error('intentional collaboration cleanup probe');
+    }),
+    /intentional collaboration cleanup probe/u,
+  );
+  const administrativeUrl = new URL(baseDatabaseUrl);
+  administrativeUrl.searchParams.delete('schema');
+  const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT nspname FROM pg_namespace WHERE nspname = $1',
+      createdSchema,
+    );
+    assert.deepEqual(rows, []);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
 test('collaboration migration exposes all ten tables and integrity guards', {
   skip: baseDatabaseUrl ? false : 'COLLABORATION_TEST_DATABASE_URL is not configured',
   timeout: 120_000,
 }, async () => {
-  await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+  await withCollaborationTestDatabase(baseDatabaseUrl, async ({
+    databaseUrl,
+    schemaName,
+    migrationTreeDigest,
+    publicInventoryDigest,
+  }) => {
+    assert.equal(migrationTreeDigest, REVIEWED_MIGRATION_TREE_SHA256);
+    assert.match(publicInventoryDigest, /^[a-f0-9]{64}$/u);
     const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
     const suffix = schemaName.replace('collaboration_test_', '');
     const ids = Object.fromEntries([

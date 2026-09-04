@@ -3,63 +3,62 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import {
+  selectPgvectorIndexForSchema,
+  withPgvectorTestDatabase,
+} from './pgvector-test-database.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
 
 const databaseUrl = process.env.DATABASE_URL;
-const SAFE_SCHEMA = /^pgvector_test_[a-z0-9_]+$/u;
 
-function validateTestDatabaseUrl(value) {
-  const parsed = new URL(value);
-  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
-    throw new Error('DATABASE_URL must use PostgreSQL');
-  }
-  if (!databaseName.toLowerCase().includes('test')) {
-    throw new Error('DATABASE_URL database name must contain test');
-  }
-  parsed.searchParams.delete('schema');
-  return parsed;
-}
-
-async function withPgvectorTestSchema(callback) {
-  const administrativeUrl = validateTestDatabaseUrl(databaseUrl);
-  const schemaName = `pgvector_test_${randomUUID().replaceAll('-', '')}`;
-  assert.match(schemaName, SAFE_SCHEMA);
-  const quotedSchema = `"${schemaName}"`;
-  const testUrl = new URL(administrativeUrl);
-  testUrl.searchParams.set('schema', schemaName);
-  const admin = new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
-  const [{ count: publicTablesBefore }] = await admin.$queryRaw`
-    SELECT count(*)::int AS count FROM pg_tables WHERE schemaname = 'public'
-  `;
-  try {
-    await admin.$executeRawUnsafe(`CREATE SCHEMA ${quotedSchema}`);
-    return await callback(testUrl.toString());
-  } finally {
-    await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
-    const [{ count: publicTablesAfter }] = await admin.$queryRaw`
-      SELECT count(*)::int AS count FROM pg_tables WHERE schemaname = 'public'
-    `;
-    await admin.$disconnect();
-    assert.equal(publicTablesAfter, publicTablesBefore, 'pgvector gate must preserve shared public tables');
-  }
-}
-
-function migrateSchema(schemaUrl) {
+function migrateSchema(schemaUrl, schemaPath) {
   const result = spawnSync(
     'pnpm',
-    ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
+    [
+      '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+      '--schema', schemaPath,
+    ],
     { cwd: new URL('..', import.meta.url), encoding: 'utf8', env: { ...process.env, DATABASE_URL: schemaUrl } },
   );
   assert.equal(result.status, 0, `migrate deploy failed:\n${result.stdout}\n${result.stderr}`);
 }
 
+test('pgvector harness removes its random schema when the callback fails', {
+  skip: databaseUrl ? false : 'DATABASE_URL is not configured',
+  timeout: 60_000,
+}, async () => {
+  let createdSchema;
+  await assert.rejects(
+    withPgvectorTestDatabase(databaseUrl, async ({ schemaName }) => {
+      createdSchema = schemaName;
+      throw new Error('intentional pgvector cleanup probe');
+    }),
+    /intentional pgvector cleanup probe/u,
+  );
+  const administrativeUrl = new URL(databaseUrl);
+  administrativeUrl.searchParams.delete('schema');
+  const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT nspname FROM pg_namespace WHERE nspname = $1',
+      createdSchema,
+    );
+    assert.deepEqual(rows, []);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
+
 test('schema drift is limited to the unmodellable HNSW vector index', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 60_000,
-}, async () => withPgvectorTestSchema(async (schemaUrl) => {
+}, async () => withPgvectorTestDatabase(databaseUrl, async ({
+  databaseUrl: schemaUrl,
+  migrationsRoot,
+  schemaPath,
+}) => {
   const root = new URL('..', import.meta.url);
   const serverDir = new URL('apps/server/', root);
   // Prisma cannot express an HNSW index over an Unsupported halfvec column,
@@ -70,8 +69,8 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
     'npx',
     [
       'prisma', 'migrate', 'diff',
-      '--from-migrations', 'prisma/migrations',
-      '--to-schema-datamodel', 'prisma/schema.prisma',
+      '--from-migrations', migrationsRoot,
+      '--to-schema-datamodel', schemaPath,
       '--shadow-database-url', schemaUrl,
       '--exit-code',
     ],
@@ -92,8 +91,12 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
 test('pgvector semantic search uses halfvec HNSW with cosine distance and hash short-circuit', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 60_000,
-}, async () => withPgvectorTestSchema(async (schemaUrl) => {
-  migrateSchema(schemaUrl);
+}, async () => withPgvectorTestDatabase(databaseUrl, async ({
+  databaseUrl: schemaUrl,
+  schemaName,
+  schemaPath,
+}) => {
+  migrateSchema(schemaUrl, schemaPath);
   const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
   const suffix = randomUUID();
   const userId = `pgv-u-${suffix}`;
@@ -130,22 +133,46 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
     assert.equal(rows[1].id, pageB);
     assert.ok(rows[1].similarity < rows[0].similarity, 'results must be cosine ordered');
 
-    const [index] = await prisma.$queryRaw(Prisma.sql`
-      SELECT indexdef FROM pg_indexes
-      WHERE indexname = 'Page_embeddingVector_hnsw'
+    const indexRows = await prisma.$queryRaw(Prisma.sql`
+      SELECT schemaname AS "schemaName",
+             indexname AS "indexName",
+             indexdef AS "indexDefinition"
+      FROM pg_indexes
+      WHERE schemaname = ${schemaName}
+        AND indexname = 'Page_embeddingVector_hnsw'
     `);
-    assert.ok(index, 'HNSW index must exist');
-    assert.match(index.indexdef, /USING hnsw/);
-    assert.match(index.indexdef, /halfvec_cosine_ops/);
-    const [indexOptions] = await prisma.$queryRaw(Prisma.sql`
-      SELECT reloptions FROM pg_class WHERE relname = 'Page_embeddingVector_hnsw'
+    const index = selectPgvectorIndexForSchema(
+      indexRows,
+      schemaName,
+      'Page_embeddingVector_hnsw',
+    );
+    assert.match(index.indexDefinition, /USING hnsw/);
+    assert.match(index.indexDefinition, /halfvec_cosine_ops/);
+    const indexOptionRows = await prisma.$queryRaw(Prisma.sql`
+      SELECT index_namespace.nspname AS "schemaName",
+             index_class.relname AS "indexName",
+             index_class.reloptions AS options
+      FROM pg_class index_class
+      JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+      JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+      JOIN pg_class table_class ON table_class.oid = index_catalog.indrelid
+      JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+      WHERE index_namespace.nspname = ${schemaName}
+        AND table_namespace.nspname = ${schemaName}
+        AND table_class.relname = 'Page'
+        AND index_class.relname = 'Page_embeddingVector_hnsw'
     `);
+    const indexOptions = selectPgvectorIndexForSchema(
+      indexOptionRows,
+      schemaName,
+      'Page_embeddingVector_hnsw',
+    );
     assert.ok(
-      indexOptions.reloptions.some((option) => option.includes('m=32')),
+      indexOptions.options.some((option) => option.includes('m=32')),
       'HNSW index must keep the tuned m=32 graph degree',
     );
     assert.ok(
-      indexOptions.reloptions.some((option) => option.includes('ef_construction=256')),
+      indexOptions.options.some((option) => option.includes('ef_construction=256')),
       'HNSW index must keep the tuned ef_construction=256',
     );
 
@@ -156,7 +183,8 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
 
     const [dims] = await prisma.$queryRaw(Prisma.sql`
       SELECT atttypmod AS dims FROM pg_attribute
-      WHERE attrelid = '"Page"'::regclass AND attname = 'embeddingVector'
+      WHERE attrelid = to_regclass(format('%I.%I', ${schemaName}, 'Page'))
+        AND attname = 'embeddingVector'
     `);
     assert.equal(dims.dims, 2048, 'embeddingVector must be halfvec(2048)');
   } finally {
@@ -171,7 +199,7 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
 test('hnsw semantic recall stays above the tuned floor', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 120_000,
-}, async () => withPgvectorTestSchema(async (schemaUrl) => {
+}, async () => withPgvectorTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
   const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
   const suffix = randomUUID().slice(0, 8).replace(/-/g, '');
   const table = `recall_guard_${suffix}`;

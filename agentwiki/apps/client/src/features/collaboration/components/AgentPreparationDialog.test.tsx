@@ -199,6 +199,7 @@ describe('AgentPreparationDialog', () => {
       'ConnectionChecking connection…',
     );
     expect(screen.getByRole('button', { name: 'Prepare Agent' })).toBeDisabled();
+    await waitFor(() => expect(existingAgentContextApi.getAgent).toHaveBeenCalledWith(publisher.id));
 
     await act(async () => { resolveDetail(ownedAgentDetail(publisher, true)); });
 

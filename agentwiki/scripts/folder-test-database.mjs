@@ -194,6 +194,7 @@ export async function prepareFolderMigrationBundle({
     }
     return {
       temporaryRoot,
+      migrationsRoot: bundleMigrationsRoot,
       schemaPath: join(temporaryRoot, 'schema.prisma'),
       treeDigest: corpus.treeDigest,
       cleanup: () => rm(temporaryRoot, { recursive: true, force: true }),
