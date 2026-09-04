@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { assertTestRedisAvailable, resolveTestRedisTarget } from './e2e-safety.mjs';
 import { spawnPnpmSync } from './package-manager-process.mjs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,15 +9,16 @@ import test from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const databaseUrl = process.env.DATABASE_URL;
+const redisTarget = resolveTestRedisTarget(process.env.TEST_REDIS_URL, {
+  enabled: Boolean(databaseUrl),
+});
+if (redisTarget) assertTestRedisAvailable(redisTarget);
 const psqlAvailable = spawnSync('psql', ['--version'], { encoding: 'utf8' }).status === 0;
-const redisAvailable = spawnSync('redis-cli', ['ping'], { encoding: 'utf8' }).status === 0;
 const skip = !databaseUrl
   ? 'DATABASE_URL is not configured'
   : !psqlAvailable
     ? 'psql is unavailable'
-    : !redisAvailable
-      ? 'redis is unavailable'
-      : false;
+    : false;
 
 function postgresEnvironment(rawUrl) {
   const parsed = new URL(rawUrl);
@@ -72,7 +74,7 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     const env = {
       ...process.env,
       DATABASE_URL: url.href,
-      REDIS_URL: 'redis://localhost:6379',
+      REDIS_URL: redisTarget.url,
       JWT_SECRET: jwtSecret,
       AGENTWIKI_SERVER_PEPPER: pepper,
       AGENTWIKI_DEPLOYMENT_SEED: seed,

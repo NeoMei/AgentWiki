@@ -7,6 +7,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { assertTestRedisAvailable, resolveTestRedisTarget } from './e2e-safety.mjs';
 import {
   validateMarkdownTestDatabaseUrl,
   withMarkdownTestDatabase,
@@ -156,6 +157,10 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
     : 'MARKDOWN_TEST_DATABASE_URL is required; run the dedicated gate to satisfy acceptance',
   timeout: 180_000,
 }, async () => {
+  const redisTarget = assertTestRedisAvailable(resolveTestRedisTarget(
+    process.env.TEST_REDIS_URL,
+    { enabled: true },
+  ));
   let generatedSchema;
   await withMarkdownTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
     generatedSchema = schemaName;
@@ -176,7 +181,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         NODE_ENV: 'test',
         PROCESS_ROLE: 'api',
         DATABASE_URL: databaseUrl,
-        REDIS_URL: 'redis://127.0.0.1:6379',
+        REDIS_URL: redisTarget.url,
         JWT_SECRET: `attachment-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `attachment-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
