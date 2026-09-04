@@ -83,7 +83,7 @@ test('a timed-out synchronous package-manager command terminates its whole proce
   const grandchild = [
     "const { writeFileSync } = require('node:fs');",
     'const sentinel = process.argv[1];',
-    "setTimeout(() => writeFileSync(sentinel, 'survived'), 400);",
+    "setTimeout(() => writeFileSync(sentinel, 'survived'), 1_500);",
   ].join('\n');
   const parent = [
     "const { spawn } = require('node:child_process');",
@@ -96,12 +96,12 @@ test('a timed-out synchronous package-manager command terminates its whole proce
     const startedAt = Date.now();
     const result = spawnPackageManagerSync(process.execPath, ['-e', parent, sentinel, grandchild], {
       encoding: 'utf8',
-      timeout: 75,
+      timeout: 500,
     });
 
     assert.equal(result.error?.code, 'ETIMEDOUT');
-    assert.ok(Date.now() - startedAt < 2_000, 'the synchronous API must return within a bounded interval');
-    await new Promise((resolve) => setTimeout(resolve, 650));
+    assert.ok(Date.now() - startedAt < 3_000, 'the synchronous API must return within a bounded interval');
+    await new Promise((resolve) => setTimeout(resolve, 1_800));
     assert.equal(existsSync(sentinel), false, 'a grandchild survived the timeout and wrote the sentinel');
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
