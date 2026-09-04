@@ -7,6 +7,7 @@ const GENERATED_DEVELOPMENT_PATH = resolve(
   join(tmpdir(), 'agentwiki-development-attachments'),
 );
 const TEST_STORAGE_BASENAME_PATTERN = /^agentwiki-attachment-test-[A-Za-z0-9_-]+$/;
+const MACOS_E2E_STORAGE_BASENAME_PATTERN = /^agentwiki-mac-attachments\.[A-Za-z0-9]+$/;
 
 type StoragePathException = 'none' | 'implicit-development' | 'explicit-test';
 
@@ -58,9 +59,12 @@ function permitsTemporaryPath(
     return normalized === GENERATED_DEVELOPMENT_PATH;
   }
   if (pathException === 'explicit-test') {
+    const parent = resolve(dirname(normalized));
+    const name = basename(normalized);
     return (
-      resolve(dirname(normalized)) === resolve(tmpdir()) &&
-      TEST_STORAGE_BASENAME_PATTERN.test(basename(normalized))
+      (parent === resolve(tmpdir()) && TEST_STORAGE_BASENAME_PATTERN.test(name)) ||
+      (['/tmp', '/private/tmp'].includes(parent) &&
+        MACOS_E2E_STORAGE_BASENAME_PATTERN.test(name))
     );
   }
   return false;
@@ -84,11 +88,12 @@ function validateStoragePath(
     resolve(cwd()),
   ]);
   const pathSegments = normalized.slice(root.length).split(sep).filter(Boolean);
-  if (broadPaths.has(normalized) || pathSegments.length < 3) {
+  const permittedTemporaryPath = permitsTemporaryPath(normalized, pathException);
+  if (broadPaths.has(normalized) || (pathSegments.length < 3 && !permittedTemporaryPath)) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be a narrow directory, not a filesystem root');
   }
   if (
-    !permitsTemporaryPath(normalized, pathException) &&
+    !permittedTemporaryPath &&
     [resolve(tmpdir()), '/tmp', '/private/tmp', resolve(homedir()), resolve(cwd())].some(
       (parent) => isWithin(normalized, parent),
     )

@@ -38,6 +38,100 @@ describe('RateLimitGuard identity boundaries', () => {
     }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
   });
 
+  it('raises the auth ceiling for an explicitly configured E2E test runtime', async () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    const previousLimit = process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
+    process.env.NODE_ENV = 'test';
+    process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = '20';
+    try {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await expect(guard.canActivate(contextFor({
+          originalUrl: '/api/auth/register',
+          headers: {},
+          ip: '127.0.0.1',
+        }))).resolves.toBe(true);
+      }
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnvironment;
+      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
+      else process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = previousLimit;
+    }
+  });
+
+  it('ignores the E2E auth ceiling outside the test runtime', async () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    const previousLimit = process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
+    process.env.NODE_ENV = 'production';
+    process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = '20';
+    try {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await guard.canActivate(contextFor({
+          originalUrl: '/api/auth/register',
+          headers: {},
+          ip: '127.0.0.1',
+        }));
+      }
+      await expect(guard.canActivate(contextFor({
+        originalUrl: '/api/auth/register',
+        headers: {},
+        ip: '127.0.0.1',
+      }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnvironment;
+      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT;
+      else process.env.AGENTWIKI_E2E_AUTH_RATE_LIMIT = previousLimit;
+    }
+  });
+
+  it('raises the API IP ceiling for an explicitly configured E2E test runtime', async () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    const previousLimit = process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
+    process.env.NODE_ENV = 'test';
+    process.env.AGENTWIKI_E2E_API_RATE_LIMIT = '400';
+    try {
+      for (let attempt = 0; attempt < 400; attempt += 1) {
+        await expect(guard.canActivate(contextFor({
+          originalUrl: '/api/pages',
+          headers: {},
+          ip: '127.0.0.1',
+        }))).resolves.toBe(true);
+      }
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnvironment;
+      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
+      else process.env.AGENTWIKI_E2E_API_RATE_LIMIT = previousLimit;
+    }
+  });
+
+  it('ignores the E2E API IP ceiling outside the test runtime', async () => {
+    const previousEnvironment = process.env.NODE_ENV;
+    const previousLimit = process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
+    process.env.NODE_ENV = 'production';
+    process.env.AGENTWIKI_E2E_API_RATE_LIMIT = '400';
+    try {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        await guard.canActivate(contextFor({
+          originalUrl: '/api/pages',
+          headers: {},
+          ip: '127.0.0.1',
+        }));
+      }
+      await expect(guard.canActivate(contextFor({
+        originalUrl: '/api/pages',
+        headers: {},
+        ip: '127.0.0.1',
+      }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousEnvironment;
+      if (previousLimit === undefined) delete process.env.AGENTWIKI_E2E_API_RATE_LIMIT;
+      else process.env.AGENTWIKI_E2E_API_RATE_LIMIT = previousLimit;
+    }
+  });
+
   it('treats the exact /api/auth pathname as an auth route', async () => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       await expect(guard.canActivate(contextFor({

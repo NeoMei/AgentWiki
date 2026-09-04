@@ -149,6 +149,19 @@ describe('attachment config', () => {
     }
   });
 
+  const posixTest = process.platform === 'win32' ? it.skip : it;
+  posixTest('accepts the isolated macOS E2E root only in test mode', () => {
+    const storagePath = '/tmp/agentwiki-mac-attachments.ABC123';
+
+    expect(
+      loadAttachmentConfig({ NODE_ENV: 'test', ATTACHMENT_STORAGE_PATH: storagePath })
+        .storagePath,
+    ).toBe(storagePath);
+    expect(() =>
+      loadAttachmentConfig({ NODE_ENV: 'production', ATTACHMENT_STORAGE_PATH: storagePath }),
+    ).toThrow('narrow');
+  });
+
   it('accepts the reviewed narrow production storage path', () => {
     expect(
       loadAttachmentConfig({
