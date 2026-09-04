@@ -11,6 +11,7 @@ const fullTestEnvironmentNames = [
   'DATABASE_URL',
   'FOLDER_TEST_DATABASE_URL',
   'MARKDOWN_TEST_DATABASE_URL',
+  'COLLABORATION_TEST_DATABASE_URL',
   'PAGE_TEMPLATE_TEST_DATABASE_URL',
   'TEST_REDIS_URL',
 ];
@@ -29,6 +30,7 @@ function completeFullTestEnvironment() {
     DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_DATABASE@127.0.0.1/agentwiki_test',
     FOLDER_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_FOLDER@127.0.0.1/agentwiki_test',
     MARKDOWN_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_MARKDOWN@127.0.0.1/agentwiki_test',
+    COLLABORATION_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_COLLABORATION@127.0.0.1/agentwiki_test',
     PAGE_TEMPLATE_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_TEMPLATE@127.0.0.1/agentwiki_test',
     TEST_REDIS_URL: 'redis://:HARNESS_SECRET_REDIS@127.0.0.1:6379/1',
   };
