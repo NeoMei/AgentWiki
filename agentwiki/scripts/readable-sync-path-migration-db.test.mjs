@@ -7,6 +7,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const databaseUrl = process.env.DATABASE_URL;
 const psqlAvailable = spawnSync('psql', ['--version'], { encoding: 'utf8' }).status === 0;
@@ -40,14 +42,13 @@ function deploySchema(schema) {
   assert.equal(runPsql(`CREATE SCHEMA "${schema}"`).status, 0);
   const url = new URL(databaseUrl);
   url.searchParams.set('schema', schema);
-  const deploy = spawnSync(
-    'pnpm',
+  const deploy = spawnPnpmSync(
     ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
-    {
+    boundedMigrationOptions({
       cwd: root,
       encoding: 'utf8',
       env: { ...process.env, DATABASE_URL: url.href },
-    },
+    }),
   );
   assert.equal(
     deploy.status,

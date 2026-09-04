@@ -146,6 +146,8 @@ export FOLDER_TEST_DATABASE_URL="$BASE_TEST_DATABASE_URL"
 export MARKDOWN_TEST_DATABASE_URL="$BASE_TEST_DATABASE_URL"
 export COLLABORATION_TEST_DATABASE_URL="$BASE_TEST_DATABASE_URL"
 export PAGE_TEMPLATE_TEST_DATABASE_URL="$BASE_TEST_DATABASE_URL"
+export PG_DUMP_BIN="$(command -v pg_dump)"
+test -n "$PG_DUMP_BIN" && test "${PG_DUMP_BIN#/}" != "$PG_DUMP_BIN" && test -x "$PG_DUMP_BIN"
 ```
 
 - [ ] **Step 2: Run the complete repository gates**

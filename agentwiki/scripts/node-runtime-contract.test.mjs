@@ -379,6 +379,17 @@ test('the readable allocator DB gate proves both real entries wait on the same a
   assert.match(gate, /assert\.equal\(\s*allocatorCalls\.length,\s*0/);
 });
 
+test('the readable allocator DB gate launches migrations through the bounded cross-platform pnpm helper', async () => {
+  const gate = await read('scripts/readable-sync-path-migration-db.test.mjs');
+
+  assert.match(
+    gate,
+    /import\s+\{\s*boundedMigrationOptions\s*,\s*spawnPnpmSync\s*\}\s+from\s+'\.\/package-manager-process\.mjs'/,
+  );
+  assert.match(gate, /spawnPnpmSync\(\s*\[[\s\S]*?'migrate',\s*'deploy'[\s\S]*?boundedMigrationOptions\(\{/);
+  assert.doesNotMatch(gate, /spawnSync\(\s*['"]pnpm['"]/);
+});
+
 test('a ChangeSet can own both publication and compensation revisions', async () => {
   const schema = await read('apps/server/prisma/schema.prisma');
   const changeSet = schema.match(/model ChangeSet \{([\s\S]*?)\n\}/)?.[1] ?? '';
