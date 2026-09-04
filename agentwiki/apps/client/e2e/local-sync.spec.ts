@@ -83,7 +83,7 @@ test.describe('local sync enrollment card', () => {
     await cleanupFixture(request, fixture);
   });
 
-  test('logs in and generates, copies, and expires a one-shot instruction', async ({ page }) => {
+  test('logs in and generates, copies, and shows expiry for a one-shot instruction', async ({ page }) => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.goto('/?intent=workspace#login');
     await page.getByPlaceholder(/email|邮箱/i).fill(fixture.email);

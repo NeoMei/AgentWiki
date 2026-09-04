@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { StrictMode, type PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
 import { collaborationApi } from './api';
@@ -9,6 +10,11 @@ const socket = {
   on: vi.fn(), off: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
   io: { on: vi.fn(), off: vi.fn() },
 };
+
+const makeSocket = () => ({
+  on: vi.fn(), off: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
+  io: { on: vi.fn(), off: vi.fn() },
+});
 
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socket) }));
 vi.mock('./api', () => ({ collaborationApi: { getRun: vi.fn() } }));
@@ -25,11 +31,21 @@ describe('useCollaborationRun', () => {
 
   it('defers an explicit Socket connection so StrictMode cleanup cannot abort a handshake', async () => {
     vi.mocked(collaborationApi.getRun).mockResolvedValue(run('run-1', 'space-1'));
+    const probeSocket = makeSocket();
+    const survivingSocket = makeSocket();
+    vi.mocked(io)
+      .mockReturnValueOnce(probeSocket as never)
+      .mockReturnValueOnce(survivingSocket as never);
 
-    renderHook(() => useCollaborationRun('space-1', 'run-1'));
+    renderHook(() => useCollaborationRun('space-1', 'run-1'), {
+      wrapper: ({ children }: PropsWithChildren) => <StrictMode>{children}</StrictMode>,
+    });
 
-    expect(io).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ autoConnect: false }));
-    await waitFor(() => expect(socket.connect).toHaveBeenCalled());
+    expect(io).toHaveBeenCalledTimes(2);
+    expect(io).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ autoConnect: false }));
+    await waitFor(() => expect(survivingSocket.connect).toHaveBeenCalledTimes(1));
+    expect(probeSocket.connect).not.toHaveBeenCalled();
+    expect(probeSocket.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('does not let an old in-flight request overwrite a newly selected run', async () => {

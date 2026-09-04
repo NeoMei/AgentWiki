@@ -36,6 +36,13 @@ interface Installation {
 interface CollaborationRun {
   id: string;
   status: string;
+  eventSequence: number;
+}
+
+interface SocketRunHint {
+  eventSequence: number;
+  ordinal: number;
+  runId: string;
 }
 
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -61,6 +68,30 @@ const json = async <T,>(response: APIResponse, operation: string): Promise<T> =>
 
 const pathMatches = (url: string, expected: string) => new URL(url).pathname === expected;
 
+const parseRunHint = (frame: string): Omit<SocketRunHint, 'ordinal'> | undefined => {
+  if (!frame.startsWith('42')) return undefined;
+  const payloadStart = frame.indexOf('[');
+  if (payloadStart < 0) return undefined;
+
+  try {
+    const [event, payload] = JSON.parse(frame.slice(payloadStart)) as [
+      unknown,
+      { eventSequence?: unknown; runId?: unknown } | undefined,
+    ];
+    if (
+      event !== 'collaborationRunChanged'
+      || typeof payload?.runId !== 'string'
+      || !Number.isSafeInteger(payload.eventSequence)
+    ) return undefined;
+    return {
+      eventSequence: payload.eventSequence as number,
+      runId: payload.runId,
+    };
+  } catch {
+    return undefined;
+  }
+};
+
 const watchBrowserFailures = (page: Page) => {
   const consoleIssues: string[] = [];
   const pageErrors: string[] = [];
@@ -79,6 +110,15 @@ const watchBrowserFailures = (page: Page) => {
   });
 
   return { consoleIssues, pageErrors, api5xx };
+};
+
+const verifyMobileViewport = async (page: Page, label: string) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(
+    () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    { message: `${label} should not overflow a 390px viewport` },
+  ).toBeTruthy();
+  await page.setViewportSize({ width: 1280, height: 720 });
 };
 
 test.beforeAll(async () => {
@@ -158,8 +198,9 @@ test('owner starts a mapped collaboration run and receives an external API chang
   const failures = watchBrowserFailures(page);
   let socketConnections = 0;
   let joinedRunFrames = 0;
-  let receivedRunHintFrames = 0;
-  let runGetResponses = 0;
+  let browserEventOrdinal = 0;
+  const receivedRunHints: SocketRunHint[] = [];
+  const runGetResponseOrdinals: number[] = [];
   let startedRunId = '';
 
   page.on('websocket', (socket) => {
@@ -173,11 +214,9 @@ test('owner starts a mapped collaboration run and receives an external API chang
     });
     socket.on('framereceived', ({ payload }) => {
       const frame = typeof payload === 'string' ? payload : payload.toString('utf8');
-      if (
-        frame.includes('collaborationRunChanged')
-        && (!startedRunId || frame.includes(startedRunId))
-      ) {
-        receivedRunHintFrames += 1;
+      const hint = parseRunHint(frame);
+      if (hint && (!startedRunId || hint.runId === startedRunId)) {
+        receivedRunHints.push({ ...hint, ordinal: ++browserEventOrdinal });
       }
     });
   });
@@ -190,7 +229,7 @@ test('owner starts a mapped collaboration run and receives an external API chang
         `/api/spaces/${spaceId}/collaboration/runs/${startedRunId}`,
       )
     ) {
-      runGetResponses += 1;
+      runGetResponseOrdinals.push(++browserEventOrdinal);
     }
   });
 
@@ -213,6 +252,7 @@ test('owner starts a mapped collaboration run and receives an external API chang
   await page.goto(collaborationPath);
   await expect(page).toHaveURL(new RegExp(`/spaces/${spaceId}/collaboration$`, 'u'));
   await expect(page.getByRole('heading', { name: 'Agent collaboration' })).toBeVisible();
+  await verifyMobileViewport(page, 'collaboration workspace');
   const codingTemplate = page.getByRole('article').filter({
     has: page.getByRole('heading', { name: 'Coding collaboration', exact: true }),
   });
@@ -220,6 +260,7 @@ test('owner starts a mapped collaboration run and receives an external API chang
   await codingTemplate.getByRole('link', { name: 'Start run' }).click();
 
   await expect(page.getByRole('heading', { name: '1. Work input' })).toBeVisible();
+  await verifyMobileViewport(page, 'collaboration start wizard');
   await page.getByLabel('Run name').fill(runName);
   await page.getByLabel('项目目标 / Project brief').fill(
     'Verify the real owner-to-dashboard collaboration path with a connected Agent.',
@@ -266,6 +307,7 @@ test('owner starts a mapped collaboration run and receives an external API chang
   await expect(page.getByRole('heading', { name: 'Collaboration run', exact: true })).toBeVisible();
   const summary = page.getByTestId('dashboard-section-summary');
   await expect(summary.getByLabel('Running status')).toBeVisible();
+  await verifyMobileViewport(page, 'collaboration run dashboard');
 
   await expect.poll(
     () => socketConnections,
@@ -276,15 +318,13 @@ test('owner starts a mapped collaboration run and receives an external API chang
     { message: 'the dashboard should join the newly-created collaboration run' },
   ).toBeGreaterThan(0);
   await expect.poll(
-    () => receivedRunHintFrames,
+    () => receivedRunHints.length,
     {
       message: 'the server should confirm the authorized run-room join with a refresh hint',
       timeout: 30_000,
     },
   ).toBeGreaterThan(0);
-  await expect.poll(() => runGetResponses).toBeGreaterThan(0);
-  const runHintsBeforeExternalPause = receivedRunHintFrames;
-  const runGetsBeforeExternalPause = runGetResponses;
+  await expect.poll(() => runGetResponseOrdinals.length).toBeGreaterThan(0);
 
   const pauseResponse = await api!.post(
     `spaces/${spaceId}/collaboration/runs/${startedRunId}/actions/pause`,
@@ -295,15 +335,25 @@ test('owner starts a mapped collaboration run and receives an external API chang
   );
   const pausedRun = await json<CollaborationRun>(pauseResponse, 'pause run outside the browser');
   expect(pausedRun.status).toBe('paused');
+  expect(Number.isSafeInteger(pausedRun.eventSequence)).toBeTruthy();
 
   await expect.poll(
-    () => receivedRunHintFrames,
-    { message: 'the external pause should publish a second Socket refresh hint', timeout: 30_000 },
-  ).toBeGreaterThan(runHintsBeforeExternalPause);
+    () => receivedRunHints.some((hint) => (
+      hint.runId === startedRunId && hint.eventSequence === pausedRun.eventSequence
+    )),
+    {
+      message: 'the external pause should publish its exact event sequence over Socket',
+      timeout: 30_000,
+    },
+  ).toBeTruthy();
+  const pauseHintOrdinal = receivedRunHints.find((hint) => (
+    hint.runId === startedRunId && hint.eventSequence === pausedRun.eventSequence
+  ))?.ordinal;
+  expect(pauseHintOrdinal, 'the exact external pause hint should be recorded').toBeDefined();
   await expect.poll(
-    () => runGetResponses,
-    { message: 'the Socket event should trigger a browser-side run refresh without reloading' },
-  ).toBeGreaterThan(runGetsBeforeExternalPause);
+    () => runGetResponseOrdinals.some((ordinal) => ordinal > pauseHintOrdinal!),
+    { message: 'the exact Socket event should trigger a later browser-side GET without reloading' },
+  ).toBeTruthy();
   await expect(summary.getByLabel('Paused status')).toBeVisible();
   await expect(summary).toContainText(pauseReason);
 
