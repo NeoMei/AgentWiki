@@ -12,6 +12,7 @@ import {
   rm,
   stat,
   symlink,
+  unlink,
   utimes,
   writeFile,
 } from 'node:fs/promises';
@@ -1078,6 +1079,128 @@ describe('LocalAttachmentStorage', () => {
     (cancelled as NodeJS.ReadableStream & { destroy(): void }).destroy();
     await closed;
     expect(await readdir(join(root, '.read-snapshots'))).toEqual([]);
+  });
+
+  it('reclaims only old regular read snapshots and keeps young snapshots', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    await storage.probe();
+    const snapshotRoot = join(root, '.read-snapshots');
+    const oldPath = join(snapshotRoot, 'read-00000000-0000-4000-8000-000000000001.tmp');
+    const youngPath = join(snapshotRoot, 'read-00000000-0000-4000-8000-000000000002.tmp');
+    await writeFile(oldPath, 'old', { mode: 0o600 });
+    await writeFile(youngPath, 'young', { mode: 0o600 });
+    await utimes(oldPath, new Date('2026-08-20T00:00:00.000Z'), new Date('2026-08-20T00:00:00.000Z'));
+    await utimes(youngPath, new Date('2026-08-22T00:00:00.000Z'), new Date('2026-08-22T00:00:00.000Z'));
+
+    expect(await storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    )).toBe(1);
+    await expect(access(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(youngPath, 'utf8')).toBe('young');
+  });
+
+  it('never follows read-snapshot symlinks or removes non-regular entries', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    await storage.probe();
+    const snapshotRoot = join(root, '.read-snapshots');
+    const outside = join(root, 'outside-snapshot-target');
+    const linkPath = join(snapshotRoot, 'read-00000000-0000-4000-8000-000000000003.tmp');
+    const directoryPath = join(snapshotRoot, 'read-00000000-0000-4000-8000-000000000004.tmp');
+    await writeFile(outside, 'outside');
+    await symlink(outside, linkPath);
+    await mkdir(directoryPath, { mode: 0o700 });
+
+    expect(await storage.cleanupExpiredTempReservations(new Date('2100-01-01T00:00:00.000Z')))
+      .toBe(0);
+    expect(await readFile(outside, 'utf8')).toBe('outside');
+    expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+    expect((await lstat(directoryPath)).isDirectory()).toBe(true);
+  });
+
+  it('skips an active Windows read snapshot and deletes it immediately after cancellation', async () => {
+    const root = await makeRoot();
+    let markDeleted!: () => void;
+    const deleted = new Promise<void>((resolve) => { markDeleted = resolve; });
+    const storage = new LocalAttachmentStorage(config(root), {
+      platform: 'win32',
+      unlinkSnapshot: async (path: string) => {
+        await unlink(path);
+        markDeleted();
+      },
+    } as any);
+    const bytes = Buffer.alloc(256 * 1024, 0x61);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const reservation = await reservedBytes(storage, bytes);
+    const published = await publishLocked(storage, reservation, hash, BigInt(bytes.length));
+    const stream = await storage.openVerified(published.storageKey, hash, BigInt(bytes.length));
+    const snapshotRoot = join(root, '.read-snapshots');
+    expect(await readdir(snapshotRoot)).toHaveLength(1);
+
+    expect(await storage.cleanupExpiredTempReservations(new Date('2100-01-01T00:00:00.000Z')))
+      .toBe(0);
+    expect(await readdir(snapshotRoot)).toHaveLength(1);
+    const closed = once(stream, 'close');
+    (stream as NodeJS.ReadableStream & { destroy(): void }).destroy();
+    await closed;
+    await deleted;
+    expect(await readdir(snapshotRoot)).toEqual([]);
+  });
+
+  it('retries a failed Windows snapshot unlink during the next cleanup cycle', async () => {
+    const root = await makeRoot();
+    let attempts = 0;
+    let markFailed!: () => void;
+    const failed = new Promise<void>((resolve) => { markFailed = resolve; });
+    const storage = new LocalAttachmentStorage(config(root), {
+      platform: 'win32',
+      unlinkSnapshot: async (path: string) => {
+        attempts += 1;
+        if (attempts === 1) {
+          markFailed();
+          throw Object.assign(new Error('snapshot is temporarily busy'), { code: 'EPERM' });
+        }
+        await unlink(path);
+      },
+    } as any);
+    const bytes = Buffer.from('retry snapshot cleanup');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const reservation = await reservedBytes(storage, bytes);
+    const published = await publishLocked(storage, reservation, hash, BigInt(bytes.length));
+    const stream = await storage.openVerified(published.storageKey, hash, BigInt(bytes.length));
+    const closed = once(stream, 'close');
+    (stream as NodeJS.ReadableStream & { destroy(): void }).destroy();
+    await closed;
+    await failed;
+    expect(await readdir(join(root, '.read-snapshots'))).toHaveLength(1);
+
+    expect(await storage.cleanupExpiredTempReservations(new Date('2100-01-01T00:00:00.000Z')))
+      .toBe(1);
+    expect(attempts).toBe(2);
+    expect(await readdir(join(root, '.read-snapshots'))).toEqual([]);
+  });
+
+  it('bounds read-snapshot cleanup to 100 entries and resumes on the next cycle', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    await storage.probe();
+    const snapshotRoot = join(root, '.read-snapshots');
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    for (let index = 0; index < 101; index += 1) {
+      const path = join(
+        snapshotRoot,
+        `read-00000000-0000-4000-8000-${String(index).padStart(12, '0')}.tmp`,
+      );
+      await writeFile(path, 'orphan', { mode: 0o600 });
+      await utimes(path, old, old);
+    }
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(100);
+    expect(await readdir(snapshotRoot)).toHaveLength(1);
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(1);
+    expect(await readdir(snapshotRoot)).toEqual([]);
   });
 
   it.each([

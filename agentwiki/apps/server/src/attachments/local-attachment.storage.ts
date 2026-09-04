@@ -26,6 +26,7 @@ import type {
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 const TEMP_SIDECAR_NAME_PATTERN = /^(upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp)\.(lease|reclaim)$/;
+const READ_SNAPSHOT_NAME_PATTERN = /^read-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
 const TEMP_CLEANUP_VISIT_LIMIT = 100;
 const TEMP_CLEANUP_DELETE_LIMIT = 100;
@@ -87,6 +88,9 @@ interface LocalAttachmentStorageDependencies {
     tempPath: string,
   ) => Promise<void> | void;
   openTempDirectory?: (path: string) => Promise<TempDirectoryCursor>;
+  openSnapshotDirectory?: (path: string) => Promise<TempDirectoryCursor>;
+  unlinkSnapshot?: (path: string) => Promise<void>;
+  platform?: NodeJS.Platform;
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
@@ -260,6 +264,8 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   private readonly tempRoot: string;
   private readonly lockRoot: string;
   private readonly snapshotRoot: string;
+  private readonly isWindows: boolean;
+  private readonly activeSnapshotPaths = new Set<string>();
   private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
   private readonly activeReservations = new WeakMap<
     AttachmentTempReservation,
@@ -273,6 +279,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   ) => NodeJS.Timeout;
   private readonly cancelInterval: (timer: NodeJS.Timeout) => void;
   private tempCleanupCursor?: TempDirectoryCursor;
+  private snapshotCleanupCursor?: TempDirectoryCursor;
   private tempCleanupTail: Promise<void> = Promise.resolve();
   private tempCleanupDestroyed = false;
   private tempCleanupDestroyPromise?: Promise<void>;
@@ -285,6 +292,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     this.tempRoot = join(this.root, '.tmp');
     this.lockRoot = join(this.root, '.locks');
     this.snapshotRoot = join(this.root, '.read-snapshots');
+    this.isWindows = (dependencies.platform ?? process.platform) === 'win32';
     this.now = dependencies.now ?? Date.now;
     this.scheduleInterval = dependencies.setInterval
       ?? ((callback, delayMs) => setInterval(callback, delayMs));
@@ -447,9 +455,11 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
       throw new Error('Attachment temp reservation cutoff must be a valid date');
     }
     if (this.tempCleanupDestroyed) return 0;
-    const cleanup = this.tempCleanupTail.then(() => {
+    const cleanup = this.tempCleanupTail.then(async () => {
       if (this.tempCleanupDestroyed) return 0;
-      return this.runTempCleanupBatch(cutoff);
+      const reservations = await this.runTempCleanupBatch(cutoff);
+      if (this.tempCleanupDestroyed) return reservations;
+      return reservations + await this.runSnapshotCleanupBatch(cutoff);
     });
     this.tempCleanupTail = cleanup.then(() => undefined, () => undefined);
     return cleanup;
@@ -650,6 +660,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
         0o600,
       );
       snapshotLinked = true;
+      this.activeSnapshotPaths.add(snapshotPath);
       await snapshot.chmod(0o600);
       const digest = createHash('sha256');
       let snapshotBytes = 0;
@@ -692,15 +703,16 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
         throw new Error('Attachment content changed during immutable verification');
       }
       await source.close();
-      if (process.platform !== 'win32') {
-        await unlink(snapshotPath);
+      if (!this.isWindows) {
+        await this.deleteReadSnapshot(snapshotPath);
         snapshotLinked = false;
-        await this.syncDirectory(this.snapshotRoot);
+        this.activeSnapshotPaths.delete(snapshotPath);
       }
       const stream = snapshot.createReadStream({ autoClose: true, start: 0 });
-      if (process.platform === 'win32') {
+      if (this.isWindows) {
         stream.once('close', () => {
-          void unlink(snapshotPath).catch(() => undefined);
+          this.activeSnapshotPaths.delete(snapshotPath);
+          void this.deleteReadSnapshot(snapshotPath).catch(() => undefined);
         });
       }
       snapshot = undefined;
@@ -708,7 +720,8 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     } catch (error) {
       await source.close().catch(() => undefined);
       await snapshot?.close().catch(() => undefined);
-      if (snapshotLinked) await unlink(snapshotPath).catch(() => undefined);
+      this.activeSnapshotPaths.delete(snapshotPath);
+      if (snapshotLinked) await this.deleteReadSnapshot(snapshotPath).catch(() => undefined);
       throw error;
     }
   }
@@ -940,12 +953,73 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   private async finishTempCleanupDestroy(): Promise<void> {
     await this.tempCleanupTail;
     await this.closeTempCleanupCursor();
+    await this.closeSnapshotCleanupCursor();
   }
 
   private async closeTempCleanupCursor(): Promise<void> {
     const cursor = this.tempCleanupCursor;
     this.tempCleanupCursor = undefined;
     await cursor?.close();
+  }
+
+  private async closeSnapshotCleanupCursor(): Promise<void> {
+    const cursor = this.snapshotCleanupCursor;
+    this.snapshotCleanupCursor = undefined;
+    await cursor?.close();
+  }
+
+  private async deleteReadSnapshot(path: string): Promise<void> {
+    await (this.dependencies.unlinkSnapshot ?? unlink)(path);
+    await this.syncDirectory(this.snapshotRoot);
+  }
+
+  private async runSnapshotCleanupBatch(cutoff: Date): Promise<number> {
+    let visited = 0;
+    let removed = 0;
+    try {
+      await this.ensureBaseDirectories();
+      this.snapshotCleanupCursor ??= await (
+        this.dependencies.openSnapshotDirectory
+        ?? ((path: string) => opendir(path))
+      )(this.snapshotRoot);
+      while (
+        visited < TEMP_CLEANUP_VISIT_LIMIT
+        && removed < TEMP_CLEANUP_DELETE_LIMIT
+      ) {
+        const entry = await this.snapshotCleanupCursor.read();
+        if (!entry) {
+          await this.closeSnapshotCleanupCursor();
+          break;
+        }
+        visited += 1;
+        if (!READ_SNAPSHOT_NAME_PATTERN.test(entry.name)) continue;
+        const path = join(this.snapshotRoot, entry.name);
+        if (this.activeSnapshotPaths.has(path)) continue;
+        const initial = await this.lstatBigInt(path);
+        if (
+          !initial?.isFile()
+          || initial.isSymbolicLink()
+          || Number(initial.mtimeMs) >= cutoff.getTime()
+        ) continue;
+        const current = await this.lstatBigInt(path);
+        if (
+          !current?.isFile()
+          || current.isSymbolicLink()
+          || !sameBigIntFile(initial, current)
+          || this.activeSnapshotPaths.has(path)
+        ) continue;
+        await this.deleteReadSnapshot(path);
+        removed += 1;
+      }
+      return removed;
+    } catch (error) {
+      try {
+        await this.closeSnapshotCleanupCursor();
+      } catch (cleanupError) {
+        attachCleanupCause(error, cleanupError);
+      }
+      throw error;
+    }
   }
 
   private async runTempCleanupBatch(cutoff: Date): Promise<number> {
