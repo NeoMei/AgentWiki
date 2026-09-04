@@ -1095,9 +1095,135 @@ describe('LocalAttachmentStorage', () => {
 
     expect(await storage.cleanupExpiredTempReservations(
       new Date('2026-08-21T00:00:00.000Z'),
-    )).toBe(1);
+    )).toBe(0);
     await expect(access(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(youngPath, 'utf8')).toBe('young');
+  });
+
+  it('returns only the reservation count when reservation and snapshot cleanup both delete files', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    await storage.probe();
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    const reservationPath = join(
+      root,
+      '.tmp',
+      'upload-00000000-0000-4000-8000-000000000010.tmp',
+    );
+    const snapshotPath = join(
+      root,
+      '.read-snapshots',
+      'read-00000000-0000-4000-8000-000000000010.tmp',
+    );
+    await writeFile(reservationPath, 'orphan reservation', { mode: 0o600 });
+    await writeFile(snapshotPath, 'orphan snapshot', { mode: 0o600 });
+    await utimes(reservationPath, old, old);
+    await utimes(snapshotPath, old, old);
+
+    expect(await storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    )).toBe(1);
+    await expect(access(reservationPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(snapshotPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('continues past a persistent snapshot unlink error and retries it after wrapping the cursor', async () => {
+    const root = await makeRoot();
+    const snapshotRoot = join(root, '.read-snapshots');
+    await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+    const blockedName = 'read-00000000-0000-4000-8000-000000000011.tmp';
+    const laterName = 'read-00000000-0000-4000-8000-000000000012.tmp';
+    const blockedPath = join(snapshotRoot, blockedName);
+    const laterPath = join(snapshotRoot, laterName);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await writeFile(blockedPath, 'blocked', { mode: 0o600 });
+    await writeFile(laterPath, 'later', { mode: 0o600 });
+    await utimes(blockedPath, old, old);
+    await utimes(laterPath, old, old);
+    let blockedAttempts = 0;
+    const storage = new LocalAttachmentStorage(config(root), {
+      openSnapshotDirectory: async () => fakeDirectory([blockedName, laterName]),
+      unlinkSnapshot: async (path: string) => {
+        if (path === blockedPath) {
+          blockedAttempts += 1;
+          throw Object.assign(new Error('snapshot is persistently busy'), { code: 'EPERM' });
+        }
+        await unlink(path);
+      },
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    await expect(storage.cleanupExpiredTempReservations(cutoff)).rejects.toThrow(
+      'snapshot is persistently busy',
+    );
+    await expect(access(blockedPath)).resolves.toBeUndefined();
+    await expect(access(laterPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(blockedAttempts).toBe(1);
+
+    await expect(storage.cleanupExpiredTempReservations(cutoff)).rejects.toThrow(
+      'snapshot is persistently busy',
+    );
+    expect(blockedAttempts).toBe(2);
+  });
+
+  it('isolates snapshot lstat errors and still deletes later candidates', async () => {
+    const root = await makeRoot();
+    const snapshotRoot = join(root, '.read-snapshots');
+    await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+    const blockedName = 'read-00000000-0000-4000-8000-000000000013.tmp';
+    const laterName = 'read-00000000-0000-4000-8000-000000000014.tmp';
+    const blockedPath = join(snapshotRoot, blockedName);
+    const laterPath = join(snapshotRoot, laterName);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await writeFile(blockedPath, 'blocked', { mode: 0o600 });
+    await writeFile(laterPath, 'later', { mode: 0o600 });
+    await utimes(blockedPath, old, old);
+    await utimes(laterPath, old, old);
+    const storage = new LocalAttachmentStorage(config(root), {
+      openSnapshotDirectory: async () => fakeDirectory([blockedName, laterName]),
+      lstatSnapshot: async (path: string) => {
+        if (path === blockedPath) {
+          throw Object.assign(new Error('snapshot lstat failed'), { code: 'EIO' });
+        }
+        return lstat(path, { bigint: true });
+      },
+    } as any);
+
+    await expect(storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    )).rejects.toThrow('snapshot lstat failed');
+    await expect(access(blockedPath)).resolves.toBeUndefined();
+    await expect(access(laterPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('isolates snapshot directory sync errors and still deletes later candidates', async () => {
+    const root = await makeRoot();
+    const snapshotRoot = join(root, '.read-snapshots');
+    await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+    const firstName = 'read-00000000-0000-4000-8000-000000000015.tmp';
+    const laterName = 'read-00000000-0000-4000-8000-000000000016.tmp';
+    const firstPath = join(snapshotRoot, firstName);
+    const laterPath = join(snapshotRoot, laterName);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    await writeFile(firstPath, 'first', { mode: 0o600 });
+    await writeFile(laterPath, 'later', { mode: 0o600 });
+    await utimes(firstPath, old, old);
+    await utimes(laterPath, old, old);
+    let syncAttempts = 0;
+    const storage = new LocalAttachmentStorage(config(root), {
+      openSnapshotDirectory: async () => fakeDirectory([firstName, laterName]),
+      syncSnapshotDirectory: async () => {
+        syncAttempts += 1;
+        if (syncAttempts === 1) throw new Error('snapshot directory sync failed');
+      },
+    } as any);
+
+    await expect(storage.cleanupExpiredTempReservations(
+      new Date('2026-08-21T00:00:00.000Z'),
+    )).rejects.toThrow('snapshot directory sync failed');
+    await expect(access(firstPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(laterPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(syncAttempts).toBe(2);
   });
 
   it('never follows read-snapshot symlinks or removes non-regular entries', async () => {
@@ -1176,7 +1302,7 @@ describe('LocalAttachmentStorage', () => {
     expect(await readdir(join(root, '.read-snapshots'))).toHaveLength(1);
 
     expect(await storage.cleanupExpiredTempReservations(new Date('2100-01-01T00:00:00.000Z')))
-      .toBe(1);
+      .toBe(0);
     expect(attempts).toBe(2);
     expect(await readdir(join(root, '.read-snapshots'))).toEqual([]);
   });
@@ -1197,10 +1323,57 @@ describe('LocalAttachmentStorage', () => {
     }
     const cutoff = new Date('2026-08-21T00:00:00.000Z');
 
-    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(100);
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
     expect(await readdir(snapshotRoot)).toHaveLength(1);
-    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(1);
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
     expect(await readdir(snapshotRoot)).toEqual([]);
+  });
+
+  it('keeps a 101-entry snapshot scan bounded when one entry persistently fails', async () => {
+    const root = await makeRoot();
+    const snapshotRoot = join(root, '.read-snapshots');
+    await mkdir(snapshotRoot, { recursive: true, mode: 0o700 });
+    const names = Array.from({ length: 101 }, (_, index) =>
+      `read-00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}.tmp`);
+    const old = new Date('2026-08-20T00:00:00.000Z');
+    for (const name of names) {
+      const path = join(snapshotRoot, name);
+      await writeFile(path, 'orphan', { mode: 0o600 });
+      await utimes(path, old, old);
+    }
+    const blockedPath = join(snapshotRoot, names[0]);
+    let blockedAttempts = 0;
+    let opens = 0;
+    const storage = new LocalAttachmentStorage(config(root), {
+      openSnapshotDirectory: async () => {
+        opens += 1;
+        return fakeDirectory(names);
+      },
+      unlinkSnapshot: async (path: string) => {
+        if (path === blockedPath) {
+          blockedAttempts += 1;
+          throw Object.assign(new Error('snapshot stays busy'), { code: 'EPERM' });
+        }
+        await unlink(path);
+      },
+    } as any);
+    const cutoff = new Date('2026-08-21T00:00:00.000Z');
+
+    await expect(storage.cleanupExpiredTempReservations(cutoff)).rejects.toThrow(
+      'snapshot stays busy',
+    );
+    expect(await readdir(snapshotRoot)).toHaveLength(2);
+    expect(opens).toBe(1);
+
+    expect(await storage.cleanupExpiredTempReservations(cutoff)).toBe(0);
+    expect(await readdir(snapshotRoot)).toEqual([names[0]]);
+    expect(opens).toBe(1);
+
+    await expect(storage.cleanupExpiredTempReservations(cutoff)).rejects.toThrow(
+      'snapshot stays busy',
+    );
+    expect(blockedAttempts).toBe(2);
+    expect(opens).toBe(2);
   });
 
   it.each([

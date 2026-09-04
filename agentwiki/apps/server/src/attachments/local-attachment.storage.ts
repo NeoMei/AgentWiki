@@ -89,7 +89,9 @@ interface LocalAttachmentStorageDependencies {
   ) => Promise<void> | void;
   openTempDirectory?: (path: string) => Promise<TempDirectoryCursor>;
   openSnapshotDirectory?: (path: string) => Promise<TempDirectoryCursor>;
+  lstatSnapshot?: (path: string) => Promise<BigIntStats>;
   unlinkSnapshot?: (path: string) => Promise<void>;
+  syncSnapshotDirectory?: () => Promise<void>;
   platform?: NodeJS.Platform;
 }
 
@@ -459,7 +461,8 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
       if (this.tempCleanupDestroyed) return 0;
       const reservations = await this.runTempCleanupBatch(cutoff);
       if (this.tempCleanupDestroyed) return reservations;
-      return reservations + await this.runSnapshotCleanupBatch(cutoff);
+      await this.runSnapshotCleanupBatch(cutoff);
+      return reservations;
     });
     this.tempCleanupTail = cleanup.then(() => undefined, () => undefined);
     return cleanup;
@@ -970,12 +973,17 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
 
   private async deleteReadSnapshot(path: string): Promise<void> {
     await (this.dependencies.unlinkSnapshot ?? unlink)(path);
-    await this.syncDirectory(this.snapshotRoot);
+    await (
+      this.dependencies.syncSnapshotDirectory
+      ?? (() => this.syncDirectory(this.snapshotRoot))
+    )();
   }
 
   private async runSnapshotCleanupBatch(cutoff: Date): Promise<number> {
     let visited = 0;
     let removed = 0;
+    let hasEntryError = false;
+    let firstEntryError: unknown;
     try {
       await this.ensureBaseDirectories();
       this.snapshotCleanupCursor ??= await (
@@ -993,31 +1001,59 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
         }
         visited += 1;
         if (!READ_SNAPSHOT_NAME_PATTERN.test(entry.name)) continue;
-        const path = join(this.snapshotRoot, entry.name);
-        if (this.activeSnapshotPaths.has(path)) continue;
-        const initial = await this.lstatBigInt(path);
-        if (
-          !initial?.isFile()
-          || initial.isSymbolicLink()
-          || Number(initial.mtimeMs) >= cutoff.getTime()
-        ) continue;
-        const current = await this.lstatBigInt(path);
-        if (
-          !current?.isFile()
-          || current.isSymbolicLink()
-          || !sameBigIntFile(initial, current)
-          || this.activeSnapshotPaths.has(path)
-        ) continue;
-        await this.deleteReadSnapshot(path);
-        removed += 1;
+        try {
+          if (await this.cleanupSnapshotDirectoryEntry(entry.name, cutoff)) {
+            removed += 1;
+          }
+        } catch (error) {
+          if (!hasEntryError) {
+            hasEntryError = true;
+            firstEntryError = error;
+          } else {
+            attachCleanupCause(firstEntryError, error);
+          }
+        }
       }
-      return removed;
     } catch (error) {
       try {
         await this.closeSnapshotCleanupCursor();
       } catch (cleanupError) {
         attachCleanupCause(error, cleanupError);
       }
+      throw error;
+    }
+    if (hasEntryError) throw firstEntryError;
+    return removed;
+  }
+
+  private async cleanupSnapshotDirectoryEntry(name: string, cutoff: Date): Promise<boolean> {
+    const path = join(this.snapshotRoot, name);
+    if (this.activeSnapshotPaths.has(path)) return false;
+    const initial = await this.lstatSnapshotBigInt(path);
+    if (
+      !initial?.isFile()
+      || initial.isSymbolicLink()
+      || Number(initial.mtimeMs) >= cutoff.getTime()
+    ) return false;
+    const current = await this.lstatSnapshotBigInt(path);
+    if (
+      !current?.isFile()
+      || current.isSymbolicLink()
+      || !sameBigIntFile(initial, current)
+      || this.activeSnapshotPaths.has(path)
+    ) return false;
+    await this.deleteReadSnapshot(path);
+    return true;
+  }
+
+  private async lstatSnapshotBigInt(path: string): Promise<BigIntStats | undefined> {
+    try {
+      return await (
+        this.dependencies.lstatSnapshot
+        ?? ((snapshotPath: string) => lstat(snapshotPath, { bigint: true }))
+      )(path);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return undefined;
       throw error;
     }
   }
