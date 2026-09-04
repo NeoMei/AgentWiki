@@ -268,6 +268,16 @@ test('standalone browser acceptance uses the same installed Chrome channel as Pl
   }
 });
 
+test('self-hosted collaboration acceptance binds its disposable API to loopback', async () => {
+  for (const file of [
+    'collaboration-workflows-e2e.mjs',
+    'collaboration-real-agent-harness.mjs',
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /AGENTWIKI_LISTEN_HOST: '127\.0\.0\.1'/u, file);
+  }
+});
+
 test('active Agent E2E requests use roles without legacy permission inputs', async () => {
   for (const file of [
     'smoke-test.mjs',

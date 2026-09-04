@@ -36,6 +36,7 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
   const environment = {
     ...process.env,
     NODE_ENV: 'test',
+    AGENTWIKI_LISTEN_HOST: '127.0.0.1',
     PORT: String(port),
     DATABASE_URL: databaseUrl,
     REDIS_URL: process.env.COLLABORATION_TEST_REDIS_URL ?? 'redis://127.0.0.1:6379',
