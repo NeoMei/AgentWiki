@@ -1,6 +1,6 @@
 {
   "name": "@neomei/agentwiki-sync-protocol",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Browser-compatible canonicalization, hashing, and strict schemas for AgentWiki Sync v1-v3",
   "type": "module",
   "main": "./dist/cjs/index.js",
