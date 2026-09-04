@@ -10,10 +10,10 @@ import {
 } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { spawnPnpmSync } from './package-manager-process.mjs';
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -360,6 +360,7 @@ async function assertFolderDatabaseIdentity(prisma, databaseUrl) {
   const identityRows = await prisma.$queryRaw`
     SELECT current_database() AS "databaseName",
            current_user AS "currentUser",
+           current_setting('server_version_num') AS "serverVersionNum",
            COALESCE(host(inet_server_addr()), '') AS "serverAddress",
            inet_server_port()::int AS "serverPort"
   `;
@@ -376,14 +377,61 @@ async function assertFolderDatabaseIdentity(prisma, databaseUrl) {
   return { administrativeUrl: parsed.toString(), identity };
 }
 
-function dumpPublicSchema(databaseUrl) {
-  const dump = spawnSync(
-    'pg_dump',
-    ['--dbname', databaseUrl, '--schema-only', '--schema=public', '--no-password'],
+function postgresServerMajor(serverVersionNum) {
+  if (!/^[1-9][0-9]*$/u.test(String(serverVersionNum))) {
+    throw new Error('PostgreSQL server_version_num must be a positive integer');
+  }
+  const major = Math.floor(Number(serverVersionNum) / 10_000);
+  if (!Number.isSafeInteger(major) || major < 10) {
+    throw new Error('PostgreSQL server major version is unsupported');
+  }
+  return major;
+}
+
+export function dumpFolderPublicSchema(databaseUrl, serverVersionNum, {
+  environment = process.env,
+  spawnSync: spawnPgDumpSync = spawnSync,
+} = {}) {
+  const pgDumpBin = environment.PG_DUMP_BIN;
+  if (!pgDumpBin || pgDumpBin !== pgDumpBin.trim() || !isAbsolute(pgDumpBin)) {
+    throw new Error('PG_DUMP_BIN is required and must be an absolute executable path');
+  }
+  const version = spawnPgDumpSync(pgDumpBin, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: { ...environment, PGAPPNAME: 'agentwiki-folder-structural-inventory-version' },
+  });
+  if (version.error || version.status !== 0) {
+    throw new Error(
+      ['Folder pg_dump version preflight failed', version.error?.message, version.stdout, version.stderr]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+  const clientMajor = /\(PostgreSQL\)\s+([0-9]+)/u.exec(version.stdout ?? '')?.[1];
+  if (!clientMajor) throw new Error('Folder pg_dump version output is not recognized');
+  const serverMajor = postgresServerMajor(serverVersionNum);
+  if (Number(clientMajor) !== serverMajor) {
+    throw new Error(
+      `pg_dump major ${clientMajor} is incompatible with PostgreSQL server major ${serverMajor}`,
+    );
+  }
+
+  const parsed = validateFolderTestDatabaseUrl(databaseUrl);
+  const password = parsed.password ? decodeURIComponent(parsed.password) : undefined;
+  parsed.password = '';
+  const childEnvironment = {
+    ...environment,
+    PGAPPNAME: 'agentwiki-folder-structural-inventory',
+    ...(password === undefined ? {} : { PGPASSWORD: password }),
+  };
+  const dump = spawnPgDumpSync(
+    pgDumpBin,
+    ['--dbname', parsed.toString(), '--schema-only', '--schema=public', '--no-password'],
     {
       encoding: 'utf8',
       timeout: 30_000,
-      env: { ...process.env, PGAPPNAME: 'agentwiki-folder-structural-inventory' },
+      env: childEnvironment,
     },
   );
   if (dump.error || dump.status !== 0) {
@@ -615,7 +663,7 @@ export async function captureFolderDatabaseSafetyInventory(databaseUrl, prisma) 
     databaseSettings,
     extensions,
     publicSchema,
-    publicSchemaDump: dumpPublicSchema(administrativeUrl),
+    publicSchemaDump: dumpFolderPublicSchema(administrativeUrl, identity.serverVersionNum),
     vectorExtensionCatalog,
   };
 }
@@ -691,12 +739,11 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
           '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
           '--schema', preparedMigrations.schemaPath,
         ],
-        {
+        boundedMigrationOptions({
           cwd: new URL('..', import.meta.url),
           encoding: 'utf8',
-          timeout: 90_000,
           env: { ...process.env, DATABASE_URL: databaseUrl },
-        },
+        }),
       );
       if (migration.error || migration.status !== 0) {
         throw new Error(

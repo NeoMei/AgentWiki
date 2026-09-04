@@ -64,6 +64,31 @@ describe('GraphMaintenance', () => {
     expect(error).toHaveBeenCalledWith('graph refresh failed for space-1: database offline');
   });
 
+  it('does not log an error when a periodic refresh finds its Space deleted', async () => {
+    const { maintenance, refresh, prisma } = build('worker');
+    prisma.space.findMany.mockResolvedValue([{ id: 'deleted-space', graphState: null }]);
+    refresh.refresh.mockRejectedValue(new ForbiddenException('Space not found'));
+    const error = jest.spyOn((maintenance as any).logger, 'error').mockImplementation();
+
+    await maintenance.sweep();
+
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new Error('Space not found'),
+    new ForbiddenException('Space not found after refresh'),
+  ])('still logs a periodic refresh failure that is not the exact deleted-Space error', async (failure) => {
+    const { maintenance, refresh, prisma } = build('worker');
+    prisma.space.findMany.mockResolvedValue([{ id: 'space-1', graphState: null }]);
+    refresh.refresh.mockRejectedValue(failure);
+    const error = jest.spyOn((maintenance as any).logger, 'error').mockImplementation();
+
+    await maintenance.sweep();
+
+    expect(error).toHaveBeenCalledWith(`graph sweep failed for space-1: ${failure.message}`);
+  });
+
   it('skips spaces whose content hash is unchanged during sweep', async () => {
     const { maintenance, refresh, prisma } = build('api');
     const { createHash } = require('crypto');

@@ -7,7 +7,7 @@ import {
   folderDatabaseSafetyInventoryDigest,
   withFolderMigrationBundle,
 } from './folder-test-database.mjs';
-import { spawnPnpmSync } from './package-manager-process.mjs';
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -77,12 +77,11 @@ export async function withCollaborationTestDatabase(baseDatabaseUrl, callback) {
           '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
           '--schema', preparedMigrations.schemaPath,
         ],
-        {
+        boundedMigrationOptions({
           cwd: new URL('..', import.meta.url),
           encoding: 'utf8',
           env: { ...process.env, DATABASE_URL: databaseUrl },
-          timeout: 90_000,
-        },
+        }),
       );
       if (migration.error || migration.status !== 0) {
         const details = [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n');

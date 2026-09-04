@@ -7,6 +7,11 @@ const WINDOWS_ENTRYPOINTS = {
   npx: ['node_modules/npm/bin/npx-cli.js'],
   pnpm: ['node_modules/pnpm/bin/pnpm.mjs', 'node_modules/pnpm/bin/pnpm.cjs'],
 };
+const MAX_MIGRATION_TIMEOUT_MS = 90_000;
+
+function isJavaScriptEntrypoint(value) {
+  return /\.(?:cjs|mjs|js)$/iu.test(value);
+}
 
 export function resolvePackageManagerInvocation(manager, args, {
   env = process.env,
@@ -17,7 +22,11 @@ export function resolvePackageManagerInvocation(manager, args, {
   if (platform !== 'win32') return { executable: manager, args };
   const configured = env.npm_execpath;
   const candidates = [
-    ...(configured && win32.basename(configured).toLowerCase().startsWith(manager) ? [configured] : []),
+    ...(configured
+      && win32.basename(configured).toLowerCase().startsWith(manager)
+      && isJavaScriptEntrypoint(configured)
+      ? [configured]
+      : []),
     ...WINDOWS_ENTRYPOINTS[manager].map((relativePath) => win32.resolve(win32.dirname(executable), relativePath)),
     ...(env.APPDATA ? WINDOWS_ENTRYPOINTS[manager].map((relativePath) => win32.resolve(env.APPDATA, 'npm', relativePath)) : []),
   ];
@@ -37,3 +46,17 @@ export function spawnPackageManager(manager, args, options, dependencies = {}) {
 }
 
 export const spawnPnpmSync = (args, options, dependencies) => spawnPackageManagerSync('pnpm', args, options, dependencies);
+
+export function boundedMigrationOptions(options = {}) {
+  const configured = options.timeout;
+  if (
+    configured !== undefined
+    && (!Number.isSafeInteger(configured) || configured <= 0)
+  ) {
+    throw new Error('Migration timeout must be a positive safe integer');
+  }
+  return {
+    ...options,
+    timeout: Math.min(configured ?? MAX_MIGRATION_TIMEOUT_MS, MAX_MIGRATION_TIMEOUT_MS),
+  };
+}

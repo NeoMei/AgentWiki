@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -53,15 +53,13 @@ export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback) {
   try {
     await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
     created = true;
-    const migration = spawnSync(
-      'pnpm',
+    const migration = spawnPnpmSync(
       ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
-      {
+      boundedMigrationOptions({
         cwd: new URL('..', import.meta.url),
         encoding: 'utf8',
-        timeout: 90_000,
         env: { ...process.env, DATABASE_URL: databaseUrl },
-      },
+      }),
     );
     if (migration.error || migration.status !== 0) {
       throw new Error(

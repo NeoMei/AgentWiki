@@ -8,6 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { GraphRefreshService, graphSnapshotHash } from './graph-refresh.service';
+
+function isDeletedSpaceRefresh(error: unknown): boolean {
+  return error instanceof ForbiddenException && error.message === 'Space not found';
+}
+
 @Injectable()
 export class GraphMaintenance implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(GraphMaintenance.name);
@@ -37,7 +42,7 @@ export class GraphMaintenance implements OnModuleInit, OnModuleDestroy {
     this.pending.set(spaceId, setTimeout(() => {
       this.pending.delete(spaceId);
       void this.refresh.refresh(spaceId).catch((error: unknown) => {
-        if (error instanceof ForbiddenException && error.message === 'Space not found') return;
+        if (isDeletedSpaceRefresh(error)) return;
         this.logger.error(`graph refresh failed for ${spaceId}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }, 30_000));
@@ -67,6 +72,7 @@ export class GraphMaintenance implements OnModuleInit, OnModuleDestroy {
       const hash = graphSnapshotHash(pages);
       if (hash === state?.lastContentHash) continue;
       await this.refresh.refresh(space.id).catch((error: unknown) => {
+        if (isDeletedSpaceRefresh(error)) return;
         this.logger.error(`graph sweep failed for ${space.id}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }

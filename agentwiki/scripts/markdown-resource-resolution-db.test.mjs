@@ -122,6 +122,31 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
           title: 'Cafe\u0301', slug: `nfd-title-${schemaName}`,
           syncPath: 'NFD title.md', syncPathKey: 'nfd title.md',
         },
+        {
+          id: `source-project_${schemaName}`, spaceId, authorId: userId,
+          title: 'Project source', slug: `source-project-${schemaName}`,
+          syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+        },
+        {
+          id: `source-root_${schemaName}`, spaceId, authorId: userId,
+          title: 'Root source', slug: `source-root-${schemaName}`,
+          syncPath: 'pages/Source.md', syncPathKey: 'pages/source.md',
+        },
+        {
+          id: `target-project_${schemaName}`, spaceId, authorId: userId,
+          title: 'Target', slug: `target-project-${schemaName}`,
+          syncPath: 'pages/Project/Target.md', syncPathKey: 'pages/project/target.md',
+        },
+        {
+          id: `target-root_${schemaName}`, spaceId, authorId: userId,
+          title: 'Target', slug: `target-root-${schemaName}`,
+          syncPath: 'pages/Target.md', syncPathKey: 'pages/target.md',
+        },
+        {
+          id: `target-duplicate_${schemaName}`, spaceId, authorId: userId,
+          title: 'Target', slug: `target-duplicate-${schemaName}`,
+          syncPath: 'pages/Other/Target-copy.md', syncPathKey: 'pages/other/target-copy.md',
+        },
       ] });
       await prisma.spaceAttachment.create({ data: {
         id: `attachment_${schemaName}`, spaceId, displayName: 'Diagram.png',
@@ -162,6 +187,21 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       ]);
       assert.equal(queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"Page"/u.test(query)).length, 3);
       assert.equal(queries.filter((query) => /FROM (?:(?:"[^"]+"\.)?)"SpaceAttachment"/u.test(query)).length, 1);
+
+      const sourceRelative = await resolver.resolve(spaceId, [
+        { key: 'target', kind: 'page', target: 'Target.md' },
+      ], { userId }, `source-project_${schemaName}`);
+      assert.equal(sourceRelative[0].pageId, `target-project_${schemaName}`);
+
+      const rootRelative = await resolver.resolve(spaceId, [
+        { key: 'target', kind: 'page', target: 'Target.md' },
+      ], { userId }, `source-root_${schemaName}`);
+      assert.equal(rootRelative[0].pageId, `target-root_${schemaName}`);
+
+      const rootWithoutSource = await resolver.resolve(spaceId, [
+        { key: 'target', kind: 'page', target: 'Target.md' },
+      ], { userId });
+      assert.equal(rootWithoutSource[0].pageId, `target-root_${schemaName}`);
 
       const plans = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');

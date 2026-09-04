@@ -1,6 +1,7 @@
 import { homedir, tmpdir } from 'node:os';
 import { cwd } from 'node:process';
 import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { isIsolatedE2EEnvironment } from '../core/security/e2e-isolation';
 
 const MIB = 1024n * 1024n;
 const GENERATED_DEVELOPMENT_PATH = resolve(
@@ -54,6 +55,7 @@ function isWithin(path: string, parent: string): boolean {
 function permitsTemporaryPath(
   normalized: string,
   pathException: StoragePathException,
+  environment: NodeJS.ProcessEnv,
 ): boolean {
   if (pathException === 'implicit-development') {
     return normalized === GENERATED_DEVELOPMENT_PATH;
@@ -61,10 +63,11 @@ function permitsTemporaryPath(
   if (pathException === 'explicit-test') {
     const parent = resolve(dirname(normalized));
     const name = basename(normalized);
+    if (parent === resolve(tmpdir()) && TEST_STORAGE_BASENAME_PATTERN.test(name)) return true;
     return (
-      (parent === resolve(tmpdir()) && TEST_STORAGE_BASENAME_PATTERN.test(name)) ||
-      (['/tmp', '/private/tmp'].includes(parent) &&
-        MACOS_E2E_STORAGE_BASENAME_PATTERN.test(name))
+      ['/tmp', '/private/tmp'].includes(parent)
+      && MACOS_E2E_STORAGE_BASENAME_PATTERN.test(name)
+      && isIsolatedE2EEnvironment(environment)
     );
   }
   return false;
@@ -73,6 +76,7 @@ function permitsTemporaryPath(
 function validateStoragePath(
   value: string,
   pathException: StoragePathException = 'none',
+  environment: NodeJS.ProcessEnv = process.env,
 ): string {
   if (value !== value.trim() || !isAbsolute(value)) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be an absolute path');
@@ -88,7 +92,7 @@ function validateStoragePath(
     resolve(cwd()),
   ]);
   const pathSegments = normalized.slice(root.length).split(sep).filter(Boolean);
-  const permittedTemporaryPath = permitsTemporaryPath(normalized, pathException);
+  const permittedTemporaryPath = permitsTemporaryPath(normalized, pathException, environment);
   if (broadPaths.has(normalized) || (pathSegments.length < 3 && !permittedTemporaryPath)) {
     throw new Error('ATTACHMENT_STORAGE_PATH must be a narrow directory, not a filesystem root');
   }
@@ -137,6 +141,7 @@ export function loadAttachmentConfig(
   const storagePath = validateStoragePath(
     configuredPath ?? GENERATED_DEVELOPMENT_PATH,
     pathException,
+    environment,
   );
   const retentionDays = positiveSafeInteger(
     environment.ATTACHMENT_RETENTION_DAYS,

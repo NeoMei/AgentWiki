@@ -152,14 +152,60 @@ describe('attachment config', () => {
   const posixTest = process.platform === 'win32' ? it.skip : it;
   posixTest('accepts the isolated macOS E2E root only in test mode', () => {
     const storagePath = '/tmp/agentwiki-mac-attachments.ABC123';
+    const isolatedEnvironment = {
+      NODE_ENV: 'test',
+      AGENTWIKI_LISTEN_HOST: '127.0.0.1',
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_20260904_1234',
+      ATTACHMENT_STORAGE_PATH: storagePath,
+    };
 
     expect(
-      loadAttachmentConfig({ NODE_ENV: 'test', ATTACHMENT_STORAGE_PATH: storagePath })
-        .storagePath,
+      loadAttachmentConfig(isolatedEnvironment).storagePath,
     ).toBe(storagePath);
     expect(() =>
       loadAttachmentConfig({ NODE_ENV: 'production', ATTACHMENT_STORAGE_PATH: storagePath }),
     ).toThrow('narrow');
+  });
+
+  posixTest.each([
+    ['missing listen host', { AGENTWIKI_LISTEN_HOST: undefined }],
+    ['non-loopback listen host', { AGENTWIKI_LISTEN_HOST: '0.0.0.0' }],
+    ['non-loopback database host', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@database.internal:5432/agentwiki_test_task3?schema=mac_e2e_20260904_1234',
+    }],
+    ['database name without test', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki?schema=mac_e2e_20260904_1234',
+    }],
+    ['missing schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3',
+    }],
+    ['duplicate schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_one&schema=mac_e2e_two',
+    }],
+    ['non-E2E schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=public',
+    }],
+    ['malformed E2E schema', {
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_bad-name',
+    }],
+    ['malformed database URL', { DATABASE_URL: 'not-a-database-url' }],
+  ])('rejects the macOS E2E root with %s', (_label, override) => {
+    const storagePath = '/tmp/agentwiki-mac-attachments.ABC123';
+    expect(() => loadAttachmentConfig({
+      NODE_ENV: 'test',
+      AGENTWIKI_LISTEN_HOST: '127.0.0.1',
+      DATABASE_URL:
+        'postgresql://agentwiki_test:test-only@127.0.0.1:55432/agentwiki_test_task3?schema=mac_e2e_20260904_1234',
+      ATTACHMENT_STORAGE_PATH: storagePath,
+      ...override,
+    })).toThrow();
   });
 
   it('accepts the reviewed narrow production storage path', () => {

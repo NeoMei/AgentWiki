@@ -289,6 +289,48 @@ test('Folder structural inventory rejects malformed or multiple outer pg_dump di
   );
 });
 
+test('Folder structural inventory requires an explicit compatible pg_dump without password argv', () => {
+  assert.equal(typeof folderDatabaseSafety.dumpFolderPublicSchema, 'function');
+  const databaseUrl = 'postgresql://folder_user:super-secret@127.0.0.1:55432/agentwiki_test';
+  assert.throws(
+    () => folderDatabaseSafety.dumpFolderPublicSchema(databaseUrl, '160015', {
+      environment: {},
+      spawnSync: () => assert.fail('pg_dump must not start without PG_DUMP_BIN'),
+    }),
+    /PG_DUMP_BIN is required/iu,
+  );
+
+  const calls = [];
+  const dump = folderDatabaseSafety.dumpFolderPublicSchema(databaseUrl, '160015', {
+    environment: { PG_DUMP_BIN: '/opt/test/postgresql@16/bin/pg_dump' },
+    spawnSync: (executable, args, options) => {
+      calls.push({ executable, args, options });
+      return args[0] === '--version'
+        ? { status: 0, stdout: 'pg_dump (PostgreSQL) 16.14\n', stderr: '' }
+        : { status: 0, stdout: folderPgDumpFixture('credential-safe', 'SELECT 1;'), stderr: '' };
+    },
+  });
+  assert.match(dump, /SELECT 1;/u);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(({ executable }) => executable === '/opt/test/postgresql@16/bin/pg_dump'));
+  assert.ok(calls.every(({ options }) => options.timeout > 0 && options.timeout <= 30_000));
+  assert.doesNotMatch(JSON.stringify(calls.map(({ args }) => args)), /super-secret/u);
+  assert.equal(calls[1].options.env.PGPASSWORD, 'super-secret');
+  assert.match(calls[1].args.join(' '), /agentwiki_test/u);
+
+  assert.throws(
+    () => folderDatabaseSafety.dumpFolderPublicSchema(databaseUrl, '170002', {
+      environment: { PG_DUMP_BIN: '/opt/test/postgresql@16/bin/pg_dump' },
+      spawnSync: () => ({
+        status: 0,
+        stdout: 'pg_dump (PostgreSQL) 16.14\n',
+        stderr: '',
+      }),
+    }),
+    /pg_dump major 16 is incompatible with PostgreSQL server major 17/iu,
+  );
+});
+
 test('Folder structural inventory vector catalog digest changes with implementation details', async () => {
   assert.equal(typeof folderDatabaseSafety.captureFolderVectorExtensionCatalog, 'function');
   const queryResults = [

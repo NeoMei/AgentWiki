@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   validateCollaborationTestDatabaseUrl,
   withCollaborationTestDatabase,
 } from './collaboration-test-database.mjs';
+import { spawnPnpmSync } from './package-manager-process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const command = process.argv[2];
@@ -21,9 +21,10 @@ if (command === 'plan') {
   })}\n`);
 } else if (command === 'run') {
   const testExit = await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
-    const result = spawnSync('pnpm', ['--filter', '@agentwiki/server', 'test'], {
+    const result = spawnPnpmSync(['--filter', '@agentwiki/server', 'test'], {
       cwd: root,
       encoding: 'utf8',
+      timeout: 15 * 60_000,
       env: {
         ...process.env,
         DATABASE_URL: databaseUrl,

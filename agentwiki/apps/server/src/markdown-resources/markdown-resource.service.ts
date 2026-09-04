@@ -145,9 +145,6 @@ export class MarkdownResourceService {
     const pageTargets = unique(pageReferences.map((reference) => (
       normalizeMarkdownPageIdentity(reference.target)
     )));
-    const initialPathTargets = unique(pageReferences.flatMap((reference) => (
-      referencePathKeys(reference.target)
-    )));
     const pageFallbackTargets = unique(pageTargets.map(withoutMarkdownSuffix));
     const titleTargets = unique([...pageTargets, ...pageFallbackTargets]);
     const attachmentTargets = unique(attachmentReferences.map((reference) => (
@@ -170,6 +167,9 @@ export class MarkdownResourceService {
     ) {
       throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Source Page not found');
     }
+    const resolvedPathTargets = unique(pageReferences.flatMap((reference) => (
+      referencePathKeys(reference.target, sourcePage?.syncPath)
+    )));
 
     const exactPageRows = pageTargets.length > 0
       ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`
@@ -179,16 +179,13 @@ export class MarkdownResourceService {
             AND "deletedAt" IS NULL
             AND (
               "id" IN (${Prisma.join(exactIdTargets)})
-              OR markdown_page_identity("syncPath") IN (${Prisma.join(initialPathTargets)})
+              OR markdown_page_identity("syncPath") IN (${Prisma.join(resolvedPathTargets)})
             )
           ORDER BY "id" ASC
           LIMIT ${MAX_EXACT_PAGE_ROWS}
         `)
       : [];
     const scopedExactPages = exactPageRows.filter((page) => page.spaceId === spaceId);
-    const resolvedPathTargets = unique(pageReferences.flatMap((reference) => (
-      referencePathKeys(reference.target, sourcePage?.syncPath)
-    )));
 
     const slugPageRows = titleTargets.length > 0
       ? await this.prisma.$queryRaw<PageRow[]>(Prisma.sql`

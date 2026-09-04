@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import {
   selectPgvectorIndexForSchema,
   withPgvectorTestDatabase,
 } from './pgvector-test-database.mjs';
+import {
+  boundedMigrationOptions,
+  spawnPackageManagerSync,
+  spawnPnpmSync,
+} from './package-manager-process.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
@@ -14,13 +18,16 @@ const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
 const databaseUrl = process.env.DATABASE_URL;
 
 function migrateSchema(schemaUrl, schemaPath) {
-  const result = spawnSync(
-    'pnpm',
+  const result = spawnPnpmSync(
     [
       '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
       '--schema', schemaPath,
     ],
-    { cwd: new URL('..', import.meta.url), encoding: 'utf8', env: { ...process.env, DATABASE_URL: schemaUrl } },
+    boundedMigrationOptions({
+      cwd: new URL('..', import.meta.url),
+      encoding: 'utf8',
+      env: { ...process.env, DATABASE_URL: schemaUrl },
+    }),
   );
   assert.equal(result.status, 0, `migrate deploy failed:\n${result.stdout}\n${result.stderr}`);
 }
@@ -65,7 +72,7 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
   // so exactly that one index is expected to appear as migrations-only drift.
   // Any other difference means a future change will generate a destructive
   // or unexpected migration and must be reviewed before landing.
-  const diff = spawnSync(
+  const diff = spawnPackageManagerSync(
     'npx',
     [
       'prisma', 'migrate', 'diff',
@@ -74,7 +81,11 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
       '--shadow-database-url', schemaUrl,
       '--exit-code',
     ],
-    { cwd: serverDir, encoding: 'utf8', env: { ...process.env, DATABASE_URL: schemaUrl } },
+    boundedMigrationOptions({
+      cwd: serverDir,
+      encoding: 'utf8',
+      env: { ...process.env, DATABASE_URL: schemaUrl },
+    }),
   );
   assert.ok(diff.status === 0 || diff.status === 2, `migrate diff crashed: ${diff.stderr}`);
   const output = diff.stdout;

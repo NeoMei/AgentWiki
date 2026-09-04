@@ -351,6 +351,45 @@ describe('MarkdownResourceService', () => {
     }]);
   });
 
+  it('prefers a source-relative canonical md path over root canonical and duplicate titles', async () => {
+    const source = page({
+      id: 'source-page', folderId: 'folder-project', title: 'Source',
+      syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+    });
+    const sameDirectory = page({
+      id: 'same-directory', folderId: 'folder-project', title: 'Target',
+      syncPath: 'pages/Project/Target.md', syncPathKey: 'pages/project/target.md',
+    });
+    const rootCanonical = page({
+      id: 'root-canonical', folderId: null, title: 'Target',
+      syncPath: 'pages/Target.md', syncPathKey: 'pages/target.md',
+    });
+    const duplicateTitle = page({
+      id: 'duplicate-title', folderId: 'folder-other', title: 'Target',
+      syncPath: 'pages/Other/Target-copy.md', syncPathKey: 'pages/other/target-copy.md',
+    });
+    prisma.page.findFirst.mockResolvedValue(source);
+    prisma.$queryRaw.mockImplementation(async (query: any) => {
+      const sql = query.strings.join('?');
+      if (sql.includes('"id" IN')) {
+        return query.values.includes('pages/project/target.md')
+          ? [sameDirectory, rootCanonical]
+          : [rootCanonical];
+      }
+      if (sql.includes('markdown_page_identity("title")')) {
+        return [sameDirectory, rootCanonical, duplicateTitle];
+      }
+      return [];
+    });
+
+    await expect(service.resolve('space-1', [
+      { key: 'target', kind: 'page', target: 'Target.md' },
+    ], principal, source.id)).resolves.toEqual([{
+      key: 'target', status: 'resolved', kind: 'page',
+      pageId: sameDirectory.id, title: 'Target', slug: 'default',
+    }]);
+  });
+
   it('keeps an unqualified same-Folder title ambiguous even when one candidate owns the unsuffixed path', async () => {
     prisma.page.findFirst.mockResolvedValue(page({
       id: 'source-page', folderId: 'folder-a', title: 'Source',
