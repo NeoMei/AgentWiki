@@ -72,11 +72,18 @@ export async function runUiRouteSmoke(environment = process.env) {
       method: 'POST', token, body: { name: `UI Route Space ${suffix}` },
     });
     fixture.spaceId = space.id;
+    const contentTree = await request(
+      apiUrl,
+      `/spaces/${encodeURIComponent(space.id)}/content-tree?take=1`,
+      { token },
+    );
+    assert.match(contentTree.treeRevision, /^(?:0|[1-9]\d*)$/u);
     const wikiPage = await request(apiUrl, '/pages', {
       method: 'POST', token, body: {
         title: `UI Route Page ${suffix}`,
         content: '# UI route validation\n\nThis disposable page validates the production route shell.',
         spaceId: space.id,
+        expectedTreeRevision: contentTree.treeRevision,
       },
     });
     pageId = wikiPage.id;
@@ -85,7 +92,7 @@ export async function runUiRouteSmoke(environment = process.env) {
     });
     fixture.agentId = agent.id;
 
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ channel: 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const page = await context.newPage();
     page.on('pageerror', (error) => browserErrors.push(error.message));

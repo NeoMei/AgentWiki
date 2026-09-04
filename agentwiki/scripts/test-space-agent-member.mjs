@@ -72,7 +72,7 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
     });
     fixture.agentId = agent.id;
 
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ channel: 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -91,9 +91,17 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('button', { name: /Agent|智能体/i }).click();
     await dialog.locator('#space-agent').selectOption(agent.id);
+    assert.deepEqual(
+      await dialog.locator('#space-agent-role option').evaluateAll((options) => (
+        options.map((option) => option.value)
+      )),
+      ['reader', 'editor', 'publisher'],
+    );
     await dialog.locator('#space-agent-role').selectOption('editor');
+    await dialog.getByText(/Read and edit Space content|可读取并编辑 Space 内容/i)
+      .waitFor({ state: 'visible' });
     for (const scope of ['pages:read', 'pages:write', 'sources:read', 'graph:read', 'graph:write']) {
-      await assert.doesNotReject(() => dialog.getByText(scope, { exact: true }).waitFor({ state: 'visible' }));
+      assert.equal(await dialog.getByText(scope, { exact: true }).count(), 0);
     }
     await dialog.getByRole('button', { name: /Add agent|添加智能体/i }).click();
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 });

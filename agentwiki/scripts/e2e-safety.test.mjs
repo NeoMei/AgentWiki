@@ -258,6 +258,14 @@ test('UI route smoke reports the number of mobile routes it actually checks', as
   const source = await readFile(new URL('ui-route-smoke.mjs', import.meta.url), 'utf8');
   assert.match(source, /const mobileRoutes = \[/u);
   assert.match(source, /mobileRoutes: mobileRoutes\.length/u);
+  assert.match(source, /expectedTreeRevision: contentTree\.treeRevision/u);
+});
+
+test('standalone browser acceptance uses the same installed Chrome channel as Playwright', async () => {
+  for (const file of ['test-space-agent-member.mjs', 'ui-route-smoke.mjs']) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /chromium\.launch\(\{ channel: 'chrome', headless: true \}\)/u, file);
+  }
 });
 
 test('active Agent E2E requests use roles without legacy permission inputs', async () => {
