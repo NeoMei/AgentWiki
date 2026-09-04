@@ -195,6 +195,38 @@ describe('OpencodeCliRunner', () => {
     expect(child.stderr.listenerCount('data')).toBe(0);
   });
 
+  it.each([
+    ['win32', 'windows', 'opencode.exe', Buffer.from([0x4d, 0x5a, 0x00, 0x00])],
+    ['darwin', 'darwin', 'opencode', Buffer.from('cffaedfe', 'hex')],
+    ['linux', 'linux', 'opencode', Buffer.from([0x7f, 0x45, 0x4c, 0x46])],
+  ] as const)(
+    'prefers the upstream-verified generic binary over the %s x64 platform package',
+    (platform, packagePlatform, executableName, binaryHeader) => {
+      const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-generic-'));
+      const packageRoot = join(fixture, 'node_modules');
+      const genericDir = join(packageRoot, 'opencode-ai');
+      const generic = join(genericDir, 'bin', 'opencode.exe');
+      const native = join(packageRoot, `opencode-${packagePlatform}-x64`, 'bin', executableName);
+      mkdirSync(join(genericDir, 'bin'), { recursive: true });
+      mkdirSync(join(packageRoot, `opencode-${packagePlatform}-x64`, 'bin'), { recursive: true });
+      writeFileSync(join(genericDir, 'package.json'), JSON.stringify({
+        name: 'opencode-ai', bin: { opencode: './bin/opencode.exe' },
+      }));
+      writeFileSync(generic, binaryHeader);
+      writeFileSync(native, binaryHeader);
+
+      try {
+        const runner = new OpencodeCliRunner({ get: jest.fn(() => undefined) } as any);
+        expect((runner as any).resolveBundledLaunch(fixture, platform, 'x64')).toEqual({
+          command: realpathSync(generic),
+          argsPrefix: [],
+        });
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('uses the server-bundled OpenCode binary when OPENCODE_BIN is not configured', async () => {
     const child = childProcess();
     const bundledConfig = { get: jest.fn(() => undefined) } as any;
@@ -206,7 +238,7 @@ describe('OpencodeCliRunner', () => {
 
     await expect(execution).resolves.toBe('ok');
     expect(spawn).toHaveBeenCalledWith(
-      expect.stringContaining(`opencode-${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`),
+      expect.stringContaining('opencode-ai/bin/opencode.exe'),
       ['--pure'],
       expect.any(Object),
     );
