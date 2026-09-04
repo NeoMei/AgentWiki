@@ -75,14 +75,24 @@ export const TREE_SYNC_V3_HARD_LIMITS = Object.freeze({
   maxDecodedPixels: 40_000_000,
 });
 
-const BoundedDecimalSchema = z.string().regex(/^(0|[1-9][0-9]*)$/).refine(
-  (value) => BigInt(value) <= BigInt(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
-  "Attachment byte count exceeds the hard limit",
+const maxAttachmentBytesDecimal = String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes);
+
+function isCanonicalAttachmentByteCount(value: string, allowZero: boolean): boolean {
+  const canonical = allowZero ? /^(?:0|[1-9][0-9]*)$/ : /^[1-9][0-9]*$/;
+  return canonical.test(value)
+    && (value.length < maxAttachmentBytesDecimal.length
+      || (value.length === maxAttachmentBytesDecimal.length
+        && value <= maxAttachmentBytesDecimal));
+}
+
+const BoundedDecimalSchema = z.string().refine(
+  (value) => isCanonicalAttachmentByteCount(value, true),
+  "Attachment byte count must be canonical and within the hard limit",
 );
 
-const PositiveBoundedBlobBytesSchema = z.string().regex(/^[1-9][0-9]*$/).refine(
-  (value) => BigInt(value) <= BigInt(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
-  "Blob byte count exceeds the hard limit",
+const PositiveBoundedBlobBytesSchema = z.string().refine(
+  (value) => isCanonicalAttachmentByteCount(value, false),
+  "Blob byte count must be positive, canonical, and within the hard limit",
 );
 
 export const FlatAttachmentPathSchema = z.string().transform((value, context) => {
@@ -434,6 +444,13 @@ export const CreateTreePushSessionRequestV3Schema = z.object({
   transferBlobBytes: z.number().int().nonnegative().max(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes),
   blobRequirements: SortedUniqueBlobRequirementsSchema,
 }).strict().superRefine((request, context) => {
+  if (request.attachmentCount > request.changeCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["attachmentCount"],
+      message: "Attachment upsert count cannot exceed the total change count",
+    });
+  }
   if (request.blobRequirements.length > request.attachmentCount) {
     context.addIssue({
       code: "custom",
@@ -441,18 +458,26 @@ export const CreateTreePushSessionRequestV3Schema = z.object({
       message: "Blob requirement count cannot exceed the attachment upsert count",
     });
   }
+  if (request.attachmentCount > 0 && request.blobRequirements.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Attachment upserts require at least one Blob requirement",
+    });
+  }
   const requirementBytes = request.blobRequirements.reduce(
-    (total, requirement) => total + BigInt(requirement.sizeBytes),
-    0n,
+    (total, requirement) => total + Number(requirement.sizeBytes),
+    0,
   );
-  if (requirementBytes > BigInt(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes)) {
+  if (!Number.isSafeInteger(requirementBytes)) return;
+  if (requirementBytes > TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes) {
     context.addIssue({
       code: "custom",
       path: ["blobRequirements"],
       message: "Blob requirement sum exceeds the transfer hard limit",
     });
   }
-  if (requirementBytes !== BigInt(request.transferBlobBytes)) {
+  if (requirementBytes !== request.transferBlobBytes) {
     context.addIssue({
       code: "custom",
       path: ["transferBlobBytes"],
@@ -460,6 +485,10 @@ export const CreateTreePushSessionRequestV3Schema = z.object({
     });
   }
 });
+
+export type CreateTreePushSessionRequestV3 = z.infer<
+  typeof CreateTreePushSessionRequestV3Schema
+>;
 
 const PushSessionStatusV3Schema = z.enum([
   "uploading",

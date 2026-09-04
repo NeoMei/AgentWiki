@@ -42,6 +42,7 @@ import {
   treeRevisionDeltaHashV3,
   treeRevisionDeltaV3,
   type BlobRequirementV3,
+  type CreateTreePushSessionRequestV3,
   type TreeDeltaItemV3,
   type SyncErrorCode,
   type SyncV3WireErrorCode,
@@ -186,6 +187,7 @@ const capabilities = (overrides: Record<string, unknown> = {}) => ({
 
 type BlobRequirementSchemaLike = {
   parse(value: unknown): BlobRequirementV3;
+  safeParse(value: unknown): { success: boolean };
 };
 
 const blobRequirement = (overrides: Record<string, unknown> = {}): BlobRequirementV3 => ({
@@ -205,7 +207,9 @@ const blobRequirementSchema = (): BlobRequirementSchemaLike => {
   return schema!;
 };
 
-const createPushSessionRequest = (overrides: Record<string, unknown> = {}) => ({
+const createPushSessionRequest = (
+  overrides: Record<string, unknown> = {},
+): CreateTreePushSessionRequestV3 => ({
   protocolVersion: "3",
   baseRevision: "rev-1",
   idempotencyKey: "11111111-1111-4111-8111-111111111111",
@@ -218,7 +222,7 @@ const createPushSessionRequest = (overrides: Record<string, unknown> = {}) => ({
   transferBlobBytes: 4,
   blobRequirements: [blobRequirement()],
   ...overrides,
-});
+} as CreateTreePushSessionRequestV3);
 
 const indexedHash = (index: number): string => index.toString(16).padStart(64, "0");
 
@@ -548,6 +552,33 @@ describe("Sync Protocol v3", () => {
     },
   );
 
+  it.each(["x", "1e2"])(
+    "returns safe Zod failures for malformed decimal size %j at every public request boundary",
+    (sizeBytes) => {
+      const parseOperations = [
+        () => SyncAttachmentV3Schema.safeParse(attachment({ sizeBytes })),
+        () => blobRequirementSchema().safeParse(blobRequirement({ sizeBytes })),
+        () => TreePushBatchV3Schema.safeParse({
+          protocolVersion: "3",
+          batchIndex: 0,
+          changes: [{ operation: "upsert_attachment", attachment: attachment({ sizeBytes }) }],
+          batchHash: hash,
+        }),
+        () => CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+          transferBlobBytes: 0,
+          blobRequirements: [blobRequirement({ sizeBytes })],
+        })),
+      ];
+      for (const safeParse of parseOperations) {
+        let result: { success: boolean } | undefined;
+        expect(() => {
+          result = safeParse();
+        }).not.toThrow();
+        expect(result?.success).toBe(false);
+      }
+    },
+  );
+
   it("accepts zero requirements and one canonical requirement", () => {
     expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
       changeCount: 0,
@@ -561,8 +592,24 @@ describe("Sync Protocol v3", () => {
 
   it("allows multiple attachment upserts to share one required Blob", () => {
     expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 2,
       attachmentCount: 2,
     })).blobRequirements).toEqual([blobRequirement()]);
+  });
+
+  it("requires attachment upserts to fit within the total change count", () => {
+    expect(CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+      changeCount: 1,
+      attachmentCount: 2,
+    })).success).toBe(false);
+  });
+
+  it("requires a nonempty Blob requirement set when attachment upserts exist", () => {
+    expect(CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+      attachmentCount: 1,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).success).toBe(false);
   });
 
   it("rejects the legacy contentHashes field", () => {
@@ -610,6 +657,7 @@ describe("Sync Protocol v3", () => {
       sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
     }));
     expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: edgeRequirements.length,
       attachmentCount: edgeRequirements.length,
       transferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes,
       blobRequirements: edgeRequirements,
@@ -633,6 +681,7 @@ describe("Sync Protocol v3", () => {
       (_, index) => blobRequirement({ contentHash: indexedHash(index + 1), sizeBytes: "1" }),
     );
     expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: maximum.length,
       attachmentCount: maximum.length,
       transferBlobBytes: maximum.length,
       blobRequirements: maximum,

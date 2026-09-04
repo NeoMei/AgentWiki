@@ -87,6 +87,22 @@ for (const [name, api] of [["ESM", esm], ["CJS", cjs]]) {
     }),
     `${name} create request must bind transferBlobBytes to requirement sizes`,
   );
+  assert.throws(
+    () => api.CreateTreePushSessionRequestV3Schema.parse({
+      ...createRequest,
+      changeCount: 1,
+    }),
+    `${name} attachment upsert count must fit within the total change count`,
+  );
+  assert.throws(
+    () => api.CreateTreePushSessionRequestV3Schema.parse({
+      ...createRequest,
+      attachmentCount: 1,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    }),
+    `${name} attachment upserts must carry Blob requirements`,
+  );
 }
 
 console.log("Sync v3 ESM/CJS build parity: 5 digests, 8 error codes, and Blob requirements match");
