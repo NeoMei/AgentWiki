@@ -15,6 +15,9 @@ import { SyncV3BootstrapService } from '../../integrations/obsidian/sync-v3-boot
 import type { AttachmentConfig } from '../../attachments/attachment.config';
 import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
+import { PageService } from '../page/page.service';
+import { ReadableSyncPathService } from './readable-sync-path.service';
+import { ContentTreeService } from '../../content-tree/content-tree.service';
 import {
   SyncV3RevisionWriterService,
   assertSyncV3CandidateHardLimits,
@@ -157,6 +160,126 @@ describe('SyncV3RevisionWriterService', () => {
       { origin: 'web_editor' },
     )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('publishes an applied structural rename directly when managed images first require v3', async () => {
+    const body = '![[assets/photo.png]]\n';
+    const candidate = {
+      folders: [],
+      pages: [{
+        pageId: 'page-1', folderId: 'folder-2', path: 'pages/Renamed.md', title: 'Renamed', body,
+        contentHash: await contentHash(body), updatedAt: '2026-09-04T00:00:00.000Z',
+        referencedAttachmentIds: [attachmentId],
+      }],
+      attachments: [{
+        attachmentId, path: 'assets/photo.png', mimeType: 'image/png' as const,
+        sizeBytes: '4', width: 1, height: 1, contentHash: 'b'.repeat(64),
+        updatedAt: '2026-09-04T00:00:00.000Z',
+      }],
+    };
+    const v3Writer = new SyncV3RevisionWriterService({} as any, {} as any);
+    jest.spyOn(v3Writer as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'bootstrap_required', blockers: [], candidate,
+    });
+    const publish = jest.spyOn(v3Writer, 'advanceV3Locked').mockResolvedValue({
+      revisionId: 'rev-v3', sequence: 2, revisionContentHash: 'a'.repeat(64),
+      pageCount: 1n, revisionManifestByteLength: 1n, revisionBodyBytes: 1n,
+      attachmentCount: 1n, revisionAttachmentBytes: 4n, publishedAt: new Date(),
+    });
+    const writer = new SpaceRevisionWriterService({} as any, v3Writer);
+    const tx = { $executeRaw: jest.fn(), spaceKnowledgeRevision: { create: jest.fn() } };
+    const change = {
+      operation: 'upsert' as const,
+      pageId: 'page-1',
+      folderId: 'folder-2',
+      path: 'pages/Renamed.md',
+      title: 'Renamed',
+      body,
+    };
+
+    await expect(writer.advanceStructuralPagesLocked(
+      tx as any,
+      'space-1',
+      [change],
+      { origin: 'web_editor' },
+    )).resolves.toMatchObject({ revisionId: 'rev-v3' });
+    expect(publish).toHaveBeenCalledWith(tx, 'space-1', candidate, { origin: 'web_editor' });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.spaceKnowledgeRevision.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks a first managed-image save before the Space writer can create a legacy revision', async () => {
+    const body = '![[assets/missing.png]]\n';
+    const candidate = {
+      folders: [],
+      pages: [{
+        pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body,
+        contentHash: await contentHash(body), updatedAt: '2026-09-04T00:00:00.000Z',
+        referencedAttachmentIds: [],
+      }],
+      attachments: [],
+    };
+    const v3Writer = new SyncV3RevisionWriterService({} as any, {} as any);
+    jest.spyOn(v3Writer as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'bootstrap_required',
+      blockers: [{ pageId: 'page-1', code: 'ATTACHMENT_MISSING' }],
+      candidate,
+    });
+    const writer = new SpaceRevisionWriterService({} as any, v3Writer);
+    const create = jest.fn();
+    const tx = {
+      $executeRaw: jest.fn(),
+      spaceKnowledgeRevision: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create,
+      },
+    };
+
+    await expect(writer.advanceLocked(
+      tx as any,
+      'space-1',
+      [{ operation: 'upsert', pageId: 'page-1', path: 'pages/Page.md', title: 'Page', body }],
+      { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of silently bootstrapping a managed-image Space for empty changes', async () => {
+    const v3Writer = new SyncV3RevisionWriterService({} as any, {} as any);
+    const publish = jest.spyOn(v3Writer, 'advanceV3Locked');
+    jest.spyOn(v3Writer as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'bootstrap_required', blockers: [],
+      candidate: { folders: [], pages: [], attachments: [] },
+    });
+
+    await expect(v3Writer.advanceCurrentIfRequiredLocked(
+      {} as any,
+      'space-1',
+      [],
+      { origin: 'web_editor' },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('keeps publishing an established native v3 Space when changes are empty', async () => {
+    const candidate = { folders: [], pages: [], attachments: [] };
+    const v3Writer = new SyncV3RevisionWriterService({} as any, {} as any);
+    jest.spyOn(v3Writer as any, 'inspectLiveCurrentLocked').mockResolvedValue({
+      mode: 'native_v3', blockers: [], candidate,
+    });
+    const publish = jest.spyOn(v3Writer, 'advanceV3Locked').mockResolvedValue({
+      revisionId: 'rev-v3', sequence: 2, revisionContentHash: 'a'.repeat(64),
+      pageCount: 0n, revisionManifestByteLength: 1n, revisionBodyBytes: 0n,
+      attachmentCount: 0n, revisionAttachmentBytes: 0n, publishedAt: new Date(),
+    });
+
+    await expect(v3Writer.advanceCurrentIfRequiredLocked(
+      {} as any,
+      'space-1',
+      [],
+      { origin: 'web_editor' },
+    )).resolves.toMatchObject({ revisionId: 'rev-v3' });
+    expect(publish).toHaveBeenCalledWith({}, 'space-1', candidate, { origin: 'web_editor' });
   });
 
   it.each([
@@ -769,6 +892,134 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
           where: { id: stagedAttachment.id }, select: { status: true, archivedAt: true },
         })).toEqual({ status: 'active', archivedAt: null });
       }
+    } finally {
+      await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
+      await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });
+      await prisma.space.deleteMany({ where: { id: spaceId } });
+      await prisma.user.deleteMany({ where: { id: userId } });
+      await prisma.$disconnect();
+      await storage.onModuleDestroy();
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  dbIt('PageService save creates exactly one first v3 head from the updated live Page', async () => {
+    const prisma = new PrismaClient({ datasources: { db: { url: syncV3DatabaseUrl } } });
+    const storageRoot = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-'));
+    const storage = new LocalAttachmentStorage(syncV3StorageConfig(storageRoot));
+    const suffix = randomUUID().replaceAll('-', '');
+    const userId = `user_${suffix}`;
+    const spaceId = `space_${suffix}`;
+    const pageId = `page_${suffix}`;
+
+    try {
+      const blob = await publishSyncV3Blob(storage, Buffer.from('first-v3-image'));
+      await prisma.user.create({ data: { id: userId, email: `${suffix}@page-save.sync-v3.test` } });
+      await prisma.space.create({ data: { id: spaceId, name: 'First Page v3', slug: spaceId } });
+      await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+      const page = await prisma.page.create({ data: {
+        knowledgeKey: pageId,
+        title: 'Page',
+        slug: `page-${suffix}`,
+        content: '# Before\n',
+        spaceId,
+        authorId: userId,
+        syncPath: 'pages/Page.md',
+        syncPathKey: 'pages/page.md',
+      } });
+      const attachment = await prisma.spaceAttachment.create({ data: {
+        spaceId,
+        displayName: 'photo.png',
+        nameKey: 'photo.png',
+        contentHash: blob.contentHash,
+        storageKey: blob.storageKey,
+        mimeType: 'image/png',
+        sizeBytes: BigInt(Buffer.byteLength('first-v3-image')),
+        width: 1,
+        height: 1,
+        uploadedByUserId: userId,
+      } });
+      const version = await prisma.attachmentVersion.create({ data: {
+        attachmentId: attachment.id,
+        contentHash: attachment.contentHash,
+        storageKey: attachment.storageKey,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+      } });
+      const markdownResources = new MarkdownResourceService(
+        prisma as any,
+        new AuthorizationService(prisma as any),
+      );
+      const v3Writer = new SyncV3RevisionWriterService(markdownResources, storage);
+      const writer = new SpaceRevisionWriterService(prisma as any, v3Writer);
+      await prisma.$transaction((tx) => writer.advance(tx, spaceId, [{
+        operation: 'upsert',
+        pageId,
+        path: page.syncPath,
+        title: page.title,
+        body: page.content,
+      }], { origin: 'web_editor', createdByUserId: userId }));
+      const legacyHead = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+        where: { spaceId },
+        orderBy: { sequence: 'desc' },
+      });
+      expect(legacyHead).toMatchObject({
+        schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none',
+        parentRevisionId: null,
+      });
+      const beforeCount = await prisma.spaceKnowledgeRevision.count({ where: { spaceId } });
+      expect(beforeCount).toBe(1);
+      const search = { indexPage: jest.fn().mockResolvedValue(undefined) };
+      const graph = { enqueue: jest.fn() };
+      const syncPaths = new ReadableSyncPathService();
+      const authorization = new AuthorizationService(prisma as any);
+      const contentTree = new ContentTreeService(prisma as any, writer, syncPaths);
+      const pages = new PageService(
+        prisma as any,
+        search as any,
+        writer,
+        syncPaths,
+        graph as any,
+        {} as any,
+        authorization,
+        contentTree,
+      );
+      const body = '# After\n\n![[assets/photo.png]]\n';
+
+      await pages.update(page.id, {
+        expectedUpdatedAt: page.updatedAt.toISOString(),
+        content: body,
+      }, { userId });
+
+      const revisions = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId },
+        orderBy: { sequence: 'asc' },
+      });
+      expect(revisions).toHaveLength(beforeCount + 1);
+      const head = revisions[revisions.length - 1]!;
+      expect(head).toMatchObject({
+        sequence: legacyHead.sequence + 1,
+        parentRevisionId: legacyHead.id,
+        schemaVersion: 'content-tree@3',
+        recipeVersion: 'referenced-images-v1',
+      });
+      expect(head.delta).toEqual(expect.arrayContaining([
+        expect.objectContaining({ operation: 'upsert_page', page: expect.objectContaining({ pageId }) }),
+        expect.objectContaining({ operation: 'upsert_attachment', attachment: expect.objectContaining({ attachmentId: attachment.id }) }),
+      ]));
+      expect(await prisma.syncRevisionAttachmentRow.findMany({
+        where: { revisionId: head.id },
+      })).toEqual([
+        expect.objectContaining({
+          attachmentId: attachment.id,
+          attachmentVersionId: version.id,
+        }),
+      ]);
+      expect(search.indexPage).toHaveBeenCalledWith(page.id);
+      expect(graph.enqueue).toHaveBeenCalledWith(spaceId);
     } finally {
       await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
       await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });

@@ -373,9 +373,25 @@ export class SyncV3RevisionWriterService {
     origin: RevisionOrigin,
   ): Promise<SyncV3RevisionWriteResult | null> {
     const inspection = await this.inspectLiveCurrentLocked(tx, spaceId);
-    if (inspection.mode !== 'native_v3') return null;
-    this.assertChangesApplied(inspection.candidate, changes);
+    if (inspection.mode === 'legacy_v2') return null;
     const blocker = inspection.blockers[0];
+    if (inspection.mode === 'bootstrap_required' && changes.length === 0) {
+      if (blocker) {
+        throw new SyncApiException(
+          blocker.code,
+          'Page attachment reference cannot be resolved',
+          undefined,
+          '3',
+        );
+      }
+      throw new SyncApiException(
+        'ATTACHMENT_CONTENT_INVALID',
+        'Sync v3 bootstrap requires an explicit Page change or confirmation',
+        undefined,
+        '3',
+      );
+    }
+    this.assertChangesApplied(inspection.candidate, changes);
     if (blocker) {
       throw new SyncApiException(blocker.code, 'Page attachment reference cannot be resolved', undefined, '3');
     }
