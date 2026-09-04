@@ -466,6 +466,32 @@ describe('MarkdownResourceService', () => {
     }]);
   });
 
+  it('resolves an unqualified Markdown target through a same-directory historical alias', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page', folderId: 'folder-project', title: 'Source',
+      syncPath: 'pages/Project/Source.md', syncPathKey: 'pages/project/source.md',
+    }));
+    prisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        ...page({
+          id: 'moved-page', folderId: 'folder-archive', title: 'Renamed',
+          slug: 'renamed', syncPath: 'pages/Archive/Renamed.md',
+          syncPathKey: 'pages/archive/renamed.md',
+        }),
+        aliasPathKey: 'pages/project/weekly.md',
+      }]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'old-link', kind: 'page', target: 'Weekly.md' },
+    ], principal, 'source-page')).resolves.toEqual([{
+      key: 'old-link', status: 'resolved', kind: 'page',
+      pageId: 'moved-page', title: 'Renamed', slug: 'renamed',
+    }]);
+  });
+
   it('returns structured candidates for an ambiguous historical path alias', async () => {
     prisma.$queryRaw
       .mockResolvedValueOnce([])

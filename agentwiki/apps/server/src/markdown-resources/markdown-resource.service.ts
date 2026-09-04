@@ -321,6 +321,16 @@ export class MarkdownResourceService {
         });
         if (slugMatches.length > 1) return ambiguousPageResult(reference.key, slugMatches);
         if (slugMatches.length === 1) return pageResult(reference.key, slugMatches[0]);
+
+        if (aliasQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
+        const aliasPathTargets = referencePathKeys(reference.target, sourcePage?.syncPath);
+        for (const targetPathKey of aliasPathTargets) {
+          const aliasMatches = scopedAliasPages.filter((candidate) => (
+            normalizeMarkdownPageIdentity(candidate.aliasPathKey) === targetPathKey
+          ));
+          if (aliasMatches.length > 1) return ambiguousPageResult(reference.key, aliasMatches);
+          if (aliasMatches.length === 1) return pageResult(reference.key, aliasMatches[0]);
+        }
         return { key: reference.key, status: 'unresolved' };
       }
 

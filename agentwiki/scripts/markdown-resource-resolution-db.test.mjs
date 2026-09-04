@@ -147,7 +147,16 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
           title: 'Target', slug: `target-duplicate-${schemaName}`,
           syncPath: 'pages/Other/Target-copy.md', syncPathKey: 'pages/other/target-copy.md',
         },
+        {
+          id: `moved-alias_${schemaName}`, spaceId, authorId: userId,
+          title: 'Renamed', slug: `renamed-${schemaName}`,
+          syncPath: 'pages/Archive/Renamed.md', syncPathKey: 'pages/archive/renamed.md',
+        },
       ] });
+      await prisma.pagePathAlias.create({ data: {
+        id: `old-alias_${schemaName}`, spaceId, pageId: `moved-alias_${schemaName}`,
+        path: 'pages/Project/Weekly.md', pathKey: 'pages/project/weekly.md',
+      } });
       await prisma.spaceAttachment.create({ data: {
         id: `attachment_${schemaName}`, spaceId, displayName: 'Diagram.png',
         nameKey: 'diagram.png', contentHash: 'a'.repeat(64),
@@ -192,6 +201,11 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'target', kind: 'page', target: 'Target.md' },
       ], { userId }, `source-project_${schemaName}`);
       assert.equal(sourceRelative[0].pageId, `target-project_${schemaName}`);
+
+      const historicalRelative = await resolver.resolve(spaceId, [
+        { key: 'old-link', kind: 'page', target: 'Weekly.md' },
+      ], { userId }, `source-project_${schemaName}`);
+      assert.equal(historicalRelative[0].pageId, `moved-alias_${schemaName}`);
 
       const rootRelative = await resolver.resolve(spaceId, [
         { key: 'target', kind: 'page', target: 'Target.md' },
