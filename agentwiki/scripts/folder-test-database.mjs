@@ -13,7 +13,9 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+import { errorWithTestDatabaseCleanup } from './test-database-lifecycle.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -205,14 +207,35 @@ export async function prepareFolderMigrationBundle({
   }
 }
 
-export async function withFolderMigrationBundle(options, callback) {
+export async function withFolderMigrationBundle(
+  options,
+  callback,
+  { prepareMigrationBundle = prepareFolderMigrationBundle } = {},
+) {
   let prepared;
+  let primaryError;
+  let result;
   try {
-    prepared = await prepareFolderMigrationBundle(options);
-    return await callback(prepared);
-  } finally {
-    if (prepared) await prepared.cleanup();
+    prepared = await prepareMigrationBundle(options);
+    result = await callback(prepared);
+  } catch (error) {
+    primaryError = error;
   }
+  const cleanupErrors = [];
+  if (prepared) {
+    try {
+      await prepared.cleanup();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  const finalError = errorWithTestDatabaseCleanup(
+    primaryError,
+    cleanupErrors,
+    'Folder migration bundle',
+  );
+  if (finalError) throw finalError;
+  return result;
 }
 
 export async function assertFolderDatabaseSafetyPreflight(prisma) {
@@ -672,10 +695,15 @@ export function folderDatabaseSafetyInventoryDigest(inventory) {
   return sha256(JSON.stringify(inventory));
 }
 
-function assertSafetyInventoryUnchanged(before, after, boundary) {
+export function assertFolderDatabaseSafetyInventoryUnchanged(
+  before,
+  after,
+  boundary,
+  subject = 'Folder',
+) {
   if (!isDeepStrictEqual(after, before)) {
     throw new Error(
-      `Folder database ${boundary} changed protected structural inventory `
+      `${subject} database ${boundary} changed protected structural inventory `
       + `${folderDatabaseSafetyInventoryDigest(before)} -> ${folderDatabaseSafetyInventoryDigest(after)}`,
     );
   }
@@ -692,6 +720,7 @@ export function validateFolderTestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('FOLDER_TEST_DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'FOLDER_TEST_DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('FOLDER_TEST_DATABASE_URL database name must contain test');
@@ -751,7 +780,11 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
         );
       }
       const postMigrationInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-      assertSafetyInventoryUnchanged(safetyInventory, postMigrationInventory, 'migration');
+      assertFolderDatabaseSafetyInventoryUnchanged(
+        safetyInventory,
+        postMigrationInventory,
+        'migration',
+      );
       callbackStarted = true;
       return await callback({
         databaseUrl,
@@ -765,7 +798,11 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
         if (prisma && safetyInventory && callbackStarted) {
           try {
             const postCallbackInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
-            assertSafetyInventoryUnchanged(safetyInventory, postCallbackInventory, 'callback');
+            assertFolderDatabaseSafetyInventoryUnchanged(
+              safetyInventory,
+              postCallbackInventory,
+              'callback',
+            );
           } catch (error) {
             safetyError = error;
           }

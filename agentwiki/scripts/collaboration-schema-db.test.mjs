@@ -15,8 +15,21 @@ const REVIEWED_MIGRATION_TREE_SHA256 = 'aea568306ebeb5ce70977a19b205cdb8c2d8bed0
 test('dedicated collaboration database URLs fail closed', () => {
   assert.throws(() => validateCollaborationTestDatabaseUrl(undefined), /required/i);
   assert.throws(() => validateCollaborationTestDatabaseUrl('postgresql://localhost/agentwiki'), /test/i);
+  for (const unsafeHost of [
+    '203.0.113.10',
+    'localhost.evil',
+    '2130706433',
+    '0x7f000001',
+  ]) {
+    assert.throws(
+      () => validateCollaborationTestDatabaseUrl(`postgresql://${unsafeHost}/agentwiki_test`),
+      /loopback/i,
+    );
+  }
   assert.throws(() => validateCollaborationTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=public'), /schema/i);
   assert.doesNotThrow(() => validateCollaborationTestDatabaseUrl('postgresql://localhost/agentwiki_test'));
+  assert.doesNotThrow(() => validateCollaborationTestDatabaseUrl('postgresql://127.42.0.9/agentwiki_test'));
+  assert.doesNotThrow(() => validateCollaborationTestDatabaseUrl('postgresql://[0:0:0:0:0:0:0:1]/agentwiki_test'));
   assert.doesNotThrow(() => validateCollaborationTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=collaboration_test_existing'));
 });
 

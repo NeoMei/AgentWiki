@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import {
+  assertFolderDatabaseSafetyInventoryUnchanged,
+  assertFolderDatabaseSafetyPreflight,
+  captureFolderDatabaseSafetyInventory,
+  folderDatabaseSafetyInventoryDigest,
+  withFolderMigrationBundle,
+} from './folder-test-database.mjs';
 import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+import { errorWithTestDatabaseCleanup } from './test-database-lifecycle.mjs';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -29,6 +38,7 @@ export function validateMarkdownTestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('MARKDOWN_TEST_DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'MARKDOWN_TEST_DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('MARKDOWN_TEST_DATABASE_URL database name must contain test');
@@ -68,66 +78,94 @@ export async function withMarkdownTestDatabase(baseDatabaseUrl, callback) {
   const parsed = validateMarkdownTestDatabaseUrl(baseDatabaseUrl);
   parsed.searchParams.delete('schema');
   const administrativeUrl = parsed.toString();
-  const schemaName = `markdown_test_${randomUUID().replaceAll('-', '')}`;
-  const schemaSql = quoteIdentifier(schemaName);
-  const testUrl = new URL(administrativeUrl);
-  testUrl.searchParams.set('schema', schemaName);
-  const databaseUrl = testUrl.toString();
-  const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl } } });
-  let created = false;
+  return withFolderMigrationBundle({}, async (preparedMigrations) => {
+    const schemaName = `markdown_test_${randomUUID().replaceAll('-', '')}`;
+    const schemaSql = quoteIdentifier(schemaName);
+    const testUrl = new URL(administrativeUrl);
+    testUrl.searchParams.set('schema', schemaName);
+    const databaseUrl = testUrl.toString();
+    const prisma = new PrismaClient({ datasources: { db: { url: administrativeUrl } } });
+    let created = false;
+    let primaryError;
+    let result;
+    let safetyInventory;
 
-  try {
-    const [preflight] = await prisma.$queryRawUnsafe(
-      `SELECT current_database() AS database, current_user AS role,
-              current_schema() AS schema, current_setting('search_path') AS search_path,
-              (SELECT count(*)::int FROM pg_namespace WHERE nspname = $1) AS schema_count`,
-      schemaName,
-    );
-    if (!preflight.database.toLowerCase().includes('test')) {
-      throw new Error('Connected database name must contain test');
-    }
-    requireSchemaCount(
-      preflight.schema_count,
-      0,
-      `Generated Markdown test schema already exists: ${schemaName}`,
-    );
-    console.info(
-      `Markdown test preflight database=${preflight.database} role=${preflight.role} `
-      + `schema=${preflight.schema} search_path=${preflight.search_path} `
-      + `target=${schemaName} count=${preflight.schema_count}`,
-    );
-
-    await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
-    created = true;
-    const [createdSchema] = await prisma.$queryRawUnsafe(
-      'SELECT count(*)::int AS count FROM pg_namespace WHERE nspname = $1',
-      schemaName,
-    );
-    requireSchemaCount(
-      createdSchema.count,
-      1,
-      `Markdown test schema creation was not isolated: ${schemaName}`,
-    );
-    console.info(`Markdown test schema created target=${schemaName} count=${createdSchema.count}`);
-
-    const migration = spawnPnpmSync(
-      ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
-      boundedMigrationOptions({
-        cwd: new URL('..', import.meta.url),
-        encoding: 'utf8',
-        env: { ...process.env, DATABASE_URL: databaseUrl },
-      }),
-    );
-    if (migration.error || migration.status !== 0) {
-      const details = [migration.error?.message, migration.stdout, migration.stderr]
-        .filter(Boolean)
-        .join('\n');
-      throw new Error(`Markdown test migration failed:\n${details}`);
-    }
-    return await callback({ databaseUrl, schemaName });
-  } finally {
     try {
-      if (created) {
+      await assertFolderDatabaseSafetyPreflight(prisma);
+      safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+      const [preflight] = await prisma.$queryRawUnsafe(
+        `SELECT current_database() AS database, current_user AS role,
+                current_schema() AS schema, current_setting('search_path') AS search_path,
+                (SELECT count(*)::int FROM pg_namespace WHERE nspname = $1) AS schema_count`,
+        schemaName,
+      );
+      if (!preflight.database.toLowerCase().includes('test')) {
+        throw new Error('Connected database name must contain test');
+      }
+      requireSchemaCount(
+        preflight.schema_count,
+        0,
+        `Generated Markdown test schema already exists: ${schemaName}`,
+      );
+      console.info(
+        `Markdown test preflight database=${preflight.database} role=${preflight.role} `
+        + `schema=${preflight.schema} search_path=${preflight.search_path} `
+        + `target=${schemaName} count=${preflight.schema_count}`,
+      );
+
+      await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
+      created = true;
+      const [createdSchema] = await prisma.$queryRawUnsafe(
+        'SELECT count(*)::int AS count FROM pg_namespace WHERE nspname = $1',
+        schemaName,
+      );
+      requireSchemaCount(
+        createdSchema.count,
+        1,
+        `Markdown test schema creation was not isolated: ${schemaName}`,
+      );
+      console.info(`Markdown test schema created target=${schemaName} count=${createdSchema.count}`);
+
+      const migration = spawnPnpmSync(
+        [
+          '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+          '--schema', preparedMigrations.schemaPath,
+        ],
+        boundedMigrationOptions({
+          cwd: new URL('..', import.meta.url),
+          encoding: 'utf8',
+          env: { ...process.env, DATABASE_URL: databaseUrl },
+        }),
+      );
+      if (migration.error || migration.status !== 0) {
+        const details = [migration.error?.message, migration.stdout, migration.stderr]
+          .filter(Boolean)
+          .join('\n');
+        throw new Error(`Markdown test migration failed:\n${details}`);
+      }
+      const postMigrationInventory = await captureFolderDatabaseSafetyInventory(
+        administrativeUrl,
+        prisma,
+      );
+      assertFolderDatabaseSafetyInventoryUnchanged(
+        safetyInventory,
+        postMigrationInventory,
+        'migration',
+        'Markdown',
+      );
+      result = await callback({
+        databaseUrl,
+        schemaName,
+        migrationTreeDigest: preparedMigrations.treeDigest,
+        publicInventoryDigest: folderDatabaseSafetyInventoryDigest(safetyInventory),
+      });
+    } catch (error) {
+      primaryError = error;
+    }
+
+    const cleanupErrors = [];
+    if (created) {
+      try {
         await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);
         const [remaining] = await prisma.$queryRawUnsafe(
           'SELECT count(*)::int AS count FROM pg_namespace WHERE nspname = $1',
@@ -139,9 +177,34 @@ export async function withMarkdownTestDatabase(baseDatabaseUrl, callback) {
           `Markdown test schema cleanup failed: ${schemaName}`,
         );
         console.info(`Markdown test schema removed target=${schemaName} count=${remaining.count}`);
+      } catch (error) {
+        cleanupErrors.push(error);
       }
-    } finally {
-      await prisma.$disconnect();
     }
-  }
+    if (safetyInventory) {
+      try {
+        const finalInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
+        assertFolderDatabaseSafetyInventoryUnchanged(
+          safetyInventory,
+          finalInventory,
+          'run',
+          'Markdown',
+        );
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    try {
+      await prisma.$disconnect();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    const finalError = errorWithTestDatabaseCleanup(
+      primaryError,
+      cleanupErrors,
+      'Markdown test database harness',
+    );
+    if (finalError) throw finalError;
+    return result;
+  });
 }

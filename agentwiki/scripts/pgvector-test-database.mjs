@@ -7,6 +7,7 @@ import {
   folderDatabaseSafetyInventoryDigest,
   withFolderMigrationBundle,
 } from './folder-test-database.mjs';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -23,6 +24,7 @@ export function validatePgvectorTestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('DATABASE_URL database name must contain test');

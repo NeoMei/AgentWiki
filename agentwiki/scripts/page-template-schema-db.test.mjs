@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import { captureFolderDatabaseSafetyInventory } from './folder-test-database.mjs';
 import {
   validatePageTemplateTestDatabaseUrl,
   withPageTemplateTestDatabase,
@@ -10,12 +12,51 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.PAGE_TEMPLATE_TEST_DATABASE_URL;
 
+async function withFreshPageTemplateSafetyDatabase(callback) {
+  const administrativeUrl = validatePageTemplateTestDatabaseUrl(baseDatabaseUrl);
+  administrativeUrl.searchParams.delete('schema');
+  const administrator = new PrismaClient({
+    datasources: { db: { url: administrativeUrl.toString() } },
+  });
+  const databaseName = `aw_page_global_test_${randomUUID().replaceAll('-', '')}`;
+  const databaseUrl = new URL(administrativeUrl);
+  databaseUrl.pathname = `/${databaseName}`;
+  let target;
+  let created = false;
+  try {
+    await administrator.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
+    created = true;
+    target = new PrismaClient({ datasources: { db: { url: databaseUrl.toString() } } });
+    await target.$executeRawUnsafe('CREATE EXTENSION vector WITH SCHEMA public');
+    await target.$queryRawUnsafe("SELECT '[1]'::public.vector::text AS vector");
+    await target.$executeRawUnsafe('SET hnsw.ef_search = 40');
+    return await callback(databaseUrl.toString(), target, databaseName);
+  } finally {
+    await target?.$disconnect();
+    if (created) {
+      await administrator.$executeRawUnsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
+    }
+    await administrator.$disconnect();
+  }
+}
+
 test('page-template database URLs fail closed', () => {
   assert.throws(() => validatePageTemplateTestDatabaseUrl(undefined), /required/iu);
   assert.throws(
     () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki'),
     /test/iu,
   );
+  for (const unsafeHost of [
+    '203.0.113.10',
+    'localhost.evil',
+    '2130706433',
+    '0x7f000001',
+  ]) {
+    assert.throws(
+      () => validatePageTemplateTestDatabaseUrl(`postgresql://${unsafeHost}/agentwiki_test`),
+      /loopback/iu,
+    );
+  }
   assert.throws(
     () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=public'),
     /schema/iu,
@@ -39,6 +80,12 @@ test('page-template database URLs fail closed', () => {
   }
   assert.doesNotThrow(
     () => validatePageTemplateTestDatabaseUrl('postgresql://localhost/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validatePageTemplateTestDatabaseUrl('postgresql://127.42.0.9/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validatePageTemplateTestDatabaseUrl('postgresql://[0:0:0:0:0:0:0:1]/agentwiki_test'),
   );
   assert.doesNotThrow(
     () => validatePageTemplateTestDatabaseUrl(
@@ -330,5 +377,42 @@ test('page-template migration enforces scope, provenance tuples, and immutable r
     } finally {
       await prisma.$disconnect();
     }
+  });
+});
+
+test('page-template harness migrations preserve protected database inventory', {
+  skip: baseDatabaseUrl ? false : 'PAGE_TEMPLATE_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFreshPageTemplateSafetyDatabase(async (databaseUrl, administrator) => {
+    const before = await captureFolderDatabaseSafetyInventory(databaseUrl, administrator);
+    await withPageTemplateTestDatabase(databaseUrl, async () => {});
+    const after = await captureFolderDatabaseSafetyInventory(databaseUrl, administrator);
+    assert.deepEqual(after, before);
+  });
+});
+
+test('page-template harness preserves a primary failure when inventory verification also fails', {
+  skip: baseDatabaseUrl ? false : 'PAGE_TEMPLATE_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFreshPageTemplateSafetyDatabase(async (databaseUrl, administrator, databaseName) => {
+    const primary = new Error('intentional page-template callback failure');
+    let caught;
+    try {
+      await withPageTemplateTestDatabase(databaseUrl, async () => {
+        await administrator.$executeRawUnsafe(
+          `ALTER DATABASE "${databaseName}" SET statement_timeout = '4321ms'`,
+        );
+        throw primary;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(caught, primary);
+    assert.ok(caught.cause instanceof AggregateError);
+    assert.ok(caught.cause.errors.some(
+      (error) => /protected structural inventory/iu.test(error.message),
+    ));
   });
 });

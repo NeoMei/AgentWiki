@@ -8,6 +8,7 @@ import {
   withFolderMigrationBundle,
 } from './folder-test-database.mjs';
 import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -24,6 +25,7 @@ export function validateCollaborationTestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('COLLABORATION_TEST_DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'COLLABORATION_TEST_DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('COLLABORATION_TEST_DATABASE_URL database name must contain test');

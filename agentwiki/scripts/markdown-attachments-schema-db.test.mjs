@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { captureFolderDatabaseSafetyInventory } from './folder-test-database.mjs';
 import {
   expectedMarkdownTestDatabaseIdentity,
   validateMarkdownTestDatabaseUrl,
@@ -10,6 +12,34 @@ import {
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.MARKDOWN_TEST_DATABASE_URL;
+
+async function withFreshMarkdownSafetyDatabase(callback) {
+  const administrativeUrl = validateMarkdownTestDatabaseUrl(baseDatabaseUrl);
+  administrativeUrl.searchParams.delete('schema');
+  const administrator = new PrismaClient({
+    datasources: { db: { url: administrativeUrl.toString() } },
+  });
+  const databaseName = `aw_markdown_global_test_${randomUUID().replaceAll('-', '')}`;
+  const databaseUrl = new URL(administrativeUrl);
+  databaseUrl.pathname = `/${databaseName}`;
+  let target;
+  let created = false;
+  try {
+    await administrator.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
+    created = true;
+    target = new PrismaClient({ datasources: { db: { url: databaseUrl.toString() } } });
+    await target.$executeRawUnsafe('CREATE EXTENSION vector WITH SCHEMA public');
+    await target.$queryRawUnsafe("SELECT '[1]'::public.vector::text AS vector");
+    await target.$executeRawUnsafe('SET hnsw.ef_search = 40');
+    return await callback(databaseUrl.toString(), target, databaseName);
+  } finally {
+    await target?.$disconnect();
+    if (created) {
+      await administrator.$executeRawUnsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
+    }
+    await administrator.$disconnect();
+  }
+}
 
 function createAdminClient(databaseUrl) {
   const administrativeUrl = validateMarkdownTestDatabaseUrl(databaseUrl);
@@ -27,6 +57,18 @@ test('Markdown database URLs fail closed', () => {
     () => validateMarkdownTestDatabaseUrl('postgresql://localhost/agentwiki'),
     /database name.*test/iu,
   );
+
+  for (const unsafeHost of [
+    '203.0.113.10',
+    'localhost.evil',
+    '2130706433',
+    '0x7f000001',
+  ]) {
+    assert.throws(
+      () => validateMarkdownTestDatabaseUrl(`postgresql://${unsafeHost}/agentwiki_test`),
+      /loopback/iu,
+    );
+  }
 
   for (const repeatedSchema of [
     'schema=markdown_test_one&schema=markdown_test_two',
@@ -53,6 +95,12 @@ test('Markdown database URLs fail closed', () => {
 
   assert.doesNotThrow(
     () => validateMarkdownTestDatabaseUrl('postgresql://localhost/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validateMarkdownTestDatabaseUrl('postgresql://127.42.0.9/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validateMarkdownTestDatabaseUrl('postgresql://[0:0:0:0:0:0:0:1]/agentwiki_test'),
   );
   assert.doesNotThrow(
     () => validateMarkdownTestDatabaseUrl(
@@ -297,4 +345,41 @@ test('Markdown test schemas are removed when the callback fails', {
   } finally {
     await admin.$disconnect();
   }
+});
+
+test('Markdown harness migrations preserve protected database inventory', {
+  skip: baseDatabaseUrl ? false : 'MARKDOWN_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFreshMarkdownSafetyDatabase(async (databaseUrl, administrator) => {
+    const before = await captureFolderDatabaseSafetyInventory(databaseUrl, administrator);
+    await withMarkdownTestDatabase(databaseUrl, async () => {});
+    const after = await captureFolderDatabaseSafetyInventory(databaseUrl, administrator);
+    assert.deepEqual(after, before);
+  });
+});
+
+test('Markdown harness preserves a primary failure when inventory verification also fails', {
+  skip: baseDatabaseUrl ? false : 'MARKDOWN_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withFreshMarkdownSafetyDatabase(async (databaseUrl, administrator, databaseName) => {
+    const primary = new Error('intentional Markdown callback failure');
+    let caught;
+    try {
+      await withMarkdownTestDatabase(databaseUrl, async () => {
+        await administrator.$executeRawUnsafe(
+          `ALTER DATABASE "${databaseName}" SET statement_timeout = '4321ms'`,
+        );
+        throw primary;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.equal(caught, primary);
+    assert.ok(caught.cause instanceof AggregateError);
+    assert.ok(caught.cause.errors.some(
+      (error) => /protected structural inventory/iu.test(error.message),
+    ));
+  });
 });

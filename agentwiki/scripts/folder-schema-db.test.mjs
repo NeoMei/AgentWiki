@@ -37,6 +37,17 @@ test('Folder database URLs fail closed', () => {
   assert.throws(() => validateFolderTestDatabaseUrl('not a url'), /valid PostgreSQL/iu);
   assert.throws(() => validateFolderTestDatabaseUrl('mysql://localhost/agentwiki_test'), /PostgreSQL/iu);
   assert.throws(() => validateFolderTestDatabaseUrl('postgresql://localhost/agentwiki'), /test/iu);
+  for (const unsafeHost of [
+    '203.0.113.10',
+    'localhost.evil',
+    '2130706433',
+    '0x7f000001',
+  ]) {
+    assert.throws(
+      () => validateFolderTestDatabaseUrl(`postgresql://${unsafeHost}/agentwiki_test`),
+      /loopback/iu,
+    );
+  }
   assert.throws(
     () => validateFolderTestDatabaseUrl('postgresql://localhost/agentwiki_test?schema=public'),
     /schema/iu,
@@ -60,6 +71,12 @@ test('Folder database URLs fail closed', () => {
   }
   assert.doesNotThrow(
     () => validateFolderTestDatabaseUrl('postgresql://localhost/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validateFolderTestDatabaseUrl('postgresql://127.42.0.9/agentwiki_test'),
+  );
+  assert.doesNotThrow(
+    () => validateFolderTestDatabaseUrl('postgresql://[0:0:0:0:0:0:0:1]/agentwiki_test'),
   );
   assert.doesNotThrow(
     () => validateFolderTestDatabaseUrl(

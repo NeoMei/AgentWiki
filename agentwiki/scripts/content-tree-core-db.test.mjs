@@ -223,6 +223,32 @@ test('Folder sanitized bundle ownership removes the bundle after an asynchronous
   }
 });
 
+test('Folder sanitized bundle ownership preserves a primary failure when cleanup also fails', async () => {
+  const primary = new Error('injected bundle callback failure');
+  const cleanup = new Error('injected bundle cleanup failure');
+  let caught;
+  try {
+    await folderDatabaseSafety.withFolderMigrationBundle(
+      {},
+      async () => {
+        throw primary;
+      },
+      {
+        prepareMigrationBundle: async () => ({
+          cleanup: async () => {
+            throw cleanup;
+          },
+        }),
+      },
+    );
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught, primary);
+  assert.ok(caught.cause instanceof AggregateError);
+  assert.deepEqual(caught.cause.errors, [cleanup]);
+});
+
 test('Folder structural inventory distinguishes same-name public objects with different definitions', () => {
   const beforeDump = folderPgDumpFixture('random-before', `CREATE TABLE public.same_name (
     value integer NOT NULL
