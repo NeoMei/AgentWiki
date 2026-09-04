@@ -30,7 +30,11 @@ async function withFreshMarkdownSafetyDatabase(callback) {
     target = new PrismaClient({ datasources: { db: { url: databaseUrl.toString() } } });
     await target.$executeRawUnsafe('CREATE EXTENSION vector WITH SCHEMA public');
     await target.$queryRawUnsafe("SELECT '[1]'::public.vector::text AS vector");
-    await target.$executeRawUnsafe('SET hnsw.ef_search = 40');
+    await target.$executeRawUnsafe(
+      `ALTER DATABASE "${databaseName}" SET hnsw.ef_search = '40'`,
+    );
+    await target.$disconnect();
+    target = new PrismaClient({ datasources: { db: { url: databaseUrl.toString() } } });
     return await callback(databaseUrl.toString(), target, databaseName);
   } finally {
     await target?.$disconnect();
