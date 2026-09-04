@@ -122,16 +122,21 @@ function attachCleanupCause(primary: unknown, cleanupError: unknown): void {
 }
 
 async function openDirectorySafely(path: string): Promise<FileHandle> {
-  const handle = await open(
-    path,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  );
-  const metadata = await handle.stat();
-  if (!metadata.isDirectory()) {
-    await handle.close();
-    throw new Error(`Attachment storage path is not a directory: ${path}`);
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    const metadata = await handle.stat();
+    if (!metadata.isDirectory()) {
+      throw new Error(`Attachment storage path is not a directory: ${path}`);
+    }
+    return handle;
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    throw error;
   }
-  return handle;
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -254,6 +259,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   private readonly root: string;
   private readonly tempRoot: string;
   private readonly lockRoot: string;
+  private readonly snapshotRoot: string;
   private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
   private readonly activeReservations = new WeakMap<
     AttachmentTempReservation,
@@ -278,6 +284,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     this.root = resolve(config.storagePath);
     this.tempRoot = join(this.root, '.tmp');
     this.lockRoot = join(this.root, '.locks');
+    this.snapshotRoot = join(this.root, '.read-snapshots');
     this.now = dependencies.now ?? Date.now;
     this.scheduleInterval = dependencies.setInterval
       ?? ((callback, delayMs) => setInterval(callback, delayMs));
@@ -618,22 +625,61 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     if (sizeBytes <= 0n) {
       throw new Error('Attachment size must be positive');
     }
+    await this.ensureBaseDirectories();
     const path = this.pathForStorageKey(storageKey);
-    let handle: FileHandle;
+    const snapshotPath = join(this.snapshotRoot, `read-${randomUUID()}.tmp`);
+    let source: FileHandle;
     try {
-      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      source = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     } catch (error) {
       if (isNodeError(error, 'ELOOP')) {
         throw errorWithCause('Attachment content path must not be a symbolic link', error);
       }
       throw error;
     }
+    let snapshot: FileHandle | undefined;
+    let snapshotLinked = false;
     try {
-      const opened = await handle.stat({ bigint: true });
+      const opened = await source.stat({ bigint: true });
       if (!opened.isFile() || opened.size !== sizeBytes) {
         throw new Error('Attachment content size does not match immutable metadata');
       }
-      if ((await hashHandle(handle)) !== contentHash) {
+      snapshot = await open(
+        snapshotPath,
+        constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW,
+        0o600,
+      );
+      snapshotLinked = true;
+      await snapshot.chmod(0o600);
+      const digest = createHash('sha256');
+      let snapshotBytes = 0;
+      const sourceStream = source.createReadStream({ autoClose: false, start: 0 });
+      for await (const value of sourceStream) {
+        const bytes = value as Buffer;
+        digest.update(bytes);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const result = await snapshot.write(
+            bytes,
+            offset,
+            bytes.length - offset,
+            snapshotBytes + offset,
+          );
+          if (result.bytesWritten <= 0) {
+            throw new Error('Attachment read snapshot write was incomplete');
+          }
+          offset += result.bytesWritten;
+        }
+        snapshotBytes += bytes.length;
+      }
+      await snapshot.truncate(snapshotBytes);
+      await snapshot.sync();
+      const snapshotMetadata = await snapshot.stat({ bigint: true });
+      if (
+        BigInt(snapshotBytes) !== sizeBytes
+        || snapshotMetadata.size !== sizeBytes
+        || digest.digest('hex') !== contentHash
+      ) {
         throw new Error('Attachment content hash does not match immutable metadata');
       }
       const current = await lstat(path, { bigint: true });
@@ -645,9 +691,24 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
       ) {
         throw new Error('Attachment content changed during immutable verification');
       }
-      return handle.createReadStream({ autoClose: true, start: 0 });
+      await source.close();
+      if (process.platform !== 'win32') {
+        await unlink(snapshotPath);
+        snapshotLinked = false;
+        await this.syncDirectory(this.snapshotRoot);
+      }
+      const stream = snapshot.createReadStream({ autoClose: true, start: 0 });
+      if (process.platform === 'win32') {
+        stream.once('close', () => {
+          void unlink(snapshotPath).catch(() => undefined);
+        });
+      }
+      snapshot = undefined;
+      return stream;
     } catch (error) {
-      await handle.close();
+      await source.close().catch(() => undefined);
+      await snapshot?.close().catch(() => undefined);
+      if (snapshotLinked) await unlink(snapshotPath).catch(() => undefined);
       throw error;
     }
   }
@@ -689,6 +750,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     await ensurePrivateDirectory(this.root);
     await ensurePrivateDirectory(this.tempRoot);
     await ensurePrivateDirectory(this.lockRoot);
+    await ensurePrivateDirectory(this.snapshotRoot);
   }
 
   private async availableBytes(): Promise<bigint> {

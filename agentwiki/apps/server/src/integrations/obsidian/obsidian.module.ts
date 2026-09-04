@@ -28,6 +28,7 @@ import {
 } from '../../attachments/attachment.config';
 import { SyncV3BlobStorage } from './sync-v3-blob.storage';
 import { SyncV3BlobService } from './sync-v3-blob.service';
+import { AuthorizationModule } from '../../core/authorization/authorization.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SyncV3BlobService } from './sync-v3-blob.service';
     ContentTreeModule,
     SyncModule,
     AttachmentStorageModule,
+    AuthorizationModule,
   ],
   providers: [
     ObsidianCryptoService,

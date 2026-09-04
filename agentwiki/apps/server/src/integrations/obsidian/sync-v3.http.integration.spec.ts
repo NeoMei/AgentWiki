@@ -30,10 +30,20 @@ import { SyncV3RevisionService } from './sync-v3-revision.service';
 import { SyncApiException } from './sync-error';
 import { SyncV3BlobService } from './sync-v3-blob.service';
 import { Readable } from 'node:stream';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
+import {
+  SyncV3BlobStorage,
+  SyncV3BlobStorageError,
+} from './sync-v3-blob.storage';
 
 describe('sync v3 HTTP contract', () => {
   let app: INestApplication;
   let baseUrl: string;
+  let blobRoot: string;
+  let blobStaging: SyncV3BlobStorage;
   const hash = 'a'.repeat(64);
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3GAAAAAASUVORK5CYII=',
@@ -95,10 +105,22 @@ describe('sync v3 HTTP contract', () => {
   };
   const blobs = {
     putChunk: jest.fn(async (_principal, _spaceId, _sessionId, contentHash, chunkIndex, input) => {
-      const received: Buffer[] = [];
-      for await (const chunk of input) received.push(Buffer.from(chunk));
-      if (Buffer.concat(received).length === 0) throw new Error('expected streamed bytes');
-      return { contentHash, chunkIndex, chunkHash: hash, receipt: 'receipt-1' };
+      try {
+        const staged = await blobStaging.stageChunk(
+          _sessionId,
+          contentHash,
+          chunkIndex,
+          input,
+          1024 * 1024,
+        );
+        await blobStaging.discardStagedChunk(staged);
+        return { contentHash, chunkIndex, chunkHash: hash, receipt: 'receipt-1' };
+      } catch (error) {
+        if (error instanceof SyncV3BlobStorageError) {
+          throw new SyncApiException(error.code, 'Blob staging validation failed', undefined, '3');
+        }
+        throw error;
+      }
     }),
     complete: jest.fn().mockResolvedValue({
       contentHash: hash,
@@ -116,6 +138,8 @@ describe('sync v3 HTTP contract', () => {
   };
 
   beforeAll(async () => {
+    blobRoot = await mkdtemp(join(tmpdir(), 'agentwiki-sync-v3-http-blob-'));
+    blobStaging = new SyncV3BlobStorage(blobRoot);
     const moduleRef = await Test.createTestingModule({
       controllers: [SyncV3Controller],
       providers: [
@@ -135,7 +159,10 @@ describe('sync v3 HTTP contract', () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
-  afterAll(async () => app?.close());
+  afterAll(async () => {
+    await app?.close();
+    await rm(blobRoot, { recursive: true, force: true });
+  });
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -245,6 +272,36 @@ describe('sync v3 HTTP contract', () => {
     expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code)
       .toBe('ATTACHMENT_QUOTA_EXCEEDED');
     expect(blobs.putChunk).not.toHaveBeenCalled();
+  });
+
+  it('returns a strict 413 after streaming an oversized chunked body without Content-Length', async () => {
+    const url = new URL(
+      `${baseUrl}/sync/v3/spaces/space-1/push-sessions/11111111-1111-4111-8111-111111111111/blobs/${hash}/chunks/0`,
+    );
+    const response = await new Promise<{ status: number; body: Buffer }>((resolve, reject) => {
+      const request = httpRequest(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer device-secret',
+          'content-type': 'application/octet-stream',
+          'transfer-encoding': 'chunked',
+        },
+      }, (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        incoming.on('end', () => resolve({
+          status: incoming.statusCode ?? 0,
+          body: Buffer.concat(chunks),
+        }));
+      });
+      request.on('error', reject);
+      for (let index = 0; index < 17; index += 1) request.write(Buffer.alloc(64 * 1024));
+      request.end();
+    });
+
+    expect(response.status).toBe(413);
+    expect(SyncV3ErrorEnvelopeSchema.parse(JSON.parse(response.body.toString('utf8'))).error.code)
+      .toBe('ATTACHMENT_QUOTA_EXCEEDED');
   });
 
   it('strictly validates the complete request and path hash binding', async () => {

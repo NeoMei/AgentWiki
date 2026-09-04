@@ -4,11 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { PrismaClient } from '@prisma/client';
+import {
+  canonicalBytes,
+  canonicalTreeRevisionManifestV3,
+  contentHash as protocolContentHash,
+  treeRevisionContentHashV3,
+  treeRevisionDeltaV3,
+} from '@neomei/agentwiki-sync-protocol';
+import { AuthorizationService } from '../../core/authorization/authorization.service';
 import type { AttachmentConfig } from '../../attachments/attachment.config';
 import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncV3BlobStorage } from './sync-v3-blob.storage';
 import { SyncV3BlobService } from './sync-v3-blob.service';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3GAAAAAASUVORK5CYII=',
@@ -89,6 +101,9 @@ async function fixture() {
   let revisionRow: any = null;
   let member: any = { role: 'viewer' };
   let space: any = { id: 'space-1', deletedAt: null };
+  let liveUser: any = {
+    id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null,
+  };
   const prisma: any = {
     humanDeviceCredential: {
       findUnique: jest.fn(async () => credential),
@@ -131,6 +146,7 @@ async function fixture() {
     },
     space: { findUnique: jest.fn(async () => space) },
     spaceMember: { findUnique: jest.fn(async () => member) },
+    $queryRaw: jest.fn(async () => [{ id: 'locked' }]),
     $executeRaw: jest.fn(async () => 1),
     $transaction: jest.fn(async (work: any) => work(prisma)),
   };
@@ -143,13 +159,45 @@ async function fixture() {
     maxDecodedPixels: 40_000_000,
     allowedMimeTypes: ['image/gif', 'image/jpeg', 'image/png', 'image/webp'],
   }) };
-  const service = new SyncV3BlobService(prisma, staging, storage, config, capabilities);
+  const authorization: any = {
+    lockLiveHumanPrincipal: jest.fn(async () => liveUser),
+  };
+  const immutableRevisions: any = {
+    verify: jest.fn(async (_tx: any, requestedSpace: string, revisionId: string) => {
+      if (!revisionRow || revisionRow.revisionId !== revisionId || revisionRow.spaceId !== requestedSpace) {
+        throw new SyncV3AuthorityError();
+      }
+      return {
+        revision: revisionId,
+        manifest: {
+          protocolVersion: '3',
+          spaceId: requestedSpace,
+          folders: [], pages: [],
+          attachments: [{
+            attachmentId: revisionRow.attachmentId,
+            path: revisionRow.path,
+            contentHash: revisionRow.attachmentVersion.contentHash,
+            mimeType: revisionRow.attachmentVersion.mimeType ?? 'image/png',
+            sizeBytes: String(revisionRow.attachmentVersion.sizeBytes ?? PNG.length),
+            width: revisionRow.attachmentVersion.width ?? 1,
+            height: revisionRow.attachmentVersion.height ?? 1,
+            updatedAt: new Date(0).toISOString(),
+          }],
+        },
+      };
+    }),
+  };
+  const service = new SyncV3BlobService(
+    prisma, staging, storage, config, capabilities, authorization, immutableRevisions,
+  );
   return {
     root, storage, staging, service, session, blob, chunks, prisma,
     setCredential(value: any) { credential = value; },
     setRevisionRow(value: any) { revisionRow = value; },
     setMember(value: any) { member = value; },
     setSpace(value: any) { space = value; },
+    setLiveUser(value: any) { liveUser = value; },
+    immutableRevisions,
   };
 }
 
@@ -200,6 +248,7 @@ describe('SyncV3BlobService', () => {
     ['expired TTL', (state: any) => { state.session.expiresAt = new Date(Date.now() - 1); }, 'PUSH_SESSION_EXPIRED'],
     ['aborted session', (state: any) => { state.session.status = 'aborted'; }, 'PUSH_SESSION_STATE_INVALID'],
     ['finalizing session', (state: any) => { state.session.status = 'finalizing'; }, 'PUSH_SESSION_STATE_INVALID'],
+    ['verified Blob', (state: any) => { state.blob.status = 'verified'; }, 'PUSH_SESSION_STATE_INVALID'],
   ])('rejects %s before staging', async (_name, mutate, code) => {
     const state = await fixture();
     mutate(state);
@@ -243,16 +292,19 @@ describe('SyncV3BlobService', () => {
     expect(state.chunks).toHaveLength(0);
   });
 
-  it('allows an existing same-byte receipt retry after the session becomes ready to finalize', async () => {
+  it('rejects even an existing receipt retry before consuming a body after the session becomes ready', async () => {
     const state = await fixture();
-    const first = await state.service.putChunk(
+    await state.service.putChunk(
       principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
     );
     state.session.status = 'ready_to_finalize';
+    const input = Readable.from([PNG]);
+    const read = jest.spyOn(input, Symbol.asyncIterator);
 
     await expect(state.service.putChunk(
-      principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
-    )).resolves.toEqual(first);
+      principal, 'space-1', state.session.id, HASH, 0, input,
+    )).rejects.toMatchObject({ syncCode: 'PUSH_SESSION_STATE_INVALID' });
+    expect(read).not.toHaveBeenCalled();
   });
 
   it('rejects chunk receipts whose cumulative bytes exceed the required Blob size', async () => {
@@ -265,6 +317,9 @@ describe('SyncV3BlobService', () => {
       principal, 'space-1', state.session.id, HASH, 1, Readable.from([PNG.subarray(60), Buffer.alloc(10)]),
     )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
     expect(state.chunks).toHaveLength(1);
+    await expect(state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 1, Readable.from([PNG.subarray(60)]),
+    )).resolves.toMatchObject({ chunkIndex: 1 });
   });
 
   it('rejects a receipt when actual session chunk bytes would exceed the transfer cap', async () => {
@@ -277,6 +332,37 @@ describe('SyncV3BlobService', () => {
       principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
     )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_QUOTA_EXCEEDED' });
     expect(state.chunks).toHaveLength(0);
+  });
+
+  it('does not let an unreceipted filesystem commit poison a correct retry after DB failure', async () => {
+    const state = await fixture();
+    state.prisma.pushSessionBlobChunk.create.mockRejectedValueOnce(new Error('database offline'));
+
+    await expect(state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([Buffer.from('wrong')]),
+    )).rejects.toThrow('database offline');
+    expect(state.chunks).toHaveLength(0);
+    await expect(state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
+    )).resolves.toMatchObject({ chunkIndex: 0, chunkHash: HASH });
+  });
+
+  it('discards staged bytes when session state changes while the body is being consumed', async () => {
+    const state = await fixture();
+    const stage = state.staging.stageChunk.bind(state.staging);
+    jest.spyOn(state.staging, 'stageChunk').mockImplementationOnce(async (...args) => {
+      const staged = await stage(...args);
+      state.session.status = 'ready_to_finalize';
+      return staged;
+    });
+
+    await expect(state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([Buffer.from('rejected')]),
+    )).rejects.toMatchObject({ syncCode: 'PUSH_SESSION_STATE_INVALID' });
+    state.session.status = 'uploading';
+    await expect(state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
+    )).resolves.toMatchObject({ chunkHash: HASH });
   });
 
   it('enforces index, chunk, image, and declared transfer limits before a receipt', async () => {
@@ -347,6 +433,29 @@ describe('SyncV3BlobService', () => {
     expect(state.blob.storageKey).toBeNull();
     expect(state.blob.verifiedAt).toBeNull();
     expect(state.blob.status).toBe('uploading');
+  });
+
+  it('releases the physical reservation when combination fails with ENOSPC', async () => {
+    const state = await fixture();
+    await state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
+    );
+    jest.spyOn(state.staging, 'combineChunks').mockRejectedValueOnce(
+      Object.assign(new Error('disk full'), { code: 'ENOSPC' }),
+    );
+    const release = jest.spyOn(state.storage, 'releaseTempReservation');
+
+    await expect(state.service.complete(
+      principal,
+      'space-1',
+      state.session.id,
+      HASH,
+      { sizeBytes: String(PNG.length), chunkCount: 1 },
+    )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_CONTENT_INVALID' });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(state.blob).toEqual(expect.objectContaining({
+      status: 'uploading', storageKey: null, verifiedAt: null,
+    }));
   });
 
   it('downloads only an immutable version bound to the requested fixed revision and Space', async () => {
@@ -420,6 +529,33 @@ describe('SyncV3BlobService', () => {
     )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_BLOB_MISSING' });
   });
 
+  it('uses the locked live platform role rather than a stale super-admin principal', async () => {
+    const state = await fixture();
+    state.setLiveUser({
+      id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null,
+    });
+    state.setMember(null);
+    await expect(state.service.openRevisionAttachment(
+      { ...principal, platformRole: 'super_admin' },
+      'space-1',
+      'revision-1',
+      'attachment-1',
+    )).rejects.toMatchObject({ syncCode: 'SPACE_FORBIDDEN' });
+  });
+
+  it.each(['legacy', 'future', 'corrupt'])(
+    'fails closed when immutable revision authority rejects a %s revision',
+    async () => {
+      const state = await fixture();
+      state.immutableRevisions.verify.mockRejectedValueOnce(new SyncV3AuthorityError());
+
+      await expect(state.service.openRevisionAttachment(
+        principal, 'space-1', 'revision-1', 'attachment-1',
+      )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
+      expect(state.prisma.syncRevisionAttachmentRow.findUnique).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects an immutable row whose attachment ownership does not match the Space', async () => {
     const state = await fixture();
     state.setRevisionRow({
@@ -458,12 +594,21 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
       maxDecodedPixels: 40_000_000,
       allowedMimeTypes: ['image/gif', 'image/jpeg', 'image/png', 'image/webp'],
     }) };
-    const service = new SyncV3BlobService(prisma as any, staging, storage, config, capabilities);
+    const service = new SyncV3BlobService(
+      prisma as any,
+      staging,
+      storage,
+      config,
+      capabilities,
+      new AuthorizationService(prisma as any),
+      new SyncV3ImmutableRevisionService(),
+    );
     const suffix = randomUUID().replaceAll('-', '');
     const userId = `blob_user_${suffix}`;
     const spaceId = `blob_space_${suffix}`;
     const otherSpaceId = `blob_other_${suffix}`;
     const sessionId = randomUUID();
+    const raceSessionId = randomUUID();
     const credentialFamilyId = randomUUID();
     const credentialId = randomUUID();
     const attachmentId = `blob_attachment_${suffix}`;
@@ -536,6 +681,43 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
         } },
       } });
 
+      let markRevocationWritten!: () => void;
+      let releaseRevocation!: () => void;
+      let markStaged!: () => void;
+      const revocationWritten = new Promise<void>((resolve) => { markRevocationWritten = resolve; });
+      const revocationRelease = new Promise<void>((resolve) => { releaseRevocation = resolve; });
+      const staged = new Promise<void>((resolve) => { markStaged = resolve; });
+      const originalStage = staging.stageChunk.bind(staging);
+      const stageSpy = jest.spyOn(staging, 'stageChunk').mockImplementationOnce(async (...args) => {
+        const value = await originalStage(...args);
+        markStaged();
+        return value;
+      });
+      const revocation = prisma.$transaction(async (tx) => {
+        await tx.humanDeviceCredential.update({
+          where: { id: credentialId },
+          data: { status: 'revoked', revokedAt: new Date() },
+        });
+        markRevocationWritten();
+        await revocationRelease;
+      });
+      await revocationWritten;
+      const blockedPut = service.putChunk(
+        dbPrincipal, spaceId, sessionId, HASH, 0, Readable.from([PNG]),
+      );
+      await staged;
+      releaseRevocation();
+      await revocation;
+      await expect(blockedPut).rejects.toMatchObject({ syncCode: 'DEVICE_CREDENTIAL_REVOKED' });
+      await expect(prisma.pushSessionBlobChunk.count({ where: {
+        sessionId, contentHash: HASH, chunkIndex: 0,
+      } })).resolves.toBe(0);
+      stageSpy.mockRestore();
+      await prisma.humanDeviceCredential.update({
+        where: { id: credentialId },
+        data: { status: 'active', revokedAt: null },
+      });
+
       const [first, second] = await Promise.all([
         service.putChunk(dbPrincipal, spaceId, sessionId, HASH, 0, Readable.from([PNG])),
         service.putChunk(dbPrincipal, spaceId, sessionId, HASH, 0, Readable.from([PNG])),
@@ -543,6 +725,47 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
       expect(second.receipt).toBe(first.receipt);
       await expect(prisma.pushSessionBlobChunk.count({ where: {
         sessionId, contentHash: HASH, chunkIndex: 0,
+      } })).resolves.toBe(1);
+      await prisma.pushSession.create({ data: {
+        id: raceSessionId,
+        protocolVersion: '3',
+        credentialFamilyId,
+        credentialId,
+        userId,
+        spaceId,
+        baseRevisionId: `blob_race_base_${suffix}`,
+        idempotencyKey: `blob_race_idempotency_${suffix}`,
+        status: 'uploading',
+        capabilitiesHash: 'a'.repeat(64),
+        confirmationHash: 'b'.repeat(64),
+        confirmationByteLength: 2,
+        changeCount: 0,
+        totalBodyBytes: 0n,
+        attachmentCount: 1,
+        transferBlobBytes: BigInt(PNG.length),
+        expiresAt: new Date(Date.now() + 60_000),
+        blobs: { create: {
+          contentHash: HASH,
+          sizeBytes: BigInt(PNG.length),
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          status: 'uploading',
+        } },
+      } });
+      const different = Buffer.alloc(PNG.length, 0x5a);
+      const raced = await Promise.allSettled([
+        service.putChunk(dbPrincipal, spaceId, raceSessionId, HASH, 0, Readable.from([PNG])),
+        service.putChunk(dbPrincipal, spaceId, raceSessionId, HASH, 0, Readable.from([different])),
+      ]);
+      expect(raced.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(raced.filter((result) => result.status === 'rejected')).toEqual([
+        expect.objectContaining({ reason: expect.objectContaining({
+          syncCode: 'ATTACHMENT_CONTENT_INVALID',
+        }) }),
+      ]);
+      await expect(prisma.pushSessionBlobChunk.count({ where: {
+        sessionId: raceSessionId, contentHash: HASH, chunkIndex: 0,
       } })).resolves.toBe(1);
       await expect(service.putChunk(
         dbPrincipal, otherSpaceId, sessionId, HASH, 0, Readable.from([PNG]),
@@ -605,19 +828,67 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
         width: 1,
         height: 1,
       } });
+      const attachmentUpdatedAt = version.createdAt.toISOString();
+      const revisionPageBody = '# Task 6 image\n';
+      const revisionPageHash = await protocolContentHash(revisionPageBody);
+      const revisionPageId = `blob_page_${suffix}`;
+      const manifest = canonicalTreeRevisionManifestV3({
+        protocolVersion: '3',
+        spaceId,
+        folders: [],
+        pages: [{
+          pageId: revisionPageId,
+          folderId: null,
+          path: 'pages/task-6.md',
+          title: 'Task 6 image',
+          body: revisionPageBody,
+          contentHash: revisionPageHash,
+          updatedAt: attachmentUpdatedAt,
+          referencedAttachmentIds: [attachment.id],
+        }],
+        attachments: [{
+          attachmentId: attachment.id,
+          path: 'assets/photo.png',
+          mimeType: 'image/png',
+          sizeBytes: String(PNG.length),
+          width: 1,
+          height: 1,
+          contentHash: HASH,
+          updatedAt: attachmentUpdatedAt,
+        }],
+      });
+      const revisionContentHash = await treeRevisionContentHashV3(manifest);
+      const delta = treeRevisionDeltaV3(null, manifest);
       await prisma.spaceKnowledgeRevision.create({ data: {
         id: revisionId,
         spaceId,
         sequence: 1,
+        parentRevisionId: null,
         schemaVersion: 'content-tree@3',
         recipeVersion: 'referenced-images-v1',
-        contentHash: 'c'.repeat(64),
-        revisionContentHash: 'c'.repeat(64),
-        pageCount: 0n,
-        revisionBodyBytes: 0n,
-        revisionManifestByteLength: 2n,
+        contentHash: revisionContentHash,
+        revisionContentHash,
+        delta: delta as any,
+        pageCount: 1n,
+        revisionBodyBytes: BigInt(Buffer.byteLength(revisionPageBody, 'utf8')),
+        revisionManifestByteLength: BigInt(canonicalBytes(manifest).byteLength),
         attachmentCount: 1n,
         revisionAttachmentBytes: BigInt(PNG.length),
+      } });
+      await prisma.syncPageContentRow.create({ data: {
+        contentHash: revisionPageHash,
+        body: revisionPageBody,
+        byteLength: Buffer.byteLength(revisionPageBody, 'utf8'),
+      } });
+      await prisma.syncRevisionPageRow.create({ data: {
+        revisionId,
+        pageId: revisionPageId,
+        folderId: null,
+        path: 'pages/task-6.md',
+        pathKey: 'pages/task-6.md',
+        title: 'Task 6 image',
+        contentHash: revisionPageHash,
+        updatedAt: new Date(attachmentUpdatedAt),
       } });
       await prisma.syncRevisionAttachmentRow.create({ data: {
         revisionId,
@@ -628,6 +899,31 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
         pathKey: 'assets/photo.png',
         ordinal: 0,
       } });
+      await prisma.legacyRevisionSidecar.create({ data: {
+        revisionId,
+        sidecar: {
+          syncV3Revision: {
+            protocolVersion: '3',
+            manifestSchema: 'TreeRevisionContentManifestV3',
+            revisionContentHash,
+            folderCount: '0',
+            pageCount: '1',
+            attachmentCount: '1',
+            revisionManifestByteLength: String(canonicalBytes(manifest).byteLength),
+            revisionBodyBytes: String(Buffer.byteLength(revisionPageBody, 'utf8')),
+            revisionAttachmentBytes: String(PNG.length),
+            treeDeltaCount: String(delta.length),
+            pageAttachmentIds: [{
+              pageId: revisionPageId,
+              referencedAttachmentIds: [attachment.id],
+            }],
+            attachmentUpdatedAt: [{
+              attachmentId: attachment.id,
+              updatedAt: attachmentUpdatedAt,
+            }],
+          },
+        },
+      } });
 
       const download = await service.openRevisionAttachment(
         dbPrincipal, spaceId, revisionId, attachment.id,
@@ -635,6 +931,11 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
       const bytes: Buffer[] = [];
       for await (const chunk of download.stream) bytes.push(Buffer.from(chunk));
       expect(Buffer.concat(bytes)).toEqual(PNG);
+      await prisma.spaceMember.delete({ where: { userId_spaceId: { userId, spaceId } } });
+      await expect(service.openRevisionAttachment(
+        { ...dbPrincipal, platformRole: 'super_admin' }, spaceId, revisionId, attachment.id,
+      )).rejects.toMatchObject({ syncCode: 'SPACE_FORBIDDEN' });
+      await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
       await expect(service.openRevisionAttachment(
         dbPrincipal, otherSpaceId, revisionId, attachment.id,
       )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
@@ -642,11 +943,19 @@ describe('SyncV3BlobService PostgreSQL integration', () => {
         dbPrincipal, spaceId, `other_${revisionId}`, attachment.id,
       )).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
     } finally {
+      await prisma.legacyRevisionSidecar.deleteMany({ where: { revisionId } });
+      const revisionPages = await prisma.syncRevisionPageRow.findMany({
+        where: { revisionId }, select: { contentHash: true },
+      });
+      await prisma.syncRevisionPageRow.deleteMany({ where: { revisionId } });
       await prisma.syncRevisionAttachmentRow.deleteMany({ where: { revisionId } });
       await prisma.attachmentVersion.deleteMany({ where: { attachmentId } });
       await prisma.spaceAttachment.deleteMany({ where: { id: attachmentId } });
       await prisma.spaceKnowledgeRevision.deleteMany({ where: { id: revisionId } });
-      await prisma.pushSession.deleteMany({ where: { id: sessionId } });
+      await prisma.syncPageContentRow.deleteMany({
+        where: { contentHash: { in: revisionPages.map((row) => row.contentHash) } },
+      });
+      await prisma.pushSession.deleteMany({ where: { id: { in: [sessionId, raceSessionId] } } });
       await prisma.space.deleteMany({ where: { id: { in: [spaceId, otherSpaceId] } } });
       await prisma.user.deleteMany({ where: { id: userId } });
       await prisma.$disconnect();

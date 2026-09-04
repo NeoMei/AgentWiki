@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { constants } from 'node:fs';
 import {
   access,
@@ -1033,6 +1034,50 @@ describe('LocalAttachmentStorage', () => {
       hash,
       BigInt(bytes.length + 1),
     )).rejects.toThrow(/size/u);
+  });
+
+  it('streams the verified snapshot even when the original Blob is rewritten before consumption', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    const bytes = Buffer.alloc(256 * 1024, 0x41);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const reservation = await reservedBytes(storage, bytes);
+    const published = await publishLocked(storage, reservation, hash, BigInt(bytes.length));
+
+    const stream = await storage.openVerified(published.storageKey, hash, BigInt(bytes.length));
+    await writeFile(join(root, published.storageKey), Buffer.alloc(bytes.length, 0x42));
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
+
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+    expect(await readdir(join(root, '.read-snapshots'))).toEqual([]);
+  });
+
+  it('keeps an in-flight verified response on its snapshot and cleans it on cancellation', async () => {
+    const root = await makeRoot();
+    const storage = new LocalAttachmentStorage(config(root));
+    const bytes = Buffer.alloc(256 * 1024, 0x51);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const reservation = await reservedBytes(storage, bytes);
+    const published = await publishLocked(storage, reservation, hash, BigInt(bytes.length));
+    const stream = await storage.openVerified(published.storageKey, hash, BigInt(bytes.length));
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    await writeFile(join(root, published.storageKey), Buffer.alloc(bytes.length, 0x52));
+    const chunks = [Buffer.from(first.value as Buffer)];
+    while (true) {
+      const next = await iterator.next();
+      if (next.done) break;
+      chunks.push(Buffer.from(next.value as Buffer));
+    }
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+
+    await writeFile(join(root, published.storageKey), bytes);
+    const cancelled = await storage.openVerified(published.storageKey, hash, BigInt(bytes.length));
+    const closed = once(cancelled, 'close');
+    (cancelled as NodeJS.ReadableStream & { destroy(): void }).destroy();
+    await closed;
+    expect(await readdir(join(root, '.read-snapshots'))).toEqual([]);
   });
 
   it.each([

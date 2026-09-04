@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type {
   BlobChunkReceiptV3,
   CompletedBlobV3,
   SyncAttachmentV3,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthorizationService } from '../../core/authorization/authorization.service';
 import {
   ATTACHMENT_CONFIG,
   type AttachmentConfig,
@@ -23,9 +25,14 @@ import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncApiException } from './sync-error';
 import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
+import {
   SyncV3BlobStorage,
   SyncV3BlobStorageError,
   type StagedBlobChunk,
+  type StagedBlobChunkUpload,
 } from './sync-v3-blob.storage';
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
@@ -86,6 +93,8 @@ export class SyncV3BlobService {
     @Inject(ATTACHMENT_STORAGE) private readonly attachmentStorage: AttachmentStorage,
     @Inject(ATTACHMENT_CONFIG) private readonly attachmentConfig: AttachmentConfig,
     private readonly capabilities: SyncCapabilitiesService,
+    private readonly authorization: AuthorizationService,
+    private readonly immutableRevisions: SyncV3ImmutableRevisionService,
   ) {}
 
   async putChunk(
@@ -110,19 +119,11 @@ export class SyncV3BlobService {
       false,
     );
     this.assertBlobLimits(initial, limits);
-    const existingBefore = await this.prisma.pushSessionBlobChunk.findUnique({
-      where: { sessionId_contentHash_chunkIndex: { sessionId, contentHash, chunkIndex } },
-    });
-    if (initial.status === 'verified' && !existingBefore) {
-      throw this.error('PUSH_SESSION_STATE_INVALID', 'Verified Blob does not accept new chunks');
-    }
-    if (initial.session.status !== 'uploading' && !existingBefore) {
-      throw this.error('PUSH_SESSION_STATE_INVALID', 'Push session does not accept new Blob chunks');
-    }
+    this.assertChunkUploadState(initial);
 
-    let staged: { chunkHash: string; sizeBytes: number };
+    let staged: StagedBlobChunkUpload;
     try {
-      staged = await this.staging.putChunk(
+      staged = await this.staging.stageChunk(
         sessionId,
         contentHash,
         chunkIndex,
@@ -133,76 +134,74 @@ export class SyncV3BlobService {
       throw this.mapStorageError(error);
     }
 
-    const receipt = randomUUID();
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT "id" FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
-        const current = await this.loadBoundBlob(
-          tx,
-          principal,
-          spaceId,
-          sessionId,
-          contentHash,
-          true,
-        );
-        this.assertBlobLimits(current, limits);
-        const existing = await tx.pushSessionBlobChunk.findUnique({
-          where: { sessionId_contentHash_chunkIndex: { sessionId, contentHash, chunkIndex } },
-        });
-        if (existing) {
-          if (existing.chunkHash !== staged.chunkHash || existing.sizeBytes !== staged.sizeBytes) {
-            throw this.error(
-              'ATTACHMENT_CONTENT_INVALID',
-              'Blob chunk index already contains different bytes',
-            );
-          }
-          return this.chunkReceipt(existing);
-        }
-        this.assertChunkUploadSession(current);
-        if (current.status === 'verified') {
-          throw this.error('PUSH_SESSION_STATE_INVALID', 'Verified Blob does not accept new chunks');
-        }
-        const receivedBytes = (current.chunks ?? []).reduce(
-          (sum, chunk) => sum + BigInt(chunk.sizeBytes),
-          0n,
-        );
-        if (receivedBytes + BigInt(staged.sizeBytes) > current.sizeBytes) {
-          throw this.error(
-            'ATTACHMENT_CONTENT_INVALID',
-            'Blob chunks exceed the required content size',
-          );
-        }
-        const sessionBytes = await tx.pushSessionBlobChunk.aggregate({
-          where: { sessionId },
-          _sum: { sizeBytes: true },
-        });
-        const actualTransferBytes = BigInt(sessionBytes._sum.sizeBytes ?? 0);
-        const sessionTransferLimit = current.session.transferBlobBytes < BigInt(limits.maxTransferBlobBytes)
-          ? current.session.transferBlobBytes
-          : BigInt(limits.maxTransferBlobBytes);
-        if (actualTransferBytes + BigInt(staged.sizeBytes) > sessionTransferLimit) {
-          throw this.error(
-            'ATTACHMENT_QUOTA_EXCEEDED',
-            'Blob chunks exceed the Push Session transfer limit',
-          );
-        }
-        const created = await tx.pushSessionBlobChunk.create({
-          data: {
+      const receipt = randomUUID();
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const current = await this.lockBoundBlob(
+            tx,
+            principal,
+            spaceId,
             sessionId,
             contentHash,
-            chunkIndex,
-            chunkHash: staged.chunkHash,
-            sizeBytes: staged.sizeBytes,
-            receipt,
-          },
-        });
-        return this.chunkReceipt(created);
-      }, { isolationLevel: 'ReadCommitted' });
-    } catch (error) {
-      if ((error as { code?: string } | null)?.code === 'P2002') {
-        return this.prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT "id" FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
-          await this.loadBoundBlob(
+            true,
+          );
+          this.assertChunkUploadState(current);
+          this.assertBlobLimits(current, limits);
+          const existing = await tx.pushSessionBlobChunk.findUnique({
+            where: { sessionId_contentHash_chunkIndex: { sessionId, contentHash, chunkIndex } },
+          });
+          if (existing) {
+            if (existing.chunkHash !== staged.chunkHash || existing.sizeBytes !== staged.sizeBytes) {
+              throw this.error(
+                'ATTACHMENT_CONTENT_INVALID',
+                'Blob chunk index already contains different bytes',
+              );
+            }
+            await this.staging.commitStagedChunk(staged);
+            return this.chunkReceipt(existing);
+          }
+          const receivedBytes = (current.chunks ?? []).reduce(
+            (sum, chunk) => sum + BigInt(chunk.sizeBytes),
+            0n,
+          );
+          if (receivedBytes + BigInt(staged.sizeBytes) > current.sizeBytes) {
+            throw this.error(
+              'ATTACHMENT_CONTENT_INVALID',
+              'Blob chunks exceed the required content size',
+            );
+          }
+          const sessionBytes = await tx.pushSessionBlobChunk.aggregate({
+            where: { sessionId },
+            _sum: { sizeBytes: true },
+          });
+          const actualTransferBytes = BigInt(sessionBytes._sum.sizeBytes ?? 0);
+          const sessionTransferLimit = current.session.transferBlobBytes < BigInt(limits.maxTransferBlobBytes)
+            ? current.session.transferBlobBytes
+            : BigInt(limits.maxTransferBlobBytes);
+          if (actualTransferBytes + BigInt(staged.sizeBytes) > sessionTransferLimit) {
+            throw this.error(
+              'ATTACHMENT_QUOTA_EXCEEDED',
+              'Blob chunks exceed the Push Session transfer limit',
+            );
+          }
+          await this.staging.commitStagedChunk(staged);
+          const created = await tx.pushSessionBlobChunk.create({
+            data: {
+              sessionId,
+              contentHash,
+              chunkIndex,
+              chunkHash: staged.chunkHash,
+              sizeBytes: staged.sizeBytes,
+              receipt,
+            },
+          });
+          return this.chunkReceipt(created);
+        }, { isolationLevel: 'ReadCommitted' });
+      } catch (error) {
+        if ((error as { code?: string } | null)?.code !== 'P2002') throw error;
+        return await this.prisma.$transaction(async (tx) => {
+          const current = await this.lockBoundBlob(
             tx,
             principal,
             spaceId,
@@ -210,6 +209,8 @@ export class SyncV3BlobService {
             contentHash,
             false,
           );
+          this.assertChunkUploadState(current);
+          this.assertBlobLimits(current, limits);
           const raced = await tx.pushSessionBlobChunk.findUnique({
             where: { sessionId_contentHash_chunkIndex: { sessionId, contentHash, chunkIndex } },
           });
@@ -217,14 +218,21 @@ export class SyncV3BlobService {
             raced
             && raced.chunkHash === staged.chunkHash
             && raced.sizeBytes === staged.sizeBytes
-          ) return this.chunkReceipt(raced);
+          ) {
+            await this.staging.commitStagedChunk(staged);
+            return this.chunkReceipt(raced);
+          }
           throw this.error(
             'ATTACHMENT_CONTENT_INVALID',
             'Blob chunk index already contains different bytes',
           );
         }, { isolationLevel: 'ReadCommitted' });
       }
+    } catch (error) {
+      if (error instanceof SyncV3BlobStorageError) throw this.mapStorageError(error);
       throw error;
+    } finally {
+      await this.staging.discardStagedChunk(staged).catch(() => undefined);
     }
   }
 
@@ -329,8 +337,7 @@ export class SyncV3BlobService {
       published = true;
       const verifiedAt = new Date();
       const completed = await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT "id" FROM "PushSession" WHERE "id" = ${sessionId} FOR UPDATE`;
-        const current = await this.loadBoundBlob(
+        const current = await this.lockBoundBlob(
           tx,
           principal,
           spaceId,
@@ -364,13 +371,21 @@ export class SyncV3BlobService {
       throw this.error('PAYLOAD_INVALID', 'A fixed revision is required');
     }
     const version = await this.prisma.$transaction(async (tx) => {
-      await this.assertLiveCredential(tx, principal);
-      await this.assertReadableSpace(tx, principal, spaceId);
-      const revision = await tx.spaceKnowledgeRevision.findFirst({
-        where: { id: revisionId, spaceId },
-        select: { id: true, spaceId: true },
-      });
-      if (!revision) {
+      const user = await this.lockLiveHumanBinding(tx, principal);
+      await this.assertReadableSpace(tx, user, spaceId);
+      let verified;
+      try {
+        verified = await this.immutableRevisions.verify(tx, spaceId, revisionId);
+      } catch (error) {
+        if (error instanceof SyncV3AuthorityError) {
+          throw this.error('ATTACHMENT_MISSING', 'Attachment is not part of a valid fixed revision');
+        }
+        throw error;
+      }
+      const manifestAttachment = verified.manifest.attachments.find(
+        (attachment) => attachment.attachmentId === attachmentId,
+      );
+      if (!manifestAttachment) {
         throw this.error('ATTACHMENT_MISSING', 'Attachment is not part of the requested revision');
       }
       const row = await tx.syncRevisionAttachmentRow.findUnique({
@@ -383,12 +398,18 @@ export class SyncV3BlobService {
       if (
         !row
         || row.spaceId !== spaceId
-        || row.revisionId !== revision.id
+        || row.revisionId !== verified.revision
         || row.attachmentId !== attachmentId
         || row.attachment.id !== attachmentId
         || row.attachment.spaceId !== spaceId
         || row.attachmentVersionId !== row.attachmentVersion.id
         || row.attachmentVersion.attachmentId !== attachmentId
+        || row.path !== manifestAttachment.path
+        || row.attachmentVersion.contentHash !== manifestAttachment.contentHash
+        || row.attachmentVersion.mimeType !== manifestAttachment.mimeType
+        || row.attachmentVersion.sizeBytes.toString() !== manifestAttachment.sizeBytes
+        || row.attachmentVersion.width !== manifestAttachment.width
+        || row.attachmentVersion.height !== manifestAttachment.height
       ) {
         throw this.error('ATTACHMENT_MISSING', 'Attachment is not part of the requested revision');
       }
@@ -428,6 +449,35 @@ export class SyncV3BlobService {
     includeChunks: boolean,
   ): Promise<BlobSessionRow> {
     await this.assertLiveCredential(db, principal);
+    return this.readBoundBlob(db, principal, spaceId, sessionId, contentHash, includeChunks);
+  }
+
+  private async lockBoundBlob(
+    db: Prisma.TransactionClient,
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    sessionId: string,
+    contentHash: string,
+    includeChunks: boolean,
+  ): Promise<BlobSessionRow> {
+    await this.lockLiveHumanBinding(db, principal);
+    const sessions = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "PushSession" WHERE "id" = ${sessionId} FOR NO KEY UPDATE
+    `);
+    if (sessions.length !== 1) {
+      throw this.error('PUSH_SESSION_NOT_FOUND', 'Push session Blob requirement was not found');
+    }
+    return this.readBoundBlob(db, principal, spaceId, sessionId, contentHash, includeChunks);
+  }
+
+  private async readBoundBlob(
+    db: any,
+    principal: HumanDevicePrincipal,
+    spaceId: string,
+    sessionId: string,
+    contentHash: string,
+    includeChunks: boolean,
+  ): Promise<BlobSessionRow> {
     const blob = await db.pushSessionBlob.findUnique({
       where: { sessionId_contentHash: { sessionId, contentHash } },
       include: { session: true, ...(includeChunks ? { chunks: { orderBy: { chunkIndex: 'asc' } } } : {}) },
@@ -454,6 +504,29 @@ export class SyncV3BlobService {
       throw this.error('PUSH_SESSION_STATE_INVALID', 'Blob requirement is not transferable');
     }
     return blob;
+  }
+
+  private async lockLiveHumanBinding(
+    db: Prisma.TransactionClient,
+    principal: HumanDevicePrincipal,
+  ): Promise<{ id: string; platformRole: string }> {
+    let user: { id: string; platformRole: string };
+    try {
+      user = await this.authorization.lockLiveHumanPrincipal(db, principal);
+    } catch {
+      throw this.error('USER_INACTIVE', 'User account is unavailable');
+    }
+    const locked = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "HumanDeviceCredential"
+      WHERE "id" = ${principal.credentialId}
+      FOR NO KEY UPDATE
+    `);
+    if (locked.length !== 1) {
+      throw this.error('DEVICE_CREDENTIAL_REVOKED', 'Device credential is no longer valid');
+    }
+    await this.assertLiveCredential(db, principal);
+    return user;
   }
 
   private async assertLiveCredential(db: any, principal: HumanDevicePrincipal): Promise<void> {
@@ -492,7 +565,7 @@ export class SyncV3BlobService {
 
   private async assertReadableSpace(
     db: any,
-    principal: HumanDevicePrincipal,
+    user: { id: string; platformRole: string },
     spaceId: string,
   ): Promise<void> {
     const space = await db.space.findUnique({
@@ -502,9 +575,9 @@ export class SyncV3BlobService {
     if (!space || space.deletedAt) {
       throw this.error('SPACE_FORBIDDEN', 'Space is not accessible');
     }
-    if (principal.platformRole === 'super_admin') return;
+    if (user.platformRole === 'super_admin') return;
     const member = await db.spaceMember.findUnique({
-      where: { userId_spaceId: { userId: principal.userId, spaceId } },
+      where: { userId_spaceId: { userId: user.id, spaceId } },
       select: { role: true },
     });
     if (!member) throw this.error('SPACE_FORBIDDEN', 'Space is not accessible');
@@ -534,8 +607,8 @@ export class SyncV3BlobService {
     }
   }
 
-  private assertChunkUploadSession(blob: BlobSessionRow): void {
-    if (blob.session.status !== 'uploading') {
+  private assertChunkUploadState(blob: BlobSessionRow): void {
+    if (blob.session.status !== 'uploading' || blob.status !== 'uploading') {
       throw this.error('PUSH_SESSION_STATE_INVALID', 'Push session does not accept Blob chunks');
     }
   }

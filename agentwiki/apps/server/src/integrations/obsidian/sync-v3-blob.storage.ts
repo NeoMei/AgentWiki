@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   open,
+  rename,
   rmdir,
   unlink,
   type FileHandle,
@@ -33,6 +34,14 @@ export interface StagedBlobChunk {
   sizeBytes: number;
 }
 
+export interface StagedBlobChunkUpload extends StagedBlobChunk {
+  readonly sessionId: string;
+  readonly contentHash: string;
+  readonly stagingPath: string;
+  readonly device: bigint;
+  readonly inode: bigint;
+}
+
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error
     && (error as NodeJS.ErrnoException).code === code;
@@ -48,19 +57,26 @@ function symlinkError(path: string, cause?: unknown): Error {
   });
 }
 
-async function openDirectory(path: string): Promise<FileHandle> {
+type OpenFile = typeof open;
+
+export interface SyncV3BlobStorageDependencies {
+  openFile?: OpenFile;
+}
+
+async function openDirectory(path: string, openFile: OpenFile): Promise<FileHandle> {
+  let handle: FileHandle | undefined;
   try {
-    const handle = await open(
+    handle = await openFile(
       path,
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     );
     const metadata = await handle.stat();
     if (!metadata.isDirectory()) {
-      await handle.close();
       throw new Error('Sync v3 Blob staging component must be a directory');
     }
     return handle;
   } catch (error) {
+    await handle?.close().catch(() => undefined);
     if (isNodeError(error, 'ELOOP') || isNodeError(error, 'ENOTDIR')) {
       throw symlinkError(path, error);
     }
@@ -68,7 +84,7 @@ async function openDirectory(path: string): Promise<FileHandle> {
   }
 }
 
-async function ensurePrivateDirectory(path: string): Promise<void> {
+async function ensurePrivateDirectory(path: string, openFile: OpenFile): Promise<void> {
   try {
     await mkdir(path, { mode: 0o700 });
   } catch (error) {
@@ -76,7 +92,7 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   }
   const pathMetadata = await lstat(path);
   if (pathMetadata.isSymbolicLink()) throw symlinkError(path);
-  const handle = await openDirectory(path);
+  const handle = await openDirectory(path, openFile);
   try {
     const metadata = await handle.stat();
     if (SUPPORTS_POSIX_PERMISSIONS && (metadata.mode & 0o777) !== 0o700) {
@@ -88,9 +104,9 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
+async function syncDirectory(path: string, openFile: OpenFile): Promise<void> {
   if (process.platform === 'win32') return;
-  const handle = await openDirectory(path);
+  const handle = await openDirectory(path, openFile);
   try {
     await handle.sync();
   } finally {
@@ -98,52 +114,68 @@ async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-async function openRegularFile(path: string, flags: number): Promise<{
+async function openRegularFile(path: string, flags: number, openFile: OpenFile): Promise<{
   handle: FileHandle;
   metadata: Stats;
 }> {
   let handle: FileHandle;
   try {
-    handle = await open(path, flags | constants.O_NOFOLLOW);
+    handle = await openFile(path, flags | constants.O_NOFOLLOW);
   } catch (error) {
     if (isNodeError(error, 'ELOOP')) throw symlinkError(path, error);
     throw error;
   }
-  const metadata = await handle.stat();
-  if (!metadata.isFile()) {
-    await handle.close();
-    throw new Error('Sync v3 Blob staging path must be a regular file');
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile()) {
+      throw new Error('Sync v3 Blob staging path must be a regular file');
+    }
+    return { handle, metadata };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
   }
-  return { handle, metadata };
 }
 
-function destroyInput(input: AsyncIterable<Uint8Array>): void {
-  const maybeStream = input as AsyncIterable<Uint8Array> & { destroy?: (error?: Error) => void };
-  maybeStream.destroy?.();
+function inputIterator(input: AsyncIterable<Uint8Array>): AsyncIterator<Uint8Array> {
+  const readable = input as AsyncIterable<Uint8Array> & {
+    iterator?: (options: { destroyOnReturn: boolean }) => AsyncIterator<Uint8Array>;
+  };
+  return readable.iterator?.({ destroyOnReturn: false }) ?? input[Symbol.asyncIterator]();
+}
+
+function drainInput(input: AsyncIterable<Uint8Array>): void {
+  const readable = input as AsyncIterable<Uint8Array> & { resume?: () => unknown };
+  readable.resume?.();
 }
 
 export class SyncV3BlobStorage {
   private readonly storageRoot: string;
   private readonly stagingRoot: string;
 
-  constructor(storageRoot: string) {
+  private readonly openFile: OpenFile;
+
+  constructor(
+    storageRoot: string,
+    dependencies: SyncV3BlobStorageDependencies = {},
+  ) {
     this.storageRoot = resolve(storageRoot);
     this.stagingRoot = join(this.storageRoot, '.sync-v3-staging');
+    this.openFile = dependencies.openFile ?? open;
   }
 
-  async putChunk(
+  async stageChunk(
     sessionId: string,
     contentHash: string,
     chunkIndex: number,
     input: AsyncIterable<Uint8Array>,
     maxBytes: number,
-  ): Promise<{ chunkHash: string; sizeBytes: number }> {
+  ): Promise<StagedBlobChunkUpload> {
     this.assertCoordinates(sessionId, contentHash, chunkIndex);
     const byteLimit = this.byteLimit(maxBytes);
     const directory = await this.ensureSessionDirectory(sessionId, contentHash);
-    const finalPath = join(directory, `chunk-${chunkIndex}`);
     const tempPath = join(directory, `.incoming-${randomUUID()}`);
-    const handle = await open(
+    const handle = await this.openFile(
       tempPath,
       constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW,
       0o600,
@@ -153,7 +185,11 @@ export class SyncV3BlobStorage {
     let closed = false;
     try {
       await handle.chmod(0o600);
-      for await (const value of input) {
+      const iterator = inputIterator(input);
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) break;
+        const value = next.value;
         if (!(value instanceof Uint8Array)) {
           throw new SyncV3BlobStorageError(
             'ATTACHMENT_CONTENT_INVALID',
@@ -163,7 +199,13 @@ export class SyncV3BlobStorage {
         const bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
         sizeBytes += bytes.length;
         if (sizeBytes > byteLimit) {
-          destroyInput(input);
+          try {
+            await iterator.return?.();
+          } catch {
+            // Preserve the quota error; draining the readable below owns the
+            // remaining request lifecycle even if an iterator cleanup hook fails.
+          }
+          drainInput(input);
           throw new SyncV3BlobStorageError(
             'ATTACHMENT_QUOTA_EXCEEDED',
             'Blob chunk exceeds the negotiated byte limit',
@@ -184,32 +226,57 @@ export class SyncV3BlobStorage {
         );
       }
       await handle.sync();
+      const metadata = await handle.stat({ bigint: true });
       await handle.close();
       closed = true;
       const chunkHash = digest.digest('hex');
-      try {
-        await link(tempPath, finalPath);
-        await syncDirectory(directory);
-      } catch (error) {
-        if (!isNodeError(error, 'EEXIST')) throw error;
-        await this.verifyChunkFile(finalPath, chunkHash, sizeBytes);
-      } finally {
-        await unlink(tempPath).catch((error: unknown) => {
-          if (!isNodeError(error, 'ENOENT')) throw error;
-        });
-      }
-      return { chunkHash, sizeBytes };
+      return {
+        sessionId,
+        contentHash,
+        chunkIndex,
+        chunkHash,
+        sizeBytes,
+        stagingPath: tempPath,
+        device: metadata.dev,
+        inode: metadata.ino,
+      };
     } catch (error) {
       if (!closed) await handle.close().catch(() => undefined);
       await unlink(tempPath).catch(() => undefined);
-      if (isNodeError(error, 'EEXIST')) {
-        throw new SyncV3BlobStorageError(
-          'ATTACHMENT_CONTENT_INVALID',
-          'Blob chunk index already contains different bytes',
-        );
-      }
       throw error;
     }
+  }
+
+  async commitStagedChunk(staged: StagedBlobChunkUpload): Promise<StagedBlobChunk> {
+    this.assertStagedUpload(staged);
+    const directory = await this.ensureSessionDirectory(staged.sessionId, staged.contentHash);
+    const finalPath = join(directory, `chunk-${staged.chunkIndex}`);
+    const commitPath = join(directory, `.commit-${randomUUID()}`);
+    await this.verifyStagedUpload(staged);
+    try {
+      await link(staged.stagingPath, commitPath);
+      await syncDirectory(directory, this.openFile);
+      await rename(commitPath, finalPath);
+      await syncDirectory(directory, this.openFile);
+      await this.verifyChunkFile(finalPath, staged.chunkHash, staged.sizeBytes);
+    } finally {
+      await unlink(commitPath).catch((error: unknown) => {
+        if (!isNodeError(error, 'ENOENT')) throw error;
+      });
+      await this.discardStagedChunk(staged);
+    }
+    return {
+      chunkIndex: staged.chunkIndex,
+      chunkHash: staged.chunkHash,
+      sizeBytes: staged.sizeBytes,
+    };
+  }
+
+  async discardStagedChunk(staged: StagedBlobChunkUpload): Promise<void> {
+    this.assertStagedUpload(staged);
+    await unlink(staged.stagingPath).catch((error: unknown) => {
+      if (!isNodeError(error, 'ENOENT')) throw error;
+    });
   }
 
   async combineChunks(
@@ -254,14 +321,18 @@ export class SyncV3BlobStorage {
     const directory = await this.ensureSessionDirectory(sessionId, contentHash);
     const { handle: destination, metadata: destinationMetadata } = await openRegularFile(
       normalizedDestination,
-      constants.O_RDWR | constants.O_TRUNC,
+      constants.O_RDWR,
+      this.openFile,
     );
     const contentDigest = createHash('sha256');
     let totalBytes = 0;
+    let destinationPosition = 0;
     try {
       for (const expected of chunks) {
         const chunkPath = join(directory, `chunk-${expected.chunkIndex}`);
-        const { handle, metadata } = await openRegularFile(chunkPath, constants.O_RDONLY);
+        const { handle, metadata } = await openRegularFile(
+          chunkPath, constants.O_RDONLY, this.openFile,
+        );
         const chunkDigest = createHash('sha256');
         let chunkBytes = 0;
         try {
@@ -279,10 +350,16 @@ export class SyncV3BlobStorage {
             }
             chunkDigest.update(bytes);
             contentDigest.update(bytes);
-            const { bytesWritten } = await destination.write(bytes);
+            const { bytesWritten } = await destination.write(
+              bytes,
+              0,
+              bytes.length,
+              destinationPosition,
+            );
             if (bytesWritten !== bytes.length) {
               throw new Error('Blob combination write was incomplete');
             }
+            destinationPosition += bytesWritten;
           }
           const current = await lstat(chunkPath);
           if (
@@ -301,6 +378,7 @@ export class SyncV3BlobStorage {
           await handle.close();
         }
       }
+      await destination.truncate(totalBytes);
       await destination.sync();
       const opened = await destination.stat();
       const current = await lstat(normalizedDestination);
@@ -340,13 +418,13 @@ export class SyncV3BlobStorage {
   }
 
   private async ensureSessionDirectory(sessionId: string, contentHash: string): Promise<string> {
-    await ensurePrivateDirectory(this.storageRoot);
-    await ensurePrivateDirectory(this.stagingRoot);
+    await ensurePrivateDirectory(this.storageRoot, this.openFile);
+    await ensurePrivateDirectory(this.stagingRoot, this.openFile);
     const key = this.sessionKey(sessionId, contentHash);
     const shard = join(this.stagingRoot, key.slice(0, 2));
     const directory = join(shard, key);
-    await ensurePrivateDirectory(shard);
-    await ensurePrivateDirectory(directory);
+    await ensurePrivateDirectory(shard, this.openFile);
+    await ensurePrivateDirectory(directory, this.openFile);
     return directory;
   }
 
@@ -390,7 +468,7 @@ export class SyncV3BlobStorage {
     expectedHash: string,
     expectedSize: number,
   ): Promise<void> {
-    const { handle, metadata } = await openRegularFile(path, constants.O_RDONLY);
+    const { handle, metadata } = await openRegularFile(path, constants.O_RDONLY, this.openFile);
     const digest = createHash('sha256');
     let sizeBytes = 0;
     try {
@@ -411,6 +489,61 @@ export class SyncV3BlobStorage {
         throw new SyncV3BlobStorageError(
           'ATTACHMENT_CONTENT_INVALID',
           'Blob chunk index already contains different bytes',
+        );
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private assertStagedUpload(staged: StagedBlobChunkUpload): void {
+    this.assertCoordinates(staged.sessionId, staged.contentHash, staged.chunkIndex);
+    if (
+      !HASH_PATTERN.test(staged.chunkHash)
+      || !Number.isSafeInteger(staged.sizeBytes)
+      || staged.sizeBytes <= 0
+      || staged.sizeBytes > TREE_SYNC_V3_HARD_LIMITS.blobChunkBytes
+      || staged.device < 0n
+      || staged.inode < 0n
+    ) {
+      throw new SyncV3BlobStorageError('PAYLOAD_INVALID', 'Invalid staged Blob chunk');
+    }
+    const key = this.sessionKey(staged.sessionId, staged.contentHash);
+    const directory = join(this.stagingRoot, key.slice(0, 2), key);
+    if (
+      dirname(staged.stagingPath) !== directory
+      || !/^\.incoming-[0-9a-f-]{36}$/u.test(staged.stagingPath.slice(directory.length + 1))
+    ) {
+      throw new SyncV3BlobStorageError('PAYLOAD_INVALID', 'Invalid staged Blob chunk path');
+    }
+  }
+
+  private async verifyStagedUpload(staged: StagedBlobChunkUpload): Promise<void> {
+    const { handle, metadata } = await openRegularFile(
+      staged.stagingPath, constants.O_RDONLY, this.openFile,
+    );
+    try {
+      if (
+        BigInt(metadata.dev) !== staged.device
+        || BigInt(metadata.ino) !== staged.inode
+      ) {
+        throw new SyncV3BlobStorageError(
+          'ATTACHMENT_CONTENT_INVALID',
+          'Staged Blob chunk identity changed before commit',
+        );
+      }
+      const digest = createHash('sha256');
+      let sizeBytes = 0;
+      const stream = handle.createReadStream({ autoClose: false, start: 0 });
+      for await (const value of stream) {
+        const bytes = value as Buffer;
+        sizeBytes += bytes.length;
+        digest.update(bytes);
+      }
+      if (sizeBytes !== staged.sizeBytes || digest.digest('hex') !== staged.chunkHash) {
+        throw new SyncV3BlobStorageError(
+          'ATTACHMENT_CONTENT_INVALID',
+          'Staged Blob chunk changed before commit',
         );
       }
     } finally {
