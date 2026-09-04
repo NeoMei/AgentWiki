@@ -28,6 +28,8 @@ describe('parseImageReferences', () => {
     ['![](data:image/png;base64,AA==)', null, 'external'],
     ['![](../../secret.png)', null, 'invalid_local'],
     ['![[assets/a.svg]]', null, 'unsupported'],
+    ['![[Page Title]]', null, 'page_embed'],
+    ['![[Page Title.md]]', null, 'page_embed'],
   ] as const)('classifies %s', (body, expectedPath, classification) => {
     const [reference] = parseImageReferences(body, sourcePath);
 
@@ -401,6 +403,16 @@ describe('resolveReferencedAttachments', () => {
 
   it('ignores external images without producing attachment ids or blockers', () => {
     const body = '![](https://example.com/a.png)\n![](data:image/png;base64,AA==)';
+
+    expect(resolveReferencedAttachments(body, sourcePath, [])).toEqual({
+      attachmentIds: [],
+      references: [],
+      errors: [],
+    });
+  });
+
+  it('ignores Obsidian Page embeds without treating them as broken image attachments', () => {
+    const body = '![[Page Title|Alias]]\n![[Page Title.md#Section]]';
 
     expect(resolveReferencedAttachments(body, sourcePath, [])).toEqual({
       attachmentIds: [],

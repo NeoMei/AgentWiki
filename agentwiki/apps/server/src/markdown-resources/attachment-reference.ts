@@ -13,6 +13,7 @@ export interface ParsedImageReference {
   resolvedPath: string | null;
   classification:
     | 'managed_candidate'
+    | 'page_embed'
     | 'external'
     | 'unsupported'
     | 'invalid_local';
@@ -507,6 +508,16 @@ function classifyTarget(
   if (/^(?:https?|ftp):\/\//iu.test(decoded)) {
     return { resolvedPath: null, classification: 'external' };
   }
+  if (
+    syntax === 'obsidian'
+    && !decoded.startsWith('assets/')
+    && !/\.(?:png|jpe?g|webp|gif)$/iu.test(decoded)
+  ) {
+    // Obsidian uses the same ![[...]] syntax for transcluded Markdown Pages.
+    // Only a supported image extension (or the explicit assets namespace)
+    // belongs to the attachment protocol; all other targets remain Page embeds.
+    return { resolvedPath: null, classification: 'page_embed' };
+  }
 
   let candidate: string;
   if (!decoded.includes('/') && syntax === 'obsidian') {
@@ -577,7 +588,7 @@ export function resolveParsedAttachmentReferences(
   }
 
   for (const reference of parsedReferences) {
-    if (reference.classification === 'external') continue;
+    if (reference.classification === 'external' || reference.classification === 'page_embed') continue;
     if (reference.classification !== 'managed_candidate' || reference.resolvedPath === null) {
       errors.push({
         code: 'ATTACHMENT_REFERENCE_INVALID',
