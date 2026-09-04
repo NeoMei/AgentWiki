@@ -48,19 +48,18 @@ interface ImageTargetToken {
 interface ListContainer {
   markerIndent: number;
   contentIndent: number;
-  itemId: number;
 }
 
 interface MarkdownContainerState {
   quoteDepth: number;
   lists: ListContainer[];
-  nextListItemId: number;
 }
 
 interface MarkdownFenceState {
   marker: '`' | '~';
   length: number;
-  containerKey: string;
+  quoteDepth: number;
+  listContentIndent: number | null;
 }
 
 export class AttachmentReferenceError extends Error {
@@ -185,7 +184,7 @@ function markdownLineContext(
   lineStart: number,
   lineEnd: number,
   state: MarkdownContainerState,
-): { contentStart: number; indentedCode: boolean; containerKey: string } {
+): { contentStart: number; indentedCode: boolean } {
   let cursor = lineStart;
   let quoteDepth = 0;
   while (cursor < lineEnd) {
@@ -208,27 +207,6 @@ function markdownLineContext(
   let indent = 0;
   while (cursor + indent < lineEnd && value[cursor + indent] === ' ') indent += 1;
   const markerStart = cursor + indent;
-  const markerEnd = listMarkerEnd(value, markerStart, lineEnd);
-  if (markerEnd !== -1 && (state.lists.length > 0 || indent < 4)) {
-    while (
-      state.lists.length > 0
-      && (state.lists[state.lists.length - 1]?.markerIndent ?? -1) >= indent
-    ) {
-      state.lists.pop();
-    }
-    state.lists.push({
-      markerIndent: indent,
-      contentIndent: markerEnd - cursor,
-      itemId: state.nextListItemId,
-    });
-    state.nextListItemId += 1;
-    return {
-      contentStart: markerEnd,
-      indentedCode: false,
-      containerKey: `q:${quoteDepth}|l:${state.lists.map((item) => item.itemId).join('.')}`,
-    };
-  }
-
   const blank = markerStart >= lineEnd || value[markerStart] === '\r';
   if (!blank) {
     while (
@@ -239,11 +217,68 @@ function markdownLineContext(
     }
   }
   const listContentIndent = state.lists[state.lists.length - 1]?.contentIndent ?? 0;
+  const indentedCode = value[cursor] === '\t' || indent >= listContentIndent + 4;
+  if (indentedCode) {
+    return {
+      contentStart: markerStart,
+      indentedCode: true,
+    };
+  }
+
+  const markerEnd = listMarkerEnd(value, markerStart, lineEnd);
+  if (markerEnd !== -1) {
+    while (
+      state.lists.length > 0
+      && (state.lists[state.lists.length - 1]?.markerIndent ?? -1) >= indent
+    ) {
+      state.lists.pop();
+    }
+    state.lists.push({
+      markerIndent: indent,
+      contentIndent: markerEnd - cursor,
+    });
+    return {
+      contentStart: markerEnd,
+      indentedCode: false,
+    };
+  }
+
   return {
     contentStart: markerStart,
-    indentedCode: value[cursor] === '\t'
-      || indent >= listContentIndent + 4,
-    containerKey: `q:${quoteDepth}|l:${state.lists.map((item) => item.itemId).join('.')}`,
+    indentedCode: false,
+  };
+}
+
+function activeFenceLineContext(
+  value: string,
+  lineStart: number,
+  lineEnd: number,
+  fence: MarkdownFenceState,
+): { inContainer: boolean; contentStart: number } {
+  let cursor = lineStart;
+  for (let depth = 0; depth < fence.quoteDepth; depth += 1) {
+    let spaces = 0;
+    while (cursor + spaces < lineEnd && value[cursor + spaces] === ' ') spaces += 1;
+    const markerStart = cursor + spaces;
+    if (spaces > 3 || value[markerStart] !== '>') {
+      return { inContainer: false, contentStart: lineStart };
+    }
+    cursor = markerStart + 1;
+    if (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
+  }
+
+  if (fence.listContentIndent === null) {
+    return { inContainer: true, contentStart: cursor };
+  }
+  let indent = 0;
+  while (cursor + indent < lineEnd && value[cursor + indent] === ' ') indent += 1;
+  const blank = cursor + indent >= lineEnd || value[cursor + indent] === '\r';
+  if (!blank && indent < fence.listContentIndent) {
+    return { inContainer: false, contentStart: lineStart };
+  }
+  return {
+    inContainer: true,
+    contentStart: blank ? cursor + indent : cursor + fence.listContentIndent,
   };
 }
 
@@ -255,18 +290,43 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
   const containers: MarkdownContainerState = {
     quoteDepth: 0,
     lists: [],
-    nextListItemId: 1,
   };
 
   while (cursor < body.length) {
     if (lineStart) {
       const newline = body.indexOf('\n', cursor);
       const lineEnd = newline === -1 ? body.length : newline;
-      const context = markdownLineContext(body, cursor, lineEnd, containers);
-      if (scannerState.fence && scannerState.fence.containerKey !== context.containerKey) {
+      if (scannerState.fence) {
+        const fenceContext = activeFenceLineContext(
+          body,
+          cursor,
+          lineEnd,
+          scannerState.fence,
+        );
+        if (fenceContext.inContainer) {
+          let markerStart = fenceContext.contentStart;
+          let indent = 0;
+          while (body[markerStart + indent] === ' ') indent += 1;
+          markerStart += indent;
+          const marker = body[markerStart];
+          let markerEnd = markerStart;
+          if (indent <= 3 && marker === scannerState.fence.marker) {
+            while (body[markerEnd] === marker) markerEnd += 1;
+          }
+          const isClosingFence = indent <= 3
+            && marker === scannerState.fence.marker
+            && markerEnd - markerStart >= scannerState.fence.length
+            && /^[ \t\r]*$/u.test(body.slice(markerEnd, lineEnd));
+          if (isClosingFence) scannerState.fence = null;
+          cursor = newline === -1 ? body.length : newline + 1;
+          lineStart = true;
+          continue;
+        }
         scannerState.fence = null;
       }
-      if (!scannerState.fence && context.indentedCode) {
+
+      const context = markdownLineContext(body, cursor, lineEnd, containers);
+      if (context.indentedCode) {
         cursor = newline === -1 ? body.length : newline + 1;
         lineStart = true;
         continue;
@@ -277,28 +337,20 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
         let markerEnd = markerStart;
         while (body[markerEnd] === marker) markerEnd += 1;
         const markerLength = markerEnd - markerStart;
-        const activeFence = scannerState.fence;
-        const isClosingFence: boolean = activeFence !== null
-          && activeFence.marker === marker
-          && markerLength >= activeFence.length
-          && /^[ \t\r]*$/u.test(body.slice(markerEnd, lineEnd));
-        if ((!scannerState.fence && markerLength >= 3) || isClosingFence) {
-          scannerState.fence = isClosingFence
-            ? null
-            : { marker, length: markerLength, containerKey: context.containerKey };
+        if (markerLength >= 3) {
+          const listContentIndent = containers.lists[containers.lists.length - 1]?.contentIndent;
+          scannerState.fence = {
+            marker,
+            length: markerLength,
+            quoteDepth: containers.quoteDepth,
+            listContentIndent: listContentIndent ?? null,
+          };
           cursor = newline === -1 ? body.length : newline + 1;
           lineStart = true;
           continue;
         }
       }
-      if (!scannerState.fence) cursor = context.contentStart;
-    }
-
-    if (scannerState.fence) {
-      const newline = body.indexOf('\n', cursor);
-      cursor = newline === -1 ? body.length : newline + 1;
-      lineStart = true;
-      continue;
+      cursor = context.contentStart;
     }
 
     const character = body[cursor];

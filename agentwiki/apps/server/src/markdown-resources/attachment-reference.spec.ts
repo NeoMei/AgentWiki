@@ -297,6 +297,41 @@ describe('parseImageReferences', () => {
       .toEqual(['assets/real.png']);
   });
 
+  it('keeps blockquote-shaped code inside a top-level fence and closes the original fence', () => {
+    const body = '```md\n> ![[assets/hidden.png]]\n```\n![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('keeps nested-list-shaped code inside its containing list fence', () => {
+    const body = '- ```md\n  - ![[assets/hidden.png]]\n  ```\n- ![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('treats a list marker indented four columns past list content as code', () => {
+    const body = '- item\n      - ![[assets/hidden.png]]\n  ![[assets/real.png]]';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it.each([
+    [
+      'blockquote',
+      '> ```md\n> ![[assets/hidden.png]]\n![[assets/real.png]]',
+    ],
+    [
+      'list',
+      '- ```md\n  ![[assets/hidden.png]]\n![[assets/real.png]]',
+    ],
+  ])('reprocesses the current line after leaving an unclosed %s fence', (_label, body) => {
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
   it('scans a long backslash-heavy alt in a linear number of indexed reads', () => {
     const raw = `![${'\\'.repeat(512)}alt](../assets/a.png)`;
     const counted = countIndexedReads(raw);
