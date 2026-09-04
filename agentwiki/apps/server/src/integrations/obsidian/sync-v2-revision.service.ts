@@ -28,6 +28,10 @@ import {
   validateRevisionChainTrust,
 } from '../../core/sync/revision-v2-integrity';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
+import {
+  isSupportedLegacySyncRevisionFormat,
+  isSyncV3RevisionFormat,
+} from '../../core/sync/sync-revision-format';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -259,10 +263,8 @@ export class SyncV2RevisionService {
         '2',
       );
     }
-    const isNativeV3 = revision.schemaVersion === 'content-tree@3'
-      && revision.recipeVersion === 'referenced-images-v1';
-    const isKnownLegacy = (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
-      || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
+    const isNativeV3 = isSyncV3RevisionFormat(revision);
+    const isKnownLegacy = isSupportedLegacySyncRevisionFormat(revision);
     try {
       const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
         this.rebuildImmutableManifest(tx, spaceId, revision.id),

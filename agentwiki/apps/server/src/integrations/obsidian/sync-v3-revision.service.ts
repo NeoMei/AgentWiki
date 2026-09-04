@@ -22,13 +22,18 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
+import {
+  isSupportedLegacySyncRevisionFormat,
+  isSupportedSyncRevisionFormat,
+  isSyncV3RevisionFormat,
+  SYNC_V3_RECIPE_VERSION,
+  SYNC_V3_SCHEMA_VERSION,
+} from '../../core/sync/sync-revision-format';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncApiException } from './sync-error';
 
-const V3_SCHEMA_VERSION = 'content-tree@3';
-const V3_RECIPE_VERSION = 'referenced-images-v1';
 const encoder = new TextEncoder();
 
 class RevisionV3IntegrityError extends Error {}
@@ -42,6 +47,24 @@ interface LoadedRevisionV3 {
   revisionManifestByteLength: number;
   revisionBodyBytes: number;
   revisionAttachmentBytes: number;
+}
+
+interface SpaceRevisionSummaryRow {
+  id: string;
+  spaceId: string;
+  sequence: number;
+  parentRevisionId: string | null;
+  schemaVersion: string;
+  recipeVersion: string;
+  contentHash: string;
+  delta: Prisma.JsonValue | null;
+  revisionContentHash: string;
+  pageCount: bigint;
+  revisionBodyBytes: bigint;
+  revisionManifestByteLength: bigint;
+  attachmentCount: bigint;
+  revisionAttachmentBytes: bigint;
+  createdAt: Date;
 }
 
 type SnapshotEntry =
@@ -98,18 +121,28 @@ export class SyncV3RevisionService {
       if (spaceIds.length === 0) {
         return TreeSyncSpaceListResponseV3Schema.parse({ protocolVersion: '3', spaces: [] });
       }
-      const revisions = await tx.spaceKnowledgeRevision.findMany({
-        where: { spaceId: { in: spaceIds } },
-        orderBy: [{ spaceId: 'asc' }, { sequence: 'desc' }],
-      });
-      const latestBySpace = new Map<string, any>();
-      const nativeSpaces = new Set<string>();
-      for (const revision of revisions) {
-        if (!latestBySpace.has(revision.spaceId)) latestBySpace.set(revision.spaceId, revision);
-        if (revision.schemaVersion === V3_SCHEMA_VERSION && revision.recipeVersion === V3_RECIPE_VERSION) {
-          nativeSpaces.add(revision.spaceId);
-        }
-      }
+      const [latestRevisions, v3Histories] = await Promise.all([
+        tx.$queryRaw<SpaceRevisionSummaryRow[]>(Prisma.sql`
+          SELECT DISTINCT ON ("spaceId")
+            "id", "spaceId", "sequence", "parentRevisionId", "schemaVersion", "recipeVersion",
+            "contentHash", "delta", "revisionContentHash", "pageCount", "revisionBodyBytes",
+            "revisionManifestByteLength", "attachmentCount", "revisionAttachmentBytes", "createdAt"
+          FROM "SpaceKnowledgeRevision"
+          WHERE "spaceId" IN (${Prisma.join(spaceIds)})
+          ORDER BY "spaceId" ASC, "sequence" DESC, "id" DESC
+        `),
+        tx.$queryRaw<Array<{ spaceId: string }>>(Prisma.sql`
+          SELECT "spaceId"
+          FROM "SpaceKnowledgeRevision"
+          WHERE "spaceId" IN (${Prisma.join(spaceIds)})
+            AND "schemaVersion" = ${SYNC_V3_SCHEMA_VERSION}
+            AND "recipeVersion" = ${SYNC_V3_RECIPE_VERSION}
+          GROUP BY "spaceId"
+          ORDER BY "spaceId" ASC
+        `),
+      ]);
+      const latestBySpace = new Map(latestRevisions.map((revision) => [revision.spaceId, revision]));
+      const nativeSpaces = new Set(v3Histories.map((revision) => revision.spaceId));
       const headIds = [...latestBySpace.values()].map((revision) => revision.id);
       const emptySpaceIds = spaceIds.filter((spaceId) => !latestBySpace.has(spaceId));
       const [folderRows, pageRows, liveFolders, livePages] = await Promise.all([
@@ -133,7 +166,7 @@ export class SyncV3RevisionService {
       for (const space of accessible) {
         const latest = latestBySpace.get(space.id);
         if (nativeSpaces.has(space.id)) {
-          if (!latest || latest.schemaVersion !== V3_SCHEMA_VERSION || latest.recipeVersion !== V3_RECIPE_VERSION) {
+          if (!latest || !isSyncV3RevisionFormat(latest)) {
             throw revisionGone();
           }
           const folderCount = (foldersByRevision.get(latest.id) ?? []).length;
@@ -155,7 +188,7 @@ export class SyncV3RevisionService {
           });
           continue;
         }
-        if (latest && !this.isSupportedLegacy(latest)) {
+        if (latest && !isSupportedLegacySyncRevisionFormat(latest)) {
           throw new SyncApiException(
             'SYNC_PROTOCOL_UPGRADE_REQUIRED',
             'Latest revision uses an unsupported Sync protocol',
@@ -442,13 +475,31 @@ export class SyncV3RevisionService {
       : await tx.spaceKnowledgeRevision.findUnique({ where: { id: revisionRef } });
     if (!revision) throw revisionGone();
     if (revision.spaceId !== spaceId) throw revisionGone();
-    if (revision.schemaVersion !== V3_SCHEMA_VERSION || revision.recipeVersion !== V3_RECIPE_VERSION) {
+    if (!isSyncV3RevisionFormat(revision)) {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',
         'Revision is not a supported Sync v3 revision',
         undefined,
         '3',
       );
+    }
+    if (!Number.isSafeInteger(revision.sequence) || revision.sequence < 1) {
+      throw new RevisionV3IntegrityError();
+    }
+    if (revision.parentRevisionId === null) {
+      if (revision.sequence !== 1) throw new RevisionV3IntegrityError();
+    } else {
+      const parent = await tx.spaceKnowledgeRevision.findUnique({
+        where: { id: revision.parentRevisionId },
+      });
+      if (
+        !parent
+        || parent.spaceId !== spaceId
+        || !Number.isSafeInteger(parent.sequence)
+        || parent.sequence < 1
+        || parent.sequence !== revision.sequence - 1
+        || !isSupportedSyncRevisionFormat(parent)
+      ) throw new RevisionV3IntegrityError();
     }
     const [folderRows, pageRows, attachmentRows, sidecarRow] = await Promise.all([
       tx.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),
@@ -748,11 +799,6 @@ export class SyncV3RevisionService {
         '3',
       );
     }
-  }
-
-  private isSupportedLegacy(revision: { schemaVersion: string; recipeVersion: string }): boolean {
-    return (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
-      || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
   }
 
   private storageKey(contentHashValue: string): string {

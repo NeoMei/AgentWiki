@@ -139,18 +139,20 @@ describe('SyncV3RevisionService', () => {
         { id: 'bootstrap', name: 'Bootstrap', createdAt: new Date('2026-09-02T00:00:00.000Z') },
         { id: 'legacy', name: 'Legacy', createdAt: new Date('2026-09-03T00:00:00.000Z') },
       ]) },
-      spaceKnowledgeRevision: { findMany: jest.fn().mockResolvedValue([
-        {
-          id: 'rev-native', spaceId: 'native', sequence: 3,
-          schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
-          pageCount: 2n, attachmentCount: 1n, revisionManifestByteLength: 100n,
-          revisionBodyBytes: 20n, revisionAttachmentBytes: 4n,
-        },
-        {
-          id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
-          schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
-        },
-      ]) },
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'rev-native', spaceId: 'native', sequence: 3,
+            schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
+            pageCount: 2n, attachmentCount: 1n, revisionManifestByteLength: 100n,
+            revisionBodyBytes: 20n, revisionAttachmentBytes: 4n,
+          },
+          {
+            id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
+            schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+          },
+        ])
+        .mockResolvedValueOnce([{ spaceId: 'native' }]),
       syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([
         { revisionId: 'rev-native' },
       ]) },
@@ -195,7 +197,7 @@ describe('SyncV3RevisionService', () => {
     expect(response.spaces[1]).toEqual(expect.objectContaining({
       pageCount: '1', attachmentCount: '1', revisionAttachmentBytes: '4',
     }));
-    expect(tx.spaceKnowledgeRevision.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.syncRevisionFolderRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.syncRevisionPageRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.folder.findMany).toHaveBeenCalledTimes(1);
@@ -263,6 +265,57 @@ describe('SyncV3RevisionService', () => {
     const state = await fixture();
     mutate(state);
     await expect(state.service.snapshot(principal, 'space-1', 'rev-1', undefined, 10))
+      .rejects.toEqual(expect.objectContaining({ syncCode: 'REVISION_GONE' }));
+  });
+
+  it.each([
+    ['missing parent', null, 'missing-parent', 2],
+    ['cross-Space parent', {
+      id: 'parent-1', spaceId: 'space-2', sequence: 1,
+      schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+    }, 'parent-1', 2],
+    ['future parent schema', {
+      id: 'parent-1', spaceId: 'space-1', sequence: 1,
+      schemaVersion: 'content-tree@4', recipeVersion: 'referenced-images-v1',
+    }, 'parent-1', 2],
+    ['wrong parent sequence', {
+      id: 'parent-1', spaceId: 'space-1', sequence: 3,
+      schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+    }, 'parent-1', 2],
+  ])('rejects a v3 revision with %s', async (_label, parent, parentId, sequence) => {
+    const state = await fixture();
+    state.revision.sequence = sequence;
+    state.revision.parentRevisionId = parentId;
+    state.tx.spaceKnowledgeRevision.findUnique.mockImplementation(async ({ where }: any) => (
+      where.id === state.revision.id ? state.revision : parent
+    ));
+
+    await expect(state.service.snapshot(principal, 'space-1', state.revision.id, undefined, 10))
+      .rejects.toEqual(expect.objectContaining({ syncCode: 'REVISION_GONE' }));
+  });
+
+  it.each([
+    ['v1', { schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none' }],
+    ['v2', { schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1' }],
+  ])('accepts a legal %s parent immediately before the first v3 revision', async (_label, format) => {
+    const state = await fixture();
+    state.revision.sequence = 2;
+    state.revision.parentRevisionId = 'parent-1';
+    const parent = { id: 'parent-1', spaceId: 'space-1', sequence: 1, ...format };
+    state.tx.spaceKnowledgeRevision.findUnique.mockImplementation(async ({ where }: any) => (
+      where.id === state.revision.id ? state.revision : parent
+    ));
+
+    await expect(state.service.snapshot(principal, 'space-1', state.revision.id, undefined, 10))
+      .resolves.toMatchObject({ revision: state.revision.id, sequence: 2 });
+  });
+
+  it('accepts only sequence one as a parentless v3 genesis', async () => {
+    const state = await fixture();
+    await expect(state.service.snapshot(principal, 'space-1', state.revision.id, undefined, 10))
+      .resolves.toMatchObject({ revision: state.revision.id, sequence: 1 });
+    state.revision.sequence = 2;
+    await expect(state.service.snapshot(principal, 'space-1', state.revision.id, undefined, 10))
       .rejects.toEqual(expect.objectContaining({ syncCode: 'REVISION_GONE' }));
   });
 
@@ -399,6 +452,12 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
       const cursors = new SyncCursorService({ get: () => 'task5-db-cursor-pepper' } as any);
       const capabilities = new SyncCapabilitiesService(prisma as any, v3Writer);
       const reader = new SyncV3RevisionService(prisma as any, cursors, capabilities, v3Writer);
+      await expect(reader.listSpaces(principal)).resolves.toMatchObject({
+        spaces: expect.arrayContaining([
+          expect.objectContaining({ spaceId, syncMode: 'native_v3' }),
+          expect.objectContaining({ spaceId: otherSpaceId, syncMode: 'legacy_v2' }),
+        ]),
+      });
       const fixed = await reader.snapshot(principal, spaceId, second.revisionId, undefined, 10);
       expect(TreeSnapshotPageV3Schema.parse(fixed)).toMatchObject({
         revision: second.revisionId,
@@ -510,6 +569,39 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
           .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
         await corruption.restore();
       }
+      await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
+        .resolves.toMatchObject({ revision: second.revisionId });
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: second.revisionId }, data: { parentRevisionId: null },
+      });
+      await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: second.revisionId }, data: { parentRevisionId: first.revisionId },
+      });
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: first.revisionId }, data: {
+          schemaVersion: 'content-tree@4', recipeVersion: 'referenced-images-v1',
+        },
+      });
+      await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: first.revisionId }, data: {
+          schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
+        },
+      });
+
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: second.revisionId }, data: { sequence: revision.sequence + 10 },
+      });
+      await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
+        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      await prisma.spaceKnowledgeRevision.update({
+        where: { id: second.revisionId }, data: { sequence: revision.sequence },
+      });
       await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
         .resolves.toMatchObject({ revision: second.revisionId });
     } finally {

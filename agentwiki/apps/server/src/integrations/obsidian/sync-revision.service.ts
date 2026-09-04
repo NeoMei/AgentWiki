@@ -5,6 +5,11 @@ import {
   type RevisionContentManifest,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  isSyncV1RevisionFormat,
+  isSyncV2RevisionFormat,
+  isSyncV3RevisionFormat,
+} from '../../core/sync/sync-revision-format';
 import { SyncApiException } from './sync-error';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -50,12 +55,9 @@ export class SyncRevisionService {
         'This revision requires Sync v3',
       );
     }
-    const isV1 = revision.schemaVersion === 'knowledge-bundle@1'
-      && revision.recipeVersion === 'none';
-    const isV2 = revision.schemaVersion === 'content-tree@2'
-      && revision.recipeVersion === 'space-folders-v1';
-    const isV3 = revision.schemaVersion === 'content-tree@3'
-      && revision.recipeVersion === 'referenced-images-v1';
+    const isV1 = isSyncV1RevisionFormat(revision);
+    const isV2 = isSyncV2RevisionFormat(revision);
+    const isV3 = isSyncV3RevisionFormat(revision);
     if (!isV1 && !isV2 && !isV3) {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',

@@ -34,9 +34,13 @@ import type {
   StructuralPageChange,
 } from './space-revision-writer.service';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
+import {
+  isSupportedSyncRevisionFormat,
+  isSyncV3RevisionFormat,
+  SYNC_V3_RECIPE_VERSION,
+  SYNC_V3_SCHEMA_VERSION,
+} from './sync-revision-format';
 
-const V3_SCHEMA_VERSION = 'content-tree@3';
-const V3_RECIPE_VERSION = 'referenced-images-v1';
 const WRITE_BATCH_SIZE = 500;
 const encoder = new TextEncoder();
 
@@ -118,10 +122,7 @@ function assertSupportedRevisionHead(
   revision: { schemaVersion: string; recipeVersion: string } | null,
 ): void {
   if (!revision) return;
-  const supported = (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
-    || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1')
-    || (revision.schemaVersion === V3_SCHEMA_VERSION && revision.recipeVersion === V3_RECIPE_VERSION);
-  if (!supported) {
+  if (!isSupportedSyncRevisionFormat(revision)) {
     throw new SyncApiException(
       'SYNC_PROTOCOL_UPGRADE_REQUIRED',
       'Latest revision uses a newer or unsupported Sync protocol',
@@ -204,7 +205,12 @@ export class SyncV3RevisionWriterService {
         select: { id: true, schemaVersion: true, recipeVersion: true },
       }),
       tx.spaceKnowledgeRevision.findFirst({
-        where: { spaceId, schemaVersion: V3_SCHEMA_VERSION }, select: { id: true },
+        where: {
+          spaceId,
+          schemaVersion: SYNC_V3_SCHEMA_VERSION,
+          recipeVersion: SYNC_V3_RECIPE_VERSION,
+        },
+        select: { id: true },
       }),
     ]);
     assertSupportedRevisionHead(latest);
@@ -251,7 +257,12 @@ export class SyncV3RevisionWriterService {
         select: { id: true, schemaVersion: true, recipeVersion: true },
       }),
       nativeV3 === undefined ? tx.spaceKnowledgeRevision.findFirst({
-        where: { spaceId, schemaVersion: V3_SCHEMA_VERSION }, select: { id: true },
+        where: {
+          spaceId,
+          schemaVersion: SYNC_V3_SCHEMA_VERSION,
+          recipeVersion: SYNC_V3_RECIPE_VERSION,
+        },
+        select: { id: true },
       }) : Promise.resolve(nativeV3 ? { id: 'native' } : null),
       tx.folder.findMany({
         where: { spaceId, deletedAt: null }, orderBy: [{ pathKey: 'asc' }, { id: 'asc' }],
@@ -499,7 +510,7 @@ export class SyncV3RevisionWriterService {
       select: { id: true, sequence: true, schemaVersion: true, recipeVersion: true },
     });
     assertSupportedRevisionHead(latest);
-    const parentManifest = latest?.schemaVersion === V3_SCHEMA_VERSION
+    const parentManifest = latest && isSyncV3RevisionFormat(latest)
       ? await this.loadManifest(tx, spaceId, latest.id)
       : null;
     const manifest = canonicalTreeRevisionManifestV3({
@@ -645,8 +656,8 @@ export class SyncV3RevisionWriterService {
       spaceId,
       sequence: (latest?.sequence ?? 0) + 1,
       parentRevisionId: latest?.id ?? null,
-      schemaVersion: V3_SCHEMA_VERSION,
-      recipeVersion: V3_RECIPE_VERSION,
+      schemaVersion: SYNC_V3_SCHEMA_VERSION,
+      recipeVersion: SYNC_V3_RECIPE_VERSION,
       contentHash: revisionContentHash,
       snapshot: Prisma.JsonNull,
       delta: jsonValue(delta),
