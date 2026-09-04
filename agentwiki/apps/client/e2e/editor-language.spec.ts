@@ -44,8 +44,14 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   if (api && token) {
     const headers = { Authorization: `Bearer ${token}` };
-    if (spaceId) await api.delete(`spaces/${spaceId}`, { headers });
-    if (user?.id) await api.delete(`users/${user.id}`, { headers });
+    if (spaceId) {
+      const spaceCleanup = await api.delete(`spaces/${spaceId}`, { headers });
+      expect(spaceCleanup.ok()).toBeTruthy();
+    }
+    if (user?.id) {
+      const userCleanup = await api.delete(`users/${user.id}`, { headers });
+      expect(userCleanup.ok()).toBeTruthy();
+    }
     await api.dispose();
   }
 });

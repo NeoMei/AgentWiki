@@ -4,7 +4,7 @@ const enabled = process.env.AGENTWIKI_LOCAL_SYNC_E2E === '1';
 const apiUrl = (process.env.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api').replace(/\/$/u, '');
 const browserApiUrl = new URL(apiUrl);
 
-if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(browserApiUrl.hostname)) {
+if (enabled && !['localhost', '127.0.0.1', '[::1]', '::1'].includes(browserApiUrl.hostname)) {
   throw new Error('Playwright local-sync E2E requires a loopback AGENTWIKI_API_URL');
 }
 

@@ -37,7 +37,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (api && token && user?.id) {
-    await api.delete(`users/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
+    const userCleanup = await api.delete(`users/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(userCleanup.ok()).toBeTruthy();
   }
   await api?.dispose();
 });

@@ -36,6 +36,18 @@ async function assertNoHorizontalOverflow(page, label) {
   );
 }
 
+export function observePageFailures(page, browserErrors, failedResponses) {
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('response', (response) => {
+    if (response.url().includes('/api/') && response.status() >= 500) {
+      failedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+}
+
 export async function runSpaceAgentMemberUI(environment = process.env) {
   const apiUrl = assertE2ETarget(
     environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api',
@@ -51,7 +63,8 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
   const email = `space-agent-ui-${suffix}@example.test`;
   const password = `SpaceAgent-${suffix}!`;
   const fixture = { userId: '', spaceId: '', agentId: '' };
-  const pageErrors = [];
+  const browserErrors = [];
+  const failedResponses = [];
   let token = '';
   let browser;
 
@@ -75,7 +88,7 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
-    page.on('pageerror', (error) => pageErrors.push(error.message));
+    observePageFailures(page, browserErrors, failedResponses);
 
     await page.goto(`${webUrl}/?intent=workspace#login`, { waitUntil: 'networkidle' });
     await page.locator('input[type="email"]').fill(email);
@@ -109,13 +122,14 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
     await assertNoHorizontalOverflow(page, 'desktop member view');
 
     const mobile = await context.newPage();
-    mobile.on('pageerror', (error) => pageErrors.push(error.message));
+    observePageFailures(mobile, browserErrors, failedResponses);
     await mobile.setViewportSize({ width: 390, height: 844 });
     await mobile.goto(`${webUrl}/spaces/${space.id}/members`, { waitUntil: 'networkidle' });
     await assert.doesNotReject(() => mobile.getByText(agent.name, { exact: true }).waitFor({ state: 'visible' }));
     await assertNoHorizontalOverflow(mobile, 'mobile member view');
 
-    assert.deepEqual(pageErrors, [], `Browser page errors: ${pageErrors.join('; ')}`);
+    assert.deepEqual(browserErrors, [], `Browser page errors: ${browserErrors.join('; ')}`);
+    assert.deepEqual(failedResponses, [], `Server failures observed in browser: ${failedResponses.join('; ')}`);
     return { status: 'passed', desktop: true, mobile: true };
   } finally {
     await browser?.close();

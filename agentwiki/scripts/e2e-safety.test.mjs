@@ -8,6 +8,21 @@ import * as e2eSafety from './e2e-safety.mjs';
 
 const { assertE2ETarget, cleanupFixture } = e2eSafety;
 
+function createPageEventFixture() {
+  const listeners = new Map();
+  return {
+    page: {
+      on(event, listener) {
+        listeners.set(event, listener);
+      },
+    },
+    emit(event, value) {
+      assert.equal(typeof listeners.get(event), 'function', `${event} listener was not installed`);
+      listeners.get(event)(value);
+    },
+  };
+}
+
 function resolveTestRedisTarget(...args) {
   assert.equal(
     typeof e2eSafety.resolveTestRedisTarget,
@@ -252,6 +267,133 @@ test('Playwright local-sync cleanup does not hide failed fixture deletion', asyn
   );
   assert.doesNotMatch(source, /requestJson\([^\n]+\)\.catch\(\(\) => undefined\)/u);
   assert.match(source, /Cleanup failed for/u);
+});
+
+test('disabled local-sync E2E does not block a host-confirmed remote Playwright collection', () => {
+  const clientDirectory = fileURLToPath(new URL('../apps/client/', import.meta.url));
+  const playwrightCli = fileURLToPath(new URL(
+    '../apps/client/node_modules/@playwright/test/cli.js',
+    import.meta.url,
+  ));
+  const environment = {
+    ...process.env,
+    AGENTWIKI_WEB_URL: 'https://qa.example.test',
+    AGENTWIKI_API_URL: 'https://qa.example.test/api',
+    ALLOW_REMOTE_E2E: 'true',
+    CONFIRM_REMOTE_E2E_HOST: 'qa.example.test',
+    AGENTWIKI_LOCAL_SYNC_E2E: '',
+  };
+  const result = spawnSync(process.execPath, [playwrightCli, 'test', '--list'], {
+    cwd: clientDirectory,
+    encoding: 'utf8',
+    env: environment,
+    timeout: 20_000,
+  });
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+
+  assert.equal(result.status, 0, output);
+  assert.match(output, /editor-language\.spec\.ts/u);
+  assert.match(output, /Total: \d+ tests? in \d+ files?/u);
+});
+
+test('enabled local-sync E2E still rejects a remote API during Playwright collection', () => {
+  const clientDirectory = fileURLToPath(new URL('../apps/client/', import.meta.url));
+  const playwrightCli = fileURLToPath(new URL(
+    '../apps/client/node_modules/@playwright/test/cli.js',
+    import.meta.url,
+  ));
+  const result = spawnSync(process.execPath, [playwrightCli, 'test', '--list'], {
+    cwd: clientDirectory,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      AGENTWIKI_WEB_URL: 'https://qa.example.test',
+      AGENTWIKI_API_URL: 'https://qa.example.test/api',
+      ALLOW_REMOTE_E2E: 'true',
+      CONFIRM_REMOTE_E2E_HOST: 'qa.example.test',
+      AGENTWIKI_LOCAL_SYNC_E2E: '1',
+    },
+    timeout: 20_000,
+  });
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /local-sync E2E requires a loopback AGENTWIKI_API_URL/u);
+});
+
+test('space Agent UI observer reports console errors', async () => {
+  const fixture = createPageEventFixture();
+  const browserErrors = [];
+  const failedResponses = [];
+  const { observePageFailures: observeSpaceAgentPageFailures } = await import('./test-space-agent-member.mjs');
+  assert.equal(typeof observeSpaceAgentPageFailures, 'function');
+  observeSpaceAgentPageFailures(fixture.page, browserErrors, failedResponses);
+
+  fixture.emit('console', { type: () => 'warning', text: () => 'expected warning' });
+  fixture.emit('console', { type: () => 'error', text: () => 'render failed' });
+
+  assert.deepEqual(browserErrors, ['render failed']);
+});
+
+test('space Agent UI observer reports only API 5xx responses', async () => {
+  const fixture = createPageEventFixture();
+  const browserErrors = [];
+  const failedResponses = [];
+  const { observePageFailures: observeSpaceAgentPageFailures } = await import('./test-space-agent-member.mjs');
+  assert.equal(typeof observeSpaceAgentPageFailures, 'function');
+  observeSpaceAgentPageFailures(fixture.page, browserErrors, failedResponses);
+
+  fixture.emit('response', {
+    url: () => 'https://qa.example.test/api/spaces/space-1/members',
+    status: () => 503,
+    request: () => ({ method: () => 'GET' }),
+  });
+  fixture.emit('response', {
+    url: () => 'https://qa.example.test/api/spaces/space-1/members',
+    status: () => 409,
+    request: () => ({ method: () => 'POST' }),
+  });
+  fixture.emit('response', {
+    url: () => 'https://qa.example.test/assets/app.js',
+    status: () => 503,
+    request: () => ({ method: () => 'GET' }),
+  });
+
+  assert.deepEqual(failedResponses, [
+    '503 GET https://qa.example.test/api/spaces/space-1/members',
+  ]);
+});
+
+test('UI route observer reports API 5xx responses for every observed page', async () => {
+  const { observePageFailures: observeUiRoutePageFailures } = await import('./ui-route-smoke.mjs');
+  assert.equal(typeof observeUiRoutePageFailures, 'function');
+  for (const label of ['desktop', 'mobile']) {
+    const fixture = createPageEventFixture();
+    const browserErrors = [];
+    const failedResponses = [];
+    observeUiRoutePageFailures(fixture.page, browserErrors, failedResponses);
+
+    fixture.emit('response', {
+      url: () => `https://qa.example.test/api/${label}`,
+      status: () => 500,
+      request: () => ({ method: () => 'GET' }),
+    });
+
+    assert.deepEqual(failedResponses, [`500 GET https://qa.example.test/api/${label}`]);
+  }
+});
+
+test('Playwright fixture cleanup fails closed on unsuccessful DELETE responses', async () => {
+  for (const [file, cleanupNames] of [
+    ['../apps/client/e2e/onboarding-device.spec.ts', ['userCleanup']],
+    ['../apps/client/e2e/editor-language.spec.ts', ['spaceCleanup', 'userCleanup']],
+  ]) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    for (const cleanupName of cleanupNames) {
+      assert.match(source, new RegExp(`const ${cleanupName} = await api\\.delete\\(`, 'u'), file);
+      assert.match(source, new RegExp(`expect\\(${cleanupName}\\.ok\\(\\)\\)\\.toBeTruthy\\(\\)`, 'u'), file);
+    }
+  }
 });
 
 test('UI route smoke reports the number of mobile routes it actually checks', async () => {

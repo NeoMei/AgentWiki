@@ -49,6 +49,18 @@ async function assertNoHorizontalOverflow(page, path) {
     `${path} overflows horizontally (${dimensions.scrollWidth} > ${dimensions.clientWidth})`);
 }
 
+export function observePageFailures(page, browserErrors, failedResponses) {
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('response', (response) => {
+    if (response.url().includes('/api/') && response.status() >= 500) {
+      failedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    }
+  });
+}
+
 export async function runUiRouteSmoke(environment = process.env) {
   const apiUrl = assertE2ETarget(environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api', environment, PREFIX);
   const webUrl = assertE2ETarget(environment.AGENTWIKI_WEB_URL ?? 'http://127.0.0.1:5173', environment, PREFIX);
@@ -95,13 +107,7 @@ export async function runUiRouteSmoke(environment = process.env) {
     browser = await chromium.launch({ channel: 'chrome', headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const page = await context.newPage();
-    page.on('pageerror', (error) => browserErrors.push(error.message));
-    page.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
-    page.on('response', (response) => {
-      if (response.url().includes('/api/') && response.status() >= 500) {
-        failedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
-      }
-    });
+    observePageFailures(page, browserErrors, failedResponses);
 
     const publicRoutes = [
       ['/', /AgentWiki/i],
@@ -159,8 +165,7 @@ export async function runUiRouteSmoke(environment = process.env) {
     await page.screenshot({ path: join(screenshotDir, 'ui-route-desktop-editor.png'), fullPage: false });
 
     const mobile = await context.newPage();
-    mobile.on('pageerror', (error) => browserErrors.push(error.message));
-    mobile.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
+    observePageFailures(mobile, browserErrors, failedResponses);
     await mobile.setViewportSize({ width: 390, height: 844 });
     const mobileRoutes = [
       '/', '/guide', '/guide/obsidian', '/guide/docs', '/dashboard',
