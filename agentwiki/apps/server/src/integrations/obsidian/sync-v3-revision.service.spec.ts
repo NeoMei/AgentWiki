@@ -348,6 +348,7 @@ const dbIt = syncV3ReadDatabaseUrl ? it : it.skip;
 describe('SyncV3RevisionService PostgreSQL integration', () => {
   dbIt('rebuilds and pages immutable v3 revisions without head drift or integrity leaks', async () => {
     const prisma = new PrismaClient({ datasources: { db: { url: syncV3ReadDatabaseUrl } } });
+    let countedPrisma: PrismaClient | undefined;
     const storageRoot = await mkdtemp(join(tmpdir(), 'agentwiki-v3-read-test-'));
     const storage = new LocalAttachmentStorage(syncV3ReadStorageConfig(storageRoot));
     const suffix = randomUUID().replaceAll('-', '');
@@ -452,12 +453,71 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
       const cursors = new SyncCursorService({ get: () => 'task5-db-cursor-pepper' } as any);
       const capabilities = new SyncCapabilitiesService(prisma as any, v3Writer);
       const reader = new SyncV3RevisionService(prisma as any, cursors, capabilities, v3Writer);
-      await expect(reader.listSpaces(principal)).resolves.toMatchObject({
-        spaces: expect.arrayContaining([
-          expect.objectContaining({ spaceId, syncMode: 'native_v3' }),
-          expect.objectContaining({ spaceId: otherSpaceId, syncMode: 'legacy_v2' }),
-        ]),
+      countedPrisma = new PrismaClient({
+        datasources: { db: { url: syncV3ReadDatabaseUrl } },
       });
+      const revisionSummaries: Array<{ sql: string; rowCount: number }> = [];
+      const measuredPrisma = new Proxy(countedPrisma as any, {
+        get(target, property) {
+          if (property !== '$transaction') return Reflect.get(target, property, target);
+          return (callback: (tx: unknown) => Promise<unknown>, options: unknown) => target.$transaction(
+            (tx: any) => callback(new Proxy(tx, {
+              get(transaction, transactionProperty) {
+                if (transactionProperty !== '$queryRaw') {
+                  return Reflect.get(transaction, transactionProperty, transaction);
+                }
+                return async (...args: unknown[]) => {
+                  const rows = await transaction.$queryRaw(...args);
+                  const statement = args[0] as { strings?: readonly string[] };
+                  const sql = statement.strings?.join('?') ?? '';
+                  if (sql.includes('SpaceKnowledgeRevision')) {
+                    revisionSummaries.push({ sql, rowCount: rows.length });
+                  }
+                  return rows;
+                };
+              },
+            })),
+            options,
+          );
+        },
+      });
+      const measuredReader = new SyncV3RevisionService(
+        measuredPrisma,
+        cursors,
+        new SyncCapabilitiesService(countedPrisma as any, v3Writer),
+        v3Writer,
+      );
+      const shallowSpaces = await measuredReader.listSpaces(principal);
+      expect(shallowSpaces.spaces).toEqual(expect.arrayContaining([
+        expect.objectContaining({ spaceId, syncMode: 'native_v3' }),
+        expect.objectContaining({ spaceId: otherSpaceId, syncMode: 'legacy_v2' }),
+      ]));
+      expect(revisionSummaries).toHaveLength(2);
+      expect(revisionSummaries.every(({ rowCount }) => rowCount <= shallowSpaces.spaces.length)).toBe(true);
+      expect(revisionSummaries.some(({ sql }) => sql.includes('DISTINCT ON'))).toBe(true);
+      expect(revisionSummaries.some(({ sql }) => sql.includes('GROUP BY'))).toBe(true);
+      const shallowStatementShapes = revisionSummaries.map(({ sql }) => sql).sort();
+      await prisma.spaceKnowledgeRevision.createMany({
+        data: Array.from({ length: 49 }, (_, index) => ({
+          spaceId: otherSpaceId,
+          sequence: index + 1,
+          schemaVersion: 'content-tree@2',
+          recipeVersion: 'space-folders-v1',
+          contentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          revisionContentHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          pageCount: 0n,
+          attachmentCount: 0n,
+          revisionBodyBytes: 0n,
+          revisionManifestByteLength: 0n,
+          revisionAttachmentBytes: 0n,
+          delta: [],
+        })),
+      });
+      revisionSummaries.length = 0;
+      await measuredReader.listSpaces(principal);
+      expect(revisionSummaries).toHaveLength(2);
+      expect(revisionSummaries.every(({ rowCount }) => rowCount <= shallowSpaces.spaces.length)).toBe(true);
+      expect(revisionSummaries.map(({ sql }) => sql).sort()).toEqual(shallowStatementShapes);
       const fixed = await reader.snapshot(principal, spaceId, second.revisionId, undefined, 10);
       expect(TreeSnapshotPageV3Schema.parse(fixed)).toMatchObject({
         revision: second.revisionId,
@@ -605,6 +665,7 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
       await expect(reader.snapshot(principal, spaceId, second.revisionId, undefined, 10))
         .resolves.toMatchObject({ revision: second.revisionId });
     } finally {
+      await countedPrisma?.$disconnect();
       await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
       await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });
       await prisma.space.deleteMany({ where: { id: { in: [spaceId, otherSpaceId] } } });
