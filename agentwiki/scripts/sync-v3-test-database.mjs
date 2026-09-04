@@ -10,6 +10,7 @@ const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^sync_v3_test_[a-z0-9_]+$/u;
 const EMPTY_AUTHORITY_SOCKET_URL = /^(postgres(?:ql)?:\/\/)([^/?#]+@)\/([^?#]+)(\?[^#]*)?$/iu;
 const SYNC_V3_MIGRATION = '20260904120000_add_sync_v3_attachments';
+const SYNC_V3_PUSH_ORDINAL_MIGRATION = '20260905120000_expand_sync_v3_push_change_ordinal';
 
 export function redactMigrationDiagnostics(value, sensitiveValues) {
   let redacted = value;
@@ -138,6 +139,10 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       recursive: true,
       force: true,
     });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_PUSH_ORDINAL_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
     runMigrationDeploy({
       databaseUrl,
       prismaRoot: temporaryPrismaRoot,
@@ -164,7 +169,32 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       });
       return { firstDeployOutput, secondDeployOutput };
     };
-    return await callback({ applySyncV3Migration, databaseUrl, schemaName });
+    const applySyncV3PushOrdinalMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_PUSH_ORDINAL_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_PUSH_ORDINAL_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Push change ordinal',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Push change ordinal no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
+    return await callback({
+      applySyncV3Migration,
+      applySyncV3PushOrdinalMigration,
+      databaseUrl,
+      schemaName,
+    });
   } finally {
     try {
       if (created) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);

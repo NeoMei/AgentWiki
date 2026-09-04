@@ -9,6 +9,7 @@ import { Test } from '@nestjs/testing';
 import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
+  CreateTreePushSessionResponseV3Schema,
   SyncV3ErrorEnvelopeSchema,
   TreeBootstrapPreviewV3Schema,
   TreeCapabilitiesResponseV3Schema,
@@ -17,6 +18,10 @@ import {
   TreeRevisionHeadResponseV3Schema,
   TreeSnapshotPageV3Schema,
   TreeSyncSpaceListResponseV3Schema,
+  TreePushBatchReceiptV3Schema,
+  TreePushSessionStatusResponseV3Schema,
+  contentHash,
+  treeBatchHashV3,
 } from '@neomei/agentwiki-sync-protocol';
 import { AddressInfo } from 'net';
 import { AllExceptionsFilter } from '../../core/filters/all-exceptions.filter';
@@ -29,6 +34,7 @@ import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
 import { SyncApiException } from './sync-error';
 import { SyncV3BlobService } from './sync-v3-blob.service';
+import { SyncV3PushSessionService } from './sync-v3-push-session.service';
 import { Readable } from 'node:stream';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -136,6 +142,9 @@ describe('sync v3 HTTP contract', () => {
       sizeBytes: png.length,
     }),
   };
+  const pushSessions = {
+    create: jest.fn(), uploadBatch: jest.fn(), finalize: jest.fn(), get: jest.fn(), abort: jest.fn(),
+  };
 
   beforeAll(async () => {
     blobRoot = await mkdtemp(join(tmpdir(), 'agentwiki-sync-v3-http-blob-'));
@@ -150,6 +159,7 @@ describe('sync v3 HTTP contract', () => {
         { provide: SyncV3RevisionService, useValue: revisions },
         { provide: SyncV3BootstrapService, useValue: bootstrap },
         { provide: SyncV3BlobService, useValue: blobs },
+        { provide: SyncV3PushSessionService, useValue: pushSessions },
       ],
     }).compile();
     app = moduleRef.createNestApplication();
@@ -189,6 +199,77 @@ describe('sync v3 HTTP contract', () => {
     expect(TreeDeltaPageV3Schema.parse(await deltaResponse.json()).toRevision).toBe('rev-2');
     expect(revisions.snapshot).toHaveBeenCalledWith(expect.anything(), 'space-1', 'rev-2', undefined, 1);
     expect(revisions.delta).toHaveBeenCalledWith(expect.anything(), 'space-1', '0', undefined, 1);
+  });
+
+  it('serves strict create, batch, finalize, status, and abort Push routes', async () => {
+    const auth = { Authorization: 'Bearer device-secret', 'Content-Type': 'application/json' };
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const capabilitiesResponse = await fetch(`${baseUrl}/sync/v3/capabilities`, { headers: auth });
+    const negotiated = TreeCapabilitiesResponseV3Schema.parse(await capabilitiesResponse.json());
+    pushSessions.create.mockResolvedValue({
+      protocolVersion: '3', sessionId, status: 'uploading',
+      expiresAt: '2026-09-05T01:00:00.000Z', missingContentHashes: [],
+    });
+    const createdResponse = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions`, {
+      method: 'POST', headers: auth, body: JSON.stringify({
+        protocolVersion: '3', baseRevision: 'rev-1',
+        idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        capabilitiesHash: negotiated.capabilitiesHash, confirmationHash: 'd'.repeat(64),
+        confirmationByteLength: 1, changeCount: 1, totalBodyBytes: 7,
+        attachmentCount: 0, transferBlobBytes: 0, blobRequirements: [],
+      }),
+    });
+    expect(createdResponse.status).toBe(201);
+    expect(CreateTreePushSessionResponseV3Schema.parse(await createdResponse.json()).sessionId).toBe(sessionId);
+
+    const body = '# Page\n';
+    const withoutHash = {
+      protocolVersion: '3' as const, batchIndex: 0,
+      changes: [{ operation: 'upsert_page' as const, page: {
+        pageId: 'page-1', folderId: null, path: 'pages/Page.md', title: 'Page', body,
+        contentHash: await contentHash(body), updatedAt: '2026-09-05T00:00:00.000Z',
+        referencedAttachmentIds: [],
+      } }],
+    };
+    const batchHash = await treeBatchHashV3(withoutHash);
+    pushSessions.uploadBatch.mockResolvedValue({
+      protocolVersion: '3', sessionId, batchIndex: 0, batchHash,
+      receipt: 'receipt-0', receivedBatchCount: 1,
+    });
+    const batchResponse = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/batches/0`, {
+      method: 'PUT', headers: auth, body: JSON.stringify({ ...withoutHash, batchHash }),
+    });
+    expect(TreePushBatchReceiptV3Schema.parse(await batchResponse.json()).batchIndex).toBe(0);
+
+    const terminal = {
+      protocolVersion: '3', status: 'published', revision: 'rev-2', sequence: 2,
+      publishedAt: '2026-09-05T00:00:00.000Z', revisionContentHash: hash,
+      folderCount: '0', pageCount: '1', attachmentCount: '0',
+      revisionManifestByteLength: '100', revisionBodyBytes: '7', revisionAttachmentBytes: '0',
+      changeSetId: 'change-set-1',
+    };
+    pushSessions.finalize.mockResolvedValue(terminal);
+    const finalizeResponse = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/finalize`, {
+      method: 'POST', headers: auth, body: JSON.stringify({
+        protocolVersion: '3', confirmationHash: 'd'.repeat(64), userConfirmed: true,
+      }),
+    });
+    expect(TreeFinalizePushResponseV3Schema.parse(await finalizeResponse.json()).revision).toBe('rev-2');
+
+    pushSessions.get.mockResolvedValue({
+      protocolVersion: '3', sessionId, status: 'published',
+      expiresAt: '2026-09-05T01:00:00.000Z', missingContentHashes: [],
+      completedContentHashes: [], receivedBatchIndexes: [0], result: terminal,
+    });
+    const statusResponse = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}`, {
+      headers: auth,
+    });
+    expect(TreePushSessionStatusResponseV3Schema.parse(await statusResponse.json()).status).toBe('published');
+    const abortResponse = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}`, {
+      method: 'DELETE', headers: auth,
+    });
+    expect(abortResponse.status).toBe(204);
+    expect(pushSessions.abort).toHaveBeenCalled();
   });
 
   it('serves strict bootstrap preview and confirmation without weakening the writer service', async () => {

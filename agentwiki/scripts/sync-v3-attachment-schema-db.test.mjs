@@ -72,6 +72,7 @@ test('backfills one immutable version for every active attachment', {
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
     applySyncV3Migration,
+    applySyncV3PushOrdinalMigration,
     databaseUrl,
     schemaName,
   }) => {
@@ -477,6 +478,40 @@ test('backfills one immutable version for every active attachment', {
         `),
         /23514|check constraint/iu,
       );
+      const ordinalDeployment = await applySyncV3PushOrdinalMigration();
+      assert.match(ordinalDeployment.firstDeployOutput, /1 migration found|Applying migration/iu);
+      assert.match(ordinalDeployment.secondDeployOutput, /No pending migrations to apply/iu);
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "PushSessionV3Change" (
+          "sessionId", ordinal, "entityType", "entityId", operation, payload
+        ) VALUES
+          ('${pushSessionId}', 99, 'page', 'page-99', 'upsert_page', '{}'),
+          ('${pushSessionId}', 100, 'page', 'page-100', 'upsert_page', '{}'),
+          ('${pushSessionId}', 14999, 'page', 'page-14999', 'upsert_page', '{}')
+      `);
+      const acceptedOrdinals = await prisma.$queryRawUnsafe(`
+        SELECT ordinal FROM "PushSessionV3Change"
+        WHERE "sessionId" = '${pushSessionId}'
+        ORDER BY ordinal
+      `);
+      assert.deepEqual(acceptedOrdinals.map((row) => row.ordinal), [0, 99, 100, 14999]);
+      await assert.rejects(
+        prisma.$executeRawUnsafe(`
+          INSERT INTO "PushSessionV3Change" (
+            "sessionId", ordinal, "entityType", "entityId", operation, payload
+          ) VALUES ('${pushSessionId}', 15000, 'page', 'page-15000', 'upsert_page', '{}')
+        `),
+        /23514|check constraint/iu,
+      );
+      const ordinalLedger = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (WHERE finished_at IS NOT NULL)::int AS finished,
+          COUNT(*) FILTER (WHERE rolled_back_at IS NOT NULL)::int AS rolled_back
+        FROM "_prisma_migrations"
+        WHERE migration_name = '20260905120000_expand_sync_v3_push_change_ordinal'
+      `);
+      assert.deepEqual(ordinalLedger[0], { count: 1, finished: 1, rolled_back: 0 });
       await prisma.$executeRawUnsafe(`DELETE FROM "PushSession" WHERE id = '${pushSessionId}'`);
       const stagedRows = await prisma.$queryRawUnsafe(`
         SELECT

@@ -94,6 +94,10 @@ async function fixture() {
     spaceId: 'space-1',
     status: 'uploading',
     transferBlobBytes: BigInt(PNG.length),
+    changeCount: 1,
+    receivedChangeCount: 0,
+    totalBodyBytes: 0n,
+    receivedBodyBytes: 0n,
     expiresAt: new Date(Date.now() + 60_000),
     blobs: [blob],
   };
@@ -110,6 +114,7 @@ async function fixture() {
     },
     pushSession: {
       findUnique: jest.fn(async ({ where }: any) => where.id === session.id ? session : null),
+      update: jest.fn(async ({ data }: any) => Object.assign(session, data)),
     },
     pushSessionBlob: {
       findUnique: jest.fn(async ({ where }: any) => (
@@ -117,6 +122,7 @@ async function fixture() {
         && where.sessionId_contentHash?.contentHash === blob.contentHash
       ) ? { ...blob, session, chunks: [...chunks] } : null),
       update: jest.fn(async ({ data }: any) => Object.assign(blob, data)),
+      count: jest.fn(async () => blob.status === 'verified' ? 0 : 1),
     },
     pushSessionBlobChunk: {
       findUnique: jest.fn(async ({ where }: any) => chunks.find((chunk) => (
@@ -410,6 +416,20 @@ describe('SyncV3BlobService', () => {
     expect(state.blob).toEqual(expect.objectContaining({
       status: 'verified', storageKey: expect.stringMatching(/^sha256\//u), verifiedAt: expect.any(Date),
     }));
+  });
+
+  it('promotes a fully received session when the last required Blob becomes verified', async () => {
+    const state = await fixture();
+    state.session.receivedChangeCount = state.session.changeCount;
+    state.session.receivedBodyBytes = state.session.totalBodyBytes;
+    await state.service.putChunk(
+      principal, 'space-1', state.session.id, HASH, 0, Readable.from([PNG]),
+    );
+    await state.service.complete(
+      principal, 'space-1', state.session.id, HASH,
+      { sizeBytes: String(PNG.length), chunkCount: 1 },
+    );
+    expect(state.session.status).toBe('ready_to_finalize');
   });
 
   it.each([

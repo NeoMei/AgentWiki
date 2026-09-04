@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -19,6 +20,8 @@ import {
   BlobChunkReceiptV3Schema,
   CompleteBlobRequestV3Schema,
   CompletedBlobV3Schema,
+  CreateTreePushSessionRequestV3Schema,
+  CreateTreePushSessionResponseV3Schema,
   DeltaQuerySchema,
   SnapshotQuerySchema,
   SpaceParamsSchema,
@@ -27,10 +30,15 @@ import {
   TreeCapabilitiesResponseV3Schema,
   TreeDeltaPageV3Schema,
   TreeFinalizePushResponseV3Schema,
+  TreeFinalizePushRequestV3Schema,
+  TreePushBatchReceiptV3Schema,
+  TreePushBatchV3Schema,
+  TreePushSessionStatusResponseV3Schema,
   TreeRevisionHeadResponseV3Schema,
   TreeSnapshotPageV3Schema,
   TreeSyncSpaceListResponseV3Schema,
   TREE_SYNC_V3_HARD_LIMITS,
+  TREE_SYNC_V2_LIMITS,
 } from '@neomei/agentwiki-sync-protocol';
 import type { Response } from 'express';
 import type { Principal } from '../../core/authorization/authorization.service';
@@ -41,6 +49,7 @@ import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
 import { SyncV3BlobService } from './sync-v3-blob.service';
+import { SyncV3PushSessionService } from './sync-v3-push-session.service';
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -55,6 +64,7 @@ export class SyncV3Controller {
     private readonly capabilities: SyncCapabilitiesService,
     private readonly bootstrap: SyncV3BootstrapService,
     private readonly blobs: SyncV3BlobService,
+    private readonly pushSessions: SyncV3PushSessionService,
   ) {}
 
   @Get('capabilities')
@@ -64,6 +74,87 @@ export class SyncV3Controller {
       capabilities: this.capabilities.capabilitiesV3(),
       capabilitiesHash: await this.capabilities.hashV3(),
     });
+  }
+
+  @Post('spaces/:spaceId/push-sessions')
+  @HttpCode(HttpStatus.CREATED)
+  async createPushSession(
+    @Param('spaceId') spaceValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const parsed = CreateTreePushSessionRequestV3Schema.safeParse(body);
+    if (!parsed.success) throw this.invalid('Invalid v3 Push session request');
+    return CreateTreePushSessionResponseV3Schema.parse(await this.pushSessions.create(
+      request.user, this.parseSpaceId(spaceValue), parsed.data,
+    ));
+  }
+
+  @Put('spaces/:spaceId/push-sessions/:sessionId/batches/:batchIndex')
+  async uploadPushBatch(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Param('batchIndex') batchIndexValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const { spaceId, batchIndex } = this.parseBatchParams(spaceValue, sessionId, batchIndexValue);
+    const parsed = TreePushBatchV3Schema.safeParse(body);
+    if (!parsed.success || parsed.data.batchIndex !== batchIndex) {
+      throw this.invalid('Invalid v3 Push batch');
+    }
+    return TreePushBatchReceiptV3Schema.parse(await this.pushSessions.uploadBatch(
+      request.user, spaceId, sessionId, parsed.data,
+    ));
+  }
+
+  @Post('spaces/:spaceId/push-sessions/:sessionId/finalize')
+  @HttpCode(HttpStatus.OK)
+  async finalizePushSession(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const spaceId = this.parseSessionParams(spaceValue, sessionId);
+    const parsed = TreeFinalizePushRequestV3Schema.safeParse(body);
+    if (!parsed.success) throw this.invalid('Invalid v3 Push finalize request');
+    return TreeFinalizePushResponseV3Schema.parse(await this.pushSessions.finalize(
+      request.user, spaceId, sessionId, parsed.data,
+    ));
+  }
+
+  @Get('spaces/:spaceId/push-sessions/:sessionId')
+  async getPushSession(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Query() query: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const spaceId = this.parseSessionParams(spaceValue, sessionId);
+    return TreePushSessionStatusResponseV3Schema.parse(await this.pushSessions.get(
+      request.user, spaceId, sessionId,
+    ));
+  }
+
+  @Delete('spaces/:spaceId/push-sessions/:sessionId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async abortPushSession(
+    @Param('spaceId') spaceValue: string,
+    @Param('sessionId') sessionId: string,
+    @Query() query: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
+    const spaceId = this.parseSessionParams(spaceValue, sessionId);
+    await this.pushSessions.abort(request.user, spaceId, sessionId);
   }
 
   @Get('spaces')
@@ -263,6 +354,26 @@ export class SyncV3Controller {
       throw this.invalid('Invalid Blob path parameters');
     }
     return spaceId;
+  }
+
+  private parseSessionParams(spaceValue: string, sessionId: string): string {
+    const spaceId = this.parseSpaceId(spaceValue);
+    if (!UUID_PATTERN.test(sessionId)) throw this.invalid('Invalid Push session path parameters');
+    return spaceId;
+  }
+
+  private parseBatchParams(
+    spaceValue: string,
+    sessionId: string,
+    batchIndexValue: string,
+  ): { spaceId: string; batchIndex: number } {
+    const spaceId = this.parseSessionParams(spaceValue, sessionId);
+    if (!/^(0|[1-9][0-9]*)$/u.test(batchIndexValue)) throw this.invalid('Invalid batch index');
+    const batchIndex = Number(batchIndexValue);
+    if (!Number.isSafeInteger(batchIndex) || batchIndex >= TREE_SYNC_V2_LIMITS.maxDeltaItems) {
+      throw this.invalid('Invalid batch index');
+    }
+    return { spaceId, batchIndex };
   }
 
   private parseBlobChunkParams(

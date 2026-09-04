@@ -62,6 +62,10 @@ interface BlobSessionRow {
     spaceId: string;
     status: string;
     transferBlobBytes: bigint;
+    changeCount: number;
+    receivedChangeCount: number;
+    totalBodyBytes: bigint;
+    receivedBodyBytes: bigint;
     expiresAt: Date;
   };
   chunks?: Array<{
@@ -345,11 +349,15 @@ export class SyncV3BlobService {
           contentHash,
           true,
         );
-        if (current.status === 'verified') return this.completedVerifiedBlob(current);
+        if (current.status === 'verified') {
+          await this.promoteReadyIfComplete(tx, current.session);
+          return this.completedVerifiedBlob(current);
+        }
         const updated = await tx.pushSessionBlob.update({
           where: { sessionId_contentHash: { sessionId, contentHash } },
           data: { status: 'verified', storageKey: stored.storageKey, verifiedAt },
         });
+        await this.promoteReadyIfComplete(tx, current.session);
         return this.completedBlob(updated);
       }, { isolationLevel: 'ReadCommitted' });
       void this.staging.cleanupBlob(sessionId, contentHash).catch(() => undefined);
@@ -358,6 +366,23 @@ export class SyncV3BlobService {
       if (!published) {
         await this.attachmentStorage.releaseTempReservation(reservation).catch(() => undefined);
       }
+    }
+  }
+
+  private async promoteReadyIfComplete(db: any, session: BlobSessionRow['session']): Promise<void> {
+    if (
+      session.status !== 'uploading'
+      || session.receivedChangeCount !== session.changeCount
+      || session.receivedBodyBytes !== session.totalBodyBytes
+    ) return;
+    const unverified = await db.pushSessionBlob.count({
+      where: { sessionId: session.id, status: { not: 'verified' } },
+    });
+    if (unverified === 0) {
+      await db.pushSession.update({
+        where: { id: session.id },
+        data: { status: 'ready_to_finalize' },
+      });
     }
   }
 

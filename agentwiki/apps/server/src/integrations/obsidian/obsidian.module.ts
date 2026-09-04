@@ -29,6 +29,7 @@ import {
 import { SyncV3BlobStorage } from './sync-v3-blob.storage';
 import { SyncV3BlobService } from './sync-v3-blob.service';
 import { AuthorizationModule } from '../../core/authorization/authorization.module';
+import { SyncV3PushSessionService } from './sync-v3-push-session.service';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { AuthorizationModule } from '../../core/authorization/authorization.modu
       useFactory: (config: AttachmentConfig) => new SyncV3BlobStorage(config.storagePath),
     },
     SyncV3BlobService,
+    SyncV3PushSessionService,
   ],
   controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller, SyncV3Controller],
   exports: [
@@ -75,6 +77,7 @@ import { AuthorizationModule } from '../../core/authorization/authorization.modu
     SyncV3RevisionService,
     SyncV3ImmutableRevisionService,
     SyncV3BlobService,
+    SyncV3PushSessionService,
   ],
 })
 export class ObsidianModule {}
