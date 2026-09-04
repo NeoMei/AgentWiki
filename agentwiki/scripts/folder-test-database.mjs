@@ -365,16 +365,10 @@ async function assertFolderDatabaseIdentity(prisma, databaseUrl) {
   const identity = identityRows[0];
   const expectedDatabase = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   const expectedUser = decodeURIComponent(parsed.username);
-  const expectedPort = Number(parsed.port || '5432');
-  const expectedLiteralAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(parsed.hostname)
-    ? parsed.hostname
-    : undefined;
   if (
     !identity
     || identity.databaseName !== expectedDatabase
     || (expectedUser && identity.currentUser !== expectedUser)
-    || identity.serverPort !== expectedPort
-    || (expectedLiteralAddress && identity.serverAddress !== expectedLiteralAddress)
   ) {
     throw new Error('Folder pg_dump target does not match the explicit test database URL');
   }

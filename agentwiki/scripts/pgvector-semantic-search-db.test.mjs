@@ -8,11 +8,58 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
 
 const databaseUrl = process.env.DATABASE_URL;
+const SAFE_SCHEMA = /^pgvector_test_[a-z0-9_]+$/u;
+
+function validateTestDatabaseUrl(value) {
+  const parsed = new URL(value);
+  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
+    throw new Error('DATABASE_URL must use PostgreSQL');
+  }
+  if (!databaseName.toLowerCase().includes('test')) {
+    throw new Error('DATABASE_URL database name must contain test');
+  }
+  parsed.searchParams.delete('schema');
+  return parsed;
+}
+
+async function withPgvectorTestSchema(callback) {
+  const administrativeUrl = validateTestDatabaseUrl(databaseUrl);
+  const schemaName = `pgvector_test_${randomUUID().replaceAll('-', '')}`;
+  assert.match(schemaName, SAFE_SCHEMA);
+  const quotedSchema = `"${schemaName}"`;
+  const testUrl = new URL(administrativeUrl);
+  testUrl.searchParams.set('schema', schemaName);
+  const admin = new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
+  const [{ count: publicTablesBefore }] = await admin.$queryRaw`
+    SELECT count(*)::int AS count FROM pg_tables WHERE schemaname = 'public'
+  `;
+  try {
+    await admin.$executeRawUnsafe(`CREATE SCHEMA ${quotedSchema}`);
+    return await callback(testUrl.toString());
+  } finally {
+    await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
+    const [{ count: publicTablesAfter }] = await admin.$queryRaw`
+      SELECT count(*)::int AS count FROM pg_tables WHERE schemaname = 'public'
+    `;
+    await admin.$disconnect();
+    assert.equal(publicTablesAfter, publicTablesBefore, 'pgvector gate must preserve shared public tables');
+  }
+}
+
+function migrateSchema(schemaUrl) {
+  const result = spawnSync(
+    'pnpm',
+    ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'],
+    { cwd: new URL('..', import.meta.url), encoding: 'utf8', env: { ...process.env, DATABASE_URL: schemaUrl } },
+  );
+  assert.equal(result.status, 0, `migrate deploy failed:\n${result.stdout}\n${result.stderr}`);
+}
 
 test('schema drift is limited to the unmodellable HNSW vector index', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 60_000,
-}, () => {
+}, async () => withPgvectorTestSchema(async (schemaUrl) => {
   const root = new URL('..', import.meta.url);
   const serverDir = new URL('apps/server/', root);
   // Prisma cannot express an HNSW index over an Unsupported halfvec column,
@@ -25,10 +72,10 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
       'prisma', 'migrate', 'diff',
       '--from-migrations', 'prisma/migrations',
       '--to-schema-datamodel', 'prisma/schema.prisma',
-      '--shadow-database-url', databaseUrl,
+      '--shadow-database-url', schemaUrl,
       '--exit-code',
     ],
-    { cwd: serverDir, encoding: 'utf8', env: { ...process.env, DATABASE_URL: databaseUrl } },
+    { cwd: serverDir, encoding: 'utf8', env: { ...process.env, DATABASE_URL: schemaUrl } },
   );
   assert.ok(diff.status === 0 || diff.status === 2, `migrate diff crashed: ${diff.stderr}`);
   const output = diff.stdout;
@@ -40,13 +87,14 @@ test('schema drift is limited to the unmodellable HNSW vector index', {
     `unexpected migrations-only drift; review before generating migrations: \n${output}`,
   );
   assert.deepEqual(added, [], 'schema declares objects the migrations do not create');
-});
+}));
 
 test('pgvector semantic search uses halfvec HNSW with cosine distance and hash short-circuit', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 60_000,
-}, async () => {
-  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}, async () => withPgvectorTestSchema(async (schemaUrl) => {
+  migrateSchema(schemaUrl);
+  const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
   const suffix = randomUUID();
   const userId = `pgv-u-${suffix}`;
   const spaceId = `pgv-s-${suffix}`;
@@ -64,17 +112,17 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
       { id: pageA, title: 'Near concept', slug: 'near-' + suffix, content: 'body', spaceId, authorId: userId, syncPath: 'pages/near-' + suffix + '.md', syncPathKey: 'near-' + suffix },
       { id: pageB, title: 'Far concept', slug: 'far-' + suffix, content: 'body', spaceId, authorId: userId, syncPath: 'pages/far-' + suffix + '.md', syncPathKey: 'far-' + suffix },
     ] });
-    await prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${JSON.stringify(near)}::jsonb::text::halfvec WHERE "id" = ${pageA}`);
-    await prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${JSON.stringify(far)}::jsonb::text::halfvec WHERE "id" = ${pageB}`);
+    await prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${JSON.stringify(near)}::jsonb::text::public.halfvec WHERE "id" = ${pageA}`);
+    await prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = ${JSON.stringify(far)}::jsonb::text::public.halfvec WHERE "id" = ${pageB}`);
 
     const query = near.map(Number).join(',');
     const rows = await prisma.$queryRaw(Prisma.sql`
-      SELECT "id", 1 - ("embeddingVector" <=> ${'[' + query + ']'}::halfvec) AS "similarity"
+      SELECT "id", 1 - ("embeddingVector" OPERATOR(public.<=>) ${'[' + query + ']'}::public.halfvec) AS "similarity"
       FROM "Page"
       WHERE "deletedAt" IS NULL
         AND "embeddingVector" IS NOT NULL
         AND "spaceId" = ${spaceId}
-      ORDER BY "embeddingVector" <=> ${'[' + query + ']'}::halfvec
+      ORDER BY "embeddingVector" OPERATOR(public.<=>) ${'[' + query + ']'}::public.halfvec
       LIMIT 2
     `);
     assert.equal(rows[0].id, pageA);
@@ -118,13 +166,13 @@ test('pgvector semantic search uses halfvec HNSW with cosine distance and hash s
     await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();
   }
-});
+}));
 
 test('hnsw semantic recall stays above the tuned floor', {
   skip: databaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 120_000,
-}, async () => {
-  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}, async () => withPgvectorTestSchema(async (schemaUrl) => {
+  const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
   const suffix = randomUUID().slice(0, 8).replace(/-/g, '');
   const table = `recall_guard_${suffix}`;
   const DIMS = 2048;
@@ -164,13 +212,13 @@ test('hnsw semantic recall stays above the tuned floor', {
     for (const query of queries) {
       const q = literal(query);
       const hnsw = await prisma.$queryRaw(Prisma.sql`
-        SELECT id FROM ${Prisma.raw(table)} ORDER BY vec <=> ${q}::halfvec LIMIT 10
+        SELECT id FROM ${Prisma.raw(table)} ORDER BY vec OPERATOR(public.<=>) ${q}::public.halfvec LIMIT 10
       `);
       const exact = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw(Prisma.sql`SET LOCAL enable_indexscan = off`);
         await tx.$executeRaw(Prisma.sql`SET LOCAL enable_bitmapscan = off`);
         return tx.$queryRaw(Prisma.sql`
-          SELECT id FROM ${Prisma.raw(table)} ORDER BY vec <=> ${q}::halfvec LIMIT 10
+          SELECT id FROM ${Prisma.raw(table)} ORDER BY vec OPERATOR(public.<=>) ${q}::public.halfvec LIMIT 10
         `);
       });
       const exactIds = exact.map((row) => row.id);
@@ -186,4 +234,4 @@ test('hnsw semantic recall stays above the tuned floor', {
     await prisma.$executeRaw(Prisma.sql`DROP TABLE IF EXISTS ${Prisma.raw(table)}`).catch(() => undefined);
     await prisma.$disconnect();
   }
-});
+}));

@@ -191,6 +191,9 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       const { HttpAdapterHost } = requireFromServer('@nestjs/core');
       const { ConfigService } = requireFromServer('@nestjs/config');
       const { AppModule } = await import('../apps/server/dist/app.module.js');
+      const { installBigIntJsonSerialization } = await import(
+        '../apps/server/dist/bigint-json.js'
+      );
       const { AllExceptionsFilter } = await import(
         '../apps/server/dist/core/filters/all-exceptions.filter.js'
       );
@@ -205,6 +208,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         '../apps/server/dist/attachments/attachment.service.js'
       );
 
+      installBigIntJsonSerialization();
       const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
       app = moduleRef.createNestApplication();
       app.setGlobalPrefix('api');

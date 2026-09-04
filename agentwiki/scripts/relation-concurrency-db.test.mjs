@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { withCollaborationTestDatabase } from './collaboration-test-database.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient, Prisma } = requireFromServer('@prisma/client');
 
-const databaseUrl = process.env.DATABASE_URL;
+const baseDatabaseUrl = process.env.DATABASE_URL;
 
 test('relation coordination primitives survive concurrent manual, auto, and refresh writers', {
-  skip: databaseUrl ? false : 'DATABASE_URL is not configured',
+  skip: baseDatabaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 60_000,
-}, async () => {
+}, async () => withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const suffix = randomUUID();
   const userId = `relation-u-${suffix}`;
@@ -128,4 +129,4 @@ test('relation coordination primitives survive concurrent manual, auto, and refr
     await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();
   }
-});
+}));

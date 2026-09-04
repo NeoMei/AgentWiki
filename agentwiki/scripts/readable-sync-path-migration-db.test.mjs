@@ -124,6 +124,9 @@ async function seedSpace(prisma, { name, pages }) {
   await prisma.user.create({
     data: { id: userId, email: `${randomUUID()}@migration.test`, type: 'human' },
   });
+  await prisma.spaceMember.create({
+    data: { userId, spaceId, role: 'editor' },
+  });
   for (const [index, page] of pages.entries()) {
     await prisma.page.create({
       data: {
@@ -337,10 +340,14 @@ test('web create and readable migration wait before allocating the same title', 
         { PageService },
         { ReadableSyncPathService },
         { SpaceRevisionWriterService },
+        { AuthorizationService },
+        { ContentTreeService },
       ] = await Promise.all([
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/page/page.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/readable-sync-path.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/space-revision-writer.service.js')).href),
+        import(pathToFileURL(resolve(root, 'apps/server/dist/core/authorization/authorization.service.js')).href),
+        import(pathToFileURL(resolve(root, 'apps/server/dist/content-tree/content-tree.service.js')).href),
       ]);
       const runId = randomUUID().replaceAll('-', '');
       blockerApplication = `fix2_blocker_${runId}`;
@@ -359,12 +366,17 @@ test('web create and readable migration wait before allocating the same title', 
       };
       const writer = new SpaceRevisionWriterService(pagePrisma);
       const allocator = new ReadableSyncPathService();
+      const authorization = new AuthorizationService(pagePrisma);
+      const contentTree = new ContentTreeService(pagePrisma, writer, allocator);
       const pageService = new PageService(
         pagePrisma,
         { indexPage: async () => ({ lexicalIndexed: true, semanticIndexed: false }) },
         writer,
         allocator,
         { enqueue: async () => undefined },
+        {},
+        authorization,
+        contentTree,
       );
       const batchId = `readable-sync-path-v1:${seeded.spaceId}`;
       const { migrateReadablePathsForSpace } = await import('./migrate-readable-sync-paths.mjs');
@@ -396,7 +408,7 @@ test('web create and readable migration wait before allocating the same title', 
         'page',
         () => pageService.create(
           { spaceId: seeded.spaceId, title: '标题', content: 'web body' },
-          seeded.userId,
+          { userId: seeded.userId, platformRole: 'user' },
         ),
       );
       migrationOutcome = allocatorContext.run(

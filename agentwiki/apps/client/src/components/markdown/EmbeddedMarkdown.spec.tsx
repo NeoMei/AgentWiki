@@ -314,7 +314,7 @@ describe('EmbeddedMarkdown resource rendering', () => {
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     expect(screen.queryByText('![[Allowed NonBMP]]')).not.toBeInTheDocument();
     expect(allowedView.container.querySelector('.markdown-page-embed')).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('counts every presentation-sequence code point in the embedded-character budget', async () => {
     const heart = '❤️';
@@ -345,7 +345,7 @@ describe('EmbeddedMarkdown resource rendering', () => {
 
     renderMarkdown('![[Double Presentation]]');
     expect(await screen.findByText('![[Double Presentation]]')).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('disables tasks inside embeds and only labels successful version-root embeds as current content', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({

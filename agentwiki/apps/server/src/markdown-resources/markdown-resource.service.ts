@@ -287,6 +287,17 @@ export class MarkdownResourceService {
 
       const qualified = reference.target.trim().includes('/');
       if (!qualified) {
+        if (/\.md$/iu.test(reference.target.trim())) {
+          const pathTargets = referencePathKeys(reference.target, sourcePage?.syncPath);
+          for (const targetPathKey of pathTargets) {
+            const currentMatches = scopedExactPages.filter((candidate) => (
+              normalizeMarkdownPageIdentity(candidate.syncPath) === targetPathKey
+            ));
+            if (currentMatches.length > 1) return ambiguousPageResult(reference.key, currentMatches);
+            if (currentMatches.length === 1) return pageResult(reference.key, currentMatches[0]);
+          }
+          if (exactQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
+        }
         if (titleQueryWasCapped) return { key: reference.key, status: 'ambiguous' };
         const titleMatches = scopedTitlePages.filter((candidate) => {
           const title = normalizeMarkdownPageIdentity(candidate.title);

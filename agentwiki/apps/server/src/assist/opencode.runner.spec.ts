@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { PassThrough } from 'stream';
@@ -235,7 +235,7 @@ describe('OpencodeCliRunner', () => {
       await expect(execution).resolves.toBe('ok');
       expect(spawn).toHaveBeenCalledWith(
         process.execPath,
-        [cli, '--pure'],
+        [realpathSync(cli), '--pure'],
         expect.objectContaining({ shell: false }),
       );
     } finally {
@@ -260,7 +260,7 @@ describe('OpencodeCliRunner', () => {
     try {
       const runner = new OpencodeCliRunner({ get: jest.fn(() => undefined) } as any);
       expect((runner as any).resolveBundledLaunch(fixture, 'win32', 'x64')).toEqual({
-        command: native,
+        command: realpathSync(native),
         argsPrefix: [],
       });
     } finally {

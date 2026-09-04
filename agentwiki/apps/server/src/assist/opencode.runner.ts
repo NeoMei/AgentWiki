@@ -103,10 +103,6 @@ export class OpencodeCliRunner implements OpencodeRunner {
         const bin = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.opencode;
         if (!bin) continue;
         const realPackageJson = realpathSync(packageJsonPath);
-        const target = resolve(dirname(realPackageJson), bin);
-        const genericLaunch = existsSync(target) ? this.launchFile(target, platform) : undefined;
-        if (genericLaunch) return genericLaunch;
-
         const platformName = platform === 'win32' ? 'windows' : platform;
         const executableName = platform === 'win32' ? 'opencode.exe' : 'opencode';
         for (const suffix of ['', '-baseline']) {
@@ -119,6 +115,14 @@ export class OpencodeCliRunner implements OpencodeRunner {
             : undefined;
           if (nativeLaunch) return nativeLaunch;
         }
+
+        // Prefer the explicit platform package. Recent opencode-ai releases can
+        // publish a host binary under the generic `opencode.exe` bin name even
+        // on macOS; selecting the native optional dependency keeps launch
+        // resolution platform-explicit and leaves the generic CLI as fallback.
+        const target = resolve(dirname(realPackageJson), bin);
+        const genericLaunch = existsSync(target) ? this.launchFile(target, platform) : undefined;
+        if (genericLaunch) return genericLaunch;
       } catch {
         // Ignore an invalid or inaccessible package and try the next root.
       }

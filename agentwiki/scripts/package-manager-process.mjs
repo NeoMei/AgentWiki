@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { win32 } from 'node:path';
 
 const WINDOWS_ENTRYPOINTS = {
   npm: ['node_modules/npm/bin/npm-cli.js'],
@@ -17,9 +17,9 @@ export function resolvePackageManagerInvocation(manager, args, {
   if (platform !== 'win32') return { executable: manager, args };
   const configured = env.npm_execpath;
   const candidates = [
-    ...(configured && basename(configured).toLowerCase().startsWith(manager) ? [configured] : []),
-    ...WINDOWS_ENTRYPOINTS[manager].map((relativePath) => resolve(dirname(executable), relativePath)),
-    ...(env.APPDATA ? WINDOWS_ENTRYPOINTS[manager].map((relativePath) => resolve(env.APPDATA, 'npm', relativePath)) : []),
+    ...(configured && win32.basename(configured).toLowerCase().startsWith(manager) ? [configured] : []),
+    ...WINDOWS_ENTRYPOINTS[manager].map((relativePath) => win32.resolve(win32.dirname(executable), relativePath)),
+    ...(env.APPDATA ? WINDOWS_ENTRYPOINTS[manager].map((relativePath) => win32.resolve(env.APPDATA, 'npm', relativePath)) : []),
   ];
   const entrypoint = candidates.find((candidate) => fileExists(candidate));
   if (!entrypoint) throw new Error(`Unable to locate the ${manager} JavaScript entry point on Windows`);

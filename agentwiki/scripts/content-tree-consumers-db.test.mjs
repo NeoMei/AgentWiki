@@ -336,7 +336,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             folderId: target.id,
             expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
             expectedTreeRevision: '1',
-          }, userId), 'RESOURCE_CONFLICT');
+          }, principal), 'RESOURCE_CONFLICT');
           assert.equal(await prisma.pagePathAlias.count({ where: { spaceId } }), 0);
           assert.equal(await prisma.pageVersion.count({ where: { pageId: created.id } }), 0);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
@@ -346,7 +346,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             folderId: target.id,
             expectedUpdatedAt: current.updatedAt.toISOString(),
             expectedTreeRevision: '1',
-          }, userId);
+          }, principal);
           assert.equal(moved.folderId, target.id);
           assert.equal(moved.path, 'pages/Target/Weekly.md');
           assert.equal((await prisma.pageVersion.findFirstOrThrow({ where: { pageId: created.id } })).folderId, source.id);
@@ -392,7 +392,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             orderBy: { createdAt: 'asc' },
           });
           const beforeCount = await prisma.pageVersion.count({ where: { pageId: moveState.pageId } });
-          const restored = await pages.restoreVersion(moveState.pageId, version.id, '2');
+          const restored = await pages.restoreVersion(moveState.pageId, version.id, '2', principal);
           assert.equal(restored.folderId, moveState.sourceFolderId);
           assert.equal(restored.path, 'pages/Source/Weekly.md');
           const snapshots = await prisma.pageVersion.findMany({
@@ -404,7 +404,10 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: moveState.spaceId } })).contentTreeRevision, 3n);
 
           const stableVersionCount = snapshots.length;
-          await expectCode(pages.restoreVersion(moveState.pageId, version.id, '2'), 'CONTENT_TREE_CONFLICT');
+          await expectCode(
+            pages.restoreVersion(moveState.pageId, version.id, '2', principal),
+            'CONTENT_TREE_CONFLICT',
+          );
           assert.equal(await prisma.pageVersion.count({ where: { pageId: moveState.pageId } }), stableVersionCount);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: moveState.spaceId } })).contentTreeRevision, 3n);
         });
@@ -419,14 +422,14 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           const current = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
           const stableVersions = await prisma.pageVersion.count({ where: { pageId: created.id } });
           await expectCode(
-            pages.remove(created.id, current.updatedAt.toISOString(), '0'),
+            pages.remove(created.id, current.updatedAt.toISOString(), '0', principal),
             'CONTENT_TREE_CONFLICT',
           );
           assert.equal(await prisma.pageVersion.count({ where: { pageId: created.id } }), stableVersions);
           assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: created.id } })).deletedAt, null);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
 
-          await pages.remove(created.id, current.updatedAt.toISOString(), '1');
+          await pages.remove(created.id, current.updatedAt.toISOString(), '1', principal);
           const archived = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
           assert.ok(archived.deletedAt);
           assert.equal(archived.folderId, folder.id);
@@ -1297,6 +1300,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             individualPage.id,
             individualPage.updatedAt.toISOString(),
             '1',
+            principal,
           );
           const archivedBeforeRestore = await prisma.page.findUniqueOrThrow({
             where: { id: individualPage.id },
@@ -1355,7 +1359,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             folderId: batchFolderResult.folder.id,
             expectedUpdatedAt: batchPage.updatedAt.toISOString(),
             expectedTreeRevision: '2',
-          }, userId);
+          }, principal);
           batchPage = await prisma.page.findUniqueOrThrow({ where: { id: batchPage.id } });
           const impact = await contentTree.deleteImpact({
             spaceId: batchSpaceId,

@@ -9,10 +9,10 @@
   "scripts": {
     "dev": "node scripts/dev-runner.mjs",
     "build": "pnpm --filter shared build && pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter server build && pnpm --filter client build && pnpm --filter @neomei/agentwiki-local-sync build",
-    "test": "pnpm test:runtime && pnpm --filter @agentwiki/server test && pnpm --filter @agentwiki/client test && pnpm --filter @neomei/agentwiki-sync-protocol test && pnpm --filter @neomei/agentwiki-local-sync test",
+    "test": "pnpm test:runtime && node scripts/server-test-harness.mjs run && pnpm --filter @agentwiki/client test && pnpm --filter @neomei/agentwiki-sync-protocol test && pnpm --filter @neomei/agentwiki-local-sync test",
     "typecheck": "pnpm --filter @agentwiki/server typecheck && pnpm --filter @agentwiki/client exec tsc --noEmit && pnpm --filter @neomei/agentwiki-sync-protocol typecheck && pnpm --filter @neomei/agentwiki-local-sync typecheck",
     "lint": "eslint \"apps/{server,client}/src/**/*.{ts,tsx}\" \"packages/local-sync/src/**/*.ts\"",
-    "test:runtime": "node --test scripts/*.test.mjs",
+    "test:runtime": "node --test --test-concurrency=1 scripts/*.test.mjs",
     "test:e2e:assist": "node scripts/assist-routing-e2e.mjs",
     "test:e2e:smoke": "node scripts/smoke-test.mjs",
     "test:e2e:cross-machine": "pnpm --filter @neomei/agentwiki-local-sync build && node scripts/cross-machine-e2e.mjs",

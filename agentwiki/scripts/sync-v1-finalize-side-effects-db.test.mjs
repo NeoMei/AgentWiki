@@ -45,11 +45,17 @@ test('finalize persists page version, published changeset, item, and revision in
     const require = createRequire(resolve(root, 'apps/server/package.json'));
     const { PrismaClient } = require('@prisma/client');
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
+    const { ContentTreeService } = await import('../apps/server/dist/content-tree/content-tree.service.js');
+    const { ReadableSyncPathService } = await import('../apps/server/dist/core/sync/readable-sync-path.service.js');
     const { PushSessionService } = await import('../apps/server/dist/integrations/obsidian/push-session.service.js');
     const { contentHash, confirmationHash, canonicalBytes } = await import('../packages/sync-protocol/dist/esm/index.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
     const writer = new SpaceRevisionWriterService(prisma);
-    const service = new PushSessionService(prisma, {}, writer);
+    const contentTree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
+    const service = new PushSessionService(prisma, {}, contentTree, {
+      indexPage: async () => undefined,
+      deletePageIndex: async () => undefined,
+    });
 
     try {
       const spaceId = randomUUID();

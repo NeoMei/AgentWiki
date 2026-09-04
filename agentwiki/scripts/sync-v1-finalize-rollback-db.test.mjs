@@ -45,10 +45,15 @@ test('finalize rolls back pages, change set, revision, and keeps session ready',
     const require = createRequire(resolve(root, 'apps/server/package.json'));
     const { PrismaClient } = require('@prisma/client');
     const { PushSessionService } = await import('../apps/server/dist/integrations/obsidian/push-session.service.js');
+    const { ContentTreeService } = await import('../apps/server/dist/content-tree/content-tree.service.js');
+    const { ReadableSyncPathService } = await import('../apps/server/dist/core/sync/readable-sync-path.service.js');
+    const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { contentHash, confirmationHash, canonicalBytes } = await import('../packages/sync-protocol/dist/esm/index.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const writer = { lockSpace: async () => {}, advance: async () => { throw new Error('boom'); } };
-    const service = new PushSessionService(prisma, {}, writer);
+    const writer = new SpaceRevisionWriterService(prisma);
+    const contentTree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
+    contentTree.advancePageMutation = async () => { throw new Error('boom'); };
+    const service = new PushSessionService(prisma, {}, contentTree, {});
     try {
       const spaceId = randomUUID();
       const userId = randomUUID();
@@ -59,6 +64,16 @@ test('finalize rolls back pages, change set, revision, and keeps session ready',
       await prisma.space.create({ data: { id: spaceId, name: 'S', slug: `s-${randomUUID().slice(0, 8)}` } });
       await prisma.user.create({ data: { id: userId, email: `${randomUUID()}@t.local`, type: 'human' } });
       await prisma.spaceMember.create({ data: { userId, spaceId, role: 'editor' } });
+      await prisma.humanDeviceCredentialFamily.create({
+        data: { id: 'family', userId, deviceId: randomUUID(), vaultId: randomUUID() },
+      });
+      await prisma.humanDeviceCredential.create({
+        data: {
+          id: 'cred', credentialFamilyId: 'family', userId,
+          deviceId: randomUUID(), vaultId: randomUUID(), deviceName: 'Test',
+          credentialHash: `cred-${randomUUID()}`, status: 'active',
+        },
+      });
       const manifest = { protocolVersion: '1', spaceId, baseRevision: '0', changes: [{ operation: 'upsert', pageId, path: 'rollback.md', title: 'Rollback', contentHash: hash }] };
       await prisma.pushSession.create({
         data: {

@@ -2,16 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { withCollaborationTestDatabase } from './collaboration-test-database.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 
-const databaseUrl = process.env.DATABASE_URL;
+const baseDatabaseUrl = process.env.DATABASE_URL;
 
 test('graph coordination primitives serialize locks and atomically skip competing claims', {
-  skip: databaseUrl ? false : 'DATABASE_URL is not configured',
+  skip: baseDatabaseUrl ? false : 'DATABASE_URL is not configured',
   timeout: 30_000,
-}, async () => {
+}, async () => withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
   const first = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const second = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const suffix = randomUUID();
@@ -109,4 +110,4 @@ test('graph coordination primitives serialize locks and atomically skip competin
     await first.user.deleteMany({ where: { id: userId } });
     await Promise.all([first.$disconnect(), second.$disconnect()]);
   }
-});
+}));
