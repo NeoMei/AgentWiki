@@ -44,7 +44,25 @@ export class SyncRevisionService {
   }
 
   private async v1HeadForRevision(spaceId: string, revision: any): Promise<SyncHead> {
-    if (revision.schemaVersion === 'content-tree@2') {
+    if (revision.attachmentCount > 0n) {
+      throw new SyncApiException(
+        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        'This revision requires Sync v3',
+      );
+    }
+    const isV1 = revision.schemaVersion === 'knowledge-bundle@1'
+      && revision.recipeVersion === 'none';
+    const isV2 = revision.schemaVersion === 'content-tree@2'
+      && revision.recipeVersion === 'space-folders-v1';
+    const isV3 = revision.schemaVersion === 'content-tree@3'
+      && revision.recipeVersion === 'referenced-images-v1';
+    if (!isV1 && !isV2 && !isV3) {
+      throw new SyncApiException(
+        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        'Revision uses a newer or unsupported Sync protocol',
+      );
+    }
+    if (isV2 || isV3) {
       const rows = await this.prisma.syncRevisionPageRow.findMany({
         where: { revisionId: revision.id },
         select: { pageId: true, path: true, title: true, contentHash: true },
@@ -88,6 +106,9 @@ export class SyncRevisionService {
     if (!found || found.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available');
     }
+    if (found.attachmentCount > 0n) {
+      throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'This revision requires Sync v3');
+    }
     return found.id;
   }
 
@@ -105,6 +126,9 @@ export class SyncRevisionService {
     });
     if (!revision || revision.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available');
+    }
+    if (revision.attachmentCount > 0n) {
+      throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'This revision requires Sync v3');
     }
     const rows = await this.prisma.syncRevisionPageRow.findMany({
       where: {

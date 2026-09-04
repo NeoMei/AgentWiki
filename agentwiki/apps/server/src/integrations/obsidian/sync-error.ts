@@ -64,15 +64,20 @@ export class SyncApiException extends HttpException {
     protocolVersion: '1' | '2' | '3' = '1',
   ) {
     const definition = SYNC_ERROR_MAP[code];
-    const body = {
-      protocolVersion,
-      error: {
-        code,
-        message,
-        retryable: definition.retryable,
-        ...(details ? { details } : {}),
-      },
-    };
+    const body = protocolVersion === '3'
+      ? {
+        protocolVersion,
+        error: { code, retryable: definition.retryable },
+      }
+      : {
+        protocolVersion,
+        error: {
+          code,
+          message,
+          retryable: definition.retryable,
+          ...(details ? { details } : {}),
+        },
+      };
     super(body, definition.status);
     this.syncCode = code;
     this.retryable = definition.retryable;

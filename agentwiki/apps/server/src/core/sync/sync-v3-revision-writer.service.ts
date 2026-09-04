@@ -275,7 +275,7 @@ export class SyncV3RevisionWriterService {
     });
   }
 
-  private async inspectCandidate(
+  async inspectCandidate(
     tx: SpaceLockedTransaction,
     spaceId: string,
     baseRevision: string,

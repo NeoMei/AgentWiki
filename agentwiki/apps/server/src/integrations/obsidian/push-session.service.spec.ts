@@ -688,6 +688,47 @@ describe('PushSessionService Sync Protocol v2', () => {
     expect(tx.pushSession.create).not.toHaveBeenCalled();
   });
 
+  it.each(['1', '2'] as const)(
+    'rejects legacy protocol %s session creation under the Space lock once the Space is native v3',
+    async (protocolVersion) => {
+      const tx: any = {
+        space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+        folder: { count: jest.fn().mockResolvedValue(0) },
+        page: { count: jest.fn().mockResolvedValue(0) },
+        pushSession: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+        spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue({ id: 'rev-v3' }) },
+      };
+      const prisma: any = { ...tx, $transaction: jest.fn((callback: any) => callback(tx)) };
+      const contentTree = { lockSyncMutationSpace: jest.fn(async () => tx) };
+      const v3Writer = {
+        inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'native_v3' }),
+      };
+      const service: any = new (PushSessionService as any)(
+        prisma, {}, contentTree, {}, undefined, undefined, undefined, v3Writer,
+      );
+      const common = {
+        baseRevision: 'rev-v3',
+        idempotencyKey: `${protocolVersion.repeat(8)}-${protocolVersion.repeat(4)}-4${protocolVersion.repeat(3)}-8${protocolVersion.repeat(3)}-${protocolVersion.repeat(12)}`,
+        confirmationHash: 'a'.repeat(64), confirmationByteLength: 1,
+        changeCount: 0, totalBodyBytes: 0,
+      };
+      const action = protocolVersion === '1'
+        ? service.create(principal, 'space-1', {
+          ...common, capabilitiesHash: await service.capabilityHash(),
+        })
+        : service.createV2(principal, 'space-1', {
+          ...common, protocolVersion: '2', capabilitiesHash: await service.capabilityHashV2(),
+        });
+
+      await expect(action).rejects.toMatchObject({
+        syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        response: expect.objectContaining({ protocolVersion }),
+      });
+      expect(contentTree.lockSyncMutationSpace).toHaveBeenCalledWith(tx, 'space-1');
+      expect(tx.pushSession.create).not.toHaveBeenCalled();
+    },
+  );
+
   it('revalidates every v1 idempotency binding after a create uniqueness race', async () => {
     const raced = {
       id: 'session-raced', protocolVersion: '1', userId: 'user-1', spaceId: 'space-1',
@@ -841,8 +882,14 @@ describe('PushSessionService Sync Protocol v2', () => {
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
       spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'admin' }) },
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
     };
-    const service: any = new (PushSessionService as any)(prisma, {}, {}, {}, undefined, undefined);
+    const contentTree = {
+      lockSyncMutationSpace: jest.fn(async (tx: unknown) => tx),
+    };
+    const service: any = new (PushSessionService as any)(
+      prisma, {}, contentTree, {}, undefined, undefined,
+    );
     const admin = { ...principal, platformRole: 'user' as const };
 
     await expect(service.createV2(admin, 'space-1', {

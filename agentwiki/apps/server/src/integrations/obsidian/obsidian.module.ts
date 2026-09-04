@@ -18,6 +18,8 @@ import { KnowledgeGraphModule } from '../../knowledge-graph/knowledge-graph.modu
 import { ContentTreeModule } from '../../content-tree/content-tree.module';
 import { SyncModule } from '../../core/sync/sync.module';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
+import { SyncV3Controller } from './sync-v3.controller';
+import { SyncV3RevisionService } from './sync-v3-revision.service';
 
 @Module({
   imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule, SyncModule],
@@ -31,8 +33,9 @@ import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
     SyncCapabilitiesService,
     PushSessionService,
     SyncV3BootstrapService,
+    SyncV3RevisionService,
   ],
-  controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller],
+  controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller, SyncV3Controller],
   exports: [
     ObsidianCryptoService,
     HumanDeviceGuard,
@@ -43,6 +46,7 @@ import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
     SyncCapabilitiesService,
     PushSessionService,
     SyncV3BootstrapService,
+    SyncV3RevisionService,
   ],
 })
 export class ObsidianModule {}
