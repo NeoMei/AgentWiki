@@ -210,7 +210,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         '../apps/server/dist/attachments/attachment-storage.js'
       );
       const { ATTACHMENT_CONFIG } = await import(
-        '../apps/server/dist/attachments/attachment.service.js'
+        '../apps/server/dist/attachments/attachment.config.js'
       );
 
       installBigIntJsonSerialization();
