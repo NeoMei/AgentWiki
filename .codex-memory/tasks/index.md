@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [final-release-candidate-audit-2026-09-04](active/final-release-candidate-audit-2026-09-04/brief.md)：对 `origin/master..HEAD` 进行多轮任务、代码、全栈/UI 终审，修复经证实的问题，并以 clean clone 和新鲜真实运行时证据收口。
 
 ## 最近完成
 

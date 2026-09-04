@@ -2,16 +2,17 @@
 
 # 当前目标
 
-- 完成 AgentWiki macOS 发布验证第二轮定点修复与直接复验；最终 authoritative 代码为 `4a9ac92`。
+- 对 `origin/master..HEAD` 发布候选执行多轮任务、代码、全栈和 UI 终审；修复所有经证实且值得修复的问题，并以最终不可变提交的新鲜证据收口。
 
 # 范围 / 不做
 
-- 本阶段只记录已完成的 macOS 验证、精确清理与本地证据提交；不发布 npm、不部署生产。
-- 当前任务不推送；由控制器在任务审查和整分支终审后决定 push。
+- 本阶段只做本地审查、修复、测试、精确清理与证据提交；不 push、不发布 npm、不部署生产。
 - 不把原始诊断失败、npm audit POST 超时或 63 张 disposable 数据库污染表掩盖为从未发生。
 
 # 当前状态
 
+- 2026-09-04 已启动 `final-release-candidate-audit-2026-09-04` 活跃任务；执行计划提交为 `686ba4f`，首轮任务完整性、整分支代码、全栈/UI 覆盖三视角审查和新鲜测试进行中。
+- 下述 macOS PASS 是上一个已归档任务的基线，不替代本轮最终验证。
 - 2026-09-04 macOS 验证完成并判定 PASS；正式记录为 `agentwiki/docs/verification/macos-release-validation-2026-09-04.md`。
 - `4a9ac92` 真实 clean clone：4209 pass / 0 fail / 3 个非数据库、非 Redis 的平台或显式 opt-in skip（4212 total）；typecheck、lint、build 通过。同 lockfile 的实现工作树裸 audit 为零已知漏洞，clean clone 三次审计仅因 npm bulk API POST 超时退出。
 - 最后一个 Windows DB gate 已使用跨平台 pnpm JS 入口和最大 90 秒 migration timeout；独立复审为零 finding、Ready to merge。
@@ -36,6 +37,8 @@
 
 # 关键索引
 
+- 当前活跃任务：`.codex-memory/tasks/active/final-release-candidate-audit-2026-09-04/`
+- 本轮执行计划：`agentwiki/docs/superpowers/plans/2026-09-04-final-release-candidate-audit.md`
 - macOS 正式验证记录：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`
 - macOS 验证清单：`agentwiki/docs/superpowers/plans/2026-09-04-macos-release-verification.md`
 - macOS 归档任务：`.codex-memory/tasks/archive/macos-release-verification-2026-09-04/`
@@ -46,6 +49,6 @@
 
 # 风险 / 下一步
 
-- 技术门禁与独立复审已通过；下一步由用户在本地合并、push/PR 或保留分支三项中选择。
-- 最终 authoritative disposable PostgreSQL/Redis 已按 full ID 停止并因 `--rm` 消失；四端口、PGID、schema 与原附件路径均清空。
+- 必须完成首轮发现裁决、必要修复及 scoped re-review，再运行最终整分支复审、clean clone、真实 CodeGraph 和 Chrome Playwright。
+- 最终证据还必须证明随机 schema、临时附件、精确进程/容器和 3000/5173/55432/56379 端口均已清理。
 - npm 发布与生产部署均未执行，仍需独立授权与对应发布验证。
