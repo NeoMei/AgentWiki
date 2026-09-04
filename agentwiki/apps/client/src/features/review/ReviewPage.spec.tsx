@@ -173,6 +173,17 @@ describe('ReviewPage detail refresh', () => {
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(1);
   });
 
+  it('does not offer revert for an explicitly non-revertible v3 Push ChangeSet', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review'
+        ? [{ ...summary(), status: 'published' }]
+        : { ...changeSet('published', 'accepted'), revertible: false },
+    } as any));
+    renderReview();
+    await expand();
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+  });
+
   it('replaces an earlier success toast with the latest action failure', async () => {
     let detailReads = 0;
     vi.mocked(api.get).mockImplementation((url) => {

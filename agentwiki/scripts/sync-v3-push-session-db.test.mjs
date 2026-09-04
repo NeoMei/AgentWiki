@@ -9,6 +9,7 @@ import {
   contentHash,
   treeBatchHashV3,
   treeConfirmationHashV3,
+  treeRevisionDeltaV3,
   blobContentHashV3,
 } from '../packages/sync-protocol/dist/esm/index.js';
 import { withSyncV3TestDatabase } from './sync-v3-test-database.mjs';
@@ -33,9 +34,14 @@ function serviceGraph(prisma, storageOverride, effects) {
   const spaceWriter = new SpaceRevisionWriterService(prisma, writer);
   const contentTree = new ContentTreeService(prisma, spaceWriter, new ReadableSyncPathService());
   const capabilities = new SyncCapabilitiesService(prisma, writer);
-  const crypto = { batchReceipt: (sessionId, index, hash) => `receipt:${sessionId}:${index}:${hash}` };
+  const crypto = {
+    batchReceipt: (sessionId, index, hash) => `receipt:${sessionId}:${index}:${hash}`,
+    credentialHash: (value) => value,
+  };
+  const redis = { incrementWithWindow: async () => 1 };
   const service = new SyncV3PushSessionService(
     prisma, crypto, contentTree, authorization, capabilities, writer, storage,
+    redis,
     effects ? {
       indexPage: async (id) => {
         effects.indexed.push(id);
@@ -398,9 +404,199 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
       ), (error) => error?.syncCode === 'ATTACHMENT_NAME_CONFLICT');
       assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), conflictHeadCount);
 
+      const nestedBefore = await prisma.$transaction(
+        (tx) => attachmentGraph.writer.inspectCurrentLocked(tx, spaceId),
+        { isolationLevel: 'RepeatableRead' },
+      );
+      const nestedPrefix = `Nested-${suffix}`;
+      const nestedFolders = [
+        { folderId: `parent-${suffix}`, parentFolderId: null, name: nestedPrefix,
+          path: `pages/${nestedPrefix}`, sortOrder: 0, updatedAt: '2026-09-05T00:04:00.000Z' },
+        { folderId: `child-${suffix}`, parentFolderId: `parent-${suffix}`, name: 'Child',
+          path: `pages/${nestedPrefix}/Child`, sortOrder: 0, updatedAt: '2026-09-05T00:04:00.000Z' },
+        { folderId: `grandchild-${suffix}`, parentFolderId: `child-${suffix}`, name: 'Grandchild',
+          path: `pages/${nestedPrefix}/Child/Grandchild`, sortOrder: 0, updatedAt: '2026-09-05T00:04:00.000Z' },
+      ];
+      const nestedBody = '# Nested page\n';
+      const nestedPage = {
+        pageId: `nested-page-${suffix}`, folderId: `grandchild-${suffix}`,
+        path: `pages/${nestedPrefix}/Child/Grandchild/Nested page.md`, title: 'Nested page',
+        body: nestedBody, contentHash: await contentHash(nestedBody),
+        updatedAt: '2026-09-05T00:04:00.000Z', referencedAttachmentIds: [],
+      };
+      const nestedBaseManifest = {
+        protocolVersion: '3', spaceId,
+        folders: nestedBefore.candidate.folders,
+        pages: nestedBefore.candidate.pages,
+        attachments: nestedBefore.candidate.attachments,
+      };
+      const nestedCandidateManifest = {
+        ...nestedBaseManifest,
+        folders: [...nestedBaseManifest.folders, ...nestedFolders],
+        pages: [...nestedBaseManifest.pages, nestedPage],
+      };
+      const nestedCreateChanges = treeRevisionDeltaV3(nestedBaseManifest, nestedCandidateManifest);
+      const nestedCreateSession = await stageChanges(
+        attachmentGraph, principal, spaceId, detachResult.revision, nestedCreateChanges,
+      );
+      const nestedCreateResult = await attachmentGraph.service.finalize(
+        principal, spaceId, nestedCreateSession.sessionId,
+        { protocolVersion: '3', confirmationHash: nestedCreateSession.confirmationHash, userConfirmed: true },
+      );
+      const nestedDbPage = await prisma.page.findUnique({ where: { knowledgeKey: nestedPage.pageId } });
+      assert.ok(nestedDbPage && !nestedDbPage.deletedAt);
+
+      const nestedPublished = await prisma.$transaction(
+        (tx) => attachmentGraph.writer.inspectCurrentLocked(tx, spaceId),
+        { isolationLevel: 'RepeatableRead' },
+      );
+      const nestedRemoveCandidate = {
+        protocolVersion: '3', spaceId,
+        folders: nestedPublished.candidate.folders.filter((folder) => (
+          !nestedFolders.some((nested) => nested.folderId === folder.folderId)
+        )),
+        pages: nestedPublished.candidate.pages.filter((page) => page.pageId !== nestedPage.pageId),
+        attachments: nestedPublished.candidate.attachments,
+      };
+      const nestedArchiveChanges = treeRevisionDeltaV3({
+        protocolVersion: '3', spaceId,
+        folders: nestedPublished.candidate.folders,
+        pages: nestedPublished.candidate.pages,
+        attachments: nestedPublished.candidate.attachments,
+      }, nestedRemoveCandidate);
+      const nestedArchiveSession = await stageChanges(
+        attachmentGraph, principal, spaceId, nestedCreateResult.revision, nestedArchiveChanges,
+      );
+      const nestedRevisionCount = await prisma.spaceKnowledgeRevision.count({ where: { spaceId } });
+      const grandchildFolder = nestedFolders[2];
+      await prisma.folder.update({ where: { id: grandchildFolder.folderId }, data: {
+        name: 'Stale', nameKey: 'stale', path: `${grandchildFolder.path}/Stale`,
+        pathKey: `${grandchildFolder.path}/stale`.toLowerCase(),
+      } });
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, nestedArchiveSession.sessionId,
+        { protocolVersion: '3', confirmationHash: nestedArchiveSession.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'BASE_STALE');
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), nestedRevisionCount);
+      assert.equal(await prisma.folder.count({ where: {
+        id: { in: nestedFolders.map((folder) => folder.folderId) }, deletedAt: null,
+      } }), 3);
+      assert.equal((await prisma.page.findUnique({ where: { knowledgeKey: nestedPage.pageId } })).deletedAt, null);
+      await prisma.folder.update({ where: { id: grandchildFolder.folderId }, data: {
+        name: grandchildFolder.name, nameKey: grandchildFolder.name.toLowerCase(),
+        path: grandchildFolder.path, pathKey: grandchildFolder.path.toLowerCase(),
+      } });
+      const nestedArchiveResult = await attachmentGraph.service.finalize(
+        principal, spaceId, nestedArchiveSession.sessionId,
+        { protocolVersion: '3', confirmationHash: nestedArchiveSession.confirmationHash, userConfirmed: true },
+      );
+      assert.ok((await prisma.page.findUnique({ where: { knowledgeKey: nestedPage.pageId } })).deletedAt);
+      assert.equal(await prisma.folder.count({ where: {
+        id: { in: nestedFolders.map((folder) => folder.folderId) }, deletedAt: { not: null },
+      } }), 3);
+      const nestedItems = await prisma.changeItem.findMany({
+        where: { changeSetId: nestedArchiveResult.changeSetId },
+        select: { type: true, publishedResourceId: true },
+      });
+      assert.equal(nestedItems.length, nestedArchiveChanges.length);
+      assert.deepEqual(new Set(nestedItems.map((item) => `${item.type}:${item.publishedResourceId}`)), new Set([
+        `archive_page:${nestedDbPage.id}`,
+        ...nestedFolders.map((folder) => `archive_folder:${folder.folderId}`),
+      ]));
+
+      const invariantHead = await prisma.spaceKnowledgeRevision.findFirst({
+        where: { spaceId }, orderBy: { sequence: 'desc' },
+      });
+      const invariantRevisionCount = await prisma.spaceKnowledgeRevision.count({ where: { spaceId } });
+      const invariantChangeSetCount = await prisma.changeSet.count({ where: { spaceId } });
+      const orphanId = `orphan-${suffix}`;
+      const invalidTreeSession = await stageChanges(
+        attachmentGraph, principal, spaceId, invariantHead.id,
+        [{ operation: 'upsert_folder', folder: {
+          folderId: orphanId, parentFolderId: `missing-${suffix}`, name: 'Orphan',
+          path: 'pages/Missing/Orphan', sortOrder: 0, updatedAt: '2026-09-05T00:05:00.000Z',
+        } }],
+      );
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, invalidTreeSession.sessionId,
+        { protocolVersion: '3', confirmationHash: invalidTreeSession.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'ATTACHMENT_REFERENCE_INVALID');
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), invariantRevisionCount);
+      assert.equal(await prisma.changeSet.count({ where: { spaceId } }), invariantChangeSetCount);
+      assert.equal(await prisma.folder.count({ where: { id: orphanId } }), 0);
+      assert.equal((await prisma.pushSession.findUnique({ where: { id: invalidTreeSession.sessionId } })).status,
+        'ready_to_finalize');
+
+      const exactBase = await prisma.$transaction(
+        (tx) => attachmentGraph.writer.inspectCurrentLocked(tx, spaceId),
+        { isolationLevel: 'RepeatableRead' },
+      );
+      const redundantPage = exactBase.candidate.pages[0];
+      const semanticMismatch = await stageChanges(
+        attachmentGraph, principal, spaceId, invariantHead.id,
+        [{ operation: 'upsert_page', page: redundantPage }],
+      );
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, semanticMismatch.sessionId,
+        { protocolVersion: '3', confirmationHash: semanticMismatch.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'CONFIRMATION_MISMATCH');
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), invariantRevisionCount);
+      assert.equal(await prisma.changeSet.count({ where: { spaceId } }), invariantChangeSetCount);
+
+      const archivedAttachmentId = `archived-attachment-${suffix}`;
+      await prisma.spaceAttachment.create({ data: {
+        id: archivedAttachmentId, spaceId, displayName: 'archived.png', nameKey: 'archived.png',
+        contentHash: blobHash, storageKey: storedBlob.storageKey, mimeType: 'image/png',
+        sizeBytes: BigInt(png.length), width: 1, height: 1, status: 'archived',
+        archivedAt: new Date(), uploadedByUserId: userId,
+      } });
+      const attachmentConflictId = `new-attachment-${suffix}`;
+      const archivedAttachmentChange = {
+        operation: 'upsert_attachment', attachment: {
+          ...attachment, attachmentId: attachmentConflictId, path: 'assets/archived.png',
+        },
+      };
+      const archivedAttachmentBody = '![[assets/archived.png]]\n';
+      const archivedAttachmentPageChange = {
+        operation: 'upsert_page', page: {
+          pageId: `archived-attachment-page-${suffix}`, folderId: null,
+          path: 'pages/Archived attachment.md', title: 'Archived attachment',
+          body: archivedAttachmentBody, contentHash: await contentHash(archivedAttachmentBody),
+          updatedAt: '2026-09-05T00:06:00.000Z', referencedAttachmentIds: [attachmentConflictId],
+        },
+      };
+      const archivedAttachmentSession = await stageChanges(
+        attachmentGraph, principal, spaceId, invariantHead.id,
+        [archivedAttachmentChange, archivedAttachmentPageChange], [requirement],
+      );
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, archivedAttachmentSession.sessionId,
+        { protocolVersion: '3', confirmationHash: archivedAttachmentSession.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'ATTACHMENT_NAME_CONFLICT');
+
+      await prisma.page.create({ data: {
+        id: randomUUID(), knowledgeKey: `archived-page-${suffix}`, title: 'Archived page',
+        slug: `archived-page-${suffix}`, content: '', format: 'markdown', spaceId, authorId: userId,
+        syncPath: 'pages/Archived page.md', syncPathKey: 'pages/archived page.md', deletedAt: new Date(),
+      } });
+      const archivedPageBody = '# Replacement\n';
+      const archivedPageSession = await stageChanges(
+        attachmentGraph, principal, spaceId, invariantHead.id,
+        [{ operation: 'upsert_page', page: {
+          pageId: `replacement-page-${suffix}`, folderId: null, path: 'pages/Archived page.md',
+          title: 'Replacement', body: archivedPageBody, contentHash: await contentHash(archivedPageBody),
+          updatedAt: '2026-09-05T00:06:00.000Z', referencedAttachmentIds: [],
+        } }],
+      );
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, archivedPageSession.sessionId,
+        { protocolVersion: '3', confirmationHash: archivedPageSession.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'PATH_COLLISION');
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), invariantRevisionCount);
+
       effects.fail = true;
       const refreshFailure = await stagePage(
-        attachmentGraph, principal, spaceId, detachResult.revision, 'refresh-failure',
+        attachmentGraph, principal, spaceId, invariantHead.id, 'refresh-failure',
       );
       const refreshResult = await attachmentGraph.service.finalize(
         principal, spaceId, refreshFailure.sessionId,
@@ -409,6 +605,27 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
       assert.equal(refreshResult.status, 'published');
       assert.equal((await prisma.pushSession.findUnique({ where: { id: refreshFailure.sessionId } })).status,
         'published');
+
+      const rotatedCredentialId = randomUUID();
+      const rotatedPrincipal = { ...principal, credentialId: rotatedCredentialId };
+      await prisma.humanDeviceCredential.update({
+        where: { id: credentialId }, data: { status: 'revoked', revokedAt: new Date() },
+      });
+      await prisma.humanDeviceCredential.create({ data: {
+        id: rotatedCredentialId, credentialFamilyId: familyId, userId,
+        deviceId: principal.deviceId, vaultId: principal.vaultId,
+        deviceName: 'PG rotated credential', credentialHash: `rotated-${suffix}`, status: 'active',
+      } });
+      await assert.rejects(attachmentGraph.service.finalize(
+        principal, spaceId, refreshFailure.sessionId,
+        { protocolVersion: '3', confirmationHash: refreshFailure.confirmationHash, userConfirmed: true },
+      ), (error) => error?.syncCode === 'DEVICE_CREDENTIAL_REVOKED');
+      const rotatedReplay = await attachmentGraph.service.finalize(
+        rotatedPrincipal, spaceId, refreshFailure.sessionId,
+        { protocolVersion: '3', confirmationHash: refreshFailure.confirmationHash, userConfirmed: true },
+      );
+      assert.deepEqual(rotatedReplay,
+        (await prisma.pushSession.findUnique({ where: { id: refreshFailure.sessionId } })).result);
     } finally {
       await prisma.$disconnect();
       if (storageRoot) await rm(storageRoot, { recursive: true, force: true });

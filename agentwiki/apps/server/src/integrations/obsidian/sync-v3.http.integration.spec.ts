@@ -272,6 +272,57 @@ describe('sync v3 HTTP contract', () => {
     expect(pushSessions.abort).toHaveBeenCalled();
   });
 
+  it('returns the strict retryable v3 envelope when create, upload, or finalize is rate-limited', async () => {
+    const auth = { Authorization: 'Bearer device-secret', 'Content-Type': 'application/json' };
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const pageBody = '# Limited\n';
+    const batch = {
+      protocolVersion: '3' as const, batchIndex: 0,
+      changes: [{ operation: 'upsert_page' as const, page: {
+        pageId: 'limited-page', folderId: null, path: 'pages/Limited.md', title: 'Limited',
+        body: pageBody, contentHash: await contentHash(pageBody),
+        updatedAt: '2026-09-05T00:00:00.000Z', referencedAttachmentIds: [],
+      } }],
+    };
+    const requests = [
+      {
+        mock: pushSessions.create,
+        url: `${baseUrl}/sync/v3/spaces/space-1/push-sessions`, method: 'POST',
+        body: {
+          protocolVersion: '3', baseRevision: 'rev-1',
+          idempotencyKey: '22222222-2222-4222-8222-222222222222',
+          capabilitiesHash: hash, confirmationHash: 'd'.repeat(64), confirmationByteLength: 1,
+          changeCount: 1, totalBodyBytes: Buffer.byteLength(pageBody), attachmentCount: 0,
+          transferBlobBytes: 0, blobRequirements: [],
+        },
+      },
+      {
+        mock: pushSessions.uploadBatch,
+        url: `${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/batches/0`, method: 'PUT',
+        body: { ...batch, batchHash: await treeBatchHashV3(batch) },
+      },
+      {
+        mock: pushSessions.finalize,
+        url: `${baseUrl}/sync/v3/spaces/space-1/push-sessions/${sessionId}/finalize`, method: 'POST',
+        body: { protocolVersion: '3', confirmationHash: 'd'.repeat(64), userConfirmed: true },
+      },
+    ];
+    for (const request of requests) {
+      request.mock.mockRejectedValueOnce(new SyncApiException(
+        'RATE_LIMITED', 'private Redis failure', undefined, '3',
+      ));
+      const response = await fetch(request.url, {
+        method: request.method, headers: auth, body: JSON.stringify(request.body),
+      });
+      expect(response.status).toBe(429);
+      expect(response.headers.get('retry-after')).toBe('1');
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(SyncV3ErrorEnvelopeSchema.parse(await response.json())).toEqual({
+        protocolVersion: '3', error: { code: 'RATE_LIMITED', retryable: true },
+      });
+    }
+  });
+
   it('serves strict bootstrap preview and confirmation without weakening the writer service', async () => {
     const auth = { Authorization: 'Bearer device-secret', 'content-type': 'application/json' };
     const preview = await fetch(`${baseUrl}/sync/v3/spaces/space-1/bootstrap-preview`, { headers: auth });

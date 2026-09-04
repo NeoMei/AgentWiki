@@ -67,7 +67,10 @@ function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
 }
 
 describe('ReviewService queue presentation', () => {
-  const prisma = { changeSet: { count: jest.fn(), findMany: jest.fn() } } as any;
+  const prisma = {
+    changeSet: { count: jest.fn(), findMany: jest.fn() },
+    pushSession: { findMany: jest.fn() },
+  } as any;
   const service = new ReviewService(prisma, {} as any, {} as any, {} as any, { enqueue: jest.fn() } as any);
 
   beforeEach(() => jest.clearAllMocks());
@@ -90,12 +93,25 @@ describe('ReviewService queue presentation', () => {
       { id: 'pending-new' }, { id: 'pending-old' }, { id: 'published' },
     ]);
   });
+
+  it('marks v3 Push ChangeSets as explicitly non-revertible in queue results', async () => {
+    prisma.changeSet.findMany.mockResolvedValue([
+      { id: 'v3-change-set', status: 'published', createdAt: new Date('2026-09-05T00:00:00Z') },
+      { id: 'ordinary-change-set', status: 'published', createdAt: new Date('2026-09-04T00:00:00Z') },
+    ]);
+    prisma.pushSession.findMany.mockResolvedValue([{ publishedChangeSetId: 'v3-change-set' }]);
+    await expect(service.list(['space-1'])).resolves.toMatchObject([
+      { id: 'v3-change-set', revertible: false },
+      { id: 'ordinary-change-set', revertible: true },
+    ]);
+  });
 });
 
 describe('ReviewService approval boundaries', () => {
   const prisma = {
     changeItem: { count: jest.fn(), updateMany: jest.fn() },
     changeSet: { updateMany: jest.fn(), findUnique: jest.fn() },
+    pushSession: { findFirst: jest.fn() },
     approval: { create: jest.fn() },
     $transaction: jest.fn(),
   } as any;
@@ -170,6 +186,7 @@ describe('ReviewService approval boundaries', () => {
     contentTree.mapLegacyPageParent.mockResolvedValue('folder-mapped');
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
     prisma.changeSet.updateMany.mockResolvedValue({ count: 1 });
+    prisma.pushSession.findFirst.mockResolvedValue(null);
   });
 
   it('refuses approval while any item is still pending', async () => {
@@ -220,6 +237,21 @@ describe('ReviewService approval boundaries', () => {
       businessCode: 'CHANGESET_INVALID_STATE',
       statusCode: 409,
     });
+  });
+
+  it('rejects reverting a v3 Push ChangeSet before entering a mutation transaction', async () => {
+    prisma.changeSet.findUnique.mockResolvedValue({
+      id: 'cs-v3', status: 'published', spaceId: 'space-1', publishedAt: new Date(),
+      createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{ id: 'item-1', type: 'archive_page', status: 'published', payload: {} }],
+      approvals: [], space: {}, run: null,
+    });
+    prisma.pushSession.findFirst.mockResolvedValue({ id: 'session-v3' });
+
+    await expect(service.revert('cs-v3', '0')).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE', statusCode: 409,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('rejects a structural Page publication that omits the caller tree revision', async () => {

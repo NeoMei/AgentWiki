@@ -15,6 +15,7 @@ import {
   pathKey,
   treeBatchHashV3,
   treeConfirmationHashV3,
+  treeRevisionDeltaV3,
   type CreateTreePushSessionRequestV3,
   type SyncAttachmentV3,
   type SyncFolderV3,
@@ -34,6 +35,7 @@ import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { ContentTreeService } from '../../content-tree/content-tree.service';
 import { PrismaService } from '../../database/prisma.service';
+import { RedisService } from '../../database/redis.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { ObsidianCryptoService } from './obsidian-crypto.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
@@ -64,6 +66,7 @@ export class SyncV3PushSessionService {
     private readonly capabilities: SyncCapabilitiesService,
     private readonly writer: SyncV3RevisionWriterService,
     @Inject(ATTACHMENT_STORAGE) private readonly storage: AttachmentStorage,
+    private readonly redis: RedisService,
     @Optional() private readonly search?: SearchService,
     @Optional() private readonly graphMaintenance?: GraphMaintenance,
   ) {}
@@ -90,12 +93,13 @@ export class SyncV3PushSessionService {
       || input.transferBlobBytes > limits.maxTransferBlobBytes) {
       throw this.error('ATTACHMENT_QUOTA_EXCEEDED', 'Attachment requirements exceed negotiated limits');
     }
+    await this.assertSessionCreateRate(principal, spaceId);
     if (input.capabilitiesHash !== await this.capabilities.hashV3()) {
       throw this.error('CAPABILITIES_CHANGED', 'Server capabilities changed');
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.retrySerializable(async () => this.prisma.$transaction(async (tx) => {
         const user = await this.lockLiveCredential(tx, principal);
         const locked = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
         await this.assertPublishable(locked, user, spaceId);
@@ -155,10 +159,13 @@ export class SyncV3PushSessionService {
         });
         if (blobRows.length > 0) await locked.pushSessionBlob.createMany({ data: blobRows });
         return this.createResponse(session, blobRows);
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 120_000,
+      }));
     } catch (error) {
       if ((error as { code?: string } | null)?.code === 'P2002') {
-        return this.prisma.$transaction(async (tx) => {
+        return this.retrySerializable(async () => this.prisma.$transaction(async (tx) => {
           const user = await this.lockLiveCredential(tx, principal);
           const locked = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
           await this.assertPublishable(locked, user, spaceId);
@@ -174,7 +181,10 @@ export class SyncV3PushSessionService {
           });
           this.assertCreateBinding(existing, requirements, principal, spaceId, input);
           return this.createResponse(existing, requirements);
-        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 120_000,
+        }));
       }
       throw error;
     }
@@ -189,6 +199,7 @@ export class SyncV3PushSessionService {
     const parsed = TreePushBatchV3Schema.safeParse(rawBatch);
     if (!parsed.success) throw this.error('PAYLOAD_INVALID', 'Invalid v3 Push batch');
     const batch = parsed.data;
+    await this.assertUploadRate(principal);
     const expired = Symbol('expired');
     const result = await this.retrySerializable(async () => this.prisma.$transaction(async (tx) => {
       await this.lockLiveCredential(tx, principal);
@@ -301,6 +312,7 @@ export class SyncV3PushSessionService {
     sessionId: string,
     input: TreeFinalizePushRequestV3,
   ): Promise<TreeFinalizePushResponseV3> {
+    await this.assertFinalizeRate(principal, spaceId);
     const located = await this.prisma.pushSession.findUnique({ where: { id: sessionId } });
     this.assertBoundSession(located, principal, spaceId, sessionId, true);
     const expired = Symbol('expired');
@@ -310,7 +322,7 @@ export class SyncV3PushSessionService {
       await this.assertPublishable(locked, user, spaceId);
       await locked.$executeRaw`SELECT "id" FROM "PushSession" WHERE "id" = ${sessionId} FOR NO KEY UPDATE`;
       const session = await locked.pushSession.findUnique({ where: { id: sessionId } });
-      this.assertBoundSession(session, principal, spaceId, sessionId);
+      this.assertBoundSession(session, principal, spaceId, sessionId, true);
       if (session.status === 'published' && session.result) {
         return TreeFinalizePushResponseV3Schema.parse(session.result);
       }
@@ -360,6 +372,20 @@ export class SyncV3PushSessionService {
         throw this.error('BASE_STALE', 'Candidate base revision changed');
       }
       const candidate = this.applyChanges(base.candidate, changes);
+      const exactDelta = treeRevisionDeltaV3({
+        protocolVersion: '3', spaceId,
+        folders: base.candidate.folders,
+        pages: base.candidate.pages,
+        attachments: base.candidate.attachments,
+      }, {
+        protocolVersion: '3', spaceId,
+        folders: candidate.folders,
+        pages: candidate.pages,
+        attachments: candidate.attachments,
+      });
+      if (!Buffer.from(canonicalBytes(exactDelta)).equals(Buffer.from(canonicalBytes(changes)))) {
+        throw this.error('CONFIRMATION_MISMATCH', 'Staged changes are not the exact base-to-candidate delta');
+      }
       await this.verifyRequirementStorage(requirements);
       const changeSet = await locked.changeSet.create({ data: {
         title: 'Obsidian sync v3', status: 'publishing', spaceId,
@@ -536,7 +562,6 @@ export class SyncV3PushSessionService {
         protocolVersion: '3', spaceId: 'candidate',
         folders: [...folders.values()], pages: [...pages.values()], attachments: [...attachments.values()],
       });
-      this.assertCandidatePaths(candidate.folders, candidate.pages, candidate.attachments);
       return { folders: candidate.folders, pages: candidate.pages, attachments: candidate.attachments };
     } catch (error) {
       if (error instanceof SyncApiException) throw error;
@@ -563,7 +588,7 @@ export class SyncV3PushSessionService {
         const current = await tx.spaceAttachment.findUnique({ where: { id: change.attachment.attachmentId } });
         if (current && current.spaceId !== spaceId) throw this.error('ATTACHMENT_MISSING', 'Attachment belongs to another Space');
         const conflicting = await tx.spaceAttachment.findFirst({ where: {
-          spaceId, nameKey, status: 'active', id: { not: change.attachment.attachmentId },
+          spaceId, nameKey, id: { not: change.attachment.attachmentId },
         } });
         if (conflicting) throw this.error('ATTACHMENT_NAME_CONFLICT', 'Attachment path already exists');
         const data = {
@@ -581,10 +606,16 @@ export class SyncV3PushSessionService {
         } });
       } else if (change.operation === 'upsert_folder') {
         const current = await tx.folder.findUnique({ where: { id: change.folder.folderId } });
+        const folderPathKey = pathKey(change.folder.path);
+        const conflicting = await tx.folder.findFirst({ where: {
+          spaceId, pathKey: folderPathKey, deletedAt: null,
+          ...(current ? { id: { not: current.id } } : {}),
+        } });
+        if (conflicting) throw this.error('PATH_COLLISION', 'Folder path already exists');
         const data = {
           parentId: change.folder.parentFolderId, name: change.folder.name,
-          nameKey: pathKey(change.folder.path).split('/').slice(-1)[0],
-          path: change.folder.path, pathKey: pathKey(change.folder.path),
+          nameKey: folderPathKey.split('/').slice(-1)[0],
+          path: change.folder.path, pathKey: folderPathKey,
           sortOrder: change.folder.sortOrder, deletedAt: null, deletionBatchId: null,
           updatedAt: new Date(change.folder.updatedAt),
           lastModifiedByUserId: principal.userId, lastModifiedAt: changedAt,
@@ -598,6 +629,12 @@ export class SyncV3PushSessionService {
       } else if (change.operation === 'upsert_page') {
         const current = await tx.page.findUnique({ where: { knowledgeKey: change.page.pageId } });
         if (current && current.spaceId !== spaceId) throw this.error('PAGE_ID_CONFLICT', 'Page belongs to another Space');
+        const pagePathKey = pathKey(change.page.path);
+        const conflicting = await tx.page.findFirst({ where: {
+          spaceId, syncPathKey: pagePathKey,
+          ...(current ? { id: { not: current.id } } : {}),
+        } });
+        if (conflicting) throw this.error('PATH_COLLISION', 'Page path already exists');
         if (current) {
           await tx.pageVersion.create({ data: {
             pageId: current.id, title: current.title, content: current.content,
@@ -608,7 +645,7 @@ export class SyncV3PushSessionService {
           await tx.page.update({ where: { id: current.id }, data: {
             title: change.page.title, content: change.page.body, format: 'markdown',
             folderId: change.page.folderId, parentId: null,
-            syncPath: change.page.path, syncPathKey: pathKey(change.page.path),
+            syncPath: change.page.path, syncPathKey: pagePathKey,
             deletedAt: null, deletionBatchId: null, lastChangeSetId: changeSetId,
             lastModifiedByUserId: principal.userId, lastModifiedAt: changedAt,
             updatedAt: new Date(change.page.updatedAt),
@@ -621,7 +658,7 @@ export class SyncV3PushSessionService {
           slug: `sync-v3-${change.page.pageId}-${randomUUID().slice(0, 8)}`,
           content: change.page.body, format: 'markdown', spaceId,
           authorId: principal.userId, folderId: change.page.folderId, parentId: null,
-          syncPath: change.page.path, syncPathKey: pathKey(change.page.path),
+          syncPath: change.page.path, syncPathKey: pagePathKey,
           sourceChangeSetId: changeSetId, lastChangeSetId: changeSetId,
           lastModifiedByUserId: principal.userId, lastModifiedAt: changedAt,
           updatedAt: new Date(change.page.updatedAt),
@@ -652,44 +689,8 @@ export class SyncV3PushSessionService {
           || current.path !== change.previousPath) {
           throw this.error('BASE_STALE', 'Folder archive target changed');
         }
-        const allFolders = await tx.folder.findMany({
-          where: { spaceId, deletedAt: null }, select: { id: true, parentId: true },
-        });
-        const removed = new Set<string>([current.id]);
-        let expanded = true;
-        while (expanded) {
-          expanded = false;
-          for (const folder of allFolders) {
-            if (folder.parentId && removed.has(folder.parentId) && !removed.has(folder.id)) {
-              removed.add(folder.id);
-              expanded = true;
-            }
-          }
-        }
-        const removedIds = [...removed];
-        const descendants = await tx.page.findMany({
-          where: { spaceId, deletedAt: null, folderId: { in: removedIds } },
-        });
-        for (const page of descendants) {
-          await tx.pageVersion.create({ data: {
-            pageId: page.id, title: page.title, content: page.content,
-            authorId: page.authorId, slug: page.slug, format: page.format,
-            parentId: page.parentId, folderId: page.folderId,
-            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
-          } });
-        }
-        await tx.page.updateMany({
-          where: { id: { in: descendants.map((page: any) => page.id) } },
-          data: {
-            deletedAt: changedAt, deletionBatchId: null, lastChangeSetId: changeSetId,
-            lastModifiedByUserId: principal.userId, lastModifiedAt: changedAt,
-          },
-        });
-        await tx.pageSearchDocument.deleteMany({
-          where: { pageId: { in: descendants.map((page: any) => page.id) } },
-        });
-        await tx.folder.updateMany({
-          where: { id: { in: removedIds } },
+        await tx.folder.update({
+          where: { id: current.id },
           data: {
             deletedAt: changedAt, deletionBatchId: null,
             lastModifiedByUserId: principal.userId, lastModifiedAt: changedAt,
@@ -936,25 +937,6 @@ export class SyncV3PushSessionService {
     }
   }
 
-  private assertCandidatePaths(folders: SyncFolderV3[], pages: SyncPageV3[], attachments: SyncAttachmentV3[]) {
-    const pagePaths = new Set<string>();
-    for (const page of pages) {
-      const key = pathKey(page.path);
-      if (pagePaths.has(key)) throw this.error('PATH_COLLISION', 'Page paths collide');
-      pagePaths.add(key);
-    }
-    const attachmentPaths = new Set<string>();
-    for (const attachment of attachments) {
-      const key = pathKey(attachment.path);
-      if (attachmentPaths.has(key)) throw this.error('ATTACHMENT_NAME_CONFLICT', 'Attachment paths collide');
-      attachmentPaths.add(key);
-    }
-    const folderIds = new Set(folders.map((folder) => folder.folderId));
-    if (pages.some((page) => page.folderId !== null && !folderIds.has(page.folderId))) {
-      throw this.error('ATTACHMENT_REFERENCE_INVALID', 'Page references a missing Folder');
-    }
-  }
-
   private sameRequirement(row: BlobRow, requirement: {
     contentHash: string; sizeBytes: string; mimeType: string; width: number; height: number;
   }) {
@@ -1036,6 +1018,42 @@ export class SyncV3PushSessionService {
       (error as any).code === 'P2034'
       || ((error as any).code === 'P2010' && (error as any).meta?.code === '40001')
     );
+  }
+
+  private async rateLimit(key: string, limit: number, ttlSeconds: number): Promise<void> {
+    let count: number | null;
+    try {
+      count = await this.redis.incrementWithWindow(key, ttlSeconds);
+    } catch {
+      count = null;
+    }
+    if (count === null || count > limit) {
+      throw this.error('RATE_LIMITED', 'Too many requests');
+    }
+  }
+
+  private async assertSessionCreateRate(principal: HumanDevicePrincipal, spaceId: string): Promise<void> {
+    const bucket = Math.floor(Date.now() / 60_000);
+    const identity = this.crypto.credentialHash(
+      `sync-session-create:${principal.credentialId}:${spaceId}`,
+    ).slice(0, 16);
+    await this.rateLimit(`sync:session-create:${bucket}:${identity}`, 10, 61);
+  }
+
+  private async assertUploadRate(principal: HumanDevicePrincipal): Promise<void> {
+    const bucket = Math.floor(Date.now() / 60_000);
+    const identity = this.crypto.credentialHash(
+      `sync-batch-upload:${principal.credentialId}`,
+    ).slice(0, 16);
+    await this.rateLimit(`sync:batch-upload:${bucket}:${identity}`, 120, 61);
+  }
+
+  private async assertFinalizeRate(principal: HumanDevicePrincipal, spaceId: string): Promise<void> {
+    const bucket = Math.floor(Date.now() / 60_000);
+    const identity = this.crypto.credentialHash(
+      `sync-finalize:${principal.credentialId}:${spaceId}`,
+    ).slice(0, 16);
+    await this.rateLimit(`sync:finalize:${bucket}:${identity}`, 10, 61);
   }
 
   private json(value: unknown): Prisma.InputJsonValue {

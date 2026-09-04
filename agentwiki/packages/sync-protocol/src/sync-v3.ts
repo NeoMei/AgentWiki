@@ -720,8 +720,38 @@ export function canonicalTreeRevisionManifestV3(manifest: TreeRevisionContentMan
   const foldersById = new Map(parsed.folders.map((folder) => [folder.folderId, folder]));
   if (foldersById.size !== parsed.folders.length) throw new TypeError("Folder manifest contains duplicate IDs");
   const depthByFolderId = folderDepths(foldersById);
+  const folderPathKeys = new Set<string>();
+  for (const folder of parsed.folders) {
+    const folderPathKey = pathKey(folder.path);
+    if (folderPathKeys.has(folderPathKey)) throw new TypeError("Folder manifest contains duplicate folder paths");
+    folderPathKeys.add(folderPathKey);
+    const separator = folder.path.lastIndexOf("/");
+    if (folder.path.slice(separator + 1) !== folder.name) {
+      throw new TypeError("Folder name does not match its path basename");
+    }
+    const parentPath = separator < 0 ? "" : folder.path.slice(0, separator);
+    if (folder.parentFolderId === null) {
+      if (parentPath !== "pages") throw new TypeError("Root Folder parent path must be pages/");
+    } else if (foldersById.get(folder.parentFolderId)?.path !== parentPath) {
+      throw new TypeError("Folder parent path does not match parentFolderId");
+    }
+  }
   const pageIds = new Set(parsed.pages.map((page) => page.pageId));
   if (pageIds.size !== parsed.pages.length) throw new TypeError("Page manifest contains duplicate IDs");
+  const pagePathKeys = new Set<string>();
+  for (const page of parsed.pages) {
+    const pagePathKey = pathKey(page.path);
+    if (pagePathKeys.has(pagePathKey)) throw new TypeError("Page manifest contains duplicate paths");
+    pagePathKeys.add(pagePathKey);
+    if (folderPathKeys.has(pagePathKey)) throw new TypeError("Folder and Page paths collide");
+    const separator = page.path.lastIndexOf("/");
+    const parentPath = separator < 0 ? "" : page.path.slice(0, separator);
+    if (page.folderId === null) {
+      if (parentPath !== "pages") throw new TypeError("Root Page path must be directly under pages/");
+    } else if (foldersById.get(page.folderId)?.path !== parentPath) {
+      throw new TypeError("Page folder path does not match folderId");
+    }
+  }
   return {
     ...parsed,
     folders: [...parsed.folders].sort((left, right) =>

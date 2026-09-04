@@ -813,12 +813,12 @@ describe("Sync Protocol v3", () => {
     expect(source).not.toContain("BLOB_CHUNK_TOO_LARGE");
   });
 
-  it("canonicalizes a 10,000-folder parent chain without recursive depth walks", () => {
+  it("canonicalizes 10,000 root Folders without recursive depth walks", () => {
     const folders = Array.from({ length: 10_000 }, (_, index) => {
       const id = `folder-${String(index).padStart(5, "0")}`;
       return folder({
         folderId: id,
-        parentFolderId: index === 0 ? null : `folder-${String(index - 1).padStart(5, "0")}`,
+        parentFolderId: null,
         name: id,
         path: `pages/${id}`,
       });
@@ -849,5 +849,45 @@ describe("Sync Protocol v3", () => {
     expect(() => canonicalTreeRevisionManifestV3(manifest([
       folder({ folderId: "a", parentFolderId: "missing", path: "pages/a" }),
     ]))).toThrow(/unknown parent/iu);
+  });
+
+  it("enforces the complete Folder and Page placement invariants", () => {
+    const manifest = (folders: ReturnType<typeof folder>[], pages: ReturnType<typeof page>[] = []) => ({
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders,
+      pages,
+      attachments: [],
+    });
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "duplicate", name: "first", path: "pages/first" }),
+      folder({ folderId: "duplicate", name: "second", path: "pages/second" }),
+    ]))).toThrow(/duplicate IDs/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "same", path: "pages/same" }),
+      folder({ folderId: "b", name: "same", path: "pages/same" }),
+    ]))).toThrow(/folder path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "parent", name: "parent", path: "pages/parent" }),
+      folder({ folderId: "child", parentFolderId: "parent", name: "child", path: "pages/wrong/child" }),
+    ]))).toThrow(/parent path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "wrong", path: "pages/actual" }),
+    ]))).toThrow(/folder name/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "a.md", path: "pages/a.md" }),
+    ], [page({ pageId: "page-a", folderId: null, path: "pages/a.md", referencedAttachmentIds: [] })])))
+      .toThrow(/folder and page paths/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "a", path: "pages/a" }),
+    ], [page({ pageId: "page-a", folderId: "a", path: "pages/wrong.md", referencedAttachmentIds: [] })])))
+      .toThrow(/page folder path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([], [
+      page({ pageId: "page-a", folderId: null, path: "pages/nested/a.md", referencedAttachmentIds: [] }),
+    ]))).toThrow(/root page path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([], [
+      page({ pageId: "page-a", folderId: null, path: "pages/same.md", referencedAttachmentIds: [] }),
+      page({ pageId: "page-b", folderId: null, path: "pages/same.md", referencedAttachmentIds: [] }),
+    ]))).toThrow(/duplicate paths/iu);
   });
 });
