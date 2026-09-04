@@ -2,8 +2,9 @@
 
 ## Result
 
-The Agent self-service onboarding prompt hotfix was released on 2026-09-04
-(Asia/Shanghai). GitHub and production contain application commit `ae147a4`.
+The Agent self-service onboarding prompt hotfix was corrected and re-released
+on 2026-09-04 (Asia/Shanghai). GitHub `master` and production contain
+application commit `f02f8c4`.
 The onboarding page once again gives the user a complete task prompt to paste
 into a local Agent instead of presenting the NDJSON driver command as an
 ordinary terminal command.
@@ -114,3 +115,29 @@ The production CLI/API path was separately exercised with a disposable account,
 Space, Agent, and one-file source. It completed Device Auth, bootstrap, scan,
 both confirmations, and first sync with a `completed` event; all disposable
 production resources were deleted afterward.
+
+## Corrective production release
+
+Rollback artifacts created immediately before the corrective deployment:
+
+- `/root/backups/agentwiki/pre-agent-prompt-20260904-175254.dump`;
+- `/root/backups/agentwiki/pre-agent-prompt-20260904-175254-app.tar.gz`;
+- `/root/backups/agentwiki/pre-agent-prompt-20260904-175254.sha256`.
+
+The deployment rebuilt all six workspace projects, reported 49 migrations with
+none pending, atomically activated the release, and retained the previous tree
+at `/root/agentwiki-previous-20260904175421`. The API, Worker, and Frontend are
+active/running. Public `/api/health` reports `ok` for application, database,
+Redis, audit persistence, and attachment storage; the public onboarding route
+returns HTTP 200.
+
+The deployed `OnboardPage.tsx` SHA-256 is
+`affde2070aea72b8a64d47a41338b97a0a934e895f0548c993840d3a8adb3855`, exactly
+matching the release candidate. The public JavaScript bundle contains both
+language variants and the required `values`, `confirmed`, and `planHash`
+contract. In real Chrome, the Chinese prompt rendered in full, Copy changed to
+`已复制提示词`, and the English prompt retained the same protocol requirements.
+
+The npm package remains `@neomei/agentwiki-local-sync@0.7.0`; this corrective
+release changes the Web prompt and its repository-level consumer gate, not the
+published CLI package.

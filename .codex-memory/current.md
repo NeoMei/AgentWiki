@@ -14,9 +14,9 @@
 # 当前状态
 
 - 2026-09-04 已复现已发布提示词的真实失败：新 Agent 把 `confirmation_required` 错写为 `{"requestId":"plan-1","approved":true}`，因缺少 `confirmed` 和 `planHash` 收到 `BAD_DRIVER_REPLY`。修订提示词补齐持久进程、冷启动等待和精确 stdin JSON 形状；新的 Agent 消费者已在受控 fixture 中完成两次确认并到达 `completed`。
-- 2026-09-04 Agent 自助接入提示词热修复已发布：应用提交 `ae147a4` 已推送 GitHub `master` 并部署生产；页面恢复完整 Agent 任务提示词，不再把 `--protocol ndjson` 裸命令标成普通终端命令。
-- 发布前 PostgreSQL dump、完整应用归档和 checksum 已校验；49 个 migration 无 pending，三服务 active/running 且 `NRestarts=0`，公网健康全 ok，受控 smoke 31/31。
-- 真实 Chrome 已验证桌面提示词与复制状态；390x844 下 `scrollWidth=innerWidth=390`。发布记录：`agentwiki/docs/verification/onboard-agent-prompt-hotfix-2026-09-04.md`。
+- 2026-09-04 Agent 自助接入提示词纠正发布已完成：应用提交 `f02f8c4` 已推送 GitHub `master` 并部署生产。提示词现已明确持久进程、冷启动等待、字段类型、授权等待、preview、`requestId + confirmed + planHash` 精确确认和失败恢复字段；新 Agent 已在受控协议 fixture 中完成整条流程。
+- 纠正发布前新增 PostgreSQL dump、应用归档和 checksum；49 个 migration 无 pending，三服务 active/running，公网健康五项全 ok。线上 `OnboardPage.tsx` SHA-256 与 `f02f8c4` 候选一致。
+- 真实 Chrome 已验证中文提示词与复制成功状态，英文提示词也含冷启动、`values`、`confirmed`、`planHash` 协议。发布记录：`agentwiki/docs/verification/onboard-agent-prompt-hotfix-2026-09-04.md`。
 - 2026-09-04 完成多轮任务审查、分域代码审查、回归修复和最终全仓门禁。
 - 最终 `pnpm test`：4044 passed、79 skipped、0 failed；skip 均为需要外部数据库/Redis/CodeGraph 等明确环境前提的门禁。
 - `pnpm typecheck`、`pnpm lint`、`pnpm build` 全部通过；构建仅保留既有 Vite 大 chunk 提示。
@@ -48,6 +48,6 @@
 
 # 风险 / 下一步
 
-- 将消费者验收通过的提示词补救提交、推送并部署生产；部署后从生产页面重新复制提示词并核对协议形状与页面交互。
+- Agent 提示词纠正发布已经完成；后续修改此提示词必须以新 Agent 驱动受控 NDJSON fixture 到 `completed` 作为发布门禁，不能只验证页面渲染或复制按钮。
 - Mac 需要从 `origin/master` 拉取包含 `7db186b` 的候选，按交接清单提供隔离 PostgreSQL/pgvector、Redis AOF 和真实 CodeGraph，再消除数据库/真实运行时 skip 并执行 25 个 Playwright 测试。
 - Agent 自助接入热修复不涉及 npm 包，registry 继续为 `@neomei/agentwiki-local-sync@0.7.0`；不得把 Web 发布误报为 npm 新版本。
