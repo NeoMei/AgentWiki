@@ -38,6 +38,34 @@ describe('CollaborationGateway authentication', () => {
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
+  it('waits for asynchronous connection authentication before handling a run-room join', async () => {
+    let resolvePrincipal!: (value: any) => void;
+    auth.validateJwtUser.mockReturnValueOnce(new Promise((resolve) => { resolvePrincipal = resolve; }));
+    runs.getHumanRun.mockResolvedValueOnce({ id: 'run-1', spaceId: 'space-1', eventSequence: 41 });
+    const client = {
+      id: 'socket-auth-race',
+      handshake: { auth: { token: 'signed-token' } },
+      data: {},
+      rooms: new Set(['socket-auth-race']),
+      join: jest.fn(),
+      emit: jest.fn(),
+      disconnect: jest.fn(),
+    } as any;
+
+    const connection = gateway.handleConnection(client);
+    const join = gateway.handleJoinCollaborationRun(client, { spaceId: 'space-1', runId: 'run-1' });
+    await Promise.resolve();
+    expect(client.join).not.toHaveBeenCalled();
+
+    resolvePrincipal({ userId: 'user-1', name: 'Alice', authVersion: 0 });
+    await Promise.all([connection, join]);
+
+    expect(client.join).toHaveBeenCalledWith('collaboration:run:run-1');
+    expect(client.emit).toHaveBeenCalledWith('collaborationRunChanged', {
+      spaceId: 'space-1', runId: 'run-1', eventSequence: 41,
+    });
+  });
+
   it('disconnects a socket with an invalid or missing token', async () => {
     const badClient = { handshake: { auth: { token: 'bad' } }, data: {}, disconnect: jest.fn() } as any;
     jwt.verify.mockImplementationOnce(() => { throw new Error('jwt expired'); });
@@ -147,9 +175,13 @@ describe('CollaborationGateway authentication', () => {
       id: 'socket-run', data: { user: { userId: 'user-1', name: 'Alice', authVersion: 0 }, socketAuthVersion: 0 },
       join: jest.fn(), leave: jest.fn(), emit: jest.fn(), disconnect: jest.fn(), rooms: new Set(['socket-run']),
     } as any;
+    runs.getHumanRun.mockResolvedValueOnce({ id: 'run-1', spaceId: 'space-1', eventSequence: 41 });
     await gateway.handleJoinCollaborationRun(client, { spaceId: 'space-1', runId: 'run-1' });
     expect(runs.getHumanRun).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ userId: 'user-1' }));
     expect(client.join).toHaveBeenCalledWith('collaboration:run:run-1');
+    expect(client.emit).toHaveBeenCalledWith('collaborationRunChanged', {
+      spaceId: 'space-1', runId: 'run-1', eventSequence: 41,
+    });
 
     runListener?.(JSON.stringify({ spaceId: 'space-1', runId: 'run-1', eventSequence: 42, secret: 'ignored' }));
     await new Promise((resolve) => setImmediate(resolve));

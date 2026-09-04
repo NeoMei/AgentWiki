@@ -10,7 +10,7 @@ const socketHandlers = new Map<string, (...args: any[]) => void>();
 const managerHandlers = new Map<string, (...args: any[]) => void>();
 const socket = {
   on: vi.fn((event: string, handler: (...args: any[]) => void) => { socketHandlers.set(event, handler); return socket; }),
-  off: vi.fn(), emit: vi.fn(), disconnect: vi.fn(),
+  off: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
   io: { on: vi.fn((event: string, handler: (...args: any[]) => void) => { managerHandlers.set(event, handler); }), off: vi.fn() },
 };
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socket) }));

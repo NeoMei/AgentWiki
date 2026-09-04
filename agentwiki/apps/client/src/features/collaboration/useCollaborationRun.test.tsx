@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { io } from 'socket.io-client';
 import { collaborationApi } from './api';
 import type { CollaborationRun } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
 
 const socket = {
-  on: vi.fn(), off: vi.fn(), emit: vi.fn(), disconnect: vi.fn(),
+  on: vi.fn(), off: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
   io: { on: vi.fn(), off: vi.fn() },
 };
 
@@ -21,6 +22,15 @@ const run = (id: string, spaceId: string): CollaborationRun => ({
 
 describe('useCollaborationRun', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('defers an explicit Socket connection so StrictMode cleanup cannot abort a handshake', async () => {
+    vi.mocked(collaborationApi.getRun).mockResolvedValue(run('run-1', 'space-1'));
+
+    renderHook(() => useCollaborationRun('space-1', 'run-1'));
+
+    expect(io).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ autoConnect: false }));
+    await waitFor(() => expect(socket.connect).toHaveBeenCalled());
+  });
 
   it('does not let an old in-flight request overwrite a newly selected run', async () => {
     let resolveOld!: (value: CollaborationRun) => void;

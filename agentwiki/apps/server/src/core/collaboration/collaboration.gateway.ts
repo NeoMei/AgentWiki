@@ -108,6 +108,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   async handleConnection(client: Socket) {
+    const authentication = this.authenticateConnection(client);
+    client.data.authentication = authentication;
+    await authentication;
+  }
+
+  private async authenticateConnection(client: Socket) {
     const token = String(client.handshake.auth?.token || '');
     try {
       const payload = this.jwtService.verify(token) as { sub?: string; authVersion?: number; exp?: number };
@@ -157,6 +163,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   @SubscribeMessage('joinPage')
   async handleJoinPage(@ConnectedSocket() client: Socket, @MessageBody() body: { pageId: string; userId?: string; userName?: string }) {
     if (!this.validPageId(body?.pageId)) return;
+    await this.waitForSocketAuthentication(client);
     const cachedUserId = (client.data.user as Principal | undefined)?.userId;
     if (!cachedUserId || !this.allowEvent(cachedUserId, 'join', 30, 60_000)) {
       client.emit('collaborationError', { code: 'EVENT_RATE_LIMITED' });
@@ -237,13 +244,21 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'ROOM_LIMIT_EXCEEDED' });
       return;
     }
+    let run;
     try {
-      await this.runs.getHumanRun(body.spaceId, body.runId, principal);
+      run = await this.runs.getHumanRun(body.spaceId, body.runId, principal);
     } catch {
       client.emit('collaborationError', { code: 'COLLABORATION_RUN_ACCESS_DENIED' });
       return;
     }
     await client.join(room);
+    // Close the fetch-to-room race: a run change published while this socket
+    // was authorizing would otherwise be missed until the next focus refresh.
+    client.emit('collaborationRunChanged', {
+      spaceId: body.spaceId,
+      runId: body.runId,
+      eventSequence: Number(run.eventSequence),
+    });
   }
 
   @SubscribeMessage('leaveCollaborationRun')
@@ -390,6 +405,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   private async refreshSocketPrincipal(client: Socket): Promise<(Principal & { name?: string; authVersion?: number }) | null> {
+    await this.waitForSocketAuthentication(client);
     const previous = client.data.user as (Principal & { authVersion?: number }) | undefined;
     if (!previous?.userId) return null;
     const current = await this.auth.validateJwtUser(previous.userId);
@@ -403,6 +419,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     }
     client.data.user = current;
     return current;
+  }
+
+  private async waitForSocketAuthentication(client: Socket) {
+    const authentication = client.data.authentication as Promise<void> | undefined;
+    if (authentication) await authentication;
   }
 
   private async pruneUnauthorizedRoomMembers(pageId: string, force = false) {

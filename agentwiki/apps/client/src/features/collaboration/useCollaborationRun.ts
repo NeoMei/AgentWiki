@@ -46,8 +46,10 @@ export function useCollaborationRun(spaceId: string, runId: string) {
     const socket: Socket = io(`${window.location.origin}/collaboration`, {
       transports: ['websocket', 'polling'],
       auth: { token: localStorage.getItem('token') },
+      autoConnect: false,
     });
     let timer: number | undefined;
+    const connectTimer = window.setTimeout(() => socket.connect(), 0);
     const debouncedRefresh = () => {
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => void refresh(), 150);
@@ -58,6 +60,7 @@ export function useCollaborationRun(spaceId: string, runId: string) {
     socket.on('collaborationRunChanged', onChanged);
     socket.io.on('reconnect', refresh);
     return () => {
+      window.clearTimeout(connectTimer);
       if (timer !== undefined) window.clearTimeout(timer);
       socket.emit('leaveCollaborationRun', { runId });
       socket.off('connect', onConnect);
