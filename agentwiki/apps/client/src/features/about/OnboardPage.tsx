@@ -9,9 +9,16 @@ import { useLanguage } from '../../context/LanguageContext';
 const agentPrompt = (zh: boolean) => zh
   ? `请帮我完成 AgentWiki 自助接入。
 
-请在本机启动下面的固定版本命令，并作为它的协议驱动者持续读取 stdout 中的逐行 NDJSON；按事件向我收集或确认信息，再把带相同 requestId 的 JSON 回复写回进程 stdin，直到收到 completed 或 failed。不要只把命令展示给我，也不要把它当作普通的一次性终端命令运行。
+请严格按下面的协议执行，不要只把命令展示给我；按事件向我收集或确认信息，并把带相同 requestId 的 JSON 回复写回进程 stdin：
 
-遇到 authorization_required 时，把安全授权链接和 userCode 给我，我会在浏览器登录或注册并批准；账号密码只在网页输入，不要在对话中索取。遇到 input_required 时逐项问我。遇到 preview 和 confirmation_required 时先展示计划或同步预览，只有得到我的明确确认后才继续。不要自行批准上传。
+1. 在本机用“可持续读取输出、可继续写入 stdin”的持久终端会话启动固定命令；不要当作等待退出的一次性命令。启动后立即告诉我正在准备环境，并持续读取 stdout 中的逐行 NDJSON，直到收到 completed 或 failed。
+2. 首次运行 npx 可能需要安装依赖，几分钟内没有 stdout 也不代表失败。保持同一个进程会话并轮询输出，不要因为一次工具超时或暂时无输出就重启。5 分钟仍没有第一条 NDJSON 时，检查进程和 stderr；安装仍在运行就继续等待，进程已退出才报告错误。绝对不要同时启动第二个接入进程。
+3. 收到 input_required：读取 fields，只向我询问缺少的值并尊重 defaultValue；paths 类型必须写成字符串数组，choice 类型只能使用 choices 中的值，string 类型写成字符串。收齐后向 stdin 写入一行 JSON，例如 {"requestId":"input-1","values":{"sourcePaths":["/path/to/source"],"role":"editor"}}。实际 requestId、字段名和值类型必须使用事件定义，不要自行改名或改型。
+4. 收到 authorization_required：把 url 和 userCode 发给我，让我只在网页中登录或注册并批准；不要索取账号密码。然后保持同一个进程会话，继续轮询，不能重跑命令。
+5. 收到 preview：把计划或同步预览完整展示给我，并记住它对应的下一次 confirmation_required；preview 本身不需要写 stdin。
+6. 收到 confirmation_required：先取得我的明确确认。确认后向 stdin 写入一行 JSON，例如 {"requestId":"plan-1","confirmed":true,"planHash":"plan-hash-1"}；实际 requestId 和 planHash 必须逐字复制当前事件，只能使用 confirmed 布尔字段，不得增加其他确认字段、遗漏 planHash 或自行批准上传。
+7. 收到 heartbeat 或 progress：继续轮询同一个会话，不要把它当成完成或失败。
+8. 每次写 stdin 后继续读取。只有 completed 才算成功；failed 时完整报告 code、message、sessionId、retryable，以及事件包含时的 resumeSessionId 和 nextAction，不要臆造缺失字段或恢复方式。
 
 完成后告诉我创建或复用的 Space、Agent、角色，以及 agentwiki MCP 连接和验证状态。若失败，保留 sessionId 并告诉我如何恢复。
 
@@ -19,9 +26,16 @@ const agentPrompt = (zh: boolean) => zh
 ${ONBOARD_COMMAND}`
   : `Please complete AgentWiki self-service onboarding for me.
 
-Start the pinned command below on this machine and act as its protocol driver. Keep reading line-delimited NDJSON from stdout, collect or confirm information with me for each event, and write a JSON reply with the same requestId to the process stdin until it emits completed or failed. Do not merely show me the command, and do not run it as an ordinary one-shot terminal command.
+Follow this protocol exactly; do not merely show me the command. Collect or confirm information with me for each event, then write a JSON reply with the same requestId back to the process stdin:
 
-For authorization_required, give me the secure authorization URL and userCode so I can sign in or register and approve in my browser. Credentials must only be entered on the web page; never ask for them in chat. For input_required, ask me for each field. For preview and confirmation_required, show me the plan or sync preview and continue only after my explicit confirmation. Never approve an upload yourself.
+1. Start the pinned command in a persistent terminal session whose stdout can be polled and whose stdin remains writable. Do not run it as a one-shot command that waits for exit. Tell me immediately that the environment is being prepared, then keep reading line-delimited NDJSON from stdout until completed or failed.
+2. The first npx run may need to install dependencies, so several minutes without stdout does not by itself mean failure. Keep the same process session and poll it; never restart because one tool call timed out or returned no output. If no first NDJSON event arrives after 5 minutes, inspect the process and stderr. Keep waiting while installation is active, and report an error only after the process exits. Never start a second onboarding process in parallel.
+3. On input_required, read fields, ask me only for missing values, and honor defaultValue. A paths field must be a string array, a choice field must use one of choices, and a string field must be a string. Once collected, write exactly one JSON line such as {"requestId":"input-1","values":{"sourcePaths":["/path/to/source"],"role":"editor"}}. Use the event's actual requestId, field names, and value types; never rename or retype them.
+4. On authorization_required, give me the url and userCode so I can sign in or register and approve only in the browser. Never ask for credentials in chat. Keep polling the same process session afterward; do not rerun the command.
+5. On preview, show me the complete plan or sync preview and retain it for the following confirmation_required event. A preview does not itself require an stdin reply.
+6. On confirmation_required, first obtain my explicit confirmation. Then write exactly one JSON line such as {"requestId":"plan-1","confirmed":true,"planHash":"plan-hash-1"}; copy the current event's actual requestId and planHash verbatim. Use only the confirmed boolean for the decision; never add another confirmation field, omit planHash, or approve an upload yourself.
+7. On heartbeat or progress, keep polling the same session; neither event means completion or failure.
+8. Continue reading after every stdin reply. Only completed means success. For failed, report code, message, sessionId, retryable, plus resumeSessionId and nextAction when present; never invent missing fields or recovery instructions.
 
 When finished, report the created or reused Space, Agent, role, and the agentwiki MCP connection and verification status. On failure, preserve the sessionId and tell me how to resume.
 

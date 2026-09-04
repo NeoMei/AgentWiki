@@ -2,17 +2,18 @@
 
 # 当前目标
 
-- Agent 自助接入提示词热修复已发布；继续由 Mac 使用隔离服务补齐 Windows 修复候选的数据库、CodeGraph 和 25 个 Playwright 验证。
+- 修复 Agent 自助接入提示词的真实协议驱动缺口并重新发布；继续由 Mac 使用隔离服务补齐 Windows 修复候选的数据库、CodeGraph 和 25 个 Playwright 验证。
 
 # 范围 / 不做
 
-- 热修复范围仅包括 Agent 自助接入页面、复制行为、双语入口文案、长期规则和权威设计；不修改 Device Auth、NDJSON 协议、npm 包或数据库。
+- 本次补救范围仅包括 Agent 自助接入提示词、消费者行为回归、长期规则和验证记录；不修改 Device Auth、NDJSON 协议、npm 包或数据库。
 - Windows 候选范围包括本地同步与进程启动、服务端授权/锁、客户端异步状态与可访问性、根脚本可移植性，以及公开页面的桌面/移动浏览器交互。
 - 不修改或提交用户已有的 `测试报告/` 内容。
 - 本机没有 PostgreSQL、Redis、Docker 或 CodeGraph 运行时，因此不伪报数据库型 E2E、已登录全栈 UI 或外部运行时集成已执行。
 
 # 当前状态
 
+- 2026-09-04 已复现已发布提示词的真实失败：新 Agent 把 `confirmation_required` 错写为 `{"requestId":"plan-1","approved":true}`，因缺少 `confirmed` 和 `planHash` 收到 `BAD_DRIVER_REPLY`。修订提示词补齐持久进程、冷启动等待和精确 stdin JSON 形状；新的 Agent 消费者已在受控 fixture 中完成两次确认并到达 `completed`。
 - 2026-09-04 Agent 自助接入提示词热修复已发布：应用提交 `ae147a4` 已推送 GitHub `master` 并部署生产；页面恢复完整 Agent 任务提示词，不再把 `--protocol ndjson` 裸命令标成普通终端命令。
 - 发布前 PostgreSQL dump、完整应用归档和 checksum 已校验；49 个 migration 无 pending，三服务 active/running 且 `NRestarts=0`，公网健康全 ok，受控 smoke 31/31。
 - 真实 Chrome 已验证桌面提示词与复制状态；390x844 下 `scrollWidth=innerWidth=390`。发布记录：`agentwiki/docs/verification/onboard-agent-prompt-hotfix-2026-09-04.md`。
@@ -47,5 +48,6 @@
 
 # 风险 / 下一步
 
+- 将消费者验收通过的提示词补救提交、推送并部署生产；部署后从生产页面重新复制提示词并核对协议形状与页面交互。
 - Mac 需要从 `origin/master` 拉取包含 `7db186b` 的候选，按交接清单提供隔离 PostgreSQL/pgvector、Redis AOF 和真实 CodeGraph，再消除数据库/真实运行时 skip 并执行 25 个 Playwright 测试。
 - Agent 自助接入热修复不涉及 npm 包，registry 继续为 `@neomei/agentwiki-local-sync@0.7.0`；不得把 Web 发布误报为 npm 新版本。

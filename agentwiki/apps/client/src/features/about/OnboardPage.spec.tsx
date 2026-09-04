@@ -44,7 +44,7 @@ describe('OnboardPage Agent-driven onboarding guide', () => {
     expect(screen.getByText(/Codex、Claude Code、OpenCode/)).toBeInTheDocument();
   });
 
-  it('renders equivalent English copy and removes the retired onboarding surface', () => {
+  it('renders and copies an equivalent English protocol prompt', async () => {
     const { container } = renderPage('en');
     const text = container.textContent || '';
 
@@ -57,6 +57,14 @@ describe('OnboardPage Agent-driven onboarding guide', () => {
     expect(text).not.toContain('Two MCP');
     expect(text).not.toContain('0.2.9');
     expect(text).not.toContain('start_knowledge_job');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1));
+    const copiedPrompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0]?.[0];
+    expect(copiedPrompt).toContain('{"requestId":"input-1","values":{"sourcePaths":["/path/to/source"],"role":"editor"}}');
+    expect(copiedPrompt).toContain('{"requestId":"plan-1","confirmed":true,"planHash":"plan-hash-1"}');
+    expect(copiedPrompt).toContain('retryable, plus resumeSessionId and nextAction when present');
+    expect(copiedPrompt).not.toContain('"approved"');
   });
 
   it('copies an executable Agent task prompt and reports blocked clipboard access', async () => {
@@ -69,6 +77,14 @@ describe('OnboardPage Agent-driven onboarding guide', () => {
     expect(copiedPrompt).toContain('请帮我完成 AgentWiki 自助接入');
     expect(copiedPrompt).toContain('持续读取 stdout 中的逐行 NDJSON');
     expect(copiedPrompt).toContain('把带相同 requestId 的 JSON 回复写回进程 stdin');
+    expect(copiedPrompt).toContain('{"requestId":"input-1","values":{"sourcePaths":["/path/to/source"],"role":"editor"}}');
+    expect(copiedPrompt).toContain('{"requestId":"plan-1","confirmed":true,"planHash":"plan-hash-1"}');
+    expect(copiedPrompt).toContain('paths 类型必须写成字符串数组');
+    expect(copiedPrompt).toContain('choice 类型只能使用 choices 中的值');
+    expect(copiedPrompt).toContain('retryable，以及事件包含时的 resumeSessionId 和 nextAction');
+    expect(copiedPrompt).not.toContain('"approved"');
+    expect(copiedPrompt).toContain('首次运行 npx 可能需要安装依赖');
+    expect(copiedPrompt).toContain('保持同一个进程会话');
     expect(await screen.findByRole('button', { name: '已复制提示词' })).toBeInTheDocument();
 
     unmount();

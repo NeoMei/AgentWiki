@@ -73,3 +73,44 @@ atomically activated the release. The previous application tree remains at
 `@neomei/agentwiki-local-sync` remains published at `0.7.0`. This web-only
 hotfix does not change the package, so no npm publication or release tag was
 required.
+
+## Corrective Agent-consumer acceptance
+
+The first release above did not satisfy the product contract: its checks proved
+that the prompt was displayed and copied, but did not prove that a fresh Agent
+could consume it. A controlled production run also showed that a cold `npx`
+install may emit no stdout for several minutes before the CLI starts.
+
+The missing reply contract was reproduced with a fresh Agent and an offline
+NDJSON fixture. After the plan preview, the Agent inferred this invalid reply:
+
+```json
+{"requestId":"plan-1","approved":true}
+```
+
+The fixture rejected it with `BAD_DRIVER_REPLY` because the real protocol
+requires `requestId`, boolean `confirmed`, and the exact `planHash` from the
+event. The corrected bilingual prompt now also preserves declared field types
+(`paths` is a string array and `choice` uses an advertised choice), keeps one
+writable process through cold-start silence and browser authorization, and
+reports the real failure fields without inventing recovery instructions.
+
+Reproducible repository gates:
+
+- `cd agentwiki && node --test scripts/onboarding-prompt-fixture.test.mjs`:
+  3/3 passed,
+  including rejection of `approved` and delayed-first-event coverage;
+- a second fresh Agent ran
+  `cd agentwiki && node scripts/onboarding-prompt-fixture.mjs`, kept the same
+  process through delayed startup, authorization wait and heartbeat, copied
+  both `requestId + confirmed + planHash` pairs, and reached `completed` with
+  connection and manifest evidence;
+- Chinese and English clipboard prompts assert the complete valid input and
+  confirmation examples and exclude an `approved` JSON field;
+- full client suite: 1,120/1,120 passed; client typecheck, lint, and production
+  build passed.
+
+The production CLI/API path was separately exercised with a disposable account,
+Space, Agent, and one-file source. It completed Device Auth, bootstrap, scan,
+both confirmations, and first sync with a `completed` event; all disposable
+production resources were deleted afterward.
