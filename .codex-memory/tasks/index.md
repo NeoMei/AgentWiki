@@ -8,6 +8,7 @@
 
 ## 最近完成
 
+- [post-sync-final-audit-2026-09-04](archive/post-sync-final-audit-2026-09-04/brief.md)：整合 GitHub onboarding 热修复后完成四轮任务/代码/全栈/真实 UI 审查，修复四类问题；`206d285` clean worktree 4266 pass / 0 fail / 3 skip，Chrome 28/28，静态、audit、CodeGraph 和精确清理通过。Mac PASS，未 push。
 - [final-release-candidate-audit-2026-09-04](archive/final-release-candidate-audit-2026-09-04/brief.md)：最终代码 `e94fa7b` 完成多轮任务、整分支代码、前后端和真实 UI 审查；工作树与 clean clone 均 4262 pass / 0 fail / 3 skip，Chrome 26/26，静态、CodeGraph、audit 和精确清理通过。Mac PASS；Windows same-code native 与 Assist 外部凭据仍为独立边界，未 push。
 - [macos-release-verification-2026-09-04](archive/macos-release-verification-2026-09-04/brief.md)：针对最后一个 Windows launcher/timeout 缺口完成第二轮 TDD 修复；`4a9ac92` clean-clone 全仓 4209/0/3、真实 CodeGraph 1/1、Chrome Playwright 25/25 及独立零 finding 复审通过，最终 PASS；仅本地提交，未 push。
 - [windows-release-readiness-2026-09-04](archive/windows-release-readiness-2026-09-04/brief.md)：Windows 缺陷报告驱动的本地同步、服务端、客户端与根脚本修复完成多轮审查；最终 4044 pass / 79 skip / 0 fail，typecheck、lint、build、零已知依赖漏洞与公开页面桌面/移动 Browser 验收通过，数据库型 E2E 因本机无隔离服务环境明确留待补验。

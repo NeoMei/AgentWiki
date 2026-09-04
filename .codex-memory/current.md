@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 将 GitHub `origin/master` 新增的 Agent 自助接入热修复与 Mac 最终审计分支安全整合，再对合并后的候选重复任务、代码、全栈和 UI 审查，直至没有值得修复的问题。
+- Mac 已完成 GitHub onboarding 热修复整合与多轮任务、代码、全栈和真实 UI 审查；当前候选为 `206d285`，等待独立授权的 GitHub push 和同 SHA Windows 复验。
 
 # 范围 / 不做
 
@@ -12,10 +12,12 @@
 
 # 当前状态
 
-- 2026-09-04 重新 fetch 后发现本地 `4866c90` 与 GitHub `origin/master@36e70c5` 分叉：本地领先 34、落后 4；已开始合并远端 Agent 自助接入提示词热修复。
-- 远端热修复已把首页默认交付物从裸 NDJSON 命令改为可复制给 Agent 的完整任务提示词，并新增真实协议消费者 fixture；远端记录显示应用提交 `f02f8c4` 已部署生产并完成真实 Chrome 验证。
-- 合并前 Mac 最终代码候选为 `e94fa7b`：工作树与 clean clone 均 4265 total / 4262 pass / 0 fail / 3 skip，Chrome 26/26；这些只作为合并前基线，不替代合并后新鲜验证。
-- 当前活跃任务：`post-sync-final-audit-2026-09-04`。
+- 远端 `origin/master@36e70c5` 通过 `79ac85c` 完成整合；本轮修复提交为 `375d4a4` 和 `206d285`。
+- 最终 detached clean worktree 全仓为 4269 total / 4266 pass / 0 fail / 3 skip，其中数据库 146/146 且零跳过；真实 Chrome Playwright 28/28。
+- typecheck、lint、build、裸 audit、真实 CodeGraph 1/1 和 diff check 全部通过；audit 为零已知漏洞。
+- 已修复提前确认 fixture 放行、390px 指南侧栏挤压、Prisma 事件断言竞争和 5000 页 legacy writer 二次方写入问题；最终重复审查无新 finding。
+- 本轮 schema/测试数据库/Redis/容器/进程/端口/临时 worktree 已精确清理；原始脏工作区和 55432 其他任务容器未触碰。
+- 当前无活跃任务；Mac 本地候选 PASS。
 
 # 稳定约束
 
@@ -31,7 +33,8 @@
 
 # 关键索引
 
-- 活跃任务：`.codex-memory/tasks/active/post-sync-final-audit-2026-09-04/`
+- 最终验收：`agentwiki/docs/verification/post-sync-final-audit-2026-09-05.md`
+- 任务归档：`.codex-memory/tasks/archive/post-sync-final-audit-2026-09-04/`
 - 合并前最终验证：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`
 - 远端热修复记录：`agentwiki/docs/verification/onboard-agent-prompt-hotfix-2026-09-04.md`
 - Windows 最终 SHA 交接：`agentwiki/docs/verification/windows-final-sha-handoff-2026-09-04.md`
@@ -39,7 +42,6 @@
 
 # 风险 / 下一步
 
-- 完成合并冲突裁决，先运行远端 onboarding focused 测试并审查合并语义，再建立隔离数据服务重跑全仓、静态、CodeGraph 和真实 Chrome UI。
-- 当前 55432 被另一个并行 AgentWiki-Obsidian 任务使用；本轮必须选择新的 loopback 端口并保持资源所有权隔离。
-- 合并后候选需要重新交给真实 Windows 11 x64 验证；Assist 真实成功仍需要有效 OpenRouter API key。
-- 最终 GitHub push、npm 发布与生产部署均需独立授权。
+- 若要继续发布，先将 `206d285` 交给真实 Windows 11 x64 完成同 SHA 复验。
+- GitHub push、npm 发布、生产备份/迁移/部署/公网验收需独立授权。
+- Assist 真实成功仍需要有效外部模型凭据。
