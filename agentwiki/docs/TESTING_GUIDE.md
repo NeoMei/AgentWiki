@@ -335,7 +335,26 @@
 
 ---
 
-## 四、快速冒烟测试脚本
+## 四、完整根门禁与快速冒烟测试
+
+发布候选验收必须使用完整根门禁；缺失任一专用 PostgreSQL/Redis
+前置变量时，门禁直接失败，不得将 DB/Redis 用例的 `skip` 计为验收通过：
+
+```bash
+DATABASE_URL='<loopback test PostgreSQL URL>' \
+FOLDER_TEST_DATABASE_URL='<loopback folder test PostgreSQL URL>' \
+MARKDOWN_TEST_DATABASE_URL='<loopback markdown test PostgreSQL URL>' \
+PAGE_TEMPLATE_TEST_DATABASE_URL='<loopback page-template test PostgreSQL URL>' \
+COLLABORATION_TEST_DATABASE_URL='<loopback collaboration test PostgreSQL URL>' \
+TEST_REDIS_URL='<loopback test Redis URL>' \
+pnpm test:full
+```
+
+`pnpm test` 和 `pnpm test:runtime` 保留无数据库服务的日常开发模式，其 DB/Redis
+`skip` 不能作为发布验收证据。`test:full` 等价于在根测试进程中设置
+`AGENTWIKI_FULL_TEST=1`。门禁错误只报告缺失的变量名，不回显 URL 或凭据。
+
+快速冒烟脚本：
 
 ```bash
 # 在仓库根目录运行；默认只允许测试本机服务

@@ -12,6 +12,13 @@ const DATABASE_TEST_EXCEPTIONS = new Set([
   'collaboration-real-agent-harness.test.mjs',
   'sync-v1-http-e2e.test.mjs',
 ]);
+const FULL_TEST_PREREQUISITES = [
+  'DATABASE_URL',
+  'FOLDER_TEST_DATABASE_URL',
+  'MARKDOWN_TEST_DATABASE_URL',
+  'PAGE_TEMPLATE_TEST_DATABASE_URL',
+  'TEST_REDIS_URL',
+];
 
 function createPlan() {
   const inventory = readdirSync(scriptsDirectory)
@@ -51,7 +58,16 @@ function runNodeTests(args) {
   return result.status ?? 1;
 }
 
+function assertFullTestPrerequisites(plan, environment = process.env) {
+  if (environment.AGENTWIKI_FULL_TEST !== '1' || plan.databaseTests.length === 0) return;
+  const missing = FULL_TEST_PREREQUISITES.filter((name) => !environment[name]?.trim());
+  if (missing.length > 0) {
+    throw new Error(`${missing.join(', ')} is required when AGENTWIKI_FULL_TEST=1`);
+  }
+}
+
 const plan = createPlan();
+assertFullTestPrerequisites(plan);
 if (command === 'plan') {
   process.stdout.write(`${JSON.stringify(plan)}\n`);
 } else if (command === 'run') {

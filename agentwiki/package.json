@@ -10,6 +10,7 @@
     "dev": "node scripts/dev-runner.mjs",
     "build": "pnpm --filter shared build && pnpm --filter @neomei/agentwiki-sync-protocol build && pnpm --filter server build && pnpm --filter client build && pnpm --filter @neomei/agentwiki-local-sync build",
     "test": "node scripts/repository-test-harness.mjs run",
+    "test:full": "node scripts/run-node-with-env.mjs AGENTWIKI_FULL_TEST=1 scripts/repository-test-harness.mjs run",
     "typecheck": "pnpm --filter @agentwiki/server typecheck && pnpm --filter @agentwiki/client exec tsc --noEmit && pnpm --filter @neomei/agentwiki-sync-protocol typecheck && pnpm --filter @neomei/agentwiki-local-sync typecheck",
     "lint": "eslint \"apps/{server,client}/src/**/*.{ts,tsx}\" \"packages/local-sync/src/**/*.ts\"",
     "test:runtime": "node scripts/runtime-test-harness.mjs run",
