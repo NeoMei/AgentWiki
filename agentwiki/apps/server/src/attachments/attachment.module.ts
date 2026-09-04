@@ -5,33 +5,19 @@ import { AuthModule } from '../core/auth/auth.module';
 import { AuthorizationModule } from '../core/authorization/authorization.module';
 import { SyncModule } from '../core/sync/sync.module';
 import { DatabaseModule } from '../database/database.module';
-import { loadAttachmentConfig, type AttachmentConfig } from './attachment.config';
+import { ATTACHMENT_CONFIG, type AttachmentConfig } from './attachment.config';
 import {
   AttachmentContentController,
   SpaceAttachmentController,
 } from './attachment.controller';
-import { ATTACHMENT_CONFIG, AttachmentService } from './attachment.service';
+import { AttachmentService } from './attachment.service';
 import { ATTACHMENT_STORAGE, type AttachmentStorage } from './attachment-storage';
 import {
   AttachmentUploadStorage,
   PostgresAttachmentCapacityCoordinator,
 } from './attachment-upload.storage';
 import { PrismaService } from '../database/prisma.service';
-import { LocalAttachmentStorage } from './local-attachment.storage';
-
-@Module({
-  imports: [ConfigModule],
-  providers: [
-    { provide: ATTACHMENT_CONFIG, useFactory: () => loadAttachmentConfig() },
-    {
-      provide: ATTACHMENT_STORAGE,
-      inject: [ATTACHMENT_CONFIG],
-      useFactory: (config: AttachmentConfig) => new LocalAttachmentStorage(config),
-    },
-  ],
-  exports: [ATTACHMENT_CONFIG, ATTACHMENT_STORAGE],
-})
-export class AttachmentStorageModule {}
+import { AttachmentStorageModule } from './attachment-storage.module';
 
 @Module({
   imports: [

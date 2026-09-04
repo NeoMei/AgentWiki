@@ -41,12 +41,14 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
       id: 'rev-1', spaceId: 'space-1', sequence: 1, schemaVersion: 'content-tree@2',
       recipeVersion: 'space-folders-v1', parentRevisionId: null, origin: 'migration',
       migrationBatchId: 'space-folders-v1:space-1',
+      attachmentCount: 0n,
       createdAt: at('2026-08-28T00:00:00.000Z'),
     }],
     ['rev-2', {
       id: 'rev-2', spaceId: 'space-1', sequence: 2, schemaVersion: 'content-tree@2',
       recipeVersion: 'space-folders-v1', parentRevisionId: 'rev-1', origin: 'change_set',
       migrationBatchId: null,
+      attachmentCount: 0n,
       createdAt: at('2026-08-29T00:00:00.000Z'),
     }],
   ]);
@@ -605,5 +607,61 @@ describe('SyncV2RevisionService', () => {
 
     await expect(service.snapshot('space-1', 'rev-1', first.nextCursor!, 1))
       .rejects.toMatchObject({ syncCode: 'CURSOR_INVALID' });
+  });
+
+  it('blocks fixed/current snapshots and delta when the target revision contains attachments', async () => {
+    const state = await fixture();
+    state.revisions.get('rev-2').attachmentCount = 1n;
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+    await expect(state.service.snapshot('space-1', 'current', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+    await expect(state.service.delta('space-1', 'rev-1', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
+  });
+
+  it('returns a v2 projection hash instead of a native v3 authority hash when attachments are absent', async () => {
+    const state = await fixture();
+    const revision = state.revisions.get('rev-2');
+    revision.schemaVersion = 'content-tree@3';
+    revision.recipeVersion = 'referenced-images-v1';
+    revision.revisionContentHash = 'f'.repeat(64);
+    revision.contentHash = 'f'.repeat(64);
+
+    const response = await state.service.head('space-1');
+
+    expect(response.revisionContentHash).not.toBe(revision.revisionContentHash);
+    expect(response.revisionContentHash).toBe(await treeRevisionContentHashV2(
+      canonicalTreeRevisionManifestV2({
+        protocolVersion: '2', spaceId: 'space-1',
+        folders: state.foldersByRevision.get('rev-2')!.map((folder) => ({
+          folderId: folder.folderId, parentFolderId: folder.parentFolderId,
+          name: folder.name, path: folder.path, sortOrder: folder.sortOrder,
+          updatedAt: folder.updatedAt.toISOString(),
+        })),
+        pages: state.pagesByRevision.get('rev-2')!.map((item) => ({
+          pageId: item.pageId, folderId: item.folderId, path: item.path,
+          title: item.title, body: item.content.body, contentHash: item.contentHash,
+          updatedAt: item.updatedAt.toISOString(),
+        })),
+      }),
+    ));
+  });
+
+  it('blocks the current legacy endpoint while Markdown attachment candidates require bootstrap', async () => {
+    const state = await fixture();
+    const v3Writer = {
+      inspectCurrentLocked: jest.fn().mockResolvedValue({ mode: 'bootstrap_required' }),
+    };
+    const service = new SyncV2RevisionService(
+      state.prisma,
+      state.cursors as any,
+      { capabilitiesV2: () => ({ maxResponseBytes: 4_194_304, maxDeltaItems: 15_000 }) } as any,
+      v3Writer as any,
+    );
+
+    await expect(service.head('space-1'))
+      .rejects.toMatchObject({ syncCode: 'SYNC_PROTOCOL_UPGRADE_REQUIRED' });
   });
 });

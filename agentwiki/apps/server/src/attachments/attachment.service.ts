@@ -5,7 +5,7 @@ import { AuthorizationService, type Principal } from '../core/authorization/auth
 import { BusinessException } from '../core/filters/business-error';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { PrismaService } from '../database/prisma.service';
-import type { AttachmentConfig } from './attachment.config';
+import { ATTACHMENT_CONFIG, type AttachmentConfig } from './attachment.config';
 import { type AttachmentListQueryDto, type AttachmentStateDto, type AttachmentSummary } from './attachment.dto';
 import {
   ATTACHMENT_STORAGE,
@@ -20,8 +20,7 @@ import {
   validateUploadedImage,
   type PreparedAttachment,
 } from './attachment-validator';
-
-export const ATTACHMENT_CONFIG = 'ATTACHMENT_CONFIG';
+import { normalizeAttachmentName } from './attachment-name';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const WRITE_ROLES = ['owner', 'editor'] as const;
@@ -66,11 +65,6 @@ function attachCleanupFailure(primary: unknown, cleanup: unknown): void {
   } catch {
     // Preserve a frozen transaction error as the primary failure.
   }
-}
-
-export function normalizeAttachmentName(value: string): { displayName: string; nameKey: string } {
-  const displayName = value.normalize('NFC').trim();
-  return { displayName, nameKey: displayName.toLocaleLowerCase('und') };
 }
 
 function suffixedName(displayName: string, suffix: number): string {

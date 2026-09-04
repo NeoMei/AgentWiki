@@ -31,6 +31,7 @@ import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { ContentTreeService } from '../../content-tree/content-tree.service';
 import { ContentTreeError, type ContentTreeErrorCode } from '../../content-tree/content-tree.types';
 import { lockContentStore } from '../../core/sync/content-store-lock';
+import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 
 const SESSION_TTL_MS = 900 * 1_000;
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -91,6 +92,7 @@ export class PushSessionService {
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly graphMaintenance?: GraphMaintenance,
     @Optional() private readonly syncCapabilities?: SyncCapabilitiesService,
+    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
   ) {}
 
   async create(principal: HumanDevicePrincipal, spaceId: string, input: {
@@ -195,48 +197,59 @@ export class PushSessionService {
       throw this.v2Error('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
     }
     await this.assertSessionCreateRate(principal, spaceId);
-    const existing = await this.prisma.pushSession.findUnique({
-      where: { credentialFamilyId_idempotencyKey: {
-        credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey,
-      } },
-    });
-    if (existing) {
-      this.assertV2IdempotencyBinding(existing, principal, spaceId, input);
-      await this.assertV2Session(existing);
-      if (existing.credentialId !== principal.credentialId && existing.status !== 'published') {
-        throw this.v2Error('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
-      }
-      return this.sessionResponseV2(existing);
-    }
-    await this.assertPublishableV2(principal, spaceId);
     if (input.capabilitiesHash !== await this.capabilityHashV2()) {
       throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
     }
-    const head = await this.prisma.spaceKnowledgeRevision.findFirst({
-      where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },
-    });
-    if (input.baseRevision !== (head?.id ?? '0')) throw this.v2Error('BASE_STALE', 'base revision is not the current head');
     try {
-      const session = await this.prisma.pushSession.create({
-        data: {
-          id: randomUUID(), credentialFamilyId: principal.credentialFamilyId,
-          protocolVersion: '2',
-          credentialId: principal.credentialId, userId: principal.userId, spaceId,
-          baseRevisionId: input.baseRevision, idempotencyKey: input.idempotencyKey,
-          status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
-          capabilitiesHash: input.capabilitiesHash, confirmationHash: input.confirmationHash,
-          confirmationByteLength: input.confirmationByteLength, changeCount: input.changeCount,
-          totalBodyBytes: BigInt(input.totalBodyBytes), expiresAt: new Date(Date.now() + SESSION_TTL_MS),
-        },
-      });
-      return this.sessionResponseV2(session);
-    } catch (error) {
-      if ((error as any)?.code === 'P2002') {
-        const raced = await this.prisma.pushSession.findUnique({
+      return await this.prisma.$transaction(async (tx) => {
+        const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+        await this.assertPublishableV2InTx(lockedTx, principal, spaceId);
+        await this.assertLegacyV3CompatibleInTx(lockedTx, spaceId, '2');
+        const existing = await lockedTx.pushSession.findUnique({
           where: { credentialFamilyId_idempotencyKey: {
             credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey,
           } },
         });
+        if (existing) {
+          this.assertV2IdempotencyBinding(existing, principal, spaceId, input);
+          await this.assertV2Session(existing);
+          if (existing.credentialId !== principal.credentialId && existing.status !== 'published') {
+            throw this.v2Error('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
+          }
+          return this.sessionResponseV2(existing);
+        }
+        const head = await lockedTx.spaceKnowledgeRevision.findFirst({
+          where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },
+        });
+        if (input.baseRevision !== (head?.id ?? '0')) {
+          throw this.v2Error('BASE_STALE', 'base revision is not the current head');
+        }
+        const session = await lockedTx.pushSession.create({
+          data: {
+            id: randomUUID(), credentialFamilyId: principal.credentialFamilyId,
+            protocolVersion: '2',
+            credentialId: principal.credentialId, userId: principal.userId, spaceId,
+            baseRevisionId: input.baseRevision, idempotencyKey: input.idempotencyKey,
+            status: input.changeCount === 0 ? 'ready_to_finalize' : 'uploading',
+            capabilitiesHash: input.capabilitiesHash, confirmationHash: input.confirmationHash,
+            confirmationByteLength: input.confirmationByteLength, changeCount: input.changeCount,
+            totalBodyBytes: BigInt(input.totalBodyBytes), expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+          },
+        });
+        return this.sessionResponseV2(session);
+      }, { isolationLevel: 'ReadCommitted' });
+    } catch (error) {
+      if ((error as any)?.code === 'P2002') {
+        const raced = await this.prisma.$transaction(async (tx) => {
+          const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
+          await this.assertPublishableV2InTx(lockedTx, principal, spaceId);
+          await this.assertLegacyV3CompatibleInTx(lockedTx, spaceId, '2');
+          return lockedTx.pushSession.findUnique({
+            where: { credentialFamilyId_idempotencyKey: {
+              credentialFamilyId: principal.credentialFamilyId, idempotencyKey: input.idempotencyKey,
+            } },
+          });
+        }, { isolationLevel: 'ReadCommitted' });
         if (raced) {
           this.assertV2IdempotencyBinding(raced, principal, spaceId, input);
           await this.assertV2Session(raced);
@@ -940,6 +953,7 @@ export class PushSessionService {
   }
 
   private async assertV1CompatibleInTx(tx: any, spaceId: string): Promise<void> {
+    await this.assertLegacyV3CompatibleInTx(tx, spaceId, '1');
     const [activeFolders, placedPages] = await Promise.all([
       tx.folder.count({ where: { spaceId, deletedAt: null } }),
       tx.page.count({ where: { spaceId, deletedAt: null, folderId: { not: null } } }),
@@ -948,6 +962,23 @@ export class PushSessionService {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',
         'This Space contains Folder structure and requires Sync Protocol v2',
+      );
+    }
+  }
+
+  private async assertLegacyV3CompatibleInTx(
+    tx: any,
+    spaceId: string,
+    protocolVersion: '1' | '2',
+  ): Promise<void> {
+    if (!this.v3Writer) return;
+    const inspection = await this.v3Writer.inspectCurrentLocked(tx, spaceId);
+    if (inspection.mode !== 'legacy_v2') {
+      throw new SyncApiException(
+        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        'This Space requires Sync v3',
+        undefined,
+        protocolVersion,
       );
     }
   }

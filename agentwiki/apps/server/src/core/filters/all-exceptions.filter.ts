@@ -9,6 +9,8 @@ import {
 import { getBusinessCode } from './business-error';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
+import { SyncV3ErrorEnvelopeSchema } from '@neomei/agentwiki-sync-protocol';
+import { SyncApiException } from '../../integrations/obsidian/sync-error';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -32,6 +34,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const request = ctx.getRequest();
     const response = ctx.getResponse();
+    const isSyncV3 = /(?:^|\/)sync\/v3(?:\/|\?|$)/u.test(String(request.url ?? ''));
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string = 'Internal server error';
@@ -42,19 +45,36 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode = exception.getStatus();
       const responseBody = exception.getResponse();
       if (typeof responseBody === 'object' && responseBody !== null && 'protocolVersion' in responseBody) {
-        // Sync v1 error envelope must be returned verbatim with Retry-After on 429.
+        // Versioned sync errors are returned verbatim only when the strict v3
+        // contract accepts them. Older protocols retain their established
+        // envelope until their compatibility window closes.
         const body = responseBody as Record<string, any>;
-        this.logger.error(
-          `[${request.method}] ${request.url} - ${statusCode}: ${body?.error?.message ?? exception.message}`,
-        );
-        const headers: Record<string, string> = {};
-        if (statusCode === HttpStatus.TOO_MANY_REQUESTS) {
-          headers['Retry-After'] = '1';
+        const strictV3 = SyncV3ErrorEnvelopeSchema.safeParse(body);
+        if ((isSyncV3 || body.protocolVersion === '3') && !strictV3.success) {
+          const safeException = new SyncApiException(
+            'INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3',
+          );
+          const safeBody = SyncV3ErrorEnvelopeSchema.parse(safeException.getResponse());
+          this.logger.error(
+            `[${request.method}] ${request.url} - ${safeException.getStatus()}: Sync v3 request failed safely`,
+          );
+          httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+          httpAdapter.reply(response, safeBody, safeException.getStatus());
+          return;
+        } else {
+          const responseEnvelope = strictV3.success ? strictV3.data : body;
+          this.logger.error(
+            `[${request.method}] ${request.url} - ${statusCode}: ${body?.error?.message ?? exception.message}`,
+          );
+          const headers: Record<string, string> = {};
+          if (statusCode === HttpStatus.TOO_MANY_REQUESTS) {
+            headers['Retry-After'] = '1';
+          }
+          httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+          if (headers['Retry-After']) httpAdapter.setHeader(response, 'Retry-After', headers['Retry-After']);
+          httpAdapter.reply(response, responseEnvelope, statusCode);
+          return;
         }
-        httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
-        if (headers['Retry-After']) httpAdapter.setHeader(response, 'Retry-After', headers['Retry-After']);
-        httpAdapter.reply(response, body, statusCode);
-        return;
       }
       if (typeof responseBody === 'string') {
         message = responseBody;
@@ -96,6 +116,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       message = exception.message;
       error = exception.name;
+    }
+
+    if (isSyncV3) {
+      const safeException = statusCode === HttpStatus.BAD_REQUEST
+        ? new SyncApiException('PAYLOAD_INVALID', 'Invalid Sync v3 request', undefined, '3')
+        : new SyncApiException('INTERNAL_ERROR', 'Sync v3 request failed', undefined, '3');
+      const safeBody = SyncV3ErrorEnvelopeSchema.parse(safeException.getResponse());
+      this.logger.error(
+        `[${request.method}] ${request.url} - ${safeException.getStatus()}: Sync v3 request failed safely`,
+      );
+      httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+      httpAdapter.reply(response, safeBody, safeException.getStatus());
+      return;
     }
 
     const isProduction = process.env.NODE_ENV === 'production';

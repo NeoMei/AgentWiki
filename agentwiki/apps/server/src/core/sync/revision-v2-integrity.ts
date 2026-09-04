@@ -79,6 +79,7 @@ export interface RevisionV2ScalarMetadata extends RevisionChainHashNode {
   revisionBodyBytes: bigint;
   migrationBatchId: string | null;
   origin: string | null;
+  attachmentCount: bigint;
 }
 
 /** Prevent immutable readers/writers from hydrating legacy snapshot/delta JSON. */
@@ -95,6 +96,7 @@ export const REVISION_V2_SCALAR_SELECT = {
   revisionBodyBytes: true,
   migrationBatchId: true,
   origin: true,
+  attachmentCount: true,
   createdAt: true,
 } as const;
 

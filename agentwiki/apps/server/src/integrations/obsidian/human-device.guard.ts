@@ -22,13 +22,21 @@ export class HumanDeviceGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    const protocolVersion = String(request.originalUrl ?? request.url ?? '').includes('/sync/v3/')
+      ? '3' as const
+      : String(request.originalUrl ?? request.url ?? '').includes('/sync/v2/')
+        ? '2' as const
+        : '1' as const;
+    const error = (code: 'AUTHENTICATION_REQUIRED' | 'USER_INACTIVE' | 'DEVICE_CREDENTIAL_EXPIRED' | 'DEVICE_CREDENTIAL_REVOKED', message: string) => (
+      new SyncApiException(code, message, undefined, protocolVersion)
+    );
     const header = String(request.headers.authorization || '');
     if (!header.startsWith('Bearer ')) {
-      throw new SyncApiException('AUTHENTICATION_REQUIRED', 'Bearer credential required');
+      throw error('AUTHENTICATION_REQUIRED', 'Bearer credential required');
     }
     const credential = header.slice('Bearer '.length).trim();
     if (!credential) {
-      throw new SyncApiException('AUTHENTICATION_REQUIRED', 'Bearer credential required');
+      throw error('AUTHENTICATION_REQUIRED', 'Bearer credential required');
     }
     const credentialHash = this.crypto.credentialHash(credential);
     const record = await this.prisma.humanDeviceCredential.findUnique({
@@ -36,10 +44,10 @@ export class HumanDeviceGuard implements CanActivate {
       include: { user: { select: { deletedAt: true, lockedAt: true, type: true, platformRole: true } } },
     });
     if (!record) {
-      throw new SyncApiException('AUTHENTICATION_REQUIRED', 'Device credential not found');
+      throw error('AUTHENTICATION_REQUIRED', 'Device credential not found');
     }
     if (record.user.deletedAt || record.user.lockedAt || record.user.type !== 'human') {
-      throw new SyncApiException('USER_INACTIVE', 'User account is unavailable');
+      throw error('USER_INACTIVE', 'User account is unavailable');
     }
     const now = new Date();
     if (record.status === 'provisional') {
@@ -48,12 +56,12 @@ export class HumanDeviceGuard implements CanActivate {
           where: { id: record.id },
           data: { status: 'expired' },
         });
-        throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Provisional device credential has expired');
+        throw error('DEVICE_CREDENTIAL_EXPIRED', 'Provisional device credential has expired');
       }
     } else if (record.status === 'expired') {
-      throw new SyncApiException('DEVICE_CREDENTIAL_EXPIRED', 'Device credential has expired');
+      throw error('DEVICE_CREDENTIAL_EXPIRED', 'Device credential has expired');
     } else if (record.status !== 'active') {
-      throw new SyncApiException('DEVICE_CREDENTIAL_REVOKED', 'Device credential is not active');
+      throw error('DEVICE_CREDENTIAL_REVOKED', 'Device credential is not active');
     }
     await this.prisma.humanDeviceCredential.update({
       where: { id: record.id },

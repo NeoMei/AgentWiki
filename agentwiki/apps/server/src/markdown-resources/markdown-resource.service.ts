@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { pathKey, validatePortablePath } from '@neomei/agentwiki-sync-protocol';
 import { Prisma } from '@prisma/client';
-import { normalizeAttachmentName } from '../attachments/attachment.service';
+import { normalizeAttachmentName } from '../attachments/attachment-name';
 import { ContentTreeError } from '../content-tree/content-tree.types';
 import {
   AuthorizationService,
@@ -13,6 +13,11 @@ import {
   type ResolvedMarkdownResource,
   normalizeMarkdownPageIdentity,
 } from './markdown-resource.dto';
+import {
+  parseImageReferences,
+  resolveParsedAttachmentReferences,
+  type ResolvedAttachmentReferences,
+} from './attachment-reference';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const IMAGE_EXTENSION = /\.(?:png|jpe?g|webp|gif)$/iu;
@@ -126,6 +131,39 @@ export class MarkdownResourceService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
   ) {}
+
+  async resolveReferencedAttachments(input: {
+    spaceId: string;
+    sourceSyncPath: string;
+    body: string;
+  }, reader: Pick<Prisma.TransactionClient, 'spaceAttachment'> = this.prisma): Promise<ResolvedAttachmentReferences> {
+    return (await this.resolveReferencedAttachmentsBatch([input], reader))[0]!;
+  }
+
+  async resolveReferencedAttachmentsBatch(inputs: Array<{
+    spaceId: string;
+    sourceSyncPath: string;
+    body: string;
+  }>, reader: Pick<Prisma.TransactionClient, 'spaceAttachment'> = this.prisma): Promise<ResolvedAttachmentReferences[]> {
+    const spaceId = inputs[0]?.spaceId;
+    if (inputs.some((input) => input.spaceId !== spaceId)) {
+      throw new Error('Attachment reference batch must belong to one Space');
+    }
+    const parsed = inputs.map((input) => parseImageReferences(input.body, input.sourceSyncPath));
+    const targetNameKeys = [...new Set(parsed.flatMap((references) => references.flatMap((reference) => (
+      reference.classification === 'managed_candidate' && reference.resolvedPath !== null
+        ? [normalizeAttachmentName(reference.resolvedPath.slice('assets/'.length)).nameKey]
+        : []
+    ))))].sort();
+    const attachments = targetNameKeys.length > 0 && spaceId
+      ? await reader.spaceAttachment.findMany({
+          where: { spaceId, status: 'active', nameKey: { in: targetNameKeys } },
+          select: { id: true, displayName: true, nameKey: true },
+          orderBy: [{ nameKey: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+    return parsed.map((references) => resolveParsedAttachmentReferences(references, attachments));
+  }
 
   async resolve(
     spaceId: string,

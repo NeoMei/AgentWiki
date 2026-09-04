@@ -52,6 +52,7 @@ export class SyncV1Controller {
         orderBy: { createdAt: 'asc' },
       });
       const spaces = await Promise.all(allSpaces.map(async (space) => {
+        await this.capabilities.assertV1Compatible(space.id);
         const head = await this.revisions.head(space.id);
         return {
           spaceId: space.id,
@@ -74,6 +75,7 @@ export class SyncV1Controller {
       orderBy: { createdAt: 'asc' },
     });
     const spaces = await Promise.all(memberships.map(async (membership) => {
+      await this.capabilities.assertV1Compatible(membership.spaceId);
       const head = await this.revisions.head(membership.spaceId);
       return {
         spaceId: membership.spaceId,

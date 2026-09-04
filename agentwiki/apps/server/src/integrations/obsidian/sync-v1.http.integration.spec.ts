@@ -12,6 +12,7 @@ import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { PushSessionService } from './push-session.service';
 import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
+import { SyncApiException } from './sync-error';
 
 describe('sync v1 HTTP contract', () => {
   let app: INestApplication;
@@ -192,5 +193,30 @@ describe('sync v1 HTTP contract', () => {
       pageCount: '0', revisionManifestByteLength: '0', revisionBodyBytes: '0',
       publishedAt: null,
     });
+  });
+
+  it.each([
+    ['current head', 'head', '/sync/v1/spaces/space-1/head'],
+    ['fixed snapshot', 'snapshotPage', '/sync/v1/spaces/space-1/snapshot?revision=rev-attached'],
+    ['delta whose fixed endpoint has an attachment', 'deltaPage', '/sync/v1/spaces/space-1/delta?from=0'],
+  ])('returns the v1 upgrade envelope for %s', async (_name, method, path) => {
+    const reader: any = app.get(SyncRevisionService);
+    if (method === 'snapshotPage') {
+      reader.resolveRevision.mockResolvedValueOnce('rev-attached');
+    }
+    reader[method].mockRejectedValueOnce(new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+      'This revision requires Sync v3',
+      undefined,
+      '1',
+    ));
+
+    const response = await fetch(`${baseUrl}${path}`, { headers: { Authorization: 'Bearer device-secret' } });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      protocolVersion: '1',
+      error: expect.objectContaining({ code: 'SYNC_PROTOCOL_UPGRADE_REQUIRED', retryable: false }),
+    }));
   });
 });

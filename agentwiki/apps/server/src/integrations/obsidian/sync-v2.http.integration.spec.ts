@@ -10,6 +10,7 @@ import { SyncV2Controller } from './sync-v2.controller';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
 import { PushSessionService } from './push-session.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
+import { SyncApiException } from './sync-error';
 
 describe('sync v2 HTTP contract', () => {
   let app: INestApplication;
@@ -193,5 +194,26 @@ describe('sync v2 HTTP contract', () => {
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe('PAYLOAD_INVALID');
     expect(pushSessions.finalizeV2).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['current head', 'head', '/sync/v2/spaces/space-1/head'],
+    ['fixed snapshot', 'snapshot', '/sync/v2/spaces/space-1/snapshot?revision=rev-attached'],
+    ['delta whose fixed endpoint has an attachment', 'delta', '/sync/v2/spaces/space-1/delta?from=0'],
+  ])('returns the v2 upgrade envelope for %s', async (_name, method, path) => {
+    (revisions as any)[method].mockRejectedValueOnce(new SyncApiException(
+      'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+      'This revision requires Sync v3',
+      undefined,
+      '2',
+    ));
+
+    const response = await fetch(`${baseUrl}${path}`, { headers: auth });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      protocolVersion: '2',
+      error: expect.objectContaining({ code: 'SYNC_PROTOCOL_UPGRADE_REQUIRED', retryable: false }),
+    }));
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canonicalBytes,
@@ -27,6 +27,7 @@ import {
   revisionShouldBeV2,
   validateRevisionChainTrust,
 } from '../../core/sync/revision-v2-integrity';
+import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -74,6 +75,7 @@ export class SyncV2RevisionService {
     private readonly prisma: PrismaService,
     private readonly cursors: SyncCursorService,
     private readonly capabilities: SyncCapabilitiesService,
+    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
   ) {}
 
   async head(spaceId: string) {
@@ -217,6 +219,17 @@ export class SyncV2RevisionService {
     spaceId: string,
     revisionRef: string,
   ): Promise<LoadedRevision> {
+    if (revisionRef === 'current' && this.v3Writer) {
+      const inspection = await this.v3Writer.inspectCurrentLocked(tx as any, spaceId);
+      if (inspection.mode === 'bootstrap_required') {
+        throw new SyncApiException(
+          'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+          'Current Space content requires Sync v3',
+          undefined,
+          '2',
+        );
+      }
+    }
     if (revisionRef === '0') {
       return {
         revision: '0', sequence: 0, publishedAt: null,
@@ -238,6 +251,18 @@ export class SyncV2RevisionService {
     if (revision.spaceId !== spaceId) {
       throw new SyncApiException('REVISION_GONE', 'Revision is not available', undefined, '2');
     }
+    if (revision.attachmentCount > 0n) {
+      throw new SyncApiException(
+        'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+        'This revision requires Sync v3',
+        undefined,
+        '2',
+      );
+    }
+    const isNativeV3 = revision.schemaVersion === 'content-tree@3'
+      && revision.recipeVersion === 'referenced-images-v1';
+    const isKnownLegacy = (revision.schemaVersion === 'knowledge-bundle@1' && revision.recipeVersion === 'none')
+      || (revision.schemaVersion === 'content-tree@2' && revision.recipeVersion === 'space-folders-v1');
     try {
       const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
         this.rebuildImmutableManifest(tx, spaceId, revision.id),
@@ -308,7 +333,15 @@ export class SyncV2RevisionService {
         migrationBatchId: revision.migrationBatchId,
         parentShouldBeV2,
       });
-      if (shouldBeV2) {
+      if (!isNativeV3 && !isKnownLegacy && !shouldBeV2) {
+        throw new SyncApiException(
+          'SYNC_PROTOCOL_UPGRADE_REQUIRED',
+          'Revision uses a newer or unsupported Sync protocol',
+          undefined,
+          '2',
+        );
+      }
+      if (shouldBeV2 && !isNativeV3) {
         this.assertV2Metadata(revision, immutable, sidecarRow, deltaRows);
         let parentManifest: TreeRevisionContentManifestV2 | null = null;
         if (parentRevision && parentEvidence && parentShouldBeV2) {

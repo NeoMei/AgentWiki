@@ -14,7 +14,7 @@ import {
   ATTACHMENT_STORAGE,
   type AttachmentStorage,
 } from './attachment-storage';
-import { ATTACHMENT_CONFIG } from './attachment.service';
+import { ATTACHMENT_CONFIG } from './attachment.config';
 
 const BATCH_SIZE = 100;
 const ORPHAN_SCAN_VISIT_LIMIT = 100;

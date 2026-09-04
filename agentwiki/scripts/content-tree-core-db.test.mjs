@@ -23,7 +23,7 @@ const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
-const REVIEWED_MIGRATION_TREE_SHA256 = 'aea568306ebeb5ce70977a19b205cdb8c2d8bed0bc434e49a2e82a15d477c32e';
+const REVIEWED_MIGRATION_TREE_SHA256 = 'a9df765539a99252a6547a83a80549fcce2d109d395e4b7a595cf6bb07a622bc';
 
 const folderPgDumpFixture = (token, body) => `--\n-- PostgreSQL database dump\n--\n\n\\restrict ${token}\n\n${body}\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ${token}\n\n`;
 
