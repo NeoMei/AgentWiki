@@ -8,7 +8,7 @@
 
 ## 最近完成
 
-- [macos-release-verification-2026-09-04](archive/macos-release-verification-2026-09-04/brief.md)：针对 `23a25f8` 完成最终审查修复、Mac clean-clone 全仓 4208/0/3、真实 CodeGraph 1/1、Chrome Playwright 25/25、零已知依赖漏洞与精确 schema/附件/进程组/容器/端口清理，最终 PASS；代码与证据仅本地提交，未 push。
+- [macos-release-verification-2026-09-04](archive/macos-release-verification-2026-09-04/brief.md)：针对最后一个 Windows launcher/timeout 缺口完成第二轮 TDD 修复；`4a9ac92` clean-clone 全仓 4209/0/3、真实 CodeGraph 1/1、Chrome Playwright 25/25 及独立零 finding 复审通过，最终 PASS；仅本地提交，未 push。
 - [windows-release-readiness-2026-09-04](archive/windows-release-readiness-2026-09-04/brief.md)：Windows 缺陷报告驱动的本地同步、服务端、客户端与根脚本修复完成多轮审查；最终 4044 pass / 79 skip / 0 fail，typecheck、lint、build、零已知依赖漏洞与公开页面桌面/移动 Browser 验收通过，数据库型 E2E 因本机无隔离服务环境明确留待补验。
 - [page-template-library](archive/page-template-library/brief.md)：单页系统模板与 Space 自定义模板完成多轮任务/代码/全栈/UI 审查、GitHub 推送、生产双备份、第 43 个迁移与公网真实 Chrome 验收；npm 包无差异，未发布 npm。
 - [collaboration-agent-preparation](archive/collaboration-agent-preparation/brief.md)：协作向导内 Agent 准备、接入、映射与权限闭环已完成 GitHub 和生产发布；双备份、727 文件哈希、服务/迁移/公网健康及桌面/390px 已登录 Browser 验收全部通过。

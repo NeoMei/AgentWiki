@@ -6,8 +6,8 @@
 
 ## 当前状态
 
-- 2026-09-04 完成最终审查修复波，最终结论 PASS；已测试代码为 `23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`。
-- clean clone 全仓 4208 pass / 0 fail / 3 个平台或显式 opt-in skip（4211 total）；typecheck、lint、build、裸 audit 与数据库/Redis skip gate 均通过。
+- 2026-09-04 完成第二轮定点修复，最后一个 Windows launcher/timeout 缺口关闭，最终结论 PASS；已测试代码为 `4a9ac92`。
+- clean clone 全仓 4209 pass / 0 fail / 3 个平台或显式 opt-in skip（4212 total）；typecheck、lint、build 通过；同 lockfile 裸 audit 成功为零已知漏洞，clean clone 审计受 npm bulk API 超时影响。
 - 真实 CodeGraph standard scan 1/1；真实 Chrome Playwright 25/25，单 worker、无 retry。
 - protected public digest `79642c9fc9d560bdbadd4828bcb75b6796a0a56ec1c45638d1e6d9ddd2b0e2e3` 不变；所有目标前缀 schema 为 0；进程组、容器、四个端口和原附件路径均完成精确清理。
 - 正式证据：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`。
@@ -23,4 +23,5 @@
 
 - 四项完成条件全部满足，任务从 active 转入 archive。
 - 附件没有 broad 删除，保存在 `/Users/neomei/.Trash/agentwiki-macos-finalfix.pG4uH2/agentwiki-mac-attachments.F8pAW8`，可恢复。
+- 独立只读最终复审为 Critical 0 / Important 0 / Minor 0，Ready to merge: Yes。
 - 任务创建本地代码提交与独立证据提交；未 push、未发布 npm、未部署生产。

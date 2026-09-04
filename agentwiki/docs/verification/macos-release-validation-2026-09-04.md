@@ -180,3 +180,23 @@ RED 共 15 个失败 case（launcher 2、server 11、pg_dump 1、真实 Markdown
 ## 发布判断
 
 针对代码提交 `23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`，最终 required gates 均有零失败证据，外部前提齐全，三项 skip 均不是缺失数据库/Redis/Playwright/CodeGraph，隔离资源已精确清理，因此 macOS 发布验证结论为 **PASS**。这不是 npm 发布或生产部署证据；本任务按最终审查要求保持未 push，交由控制器做整分支终审。
+
+---
+
+## 第二轮定点修复与最终复审
+
+整分支最终 scoped re-review 在上述 PASS 之后发现一个遗留 Important：`scripts/readable-sync-path-migration-db.test.mjs` 仍直接执行 `spawnSync('pnpm', ...)`，Windows 可能无法启动 `.cmd` shim，且 Prisma migrate 无超时上限。因此上述结论被暂停，直到本轮完成。
+
+- TDD RED：新增调用方契约后 `node --test scripts/node-runtime-contract.test.mjs` 为 31 pass / 1 fail，失败精确指向缺少 `spawnPnpmSync` + `boundedMigrationOptions`。
+- GREEN：仅将该 Prisma migrate 调用切换到现有跨平台 helper；契约测试 32/32，真实 PostgreSQL readable-path DB gate 2/2。
+- 验证计划同步增加绝对且可执行 `PG_DUMP_BIN` 的 fail-closed 前置检查。
+- 最终代码提交：`4a9ac92` (`fix(test): bound readable-path migration launcher`)；3 files，18 insertions，4 deletions。
+- `git clone --no-local` 得到全新 detached clean clone，精确 checkout `4a9ac92`；`pnpm install --frozen-lockfile` 成功，6 workspaces / 1115 packages。
+- clean clone 根 `pnpm test` exit 0：**4212 total = 4209 pass / 0 fail / 3 skip**。runtime parallel 168 total / 167 pass / 1 skip，runtime DB serial 139/139，server 1849 pass / 1 skip，client 1120/1120，sync-protocol 57/57，local-sync 877 pass / 1 skip。
+- clean clone `pnpm typecheck`、`pnpm lint`、`pnpm build`、`git diff --check` 均 exit 0；构建仅有既有 Vite chunk-size warning。
+- 真实 CodeGraph 1.6.0 standard scan 在 `4a9ac92` 上 1/1，零 skip。
+- 裸 `pnpm audit` 在实现工作树上使用同一 lockfile 成功：`No known vulnerabilities found`。clean clone 的 3 次原样命令均在官方 npm bulk API 标准三次请求重试后超时；未修改 registry、lockfile 或忽略审计。
+- 本轮只改变 test harness、其回归测试与验证文档，未改变应用运行时；上轮 Chrome Playwright 25/25 证据继续适用。
+- 独立只读复审 `821a0b1..4a9ac92`：Critical 0 / Important 0 / Minor 0，`Ready to merge: Yes`。
+
+最终 authoritative 代码基线更新为 `4a9ac92`。该基线关闭了最后一个 Windows 跨平台门禁缺口，Mac 全套验证仍为 **PASS**；推送、npm 发布与生产部署仍是独立动作。

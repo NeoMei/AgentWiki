@@ -7,13 +7,14 @@
 - Playwright 基线：7 files / 25 tests，可收集但 Windows 缺少真实数据库栈。
 - Redis 持久性要求：`agentwiki/docs/operations/redis-audit-durability.md`
 - CodeGraph 验收说明：`agentwiki/docs/verification/codegraph-standard-scan-cutover.md`
-- 最终已测试代码：`23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`
+- 最终已测试代码：`4a9ac92`
 - macOS 正式验证记录：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`
 - Task 1-5 准确证据：`.superpowers/sdd/2026-09-04-macos-release-verification/task-{1,2,3,4,5}-report.md`
 - Task 5 清理句柄：`.superpowers/sdd/2026-09-04-macos-release-verification/task-5-runtime.env`
 - protected public inventory digest：`79642c9fc9d560bdbadd4828bcb75b6796a0a56ec1c45638d1e6d9ddd2b0e2e3`
 - CodeGraph 完整输出：`.superpowers/sdd/2026-09-04-macos-release-verification/artifacts/task-4-codegraph-standard-scan.log`
 - 最终修复报告：`.superpowers/sdd/2026-09-04-macos-release-verification/final-fix-report.md`
+- 第二轮最终修复报告：`.superpowers/sdd/2026-09-04-macos-release-verification/round2-final-fix-report.md`
 - 最终 clean-clone 全仓：`/tmp/agentwiki-mac-finalfix-pnpm-test.log`
 - 最终 CodeGraph：`/tmp/agentwiki-mac-finalfix-codegraph.log`
 - 最终 Playwright：`/tmp/agentwiki-mac-finalfix-playwright.log`

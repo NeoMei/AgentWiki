@@ -9,5 +9,6 @@
 - 原始 `agentwiki_test.public` 的 63 张诊断污染表保留到 disposable PostgreSQL 容器销毁，不在共享式运行期间单独清理，也不掩盖为 clean。
 - Task 5 清理以完整 PGID 实时成员、命令、CWD 和 listener 归属为门禁；只有全部与快照一致后才允许组级 TERM。
 - 临时附件不做 broad `rm`，只将精确随机目录移动到唯一废纸篓 bucket；原路径消失即满足清理，可恢复副本保留。
-- 最终 PASS 只针对已测试代码 `23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`；证据文档随后独立提交，push 交由控制器终审决定。
+- 最终 PASS 只针对已测试代码 `4a9ac92`；证据文档随后独立提交，push 仍是用户的集成选择。
+- 整分支首轮最终复审留下的 readable-path DB gate 问题是发布阻断项；第二轮必须以 TDD 关闭 Windows JS-entry launcher 和 90 秒 migration timeout 两个边界。
 - 测试附件例外与测试限流 override 必须共享同一 fail-closed 隔离 predicate；protected inventory 必须使用绝对、同 major 的 `PG_DUMP_BIN`，密码不进入 argv。

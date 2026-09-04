@@ -2,7 +2,7 @@
 
 # 当前目标
 
-- 完成 AgentWiki macOS 发布验证最终审查修复与直接复验；已测试代码固定为 `23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`。
+- 完成 AgentWiki macOS 发布验证第二轮定点修复与直接复验；最终 authoritative 代码为 `4a9ac92`。
 
 # 范围 / 不做
 
@@ -13,7 +13,8 @@
 # 当前状态
 
 - 2026-09-04 macOS 验证完成并判定 PASS；正式记录为 `agentwiki/docs/verification/macos-release-validation-2026-09-04.md`。
-- 最终代码 SHA 的真实 clean clone：4208 pass / 0 fail / 3 个非数据库、非 Redis 的平台或显式 opt-in skip（4211 total）；typecheck、lint、build、裸 audit 和缺失前提 gate 均通过。
+- `4a9ac92` 真实 clean clone：4209 pass / 0 fail / 3 个非数据库、非 Redis 的平台或显式 opt-in skip（4212 total）；typecheck、lint、build 通过。同 lockfile 的实现工作树裸 audit 为零已知漏洞，clean clone 三次审计仅因 npm bulk API POST 超时退出。
+- 最后一个 Windows DB gate 已使用跨平台 pnpm JS 入口和最大 90 秒 migration timeout；独立复审为零 finding、Ready to merge。
 - 真实 CodeGraph standard scan：1 pass / 0 fail / 0 skip。
 - 最终 Chrome Playwright：7 files / 25 tests，25 pass / 0 fail / 0 skip，单 worker、无 retry。
 - protected public inventory digest `79642c9fc9d560bdbadd4828bcb75b6796a0a56ec1c45638d1e6d9ddd2b0e2e3` 前后一致；最终全库测试前缀 schema 为 0。
@@ -45,6 +46,6 @@
 
 # 风险 / 下一步
 
-- 控制器仍需审查代码提交与独立证据提交及完整分支，再决定是否 push；本任务未 push。
+- 技术门禁与独立复审已通过；下一步由用户在本地合并、push/PR 或保留分支三项中选择。
 - 最终 authoritative disposable PostgreSQL/Redis 已按 full ID 停止并因 `--rm` 消失；四端口、PGID、schema 与原附件路径均清空。
 - npm 发布与生产部署均未执行，仍需独立授权与对应发布验证。
