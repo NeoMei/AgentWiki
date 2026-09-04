@@ -11,6 +11,7 @@ import {
   SyncPageV3Schema,
   SyncV3ErrorCodeSchema,
   SyncV3ErrorEnvelopeSchema,
+  TreeBootstrapPreviewV3Schema,
   TreeCapabilitiesResponseV3Schema,
   TreeDeltaItemV3Schema,
   TreeDeltaPageV3Schema,
@@ -304,10 +305,14 @@ describe("Sync Protocol v3", () => {
     })).toThrow(/path keys/iu);
   });
 
-  it("applies separate hard limits to chunk and complete Blob hashing", async () => {
+  it("maps chunk and complete Blob hard-limit failures to the shared quota code", async () => {
+    const quotaCode = "ATTACHMENT_QUOTA_EXCEEDED";
+    expect(SYNC_V3_ERROR_CODES).toContain(quotaCode);
     const oversizedChunk = new Uint8Array(TREE_SYNC_V3_HARD_LIMITS.blobChunkBytes + 1);
-    await expect(blobChunkHashV3(oversizedChunk)).rejects.toThrow("BLOB_CHUNK_TOO_LARGE");
+    await expect(blobChunkHashV3(oversizedChunk)).rejects.toThrow(quotaCode);
     await expect(blobContentHashV3(oversizedChunk)).resolves.toMatch(/^[0-9a-f]{64}$/u);
+    const oversizedBlob = new Uint8Array(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes + 1);
+    await expect(blobContentHashV3(oversizedBlob)).rejects.toThrow(quotaCode);
   });
 
   it("keeps the static v3 upsert_page type aligned with its strict runtime schema", () => {
@@ -341,6 +346,30 @@ describe("Sync Protocol v3", () => {
         storageKey: "internal/blob/key",
       },
     })).toThrow();
+  });
+
+  it("uses the shared v3 error-code schema for every bootstrap blocker", () => {
+    const blockers = vector.errorCodes.map((code, index) => ({ pageId: `page-${index}`, code }));
+    const parsed = TreeBootstrapPreviewV3Schema.parse({
+      protocolVersion: "3",
+      mode: "bootstrap_required",
+      baseRevision: "rev-1",
+      candidateHash: hash,
+      attachmentCount: "0",
+      transferBytes: "0",
+      blockers,
+    });
+    expect(parsed.blockers.map((blocker) => blocker.code)).toEqual(vector.errorCodes);
+    expect(() => TreeBootstrapPreviewV3Schema.parse({
+      ...parsed,
+      blockers: [{ pageId: "page-a", code: "UNLISTED_RECOVERY_ERROR" }],
+    })).toThrow();
+  });
+
+  it("removes legacy Blob limit error strings from the public v3 helper source", () => {
+    const source = readFileSync("src/sync-v3.ts", "utf8");
+    expect(source).not.toContain("ATTACHMENT_TOO_LARGE");
+    expect(source).not.toContain("BLOB_CHUNK_TOO_LARGE");
   });
 
   it("canonicalizes a 10,000-folder parent chain without recursive depth walks", () => {

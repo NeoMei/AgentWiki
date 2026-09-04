@@ -560,7 +560,7 @@ export const TreeBootstrapPreviewV3Schema = z.object({
   transferBytes: DecimalCountSchema,
   blockers: z.array(z.object({
     pageId: PublicIdSchema,
-    code: z.enum(["ATTACHMENT_REFERENCE_INVALID", "ATTACHMENT_MISSING"]),
+    code: SyncV3ErrorCodeSchema,
   }).strict()),
 }).strict();
 
@@ -774,11 +774,15 @@ export async function treeBatchHashV3(batch: TreePushBatchWithoutHashV3): Promis
 }
 
 export async function blobContentHashV3(bytes: Uint8Array): Promise<string> {
-  if (bytes.byteLength > TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes) throw new RangeError("ATTACHMENT_TOO_LARGE");
+  if (bytes.byteLength > TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes) {
+    throw new RangeError("ATTACHMENT_QUOTA_EXCEEDED");
+  }
   return sha256Hex(bytes);
 }
 
 export async function blobChunkHashV3(bytes: Uint8Array): Promise<string> {
-  if (bytes.byteLength > TREE_SYNC_V3_HARD_LIMITS.blobChunkBytes) throw new RangeError("BLOB_CHUNK_TOO_LARGE");
+  if (bytes.byteLength > TREE_SYNC_V3_HARD_LIMITS.blobChunkBytes) {
+    throw new RangeError("ATTACHMENT_QUOTA_EXCEEDED");
+  }
   return sha256Hex(bytes);
 }
