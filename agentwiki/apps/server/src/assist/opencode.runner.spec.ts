@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { PassThrough } from 'stream';
 import { spawn } from 'child_process';
@@ -204,11 +206,88 @@ describe('OpencodeCliRunner', () => {
 
     await expect(execution).resolves.toBe('ok');
     expect(spawn).toHaveBeenCalledWith(
-      join(process.cwd(), 'node_modules', '.bin', 'opencode'),
+      expect.stringContaining(`opencode-${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`),
       ['--pure'],
       expect.any(Object),
     );
   });
+
+  it('resolves a bundled Node CLI directly on Windows without invoking a command shim', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-win-'));
+    const packageDir = join(fixture, 'node_modules', 'opencode-ai');
+    const cli = join(packageDir, 'bin', 'opencode.js');
+    mkdirSync(join(packageDir, 'bin'), { recursive: true });
+    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+      name: 'opencode-ai',
+      bin: { opencode: './bin/opencode.js' },
+    }));
+    writeFileSync(cli, '#!/usr/bin/env node\n');
+    const cwd = jest.spyOn(process, 'cwd').mockReturnValue(fixture);
+    const bundledConfig = { get: jest.fn(() => undefined) } as any;
+    const child = childProcess();
+
+    try {
+      const runner = new OpencodeCliRunner(bundledConfig);
+      const execution = (runner as any).exec([], 10_000, 'catalog');
+      child.stdout.write('ok');
+      child.emit('close', 0);
+
+      await expect(execution).resolves.toBe('ok');
+      expect(spawn).toHaveBeenCalledWith(
+        process.execPath,
+        [cli, '--pure'],
+        expect.objectContaining({ shell: false }),
+      );
+    } finally {
+      cwd.mockRestore();
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves the native Windows package when the generic package bin is a POSIX placeholder', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-native-'));
+    const packageRoot = join(fixture, 'node_modules');
+    const genericDir = join(packageRoot, 'opencode-ai');
+    const native = join(packageRoot, 'opencode-windows-x64', 'bin', 'opencode.exe');
+    mkdirSync(join(genericDir, 'bin'), { recursive: true });
+    mkdirSync(join(packageRoot, 'opencode-windows-x64', 'bin'), { recursive: true });
+    writeFileSync(join(genericDir, 'package.json'), JSON.stringify({
+      name: 'opencode-ai', bin: { opencode: './bin/opencode.exe' },
+    }));
+    writeFileSync(join(genericDir, 'bin', 'opencode.exe'), '#!/bin/sh\nexit 1\n');
+    writeFileSync(native, Buffer.from([0x4d, 0x5a, 0x00, 0x00]));
+
+    try {
+      const runner = new OpencodeCliRunner({ get: jest.fn(() => undefined) } as any);
+      expect((runner as any).resolveBundledLaunch(fixture, 'win32', 'x64')).toEqual({
+        command: native,
+        argsPrefix: [],
+      });
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'starts the resolved bundled Windows executable without a shell',
+    () => {
+      const runner = new OpencodeCliRunner({ get: jest.fn(() => undefined) } as any);
+      const launch = (runner as any).resolveLaunch();
+      const { spawnSync } = jest.requireActual<typeof import('child_process')>('child_process');
+
+      expect(launch.argsPrefix).toEqual([]);
+      expect(launch.command.toLowerCase()).toMatch(/opencode\.exe$/u);
+      const result = spawnSync(launch.command, ['--version'], {
+        shell: false,
+        windowsHide: true,
+        timeout: 15_000,
+        encoding: 'utf8',
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/u);
+    },
+  );
 
   it('classifies a missing OpenCode binary as a global failure', async () => {
     const child = childProcess();

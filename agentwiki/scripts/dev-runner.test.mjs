@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   createDevSupervisor,
   prepareEnvironment,
+  resolvePnpmInvocation,
 } from './dev-runner.mjs';
 
 class FakeChild extends EventEmitter {
@@ -42,6 +43,14 @@ test('prepareEnvironment rejects a missing application secret', () => {
     () => prepareEnvironment({}),
     /APP_SECRET or JWT_SECRET is required/,
   );
+});
+
+test('Windows launches pnpm through Node instead of the unspawnable cmd shim', () => {
+  if (process.platform !== 'win32') return;
+  const invocation = resolvePnpmInvocation(['--version'], process.env);
+  assert.equal(invocation.executable, process.execPath);
+  assert.match(invocation.args[0], /pnpm\.(?:c?mjs|js)$/iu);
+  assert.deepEqual(invocation.args.slice(1), ['--version']);
 });
 
 test('an unexpected child exit stops its siblings and preserves the failure', async () => {

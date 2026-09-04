@@ -69,6 +69,19 @@ function document(relativePath = 'architecture/overview.md', content = '# Reposi
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe('generated knowledge store', () => {
+  it('round-trips generated knowledge with Windows filesystem capabilities', async () => {
+    const home = await temporaryDirectory();
+    const store = new GeneratedKnowledgeStore({
+      home,
+      platform: { name: 'win32', O_NOFOLLOW: undefined, O_DIRECTORY: undefined },
+    });
+
+    await expect(store.writeBase(sourceKey, snapshotHash, [document()])).resolves.toBeUndefined();
+    await expect(store.readBase(sourceKey)).resolves.toMatchObject({
+      documents: [expect.objectContaining({ content: '# Repository overview\n' })],
+    });
+  });
+
   it('rejects an injected home whose .agentwiki parent is a real symlink without changing the external tree', async () => {
     const home = await temporaryDirectory();
     const external = await temporaryDirectory();
@@ -348,7 +361,7 @@ describe('generated knowledge store', () => {
     const store = new GeneratedKnowledgeStore({
       home,
       ...({ afterPathCheck: async ({ path, kind }: { path: string; kind: string }) => {
-        if (replaced || kind !== 'directory' || !path.endsWith('/publish')) return;
+        if (replaced || kind !== 'directory' || basename(path) !== 'publish') return;
         replaced = true;
         await rename(path, `${path}.attacker`);
         await mkdir(path, { recursive: true });

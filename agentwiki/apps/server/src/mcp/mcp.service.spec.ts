@@ -3,7 +3,7 @@ import { McpController } from './mcp.controller';
 import { McpService } from './mcp.service';
 
 describe('McpService transport security', () => {
-  const config = { get: jest.fn().mockReturnValue('agentwiki.example,localhost') } as any;
+  const config = { get: jest.fn().mockReturnValue('agentwiki.example,localhost,::1') } as any;
   const dependency = {} as any;
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
   const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
@@ -30,6 +30,10 @@ describe('McpService transport security', () => {
 
   it('rejects DNS rebinding through an untrusted Host header', () => {
     expect(() => (service as any).validateHost({ headers: { host: 'attacker.example' } })).toThrow(BadRequestException);
+  });
+
+  it('accepts an allowlisted bracketed IPv6 Host header with a port', () => {
+    expect(() => (service as any).validateHost({ headers: { host: '[::1]:7331' } })).not.toThrow();
   });
 
   it('records capability-level success without persisting argument values', async () => {

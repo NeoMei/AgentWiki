@@ -82,6 +82,7 @@ describe('SpaceController.remove live ownership', () => {
       await mutationMayProceed;
     };
     const authorization = {
+      lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
       assertSpaceAccess: jest.fn(async (actor: typeof principal, _spaceId: string, allowed: string[]) => {
         const role = roles[actor.userId];
         if (deleted || !allowed.includes(role)) throw new BusinessException('SPACE_ACCESS_DENIED');

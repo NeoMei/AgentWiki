@@ -137,7 +137,7 @@ export class PageController {
     await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor'], 'pages:write');
     if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
     this.logger.log('Restoring version ' + versionId + ' for page: ' + id);
-    return this.pageService.restoreVersion(id, versionId, dto.expectedTreeRevision);
+    return this.pageService.restoreVersion(id, versionId, dto.expectedTreeRevision, req.user as any);
   }
 
   @Patch(':id')
@@ -156,7 +156,7 @@ export class PageController {
         },
       });
     }
-    return this.pageService.update(id, dto, user?.userId);
+    return this.pageService.update(id, dto, user);
   }
 
   @Delete(':id')
@@ -170,6 +170,6 @@ export class PageController {
       });
     }
     this.logger.log('Removing page: ' + id);
-    return this.pageService.remove(id, dto.expectedUpdatedAt, dto.expectedTreeRevision);
+    return this.pageService.remove(id, dto.expectedUpdatedAt, dto.expectedTreeRevision, user);
   }
 }

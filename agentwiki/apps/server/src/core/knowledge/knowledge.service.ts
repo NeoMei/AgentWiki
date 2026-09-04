@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AuthorizationService, type Principal } from '../authorization/authorization.service';
+import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 
 export interface CreateRelationInput {
   relation: string;
@@ -15,9 +17,13 @@ export interface CreateRelationInput {
 export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly authorization: AuthorizationService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
+  ) {}
 
-  async createRelation(data: CreateRelationInput, userId?: string) {
+  async createRelation(data: CreateRelationInput, principal: Principal) {
     this.logger.log('Creating relation: ' + data.relation + ' from ' + data.sourcePageId + ' to ' + data.targetPageId);
     if (data.sourcePageId === data.targetPageId) {
       throw new BadRequestException('A page cannot relate to itself');
@@ -30,17 +36,27 @@ export class KnowledgeService {
     if (pages[0].spaceId !== pages[1].spaceId) {
       throw new BadRequestException('Knowledge relations cannot cross space boundaries');
     }
-    if (data.evidenceId) {
-      const evidence = await this.prisma.evidence.findUnique({
-        where: { id: data.evidenceId },
-        select: { run: { select: { spaceId: true } } },
-      });
-      if (!evidence || evidence.run.spaceId !== pages[0].spaceId) {
-        throw new BadRequestException('Relation evidence must belong to the relation space');
-      }
-    }
     return this.prisma.$transaction(async (tx) => {
       const spaceId = pages[0].spaceId;
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'editor'],
+      );
+      const livePages = await tx.page.findMany({
+        where: { id: { in: [data.sourcePageId, data.targetPageId] }, spaceId, deletedAt: null },
+        select: { id: true, spaceId: true },
+      });
+      if (livePages.length !== 2) throw new NotFoundException('Source or target page not found');
+      if (data.evidenceId) {
+        const evidence = await tx.evidence.findUnique({
+          where: { id: data.evidenceId },
+          select: { run: { select: { spaceId: true } } },
+        });
+        if (!evidence || evidence.run.spaceId !== spaceId) {
+          throw new BadRequestException('Relation evidence must belong to the relation space');
+        }
+      }
       await tx.spaceGraphState.upsert({ where: { spaceId }, create: { spaceId }, update: {} });
       await tx.$queryRaw(Prisma.sql`
         SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
@@ -64,7 +80,7 @@ export class KnowledgeService {
             evidenceId: data.evidenceId,
             sourceChangeSetId: null,
             createdByAgentId: null,
-            lastModifiedByUserId: userId,
+            lastModifiedByUserId: principal.userId,
             lastModifiedAt: new Date(),
           },
         })
@@ -76,7 +92,7 @@ export class KnowledgeService {
             strength: data.strength ?? 1.0,
             confidence: data.confidence ?? 1.0,
             evidenceId: data.evidenceId,
-            lastModifiedByUserId: userId,
+            lastModifiedByUserId: principal.userId,
             lastModifiedAt: new Date(),
           },
         });
@@ -149,15 +165,28 @@ export class KnowledgeService {
     });
   }
 
-  async deleteRelation(id: string) {
+  async deleteRelation(id: string, principal: Principal) {
     this.logger.log('Deleting relation: ' + id);
     const relation = await this.prisma.knowledgeRelation.findUnique({
       where: { id },
+      include: { sourcePage: { select: { spaceId: true } } },
     });
     if (!relation) {
       throw new NotFoundException('Relation not found');
     }
     return this.prisma.$transaction(async (tx) => {
+      const spaceId = relation.sourcePage.spaceId;
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'editor'],
+      );
+      await tx.spaceGraphState.upsert({ where: { spaceId }, create: { spaceId }, update: {} });
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
+      `);
+      const current = await tx.knowledgeRelation.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Relation not found');
       const deleted = await tx.knowledgeRelation.delete({ where: { id } });
       if (deleted.evidenceId) {
         await tx.evidence.updateMany({ where: { id: deleted.evidenceId, targetRelationId: id }, data: { targetRelationId: null } });
@@ -166,17 +195,32 @@ export class KnowledgeService {
     });
   }
 
-  async updateRelationStrength(id: string, strength: number, userId?: string) {
+  async updateRelationStrength(id: string, strength: number, principal: Principal) {
     this.logger.log('Updating relation strength: ' + id + ' = ' + strength);
     const relation = await this.prisma.knowledgeRelation.findUnique({
       where: { id },
+      include: { sourcePage: { select: { spaceId: true } } },
     });
     if (!relation) {
       throw new NotFoundException('Relation not found');
     }
-    return this.prisma.knowledgeRelation.update({
-      where: { id },
-      data: { strength, lastModifiedByUserId: userId, lastModifiedAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      const spaceId = relation.sourcePage.spaceId;
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, spaceId, ['owner', 'editor'],
+      );
+      await tx.spaceGraphState.upsert({ where: { spaceId }, create: { spaceId }, update: {} });
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
+      `);
+      const current = await tx.knowledgeRelation.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Relation not found');
+      return tx.knowledgeRelation.update({
+        where: { id },
+        data: { strength, lastModifiedByUserId: principal.userId, lastModifiedAt: new Date() },
+      });
     });
   }
 

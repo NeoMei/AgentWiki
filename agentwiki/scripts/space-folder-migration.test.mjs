@@ -500,7 +500,7 @@ test('reserved report writes fail closed if the exclusively reserved target iden
   const target = join(directory, 'report.json');
   try {
     const reservation = await reserveReportTarget(target);
-    assert.equal((await stat(target)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(target)).mode & 0o777, 0o600);
     await rm(target);
     await writeFile(target, 'replacement-must-survive', { mode: 0o600 });
     await assert.rejects(
@@ -542,6 +542,15 @@ test('report writes remain bound to the original file when the parent path is re
   try {
     await mkdir(parent, { mode: 0o700 });
     const reservation = await reserveReportTarget(target);
+    if (process.platform === 'win32') {
+      // Windows locks an open directory handle against rename, which closes
+      // this replacement attack before the identity check is needed.
+      await assert.rejects(() => rename(parent, movedParent), { code: 'EPERM' });
+      await reservation.write({ status: 'applied' });
+      assert.equal(JSON.parse(await readFile(target, 'utf8')).status, 'applied');
+      await reservation.close?.();
+      return;
+    }
     await rename(parent, movedParent);
     await mkdir(parent, { mode: 0o700 });
     await writeFile(target, 'other-target-must-survive', { mode: 0o600 });

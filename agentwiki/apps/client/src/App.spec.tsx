@@ -4,11 +4,11 @@ import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-d
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { ProtectedRoute } from './App';
 
-const authState = vi.hoisted(() => ({ token: null as string | null }));
+const authState = vi.hoisted(() => ({ token: null as string | null, user: null as { mustChangePassword?: boolean } | null }));
 
 vi.mock('./context/AuthContext', () => ({
   AuthProvider: ({ children }: { children: ReactNode }) => children,
-  useAuth: () => ({ token: authState.token }),
+  useAuth: () => ({ token: authState.token, user: authState.user }),
 }));
 
 vi.mock('./components/Layout', () => ({ Layout: () => <Outlet /> }));
@@ -29,7 +29,25 @@ const LocationProbe = () => {
 describe('ProtectedRoute', () => {
   beforeEach(() => {
     authState.token = null;
+    authState.user = null;
     window.history.replaceState({}, '', '/');
+  });
+
+  it('keeps a signed-in user on required password change until it is completed', () => {
+    authState.token = 'signed-in';
+    authState.user = { mustChangePassword: true };
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Routes>
+          <Route path="/dashboard" element={<ProtectedRoute><p>private</p></ProtectedRoute>} />
+          <Route path="/change-password" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('/change-password')).toBeInTheDocument();
+    expect(screen.queryByText('private')).not.toBeInTheDocument();
   });
 
   it('redirects signed-out protected routes to the workspace login intent', () => {

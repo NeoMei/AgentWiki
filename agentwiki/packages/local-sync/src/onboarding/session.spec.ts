@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   assertTransition,
   canTransition,
@@ -53,7 +53,7 @@ function confirmedCheckpoint(
 ): OnboardingCheckpoint {
   const inputs = {
     spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
-    clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType, analysisMode: 'standard',
+    clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType, analysisMode: 'standard',
     configHash: 'c'.repeat(64), oldEntries: [], reloadRequired: false,
   } as const;
   const serverPlan = {
@@ -125,7 +125,7 @@ describe('onboarding session persistence', () => {
     const store = createSessionStore('sess-1', home);
     await store.save(baseCheckpoint('sess-1'));
     const s = await stat(sessionFilePath('sess-1', home));
-    expect(s.mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o600);
   });
 
   it('creates the directory with 0700 permissions', async () => {
@@ -133,7 +133,7 @@ describe('onboarding session persistence', () => {
     const store = createSessionStore('sess-1', home);
     await store.save(baseCheckpoint('sess-1'));
     const s = await stat(onboardingDir(home));
-    expect(s.mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o700);
   });
 
   it('round-trips a checkpoint through save and load', async () => {
@@ -271,7 +271,7 @@ describe('onboarding session persistence', () => {
     await store.save(baseCheckpoint('sess-1'));
     await store.saveSecret('awo_secrettoken');
     const s = await stat(secretFilePath('sess-1', home));
-    expect(s.mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o600);
     expect(await store.loadSecret()).toBe('awo_secrettoken');
   });
 

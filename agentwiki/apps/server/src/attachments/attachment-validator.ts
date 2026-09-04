@@ -4,7 +4,6 @@ import { lstat, open } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type * as FileType from 'file-type';
-import { imageSize } from 'image-size';
 import type { AttachmentConfig } from './attachment.config';
 
 const MAX_FILENAME_CODE_POINTS = 200;
@@ -150,6 +149,145 @@ function sameFile(
   );
 }
 
+interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
+function parsePngDimensions(header: Buffer): ImageDimensions {
+  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+  if (
+    header.length < 24
+    || !header.subarray(0, signature.length).equals(signature)
+    || header.readUInt32BE(8) !== 13
+    || header.toString('ascii', 12, 16) !== 'IHDR'
+  ) {
+    throw new Error('Invalid PNG header');
+  }
+  return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+}
+
+function parseGifDimensions(header: Buffer): ImageDimensions {
+  if (
+    header.length < 10
+    || !['GIF87a', 'GIF89a'].includes(header.toString('ascii', 0, 6))
+  ) {
+    throw new Error('Invalid GIF header');
+  }
+  return { width: header.readUInt16LE(6), height: header.readUInt16LE(8) };
+}
+
+function isJpegStartOfFrame(marker: number): boolean {
+  return (
+    marker >= 0xc0
+    && marker <= 0xcf
+    && ![0xc4, 0xc8, 0xcc].includes(marker)
+  );
+}
+
+function parseJpegDimensions(header: Buffer): ImageDimensions {
+  if (header.length < 4 || header[0] !== 0xff || header[1] !== 0xd8) {
+    throw new Error('Invalid JPEG header');
+  }
+
+  let offset = 2;
+  while (offset < header.length) {
+    while (offset < header.length && header[offset] === 0xff) offset += 1;
+    if (offset >= header.length) break;
+
+    const marker = header[offset];
+    offset += 1;
+    if (marker === 0x00) throw new Error('Invalid JPEG marker');
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > header.length) break;
+
+    const segmentLength = header.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > header.length) {
+      throw new Error('Invalid JPEG segment');
+    }
+    if (isJpegStartOfFrame(marker)) {
+      if (segmentLength < 7) throw new Error('Invalid JPEG frame');
+      return {
+        height: header.readUInt16BE(offset + 3),
+        width: header.readUInt16BE(offset + 5),
+      };
+    }
+    offset += segmentLength;
+  }
+  throw new Error('JPEG dimensions were not found');
+}
+
+function parseWebpDimensions(header: Buffer): ImageDimensions {
+  if (
+    header.length < 20
+    || header.toString('ascii', 0, 4) !== 'RIFF'
+    || header.toString('ascii', 8, 12) !== 'WEBP'
+  ) {
+    throw new Error('Invalid WebP header');
+  }
+
+  let offset = 12;
+  while (offset + 8 <= header.length) {
+    const chunkType = header.toString('ascii', offset, offset + 4);
+    const chunkLength = header.readUInt32LE(offset + 4);
+    const dataOffset = offset + 8;
+    const dataEnd = dataOffset + chunkLength;
+    if (dataEnd > header.length) throw new Error('Invalid WebP chunk');
+
+    if (chunkType === 'VP8X') {
+      if (chunkLength < 10) throw new Error('Invalid extended WebP header');
+      return {
+        width: header.readUIntLE(dataOffset + 4, 3) + 1,
+        height: header.readUIntLE(dataOffset + 7, 3) + 1,
+      };
+    }
+    if (chunkType === 'VP8 ') {
+      if (
+        chunkLength < 10
+        || header[dataOffset + 3] !== 0x9d
+        || header[dataOffset + 4] !== 0x01
+        || header[dataOffset + 5] !== 0x2a
+      ) {
+        throw new Error('Invalid lossy WebP header');
+      }
+      return {
+        width: header.readUInt16LE(dataOffset + 6) & 0x3fff,
+        height: header.readUInt16LE(dataOffset + 8) & 0x3fff,
+      };
+    }
+    if (chunkType === 'VP8L') {
+      if (chunkLength < 5 || header[dataOffset] !== 0x2f) {
+        throw new Error('Invalid lossless WebP header');
+      }
+      const dimensions = header.readUInt32LE(dataOffset + 1);
+      return {
+        width: (dimensions & 0x3fff) + 1,
+        height: ((dimensions >>> 14) & 0x3fff) + 1,
+      };
+    }
+
+    offset = dataEnd + (chunkLength % 2);
+  }
+  throw new Error('WebP dimensions were not found');
+}
+
+function parseImageDimensions(
+  header: Buffer,
+  mimeType: PreparedAttachment['mimeType'],
+): ImageDimensions {
+  switch (mimeType) {
+    case 'image/png':
+      return parsePngDimensions(header);
+    case 'image/jpeg':
+      return parseJpegDimensions(header);
+    case 'image/webp':
+      return parseWebpDimensions(header);
+    case 'image/gif':
+      return parseGifDimensions(header);
+  }
+}
+
 export async function validateUploadedImage(
   file: Express.Multer.File,
   config: AttachmentConfig,
@@ -208,9 +346,9 @@ export async function validateUploadedImage(
     const headerLength = Math.min(openedMetadata.size, MAX_IMAGE_HEADER_BYTES);
     const header = Buffer.alloc(headerLength);
     const { bytesRead } = await handle.read(header, 0, headerLength, 0);
-    let dimensions: ReturnType<typeof imageSize>;
+    let dimensions: ImageDimensions;
     try {
-      dimensions = imageSize(header.subarray(0, bytesRead));
+      dimensions = parseImageDimensions(header.subarray(0, bytesRead), expectedMime);
     } catch {
       throw new AttachmentValidationError(
         'Attachment image header is malformed or exceeds the bounded header read',

@@ -75,7 +75,14 @@ describe('MarkitdownAdapter', () => {
   it('collect invokes markitdown binary for pdf/docx files', async () => {
     const fakeOutput = 'Converted document content';
     await writeFile(join(sourcePath, 'doc.pdf'), 'binary-pdf-stub');
-    await writeMarkitdownCli(runtimePath, fakeOutput);
+    const expectedPython = process.platform === 'win32'
+      ? join(runtimePath, '.venv', 'Scripts', 'python.exe')
+      : join(runtimePath, '.venv', 'bin', 'python');
+    adapter = new MarkitdownAdapter(runtimePath, async (file, args) => {
+      expect(file).toBe(expectedPython);
+      expect(args.slice(0, 2)).toEqual(['-m', 'markitdown']);
+      return { stdout: fakeOutput, stderr: '' };
+    });
 
     const batch = await adapter.collect({
       sourcePath,
@@ -94,8 +101,13 @@ describe('MarkitdownAdapter', () => {
 
   it('executes the managed Python runtime directly', async () => {
     await writeFile(join(sourcePath, 'doc.pdf'), 'binary-pdf-stub');
-    const python = join(runtimePath, '.venv', 'bin', 'python');
-    await writeFile(python, '#!/bin/sh\nprintf "Converted by a non-JavaScript CLI\\n"\n', { mode: 0o755 });
+    const python = process.platform === 'win32'
+      ? join(runtimePath, '.venv', 'Scripts', 'python.exe')
+      : join(runtimePath, '.venv', 'bin', 'python');
+    adapter = new MarkitdownAdapter(runtimePath, async (file) => {
+      expect(file).toBe(python);
+      return { stdout: 'Converted by a non-JavaScript CLI\n', stderr: '' };
+    });
 
     const batch = await adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
 
@@ -106,8 +118,9 @@ describe('MarkitdownAdapter', () => {
 
   it('uses the relocatable venv Python module entrypoint', async () => {
     await writeFile(join(sourcePath, 'relocated.pdf'), 'binary-pdf-stub');
-    const python = join(runtimePath, '.venv', 'bin', 'python');
-    await writeFile(python, '#!/bin/sh\nprintf "Converted after runtime relocation\\n"\n', { mode: 0o755 });
+    adapter = new MarkitdownAdapter(runtimePath, async () => ({
+      stdout: 'Converted after runtime relocation\n', stderr: '',
+    }));
 
     const batch = await adapter.collect({ sourcePath, spaceId: 'space-1', jobId: 'job-1' });
 
@@ -188,9 +201,3 @@ describe('MarkitdownAdapter', () => {
     }
   });
 });
-
-async function writeMarkitdownCli(runtimePath: string, output: string): Promise<void> {
-  const bin = join(runtimePath, '.venv', 'bin', 'python');
-  const script = `#!/usr/bin/env node\nconsole.log(${JSON.stringify(output)});`;
-  await writeFile(bin, script, { mode: 0o755 });
-}

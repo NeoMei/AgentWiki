@@ -31,21 +31,48 @@ type PrincipalInput = string | Principal;
 export class AuthorizationService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Locks the human account before any Space advisory lock is acquired.
+   *
+   * Global human-write lock order is User -> Space advisory -> Space-scoped
+   * rows. Platform account lock/delete updates the same User row, so either
+   * the write completes before revocation or it waits and observes the revoked
+   * account. Callers that later acquire a Space lock must invoke this method
+   * first; assertLiveHumanSpaceAccess safely re-enters the same row lock.
+   */
+  async lockLiveHumanPrincipal(
+    db: Prisma.TransactionClient,
+    principal: Principal,
+  ): Promise<{ id: string; type: string; platformRole: string; deletedAt: Date | null; lockedAt: Date | null }> {
+    if (principal.agentId) throw new BusinessException('SPACE_ACCESS_DENIED', 'Human authorization is required');
+    const rows = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "User"
+      WHERE "id" = ${principal.userId}
+      FOR NO KEY UPDATE
+    `);
+    if (rows.length !== 1) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
+    }
+    const user = await db.user.findUnique({
+      where: { id: principal.userId },
+      select: { id: true, type: true, platformRole: true, deletedAt: true, lockedAt: true },
+    });
+    if (!user || user.type !== 'human' || user.deletedAt || user.lockedAt) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
+    }
+    return user;
+  }
+
   async assertLiveHumanSpaceAccess(
     db: Prisma.TransactionClient,
     principal: Principal,
     spaceId: string,
     allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
   ): Promise<{ role: SpaceRole; userId: string; spaceId: string; isSuperAdmin?: true }> {
-    if (principal.agentId) throw new BusinessException('SPACE_ACCESS_DENIED', 'Human authorization is required');
-    const [user, space] = await Promise.all([
-      db.user.findUnique({
-        where: { id: principal.userId },
-        select: { id: true, type: true, platformRole: true, deletedAt: true, lockedAt: true },
-      }),
-      db.space.findUnique({ where: { id: spaceId }, select: { id: true, deletedAt: true } }),
-    ]);
-    if (!user || user.type !== 'human' || user.deletedAt || user.lockedAt || !space || space.deletedAt) {
+    const user = await this.lockLiveHumanPrincipal(db, principal);
+    const space = await db.space.findUnique({ where: { id: spaceId }, select: { id: true, deletedAt: true } });
+    if (!space || space.deletedAt) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
     }
     if (user.platformRole === 'super_admin') {

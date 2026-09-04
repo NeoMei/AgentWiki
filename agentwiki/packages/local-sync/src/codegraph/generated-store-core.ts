@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { OnboardingError } from '../onboarding/errors.js';
 import { contentHash } from '../utils/hash.js';
@@ -50,8 +50,8 @@ export interface GeneratedKnowledgeStoreCoreOptions {
   renameDirectory?: (from: string, to: string) => Promise<void>;
   fsyncDirectory?: (path: string, checkpoint: string) => Promise<void>;
   fileOps?: GeneratedStoreFileOps;
-  /** Internal platform seam. Both flags must exist and be non-zero. */
-  platform?: { O_NOFOLLOW: number | undefined; O_DIRECTORY: number | undefined };
+  /** POSIX requires both secure-open flags; Windows relies on identity rechecks and O_EXCL. */
+  platform?: { name?: NodeJS.Platform; O_NOFOLLOW: number | undefined; O_DIRECTORY: number | undefined };
   /** Test seam: runs after an inode check, before secure open/revalidation. */
   afterPathCheck?: (subject: { path: string; kind: 'file' | 'directory' }) => void | Promise<void>;
   /** Internal seam for backup-cleanup identity-race tests. */
@@ -72,23 +72,24 @@ export interface GeneratedKnowledgeStoreCoreOptions {
 export class GeneratedKnowledgeStoreCore {
   private readonly home: string; private readonly workspaceRoot: string; private readonly agentwikiRoot: string; private readonly maxBytes: number; private readonly maxDocumentBytes: number;
   private readonly lockRoot: string; private readonly lock: SourceLock;
-  private readonly flags: { noFollow: number; directory: number };
+  private readonly flags: { noFollow: number; directory: number }; private readonly isWindows: boolean;
   /** Cleanup is post-commit; retain bounded local diagnostics without exposing them to callers. */
   private readonly cleanupDiagnostics: string[] = [];
   constructor(private readonly options: GeneratedKnowledgeStoreCoreOptions = {}) {
     this.home = options.home ?? homedir(); this.agentwikiRoot = join(this.home, '.agentwiki'); this.workspaceRoot = join(this.agentwikiRoot, 'workspaces');
     this.maxBytes = options.maxGeneratedBytes ?? DEFAULT_LIMIT; this.maxDocumentBytes = options.maxDocumentBytes ?? this.maxBytes;
     if (!Number.isInteger(this.maxBytes) || !Number.isInteger(this.maxDocumentBytes) || this.maxBytes <= 0 || this.maxDocumentBytes <= 0) throw fail('generated output limits were invalid');
-    const platform = options.platform ?? { O_NOFOLLOW: constants.O_NOFOLLOW, O_DIRECTORY: constants.O_DIRECTORY };
+    const platform = options.platform ?? { name: process.platform, O_NOFOLLOW: constants.O_NOFOLLOW, O_DIRECTORY: constants.O_DIRECTORY };
     const noFollow = platform.O_NOFOLLOW; const directory = platform.O_DIRECTORY;
-    if (typeof noFollow !== 'number' || !Number.isSafeInteger(noFollow) || noFollow <= 0 || typeof directory !== 'number' || !Number.isSafeInteger(directory) || directory <= 0) throw fail('platform lacks required nofollow directory-open flags');
-    this.flags = { noFollow, directory };
-    this.lockRoot = join(this.workspaceRoot, '.generated-codegraph-locks'); this.lock = new SourceLock({ root: this.lockRoot });
+    this.isWindows = platform.name === 'win32';
+    if (!this.isWindows && (typeof noFollow !== 'number' || !Number.isSafeInteger(noFollow) || noFollow <= 0 || typeof directory !== 'number' || !Number.isSafeInteger(directory) || directory <= 0)) throw fail('platform lacks required nofollow directory-open flags');
+    this.flags = { noFollow: this.isWindows ? 0 : noFollow as number, directory: this.isWindows ? 0 : directory as number };
+    this.lockRoot = join(this.workspaceRoot, '.generated-codegraph-locks'); this.lock = new SourceLock({ root: this.lockRoot, platform: this.isWindows ? 'win32' : platform.name });
   }
   private root(sourceKey: string) { if (!HASH.test(sourceKey)) throw fail('source key was invalid'); return join(this.workspaceRoot, sourceKey, 'generated', 'codegraph'); }
   private leaf(sourceKey: string, name: GeneratedSlot) { return join(this.root(sourceKey), name); }
-  private assertInside(root: string, path: string) { const result = relative(resolve(root), resolve(path)); if (result === '') return; if (result === '..' || result.startsWith('../') || result.startsWith('/') || result.includes('\\')) throw fail('generated path escaped private workspace'); }
-  private async directory(path: string): Promise<Identity> { let details; try { details = await lstat(path, { bigint: true }); } catch (error) { throw fail('private generated directory was missing', error instanceof Error ? error.message : 'Missing directory'); } if (!details.isDirectory() || details.isSymbolicLink() || (details.mode & 0o077n) !== 0n) throw fail('private generated directory was unsafe'); return { path, dev: details.dev, ino: details.ino, size: details.size }; }
+  private assertInside(root: string, path: string) { const result = relative(resolve(root), resolve(path)); if (result === '' || (!isAbsolute(result) && result !== '..' && !result.startsWith(`..${sep}`))) return; throw fail('generated path escaped private workspace'); }
+  private async directory(path: string): Promise<Identity> { let details; try { details = await lstat(path, { bigint: true }); } catch (error) { throw fail('private generated directory was missing', error instanceof Error ? error.message : 'Missing directory'); } if (!details.isDirectory() || details.isSymbolicLink() || (!this.isWindows && (details.mode & 0o077n) !== 0n)) throw fail('private generated directory was unsafe'); return { path, dev: details.dev, ino: details.ino, size: details.size }; }
   private async ensureDirectory(path: string): Promise<Identity> { await mkdir(path, { recursive: true, mode: 0o700 }); return this.directory(path); }
   private async assertDirectories(entries: Identity[]): Promise<void> { for (const entry of entries) { const current = await this.directory(entry.path); if (entry.dev !== current.dev || entry.ino !== current.ino) throw fail('private generated directory changed during operation'); } }
   private async directories(sourceKey: string, leaf?: GeneratedSlot, create = false): Promise<Identity[]> {
@@ -97,7 +98,7 @@ export class GeneratedKnowledgeStoreCore {
     for (const entry of result) await this.options.afterPathCheck?.({ path: entry.path, kind: 'directory' });
     await this.assertDirectories(result); return result;
   }
-  private async sync(path: string, checkpoint: string): Promise<void> { const fsyncDirectory = this.options.fileOps?.fsyncDirectory ?? this.options.fsyncDirectory; if (fsyncDirectory) return fsyncDirectory(path, checkpoint); const handle = await open(path, constants.O_RDONLY | this.flags.directory | this.flags.noFollow); try { await handle.sync(); } finally { await handle.close(); } }
+  private async sync(path: string, checkpoint: string): Promise<void> { const fsyncDirectory = this.options.fileOps?.fsyncDirectory ?? this.options.fsyncDirectory; if (fsyncDirectory) return fsyncDirectory(path, checkpoint); if (this.isWindows) return; const handle = await open(path, constants.O_RDONLY | this.flags.directory | this.flags.noFollow); try { await handle.sync(); } finally { await handle.close(); } }
   private async readSecure(directories: Identity[], relativePath: string, maxBytes: number): Promise<string> {
     const root = directories.at(-1)!.path; const path = join(root, relativePath); this.assertInside(root, path);
     let before; try { before = await lstat(path, { bigint: true }); } catch (error) { throw fail('generated file was missing', error instanceof Error ? error.message : 'Missing file'); }

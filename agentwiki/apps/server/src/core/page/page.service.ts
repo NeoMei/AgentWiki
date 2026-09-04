@@ -89,6 +89,7 @@ export class PageService {
     const userId = principal.userId;
     const expectedTreeRevision = BigInt(data.expectedTreeRevision ?? '0');
     const page = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.contentTree.lockPageMutationSpace(
         tx,
         data.spaceId,
@@ -368,7 +369,8 @@ export class PageService {
     );
   }
 
-  async update(id: string, data: UpdatePageDto, userId?: string) {
+  async update(id: string, data: UpdatePageDto, principal: Principal) {
+    const userId = principal.userId;
     const { expectedUpdatedAt, expectedTreeRevision, ...changes } = data;
     const expectedVersion = new Date(expectedUpdatedAt);
     const structural = changes.title !== undefined || changes.folderId !== undefined;
@@ -394,12 +396,16 @@ export class PageService {
         },
       });
       if (!page) throw new NotFoundException('Page not found');
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.contentTree.lockPageMutationSpace(
         tx,
         page.spaceId,
         structural && expectedTreeRevision !== undefined
           ? BigInt(expectedTreeRevision)
           : undefined,
+      );
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, page.spaceId, ['owner', 'editor'],
       );
       const treeRevision = expectedTreeRevision === undefined
         ? lockedTx.contentTreeRevision
@@ -433,7 +439,7 @@ export class PageService {
           pageId: page.id,
           title: page.title,
           content: page.content ?? '',
-          authorId: userId ?? page.authorId,
+          authorId: userId,
           slug: page.slug,
           format: page.format,
           parentId: page.parentId,
@@ -460,7 +466,7 @@ export class PageService {
             }
             : {}),
           lastChangeSetId: null,
-          lastModifiedByUserId: userId ?? page.authorId,
+          lastModifiedByUserId: userId,
           lastModifiedByAgentId: null,
           lastModifiedAt: new Date(),
         },
@@ -498,7 +504,7 @@ export class PageService {
           title: result.title,
           body: result.content,
           }],
-          actor: { userId: userId ?? page.authorId },
+          actor: { userId },
         });
       }
       return { ...result, path: result.syncPath };
@@ -525,14 +531,23 @@ export class PageService {
     }));
   }
 
-  async restoreVersion(pageId: string, versionId: string, expectedTreeRevision: string) {
+  async restoreVersion(
+    pageId: string,
+    versionId: string,
+    expectedTreeRevision: string,
+    principal: Principal,
+  ) {
     const visiblePage = await this.findOne(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.contentTree.lockPageMutationSpace(
         tx,
         visiblePage.spaceId,
         BigInt(expectedTreeRevision),
+      );
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, visiblePage.spaceId, ['owner', 'editor'],
       );
       const treeRevision = BigInt(expectedTreeRevision);
       const version = await tx.pageVersion.findFirst({
@@ -598,7 +613,7 @@ export class PageService {
           syncPath: placement.syncPath,
           syncPathKey: placement.syncPathKey,
           lastChangeSetId: null,
-          lastModifiedByUserId: page.authorId,
+          lastModifiedByUserId: principal.userId,
           lastModifiedByAgentId: null,
           lastModifiedAt: new Date(),
         },
@@ -631,7 +646,7 @@ export class PageService {
           title: updated.title,
           body: updated.content,
         }],
-        actor: { userId: page.authorId },
+        actor: { userId: principal.userId },
       });
       return { ...updated, path: updated.syncPath };
     });
@@ -644,12 +659,21 @@ export class PageService {
     return restored;
   }
 
-  async remove(id: string, expectedUpdatedAt: string, expectedTreeRevision: string) {
+  async remove(
+    id: string,
+    expectedUpdatedAt: string,
+    expectedTreeRevision: string,
+    principal: Principal,
+  ) {
     const existing = await this.findOne(id);
     const expectedVersion = new Date(expectedUpdatedAt);
     const expectedTree = BigInt(expectedTreeRevision);
     const page = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.contentTree.lockPageMutationSpace(tx, existing.spaceId, expectedTree);
+      await this.authorization.assertLiveHumanSpaceAccess(
+        lockedTx, principal, existing.spaceId, ['owner', 'editor'],
+      );
       const current = await tx.page.findUnique({
         where: { id, spaceId: existing.spaceId, deletedAt: null },
         select: {
@@ -710,7 +734,7 @@ export class PageService {
           pageId: archived.knowledgeKey,
           previousPath: archived.syncPath ?? undefined,
         }],
-        actor: { userId: archived.authorId },
+        actor: { userId: principal.userId },
       });
       await tx.pageSearchDocument.deleteMany({ where: { pageId: archived.id } });
       return { ...archived, path: archived.syncPath };

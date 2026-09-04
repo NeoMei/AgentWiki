@@ -24,13 +24,13 @@ describe('KnowledgeGraphController', () => {
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
       request.user, 'space-1', ['owner', 'admin'],
     );
-    expect(graph.refresh).toHaveBeenCalledWith('space-1', ['wikilink'], 'user-1');
+    expect(graph.refresh).toHaveBeenCalledWith('space-1', ['wikilink'], request.user);
   });
 
   it('rejects unknown refresh layers', async () => {
     await expect(controller.refresh(request, 'space-1', { layers: ['unknown' as any] }))
       .rejects.toBeInstanceOf(BadRequestException);
-    expect(graph.refresh).not.toHaveBeenCalledWith('space-1', ['unknown'], 'user-1');
+    expect(graph.refresh).not.toHaveBeenCalledWith('space-1', ['unknown'], request.user);
   });
 
   it('rejects a non-object refresh body', async () => {
@@ -55,9 +55,9 @@ describe('KnowledgeGraphController', () => {
     expect(authorization.assertSpaceAccess).toHaveBeenLastCalledWith(
       request.user, 'space-1', ['owner', 'admin'],
     );
-    expect(graph.updateSettings).toHaveBeenCalledWith('space-1', {
-      similarEnabled: true, similarThreshold: 0.8,
-    });
+    expect(graph.updateSettings).toHaveBeenCalledWith(
+      'space-1', { similarEnabled: true, similarThreshold: 0.8 }, request.user,
+    );
   });
 
   it('applies settings as one atomic partial update without a read-modify-write race', async () => {
@@ -66,7 +66,7 @@ describe('KnowledgeGraphController', () => {
     await controller.updateSettings(request, 'space-1', { llmEnabled: true });
 
     expect(graph.getOrCreateState).not.toHaveBeenCalled();
-    expect(graph.updateSettings).toHaveBeenCalledWith('space-1', { llmEnabled: true });
+    expect(graph.updateSettings).toHaveBeenCalledWith('space-1', { llmEnabled: true }, request.user);
   });
 
   it('returns a 400 error for an invalid similarity threshold', async () => {

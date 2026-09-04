@@ -55,7 +55,7 @@ describe('archive legacy state', () => {
     await mkdir(join(root, 'legacy'), { recursive: true });
     const result = await archiveLegacyState(home);
     const s = await stat(result!.archivePath);
-    expect(s.mode & 0o777).toBe(0o500);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o500);
   });
 
   it('restores every archived child without replacing the active onboarding directory', async () => {
@@ -82,7 +82,7 @@ describe('initCleanState', () => {
     const home = await freshHome();
     await initCleanState(home);
     const s = await stat(agentwikiRoot(home));
-    expect(s.mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o700);
     const spaces = await stat(join(agentwikiRoot(home), 'spaces'));
     expect(spaces.isDirectory()).toBe(true);
   });

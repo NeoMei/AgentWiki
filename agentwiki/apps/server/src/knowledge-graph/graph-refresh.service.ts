@@ -1,9 +1,11 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { LlmService } from '../integrations/llm/llm.service';
 import { GraphExtractionService, type WikiLinkTarget } from './graph-extraction.service';
+import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 
 export type GraphLayer = 'wikilink' | 'similar' | 'llm';
 
@@ -39,31 +41,36 @@ export class GraphRefreshService {
     private readonly prisma: PrismaService,
     private readonly extraction: GraphExtractionService,
     private readonly llm: LlmService,
+    @Optional() private readonly authorization?: AuthorizationService,
+    @Optional() private readonly revisionWriter?: SpaceRevisionWriterService,
   ) {}
 
-  async refresh(spaceId: string, layers?: GraphLayer[], actorUserId?: string): Promise<RefreshResult> {
+  async refresh(spaceId: string, layers?: GraphLayer[], principal?: Principal): Promise<RefreshResult> {
     const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+      where: { id: spaceId, deletedAt: null },
       select: {
         id: true,
         members: { where: { role: 'owner' }, select: { userId: true }, take: 1 },
       },
     });
     if (!space) throw new ForbiddenException('Space not found');
-    await this.getOrCreateState(spaceId);
     const selected = layers ?? (['wikilink', 'similar', 'llm'] as GraphLayer[]);
     const deterministic = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
+      await this.lockHumanPrincipal(tx, principal);
+      const lockedTx = await this.lockSpace(tx, spaceId);
+      await this.assertLiveHumanAccess(lockedTx, principal, spaceId);
+      await lockedTx.spaceGraphState.upsert({ where: { spaceId }, create: { spaceId }, update: {} });
+      await lockedTx.$queryRaw(Prisma.sql`
         SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
       `);
       const [state, pages] = await Promise.all([
-        tx.spaceGraphState.findUnique({ where: { spaceId } }),
-        tx.page.findMany({
+        lockedTx.spaceGraphState.findUnique({ where: { spaceId } }),
+        lockedTx.page.findMany({
           where: { spaceId, deletedAt: null },
           select: { id: true, title: true, slug: true, content: true, updatedAt: true },
         }),
       ]);
-      const vectorRows = await tx.$queryRaw<Array<{ id: string; vector: string }>>(Prisma.sql`
+      const vectorRows = await lockedTx.$queryRaw<Array<{ id: string; vector: string }>>(Prisma.sql`
         SELECT "id", "embeddingVector"::text AS "vector"
         FROM "Page"
         WHERE "spaceId" = ${spaceId}
@@ -81,14 +88,14 @@ export class GraphRefreshService {
         llm: { changeSetId: null, proposed: 0 },
       };
       if (selected.includes('wikilink') && state.wikilinkEnabled) {
-        result.wikilink = await this.refreshWikilinks(tx, spaceId, pages);
+        result.wikilink = await this.refreshWikilinks(lockedTx, spaceId, pages);
       }
       if (selected.includes('similar')) {
         if (!state.similarEnabled) {
           result.similar.skipped = pages.length;
         } else {
           result.similar = await this.refreshSimilar(
-            tx,
+            lockedTx,
             spaceId,
             pages.map((page) => ({
               id: page.id,
@@ -105,8 +112,9 @@ export class GraphRefreshService {
       result.llm = await this.proposeLlmRelations(
         spaceId,
         pages,
-        actorUserId ?? space.members[0]?.userId,
+        principal?.userId ?? space.members[0]?.userId,
         state.lastLlmRunAt,
+        principal,
       );
     }
 
@@ -119,18 +127,21 @@ export class GraphRefreshService {
     ].includes(result.llm.reason ?? '');
     const recordContentHash = layers === undefined && !llmDeferred;
     await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
+      await this.lockHumanPrincipal(tx, principal);
+      const lockedTx = await this.lockSpace(tx, spaceId);
+      await this.assertLiveHumanAccess(lockedTx, principal, spaceId);
+      await lockedTx.$queryRaw(Prisma.sql`
         SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
       `);
       let snapshotIsCurrent = recordContentHash;
       if (snapshotIsCurrent) {
-        const currentPages = await tx.page.findMany({
+        const currentPages = await lockedTx.page.findMany({
           where: { spaceId, deletedAt: null },
           select: { id: true, updatedAt: true },
         });
         snapshotIsCurrent = graphSnapshotHash(currentPages) === contentHash;
       }
-      await tx.spaceGraphState.upsert({
+      await lockedTx.spaceGraphState.upsert({
         where: { spaceId },
         create: {
           spaceId,
@@ -174,11 +185,17 @@ export class GraphRefreshService {
       similarThreshold?: number;
       llmEnabled?: boolean;
     },
+    principal: Principal,
   ) {
-    return this.prisma.spaceGraphState.upsert({
-      where: { spaceId },
-      create: { spaceId, ...input },
-      update: { ...input, lastContentHash: null },
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockHumanPrincipal(tx, principal);
+      const lockedTx = await this.lockSpace(tx, spaceId);
+      await this.assertLiveHumanAccess(lockedTx, principal, spaceId);
+      return lockedTx.spaceGraphState.upsert({
+        where: { spaceId },
+        create: { spaceId, ...input },
+        update: { ...input, lastContentHash: null },
+      });
     });
   }
 
@@ -318,29 +335,41 @@ export class GraphRefreshService {
     pages: Array<{ id: string; title: string; content: string }>,
     actorUserId?: string,
     lastLlmRunAt?: Date | null,
+    principal?: Principal,
   ): Promise<RefreshResult['llm']> {
     if (pages.length < 2) return { changeSetId: null, proposed: 0, reason: 'not_enough_pages' };
     if (!actorUserId) return { changeSetId: null, proposed: 0, reason: 'no_author' };
-    const pending = await this.prisma.changeSet.findFirst({
-      where: { spaceId, status: 'pending_review', title: { startsWith: 'Auto graph suggestions' } },
-      select: { id: true },
-    });
-    if (pending) return { changeSetId: null, proposed: 0, reason: 'proposal_pending' };
-    if (lastLlmRunAt && Date.now() - lastLlmRunAt.getTime() < LLM_MIN_INTERVAL_MS) {
-      return { changeSetId: null, proposed: 0, reason: 'rate_limited' };
-    }
     const now = new Date();
-    const claim = await this.prisma.spaceGraphState.updateMany({
-      where: {
-        spaceId,
-        OR: [
-          { lastLlmRunAt: null },
-          { lastLlmRunAt: { lte: new Date(now.getTime() - LLM_MIN_INTERVAL_MS) } },
-        ],
-      },
-      data: { lastLlmRunAt: now },
+    const claimReason = await this.prisma.$transaction(async (tx) => {
+      await this.lockHumanPrincipal(tx, principal);
+      const lockedTx = await this.lockSpace(tx, spaceId);
+      await this.assertLiveHumanAccess(lockedTx, principal, spaceId);
+      await lockedTx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
+      `);
+      const pending = await lockedTx.changeSet.findFirst({
+        where: { spaceId, status: 'pending_review', title: { startsWith: 'Auto graph suggestions' } },
+        select: { id: true },
+      });
+      if (pending) return 'proposal_pending' as const;
+      const current = await lockedTx.spaceGraphState.findUnique({ where: { spaceId } });
+      const lastRun = current?.lastLlmRunAt ?? lastLlmRunAt;
+      if (lastRun && Date.now() - lastRun.getTime() < LLM_MIN_INTERVAL_MS) {
+        return 'rate_limited' as const;
+      }
+      const claim = await lockedTx.spaceGraphState.updateMany({
+        where: {
+          spaceId,
+          OR: [
+            { lastLlmRunAt: null },
+            { lastLlmRunAt: { lte: new Date(now.getTime() - LLM_MIN_INTERVAL_MS) } },
+          ],
+        },
+        data: { lastLlmRunAt: now },
+      });
+      return claim.count ? null : 'rate_limited' as const;
     });
-    if (!claim.count) return { changeSetId: null, proposed: 0, reason: 'rate_limited' };
+    if (claimReason) return { changeSetId: null, proposed: 0, reason: claimReason };
     const proposals: Array<Record<string, unknown>> = [];
     try {
       for (let offset = 0; offset < pages.length; offset += LLM_PAGE_BATCH) {
@@ -373,20 +402,28 @@ export class GraphRefreshService {
       proposal,
     ])).values()];
     if (!uniqueProposals.length) return { changeSetId: null, proposed: 0, reason: 'no_valid_proposals' };
-    const changeSet = await this.prisma.changeSet.create({
-      data: {
-        spaceId,
-        createdByUserId: actorUserId,
-        title: `Auto graph suggestions ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
-        status: 'pending_review',
-        items: {
-          create: uniqueProposals.map((proposal) => ({
-            type: 'create_relation',
-            status: 'pending',
-            payload: proposal as Prisma.InputJsonValue,
-          })),
+    const changeSet = await this.prisma.$transaction(async (tx) => {
+      await this.lockHumanPrincipal(tx, principal);
+      const lockedTx = await this.lockSpace(tx, spaceId);
+      await this.assertLiveHumanAccess(lockedTx, principal, spaceId);
+      await lockedTx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "SpaceGraphState" WHERE "spaceId" = ${spaceId} FOR UPDATE
+      `);
+      return lockedTx.changeSet.create({
+        data: {
+          spaceId,
+          createdByUserId: actorUserId,
+          title: `Auto graph suggestions ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+          status: 'pending_review',
+          items: {
+            create: uniqueProposals.map((proposal) => ({
+              type: 'create_relation',
+              status: 'pending',
+              payload: proposal as Prisma.InputJsonValue,
+            })),
+          },
         },
-      },
+      });
     });
     return { changeSetId: changeSet.id, proposed: uniqueProposals.length };
   }
@@ -433,6 +470,31 @@ export class GraphRefreshService {
       });
     }
     return proposals;
+  }
+
+  private async lockSpace(tx: Prisma.TransactionClient, spaceId: string): Promise<Prisma.TransactionClient> {
+    return this.revisionWriter ? this.revisionWriter.lockSpace(tx, spaceId) : tx;
+  }
+
+  private async lockHumanPrincipal(
+    tx: Prisma.TransactionClient,
+    principal: Principal | undefined,
+  ): Promise<void> {
+    if (!principal) return;
+    if (!this.authorization) throw new ForbiddenException('Live human authorization is unavailable');
+    await this.authorization.lockLiveHumanPrincipal(tx, principal);
+  }
+
+  private async assertLiveHumanAccess(
+    tx: Prisma.TransactionClient,
+    principal: Principal | undefined,
+    spaceId: string,
+  ): Promise<void> {
+    if (!principal) return;
+    if (!this.authorization) throw new ForbiddenException('Live human authorization is unavailable');
+    await this.authorization.assertLiveHumanSpaceAccess(
+      tx, principal, spaceId, ['owner', 'admin'],
+    );
   }
 
 }

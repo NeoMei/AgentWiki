@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createSessionStore } from '../onboarding/session.js';
@@ -51,7 +51,7 @@ describe('readOnboardingStatus', () => {
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: {
         spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
-        clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
+        clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard',
         configHash: 'a'.repeat(64), oldEntries: [], reloadRequired: false,
         connectionId: '00000000-0000-4000-8000-000000000001', manifestHash: 'b'.repeat(64),
       },

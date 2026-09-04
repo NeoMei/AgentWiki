@@ -152,6 +152,32 @@ describe('workspace state persistence', () => {
     expect(loaded?.jobId).toBe('job-1');
   });
 
+  it('encodes every Windows-reserved checkpoint filename character', async () => {
+    const paths = workspacePaths(base, 'space-1');
+    const state = JobStateSchema.parse({
+      jobId: "job*with!legacy%3Atext",
+      spaceId: 'space-1',
+      recipeId: 'recipe-1',
+      recipeVersion: '1.0',
+      phase: 'discover',
+      baseRevision: '0',
+      adapterIds: ['a'],
+      sourcePaths: ['/tmp'],
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-01T00:00:00Z',
+      workItems: [],
+    });
+
+    const id = await writeCheckpoint(paths, state);
+    const filenames = await readdir(paths.checkpointsDir);
+
+    expect(filenames).toHaveLength(1);
+    expect(filenames[0]).toMatch(/^b64-[A-Za-z0-9_-]+\.json$/u);
+    expect(filenames[0]).not.toMatch(/[<>:"/\\|?*]/u);
+    await expect(listCheckpoints(paths)).resolves.toEqual([id]);
+    await expect(readCheckpoint(paths, id)).resolves.toMatchObject({ jobId: state.jobId });
+  });
+
   it('writes and reads drafts', async () => {
     const paths = workspacePaths(base, 'space-1');
     await ensureWorkspace(paths);

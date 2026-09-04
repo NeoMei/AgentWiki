@@ -622,7 +622,6 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function canonicalizeSourcePath(value: string): string {
-
-  if ([...value].some((character) => { const codePoint = character.codePointAt(0)!; return codePoint <= 0x1f || codePoint === 0x7f; }) || value.includes('\\')) throw new Error('invalid source path');
+  if ([...value].some((character) => { const codePoint = character.codePointAt(0)!; return codePoint <= 0x1f || codePoint === 0x7f; }) || (process.platform !== 'win32' && value.includes('\\'))) throw new Error('invalid source path');
   return resolve(value);
 }

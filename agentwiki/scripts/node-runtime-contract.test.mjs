@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -9,6 +10,23 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(root, '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
+
+function pnpmInvocation(args) {
+  const candidates = [
+    process.env.npm_execpath,
+    process.env.APPDATA && resolve(process.env.APPDATA, 'npm/node_modules/pnpm/bin/pnpm.mjs'),
+  ].filter(Boolean);
+  const cli = candidates.find((candidate) => existsSync(candidate));
+  if (cli) return { file: process.execPath, args: [cli, ...args] };
+  return { file: 'pnpm', args };
+}
+
+function npmInvocation(args) {
+  const cli = resolve(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
+  return existsSync(cli)
+    ? { file: process.execPath, args: [cli, ...args] }
+    : { file: 'npm', args };
+}
 
 async function activeFiles(path) {
   const entry = resolve(root, path);
@@ -240,7 +258,9 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
       || /mv -- "\\\$release_dir" "\\\$live_dir"/.test(deploy),
     'direct deployment must install the sync migration utilities, directly or with the staged release',
   );
-  assert.notEqual((await stat(resolve(root, 'deploy.sh'))).mode & 0o111, 0, 'deploy.sh must be executable');
+  if (process.platform !== 'win32') {
+    assert.notEqual((await stat(resolve(root, 'deploy.sh'))).mode & 0o111, 0, 'deploy.sh must be executable');
+  }
 });
 
 test('direct production deployment rejects a stale non-HTTPS public Agent API URL', async () => {
@@ -496,7 +516,8 @@ test('local-sync builds and packs without retired modules or public subpaths', a
   const packageRoot = resolve(root, 'packages/local-sync');
   const packageJson = JSON.parse(await read('packages/local-sync/package.json'));
   assert.match(packageJson.scripts.build, /^node \.\/scripts\/clean-dist\.mjs && tsc$/u);
-  execFileSync('pnpm', ['--dir', packageRoot, 'run', 'build'], { cwd: root, stdio: 'inherit' });
+  const build = pnpmInvocation(['--dir', packageRoot, 'run', 'build']);
+  execFileSync(build.file, build.args, { cwd: root, stdio: 'inherit' });
 
   for (const path of [
     'dist/adapter/codebase-memory.js', 'dist/adapter/codebase-memory.d.ts',
@@ -508,7 +529,8 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
   const cache = await mkdtemp(join(tmpdir(), 'agentwiki-pack-'));
   try {
-    const packed = execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
+    const pack = npmInvocation(['pack', '--dry-run', '--ignore-scripts', '--json']);
+    const packed = execFileSync(pack.file, pack.args, {
       cwd: packageRoot,
       env: { ...process.env, npm_config_cache: cache },
       encoding: 'utf8',
@@ -714,8 +736,16 @@ test('production dependency floors exclude patched network and routing vulnerabi
   assert.equal(server.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
   assert.equal(localSync.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
   assert.equal(client.dependencies['react-router-dom'], '^7.18.2');
+  assert.equal(server.dependencies['image-size'], undefined);
   assert.match(workspace, /'@hono\/node-server': '2\.1\.0'/);
   assert.match(workspace, /body-parser: '1\.20\.6'/);
+  assert.match(workspace, /fast-uri: '4\.1\.4'/);
   assert.match(workspace, /hono: '4\.13\.1'/);
-  assert.match(workspace, /qs: '6\.15\.3'/);
+  assert.match(workspace, /qs: '6\.16\.0'/);
+});
+
+test('workspace dependency floors exclude patched build-tool vulnerabilities', async () => {
+  const workspace = await read('pnpm-workspace.yaml');
+
+  assert.match(workspace, /browserslist: '4\.28\.8'/);
 });

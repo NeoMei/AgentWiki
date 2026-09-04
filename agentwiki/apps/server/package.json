@@ -34,7 +34,6 @@
     "class-validator": "^0.15.1",
     "express": "^5.2.1",
     "file-type": "21.3.2",
-    "image-size": "2.0.2",
     "ioredis": "^5.11.1",
     "opencode-ai": "1.18.12",
     "passport": "^0.7.0",

@@ -10,11 +10,35 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 type SourceLockTestDependencies = NonNullable<ConstructorParameters<typeof SourceLock>[1]>;
 function testLock(options: SourceLockOptions & SourceLockTestDependencies) {
-  const { root, retryMs, timeoutMs, staleAfterMs, ...dependencies } = options;
-  return new SourceLock({ root, retryMs, timeoutMs, staleAfterMs }, dependencies as SourceLockTestDependencies);
+  const { root, retryMs, timeoutMs, staleAfterMs, platform, ...dependencies } = options;
+  return new SourceLock({ root, retryMs, timeoutMs, staleAfterMs, platform }, dependencies as SourceLockTestDependencies);
 }
 
 describe('source locks', () => {
+  it('acquires and releases a lock when Windows cannot fsync directories', async () => {
+    const root = await temporaryDirectory();
+    const lock = testLock({ root, platform: 'win32' });
+
+    await expect(lock.withLock('a'.repeat(64), async () => 'locked')).resolves.toBe('locked');
+  });
+
+  it('fails closed when a Windows EPERM leaves the stale record in place', async () => {
+    const root = await temporaryDirectory();
+    const key = '0'.repeat(64);
+    const processIsAlive = (pid: number) => pid === process.pid;
+    const setup = testLock({ root, platform: 'win32', staleAfterMs: 1, isProcessAlive: processIsAlive });
+    await setup.createStaleForTest(key, 'dead', 'ticket');
+    const eperm = Object.assign(new Error('sharing violation'), { code: 'EPERM' });
+    const contender = testLock({
+      root, platform: 'win32', staleAfterMs: 1, isProcessAlive: processIsAlive,
+      ...({ unlink: async () => { throw eperm; } } as object),
+    } as never);
+
+    await expect(contender.withLock(key, async () => 'unsafe')).rejects.toBe(eperm);
+    const coordinationDirectory = join(root, `.codegraph-${key}.coordination`);
+    await expect(readdir(coordinationDirectory)).resolves.toContain('ticket-999999-dead.json');
+  });
+
   it('issues an active opaque lease bound to exactly one source and invalidates it on release', async () => {
     const root = await temporaryDirectory();
     const lock = testLock({ root });

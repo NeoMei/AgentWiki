@@ -44,6 +44,55 @@ describe('ProductPage workspace intent', () => {
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '使用指南' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '工作台' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '邮箱' })).toHaveFocus();
+    expect(screen.getByLabelText('密码')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '切换到登录' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('associates registration validation with the password field', async () => {
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/?intent=workspace#login']}>
+          <ProductPage />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: '切换到注册' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Neo' } });
+    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'short' } });
+    fireEvent.click(screen.getByRole('button', { name: '注册' }));
+
+    const password = screen.getByLabelText('密码');
+    expect(password).toHaveAttribute('aria-invalid', 'true');
+    expect(password).toHaveAccessibleDescription('密码至少需要 8 个字符');
+  });
+
+  it('implements keyboard navigation and panel association for the auth tabs', () => {
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <ProductPage />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const loginTab = screen.getByRole('tab', { name: '切换到登录' });
+    const registerTab = screen.getByRole('tab', { name: '切换到注册' });
+    loginTab.focus();
+    fireEvent.keyDown(loginTab, { key: 'ArrowRight' });
+
+    expect(registerTab).toHaveFocus();
+    expect(registerTab).toHaveAttribute('aria-selected', 'true');
+    expect(registerTab).toHaveAttribute('tabindex', '0');
+    expect(loginTab).toHaveAttribute('tabindex', '-1');
+    expect(registerTab).toHaveAttribute('aria-controls', 'product-auth-panel');
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'product-auth-tab-register');
+
+    fireEvent.keyDown(registerTab, { key: 'Home' });
+    expect(loginTab).toHaveFocus();
+    expect(loginTab).toHaveAttribute('aria-selected', 'true');
   });
 
   it.each(['login', 'register'] as const)('returns to device authorization after %s', async (mode) => {
@@ -63,7 +112,7 @@ describe('ProductPage workspace intent', () => {
 
     expect(screen.getByText('登录或注册后返回 Agent 授权页面。')).toBeInTheDocument();
     if (mode === 'register') {
-      fireEvent.click(screen.getByRole('button', { name: '切换到注册' }));
+      fireEvent.click(screen.getByRole('tab', { name: '切换到注册' }));
       fireEvent.change(screen.getByPlaceholderText('名称'), { target: { value: 'Neo' } });
     }
     fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });

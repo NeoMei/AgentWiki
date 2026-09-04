@@ -297,6 +297,7 @@ export class AttachmentService {
         lease,
       );
       const attachment = await this.prisma.$transaction(async (tx) => {
+        await this.authorization.lockLiveHumanPrincipal(tx, principal);
         await this.revisionWriter.lockSpace(tx, spaceId);
         const live = await this.assertWritableHuman(tx, principal, spaceId);
 
@@ -399,6 +400,7 @@ export class AttachmentService {
     to: SpaceAttachmentStatus,
   ): Promise<AttachmentSummary> {
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       await this.revisionWriter.lockSpace(tx, spaceId);
       await this.assertWritableHuman(tx, principal, spaceId);
 

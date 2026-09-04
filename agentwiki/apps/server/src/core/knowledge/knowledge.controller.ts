@@ -28,7 +28,7 @@ export class KnowledgeController {
         type: 'create_relation', payload: dto as any,
       });
     }
-    return this.knowledgeService.createRelation(dto, principal.userId);
+    return this.knowledgeService.createRelation(dto, principal);
   }
 
   @Get('relations/:pageId')
@@ -52,7 +52,7 @@ export class KnowledgeController {
         type: 'archive_relation', payload: { relationId: id, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
       });
     }
-    return this.knowledgeService.deleteRelation(id);
+    return this.knowledgeService.deleteRelation(id, user);
   }
 
   @Patch('relations/:id/strength')
@@ -64,7 +64,7 @@ export class KnowledgeController {
         type: 'update_relation_strength', payload: { relationId: id, strength: dto.strength, expectedLastModifiedAt: relation.lastModifiedAt.toISOString() },
       });
     }
-    return this.knowledgeService.updateRelationStrength(id, dto.strength, user.userId);
+    return this.knowledgeService.updateRelationStrength(id, dto.strength, user);
   }
 
   @Get('graph/:spaceId')

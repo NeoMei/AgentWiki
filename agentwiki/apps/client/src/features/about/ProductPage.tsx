@@ -28,6 +28,7 @@ export const ProductPage: React.FC = () => {
   const navigate = useNavigate();
   const loginCardRef = useRef<HTMLDivElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const authTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,6 +48,25 @@ export const ProductPage: React.FC = () => {
     loginCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     emailInputRef.current?.focus({ preventScroll: true });
   }, [authIntent, token]);
+
+  const selectAuthMode = (mode: 'login' | 'register') => {
+    setAuthMode(mode);
+    setAuthError('');
+  };
+
+  const handleAuthTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const modes = ['login', 'register'] as const;
+    const current = modes.indexOf(authMode);
+    let next: number;
+    if (event.key === 'ArrowRight') next = (current + 1) % modes.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + modes.length) % modes.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = modes.length - 1;
+    else return;
+    event.preventDefault();
+    selectAuthMode(modes[next]);
+    authTabRefs.current[next]?.focus();
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,35 +204,56 @@ export const ProductPage: React.FC = () => {
                   </div>
                 ) : null}
                 {/* Tab Switcher */}
-                <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6">
+                <div role="tablist" aria-label={zh ? '账户操作' : 'Account action'} className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-6">
                   <button
                     type="button"
+                    role="tab"
+                    id="product-auth-tab-login"
+                    aria-controls="product-auth-panel"
+                    aria-selected={authMode === 'login'}
+                    tabIndex={authMode === 'login' ? 0 : -1}
+                    ref={(node) => { authTabRefs.current[0] = node; }}
                     aria-label={zh ? '切换到登录' : 'Switch to sign in'}
-                    onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                    onClick={() => selectAuthMode('login')}
+                    onKeyDown={handleAuthTabKeyDown}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authMode === 'login' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     {t('auth.signIn')}
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    id="product-auth-tab-register"
+                    aria-controls="product-auth-panel"
+                    aria-selected={authMode === 'register'}
+                    tabIndex={authMode === 'register' ? 0 : -1}
+                    ref={(node) => { authTabRefs.current[1] = node; }}
                     aria-label={zh ? '切换到注册' : 'Switch to register'}
-                    onClick={() => { setAuthMode('register'); setAuthError(''); }}
+                    onClick={() => selectAuthMode('register')}
+                    onKeyDown={handleAuthTabKeyDown}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition ${authMode === 'register' ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-700'}`}
                   >
                     {t('auth.register')}
                   </button>
                 </div>
 
-                {authError && (
-                  <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 text-center">
-                    {authError}
-                  </div>
-                )}
+                <div
+                  id="product-auth-panel"
+                  role="tabpanel"
+                  aria-labelledby={`product-auth-tab-${authMode}`}
+                >
+                  {authError && (
+                    <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 text-center">
+                      {authError}
+                    </div>
+                  )}
 
-                <form onSubmit={handleAuth} className="space-y-4">
+                  <form onSubmit={handleAuth} className="space-y-4">
                   {authMode === 'register' && (
                     <div>
+                      <label htmlFor="product-auth-name" className="sr-only">{t('common.name')}</label>
                       <input
+                        id="product-auth-name"
                         type="text"
                         placeholder={t('common.name')}
                         value={name}
@@ -223,7 +264,9 @@ export const ProductPage: React.FC = () => {
                     </div>
                   )}
                   <div>
+                    <label htmlFor="product-auth-email" className="sr-only">{t('common.email')}</label>
                     <input
+                      id="product-auth-email"
                       ref={emailInputRef}
                       type="email"
                       placeholder={t('common.email')}
@@ -234,10 +277,14 @@ export const ProductPage: React.FC = () => {
                     />
                   </div>
                   <div className="relative">
+                    <label htmlFor="product-auth-password" className="sr-only">{t('common.password')}</label>
                     <input
+                      id="product-auth-password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder={t('common.password')}
                       value={password}
+                      aria-invalid={authMode === 'register' && Boolean(passwordError)}
+                      aria-describedby={authMode === 'register' && passwordError ? 'product-auth-password-error' : undefined}
                       onChange={(e) => { setPassword(e.target.value); setPasswordError(''); }}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition pr-10"
                       required
@@ -254,7 +301,7 @@ export const ProductPage: React.FC = () => {
                     </button>
                   </div>
                   {authMode === 'register' && passwordError && (
-                    <div className="text-red-600 text-xs">{passwordError}</div>
+                    <div id="product-auth-password-error" role="alert" className="text-red-600 text-xs">{passwordError}</div>
                   )}
                   <button
                     type="submit"
@@ -273,7 +320,8 @@ export const ProductPage: React.FC = () => {
                       </>
                     )}
                   </button>
-                </form>
+                  </form>
+                </div>
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 text-center">

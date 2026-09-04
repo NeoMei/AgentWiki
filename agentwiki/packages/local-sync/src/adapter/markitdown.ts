@@ -22,8 +22,17 @@ const DEFAULT_LIMITS = {
   maxFileBytes: 10 * 1024 * 1024,
 };
 
+export type MarkitdownExecFn = (
+  file: string,
+  args: readonly string[],
+  options: { cwd: string; maxBuffer: number; timeout: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
 export class MarkitdownAdapter implements SourceAdapter {
-  constructor(private readonly runtimePath: string) {}
+  constructor(
+    private readonly runtimePath: string,
+    private readonly exec: MarkitdownExecFn = execFileAsync as unknown as MarkitdownExecFn,
+  ) {}
 
   manifest(): AdapterManifest {
     return {
@@ -74,7 +83,7 @@ export class MarkitdownAdapter implements SourceAdapter {
       const logicalKey = relative(canonicalSourcePath, file).replace(/\\/g, '/');
       let text: string;
       try {
-        text = await convertToText(this.runtimePath, file);
+        text = await convertToText(this.runtimePath, file, this.exec);
       } catch (error: unknown) {
         throw new Error(`Failed to convert ${logicalKey}: ${formatError(error)}`, { cause: error });
       }
@@ -215,7 +224,7 @@ async function computeDirectoryHash(sourcePath: string, files: string[]): Promis
   return contentHash(parts.join('\n'));
 }
 
-async function convertToText(runtimePath: string, filePath: string): Promise<string> {
+async function convertToText(runtimePath: string, filePath: string, exec: MarkitdownExecFn): Promise<string> {
   if (isPlainText(filePath)) {
     return await readFile(filePath, 'utf8');
   }
@@ -223,7 +232,7 @@ async function convertToText(runtimePath: string, filePath: string): Promise<str
   const python = process.platform === 'win32'
     ? join(runtimePath, '.venv', 'Scripts', 'python.exe')
     : join(runtimePath, '.venv', 'bin', 'python');
-  const { stdout } = await execFileAsync(python, ['-m', 'markitdown', filePath], {
+  const { stdout } = await exec(python, ['-m', 'markitdown', filePath], {
     cwd: runtimePath,
     maxBuffer: 64 * 1024 * 1024,
     timeout: 120_000,

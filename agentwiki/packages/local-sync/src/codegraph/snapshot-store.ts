@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { OnboardingError } from '../onboarding/errors.js';
 import { contentHash } from '../utils/hash.js';
 import { StandardCodeFileSchema, type StandardCodeFile } from './contracts.js';
@@ -19,7 +19,7 @@ export interface CodeSnapshotStoreOptions {
   renameDirectory?: (from: string, to: string) => Promise<void>; fsyncDirectory?: (path: string, checkpoint: string) => Promise<void>;
   /** Internal filesystem-race test seam. */ beforeMutation?: (stage: MutationStage) => void | Promise<void>;
   /** Internal filesystem-race test seam. */ afterPathCheck?: (subject: { path: string; kind: 'file' | 'directory' }) => void | Promise<void>;
-  /** Both flags must be provided by the platform and non-zero. */ platform?: { O_NOFOLLOW: number | undefined; O_DIRECTORY: number | undefined };
+  /** POSIX requires both secure-open flags; Windows relies on identity rechecks and O_EXCL. */ platform?: { name?: NodeJS.Platform; O_NOFOLLOW: number | undefined; O_DIRECTORY: number | undefined };
 }
 
 function invalidSnapshot(message: string, diagnostic: string): OnboardingError { const error = new OnboardingError({ code: 'CODE_SNAPSHOT_INVALID', message: `Code snapshot is invalid: ${message}`, retryable: false }); Object.assign(error, { diagnostic }); return error; }
@@ -46,19 +46,20 @@ function validateSnapshot(snapshot: StoredCodeSnapshot): StoredCodeSnapshot {
  * and inode rechecks fail closed for observed swaps, but are not an openat
  * guarantee against a malicious same-UID actor that swaps paths back between observations. */
 export class CodeSnapshotStore {
-  private readonly workspaceRoot: string; private readonly lockRoot: string; private readonly lock: SourceLock; private readonly flags: { noFollow: number; directory: number }; private readonly maxBytes: number;
+  private readonly workspaceRoot: string; private readonly lockRoot: string; private readonly lock: SourceLock; private readonly flags: { noFollow: number; directory: number }; private readonly isWindows: boolean; private readonly maxBytes: number;
   constructor(private readonly options: CodeSnapshotStoreOptions) {
     this.workspaceRoot = join(options.home, '.agentwiki', 'workspaces'); this.lockRoot = join(this.workspaceRoot, '.codegraph-snapshot-locks');
-    const platform = options.platform ?? { O_NOFOLLOW: constants.O_NOFOLLOW, O_DIRECTORY: constants.O_DIRECTORY }; const noFollow = platform.O_NOFOLLOW; const directory = platform.O_DIRECTORY;
-    if (!Number.isSafeInteger(noFollow) || !noFollow || !Number.isSafeInteger(directory) || !directory) throw invalidSnapshot('platform lacks required secure-open flags', 'O_NOFOLLOW and O_DIRECTORY must be non-zero');
-    this.flags = { noFollow, directory }; this.maxBytes = options.maxSnapshotBytes ?? DEFAULT_MAX_BYTES;
+    const platform = options.platform ?? { name: process.platform, O_NOFOLLOW: constants.O_NOFOLLOW, O_DIRECTORY: constants.O_DIRECTORY }; const noFollow = platform.O_NOFOLLOW; const directory = platform.O_DIRECTORY;
+    this.isWindows = platform.name === 'win32';
+    if (!this.isWindows && (!Number.isSafeInteger(noFollow) || !noFollow || !Number.isSafeInteger(directory) || !directory)) throw invalidSnapshot('platform lacks required secure-open flags', 'O_NOFOLLOW and O_DIRECTORY must be non-zero');
+    this.flags = { noFollow: this.isWindows ? 0 : noFollow as number, directory: this.isWindows ? 0 : directory as number }; this.maxBytes = options.maxSnapshotBytes ?? DEFAULT_MAX_BYTES;
     if (!Number.isSafeInteger(this.maxBytes) || this.maxBytes <= 0) throw invalidSnapshot('snapshot byte limit was invalid', 'maxSnapshotBytes must be a positive integer');
-    this.lock = new SourceLock({ root: this.lockRoot });
+    this.lock = new SourceLock({ root: this.lockRoot, platform: this.isWindows ? 'win32' : platform.name });
   }
   private root(sourceKey: string) { if (!/^[a-f0-9]{64}$/u.test(sourceKey)) throw invalidSnapshot('invalid source key', 'Source key did not match snapshot contract'); return join(this.workspaceRoot, sourceKey, 'codegraph'); }
   private current(sourceKey: string) { return join(this.root(sourceKey), 'current'); }
-  private assertInside(root: string, target: string) { const value = relative(resolve(root), resolve(target)); if (value === '' || (!value.startsWith('..') && !value.startsWith('/') && !value.includes('\\'))) return; throw invalidSnapshot('private snapshot path escaped its root', 'Snapshot path traversal'); }
-  private async directory(path: string): Promise<DirectoryIdentity> { let value; try { value = await lstat(path, { bigint: true }); } catch (error) { throw invalidSnapshot('private snapshot directory was missing', error instanceof Error ? error.message : 'Missing directory'); } if (!value.isDirectory() || value.isSymbolicLink() || (value.mode & 0o077n) !== 0n) throw invalidSnapshot('private snapshot directory was unsafe', 'Directory was not a private real directory'); return { path, dev: value.dev, ino: value.ino }; }
+  private assertInside(root: string, target: string) { const value = relative(resolve(root), resolve(target)); if (value === '' || (!isAbsolute(value) && value !== '..' && !value.startsWith(`..${sep}`))) return; throw invalidSnapshot('private snapshot path escaped its root', 'Snapshot path traversal'); }
+  private async directory(path: string): Promise<DirectoryIdentity> { let value; try { value = await lstat(path, { bigint: true }); } catch (error) { throw invalidSnapshot('private snapshot directory was missing', error instanceof Error ? error.message : 'Missing directory'); } if (!value.isDirectory() || value.isSymbolicLink() || (!this.isWindows && (value.mode & 0o077n) !== 0n)) throw invalidSnapshot('private snapshot directory was unsafe', 'Directory was not a private real directory'); return { path, dev: value.dev, ino: value.ino }; }
   private async ensureDirectory(path: string): Promise<DirectoryIdentity> { await mkdir(path, { recursive: true, mode: 0o700 }); return this.directory(path); }
   private async assertDirectories(entries: readonly DirectoryIdentity[]) { for (const expected of entries) { const current = await this.directory(expected.path); if (!sameDirectory(expected, current)) throw invalidSnapshot('private snapshot directory changed during operation', 'Directory device/inode identity mismatch'); } }
   private async present(path: string) { try { await lstat(path); return true; } catch (error) { if (missing(error)) return false; throw error; } }
@@ -68,7 +69,7 @@ export class CodeSnapshotStore {
     for (const entry of result) await this.options.afterPathCheck?.({ path: entry.path, kind: 'directory' }); await this.assertDirectories(result); return result;
   }
   private async prepareLockRoot() { const prefix = [await this.ensureDirectory(join(this.options.home, '.agentwiki')), await this.ensureDirectory(this.workspaceRoot)]; await this.assertDirectories(prefix); const lockRoot = await this.ensureDirectory(this.lockRoot); await this.assertDirectories([...prefix, lockRoot]); }
-  private async sync(path: string, checkpoint: string) { if (this.options.fsyncDirectory) return this.options.fsyncDirectory(path, checkpoint); const handle = await open(path, constants.O_RDONLY | this.flags.directory | this.flags.noFollow); try { await handle.sync(); } finally { await handle.close(); } }
+  private async sync(path: string, checkpoint: string) { if (this.options.fsyncDirectory) return this.options.fsyncDirectory(path, checkpoint); if (this.isWindows) return; const handle = await open(path, constants.O_RDONLY | this.flags.directory | this.flags.noFollow); try { await handle.sync(); } finally { await handle.close(); } }
   private async readSecure(directories: readonly DirectoryIdentity[], name: string): Promise<string> {
     const root = directories.at(-1)!.path; const path = join(root, name); this.assertInside(root, path); let before;
     try { before = await lstat(path, { bigint: true }); } catch (error) { throw invalidSnapshot('snapshot file was missing', error instanceof Error ? error.message : 'Missing file'); }

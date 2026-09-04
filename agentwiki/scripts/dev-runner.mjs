@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,9 +33,20 @@ export function prepareEnvironment(source = process.env) {
   return env;
 }
 
+export function resolvePnpmInvocation(args, env = process.env) {
+  if (process.platform !== 'win32') return { executable: 'pnpm', args };
+  const candidates = [
+    env.npm_execpath,
+    env.APPDATA && resolve(env.APPDATA, 'npm/node_modules/pnpm/bin/pnpm.mjs'),
+  ].filter(Boolean);
+  const cli = candidates.find((candidate) => existsSync(candidate));
+  if (!cli) throw new Error('Unable to locate the pnpm JavaScript entry point on Windows');
+  return { executable: process.execPath, args: [cli, ...args] };
+}
+
 function spawnPnpm(_name, args, env) {
-  const executable = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  return spawn(executable, args, {
+  const command = resolvePnpmInvocation(args, env);
+  return spawn(command.executable, command.args, {
     cwd: root,
     env,
     stdio: 'inherit',

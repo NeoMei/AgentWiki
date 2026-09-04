@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { assertE2ETarget, cleanupFixture } from './e2e-safety.mjs';
+import { spawnPackageManager } from './package-manager-process.mjs';
 
 const HARNESS_DEADLINE_MS = 5 * 60 * 1_000;
 
@@ -122,7 +123,7 @@ function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
   };
   const detached = process.platform !== 'win32';
   if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, detached });
-  return spawn('npx', ['--yes', '@neomei/agentwiki-local-sync@0.7.0', ...args], {
+  return spawnPackageManager('npx', ['--yes', '@neomei/agentwiki-local-sync@0.7.0', ...args], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType }, detached,
   });
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
@@ -54,28 +54,41 @@ export const SpaceMembers: React.FC = () => {
   const zh = language === 'zh-CN';
   const { user } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
+  const [loadedSpaceId, setLoadedSpaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const activeSpaceIdRef = useRef(id);
+  activeSpaceIdRef.current = id;
+  const currentMembers = loadedSpaceId === id ? members : [];
 
-  const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
+  const myRole = currentMembers.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
   const canManage = myRole === 'owner' || myRole === 'admin';
   const canGrantOwner = myRole === 'owner';
 
   const fetchMembers = async () => {
     if (!id) return;
+    const requestedSpaceId = id;
     try {
-      const response = await api.get(`/spaces/${id}/members`);
+      const response = await api.get(`/spaces/${requestedSpaceId}/members`);
+      if (activeSpaceIdRef.current !== requestedSpaceId) return;
       setMembers(response.data);
+      setLoadedSpaceId(requestedSpaceId);
     } catch {
-      setError(zh ? '成员加载失败' : 'Failed to load members');
+      if (activeSpaceIdRef.current === requestedSpaceId) setError(zh ? '成员加载失败' : 'Failed to load members');
     } finally {
-      setLoading(false);
+      if (activeSpaceIdRef.current === requestedSpaceId) setLoading(false);
     }
   };
 
   useEffect(() => {
+    setMembers([]);
+    setLoadedSpaceId(null);
+    setLoading(true);
+    setError(null);
+    setShowAdd(false);
+    setUpdatingId(null);
     void fetchMembers();
   }, [id]);
 
@@ -137,7 +150,7 @@ export const SpaceMembers: React.FC = () => {
     }
   };
 
-  const existingAgentIds = members
+  const existingAgentIds = currentMembers
     .filter((member): member is AgentMember => member.type === 'agent' && !!member.agentId)
     .map((member) => member.agentId as string);
 
@@ -176,12 +189,12 @@ export const SpaceMembers: React.FC = () => {
       {error ? <div role="alert" className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div> : null}
 
       <div className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
-        {members.length === 0 ? (
+        {currentMembers.length === 0 ? (
           <div className="py-12 text-center text-gray-400">
             <Users size={48} className="mx-auto mb-3 opacity-50" />
             <p>{zh ? '未找到成员。' : 'No members found.'}</p>
           </div>
-        ) : members.map((member) => {
+        ) : currentMembers.map((member) => {
           if (member.type === 'agent') {
             const name = member.agent?.name || (zh ? '未命名 Agent' : 'Unnamed Agent');
             return (

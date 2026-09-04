@@ -10,6 +10,7 @@ import {
   validateCollaborationTestDatabaseUrl,
   withCollaborationTestDatabase,
 } from './collaboration-test-database.mjs';
+import { spawnPackageManagerSync } from './package-manager-process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const command = process.argv[2];
@@ -288,7 +289,7 @@ async function createEvidenceRepository(resourceRoot) {
   git(repository, ['add', '.']);
   git(repository, ['commit', '-m', 'feat: add audited label module']);
   const moduleB = git(repository, ['rev-parse', 'HEAD']).trim();
-  const testResult = spawnSync('npm', ['test'], { cwd: repository, encoding: 'utf8' });
+  const testResult = spawnPackageManagerSync('npm', ['test'], { cwd: repository, encoding: 'utf8' });
   if (testResult.status !== 0) throw new Error(`Fixture tests failed:\n${testResult.stdout}\n${testResult.stderr}`);
   return { repository, moduleA, moduleB, testCommand: 'npm test' };
 }

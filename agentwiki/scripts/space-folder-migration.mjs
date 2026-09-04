@@ -1605,7 +1605,10 @@ export async function reserveReportTarget(reportPath, operations = {}) {
       status: 'reserved',
       reportPath: target,
     });
-    await parentHandle.sync();
+    // Windows does not expose a directory handle that Node can fsync. The
+    // report file itself is still flushed above; POSIX keeps the directory
+    // fsync that makes the newly created name durable across a crash.
+    if (process.platform !== 'win32' || operations.open) await parentHandle.sync();
   } catch (error) {
     if (reportHandle) {
       try {

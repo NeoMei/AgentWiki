@@ -2,12 +2,23 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runOnboardingHarness } from './onboarding-e2e.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+function pnpmInvocation(args) {
+  const candidates = [
+    process.env.npm_execpath,
+    process.env.APPDATA && resolve(process.env.APPDATA, 'npm/node_modules/pnpm/bin/pnpm.mjs'),
+  ].filter(Boolean);
+  const cli = candidates.find((candidate) => existsSync(candidate));
+  if (cli) return { file: process.execPath, args: [cli, ...args] };
+  return { file: 'pnpm', args };
+}
 
 function response(status, body = {}) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -130,9 +141,10 @@ describe('onboarding E2E runtime', () => {
   });
 
   test('runs the real coordinator state-machine cases for isolated Codex, Claude Code, and OpenCode homes', { timeout: 30_000 }, () => {
-    const result = spawnSync('pnpm', [
+    const command = pnpmInvocation([
       '--filter', '@neomei/agentwiki-local-sync', 'exec', 'vitest', 'run', 'src/onboarding/onboarding-e2e-driver.spec.ts',
-    ], { cwd: repositoryRoot, encoding: 'utf8' });
+    ]);
+    const result = spawnSync(command.file, command.args, { cwd: repositoryRoot, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   });
 });

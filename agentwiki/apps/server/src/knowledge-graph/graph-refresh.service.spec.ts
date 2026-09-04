@@ -63,6 +63,11 @@ describe('GraphRefreshService', () => {
   };
 
   const buildLlm = () => ({ generateText: jest.fn() });
+  const authorization = {
+    lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
+    assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+  };
+  const revisionWriter = { lockSpace: jest.fn(async (tx: any) => tx) };
 
   it('converges on the winner when concurrent graph-state initialization hits spaceId uniqueness', async () => {
     const prisma = buildPrisma();
@@ -273,7 +278,9 @@ describe('GraphRefreshService', () => {
     prisma.spaceGraphState.findUnique.mockResolvedValue({
       wikilinkEnabled: false, similarEnabled: false, similarThreshold: 0.86, llmEnabled: true,
     });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
     const result = await service.refresh('space-1', ['llm']);
     expect(result.llm).toMatchObject({ changeSetId: null, proposed: 0, reason: 'llm_unavailable' });
     expect(prisma.spaceGraphState.updateMany).toHaveBeenNthCalledWith(2, {
@@ -293,8 +300,10 @@ describe('GraphRefreshService', () => {
       wikilinkEnabled: false, similarEnabled: false, similarThreshold: 0.86, llmEnabled: true,
     });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-1' });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
-    const result = await service.refresh('space-1', ['llm'], 'reviewer-1');
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
+    const result = await service.refresh('space-1', ['llm'], { userId: 'reviewer-1' });
     expect(result.llm).toEqual({ changeSetId: 'cs-1', proposed: 1 });
     expect(prisma.changeSet.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -322,12 +331,76 @@ describe('GraphRefreshService', () => {
       lastLlmRunAt: null,
     });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-deduplicated' });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
 
-    const result = await service.refresh('space-1', ['llm'], 'reviewer-1');
+    const result = await service.refresh('space-1', ['llm'], { userId: 'reviewer-1' });
 
     expect(result.llm.proposed).toBe(1);
     expect(prisma.changeSet.create.mock.calls[0][0].data.items.create).toHaveLength(1);
+  });
+
+  it('uses User then Space then live-human then graph-state lock order for a manual refresh', async () => {
+    const prisma = buildPrisma();
+    const liveAuthorization = {
+      lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
+      assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+    };
+    const writer = { lockSpace: jest.fn(async (tx: any) => tx) };
+    const service = new GraphRefreshService(
+      prisma, extraction, buildLlm() as any, liveAuthorization as any, writer as any,
+    );
+
+    await service.refresh('space-1', ['wikilink'], { userId: 'owner-1' });
+
+    expect(liveAuthorization.lockLiveHumanPrincipal.mock.invocationCallOrder[0]).toBeLessThan(
+      writer.lockSpace.mock.invocationCallOrder[0],
+    );
+    expect(writer.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      liveAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
+    );
+    expect(liveAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.$queryRaw.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('rechecks human access after the LLM returns before creating a proposal', async () => {
+    const events: string[] = [];
+    const llm = {
+      generateText: jest.fn().mockImplementation(async () => {
+        events.push('llm-returned');
+        return { text: JSON.stringify({ relations: [
+          { sourcePageId: 'p1', targetPageId: 'p2', relation: 'supports', confidence: 0.7 },
+        ] }) };
+      }),
+    };
+    const prisma = buildPrisma();
+    prisma.spaceGraphState.findUnique.mockResolvedValue({
+      wikilinkEnabled: false, similarEnabled: false, similarThreshold: 0.86, llmEnabled: true,
+      lastLlmRunAt: null,
+    });
+    const revoked = new Error('membership revoked');
+    const authorization = {
+      lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
+      assertLiveHumanSpaceAccess: jest.fn()
+        .mockResolvedValueOnce({ role: 'owner' })
+        .mockResolvedValueOnce({ role: 'owner' })
+        .mockImplementationOnce(async () => {
+          events.push('post-llm-auth');
+          throw revoked;
+        }),
+    };
+    const revisionWriter = { lockSpace: jest.fn(async (tx: any) => tx) };
+    const service = new (GraphRefreshService as any)(
+      prisma, extraction, llm, authorization, revisionWriter,
+    );
+    const principal = { userId: 'reviewer-1', platformRole: 'user' as const };
+
+    await expect(service.refresh('space-1', ['llm'], principal)).rejects.toBe(revoked);
+
+    expect(events).toEqual(['llm-returned', 'post-llm-auth']);
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
   });
 
   it('retries invalid llm JSON once with a stricter prompt', async () => {
@@ -344,9 +417,11 @@ describe('GraphRefreshService', () => {
       lastLlmRunAt: null,
     });
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-retry' });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
 
-    const result = await service.refresh('space-1', ['llm'], 'reviewer-1');
+    const result = await service.refresh('space-1', ['llm'], { userId: 'reviewer-1' });
 
     expect(result.llm).toEqual({ changeSetId: 'cs-retry', proposed: 1 });
     expect(llm.generateText).toHaveBeenCalledTimes(2);
@@ -376,9 +451,11 @@ describe('GraphRefreshService', () => {
       embedding: null,
     })));
     prisma.changeSet.create.mockResolvedValue({ id: 'cs-batches' });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
 
-    const result = await service.refresh('space-1', ['llm'], 'reviewer-1');
+    const result = await service.refresh('space-1', ['llm'], { userId: 'reviewer-1' });
 
     expect(result.llm).toEqual({ changeSetId: 'cs-batches', proposed: 2 });
     expect(llm.generateText).toHaveBeenCalledTimes(2);
@@ -399,10 +476,12 @@ describe('GraphRefreshService', () => {
       wikilinkEnabled: false, similarEnabled: false, similarThreshold: 0.86, llmEnabled: true,
       lastLlmRunAt: new Date('2026-08-17T00:00:00.000Z'),
     });
-    const service = new GraphRefreshService(prisma, extraction, llm as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, llm as any, authorization as any, revisionWriter as any,
+    );
     jest.useFakeTimers().setSystemTime(new Date('2026-08-17T12:00:00.000Z'));
 
-    const result = await service.refresh('space-1', ['llm'], 'reviewer-1');
+    const result = await service.refresh('space-1', ['llm'], { userId: 'reviewer-1' });
 
     expect(result.llm).toMatchObject({ changeSetId: null, proposed: 0, reason: 'rate_limited' });
     expect(llm.generateText).not.toHaveBeenCalled();
@@ -521,14 +600,16 @@ describe('GraphRefreshService', () => {
 
   it('invalidates the sweep hash when graph settings change', async () => {
     const prisma = buildPrisma();
-    const service = new GraphRefreshService(prisma, extraction, buildLlm() as any);
+    const service = new GraphRefreshService(
+      prisma, extraction, buildLlm() as any, authorization as any, revisionWriter as any,
+    );
 
     await service.updateSettings('space-1', {
       wikilinkEnabled: true,
       similarEnabled: true,
       similarThreshold: 0.9,
       llmEnabled: false,
-    });
+    }, { userId: 'owner-1' });
 
     expect(prisma.spaceGraphState.upsert).toHaveBeenCalledWith({
       where: { spaceId: 'space-1' },
@@ -547,5 +628,25 @@ describe('GraphRefreshService', () => {
         lastContentHash: null,
       },
     });
+  });
+
+  it('does not persist graph settings after live human access is revoked', async () => {
+    const prisma = buildPrisma();
+    const revoked = new Error('membership revoked');
+    const deniedAuthorization = {
+      lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
+      assertLiveHumanSpaceAccess: jest.fn().mockRejectedValue(revoked),
+    };
+    const writer = { lockSpace: jest.fn(async (tx: any) => tx) };
+    const service = new GraphRefreshService(
+      prisma, extraction, buildLlm() as any, deniedAuthorization as any, writer as any,
+    );
+
+    await expect(service.updateSettings(
+      'space-1', { llmEnabled: true }, { userId: 'owner-1' },
+    )).rejects.toBe(revoked);
+
+    expect(writer.lockSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(prisma.spaceGraphState.upsert).not.toHaveBeenCalled();
   });
 });

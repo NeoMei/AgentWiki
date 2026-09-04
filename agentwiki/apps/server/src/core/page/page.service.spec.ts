@@ -66,6 +66,7 @@ const mockTemplates = {
 };
 
 const mockAuthorization = {
+  lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'user-1' }),
   assertLiveHumanSpaceAccess: jest.fn(),
 };
 
@@ -381,6 +382,7 @@ describe('PageService', () => {
         }),
       } as any;
       const liveAuthorization = {
+        lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'user-1' }),
         assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
       } as any;
       const templates = new (PageTemplateService as any)(
@@ -611,6 +613,9 @@ describe('PageService', () => {
       expect(mockAuthorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
         mockPrisma, principal, 'space-1', ['owner', 'editor'],
       );
+      expect(mockAuthorization.lockLiveHumanPrincipal.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRevisionWriter.lockSpace.mock.invocationCallOrder[0],
+      );
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
         mockAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
       );
@@ -658,6 +663,23 @@ describe('PageService', () => {
   };
 
   describe('update', () => {
+    it('rechecks live human access after the Space lock and before any persistent write', async () => {
+      mockPrisma.page.findUnique.mockResolvedValue(original);
+      const revoked = new Error('membership revoked');
+      mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
+
+      await expect(service.update('page-1', {
+        content: 'blocked', expectedUpdatedAt: original.updatedAt.toISOString(),
+      }, humanPrincipal as any)).rejects.toBe(revoked);
+
+      expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+      expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
+        mockAuthorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0],
+      );
+      expect(mockPrisma.pageVersion.create).not.toHaveBeenCalled();
+      expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
+    });
+
     it('delegates title and Folder placement atomically but does not advance tree revision for body-only edits', async () => {
       const current = {
         id: 'page-1', title: 'Current', content: 'before', slug: 'current', format: 'markdown',
@@ -673,7 +695,7 @@ describe('PageService', () => {
 
       await service.update('page-1', {
         content: 'after', expectedUpdatedAt: current.updatedAt.toISOString(),
-      }, 'user-1');
+      }, humanPrincipal);
 
       expect(mockContentTree.preparePageMutation).not.toHaveBeenCalled();
       expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
@@ -690,7 +712,7 @@ describe('PageService', () => {
       await expect(service.update('page-1', {
         title: 'My draft',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1')).rejects.toMatchObject({
+      } as any, humanPrincipal)).rejects.toMatchObject({
         statusCode: 409,
         businessCode: 'RESOURCE_CONFLICT',
       });
@@ -710,7 +732,7 @@ describe('PageService', () => {
       await expect(service.update('page-1', {
         title: 'Updated',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1')).resolves.toMatchObject({ title: 'Updated' });
+      } as any, humanPrincipal)).resolves.toMatchObject({ title: 'Updated' });
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -735,7 +757,7 @@ describe('PageService', () => {
       await expect(service.update('page-1', {
         title: 'Updated',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1')).rejects.toThrow('search offline');
+      } as any, humanPrincipal)).rejects.toThrow('search offline');
 
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
     });
@@ -758,7 +780,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         title: 'Renamed',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
@@ -794,7 +816,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         content: 'Updated content',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -833,7 +855,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         title: 'A <> B',
         expectedUpdatedAt: equivalent.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -862,7 +884,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         title: 'Guide',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
@@ -895,7 +917,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         title: 'Renamed',
         expectedUpdatedAt: rootPage.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
         spaceId: 'space-1',
@@ -929,7 +951,7 @@ describe('PageService', () => {
       await service.update('page-1', {
         title: 'Renamed',
         expectedUpdatedAt: original.updatedAt.toISOString(),
-      } as any, 'user-1');
+      } as any, humanPrincipal);
 
       expect(mockRevisionWriter.advance).toHaveBeenCalledWith(
         expect.anything(),
@@ -949,7 +971,7 @@ describe('PageService', () => {
         id: 'page-1', spaceId: 'space-1', authorId: 'user-1', knowledgeKey: 'key-1', syncPath: 'pages/p-1.md',
       });
 
-      await service.remove('page-1', '2026-08-20T00:00:00.000Z', '0');
+      await service.remove('page-1', '2026-08-20T00:00:00.000Z', '0', humanPrincipal);
 
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
       expect(mockSearch.deletePageIndex.mock.invocationCallOrder[0])
@@ -958,6 +980,20 @@ describe('PageService', () => {
   });
 
   describe('restoreVersion', () => {
+    it('does not restore after access is revoked while waiting for the Space lock', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
+      const revoked = new Error('membership revoked');
+      mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
+
+      await expect((service.restoreVersion as any)(
+        'page-1', 'version-1', '0', humanPrincipal as any,
+      )).rejects.toBe(revoked);
+
+      expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+      expect(mockPrisma.pageVersion.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
+    });
+
     it('restores the title basename without changing the restored body', async () => {
       const current = {
         id: 'page-1',
@@ -999,7 +1035,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1', '0');
+      await service.restoreVersion('page-1', 'version-1', '0', humanPrincipal);
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(expect.anything(), 'space-1');
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
@@ -1080,7 +1116,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1', '0');
+      await service.restoreVersion('page-1', 'version-1', '0', humanPrincipal);
 
       expect(mockSyncPaths.allocate).toHaveBeenCalledWith(expect.anything(), {
         spaceId: 'space-1',
@@ -1152,7 +1188,7 @@ describe('PageService', () => {
         pathKey: restored.syncPathKey,
       });
 
-      await service.restoreVersion('page-1', 'version-1', '0');
+      await service.restoreVersion('page-1', 'version-1', '0', humanPrincipal);
 
       expect(mockPrisma.pageVersion.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
@@ -1178,11 +1214,14 @@ describe('PageService', () => {
         data: expect.objectContaining({
           slug: current.slug,
           format: current.format,
-          lastModifiedByUserId: current.authorId,
+          lastModifiedByUserId: humanPrincipal.userId,
         }),
       }));
       expect(mockRevisionWriter.lockSpace.mock.invocationCallOrder[0]).toBeLessThan(
         mockPrisma.page.findUnique.mock.invocationCallOrder[0],
+      );
+      expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ actor: { userId: humanPrincipal.userId } }),
       );
       expect(mockPrisma.pageVersion.create.mock.invocationCallOrder[0]).toBeLessThan(
         mockPrisma.page.updateMany.mock.invocationCallOrder[0],
@@ -1226,7 +1265,7 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.restoreVersion('page-1', 'version-1', '0');
+      await service.restoreVersion('page-1', 'version-1', '0', humanPrincipal);
 
       expect(mockSyncPaths.allocate).not.toHaveBeenCalled();
       expect(mockPrisma.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -1330,7 +1369,7 @@ describe('PageService', () => {
         committed.revisions += 1;
       });
 
-      await expect(service.restoreVersion('page-1', 'version-1', '0')).rejects.toMatchObject({
+      await expect(service.restoreVersion('page-1', 'version-1', '0', humanPrincipal)).rejects.toMatchObject({
         statusCode: 409,
         businessCode: 'RESOURCE_CONFLICT',
       });
@@ -1345,6 +1384,20 @@ describe('PageService', () => {
   });
 
   describe('remove', () => {
+    it('does not archive after access is revoked while waiting for the Space lock', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
+      const revoked = new Error('membership revoked');
+      mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
+
+      await expect((service.remove as any)(
+        'page-1', '2026-08-20T00:00:00.000Z', '0', humanPrincipal as any,
+      )).rejects.toBe(revoked);
+
+      expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
+      expect(mockPrisma.page.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.page.updateMany).not.toHaveBeenCalled();
+    });
+
     it('locks and snapshots the current Page before archiving it', async () => {
       const visible = {
         id: 'page-1',
@@ -1374,8 +1427,9 @@ describe('PageService', () => {
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(archived);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
+      const archiver = { ...humanPrincipal, userId: 'archiver-1' };
       await expect(service.remove(
-        'page-1', current.updatedAt.toISOString(), '0',
+        'page-1', current.updatedAt.toISOString(), '0', archiver,
       )).resolves.toEqual({
         ...archived,
         path: archived.syncPath,
@@ -1413,6 +1467,9 @@ describe('PageService', () => {
         },
         data: { deletedAt: expect.any(Date) },
       });
+      expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ actor: { userId: archiver.userId } }),
+      );
       expect(mockPrisma.page.findUnique).toHaveBeenNthCalledWith(2, expect.objectContaining({
         where: { id: current.id, spaceId: current.spaceId, deletedAt: { not: null } },
       }));
@@ -1443,7 +1500,7 @@ describe('PageService', () => {
       mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.remove(
-        'page-1', current.updatedAt.toISOString(), '0',
+        'page-1', current.updatedAt.toISOString(), '0', humanPrincipal,
       )).rejects.toMatchObject({
         statusCode: 409,
         businessCode: 'RESOURCE_CONFLICT',

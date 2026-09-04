@@ -98,6 +98,7 @@ describe('PageTemplateService', () => {
   } as any;
   const authorization = {
     assertSpaceAccess: jest.fn(),
+    lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'user-1' }),
     assertLiveHumanSpaceAccess: jest.fn(),
   } as any;
   const config = { get: jest.fn().mockReturnValue('api') } as any;
@@ -1039,6 +1040,9 @@ describe('PageTemplateService', () => {
     for (const call of prisma.$transaction.mock.calls as any[][]) {
       expect(call[1]).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     }
+    authorization.lockLiveHumanPrincipal.mock.invocationCallOrder.forEach((lockOrder: number, index: number) => {
+      expect(lockOrder).toBeLessThan(revisionWriter.lockSpace.mock.invocationCallOrder[index]);
+    });
     revisionWriter.lockSpace.mock.invocationCallOrder.forEach((lockOrder: number, index: number) => {
       expect(lockOrder).toBeLessThan(
         authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[index],

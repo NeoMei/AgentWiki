@@ -99,7 +99,7 @@ describe('PageController.restoreVersion', () => {
 
     await controller.restoreVersion('page-1', 'version-1', { expectedTreeRevision: '15' }, request);
 
-    expect(pageService.restoreVersion).toHaveBeenNthCalledWith(1, 'page-1', 'version-1', '15');
+    expect(pageService.restoreVersion).toHaveBeenNthCalledWith(1, 'page-1', 'version-1', '15', request.user);
   });
 });
 
@@ -119,7 +119,9 @@ describe('PageController.remove', () => {
       user: { userId: 'user-1', platformRole: 'user' },
     });
 
-    expect(pageService.remove).toHaveBeenCalledWith('page-1', dto.expectedUpdatedAt, dto.expectedTreeRevision);
+    expect(pageService.remove).toHaveBeenCalledWith(
+      'page-1', dto.expectedUpdatedAt, dto.expectedTreeRevision, expect.objectContaining({ userId: 'user-1' }),
+    );
   });
 
   it('stores the caller Page/tree CAS values in an Agent archive proposal without reading current state', async () => {

@@ -63,6 +63,28 @@ describe('KnowledgeGraph origin filters', () => {
     });
   });
 
+  it('offers a keyboard-accessible node browser alongside the visual canvas', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url.includes('/knowledge/graph/')) {
+        return Promise.resolve({ data: { nodes: [node('p1', 'Alpha'), node('p2', 'Beta')], edges: [] } });
+      }
+      return Promise.resolve({ data: { data: [{ id: 'p1', title: 'Alpha' }, { id: 'p2', title: 'Beta' }] } });
+    });
+
+    const { container } = render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/spaces/s1/graph']}>
+          <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const nodeBrowser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
+    fireEvent.change(nodeBrowser, { target: { value: 'p2' } });
+    expect(screen.getByRole('link', { name: '打开所选页面' })).toHaveAttribute('href', '/pages/p2');
+    expect(container.querySelector('canvas')).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('closes the relation dialog with Escape, exits linking mode, and restores focus', async () => {
     api.get.mockImplementation((url: string) => {
       if (url.includes('/knowledge/graph/')) {

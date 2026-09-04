@@ -4,9 +4,24 @@ import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import type { BootstrapInstallFn } from './coordinator.js';
 import {
   createBootstrapInstaller,
+  gatewayVerificationCommand,
   installExchangedGateway,
   type BootstrapInstallerDeps,
 } from './install.js';
+
+describe('gatewayVerificationCommand', () => {
+  it('runs the packaged CLI with Node instead of spawning npx on Windows', () => {
+    const cliFile = 'C:\\npm-cache\\agentwiki\\dist\\cli.js';
+
+    expect(gatewayVerificationCommand('connection-1', cliFile)).toEqual([
+      process.execPath,
+      cliFile,
+      'gateway',
+      '--connection',
+      'connection-1',
+    ]);
+  });
+});
 
 function input(): Parameters<BootstrapInstallFn>[0] {
   return {

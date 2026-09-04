@@ -261,7 +261,9 @@ it('doctor checks required tool availability without invoking remote model provi
       else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
     }
 
-    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(report.checks.length);
+    const permissionCheck = report.checks.find((check) => check.name === 'file-permissions');
+    expect(permissionCheck?.status).toBe(process.platform === 'win32' ? 'fail' : 'pass');
+    expect(report.checks.filter((check) => check.name !== 'file-permissions').every((check) => check.status === 'pass')).toBe(true);
     expect(run).toHaveBeenCalledWith('markitdown', ['--version'], expect.anything());
     expect(run).toHaveBeenCalledWith('git', ['--version'], expect.anything());
     expect(run.mock.calls.map(([command]) => command)).toEqual([
@@ -318,6 +320,29 @@ it('doctor checks required tool availability without invoking remote model provi
       expect(env).not.toHaveProperty('CODEX_HOME');
       expect(env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
     }
+  });
+
+  it.runIf(process.platform === 'win32')('does not claim Windows ACL protection that it cannot verify', async () => {
+    const home = await temporaryDirectory('agentwiki-doctor-windows-acl-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.7.0', client: 'codex' as const, mcpName: 'agentwiki',
+    };
+    await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
+    await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });
+
+    const report = await runDoctor(home, connection, {
+      client: { access: vi.fn().mockResolvedValue({ access: [] }) } as never,
+      readApiKey: async () => 'agk_doctor_secret',
+      run: vi.fn(() => ({ status: 0, stdout: 'tool 1.0.0', stderr: '' })),
+      codeGraph: { diagnose: vi.fn().mockResolvedValue({ available: false }) },
+    });
+
+    expect(report.checks).toContainEqual({
+      name: 'file-permissions',
+      status: 'fail',
+      detail: 'Local config and credentials are regular files; Windows ACL protection was not verified',
+    });
   });
 
   it('doctor separates required CodeGraph failures from optional degradation and exposes a source index status', async () => {

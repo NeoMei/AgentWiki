@@ -200,7 +200,7 @@ describe('installGatewayEntry', () => {
     await seedConfig('claude', home, '{"old":true}');
     const { backupPath } = await installGatewayEntry('claude', 'conn-1', hashConfig('{"old":true}'), home);
     const s = await stat(backupPath);
-    expect(s.mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o600);
   });
 
   it('uses a no-op rollback when an identical gateway is already installed', async () => {

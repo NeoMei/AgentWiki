@@ -2,6 +2,7 @@ import {
   scopesForAgentAccessRole,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import { fileURLToPath } from 'node:url';
 import type { BootstrapResult } from './client.js';
 import { OnboardingClient } from './client.js';
 import type { BootstrapInstallFn } from './coordinator.js';
@@ -11,10 +12,17 @@ import { installSkill, packagedSkillSource } from '../agent-clients.js';
 import { loadConfig, loadCredentials, saveConfig, saveCredentials, type LocalSyncConnection } from '../config.js';
 import { archiveLegacyState, initCleanState, restoreArchivedState, type ArchiveResult } from '../installer/archive.js';
 import { installGatewayEntry } from '../installer/client-config.js';
-import { gatewayCommand } from '../installer/plan.js';
 import { verifyGateway, type VerifyResult } from './verifier.js';
 
 type InstallInput = Parameters<BootstrapInstallFn>[0];
+
+/** Verify the package that is already running instead of spawning npx again. */
+export function gatewayVerificationCommand(
+  connectionId: string,
+  cliFile = process.env.AGENTWIKI_E2E_CLI_FILE || fileURLToPath(new URL('../cli.js', import.meta.url)),
+): string[] {
+  return [process.execPath, cliFile, 'gateway', '--connection', connectionId];
+}
 
 export interface BootstrapInstallerDeps {
   bootstrap(input: InstallInput): Promise<BootstrapResult>;
@@ -346,9 +354,7 @@ function productionDependencies(): BootstrapInstallerDeps {
     installSkill: (home, client) => installSkill(home, packagedSkillSource, client),
     installClient: installGatewayEntry,
     verify: (connectionId, home) => verifyGateway({
-      command: process.env.AGENTWIKI_E2E_CLI_FILE
-        ? [process.execPath, process.env.AGENTWIKI_E2E_CLI_FILE, 'gateway', '--connection', connectionId]
-        : gatewayCommand(connectionId),
+      command: gatewayVerificationCommand(connectionId),
       cwd: home,
       env: { ...process.env, HOME: home } as Record<string, string>,
     }),

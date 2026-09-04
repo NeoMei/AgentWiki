@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { homedir } from 'node:os';
 import { cwd } from 'node:process';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { loadAttachmentConfig, type AttachmentConfig } from './attachment.config';
 import { LocalAttachmentStorage } from './local-attachment.storage';
 import type { AttachmentTempReservation, StoredAttachment } from './attachment-storage';
@@ -155,7 +155,7 @@ describe('attachment config', () => {
         NODE_ENV: 'production',
         ATTACHMENT_STORAGE_PATH: '/var/lib/agentwiki/attachments',
       }).storagePath,
-    ).toBe('/var/lib/agentwiki/attachments');
+    ).toBe(resolve('/var/lib/agentwiki/attachments'));
   });
 });
 
@@ -174,10 +174,12 @@ describe('LocalAttachmentStorage', () => {
 
     const tempPath = await storage.createTempPath();
 
-    expect(tempPath.startsWith(join(root, '.tmp') + '/')).toBe(true);
-    expect((await stat(root)).mode & 0o777).toBe(0o700);
-    expect((await stat(join(root, '.tmp'))).mode & 0o777).toBe(0o700);
-    expect((await stat(tempPath)).mode & 0o777).toBe(0o600);
+    expect(tempPath.startsWith(join(root, '.tmp') + sep)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect((await stat(root)).mode & 0o777).toBe(0o700);
+      expect((await stat(join(root, '.tmp'))).mode & 0o777).toBe(0o700);
+      expect((await stat(tempPath)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('admits the exact free-space boundary and physically reserves the incoming allocation', async () => {
@@ -648,6 +650,7 @@ describe('LocalAttachmentStorage', () => {
   });
 
   it('fails closed without chmodding an overly broad pre-existing root', async () => {
+    if (process.platform === 'win32') return;
     const parent = await makeRoot();
     const root = join(parent, 'attachments');
     await import('node:fs/promises').then((fs) => fs.mkdir(root, { mode: 0o755 }));
@@ -682,7 +685,7 @@ describe('LocalAttachmentStorage', () => {
     });
     expect(second).toEqual({ ...first, created: false });
     expect(secondStat.ino).toBe(firstStat.ino);
-    expect(secondStat.mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(secondStat.mode & 0o777).toBe(0o600);
     expect(await readFile(join(root, first.storageKey))).toEqual(bytes);
     await expect(access(firstTemp.path, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(secondTemp.path, constants.F_OK)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -848,7 +851,9 @@ describe('LocalAttachmentStorage', () => {
     });
 
     await expect(rejection).rejects.toBe(primary);
-    expect((primary as Error & { cause?: unknown }).cause).toMatchObject({ code: 'ENOTDIR' });
+    expect((primary as Error & { cause?: NodeJS.ErrnoException }).cause?.code).toMatch(
+      process.platform === 'win32' ? /^(?:ENOENT|ENOTDIR)$/u : /^ENOTDIR$/u,
+    );
   });
 
   it('does not delete a replacement lock owned by another storage instance', async () => {

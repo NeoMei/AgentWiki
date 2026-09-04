@@ -91,8 +91,11 @@ describe('AdapterManager', () => {
     expect(status).toMatchObject({ installed: true, version: '0.1.6' });
     const venvCall = calls.find((call) => call.args.includes('venv'));
     const pipCall = calls.find((call) => call.args.includes('pip'));
-    expect(venvCall).toMatchObject({ args: ['-m', 'venv', '.venv'] });
-    expect(pipCall?.file).toMatch(/\.venv\/bin\/python$/);
+    expect(venvCall?.args.slice(-3)).toEqual(['-m', 'venv', '.venv']);
+    const pipExecutable = pipCall?.file.replace(/\\/gu, '/');
+    expect(pipExecutable).toMatch(process.platform === 'win32'
+      ? /\/\.venv\/Scripts\/python\.exe$/u
+      : /\/\.venv\/bin\/python$/u);
     expect(pipCall?.args).toEqual([
       '-m', 'pip', 'install', '--disable-pip-version-check', '--no-input',
       'markitdown[pdf,docx]==0.1.6',
@@ -102,13 +105,15 @@ describe('AdapterManager', () => {
 
   it('selects a Python interpreter that satisfies MarkItDown requirements', async () => {
     const calls: Array<{ file: string; args: string[] }> = [];
+    const selectedFile = process.platform === 'win32' ? 'py' : 'python3.12';
+    const selectedPrefix = process.platform === 'win32' ? ['-3.12'] : [];
     const manager = new AdapterManager({
       runtimeHome: tempHome,
       exec: async (file, args) => {
         const argv = [...(args ?? [])];
         calls.push({ file, args: argv });
         if (argv.some((value) => value.startsWith('import sys'))) {
-          if (file === 'python3.12') return { stdout: '3.12\n', stderr: '' };
+          if (file === selectedFile && selectedPrefix.every((value) => argv.includes(value))) return { stdout: '3.12\n', stderr: '' };
           const error = new Error(`${file} is unavailable`);
           (error as NodeJS.ErrnoException).code = 'ENOENT';
           throw error;
@@ -119,8 +124,8 @@ describe('AdapterManager', () => {
 
     await manager.install('markitdown');
 
-    expect(calls).toContainEqual({ file: 'python3.12', args: ['-m', 'venv', '.venv'] });
-    expect(calls.some((call) => call.file === 'python3' && call.args.includes('venv'))).toBe(false);
+    expect(calls).toContainEqual({ file: selectedFile, args: [...selectedPrefix, '-m', 'venv', '.venv'] });
+    if (process.platform !== 'win32') expect(calls.some((call) => call.file === 'python3' && call.args.includes('venv'))).toBe(false);
   });
 
   it('detects missing adapter as not installed', async () => {

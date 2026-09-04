@@ -70,7 +70,7 @@ test('dedicated Markdown attachment gate builds current server output and enable
     'node -e "if (!process.env.MARKDOWN_TEST_DATABASE_URL) { '
       + "throw new Error('MARKDOWN_TEST_DATABASE_URL is required for the dedicated Markdown attachment gate'); }\" && "
       + 'pnpm --filter @agentwiki/server build && '
-      + 'MARKDOWN_ATTACHMENTS_DEDICATED_GATE=1 node --test '
+      + 'node scripts/run-node-with-env.mjs MARKDOWN_ATTACHMENTS_DEDICATED_GATE=1 --test '
       + 'scripts/markdown-attachments-schema-db.test.mjs '
       + 'scripts/markdown-attachments-http-db.test.mjs '
       + 'scripts/markdown-resource-resolution-db.test.mjs',

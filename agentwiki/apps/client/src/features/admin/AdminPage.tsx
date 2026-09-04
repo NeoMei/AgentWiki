@@ -38,6 +38,8 @@ export const AdminPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [actionTarget, setActionTarget] = useState<UserRow | null>(null);
   const [actionType, setActionType] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
@@ -45,14 +47,22 @@ export const AdminPage: React.FC = () => {
   const [actionBusy, setActionBusy] = useState(false);
   const actionBusyRef = useRef(false);
   const actionSequenceRef = useRef(0);
+  const userRequestSequenceRef = useRef(0);
 
   const loadStats = useCallback(async () => {
-    const { data } = await api.get('/platform-admin/stats');
-    setStats(data);
-  }, []);
+    setStatsError(null);
+    try {
+      const { data } = await api.get('/platform-admin/stats');
+      setStats(data);
+    } catch (err: unknown) {
+      setStatsError(apiErrorMessage(err, t, 'admin.statsLoadFailed'));
+    }
+  }, [t]);
 
   const loadUsers = useCallback(async () => {
+    const sequence = ++userRequestSequenceRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const params = new URLSearchParams();
       if (query) params.set('query', query);
@@ -61,12 +71,17 @@ export const AdminPage: React.FC = () => {
       params.set('page', String(page));
       params.set('limit', '20');
       const { data } = await api.get(`/platform-admin/users?${params}`);
+      if (sequence !== userRequestSequenceRef.current) return;
       setUsers(data.users);
       setTotalUsers(data.total);
+    } catch (err: unknown) {
+      if (sequence === userRequestSequenceRef.current) {
+        setLoadError(apiErrorMessage(err, t, 'admin.usersLoadFailed'));
+      }
     } finally {
-      setLoading(false);
+      if (sequence === userRequestSequenceRef.current) setLoading(false);
     }
-  }, [query, statusFilter, roleFilter, page]);
+  }, [query, statusFilter, roleFilter, page, t]);
 
   useEffect(() => { loadStats(); loadUsers(); }, [loadStats, loadUsers]);
 
@@ -137,6 +152,13 @@ export const AdminPage: React.FC = () => {
     <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-bold flex items-center gap-2"><Shield className="text-blue-600" size={24} /> {t('admin.title')}</h1>
 
+      {statsError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <span>{statsError}</span>
+          <button type="button" onClick={() => void loadStats()} className="rounded border border-red-300 bg-white px-3 py-1 hover:bg-red-100">{t('common.retry')}</button>
+        </div>
+      )}
+
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard label={t('admin.usersTotal')} value={stats.users.total} icon={<Users size={18} />} />
@@ -164,6 +186,12 @@ export const AdminPage: React.FC = () => {
 
       <div className="bg-white border rounded-xl p-4 space-y-4">
         <h2 className="text-lg font-semibold">{t('admin.userManagement')}</h2>
+        {loadError && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <span>{loadError}</span>
+            <button type="button" onClick={() => void loadUsers()} className="rounded border border-red-300 bg-white px-3 py-1 hover:bg-red-100">{t('common.retry')}</button>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-48">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

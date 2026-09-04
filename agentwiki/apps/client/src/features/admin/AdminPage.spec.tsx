@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -17,6 +17,12 @@ const target = {
 const stats = {
   users: { total: 1, active: 1, locked: 0, deleted: 0, new7d: 1, new30d: 1 },
   spaces: 0, pages: 0, agents: 0, userTrend30d: [], recentUsers: [],
+};
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 };
 
 describe('AdminPage password reset', () => {
@@ -74,5 +80,40 @@ describe('AdminPage password reset', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+
+  it('shows a retryable list error when initial admin loading fails', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/stats')) return { data: stats };
+      throw new Error('offline');
+    });
+    render(<LanguageProvider><AdminPage /></LanguageProvider>);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络连接失败');
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+  });
+
+  it('does not let an older search response replace the latest query', async () => {
+    const oldRequest = deferred<any>();
+    const newRequest = deferred<any>();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.includes('/stats')) return Promise.resolve({ data: stats });
+      if (url.includes('query=a&')) return oldRequest.promise;
+      if (url.includes('query=ab&')) return newRequest.promise;
+      return Promise.resolve({ data: { users: [target], total: 1 } });
+    });
+    render(<LanguageProvider><AdminPage /></LanguageProvider>);
+    const search = await screen.findByPlaceholderText('搜索');
+
+    fireEvent.change(search, { target: { value: 'a' } });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('query=a&')));
+    fireEvent.change(search, { target: { value: 'ab' } });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('query=ab&')));
+    await act(async () => newRequest.resolve({ data: { users: [{ ...target, id: 'new', name: 'Latest result' }], total: 1 } }));
+    expect(await screen.findByText('Latest result')).toBeInTheDocument();
+    await act(async () => oldRequest.resolve({ data: { users: [{ ...target, id: 'old', name: 'Stale result' }], total: 1 } }));
+
+    expect(screen.getByText('Latest result')).toBeInTheDocument();
+    expect(screen.queryByText('Stale result')).not.toBeInTheDocument();
   });
 });

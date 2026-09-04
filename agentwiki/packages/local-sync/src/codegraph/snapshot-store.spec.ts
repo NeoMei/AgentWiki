@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hashCodeSnapshot, normalizeCodeGraphFiles } from './normalizer.js';
 import { CodeSnapshotStore, sameSnapshotIdentityForTest } from './snapshot-store.js';
@@ -39,6 +39,19 @@ describe('Code snapshot store', () => {
     const huge = BigInt(Number.MAX_SAFE_INTEGER) + 17n;
     expect(sameSnapshotIdentityForTest({ dev: huge, ino: huge + 1n }, { dev: huge, ino: huge + 1n })).toBe(true);
     expect(sameSnapshotIdentityForTest({ dev: huge, ino: huge + 1n }, { dev: huge + 1n, ino: huge + 1n })).toBe(false);
+  });
+
+  it('round-trips a snapshot with Windows filesystem capabilities', async () => {
+    const home = await temporaryDirectory();
+    const store = new CodeSnapshotStore({
+      home,
+      platform: { name: 'win32', O_NOFOLLOW: undefined, O_DIRECTORY: undefined },
+    });
+
+    await expect(store.write(snapshot('src/windows.ts'))).resolves.toBeDefined();
+    await expect(store.read('a'.repeat(64))).resolves.toMatchObject({
+      files: [expect.objectContaining({ path: 'src/windows.ts' })],
+    });
   });
 
   it.each(['.agentwiki', 'workspaces', 'a'.repeat(64), 'codegraph'])('fails closed on a real private-root symlink at %s without changing the external sentinel', async (part) => {
@@ -249,7 +262,7 @@ describe('Code snapshot store', () => {
     const failing = new CodeSnapshotStore({
       home,
       renameDirectory: async (from, to) => {
-        if (from.includes('.staging-') && to.endsWith('/current')) throw new Error('promotion failed');
+        if (from.includes('.staging-') && basename(to) === 'current') throw new Error('promotion failed');
         await rename(from, to);
       },
     });
@@ -278,8 +291,7 @@ describe('Code snapshot store', () => {
       home,
       fsyncDirectory: async (path, actualCheckpoint) => {
         if (!failed && actualCheckpoint === checkpoint) { failed = true; throw new Error(`fsync ${checkpoint} failed`); }
-        const handle = await (await import('node:fs/promises')).open(path, 'r');
-        try { await handle.sync(); } finally { await handle.close(); }
+        expect(path).toBeTruthy();
       },
     });
     await expect(failing.write(snapshot('src/new.ts'))).rejects.toThrow(`fsync ${checkpoint} failed`);

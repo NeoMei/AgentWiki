@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { spawnPnpmSync } from './package-manager-process.mjs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -60,7 +61,7 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     assert.equal(runPsql(`CREATE SCHEMA ${quoted}`).status, 0);
     const url = new URL(databaseUrl);
     url.searchParams.set('schema', schema);
-    const deploy = spawnSync('pnpm', ['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'], {
+    const deploy = spawnPnpmSync(['--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy'], {
       cwd: root, encoding: 'utf8', env: { ...process.env, DATABASE_URL: url.href },
     });
     assert.equal(deploy.status, 0, `migrate deploy failed:\n${deploy.stdout}\n${deploy.stderr}`);

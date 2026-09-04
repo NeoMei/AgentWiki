@@ -29,6 +29,7 @@ const TEMP_SIDECAR_NAME_PATTERN = /^(upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}
 const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
 const TEMP_CLEANUP_VISIT_LIMIT = 100;
 const TEMP_CLEANUP_DELETE_LIMIT = 100;
+const SUPPORTS_POSIX_PERMISSIONS = process.platform !== 'win32';
 
 interface TempDirectoryCursor {
   read(): Promise<{ name: string } | null>;
@@ -163,10 +164,10 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   }
   try {
     const metadata = await handle.stat();
-    if ((metadata.mode & 0o777) !== 0o700) {
+    if (SUPPORTS_POSIX_PERMISSIONS && (metadata.mode & 0o777) !== 0o700) {
       throw new Error(`Attachment storage directory must have mode 0700: ${path}`);
     }
-    if (created) {
+    if (created && process.platform !== 'win32') {
       await handle.sync();
     }
   } finally {
@@ -1087,14 +1088,14 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
         try {
           directoryHandle = await openDirectorySafely(lockPath);
           directoryIdentity = await directoryHandle.stat();
-          if ((directoryIdentity.mode & 0o777) !== 0o700) {
+          if (SUPPORTS_POSIX_PERMISSIONS && (directoryIdentity.mode & 0o777) !== 0o700) {
             throw new Error(`Attachment content lock must have mode 0700: ${lockPath}`);
           }
-          await (this.dependencies.syncLockDirectory
-            ?? ((handle: FileHandle) => handle.sync()))(
-            directoryHandle,
-            'after-mkdir',
-          );
+          if (this.dependencies.syncLockDirectory) {
+            await this.dependencies.syncLockDirectory(directoryHandle, 'after-mkdir');
+          } else if (process.platform !== 'win32') {
+            await directoryHandle.sync();
+          }
           ownerHandle = await open(
             ownerPath,
             constants.O_CREAT |
@@ -1114,11 +1115,11 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
             ?? ((handle: FileHandle) => handle.sync()))(ownerHandle);
           await ownerHandle.close();
           ownerHandle = undefined;
-          await (this.dependencies.syncLockDirectory
-            ?? ((handle: FileHandle) => handle.sync()))(
-            directoryHandle,
-            'after-owner',
-          );
+          if (this.dependencies.syncLockDirectory) {
+            await this.dependencies.syncLockDirectory(directoryHandle, 'after-owner');
+          } else if (process.platform !== 'win32') {
+            await directoryHandle.sync();
+          }
           await directoryHandle.close();
           directoryHandle = undefined;
           await this.syncDirectory(dirname(lockPath));
@@ -1189,7 +1190,10 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     );
     try {
       const metadata = await ownerHandle.stat();
-      if (!metadata.isFile() || (metadata.mode & 0o777) !== 0o600) {
+      if (
+        !metadata.isFile()
+        || (SUPPORTS_POSIX_PERMISSIONS && (metadata.mode & 0o777) !== 0o600)
+      ) {
         throw new Error('Attachment content lock ownership file is unsafe');
       }
       const token = await ownerHandle.readFile('utf8');
@@ -1278,6 +1282,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   }
 
   private async syncDirectory(path: string): Promise<void> {
+    if (process.platform === 'win32') return;
     const handle = await openDirectorySafely(path);
     try {
       await handle.sync();

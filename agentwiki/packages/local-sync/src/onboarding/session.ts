@@ -120,7 +120,7 @@ const hashSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const textSchema = z.string().min(1).refine((value) => ![...value].some((character) => { const codePoint = character.codePointAt(0)!; return codePoint <= 0x1f || codePoint === 0x7f; }), 'Text must not contain control characters');
 const opaqueIdSchema = textSchema.refine((value) => !/[\\/]/u.test(value), 'Identifier must not contain path separators');
 const canonicalSourcePathSchema = textSchema.superRefine((value, context) => {
-  if (!isAbsolute(value) || value.includes('\\') || normalize(value) !== value) {
+  if (!isAbsolute(value) || (process.platform !== 'win32' && value.includes('\\')) || normalize(value) !== value) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'Source path must be a canonical absolute path' });
   }
 });

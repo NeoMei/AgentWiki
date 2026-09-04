@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { spawnPnpmSync } from './package-manager-process.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -50,6 +51,13 @@ const compareByteStrings = (left, right) => Buffer.compare(
   Buffer.from(right, 'utf8'),
 );
 
+// Git may materialize reviewed SQL blobs with CRLF on Windows. Canonicalize
+// only that transport-level conversion so the captured bundle and its
+// byte-exact fingerprints remain identical on every supported platform.
+function canonicalMigrationBytes(content) {
+  return Buffer.from(content.toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
+}
+
 async function listMigrationFiles(root, relativeDirectory = '') {
   const directoryEntries = (await readdir(join(root, relativeDirectory), { withFileTypes: true }))
     .sort((left, right) => compareByteStrings(left.name, right.name));
@@ -75,7 +83,7 @@ export async function inspectFolderMigrationCorpus(migrationsRoot = DEFAULT_MIGR
   const entries = [];
   let canonicalManifest = '';
   for (const relativePath of relativePaths) {
-    const content = await readFile(join(root, relativePath));
+    const content = canonicalMigrationBytes(await readFile(join(root, relativePath)));
     const contentSha256 = sha256(content);
     entries.push(Object.freeze({
       relativePath,
@@ -683,8 +691,7 @@ export async function withFolderTestDatabase(baseDatabaseUrl, callback) {
       safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
       await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
       created = true;
-      const migration = spawnSync(
-        'pnpm',
+      const migration = spawnPnpmSync(
         [
           '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
           '--schema', preparedMigrations.schemaPath,

@@ -3,7 +3,7 @@
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
-import { readFile, rm, stat } from 'node:fs/promises';
+import { lstat, readFile, rm, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -240,6 +240,13 @@ async function inspectMcpRegistration(connection: LocalSyncConnection, home: str
 async function inspectFilePermissions(home: string): Promise<DoctorCheck> {
   const paths = [join(home, '.agentwiki', 'local-sync.json'), join(home, '.agentwiki', 'credentials.json')];
   try {
+    if (process.platform === 'win32') {
+      const entries = await Promise.all(paths.map((path) => lstat(path)));
+      const regular = entries.every((entry) => entry.isFile() && !entry.isSymbolicLink());
+      return check('file-permissions', false, regular
+        ? 'Local config and credentials are regular files; Windows ACL protection was not verified'
+        : 'Local config or credentials are not regular files');
+    }
     const modes = await Promise.all(paths.map(async (path) => (await stat(path)).mode & 0o777));
     const secure = modes.every((mode) => (mode & 0o077) === 0);
     return check('file-permissions', secure, secure ? 'Local config and credentials are owner-only' : 'Local config or credentials are too broadly readable');

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -56,6 +56,11 @@ const renderMembers = ({ role = 'owner', agentRole, canManageAgentRole = true }:
       <Routes><Route path="/spaces/:id/members" element={<SpaceMembers />} /></Routes>
     </MemoryRouter>,
   );
+};
+
+const NavigableMembers = () => {
+  const navigate = useNavigate();
+  return <><button type="button" onClick={() => navigate('/spaces/space-2/members')}>Switch space</button><SpaceMembers /></>;
 };
 
 describe('SpaceMembers Agent addition', () => {
@@ -130,5 +135,25 @@ describe('SpaceMembers Agent addition', () => {
       '/spaces/space-1/members/user-2',
       { role: 'editor' },
     ));
+  });
+
+  it('removes old Space permissions immediately while the next member list loads', async () => {
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === '/spaces/space-1/members') return Promise.resolve({ data: membersFor('owner') });
+      if (url === '/spaces/space-2/members') return new Promise(() => undefined);
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    render(
+      <MemoryRouter initialEntries={['/spaces/space-1/members']}>
+        <Routes><Route path="/spaces/:id/members" element={<NavigableMembers />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('button', { name: '添加成员' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+
+    expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Teammate')).not.toBeInTheDocument();
+    expect(screen.getByText('加载中…')).toBeInTheDocument();
   });
 });

@@ -25,7 +25,7 @@ export class KnowledgeGraphController {
     )) {
       throw new BadRequestException('layers must contain only wikilink, similar, or llm');
     }
-    return this.graph.refresh(id, layers, (req.user as any).userId);
+    return this.graph.refresh(id, layers, req.user as any);
   }
 
   @Get('spaces/:id/graph/settings')
@@ -72,7 +72,7 @@ export class KnowledgeGraphController {
       && (!Number.isFinite(body.similarThreshold) || body.similarThreshold < 0.5 || body.similarThreshold > 1)) {
       throw new BadRequestException('similarThreshold must be between 0.5 and 1');
     }
-    const updated = await this.graph.updateSettings(id, body);
+    const updated = await this.graph.updateSettings(id, body, req.user as any);
     return {
       wikilinkEnabled: updated.wikilinkEnabled,
       similarEnabled: updated.similarEnabled,

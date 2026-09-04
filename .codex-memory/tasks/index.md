@@ -4,10 +4,11 @@
 
 ## 活跃任务
 
-- 当前无活跃任务。
+- [macos-release-verification-2026-09-04](active/macos-release-verification-2026-09-04/brief.md)：在 Mac 的隔离 PostgreSQL/pgvector、Redis AOF、真实 CodeGraph 和 Chrome 环境补齐数据库门禁及 25 个 Playwright 用例。
 
 ## 最近完成
 
+- [windows-release-readiness-2026-09-04](archive/windows-release-readiness-2026-09-04/brief.md)：Windows 缺陷报告驱动的本地同步、服务端、客户端与根脚本修复完成多轮审查；最终 4044 pass / 79 skip / 0 fail，typecheck、lint、build、零已知依赖漏洞与公开页面桌面/移动 Browser 验收通过，数据库型 E2E 因本机无隔离服务环境明确留待补验。
 - [page-template-library](archive/page-template-library/brief.md)：单页系统模板与 Space 自定义模板完成多轮任务/代码/全栈/UI 审查、GitHub 推送、生产双备份、第 43 个迁移与公网真实 Chrome 验收；npm 包无差异，未发布 npm。
 - [collaboration-agent-preparation](archive/collaboration-agent-preparation/brief.md)：协作向导内 Agent 准备、接入、映射与权限闭环已完成 GitHub 和生产发布；双备份、727 文件哈希、服务/迁移/公网健康及桌面/390px 已登录 Browser 验收全部通过。
 - [collaboration-release-finalization-2026-08-24](archive/collaboration-release-finalization-2026-08-24/brief.md)：协作模板完成多轮任务/代码/全栈/UI 审查、GitHub 与 npm `0.6.1/0.3.0` 发布、生产双备份部署及公网双轮烟测；活跃测试 fixture 与测试 schema 均清零。

@@ -87,6 +87,7 @@ function harness() {
   } as any;
   const authorization = {
     assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+    lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
     assertLiveHumanSpaceAccess: jest.fn().mockImplementation(
       (_db: unknown, actor: ReturnType<typeof principal>) => Promise.resolve({
         role: actor.role,

@@ -17,7 +17,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const read = (path) => readFile(resolve(root, path), 'utf8');
+const read = async (path) => (await readFile(resolve(root, path), 'utf8')).replaceAll('\r\n', '\n');
+const bashExecutable = process.platform === 'win32'
+  ? resolve(process.env.ProgramFiles ?? 'C:/Program Files', 'Git/bin/bash.exe')
+  : '/bin/bash';
+const bashPath = (path) => process.platform === 'win32'
+  ? path.replace(/^([A-Za-z]):[\\/]/u, (_match, drive) => `/${drive.toLowerCase()}/`).replaceAll('\\', '/')
+  : path;
 // SECURITY: changing either digest is approval to execute a new Markdown-derived program and requires full executable-code review.
 const REVIEWED_RESTORE_PROGRAM_SHA256 = '35f5daaae0c519b3efd0a8818f78dd833b495901201828e981977ec2899277c8';
 const REVIEWED_MANIFEST_PROGRAM_SHA256 = 'd3555b183cc1d7fb99f4b9af95c01909993bd1e75d7eaf9d090785954e0ee710';
@@ -176,7 +182,7 @@ fi
 }
 
 function runReviewedBash(program, argv, environment) {
-  return spawnSync('/bin/bash', ['--noprofile', '--norc', '-c', program, ...argv], {
+  return spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', program, ...argv], {
     encoding: 'utf8',
     env: environment,
   });
@@ -197,6 +203,9 @@ function assertPrivateApiExecutionTrace(restore) {
   const logPath = resolve(sandbox, 'one-shot.log');
   const releasePath = resolve(sandbox, 'release');
   const attachmentPath = resolve(sandbox, 'attachments');
+  const shellLogPath = bashPath(logPath);
+  const shellReleasePath = bashPath(releasePath);
+  const shellAttachmentPath = bashPath(attachmentPath);
   mkdirSync(fakeBin);
   mkdirSync(releasePath);
   mkdirSync(attachmentPath);
@@ -205,7 +214,7 @@ function assertPrivateApiExecutionTrace(restore) {
     exactArgvExecutable(fakeBin, 'sudo', [{
       args: [
         '-u', 'agentwiki', 'env', 'NODE_ENV=production', 'PORT=13000', 'PROCESS_ROLE=api',
-        'AGENTWIKI_LISTEN_HOST=127.0.0.1', `ATTACHMENT_STORAGE_PATH=${attachmentPath}`,
+        'AGENTWIKI_LISTEN_HOST=127.0.0.1', `ATTACHMENT_STORAGE_PATH=${shellAttachmentPath}`,
         'ATTACHMENT_MIN_FREE_BYTES=4096', 'DATABASE_URL=postgresql://trace',
         'REDIS_URL=redis://trace', 'JWT_SECRET=trace-jwt',
         'AGENTWIKI_SERVER_PEPPER=trace-pepper', 'AGENTWIKI_DEPLOYMENT_SEED=trace-seed',
@@ -227,12 +236,12 @@ function assertPrivateApiExecutionTrace(restore) {
     exactArgvExecutable(fakeBin, 'mktemp', [{
       args: ['/var/tmp/agentwiki-restore-health.XXXXXXXX.log'],
       event: 'log-allocate',
-      stdout: `${logPath}\n`,
+      stdout: `${shellLogPath}\n`,
     }]);
     exactArgvExecutable(fakeBin, 'seq', [{ args: ['1', '30'], event: 'retry-sequence', stdout: '1\n' }]);
     exactArgvExecutable(fakeBin, 'grep', [{ args: ['-q', '.'], event: 'port-empty', status: 1 }]);
     exactArgvExecutable(fakeBin, 'ss', [{ args: ['-H', '-ltn', 'sport = :13000'], event: 'port-check' }]);
-    exactArgvExecutable(fakeBin, 'rm', [{ args: ['--', logPath], event: 'log-remove' }]);
+    exactArgvExecutable(fakeBin, 'rm', [{ args: ['--', shellLogPath], event: 'log-remove' }]);
 
     const start = extractShellFunction(restore, 'start_private_api');
     const verify = extractShellFunction(restore, 'verify_private_api');
@@ -253,9 +262,18 @@ JWT_SECRET=trace-jwt
 AGENTWIKI_SERVER_PEPPER=trace-pepper
 AGENTWIKI_DEPLOYMENT_SEED=trace-seed
 PUBLIC_API_URL=http://127.0.0.1:13000/api
+fake_bin="$3"
+sudo() { "$fake_bin/sudo" "$@"; }
+node() { "$fake_bin/node" "$@"; }
+curl() { "$fake_bin/curl" "$@"; }
+mktemp() { "$fake_bin/mktemp" "$@"; }
+seq() { "$fake_bin/seq" "$@"; }
+grep() { "$fake_bin/grep" "$@"; }
+ss() { "$fake_bin/ss" "$@"; }
+rm() { "$fake_bin/rm" "$@"; }
 verify_private_api "$2"`;
-    const result = runReviewedBash(command, ['contract', releasePath, attachmentPath], {
-      PATH: fakeBin,
+    const result = runReviewedBash(command, ['contract', shellReleasePath, shellAttachmentPath, bashPath(fakeBin)], {
+      PATH: bashPath(fakeBin),
       TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, `private API trace failed closed: ${result.stderr}`);
@@ -286,17 +304,21 @@ function assertRollbackExecutionTrace(restore) {
     const stagedDump = resolve(rollbackDirectory, 'staged/database.dump');
     const stagedAttachments = resolve(rollbackDirectory, 'staged/attachments');
     const liveRoot = resolve(rollbackDirectory, 'live');
+    const shellRollbackDirectory = bashPath(rollbackDirectory);
+    const shellStagedDump = bashPath(stagedDump);
+    const shellStagedAttachments = bashPath(stagedAttachments);
+    const shellLiveRoot = bashPath(liveRoot);
     exactArgvExecutable(fakeBin, 'sudo', [{
       args: ['-u', 'agentwiki', 'systemctl', '--user', 'stop', 'agentwiki-api.service', 'agentwiki-worker.service'],
       event: 'writers-stop',
     }]);
     exactArgvExecutable(fakeBin, 'pg_restore', [{
-      args: ['--clean', '--if-exists', '--exit-on-error', '--single-transaction', '--dbname=postgresql://trace', stagedDump],
+      args: ['--clean', '--if-exists', '--exit-on-error', '--single-transaction', '--dbname=postgresql://trace', shellStagedDump],
       event: 'database-restore',
     }]);
-    exactArgvExecutable(fakeBin, 'mv', [{ args: ['--', stagedAttachments, liveRoot], event: 'attachment-promotion' }]);
+    exactArgvExecutable(fakeBin, 'mv', [{ args: ['--', shellStagedAttachments, shellLiveRoot], event: 'attachment-promotion' }]);
     exactArgvExecutable(fakeBin, 'cmp', [{
-      args: [resolve(rollbackDirectory, 'MANIFEST.jsonl'), resolve(rollbackDirectory, 'MANIFEST.promoted-rollback.jsonl')],
+      args: [`${shellRollbackDirectory}/MANIFEST.jsonl`, `${shellRollbackDirectory}/MANIFEST.promoted-rollback.jsonl`],
       event: 'manifest-compare',
     }]);
     exactArgvExecutable(fakeBin, 'pnpm', [{
@@ -325,13 +347,20 @@ rollback_restore_bundle="$1/staged"
 live_attachment_root="$1/live"
 failed_live_root="$1/failed"
 rollback_live_root="$1/rollback-live"
+fake_bin="$2"
+sudo() { "$fake_bin/sudo" "$@"; }
+pg_restore() { "$fake_bin/pg_restore" "$@"; }
+mv() { "$fake_bin/mv" "$@"; }
+cmp() { "$fake_bin/cmp" "$@"; }
+pnpm() { "$fake_bin/pnpm" "$@"; }
 ${rollback}
 rollback_pair`;
-    const result = runReviewedBash(command, ['contract', rollbackDirectory], {
-      PATH: fakeBin,
+    const result = runReviewedBash(command, ['contract', shellRollbackDirectory, bashPath(fakeBin)], {
+      PATH: bashPath(fakeBin),
       TRACE_PATH: tracePath,
     });
-    assert.equal(result.status, 0, `rollback execution trace failed closed: ${result.stderr}`);
+    const failureTrace = existsSync(tracePath) ? readFileSync(tracePath, 'utf8') : '<no trace>';
+    assert.equal(result.status, 0, `rollback execution trace failed closed: ${result.stderr}\n${failureTrace}`);
     const events = readFileSync(tracePath, 'utf8').trim().split(/\r?\n/u);
     assert.deepEqual(
       events,
@@ -361,6 +390,10 @@ function assertStagingExecutionTrace(restore) {
   const rollbackStage = resolve(sandbox, 'rollback-stage');
   const selectedSource = resolve(sandbox, 'selected-source');
   const rollbackSource = resolve(sandbox, 'rollback-source');
+  const shellSelectedStage = bashPath(selectedStage);
+  const shellRollbackStage = bashPath(rollbackStage);
+  const shellSelectedSource = bashPath(selectedSource);
+  const shellRollbackSource = bashPath(rollbackSource);
   mkdirSync(fakeBin);
   mkdirSync(selectedStage);
   mkdirSync(rollbackStage);
@@ -370,33 +403,33 @@ function assertStagingExecutionTrace(restore) {
       {
         args: ['-d', '/var/lib/agentwiki/attachments-restore.XXXXXXXX'],
         event: 'stage:selected',
-        stdout: `${selectedStage}\n`,
+        stdout: `${shellSelectedStage}\n`,
       },
       {
         args: ['-d', '/var/lib/agentwiki/attachments-rollback-restore.XXXXXXXX'],
         event: 'stage:rollback',
-        stdout: `${rollbackStage}\n`,
+        stdout: `${shellRollbackStage}\n`,
       },
     ]);
     exactArgvExecutable(fakeBin, 'install', [
-      { args: ['-m', '0600', `${selectedSource}/database.dump`, `${selectedStage}/database.dump`], event: 'install:selected' },
-      { args: ['-m', '0600', `${rollbackSource}/database.dump`, `${rollbackStage}/database.dump`], event: 'install:rollback' },
+      { args: ['-m', '0600', `${shellSelectedSource}/database.dump`, `${shellSelectedStage}/database.dump`], event: 'install:selected' },
+      { args: ['-m', '0600', `${shellRollbackSource}/database.dump`, `${shellRollbackStage}/database.dump`], event: 'install:rollback' },
     ]);
     exactArgvExecutable(fakeBin, 'mkdir', [
-      { args: ['-m', '0700', `${selectedStage}/attachments`], event: 'mkdir:selected' },
-      { args: ['-m', '0700', `${rollbackStage}/attachments`], event: 'mkdir:rollback' },
+      { args: ['-m', '0700', `${shellSelectedStage}/attachments`], event: 'mkdir:selected' },
+      { args: ['-m', '0700', `${shellRollbackStage}/attachments`], event: 'mkdir:rollback' },
     ]);
     exactArgvExecutable(fakeBin, 'rsync', [
-      { args: ['-a', '--numeric-ids', '--delete', `${selectedSource}/attachments/`, `${selectedStage}/attachments/`], event: 'rsync:selected' },
-      { args: ['-a', '--numeric-ids', '--delete', `${rollbackSource}/attachments/`, `${rollbackStage}/attachments/`], event: 'rsync:rollback' },
+      { args: ['-a', '--numeric-ids', '--delete', `${shellSelectedSource}/attachments/`, `${shellSelectedStage}/attachments/`], event: 'rsync:selected' },
+      { args: ['-a', '--numeric-ids', '--delete', `${shellRollbackSource}/attachments/`, `${shellRollbackStage}/attachments/`], event: 'rsync:rollback' },
     ]);
     exactArgvExecutable(fakeBin, 'cmp', [
-      { args: [`${selectedSource}/MANIFEST.jsonl`, `${selectedStage}/MANIFEST.candidate.jsonl`], event: 'cmp:selected' },
-      { args: [`${rollbackSource}/MANIFEST.jsonl`, `${rollbackStage}/MANIFEST.candidate.jsonl`], event: 'cmp:rollback' },
+      { args: [`${shellSelectedSource}/MANIFEST.jsonl`, `${shellSelectedStage}/MANIFEST.candidate.jsonl`], event: 'cmp:selected' },
+      { args: [`${shellRollbackSource}/MANIFEST.jsonl`, `${shellRollbackStage}/MANIFEST.candidate.jsonl`], event: 'cmp:rollback' },
     ]);
     exactArgvExecutable(fakeBin, 'pg_restore', [
-      { args: ['--list', `${selectedStage}/database.dump`], event: 'list:selected' },
-      { args: ['--list', `${rollbackStage}/database.dump`], event: 'list:rollback' },
+      { args: ['--list', `${shellSelectedStage}/database.dump`], event: 'list:selected' },
+      { args: ['--list', `${shellRollbackStage}/database.dump`], event: 'list:rollback' },
     ]);
 
     const stageStart = restore.indexOf('restore_bundle=');
@@ -418,12 +451,20 @@ trace_selected_stage="$1/selected-stage"
 trace_rollback_stage="$1/rollback-stage"
 selected_backup_dir="$1/selected-source"
 rollback_dir="$1/rollback-source"
+fake_bin="$2"
+mktemp() { "$fake_bin/mktemp" "$@"; }
+install() { "$fake_bin/install" "$@"; }
+mkdir() { "$fake_bin/mkdir" "$@"; }
+rsync() { "$fake_bin/rsync" "$@"; }
+cmp() { "$fake_bin/cmp" "$@"; }
+pg_restore() { "$fake_bin/pg_restore" "$@"; }
 ${staging}`;
-    const result = runReviewedBash(command, ['contract', sandbox], {
-      PATH: fakeBin,
+    const result = runReviewedBash(command, ['contract', bashPath(sandbox), bashPath(fakeBin)], {
+      PATH: bashPath(fakeBin),
       TRACE_PATH: tracePath,
     });
-    assert.equal(result.status, 0, `staging execution trace failed closed: ${result.stderr}`);
+    const failureTrace = existsSync(tracePath) ? readFileSync(tracePath, 'utf8') : '<no trace>';
+    assert.equal(result.status, 0, `staging execution trace failed closed: ${result.stderr}\n${failureTrace}`);
     const events = readFileSync(tracePath, 'utf8').trim().split(/\r?\n/u);
     assert.deepEqual(
       events,
@@ -809,7 +850,7 @@ test('deployment reads optional server env safely and validates its selected fre
   await mkdir(serverDirectory, { recursive: true });
   const environment = { ...process.env };
   delete environment.ATTACHMENT_MIN_FREE_BYTES;
-  const run = () => spawnSync('bash', ['-c', `set -euo pipefail\n${reader}\nlive_dir="$1"\nattachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"\nread_attachment_min_free_bytes\nprintf '%s' "$attachment_min_free_bytes"`, 'contract', sandbox], {
+  const run = () => spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `set -euo pipefail\n${reader}\nlive_dir="$1"\nattachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"\nread_attachment_min_free_bytes\nprintf '%s' "$attachment_min_free_bytes"`, 'contract', sandbox], {
     encoding: 'utf8',
     env: environment,
   });
@@ -890,7 +931,9 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     await mkdir(attachments, { recursive: true });
     await writeFile(resolve(bundle, 'database.dump'), 'database-v1');
     await writeFile(resolve(attachments, 'ordinary.png'), 'image-v1');
-    await writeFile(resolve(attachments, 'line\nbreak.png'), 'odd-name');
+    const oddName = process.platform === 'win32' ? 'line-break-雪.png' : 'line\nbreak.png';
+    const oddPath = `attachments/${oddName}`;
+    await writeFile(resolve(attachments, oddName), 'odd-name');
 
     const baseline = runManifestBundleFunction(runbook, bundle);
     assert.equal(baseline.status, 0, baseline.stderr);
@@ -901,7 +944,7 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     const byPath = manifestByPath(rows);
     assert.deepEqual([...byPath.keys()], [
       'attachments',
-      'attachments/line\nbreak.png',
+      oddPath,
       'attachments/ordinary.png',
       'database.dump',
     ]);
@@ -909,7 +952,7 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
       type: 'directory',
       pathBase64: Buffer.from('attachments').toString('base64'),
     });
-    for (const path of ['attachments/line\nbreak.png', 'attachments/ordinary.png', 'database.dump']) {
+    for (const path of [oddPath, 'attachments/ordinary.png', 'database.dump']) {
       assert.equal(byPath.get(path).type, 'file');
       assert.match(byPath.get(path).size, /^[1-9][0-9]*$/u);
       assert.match(byPath.get(path).sha256, /^[a-f0-9]{64}$/u);
@@ -925,7 +968,7 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     assert.equal(extra.status, 0, extra.stderr);
     assert.notEqual(extra.stdout, changed.stdout, 'extra entry must change manifest');
     await rm(resolve(attachments, 'extra.png'));
-    await rm(resolve(attachments, 'line\nbreak.png'));
+    await rm(resolve(attachments, oddName));
     const missing = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
     assert.equal(missing.status, 0, missing.stderr);
     assert.notEqual(missing.stdout, changed.stdout, 'missing entry must change manifest');
@@ -936,12 +979,14 @@ test('backup manifest binds the complete allowed tree losslessly and rejects spe
     assert.match(symlinked.stderr, /symlink rejected/iu);
     await rm(resolve(attachments, 'link.png'));
 
-    const fifoPath = resolve(attachments, 'pipe');
-    const fifo = spawnSync('mkfifo', [fifoPath], { encoding: 'utf8' });
-    assert.equal(fifo.status, 0, fifo.stderr);
-    const special = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
-    assert.notEqual(special.status, 0);
-    assert.match(special.stderr, /non-regular entry rejected/iu);
+    if (process.platform !== 'win32') {
+      const fifoPath = resolve(attachments, 'pipe');
+      const fifo = spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', 'mkfifo "$1"', 'contract', fifoPath], { encoding: 'utf8' });
+      assert.equal(fifo.status, 0, fifo.stderr);
+      const special = runManifestFunction(runbook, resolve(bundle, 'database.dump'), attachments);
+      assert.notEqual(special.status, 0);
+      assert.match(special.stderr, /non-regular entry rejected/iu);
+    }
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
@@ -1268,7 +1313,7 @@ PUBLIC_API_URL=http://127.0.0.1:13000/api
 start_private_api /var/lib/agentwiki/attachments`;
   try {
     const result = runReviewedBash(command, ['contract', sandbox], {
-      PATH: fakeBin,
+      PATH: bashPath(fakeBin),
       TRACE_PATH: tracePath,
     });
     assert.equal(result.status, 0, result.stderr);

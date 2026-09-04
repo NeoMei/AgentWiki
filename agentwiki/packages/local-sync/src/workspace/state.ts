@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants, existsSync } from 'node:fs';
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
 import {
   canonicalTreeRevisionManifestV2,
   contentHash as treePageContentHash,
@@ -91,15 +91,17 @@ export async function appendProvenance(
 }
 
 export async function readCheckpoint(paths: SpaceWorkspacePaths, checkpointId: string): Promise<JobState | null> {
-  const file = join(paths.checkpointsDir, `${checkpointId}.json`);
-  if (!existsSync(file)) return null;
-  const raw = await readFile(file, 'utf-8');
+  const file = checkpointFile(paths, checkpointId);
+  const legacyFile = legacyCheckpointFile(paths, checkpointId);
+  const readableFile = existsSync(file) ? file : legacyFile && legacyFile !== file && existsSync(legacyFile) ? legacyFile : null;
+  if (!readableFile) return null;
+  const raw = await readFile(readableFile, 'utf-8');
   return assertJobState(JSON.parse(raw));
 }
 
 export async function writeCheckpoint(paths: SpaceWorkspacePaths, state: JobState): Promise<string> {
   const id = `${state.jobId}:${state.phase}:${state.updatedAt}`;
-  const file = join(paths.checkpointsDir, `${id}.json`);
+  const file = checkpointFile(paths, id);
   await writeJsonAtomic(file, state);
   return id;
 }
@@ -107,12 +109,34 @@ export async function writeCheckpoint(paths: SpaceWorkspacePaths, state: JobStat
 export async function listCheckpoints(paths: SpaceWorkspacePaths): Promise<string[]> {
   if (!existsSync(paths.checkpointsDir)) return [];
   const entries = await readSortedNames(paths.checkpointsDir);
-  return entries.filter((name) => name.endsWith('.json')).map((name) => name.slice(0, -'.json'.length));
+  return entries.filter((name) => name.endsWith('.json')).map((name) => decodeCheckpointId(name.slice(0, -'.json'.length)));
 }
 
 export async function deleteCheckpoint(paths: SpaceWorkspacePaths, checkpointId: string): Promise<void> {
-  const file = join(paths.checkpointsDir, `${checkpointId}.json`);
+  const file = checkpointFile(paths, checkpointId);
+  const legacyFile = legacyCheckpointFile(paths, checkpointId);
   await rm(file, { force: true });
+  if (legacyFile && legacyFile !== file) await rm(legacyFile, { force: true });
+}
+
+function checkpointFile(paths: SpaceWorkspacePaths, checkpointId: string): string {
+  return join(paths.checkpointsDir, `${checkpointFileStem(checkpointId)}.json`);
+}
+
+function legacyCheckpointFile(paths: SpaceWorkspacePaths, checkpointId: string): string | null {
+  return process.platform !== 'win32' && checkpointId && !checkpointId.includes('/') && !checkpointId.includes('\\')
+    ? join(paths.checkpointsDir, `${checkpointId}.json`)
+    : null;
+}
+
+function decodeCheckpointId(fileStem: string): string {
+  if (!/^b64-[A-Za-z0-9_-]+$/u.test(fileStem)) return fileStem;
+  const value = Buffer.from(fileStem.slice('b64-'.length), 'base64url').toString('utf8');
+  return checkpointFileStem(value) === fileStem ? value : fileStem;
+}
+
+function checkpointFileStem(checkpointId: string): string {
+  return `b64-${Buffer.from(checkpointId, 'utf8').toString('base64url')}`;
 }
 
 export async function writeBase(paths: SpaceWorkspacePaths, revision: string, data: unknown): Promise<void> {
@@ -200,7 +224,8 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
   const tmp = join(dirname(filePath), `.${basename(filePath)}.${randomUUID()}.tmp`);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
-  const handle = await open(tmp, constants.O_RDONLY);
+  // Windows requires a writable handle for FlushFileBuffers; POSIX accepts O_RDWR too.
+  const handle = await open(tmp, constants.O_RDWR);
   try { await handle.sync(); } finally { await handle.close(); }
   try {
     await rename(tmp, filePath);
@@ -338,6 +363,7 @@ function missing(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function fsyncDirectory(path: string): Promise<void> {
+  if (process.platform === 'win32') return;
   const handle = await open(path, constants.O_RDONLY);
   try { await handle.sync(); } finally { await handle.close(); }
 }
@@ -346,7 +372,7 @@ function assertManagedRelativePath(value: string): void {
   if (!value || value.startsWith('/') || value.includes('\\')) {
     throw new TypeError('Managed path must be a non-empty POSIX relative path');
   }
-  const resolved = relative(resolve('/managed'), resolve('/managed', value));
+  const resolved = posix.relative('/managed', posix.resolve('/managed', value));
   if (resolved !== value || resolved.startsWith('..')) {
     throw new TypeError('Managed path traversal is not allowed');
   }
@@ -366,9 +392,9 @@ function localRelativePath(protocolPath: string, kind: 'folder' | 'page'): strin
 
 function localPath(root: string, value: string): string {
   assertManagedRelativePath(value);
-  const target = resolve(root, value);
+  const target = resolve(root, ...value.split('/'));
   const inside = relative(resolve(root), target);
-  if (inside !== value || inside.startsWith('..')) throw new TypeError('Managed path escaped its root');
+  if (inside === '..' || inside.startsWith(`..${sep}`)) throw new TypeError('Managed path escaped its root');
   return target;
 }
 

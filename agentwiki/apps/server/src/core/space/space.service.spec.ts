@@ -7,6 +7,7 @@ const revisionWriter = {
   lockSpace: jest.fn(async (tx: unknown) => tx),
 } as unknown as SpaceRevisionWriterService;
 const authorization = {
+  lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'owner-1' }),
   assertLiveHumanSpaceAccess: jest.fn(async (_tx: unknown, principal: { userId: string }, spaceId: string) => ({
     role: 'owner', userId: principal.userId, spaceId,
   })),

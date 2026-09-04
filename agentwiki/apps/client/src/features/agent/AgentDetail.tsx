@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
@@ -15,11 +15,13 @@ export const AgentDetail: React.FC = () => {
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [agent, setAgent] = useState<any>(null);
+  const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<any[]>([]);
   const [activity, setActivity] = useState<any[]>([]);
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const loadSequenceRef = useRef(0);
 
   const loadAllSpaces = useCallback(async () => {
     let cursor: string | null = null;
@@ -41,30 +43,40 @@ export const AgentDetail: React.FC = () => {
 
   const load = useCallback(async () => {
     if (!id) return;
+    const request = ++loadSequenceRef.current;
     try {
       const [agentResponse, spacesResponse, activityResponse] = await Promise.all([
         api.get('/agents/' + id),
         loadAllSpaces(),
         api.get('/agents/' + id + '/activity'),
       ]);
+      if (request !== loadSequenceRef.current) return;
       setAgent(agentResponse.data);
+      setLoadedAgentId(id);
       setSpaces(spacesResponse);
       setActivity(activityResponse.data.data || []);
       setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.message || t('agent.loadOneFailed'));
+      if (request === loadSequenceRef.current) setError(err.response?.data?.message || t('agent.loadOneFailed'));
     }
   }, [id, loadAllSpaces, t]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setLoadedAgentId(null);
+    setError(null);
+    setUpdatingStatus(false);
+    void load();
+    return () => { loadSequenceRef.current += 1; };
+  }, [load]);
 
-  if (!agent) return <div className="py-12 text-center text-gray-500">{error || t('common.loading')}</div>;
+  const currentAgent = loadedAgentId === id ? agent : null;
+  if (!currentAgent) return <div className="py-12 text-center text-gray-500">{error || t('common.loading')}</div>;
 
   const updateStatus = async () => {
     setUpdatingStatus(true);
     setError(null);
     try {
-      await api.patch('/agents/' + id, { status: agent.status === 'active' ? 'paused' : 'active' });
+      await api.patch('/agents/' + currentAgent.id, { status: currentAgent.status === 'active' ? 'paused' : 'active' });
       await load();
     } catch (err: any) {
       setError(err.response?.data?.message || t('agent.actionFailed'));
@@ -92,13 +104,13 @@ export const AgentDetail: React.FC = () => {
       <div className="flex items-start justify-between gap-4 mt-4 mb-6">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold">{agent.name}</h1>
-            <span className={'text-xs px-2 py-0.5 rounded-full ' + (agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{agent.status}</span>
+            <h1 className="text-2xl font-semibold">{currentAgent.name}</h1>
+            <span className={'text-xs px-2 py-0.5 rounded-full ' + (currentAgent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{currentAgent.status}</span>
           </div>
-          <p className="text-sm text-gray-500 mt-1">{agent.description || t('common.noDescription')}</p>
+          <p className="text-sm text-gray-500 mt-1">{currentAgent.description || t('common.noDescription')}</p>
         </div>
         <button disabled={updatingStatus} onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
-          {agent.status === 'active' ? <Pause size={14} /> : <Play size={14} />} {agent.status === 'active' ? t('agent.pause') : t('agent.resume')}
+          {currentAgent.status === 'active' ? <Pause size={14} /> : <Play size={14} />} {currentAgent.status === 'active' ? t('agent.pause') : t('agent.resume')}
         </button>
       </div>
 
@@ -112,39 +124,39 @@ export const AgentDetail: React.FC = () => {
 
       {tab === 'overview' ? (
         <div className="grid sm:grid-cols-3 gap-4">
-          <Summary label={t('nav.spaces')} value={agent.grants.length} />
-          <Summary label={t('agent.activeCredentials')} value={agent.credentials.filter(credentialIsActive).length} />
-          <Summary label={t('agent.approvalMode')} value={agent.approvalMode} />
+          <Summary label={t('nav.spaces')} value={currentAgent.grants.length} />
+          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter(credentialIsActive).length} />
+          <Summary label={t('agent.approvalMode')} value={currentAgent.approvalMode} />
         </div>
       ) : null}
 
       {tab === 'access' ? (
         <div className="space-y-6">
           <LocalSyncInstallCard
-            agentId={agent.id}
+            agentId={currentAgent.id}
             spaces={manageableSpaces}
-            grants={agent.grants}
+            grants={currentAgent.grants}
             title={t('agent.accessAuthorization')}
           />
 
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><Shield size={18} /> {t('agent.authorizedSpaces')}</h2>
             <div className="divide-y">
-              {agent.grants.map((item: any) => (
+              {currentAgent.grants.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <span className="min-w-0 flex-1 truncate">{item.space.name}</span>
                   <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{roleName(item.role)}</span>
                   <button aria-label={t('agent.removeGrantFor', { space: item.space.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/grants/' + item.spaceId); await load(); } catch (e: any) { setError(e.response?.data?.message || t('agent.actionFailed')); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
-              {!agent.grants.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noAuthorizedSpaces')}</p> : null}
+              {!currentAgent.grants.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noAuthorizedSpaces')}</p> : null}
             </div>
           </section>
 
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><KeyRound size={18} /> {t('agent.connectionRecords')}</h2>
             <div className="divide-y">
-              {agent.credentials.map((item: any) => (
+              {currentAgent.credentials.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{item.authorization.space.name} · {roleName(item.authorization.role)}</span></p>
@@ -154,15 +166,15 @@ export const AgentDetail: React.FC = () => {
                   <button aria-label={t('agent.revokeCredential', { name: item.name })} onClick={async () => { try { await api.delete('/agents/' + id + '/credentials/' + item.id); await load(); } catch (e: any) { setError(e.response?.data?.message || t('agent.actionFailed')); } }} className="text-red-600"><Trash2 size={15} /></button>
                 </div>
               ))}
-              {!agent.credentials.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noConnectionRecords')}</p> : null}
+              {!currentAgent.credentials.length ? <p className="py-3 text-sm text-gray-500">{t('agent.noConnectionRecords')}</p> : null}
             </div>
           </section>
         </div>
       ) : null}
 
       {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => <div key={item.id} className="p-4 text-sm"><span className="font-medium">{item.action}</span><span className="text-gray-400 ml-3">{new Date(item.createdAt).toLocaleString(language)}</span></div>)}</div> : null}
-      {tab === 'memory' ? <AgentMemoryPanel agentId={agent.id} grants={agent.grants} enabled={agent.memoryEnabled} onEnabled={async () => { await api.patch('/agents/' + id, { memoryEnabled: true }); await load(); }} /> : null}
-      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{agent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
+      {tab === 'memory' ? <AgentMemoryPanel agentId={currentAgent.id} grants={currentAgent.grants} enabled={currentAgent.memoryEnabled} onEnabled={async () => { await api.patch('/agents/' + currentAgent.id, { memoryEnabled: true }); await load(); }} /> : null}
+      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );
 };

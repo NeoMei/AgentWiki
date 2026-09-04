@@ -236,7 +236,7 @@ export const Dashboard: React.FC = () => {
                   </div>
                   <p className="text-gray-500 text-sm line-clamp-2">{space.description || t('common.noDescription')}</p>
                 </Link>
-                <div className="mt-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                <div className="mt-3 flex items-center gap-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                   <Link
                     to={`/spaces/${space.id}/graph`}
                     className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded"

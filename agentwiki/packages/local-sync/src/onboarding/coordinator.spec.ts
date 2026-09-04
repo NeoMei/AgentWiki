@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
@@ -301,7 +302,7 @@ describe('OnboardingCoordinator happy path', () => {
       updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: {
         spaceMode: 'create', spaceName: 'R&D', agentName: 'Codex', role: 'editor',
-        clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
+        clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard',
         configHash: CONFIG_HASH, oldEntries: [], reloadRequired: false,
       },
       serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.7.0' },
@@ -341,7 +342,7 @@ describe('OnboardingCoordinator failure handling', () => {
     const planLocalScan = vi.fn(async () => unsafeLocalPlan('a'.repeat(64), poisonedPath));
     const fixture = mockDeps({
       source: scriptedSource([JSON.stringify({ requestId: 'input', values: {
-        spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard',
+        spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'code', analysisMode: 'standard',
       } })]),
       knowledge: {
         planLocalScan,
@@ -413,7 +414,7 @@ describe('OnboardingCoordinator failure handling', () => {
     const raw = JSON.stringify({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard' },
+      inputs: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'code', analysisMode: 'standard' },
       serverPlan, serverPlanHash: hashServerPlan(serverPlan), localScanPlanHash: 'a'.repeat(64), localScanPlan: localPlanPreview('a'.repeat(64)),
       bootstrapResult: { space: { id: 'space-1', name: 'S' }, agent: { id: 'agent-1', name: 'A' } },
     });
@@ -492,7 +493,7 @@ describe('OnboardingCoordinator failure handling', () => {
 describe('OnboardingCoordinator local scan consent', () => {
   const codeInputs: OnboardingInputs = {
     spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor',
-    clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'code', analysisMode: 'standard',
+    clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'code', analysisMode: 'standard',
   };
 
   it('plans before plan confirmation, previews both plans, and passes the exact local hash after bootstrap', async () => {

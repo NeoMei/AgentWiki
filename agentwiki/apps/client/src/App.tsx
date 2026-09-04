@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
@@ -46,8 +46,13 @@ const RouteLoading: React.FC = () => {
 };
 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token } = useAuth();
-  return token ? <>{children}</> : <Navigate to="/?intent=workspace#login" replace />;
+  const { token, user } = useAuth();
+  const location = useLocation();
+  if (!token) return <Navigate to="/?intent=workspace#login" replace />;
+  if (user?.mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />;
+  }
+  return <>{children}</>;
 };
 
 const AppRoutes: React.FC = () => {

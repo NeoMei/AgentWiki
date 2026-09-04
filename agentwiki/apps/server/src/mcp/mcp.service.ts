@@ -531,10 +531,30 @@ export class McpService {
   private validateHost(request: Request): void {
     const publicUrl = this.config.get<string>('PUBLIC_API_URL') || '';
     let publicHost = '';
-    try { publicHost = new URL(publicUrl).hostname; } catch { /* keep empty */ }
-    const configured = (this.config.get<string>('MCP_ALLOWED_HOSTS') || 'localhost,127.0.0.1').split(',').map((value) => value.trim().toLowerCase());
-    const allowed = publicHost ? [...new Set([...configured, publicHost.toLowerCase()])] : configured;
-    const host = String(request.headers.host || '').split(':')[0].toLowerCase();
+    try { publicHost = this.normalizeHostname(new URL(publicUrl).hostname); } catch { /* keep empty */ }
+    const configured = (this.config.get<string>('MCP_ALLOWED_HOSTS') || 'localhost,127.0.0.1')
+      .split(',')
+      .map((value) => this.parseConfiguredHostname(value))
+      .filter((value): value is string => Boolean(value));
+    const allowed = publicHost ? [...new Set([...configured, publicHost])] : configured;
+    let host: string;
+    try {
+      host = this.normalizeHostname(new URL(`http://${String(request.headers.host || '')}`).hostname);
+    } catch {
+      throw new BadRequestException('MCP Host header is not allowed');
+    }
     if (!allowed.includes(host)) throw new BadRequestException('MCP Host header is not allowed');
+  }
+
+  private parseConfiguredHostname(value: string): string | undefined {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return undefined;
+    const authority = trimmed.includes(':') && !trimmed.startsWith('[')
+      && trimmed.split(':').length > 2 ? `[${trimmed}]` : trimmed;
+    try { return this.normalizeHostname(new URL(`http://${authority}`).hostname); } catch { return undefined; }
+  }
+
+  private normalizeHostname(hostname: string): string {
+    return hostname.toLowerCase().replace(/^\[|\]$/gu, '');
   }
 }

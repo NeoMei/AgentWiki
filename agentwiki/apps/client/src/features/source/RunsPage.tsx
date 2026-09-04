@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../api/client';
@@ -28,29 +28,59 @@ export const RunsPage: React.FC = () => {
   const { t, language } = useLanguage();
   const [runs, setRuns] = useState<any[]>([]);
   const [error, setError] = useState('');
-  const load = useCallback(async () => {
-    if (!id) return;
+  const [loading, setLoading] = useState(true);
+  const [busyRunIds, setBusyRunIds] = useState<Set<string>>(() => new Set());
+  const loadSequenceRef = useRef(0);
+  const activeSpaceIdRef = useRef(id);
+  activeSpaceIdRef.current = id;
+  const busyRunIdsRef = useRef(new Set<string>());
+  const load = useCallback(async (requestedSpaceId = id) => {
+    if (!requestedSpaceId || activeSpaceIdRef.current !== requestedSpaceId) return;
+    const sequence = ++loadSequenceRef.current;
+    setLoading(true);
     try {
-      setRuns((await api.get('/spaces/' + id + '/runs')).data);
+      const { data } = await api.get('/spaces/' + requestedSpaceId + '/runs');
+      if (sequence !== loadSequenceRef.current || activeSpaceIdRef.current !== requestedSpaceId) return;
+      setRuns(data);
       setError('');
     } catch (requestError: unknown) {
-      setError(apiErrorMessage(requestError, t, 'run.loadFailed'));
+      if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) {
+        setError(apiErrorMessage(requestError, t, 'run.loadFailed'));
+      }
+    } finally {
+      if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) setLoading(false);
     }
   }, [id, t]);
 
   useEffect(() => {
+    setRuns([]);
+    setLoading(true);
+    setError('');
+    busyRunIdsRef.current.clear();
+    setBusyRunIds(new Set());
     void load();
     const timer = setInterval(() => void load(), 3000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      loadSequenceRef.current += 1;
+    };
   }, [load]);
 
   const runAction = async (runId: string, action: 'retry' | 'cancel') => {
+    const actionSpaceId = id;
+    if (!actionSpaceId) return;
+    if (busyRunIdsRef.current.has(runId)) return;
+    busyRunIdsRef.current.add(runId);
+    setBusyRunIds(new Set(busyRunIdsRef.current));
     try {
       setError('');
       await api.post(`/runs/${runId}/${action}`);
-      await load();
+      await load(actionSpaceId);
     } catch (requestError: unknown) {
-      setError(apiErrorMessage(requestError, t, 'run.actionFailed'));
+      if (activeSpaceIdRef.current === actionSpaceId) setError(apiErrorMessage(requestError, t, 'run.actionFailed'));
+    } finally {
+      busyRunIdsRef.current.delete(runId);
+      if (activeSpaceIdRef.current === actionSpaceId) setBusyRunIds(new Set(busyRunIdsRef.current));
     }
   };
 
@@ -83,11 +113,12 @@ export const RunsPage: React.FC = () => {
               ) : null}
             </div>
             {run.changeSet ? <Link to={'/review?changeSet=' + run.changeSet.id} className="text-sm text-blue-600">{t('nav.review')}</Link> : null}
-            {RETRYABLE.has(run.status) ? <button onClick={() => void runAction(run.id, 'retry')} className="p-2 border rounded-lg" title={t('run.retry')}><RotateCcw size={15} /></button> : null}
-            {CANCELLABLE.has(run.status) ? <button onClick={() => void runAction(run.id, 'cancel')} className="p-2 border rounded-lg text-red-600" title={t('run.cancel')}><Ban size={15} /></button> : null}
+            {RETRYABLE.has(run.status) ? <button disabled={busyRunIds.has(run.id)} onClick={() => void runAction(run.id, 'retry')} className="p-2 border rounded-lg disabled:opacity-50" title={t('run.retry')}><RotateCcw size={15} /></button> : null}
+            {CANCELLABLE.has(run.status) ? <button disabled={busyRunIds.has(run.id)} onClick={() => void runAction(run.id, 'cancel')} className="p-2 border rounded-lg text-red-600 disabled:opacity-50" title={t('run.cancel')}><Ban size={15} /></button> : null}
           </div>
         ))}
-        {!runs.length ? <div className="py-14 text-center text-sm text-gray-500">{t('run.empty')}</div> : null}
+        {loading && !runs.length ? <div className="py-14 text-center text-sm text-gray-400">{t('common.loading')}</div> : null}
+        {!loading && !runs.length ? <div className="py-14 text-center text-sm text-gray-500">{t('run.empty')}</div> : null}
       </div>
     </div>
   );

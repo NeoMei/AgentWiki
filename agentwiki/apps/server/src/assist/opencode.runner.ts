@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { existsSync, mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, extname, join, resolve } from 'path';
 import {
   AssistInput,
   AssistRunResult,
@@ -70,32 +70,86 @@ export class OpencodeCliRunner implements OpencodeRunner {
    * node_modules/.bin locations including the pnpm .pnpm virtual store where
    * pnpm places bins when the top-level .bin is not linked.
    */
-  private resolveBin(): string {
+  private resolveLaunch(): { command: string; argsPrefix: string[] } {
     const configured = this.config.get<string>('OPENCODE_BIN');
-    if (configured) return configured;
-
-    const cwd = process.cwd();
-    const candidates = [
-      join(cwd, 'node_modules', '.bin', 'opencode'),
-      join(cwd, '..', 'node_modules', '.bin', 'opencode'),
-      join(cwd, '..', '..', 'node_modules', '.bin', 'opencode'),
-      join(cwd, '..', '..', 'node_modules', '.pnpm', 'node_modules', '.bin', 'opencode'),
-      join(cwd, 'node_modules', '.pnpm', 'node_modules', '.bin', 'opencode'),
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        if (existsSync(candidate)) return candidate;
-      } catch {
-        // ignore FS errors and try the next candidate
-      }
+    if (configured) {
+      if (!existsSync(configured)) return { command: configured, argsPrefix: [] };
+      const launch = this.launchFile(configured, process.platform);
+      if (launch) return launch;
+      throw this.executionError('binary_unavailable', 'global');
     }
 
-    return join(cwd, 'node_modules', '.bin', 'opencode');
+    const cwd = process.cwd();
+    const bundled = this.resolveBundledLaunch(cwd, process.platform, process.arch);
+    if (bundled) return bundled;
+
+    // A bare executable name lets Windows resolve opencode.exe from PATH while
+    // never selecting pnpm/npm's POSIX .bin shim or invoking a command shell.
+    return { command: process.platform === 'win32' ? 'opencode.exe' : 'opencode', argsPrefix: [] };
+  }
+
+  private resolveBundledLaunch(
+    cwd: string,
+    platform: NodeJS.Platform,
+    arch: string,
+  ): { command: string; argsPrefix: string[] } | undefined {
+    for (const root of [cwd, join(cwd, '..'), join(cwd, '..', '..')]) {
+      const packageJsonPath = join(root, 'node_modules', 'opencode-ai', 'package.json');
+      try {
+        if (!existsSync(packageJsonPath)) continue;
+        const manifest = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+          bin?: string | Record<string, string>;
+        };
+        const bin = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.opencode;
+        if (!bin) continue;
+        const realPackageJson = realpathSync(packageJsonPath);
+        const target = resolve(dirname(realPackageJson), bin);
+        const genericLaunch = existsSync(target) ? this.launchFile(target, platform) : undefined;
+        if (genericLaunch) return genericLaunch;
+
+        const platformName = platform === 'win32' ? 'windows' : platform;
+        const executableName = platform === 'win32' ? 'opencode.exe' : 'opencode';
+        for (const suffix of ['', '-baseline']) {
+          const nativeTarget = resolve(
+            dirname(realPackageJson), '..', `opencode-${platformName}-${arch}${suffix}`,
+            'bin', executableName,
+          );
+          const nativeLaunch = existsSync(nativeTarget)
+            ? this.launchFile(nativeTarget, platform)
+            : undefined;
+          if (nativeLaunch) return nativeLaunch;
+        }
+      } catch {
+        // Ignore an invalid or inaccessible package and try the next root.
+      }
+    }
+    return undefined;
+  }
+
+  private launchFile(
+    target: string,
+    platform: NodeJS.Platform,
+  ): { command: string; argsPrefix: string[] } | undefined {
+    const extension = extname(target).toLowerCase();
+    if (['.js', '.cjs', '.mjs'].includes(extension)) {
+      return { command: process.execPath, argsPrefix: [target] };
+    }
+    const header = readFileSync(target).subarray(0, 128);
+    if (/^#!.*\bnode\b/u.test(header.toString('utf8'))) {
+      return { command: process.execPath, argsPrefix: [target] };
+    }
+    const native = platform === 'win32'
+      ? header[0] === 0x4d && header[1] === 0x5a
+      : platform === 'linux'
+        ? header[0] === 0x7f && header.subarray(1, 4).toString('ascii') === 'ELF'
+        : platform === 'darwin' && [
+          'feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe',
+        ].includes(header.subarray(0, 4).toString('hex'));
+    return native ? { command: target, argsPrefix: [] } : undefined;
   }
 
   private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback): Promise<string> {
-    const bin = this.resolveBin();
+    const launch = this.resolveLaunch();
     const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
     return new Promise((resolve, reject) => {
       // Pass only what opencode needs (config dir + LLM creds), not the whole
@@ -118,7 +172,11 @@ export class OpencodeCliRunner implements OpencodeRunner {
       };
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = spawn(bin, ['--pure', ...args], { env, cwd: sandbox });
+        child = spawn(launch.command, [...launch.argsPrefix, '--pure', ...args], {
+          env,
+          cwd: sandbox,
+          shell: false,
+        });
         child.stdin.end();
       } catch (error) {
         rmSync(sandbox, { recursive: true, force: true });

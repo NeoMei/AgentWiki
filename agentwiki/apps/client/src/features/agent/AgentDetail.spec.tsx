@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { AuthProvider } from '../../context/AuthContext';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -19,6 +19,17 @@ const renderDetail = () => render(
     </AuthProvider>
   </LanguageProvider>,
 );
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+};
+
+const NavigableDetail = () => {
+  const navigate = useNavigate();
+  return <><button type="button" onClick={() => navigate('/agents/agent-2')}>Switch agent</button><AgentDetail /></>;
+};
 
 describe('AgentDetail', () => {
   beforeEach(() => {
@@ -58,6 +69,38 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('button', { name: '创建凭据' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '空间访问权限' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '凭据' })).not.toBeInTheDocument();
+  });
+
+  it('hides the old Agent while a new route loads and ignores old-entity actions', async () => {
+    const nextAgent = deferred<any>();
+    vi.mocked(api.get).mockReset().mockImplementation((url: string) => {
+      if (url === '/agents/agent-1') return Promise.resolve({ data: {
+        id: 'agent-1', name: 'Agent One', description: '', status: 'active',
+        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      } });
+      if (url === '/agents/agent-2') return nextAgent.promise;
+      if (url.startsWith('/spaces?')) return Promise.resolve({ data: { data: [] } });
+      if (url.endsWith('/activity')) return Promise.resolve({ data: { data: [] } });
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+    render(
+      <LanguageProvider><AuthProvider><MemoryRouter initialEntries={['/agents/agent-1']}>
+        <Routes><Route path="/agents/:id" element={<NavigableDetail />} /></Routes>
+      </MemoryRouter></AuthProvider></LanguageProvider>,
+    );
+    expect(await screen.findByRole('heading', { name: 'Agent One' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch agent' }));
+
+    expect(screen.queryByRole('heading', { name: 'Agent One' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '暂停' })).not.toBeInTheDocument();
+    await act(async () => nextAgent.resolve({ data: {
+      id: 'agent-2', name: 'Agent Two', description: '', status: 'paused',
+      approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+    } }));
+    expect(await screen.findByRole('heading', { name: 'Agent Two' })).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Agent One' })).not.toBeInTheDocument());
   });
 
   it('offers connection authorization only for Spaces the Agent owner can administer', async () => {

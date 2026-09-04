@@ -2,7 +2,9 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const protocol = await import(resolve(dirname(fileURLToPath(import.meta.url)), '../packages/sync-protocol/dist/esm/index.js'));
+const protocol = await import(pathToFileURL(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../packages/sync-protocol/dist/esm/index.js'),
+).href);
 const {
   canonicalBytes,
   contentHash,

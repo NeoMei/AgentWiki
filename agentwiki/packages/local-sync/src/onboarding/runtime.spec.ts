@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProtocolSink, ProtocolSource } from './protocol.js';
@@ -30,7 +30,7 @@ describe('runOnboarding', () => {
             requestId: 'input',
             values: {
               spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor',
-              clientType: 'codex', sourcePaths: ['/tmp/source'], sourceType: 'documents', analysisMode: 'standard',
+              clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard',
             },
           });
         }

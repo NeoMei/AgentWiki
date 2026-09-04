@@ -318,10 +318,38 @@ export const KnowledgeGraph: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
             <canvas
               ref={canvasRef}
+              aria-hidden="true"
               className="w-full h-[500px] cursor-pointer"
               onClick={handleCanvasClick}
               onDoubleClick={handleCanvasDoubleClick}
             />
+          </div>
+          <div className="mt-3 flex flex-col gap-2 rounded-lg border bg-white p-3 sm:flex-row sm:items-end">
+            <label htmlFor="knowledge-node-browser" className="flex-1 text-sm font-medium text-gray-700">
+              {zh ? '浏览图谱节点' : 'Browse graph nodes'}
+              <select
+                id="knowledge-node-browser"
+                value={selectedNode ?? ''}
+                onChange={(event) => setSelectedNode(event.target.value || null)}
+                className="mt-1 h-10 w-full rounded-lg border px-3 text-sm"
+              >
+                <option value="">{zh ? '选择页面…' : 'Select a page…'}</option>
+                {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
+              </select>
+            </label>
+            {selectedNode ? (
+              <Link
+                to={`/pages/${selectedNode}`}
+                aria-label={zh ? '打开所选页面' : 'Open selected page'}
+                className="inline-flex h-10 items-center justify-center rounded-lg border px-4 text-sm text-blue-600 hover:bg-blue-50"
+              >
+                {zh ? '打开所选页面' : 'Open selected page'}
+              </Link>
+            ) : (
+              <button type="button" disabled className="h-10 rounded-lg border px-4 text-sm text-gray-400">
+                {zh ? '打开所选页面' : 'Open selected page'}
+              </button>
+            )}
           </div>
           {selectedNode && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg flex items-center justify-between flex-wrap gap-3">

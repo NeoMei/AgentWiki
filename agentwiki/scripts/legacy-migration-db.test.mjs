@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { spawnPnpmSync } from './package-manager-process.mjs';
 import { randomUUID } from 'node:crypto';
 import {
   cp,
@@ -53,7 +54,7 @@ function runPsql(sql, rawUrl = databaseUrl) {
 }
 
 function runPrisma(args, rawUrl, cwd = root) {
-  return spawnSync('pnpm', ['--filter', '@agentwiki/server', 'exec', 'prisma', ...args], {
+  return spawnPnpmSync(['--filter', '@agentwiki/server', 'exec', 'prisma', ...args], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, DATABASE_URL: rawUrl },

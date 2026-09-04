@@ -309,7 +309,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(spaceId, async (tx) => {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const { name, defaultTitle } = this.normalizedMetadata(body);
       const activeCount = await tx.pageTemplate.count({
@@ -350,7 +350,7 @@ export class PageTemplateService implements OnModuleInit {
     body: UpdatePageTemplateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(spaceId, async (tx) => {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
@@ -385,7 +385,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreatePageTemplateVersionDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(spaceId, async (tx) => {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
@@ -433,7 +433,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(spaceId, async (tx) => {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
@@ -455,7 +455,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
-    return this.runSpaceMutation(spaceId, async (tx) => {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
       if (!current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
@@ -478,15 +478,17 @@ export class PageTemplateService implements OnModuleInit {
 
   private async runSpaceMutation<T>(
     spaceId: string,
+    principal: Principal,
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
     options: { retryStableKeyConflict?: boolean } = {},
   ): Promise<T> {
     for (let attempt = 1; attempt <= SPACE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          // Every Space-scoped template mutation shares the same first lock as
-          // Page and Space writes. Authorization and active-Space validation
-          // therefore run against state observed only after serialization.
+          // Keep the global User -> Space advisory order shared by Page and
+          // Space writers. Authorization and active-Space validation then run
+          // against state observed only after Space serialization.
+          await this.authorization.lockLiveHumanPrincipal(tx, principal);
           const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
           return operation(lockedTx);
         }, {

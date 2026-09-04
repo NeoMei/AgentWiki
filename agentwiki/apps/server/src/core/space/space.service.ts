@@ -301,6 +301,7 @@ export class SpaceService {
     await this.findOne(id);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.revisionWriter.lockSpace(tx, id);
       await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx, principal, id, ['owner'],
@@ -390,6 +391,7 @@ export class SpaceService {
       throw new BadRequestException('Invite the member as an admin, then transfer ownership');
     }
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
       await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx, principal, spaceId, ['owner', 'admin'],
@@ -422,6 +424,7 @@ export class SpaceService {
     principal: Principal,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
       const caller = await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx, principal, spaceId, ['owner', 'admin'],
@@ -473,6 +476,7 @@ export class SpaceService {
 
   async removeMemberAs(spaceId: string, userId: string, principal: Principal) {
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.revisionWriter.lockSpace(tx, spaceId);
       const caller = await this.authorization.assertLiveHumanSpaceAccess(
         lockedTx, principal, spaceId, ['owner', 'admin'],

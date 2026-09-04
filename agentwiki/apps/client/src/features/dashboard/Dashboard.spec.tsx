@@ -587,6 +587,16 @@ describe('Dashboard Space pagination and creation', () => {
     expect(screen.getByLabelText('描述').tagName).toBe('TEXTAREA');
   });
 
+  it('keeps card actions visible on touch and reveals them for keyboard focus', async () => {
+    renderDashboard();
+    await screen.findByText('空间 0');
+
+    const actions = screen.getAllByRole('link', { name: '图谱' })[0].parentElement;
+    expect(actions).toHaveClass('opacity-100');
+    expect(actions).toHaveClass('sm:opacity-0');
+    expect(actions).toHaveClass('sm:group-focus-within:opacity-100');
+  });
+
   it('closes on Escape and restores focus to the opener', async () => {
     renderDashboard();
     await screen.findByText('空间 0');

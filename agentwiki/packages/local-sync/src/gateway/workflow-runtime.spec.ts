@@ -37,7 +37,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
-      if (runtimeEvents.events !== null && String(args[0]).includes('/runtime/previews/')) runtimeEvents.events.push('save preview');
+      if (runtimeEvents.events !== null && String(args[0]).replace(/\\/gu, '/').includes('/runtime/previews/')) runtimeEvents.events.push('save preview');
       return actual.writeFile(...args);
     },
   };

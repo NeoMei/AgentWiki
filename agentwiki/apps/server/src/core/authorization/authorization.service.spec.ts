@@ -83,6 +83,7 @@ describe('AuthorizationService', () => {
 
   it('reloads the live human, platform role, Space, and membership from the provided transaction', async () => {
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
       spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'editor' }) },
@@ -95,6 +96,9 @@ describe('AuthorizationService', () => {
       ['owner', 'admin', 'editor'],
     )).resolves.toMatchObject({ role: 'editor', userId: 'user-1', spaceId: 'space-1' });
     expect(tx.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'user-1' } }));
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(' ')).toContain('FROM "User"');
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(' ')).toContain('FOR NO KEY UPDATE');
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.user.findUnique.mock.invocationCallOrder[0]);
     expect(tx.space.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'space-1' } }));
     expect(tx.spaceMember.findUnique).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId_spaceId: { userId: 'user-1', spaceId: 'space-1' } },
@@ -103,6 +107,7 @@ describe('AuthorizationService', () => {
 
   it('uses only the live platform role and fails closed for a revoked or downgraded human', async () => {
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
       spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'viewer' }) },
