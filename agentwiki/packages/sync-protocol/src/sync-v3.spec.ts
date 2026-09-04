@@ -41,6 +41,7 @@ import {
   treeRevisionContentHashV3,
   treeRevisionDeltaHashV3,
   treeRevisionDeltaV3,
+  type BlobRequirementV3,
   type TreeDeltaItemV3,
   type SyncErrorCode,
   type SyncV3WireErrorCode,
@@ -182,6 +183,44 @@ const capabilities = (overrides: Record<string, unknown> = {}) => ({
   downloadAuthorizationTtlSeconds: 60,
   ...overrides,
 });
+
+type BlobRequirementSchemaLike = {
+  parse(value: unknown): BlobRequirementV3;
+};
+
+const blobRequirement = (overrides: Record<string, unknown> = {}): BlobRequirementV3 => ({
+  contentHash: hash,
+  sizeBytes: "4",
+  mimeType: "image/png",
+  width: 1,
+  height: 1,
+  ...overrides,
+} as BlobRequirementV3);
+
+const blobRequirementSchema = (): BlobRequirementSchemaLike => {
+  const schema = (protocol as unknown as {
+    BlobRequirementV3Schema?: BlobRequirementSchemaLike;
+  }).BlobRequirementV3Schema;
+  expect(schema).toBeDefined();
+  return schema!;
+};
+
+const createPushSessionRequest = (overrides: Record<string, unknown> = {}) => ({
+  protocolVersion: "3",
+  baseRevision: "rev-1",
+  idempotencyKey: "11111111-1111-4111-8111-111111111111",
+  capabilitiesHash: hash,
+  confirmationHash: hash,
+  confirmationByteLength: 1,
+  changeCount: 1,
+  totalBodyBytes: 0,
+  attachmentCount: 1,
+  transferBlobBytes: 4,
+  blobRequirements: [blobRequirement()],
+  ...overrides,
+});
+
+const indexedHash = (index: number): string => index.toString(16).padStart(64, "0");
 
 describe("Sync Protocol v3", () => {
   it("exports the shared Public ID schema and accepts existing CUID attachment identities", () => {
@@ -449,11 +488,12 @@ describe("Sync Protocol v3", () => {
       toRevisionManifestByteLength: "2", toRevisionBodyBytes: "0", toRevisionAttachmentBytes: "0",
       items: [], nextCursor: null,
     }).items).toEqual([]);
-    expect(CreateTreePushSessionRequestV3Schema.parse({
-      protocolVersion: "3", baseRevision: "rev-1", idempotencyKey: "11111111-1111-4111-8111-111111111111",
-      capabilitiesHash: hash, confirmationHash: hash, confirmationByteLength: 1, changeCount: 0,
-      totalBodyBytes: 0, attachmentCount: 0, transferBlobBytes: 0, contentHashes: [],
-    }).contentHashes).toEqual([]);
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 0,
+      attachmentCount: 0,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).blobRequirements).toEqual([]);
     expect(TreePushBatchV3Schema.parse({
       protocolVersion: "3", batchIndex: 0,
       changes: [{ operation: "upsert_attachment", attachment: attachment() }], batchHash: hash,
@@ -479,6 +519,142 @@ describe("Sync Protocol v3", () => {
     expect(() => TreeFinalizePushRequestV3Schema.parse({
       protocolVersion: "3", confirmationHash: hash, userConfirmed: true, extra: true,
     })).toThrow();
+  });
+
+  it("publishes a strict BlobRequirementV3 schema and accepts canonical metadata", () => {
+    expect(blobRequirementSchema().parse(blobRequirement())).toEqual(blobRequirement());
+  });
+
+  it.each([
+    ["zero size", { sizeBytes: "0" }],
+    ["non-canonical size", { sizeBytes: "01" }],
+    ["oversized Blob", { sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes + 1) }],
+    ["unsupported MIME", { mimeType: "image/svg+xml" }],
+    ["zero width", { width: 0 }],
+    ["oversized height", { height: TREE_SYNC_V3_HARD_LIMITS.maxImageDimension + 1 }],
+    ["decoded pixel overflow", { width: 10_000, height: 4_001 }],
+    ["malformed content hash", { contentHash: "A".repeat(64) }],
+  ])("rejects BlobRequirementV3 %s", (_label, overrides) => {
+    expect(() => blobRequirementSchema().parse(blobRequirement(overrides))).toThrow();
+  });
+
+  it.each(["attachmentId", "path", "updatedAt"])(
+    "keeps BlobRequirementV3 content-addressed by rejecting %s",
+    (field) => {
+      expect(() => blobRequirementSchema().parse({
+        ...blobRequirement(),
+        [field]: "not-part-of-the-blob-contract",
+      })).toThrow();
+    },
+  );
+
+  it("accepts zero requirements and one canonical requirement", () => {
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 0,
+      attachmentCount: 0,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).blobRequirements).toEqual([]);
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest()).blobRequirements)
+      .toEqual([blobRequirement()]);
+  });
+
+  it("allows multiple attachment upserts to share one required Blob", () => {
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 2,
+    })).blobRequirements).toEqual([blobRequirement()]);
+  });
+
+  it("rejects the legacy contentHashes field", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse({
+      ...createPushSessionRequest(),
+      contentHashes: [hash],
+    })).toThrow();
+  });
+
+  it("requires Blob requirements to be strictly sorted and unique by content hash", () => {
+    const first = blobRequirement({ contentHash: "a".repeat(64) });
+    const second = blobRequirement({ contentHash: "b".repeat(64) });
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 2,
+      transferBlobBytes: 8,
+      blobRequirements: [second, first],
+    }))).toThrow(/sorted/iu);
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 2,
+      transferBlobBytes: 8,
+      blobRequirements: [first, first],
+    }))).toThrow(/unique/iu);
+  });
+
+  it("rejects more Blob requirements than attachment upserts", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 1,
+      transferBlobBytes: 8,
+      blobRequirements: [
+        blobRequirement({ contentHash: "a".repeat(64) }),
+        blobRequirement({ contentHash: "b".repeat(64) }),
+      ],
+    }))).toThrow(/attachment/iu);
+  });
+
+  it("binds transferBlobBytes to the exact unique requirement sum", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      transferBlobBytes: 3,
+    }))).toThrow(/sum/iu);
+  });
+
+  it("accepts the 100 MiB transfer edge and rejects overflow", () => {
+    const edgeRequirements = Array.from({ length: 10 }, (_, index) => blobRequirement({
+      contentHash: indexedHash(index + 1),
+      sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
+    }));
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: edgeRequirements.length,
+      transferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes,
+      blobRequirements: edgeRequirements,
+    })).transferBlobBytes).toBe(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes);
+
+    const overflowRequirements = [...edgeRequirements, blobRequirement({
+      contentHash: indexedHash(11),
+      sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
+    })];
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: overflowRequirements.length,
+      transferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes
+        + TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes,
+      blobRequirements: overflowRequirements,
+    }))).toThrow();
+  });
+
+  it("allows at most 1,000 unique Blob requirements", () => {
+    const maximum = Array.from(
+      { length: TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments },
+      (_, index) => blobRequirement({ contentHash: indexedHash(index + 1), sizeBytes: "1" }),
+    );
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: maximum.length,
+      transferBlobBytes: maximum.length,
+      blobRequirements: maximum,
+    })).blobRequirements).toHaveLength(1_000);
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: maximum.length,
+      transferBlobBytes: maximum.length + 1,
+      blobRequirements: [
+        ...maximum,
+        blobRequirement({ contentHash: indexedHash(maximum.length + 1), sizeBytes: "1" }),
+      ],
+    }))).toThrow();
+  });
+
+  it("rejects unknown create-session request and Blob requirement fields", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse({
+      ...createPushSessionRequest(),
+      unexpected: true,
+    })).toThrow();
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      blobRequirements: [{ ...blobRequirement(), unexpected: true }],
+    }))).toThrow();
   });
 
   it("enforces MIME, decoded-pixel and flat path identity invariants", () => {

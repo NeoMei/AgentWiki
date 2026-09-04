@@ -80,6 +80,11 @@ const BoundedDecimalSchema = z.string().regex(/^(0|[1-9][0-9]*)$/).refine(
   "Attachment byte count exceeds the hard limit",
 );
 
+const PositiveBoundedBlobBytesSchema = z.string().regex(/^[1-9][0-9]*$/).refine(
+  (value) => BigInt(value) <= BigInt(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
+  "Blob byte count exceeds the hard limit",
+);
+
 export const FlatAttachmentPathSchema = z.string().transform((value, context) => {
   try {
     const path = validatePortableDirectoryPath(value).path;
@@ -157,6 +162,29 @@ export const SyncAttachmentV3Schema: z.ZodType<SyncAttachmentV3> = z
       : extension === attachment.mimeType.slice("image/".length);
     if (!extensionMatches) {
       context.addIssue({ code: "custom", path: ["mimeType"], message: "Attachment MIME type does not match its path extension" });
+    }
+  });
+
+export interface BlobRequirementV3 {
+  contentHash: string;
+  sizeBytes: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  width: number;
+  height: number;
+}
+
+export const BlobRequirementV3Schema: z.ZodType<BlobRequirementV3> = z
+  .object({
+    contentHash: HashSchema,
+    sizeBytes: PositiveBoundedBlobBytesSchema,
+    mimeType: AttachmentMimeTypeSchema,
+    width: z.number().int().positive().max(TREE_SYNC_V3_HARD_LIMITS.maxImageDimension),
+    height: z.number().int().positive().max(TREE_SYNC_V3_HARD_LIMITS.maxImageDimension),
+  })
+  .strict()
+  .superRefine((requirement, context) => {
+    if (requirement.width * requirement.height > TREE_SYNC_V3_HARD_LIMITS.maxDecodedPixels) {
+      context.addIssue({ code: "custom", message: "Decoded image pixels exceed the hard limit" });
     }
   });
 
@@ -378,6 +406,21 @@ const SortedUniqueHashesSchema = z.array(HashSchema).max(TREE_SYNC_V3_HARD_LIMIT
   }
 });
 
+const SortedUniqueBlobRequirementsSchema = z
+  .array(BlobRequirementV3Schema)
+  .max(TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments)
+  .superRefine((requirements, context) => {
+    for (let index = 1; index < requirements.length; index += 1) {
+      if ((requirements[index - 1]?.contentHash ?? "") >= (requirements[index]?.contentHash ?? "")) {
+        context.addIssue({
+          code: "custom",
+          message: "Blob requirements must be sorted and unique by content hash",
+        });
+        return;
+      }
+    }
+  });
+
 export const CreateTreePushSessionRequestV3Schema = z.object({
   protocolVersion: z.literal(SYNC_PROTOCOL_V3),
   baseRevision: PublicIdSchema,
@@ -389,8 +432,34 @@ export const CreateTreePushSessionRequestV3Schema = z.object({
   totalBodyBytes: z.number().int().nonnegative().max(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes),
   attachmentCount: z.number().int().min(0).max(TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments),
   transferBlobBytes: z.number().int().nonnegative().max(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes),
-  contentHashes: SortedUniqueHashesSchema,
-}).strict();
+  blobRequirements: SortedUniqueBlobRequirementsSchema,
+}).strict().superRefine((request, context) => {
+  if (request.blobRequirements.length > request.attachmentCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Blob requirement count cannot exceed the attachment upsert count",
+    });
+  }
+  const requirementBytes = request.blobRequirements.reduce(
+    (total, requirement) => total + BigInt(requirement.sizeBytes),
+    0n,
+  );
+  if (requirementBytes > BigInt(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes)) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Blob requirement sum exceeds the transfer hard limit",
+    });
+  }
+  if (requirementBytes !== BigInt(request.transferBlobBytes)) {
+    context.addIssue({
+      code: "custom",
+      path: ["transferBlobBytes"],
+      message: "transferBlobBytes must equal the Blob requirement size sum",
+    });
+  }
+});
 
 const PushSessionStatusV3Schema = z.enum([
   "uploading",
