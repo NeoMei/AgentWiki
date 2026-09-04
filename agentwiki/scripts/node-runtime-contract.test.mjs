@@ -222,6 +222,9 @@ test('Docker defaults to Node 24 and direct deployment accepts the supported maj
   assert.match(deploy, /SUPPORTED_NODE_MAJORS="24 26"/);
   assert.match(deploy, /\/usr\/bin\/node/);
   assert.match(deploy, /requires Node\.js 24 or 26/);
+  assert.match(deploy, /AGENTWIKI_SSH_CONTROL_PATH/);
+  assert.match(deploy, /SSH_TOOL=\(ssh -S "\$AGENTWIKI_SSH_CONTROL_PATH"\)/);
+  assert.match(deploy, /SCP_TOOL=\(scp -o "ControlPath=\$AGENTWIKI_SSH_CONTROL_PATH"\)/);
   assert.match(deploy, /chown -R -- .*\$HOME\/\$\{PROJECT_DIR\}/);
   const generateIndex = deploy.indexOf('pnpm --filter @agentwiki/server exec prisma generate');
   const protocolBuildIndex = deploy.indexOf(

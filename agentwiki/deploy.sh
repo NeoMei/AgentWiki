@@ -33,7 +33,21 @@ trap cleanup EXIT
 
 SSH_TOOL=(ssh)
 SCP_TOOL=(scp)
-if command -v sshpass >/dev/null 2>&1 && [ -n "${SSHPASS:-}" ]; then
+if [ -n "${AGENTWIKI_SSH_CONTROL_PATH:-}" ]; then
+  case "$AGENTWIKI_SSH_CONTROL_PATH" in
+    /*) ;;
+    *)
+      echo "AGENTWIKI_SSH_CONTROL_PATH must be an absolute path." >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -S "$AGENTWIKI_SSH_CONTROL_PATH" ]; then
+    echo "AGENTWIKI_SSH_CONTROL_PATH is not an active Unix socket." >&2
+    exit 1
+  fi
+  SSH_TOOL=(ssh -S "$AGENTWIKI_SSH_CONTROL_PATH")
+  SCP_TOOL=(scp -o "ControlPath=$AGENTWIKI_SSH_CONTROL_PATH")
+elif command -v sshpass >/dev/null 2>&1 && [ -n "${SSHPASS:-}" ]; then
   SSH_TOOL=(sshpass -e ssh)
   SCP_TOOL=(sshpass -e scp)
 fi
