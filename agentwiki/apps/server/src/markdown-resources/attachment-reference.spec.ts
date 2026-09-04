@@ -7,6 +7,19 @@ import {
 
 const sourcePath = 'pages/topic/note.md';
 
+function countIndexedReads(raw: string): { value: string; reads: () => number } {
+  let indexedReads = 0;
+  const boxed = Object(raw);
+  const value = new Proxy(boxed, {
+    get(target, property) {
+      if (typeof property === 'string' && /^(?:0|[1-9][0-9]*)$/u.test(property)) indexedReads += 1;
+      const member = Reflect.get(target, property, target);
+      return typeof member === 'function' ? member.bind(raw) : member;
+    },
+  }) as string;
+  return { value, reads: () => indexedReads };
+}
+
 describe('parseImageReferences', () => {
   it.each([
     ['![[assets/a.png|320]]', 'assets/a.png', 'managed_candidate'],
@@ -103,6 +116,32 @@ describe('parseImageReferences', () => {
     })]);
   });
 
+  it.each([
+    '![alt](../assets/a.png "double title")',
+    "![alt](../assets/a.png 'single title')",
+    '![alt](../assets/a.png (parenthesized title))',
+    '![alt](<../assets/a.png> "angle title")',
+  ])('accepts one complete Markdown image title in %s', (body) => {
+    expect(parseImageReferences(body, sourcePath)).toEqual([expect.objectContaining({
+      rawTarget: '../assets/a.png',
+      targetStart: body.indexOf('../assets/a.png'),
+      targetEnd: body.indexOf('../assets/a.png') + '../assets/a.png'.length,
+      resolvedPath: 'assets/a.png',
+      classification: 'managed_candidate',
+    })]);
+  });
+
+  it.each([
+    '![alt](../assets/a.png not-a-title)',
+    '![alt](../assets/a.png "one" "two")',
+    '![alt](../assets/a.png "unterminated)',
+    '![alt](../assets/a.png (unterminated)',
+    '![alt](<../assets/a.png> trailing-text)',
+    '![alt](<../assets/a.png> "one" "two")',
+  ])('rejects invalid Markdown image destination suffix in %s', (body) => {
+    expect(parseImageReferences(body, sourcePath)).toEqual([]);
+  });
+
   it('does not parse image-like text inside an angle-bracket destination title', () => {
     const body = '![](<../assets/a.png> "caption ![not image](../assets/b.png)")';
 
@@ -119,6 +158,18 @@ describe('parseImageReferences', () => {
   ])('classifies angle-bracket URL %s as external', (body) => {
     expect(parseImageReferences(body, sourcePath)[0]).toMatchObject({
       classification: 'external',
+      resolvedPath: null,
+    });
+  });
+
+  it.each([
+    '![](<file:///Users/example/secret.png>)',
+    '![](<C:///Users/example/secret.png>)',
+    '![](/absolute/secret.png)',
+    '![](~/secret.png)',
+  ])('rejects local absolute image destination %s', (body) => {
+    expect(parseImageReferences(body, sourcePath)[0]).toMatchObject({
+      classification: 'invalid_local',
       resolvedPath: null,
     });
   });
@@ -154,6 +205,54 @@ describe('parseImageReferences', () => {
       rawTarget: 'assets/real.png',
       resolvedPath: 'assets/real.png',
     })]);
+  });
+
+  it.each([
+    [
+      'four-space indented code',
+      '    ![[assets/hidden.png]]\n![[assets/real.png]]',
+    ],
+    [
+      'tab indented code',
+      '\t![hidden](../assets/hidden.png)\n![[assets/real.png]]',
+    ],
+    [
+      'a blockquote fence',
+      '> ```md\n> ![[assets/hidden.png]]\n> ```\n> ![[assets/real.png]]',
+    ],
+    [
+      'a list fence',
+      '- ~~~md\n  ![[assets/hidden.png]]\n  ~~~\n- ![[assets/real.png]]',
+    ],
+    [
+      'a single-line HTML comment',
+      '<!-- ![[assets/hidden.png]] -->\n![[assets/real.png]]',
+    ],
+    [
+      'a multi-line HTML comment',
+      '<!--\n![[assets/hidden.png]]\n-->\n![[assets/real.png]]',
+    ],
+  ])('ignores image-like text inside %s', (_label, body) => {
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/real.png']);
+  });
+
+  it('keeps ordinary blockquote and list body images visible to the parser', () => {
+    const body = '> ![[assets/quote.png]]\n- ![list](../assets/list.png)';
+
+    expect(parseImageReferences(body, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['assets/quote.png', '../assets/list.png']);
+  });
+
+  it('scans a long backslash-heavy alt in a linear number of indexed reads', () => {
+    const raw = `![${'\\'.repeat(512)}alt](../assets/a.png)`;
+    const counted = countIndexedReads(raw);
+
+    expect(parseImageReferences(counted.value, sourcePath)).toEqual([expect.objectContaining({
+      rawTarget: '../assets/a.png',
+      resolvedPath: 'assets/a.png',
+    })]);
+    expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
   });
 });
 

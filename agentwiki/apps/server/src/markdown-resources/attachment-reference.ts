@@ -55,12 +55,10 @@ export class AttachmentReferenceError extends Error {
   }
 }
 
-function isEscaped(value: string, offset: number): boolean {
-  let backslashes = 0;
-  for (let index = offset - 1; index >= 0 && value[index] === '\\'; index -= 1) {
-    backslashes += 1;
-  }
-  return backslashes % 2 === 1;
+function skipBackslashRun(value: string, start: number): number {
+  let cursor = start;
+  while (value[cursor] === '\\') cursor += 1;
+  return cursor + ((cursor - start) % 2 === 1 && cursor < value.length ? 1 : 0);
 }
 
 function trimRange(value: string, start: number, end: number): [number, number] {
@@ -70,25 +68,38 @@ function trimRange(value: string, start: number, end: number): [number, number] 
 }
 
 function findUnescaped(value: string, needle: string, start: number): number {
-  for (let index = start; index <= value.length - needle.length; index += 1) {
-    if (value.startsWith(needle, index) && !isEscaped(value, index)) return index;
+  let cursor = start;
+  while (cursor <= value.length - needle.length) {
+    if (value[cursor] === '\\') {
+      cursor = skipBackslashRun(value, cursor);
+      continue;
+    }
+    if (value.startsWith(needle, cursor)) return cursor;
+    cursor += 1;
   }
   return -1;
 }
 
 function findClosingBracket(value: string, start: number): number {
   let depth = 0;
-  for (let index = start; index < value.length; index += 1) {
-    if (value[index] === '\n' || value[index] === '\r') return -1;
-    if (isEscaped(value, index)) continue;
-    if (value[index] === '[') {
-      depth += 1;
+  let cursor = start;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (character === '\n' || character === '\r') return -1;
+    if (character === '\\') {
+      cursor = skipBackslashRun(value, cursor);
       continue;
     }
-    if (value[index] === ']') {
-      if (depth === 0) return index;
+    if (character === '[') {
+      depth += 1;
+      cursor += 1;
+      continue;
+    }
+    if (character === ']') {
+      if (depth === 0) return cursor;
       depth -= 1;
     }
+    cursor += 1;
   }
   return -1;
 }
@@ -104,24 +115,79 @@ function skipMarkdownWhitespace(value: string, start: number): number {
 }
 
 function findMarkdownDestinationClose(value: string, start: number): number {
-  let quote: "'" | '"' | null = null;
-  for (let index = start; index < value.length; index += 1) {
-    const character = value[index];
+  if (value[start] === ')') return start;
+  let cursor = skipMarkdownWhitespace(value, start);
+  if (cursor === start) return -1;
+  if (value[cursor] === ')') return cursor;
+
+  const opener = value[cursor];
+  const closer = opener === '"' ? '"' : opener === "'" ? "'" : opener === '(' ? ')' : null;
+  if (closer === null) return -1;
+  cursor += 1;
+  let titleClosed = false;
+  while (cursor < value.length) {
+    const character = value[cursor];
     if (character === '\\') {
-      index += 1;
+      cursor += 2;
       continue;
     }
-    if (quote) {
-      if (character === quote) quote = null;
-      continue;
+    if (character === closer) {
+      titleClosed = true;
+      cursor += 1;
+      break;
     }
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-    if (character === ')') return index;
+    if (opener === '(' && character === '(') return -1;
+    cursor += 1;
+  }
+  if (!titleClosed) return -1;
+  if (value[cursor] === ')') return cursor;
+  const syntaxEnd = skipMarkdownWhitespace(value, cursor);
+  return syntaxEnd > cursor && value[syntaxEnd] === ')' ? syntaxEnd : -1;
+}
+
+function listMarkerEnd(value: string, start: number, lineEnd: number): number {
+  const marker = value[start];
+  if ((marker === '-' || marker === '+' || marker === '*') && /[ \t]/u.test(value[start + 1] ?? '')) {
+    return start + 2;
+  }
+  let cursor = start;
+  while (cursor < lineEnd && cursor - start < 9 && /[0-9]/u.test(value[cursor] ?? '')) cursor += 1;
+  if (
+    cursor > start
+    && (value[cursor] === '.' || value[cursor] === ')')
+    && /[ \t]/u.test(value[cursor + 1] ?? '')
+  ) {
+    return cursor + 2;
   }
   return -1;
+}
+
+function markdownLineContext(
+  value: string,
+  lineStart: number,
+  lineEnd: number,
+): { contentStart: number; indentedCode: boolean } {
+  let cursor = lineStart;
+  while (cursor < lineEnd) {
+    let spaces = 0;
+    while (cursor + spaces < lineEnd && value[cursor + spaces] === ' ') spaces += 1;
+    if (spaces >= 4 || value[cursor] === '\t') {
+      return { contentStart: cursor, indentedCode: true };
+    }
+    const markerStart = cursor + spaces;
+    if (value[markerStart] === '>') {
+      cursor = markerStart + 1;
+      if (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
+      continue;
+    }
+    const markerEnd = listMarkerEnd(value, markerStart, lineEnd);
+    if (markerEnd !== -1) {
+      cursor = markerEnd;
+      continue;
+    }
+    return { contentStart: markerStart, indentedCode: false };
+  }
+  return { contentStart: cursor, indentedCode: false };
 }
 
 function scanImageTargetTokens(body: string): ImageTargetToken[] {
@@ -132,17 +198,20 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
 
   while (cursor < body.length) {
     if (lineStart) {
-      let markerStart = cursor;
-      while (markerStart < body.length && markerStart - cursor < 3 && body[markerStart] === ' ') {
-        markerStart += 1;
+      const newline = body.indexOf('\n', cursor);
+      const lineEnd = newline === -1 ? body.length : newline;
+      const context = markdownLineContext(body, cursor, lineEnd);
+      if (!fence && context.indentedCode) {
+        cursor = newline === -1 ? body.length : newline + 1;
+        lineStart = true;
+        continue;
       }
+      const markerStart = context.contentStart;
       const marker = body[markerStart];
       if (marker === '`' || marker === '~') {
         let markerEnd = markerStart;
         while (body[markerEnd] === marker) markerEnd += 1;
         const markerLength = markerEnd - markerStart;
-        const newline = body.indexOf('\n', markerEnd);
-        const lineEnd = newline === -1 ? body.length : newline;
         const isClosingFence = Boolean(
           fence
           && fence.marker === marker
@@ -156,6 +225,7 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
           continue;
         }
       }
+      if (!fence) cursor = context.contentStart;
     }
 
     if (fence) {
@@ -178,7 +248,18 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
     }
     lineStart = false;
 
-    if (character === '`' && !isEscaped(body, cursor)) {
+    if (character === '\\') {
+      cursor = skipBackslashRun(body, cursor);
+      continue;
+    }
+
+    if (body.startsWith('<!--', cursor)) {
+      const close = body.indexOf('-->', cursor + 4);
+      cursor = close === -1 ? body.length : close + 3;
+      continue;
+    }
+
+    if (character === '`') {
       let runEnd = cursor;
       while (body[runEnd] === '`') runEnd += 1;
       const delimiter = body.slice(cursor, runEnd);
@@ -187,7 +268,7 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
       continue;
     }
 
-    if (character !== '!' || isEscaped(body, cursor)) {
+    if (character !== '!') {
       cursor += 1;
       continue;
     }
@@ -293,11 +374,20 @@ function classifyTarget(
 ): Pick<ParsedImageReference, 'resolvedPath' | 'classification'> {
   const decoded = decodeTarget(rawTarget);
   if (decoded === null) return { resolvedPath: null, classification: 'invalid_local' };
-  if (/^(?:[a-z][a-z0-9+.-]*:\/\/|data:)/iu.test(decoded) || decoded.startsWith('//')) {
+  if (/^data:/iu.test(decoded) || decoded.startsWith('//')) {
     return { resolvedPath: null, classification: 'external' };
   }
-  if (decoded.startsWith('/') || decoded.startsWith('~/') || decoded.includes('\\')) {
+  if (
+    /^file:/iu.test(decoded)
+    || /^[a-z]:[\\/]/iu.test(decoded)
+    || decoded.startsWith('/')
+    || decoded.startsWith('~/')
+    || decoded.includes('\\')
+  ) {
     return { resolvedPath: null, classification: 'invalid_local' };
+  }
+  if (/^(?:https?|ftp):\/\//iu.test(decoded)) {
+    return { resolvedPath: null, classification: 'external' };
   }
 
   let candidate: string;

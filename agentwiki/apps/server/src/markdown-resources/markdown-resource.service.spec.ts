@@ -345,6 +345,27 @@ describe('MarkdownResourceService', () => {
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
   });
 
+  it.each([
+    '![](<file:///Users/example/secret.png>)',
+    '![](<C:///Users/example/secret.png>)',
+  ])('blocks local absolute body reference %s without querying attachments', async (body) => {
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/topic/note.md',
+      body,
+    })).resolves.toEqual({
+      attachmentIds: [],
+      references: [],
+      errors: [{
+        code: 'ATTACHMENT_REFERENCE_INVALID',
+        targetStart: expect.any(Number),
+        targetEnd: expect.any(Number),
+      }],
+    });
+
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
   it('can resolve through the caller transaction so a locked writer sees one snapshot', async () => {
     const transaction = {
       spaceAttachment: {
