@@ -15,6 +15,7 @@ const apiBaseUrl = resolveE2ETarget({
   configured: process.env.AGENTWIKI_API_URL,
   fallback: 'http://127.0.0.1:3000/api/',
   allowRemote: process.env.ALLOW_REMOTE_E2E,
+  confirmRemoteHost: process.env.CONFIRM_REMOTE_E2E_HOST,
   label: 'Playwright API target',
 });
 

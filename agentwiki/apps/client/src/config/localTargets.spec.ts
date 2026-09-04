@@ -30,14 +30,37 @@ describe('local target validation', () => {
     expect(() => resolveE2ETarget({ fallback: target, label: 'test target' })).toThrow();
   });
 
-  it('requires the exact lowercase opt-in and never returns a credential-bearing URL', () => {
+  it('requires HTTPS, exact lowercase opt-in, and an exact host confirmation for remote targets', () => {
     const remote = 'https://qa.example.test:7443';
     expect(() => resolveE2ETarget({ fallback: remote, allowRemote: 'TRUE', label: 'test target' }))
       .toThrow(/ALLOW_REMOTE_E2E=true/);
-    expect(resolveE2ETarget({ fallback: remote, allowRemote: 'true', label: 'test target' })).toBe(remote);
+    expect(() => resolveE2ETarget({
+      fallback: remote,
+      allowRemote: 'true',
+      label: 'test target',
+    })).toThrow(/CONFIRM_REMOTE_E2E_HOST/);
+    expect(() => resolveE2ETarget({
+      fallback: remote,
+      allowRemote: 'true',
+      confirmRemoteHost: 'other.example.test',
+      label: 'test target',
+    })).toThrow(/confirmed host/);
+    expect(() => resolveE2ETarget({
+      fallback: 'http://qa.example.test:7443',
+      allowRemote: 'true',
+      confirmRemoteHost: 'qa.example.test',
+      label: 'test target',
+    })).toThrow(/HTTPS/);
+    expect(resolveE2ETarget({
+      fallback: remote,
+      allowRemote: 'true',
+      confirmRemoteHost: 'QA.EXAMPLE.TEST',
+      label: 'test target',
+    })).toBe(remote);
     expect(() => resolveE2ETarget({
       fallback: 'https://operator:secret@qa.example.test:7443',
       allowRemote: 'true',
+      confirmRemoteHost: 'qa.example.test',
       label: 'test target',
     })).toThrowError(expect.not.stringMatching(/operator|secret|qa\.example/));
   });
