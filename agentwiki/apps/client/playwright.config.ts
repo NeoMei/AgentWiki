@@ -5,6 +5,7 @@ const baseURL = resolveE2ETarget({
   configured: process.env.AGENTWIKI_WEB_URL,
   fallback: 'http://127.0.0.1:5173',
   allowRemote: process.env.ALLOW_REMOTE_E2E,
+  confirmRemoteHost: process.env.CONFIRM_REMOTE_E2E_HOST,
   label: 'Playwright web target',
 });
 

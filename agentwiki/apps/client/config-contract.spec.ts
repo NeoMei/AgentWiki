@@ -47,9 +47,10 @@ describe('local development target contract', () => {
     expect((thrown as Error).message).not.toMatch(/example\.test|super-secret/);
   });
 
-  it('allows an explicitly opted-in remote Playwright target', async () => {
+  it('allows an explicitly opted-in and host-confirmed remote Playwright target', async () => {
     vi.stubEnv('AGENTWIKI_WEB_URL', 'https://qa.example.test:7443');
     vi.stubEnv('ALLOW_REMOTE_E2E', 'true');
+    vi.stubEnv('CONFIRM_REMOTE_E2E_HOST', 'qa.example.test');
     vi.resetModules();
 
     const configured = (await import('./playwright.config.ts')).default as { use?: { baseURL?: string } };
