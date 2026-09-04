@@ -7,12 +7,17 @@
 - Playwright 基线：7 files / 25 tests，可收集但 Windows 缺少真实数据库栈。
 - Redis 持久性要求：`agentwiki/docs/operations/redis-audit-durability.md`
 - CodeGraph 验收说明：`agentwiki/docs/verification/codegraph-standard-scan-cutover.md`
-- 最终已测试代码：`e8c16e92822758a75350e50d9abb7865cc970f54`
+- 最终已测试代码：`23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`
 - macOS 正式验证记录：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`
 - Task 1-5 准确证据：`.superpowers/sdd/2026-09-04-macos-release-verification/task-{1,2,3,4,5}-report.md`
 - Task 5 清理句柄：`.superpowers/sdd/2026-09-04-macos-release-verification/task-5-runtime.env`
-- protected public inventory digest：`d78ab0b1f0708f8d72c170a6a756eeaeb20259d6058f36d092b6cf0232c4592f`
+- protected public inventory digest：`79642c9fc9d560bdbadd4828bcb75b6796a0a56ec1c45638d1e6d9ddd2b0e2e3`
 - CodeGraph 完整输出：`.superpowers/sdd/2026-09-04-macos-release-verification/artifacts/task-4-codegraph-standard-scan.log`
-- Task 5 最终 Playwright：`/tmp/agentwiki-mac-playwright-run-mac_e2e_20260904110258_2487-fix-round1.log`
-- Task 5 最终进程快照：`/tmp/agentwiki-mac-service-process-group-mac_e2e_20260904110258_2487-fix-round1.log`
-- 可恢复附件：`/Users/neomei/.Trash/agentwiki-macos-release-task6.EP25nx/agentwiki-mac-attachments.DLF925`
+- 最终修复报告：`.superpowers/sdd/2026-09-04-macos-release-verification/final-fix-report.md`
+- 最终 clean-clone 全仓：`/tmp/agentwiki-mac-finalfix-pnpm-test.log`
+- 最终 CodeGraph：`/tmp/agentwiki-mac-finalfix-codegraph.log`
+- 最终 Playwright：`/tmp/agentwiki-mac-finalfix-playwright.log`
+- 最终服务日志：`/tmp/agentwiki-mac-finalfix-{api,worker,client,group}.log`
+- 实际 pg_dump：`/opt/homebrew/bin/pg_dump`，PostgreSQL 16.14 (Homebrew)
+- 可恢复附件：`/Users/neomei/.Trash/agentwiki-macos-finalfix.pG4uH2/agentwiki-mac-attachments.F8pAW8`
+- 可恢复 clean clone：`/Users/neomei/.Trash/agentwiki-macos-clean-clone.JcE6tM/agentwiki-mac-clean-clone-finalfix.DZor7f`

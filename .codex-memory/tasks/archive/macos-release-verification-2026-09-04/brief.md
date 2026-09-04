@@ -6,10 +6,10 @@
 
 ## 当前状态
 
-- 2026-09-04 完成，最终结论 PASS；已测试代码为 `e8c16e92822758a75350e50d9abb7865cc970f54`。
-- clean clone 全仓 4170 pass / 0 fail / 3 个平台或显式 opt-in skip；typecheck、lint、build、裸 audit 与数据库/Redis skip gate 均通过。
+- 2026-09-04 完成最终审查修复波，最终结论 PASS；已测试代码为 `23a25f888b76b9ce4b8a8cc76dd5164e1c80034b`。
+- clean clone 全仓 4208 pass / 0 fail / 3 个平台或显式 opt-in skip（4211 total）；typecheck、lint、build、裸 audit 与数据库/Redis skip gate 均通过。
 - 真实 CodeGraph standard scan 1/1；真实 Chrome Playwright 25/25，单 worker、无 retry。
-- protected public digest 不变；所有目标前缀 schema 为 0；进程组、容器、四个端口和原附件路径均完成精确清理。
+- protected public digest `79642c9fc9d560bdbadd4828bcb75b6796a0a56ec1c45638d1e6d9ddd2b0e2e3` 不变；所有目标前缀 schema 为 0；进程组、容器、四个端口和原附件路径均完成精确清理。
 - 正式证据：`agentwiki/docs/verification/macos-release-validation-2026-09-04.md`。
 
 ## 完成条件
@@ -22,5 +22,5 @@
 ## 完成结果
 
 - 四项完成条件全部满足，任务从 active 转入 archive。
-- 附件没有 broad 删除，保存在 `/Users/neomei/.Trash/agentwiki-macos-release-task6.EP25nx/agentwiki-mac-attachments.DLF925`，可恢复。
-- 任务只创建本地证据提交；未 push、未发布 npm、未部署生产。
+- 附件没有 broad 删除，保存在 `/Users/neomei/.Trash/agentwiki-macos-finalfix.pG4uH2/agentwiki-mac-attachments.F8pAW8`，可恢复。
+- 任务创建本地代码提交与独立证据提交；未 push、未发布 npm、未部署生产。
