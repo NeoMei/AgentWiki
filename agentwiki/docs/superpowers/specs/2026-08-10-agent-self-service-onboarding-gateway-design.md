@@ -17,7 +17,7 @@ AgentWiki 当前已经能够通过 `/api/onboard.json` 引导本地 Agent 完成
 
 ## 2. 目标
 
-用户只需把一条固定版本命令交给 Codex、Claude Code、OpenCode 或其他能运行本地命令的 Agent。接入脚本负责：
+用户只需把 AgentWiki 生成的完整任务提示词作为一条消息粘贴到 Codex、Claude Code、OpenCode 或其他能运行本地命令的 Agent。提示词包含精确版本的 NDJSON 命令与协议驱动规则；不将裸命令作为人类直接终端入口。接入脚本负责：
 
 1. 通过网页 Device Auth 完成注册或登录，不让密码进入 Agent 对话。
 2. 通过 NDJSON 表单协议让 Agent 向用户收集必要参数。
@@ -382,7 +382,8 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 
 ## 14. 验收标准
 
-- 用户只把一条命令交给 Agent。
+- 首页自助接入页面展示并复制一段完整 Agent 任务提示词，其中只包含一条精确版本接入命令。
+- 提示词告诉 Agent 持续驱动 NDJSON stdout/stdin 协议直到终态，页面不得将 `--protocol ndjson` 标记为人类可直接运行的普通终端命令。
 - 密码和网页登录信息不进入 Agent 上下文。
 - Agent 通过 schema 填空，不需要解释自由格式提示词。
 - 正常流程只有网页 Auth、接入计划确认和首次同步预览确认三个用户动作。
@@ -394,6 +395,8 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 - 任意退出都有 `completed`、`failed_recoverable`、`failed_terminal` 或 `cancelled` 结构化结果。
 - 中断后使用 session ID 能继续，且不会重复创建或覆盖资源。
 - 生产 E2E 同时验证统一工具清单、本地扫描、预览确认和首次同步。
+- 首页提示词必须明确要求持久进程会话，并给出 `input_required` 的 `requestId + values` 和 `confirmation_required` 的 `requestId + confirmed + planHash` 精确回复形状；首次 `npx` 安装暂时无 stdout 时保持同一会话轮询，不并行重启。
+- 提示词发布门不是文字包含检查：必须把候选提示词交给一个新的 Agent 消费者，让它从 Git 根目录实际运行 `cd agentwiki && node scripts/onboarding-prompt-fixture.mjs`，驱动受控 NDJSON 进程依次完成输入、网页授权等待与 heartbeat、计划确认、同步确认和 `completed`。`cd agentwiki && node --test scripts/onboarding-prompt-fixture.test.mjs` 必须同时通过，脱敏 Agent 对话结果写入当次验证文档。
 
 ## 15. 实施边界
 
@@ -404,4 +407,4 @@ npx --yes @neomei/agentwiki-local-sync@0.3.0 onboard resume <sessionId> --protoc
 3. 原子客户端安装、状态机、checkpoint、resume 和报告。
 4. 高层组合工具、首次扫描/同步、三客户端与生产 E2E。
 
-每个里程碑必须先写失败测试，再实施；必须分别通过测试、类型检查、lint、build、敏感信息扫描和代码审查。未通过真实 Agent 安装与生产受控 E2E 前，不得在首页或使用指南中宣称完整自助接入可用。
+每个里程碑必须先写失败测试，再实施；必须分别通过测试、类型检查、lint、build、敏感信息扫描和代码审查。未通过真实 Agent 消费提示词、真实 Agent 安装与生产受控 E2E 前，不得在首页或使用指南中宣称完整自助接入可用。
