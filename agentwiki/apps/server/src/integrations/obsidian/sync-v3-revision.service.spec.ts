@@ -533,27 +533,39 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
       ] });
       const countedPrisma = new PrismaClient({
         datasources: { db: { url: syncV3ReadDatabaseUrl } },
-        log: [{ emit: 'event', level: 'query' }],
       });
-      let queryCount = 0;
-      const revisionSummarySql: string[] = [];
-      countedPrisma.$on('query', (event) => {
-        queryCount += 1;
-        if (event.query.includes('SpaceKnowledgeRevision')) revisionSummarySql.push(event.query);
-      });
-      const revisionSummaryRowCounts: number[] = [];
+      const revisionSummaries: Array<{ sql: string; rowCount: number }> = [];
       const measuredPrisma = new Proxy(countedPrisma as any, {
         get(target, property) {
           if (property !== '$transaction') return Reflect.get(target, property, target);
           return (callback: (tx: unknown) => Promise<unknown>, options: unknown) => target.$transaction(
             (tx: any) => callback(new Proxy(tx, {
               get(transaction, transactionProperty) {
+                if (transactionProperty === 'spaceKnowledgeRevision') {
+                  return new Proxy(transaction.spaceKnowledgeRevision, {
+                    get(delegate, delegateProperty) {
+                      if (delegateProperty !== 'findMany') {
+                        return Reflect.get(delegate, delegateProperty, delegate);
+                      }
+                      return (args: any) => {
+                        if (args?.distinct) {
+                          throw new Error('Revision summaries must not use Prisma client-side distinct');
+                        }
+                        return delegate.findMany(args);
+                      };
+                    },
+                  });
+                }
                 if (transactionProperty !== '$queryRaw') {
                   return Reflect.get(transaction, transactionProperty, transaction);
                 }
                 return async (...args: unknown[]) => {
                   const rows = await transaction.$queryRaw(...args);
-                  revisionSummaryRowCounts.push(rows.length);
+                  const statement = args[0] as { strings?: readonly string[] };
+                  const sql = statement.strings?.join('?') ?? '';
+                  if (sql.includes('SpaceKnowledgeRevision')) {
+                    revisionSummaries.push({ sql, rowCount: rows.length });
+                  }
                   return rows;
                 };
               },
@@ -573,30 +585,31 @@ describe('SyncV3RevisionService PostgreSQL integration', () => {
         countedWriter,
         new SyncV3ImmutableRevisionService(),
       );
-      queryCount = 0;
-      revisionSummaryRowCounts.length = 0;
-      revisionSummarySql.length = 0;
+      revisionSummaries.length = 0;
       const shallowSpaces = await countedReader.listSpaces(principal);
       expect(shallowSpaces.spaces.find((space) => space.spaceId === legacySpaceId))
         .toMatchObject({ syncMode: 'legacy_v2', canPublish: true });
-      expect(revisionSummaryRowCounts).toHaveLength(2);
-      expect([...revisionSummaryRowCounts].sort((left, right) => left - right)).toEqual([1, 3]);
-      expect(revisionSummaryRowCounts.every((count) => count <= shallowSpaces.spaces.length)).toBe(true);
-      expect(revisionSummarySql.some((sql) => sql.includes('DISTINCT ON'))).toBe(true);
-      expect(revisionSummarySql.some((sql) => sql.includes('GROUP BY'))).toBe(true);
-      queryCount = 0;
-      await countedReader.listSpaces(principal);
-      const shallowQueryCount = queryCount;
+      expect(revisionSummaries).toHaveLength(2);
+      expect(revisionSummaries.map(({ rowCount }) => rowCount).sort((left, right) => left - right))
+        .toEqual([1, 3]);
+      expect(revisionSummaries.every(({ rowCount }) => rowCount <= shallowSpaces.spaces.length)).toBe(true);
+      expect(revisionSummaries.some(({ sql }) => sql.includes('DISTINCT ON'))).toBe(true);
+      expect(revisionSummaries.some(({ sql }) => sql.includes('GROUP BY'))).toBe(true);
+      const shallowStatementShapes = revisionSummaries.map(({ sql }) => sql).sort();
       await prisma.spaceKnowledgeRevision.createMany({
         data: Array.from({ length: 49 }, (_, index) => legacyRevision(index + 2)),
       });
-      queryCount = 0;
-      revisionSummaryRowCounts.length = 0;
-      await countedReader.listSpaces(principal);
-      expect(Math.abs(queryCount - shallowQueryCount)).toBeLessThanOrEqual(1);
-      expect(revisionSummaryRowCounts).toHaveLength(2);
-      expect([...revisionSummaryRowCounts].sort((left, right) => left - right)).toEqual([1, 3]);
-      expect(revisionSummaryRowCounts.every((count) => count <= shallowSpaces.spaces.length)).toBe(true);
+      revisionSummaries.length = 0;
+      await Promise.all([
+        countedReader.listSpaces(principal),
+        countedPrisma.user.count(),
+        countedPrisma.space.count(),
+      ]);
+      expect(revisionSummaries).toHaveLength(2);
+      expect(revisionSummaries.map(({ rowCount }) => rowCount).sort((left, right) => left - right))
+        .toEqual([1, 3]);
+      expect(revisionSummaries.every(({ rowCount }) => rowCount <= shallowSpaces.spaces.length)).toBe(true);
+      expect(revisionSummaries.map(({ sql }) => sql).sort()).toEqual(shallowStatementShapes);
       await countedPrisma.$disconnect();
 
       const legacyToV3 = await prisma.$transaction(async (tx) => {
