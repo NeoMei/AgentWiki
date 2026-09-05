@@ -191,7 +191,7 @@ export class RunService {
         where: { id: runId, spaceId, status: { in: ['draft', 'ready'] }, version: body.expectedVersion },
       });
       if (!current) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-      const template = await this.loadTemplate(tx, spaceId, current.templateId);
+      const template = await this.loadLegacyRunTemplate(tx, spaceId, current);
       const definition = parseDefinition(template.definition);
       const inputs = body.inputs === undefined ? undefined : this.parseInputs(definition, body.inputs);
       if (body.roleBindings) {
@@ -230,7 +230,7 @@ export class RunService {
         where: { id: runId, spaceId, status: 'draft', version: body.expectedVersion },
       });
       if (!run) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-      const template = await this.loadTemplate(tx, spaceId, run.templateId);
+      const template = await this.loadLegacyRunTemplate(tx, spaceId, run);
       const definition = parseDefinition(template.definition);
       const bindings = await this.loadBindings(tx, runId, run);
       this.parseInputs(definition, run.inputs);
@@ -271,7 +271,7 @@ export class RunService {
           where: { id: runId, spaceId, status: 'ready', version: body.expectedVersion },
         });
         if (!run) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
-        const template = await this.loadTemplate(tx, spaceId, run.templateId);
+        const template = await this.loadLegacyRunTemplate(tx, spaceId, run);
         const definition = parseDefinition(template.definition);
         const bindings = await this.loadBindings(tx, runId, run);
         this.parseInputs(definition, run.inputs);
@@ -656,6 +656,17 @@ export class RunService {
     });
     if (!template) throw new BusinessException('COLLABORATION_TEMPLATE_NOT_FOUND');
     return template;
+  }
+
+  private async loadLegacyRunTemplate(
+    tx: Tx,
+    spaceId: string,
+    run: { templateId: string | null },
+  ) {
+    if (run.templateId === null) {
+      throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'This operation requires a legacy collaboration template source');
+    }
+    return this.loadTemplate(tx, spaceId, run.templateId);
   }
 
   private normalizeBindings(

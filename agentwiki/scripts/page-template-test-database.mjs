@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { rename } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   assertFolderDatabaseSafetyInventoryUnchanged,
   assertFolderDatabaseSafetyPreflight,
@@ -49,7 +51,10 @@ const quoteIdentifier = (value) => {
   return `"${value.replaceAll('"', '""')}"`;
 };
 
-export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback) {
+export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback, {
+  latestMigrationName,
+  beforeLatestMigration,
+} = {}) {
   const parsed = validatePageTemplateTestDatabaseUrl(baseDatabaseUrl);
   parsed.searchParams.delete('schema');
   const administrativeUrl = parsed.toString();
@@ -70,22 +75,42 @@ export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback) {
       safetyInventory = await captureFolderDatabaseSafetyInventory(administrativeUrl, prisma);
       await prisma.$executeRawUnsafe(`CREATE SCHEMA ${schemaSql}`);
       created = true;
-      const migration = spawnPnpmSync(
-        [
-          '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
-          '--schema', preparedMigrations.schemaPath,
-        ],
-        boundedMigrationOptions({
-          cwd: new URL('..', import.meta.url),
-          encoding: 'utf8',
-          env: { ...process.env, DATABASE_URL: databaseUrl },
-        }),
-      );
-      if (migration.error || migration.status !== 0) {
-        throw new Error(
-          [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n'),
+      const migrate = () => {
+        const migration = spawnPnpmSync(
+          [
+            '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
+            '--schema', preparedMigrations.schemaPath,
+          ],
+          boundedMigrationOptions({
+            cwd: new URL('..', import.meta.url),
+            encoding: 'utf8',
+            env: { ...process.env, DATABASE_URL: databaseUrl },
+          }),
         );
+        if (migration.error || migration.status !== 0) {
+          throw new Error(
+            [migration.error?.message, migration.stdout, migration.stderr].filter(Boolean).join('\n'),
+          );
+        }
+      };
+      if (beforeLatestMigration !== undefined) {
+        if (typeof beforeLatestMigration !== 'function') {
+          throw new Error('beforeLatestMigration must be a function');
+        }
+        if (!/^\d{14}_[a-z0-9_]+$/u.test(latestMigrationName ?? '')) {
+          throw new Error('latestMigrationName must be a safe Prisma migration name');
+        }
+        const migrationPath = join(preparedMigrations.migrationsRoot, latestMigrationName);
+        const heldMigrationPath = join(preparedMigrations.temporaryRoot, `.held-${latestMigrationName}`);
+        await rename(migrationPath, heldMigrationPath);
+        try {
+          migrate();
+          await beforeLatestMigration({ databaseUrl, schemaName });
+        } finally {
+          await rename(heldMigrationPath, migrationPath);
+        }
       }
+      migrate();
       const postMigrationInventory = await captureFolderDatabaseSafetyInventory(
         administrativeUrl,
         prisma,

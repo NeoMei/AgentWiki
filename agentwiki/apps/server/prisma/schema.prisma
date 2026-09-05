@@ -96,6 +96,12 @@ enum CollaborationReviewStatus {
   superseded
 }
 
+enum CollaborationRunSourceKind {
+  legacy
+  composite
+  page_selection
+}
+
 // 用户表 - 支持人类用户和Agent
 model User {
   id           String  @id @default(cuid())
@@ -129,6 +135,9 @@ model User {
   pageTemplatesCreated          PageTemplate[]                @relation("PageTemplateCreatedBy")
   pageTemplatesUpdated          PageTemplate[]                @relation("PageTemplateUpdatedBy")
   pageTemplateVersionsCreated   PageTemplateVersion[]         @relation("PageTemplateVersionCreatedBy")
+  templateInstantiationsCreated TemplateInstantiation[]       @relation("TemplateInstantiationCreatedBy")
+  pageAgentBindingsAssigned     PageAgentBinding[]            @relation("PageAgentBindingAssignedBy")
+  pageAgentBindingEvents        PageAgentBindingEvent[]       @relation("PageAgentBindingEventActor")
   attachmentsUploaded           SpaceAttachment[]             @relation("AttachmentUploadedBy")
   foldersCreated                Folder[]                      @relation("FolderCreatedByUser")
   foldersLastModified           Folder[]                      @relation("FolderLastModifiedByUser")
@@ -199,23 +208,28 @@ model Space {
   pagePathAliases        PagePathAlias[]
   contentDeletionBatches ContentDeletionBatch[]
 
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  deletedAt              DateTime?
-  agentGrants            AgentGrant[]
-  sources                Source[]
-  ingestRuns             IngestRun[]
-  changeSets             ChangeSet[]
-  knowledgeSubmissions   KnowledgeSubmission[]
-  knowledgeRevisions     SpaceKnowledgeRevision[]
+  createdAt               DateTime                             @default(now())
+  updatedAt               DateTime                             @updatedAt
+  deletedAt               DateTime?
+  agentGrants             AgentGrant[]
+  sources                 Source[]
+  ingestRuns              IngestRun[]
+  changeSets              ChangeSet[]
+  knowledgeSubmissions    KnowledgeSubmission[]
+  knowledgeRevisions      SpaceKnowledgeRevision[]
   revisionChainCheckpoint SpaceRevisionChainCheckpoint?
-  agentMemories          AgentMemory[]
-  assistTasks            AssistTask[]
-  graphState             SpaceGraphState?
-  collaborationTemplates CollaborationTemplate[]
-  collaborationRuns      CollaborationRun[]
-  pageTemplates          PageTemplate[]
-  attachments            SpaceAttachment[]
+  agentMemories           AgentMemory[]
+  assistTasks             AssistTask[]
+  graphState              SpaceGraphState?
+  collaborationTemplates  CollaborationTemplate[]
+  collaborationRuns       CollaborationRun[]
+  pageTemplates           PageTemplate[]
+  attachments             SpaceAttachment[]
+  templateInstantiations  TemplateInstantiation[]
+  pageAgentBindings       PageAgentBinding[]
+  pageAgentBindingEvents  PageAgentBindingEvent[]
+  templateEffectJobs      TemplateEffectJob[]
+  artifactChangeSetLinks  CollaborationArtifactChangeSetLink[]
 }
 
 model SpaceAttachment {
@@ -235,8 +249,8 @@ model SpaceAttachment {
   updatedAt        DateTime              @updatedAt
   archivedAt       DateTime?
 
-  space          Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  uploadedByUser User? @relation("AttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  space          Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  uploadedByUser User?                       @relation("AttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
   versions       AttachmentVersion[]
   revisionRows   SyncRevisionAttachmentRow[]
 
@@ -324,6 +338,7 @@ model Agent {
   collaborationAssignedTasks CollaborationRunTask[]
   collaborationAttempts      CollaborationTaskAttempt[]
   collaborationEvents        CollaborationRunEvent[]    @relation("CollaborationEventAgent")
+  pageAgentBindings          PageAgentBinding[]
   foldersCreated             Folder[]                   @relation("FolderCreatedByAgent")
   foldersLastModified        Folder[]                   @relation("FolderLastModifiedByAgent")
 
@@ -362,10 +377,10 @@ model AgentGrant {
   role         AgentAccessRole @default(reader)
   folderScopes String[]        @default([])
 
-  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  agentId String
-  space   Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  spaceId String
+  agent       Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentId     String
+  space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId     String
   credentials AgentCredential[]
 
   createdAt DateTime @default(now())
@@ -457,19 +472,24 @@ model Page {
   sourceTemplateVersion Int?
   sourceTemplateLocale  String?
 
-  sourceChangeSet             ChangeSet?            @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
-  lastChangeSet               ChangeSet?            @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
-  createdByAgent              Agent?                @relation("PageCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  lastModifiedByUser          User?                 @relation("PageLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
-  lastModifiedByAgent         Agent?                @relation("PageLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
-  source                      Source?               @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  sourceVersion               SourceVersion?        @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
-  outgoingRelations           KnowledgeRelation[]   @relation("RelationSourcePage")
-  incomingRelations           KnowledgeRelation[]   @relation("RelationTargetPage")
+  sourceChangeSet             ChangeSet?                           @relation("PageOriginChangeSet", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  lastChangeSet               ChangeSet?                           @relation("PageLastChangeSet", fields: [lastChangeSetId], references: [id], onDelete: SetNull)
+  createdByAgent              Agent?                               @relation("PageCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  lastModifiedByUser          User?                                @relation("PageLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+  lastModifiedByAgent         Agent?                               @relation("PageLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  source                      Source?                              @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  sourceVersion               SourceVersion?                       @relation(fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  outgoingRelations           KnowledgeRelation[]                  @relation("RelationSourcePage")
+  incomingRelations           KnowledgeRelation[]                  @relation("RelationTargetPage")
   searchDocument              PageSearchDocument?
   assistTasks                 AssistTask[]
-  sourceTemplateVersionRecord PageTemplateVersion?  @relation("PageSourceTemplateVersion", fields: [sourceTemplateId, sourceTemplateVersion], references: [templateId, version], onDelete: Restrict, onUpdate: Restrict)
-  templateVersionsSourced     PageTemplateVersion[] @relation("PageTemplateVersionSourcePage")
+  sourceTemplateVersionRecord PageTemplateVersion?                 @relation("PageSourceTemplateVersion", fields: [sourceTemplateId, sourceTemplateVersion], references: [templateId, version], onDelete: Restrict, onUpdate: Restrict)
+  templateVersionsSourced     PageTemplateVersion[]                @relation("PageTemplateVersionSourcePage")
+  templateInstantiationNodes  TemplateInstantiationNode[]
+  agentBinding                PageAgentBinding?
+  agentBindingEvents          PageAgentBindingEvent[]
+  targetedCollaborationTasks  CollaborationRunTask[]               @relation("CollaborationRunTaskTargetPage")
+  collaborationChangeSetLinks CollaborationArtifactChangeSetLink[]
 
   @@unique([spaceId, slug])
   @@unique([spaceId, sourceId, sourcePath])
@@ -501,19 +521,21 @@ model Folder {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  space               Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  parent              Folder?                @relation("FolderChildren", fields: [parentId, spaceId], references: [id, spaceId], onDelete: Cascade)
-  children            Folder[]               @relation("FolderChildren")
-  pages               Page[]
-  createdByUser       User?                  @relation("FolderCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdByAgent      Agent?                 @relation("FolderCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  space                      Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parent                     Folder?                     @relation("FolderChildren", fields: [parentId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  children                   Folder[]                    @relation("FolderChildren")
+  pages                      Page[]
+  createdByUser              User?                       @relation("FolderCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByAgent             Agent?                      @relation("FolderCreatedByAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
   /// Physical ChangeSet deletion is blocked while Folder source evidence references it.
-  sourceChangeSet     ChangeSet?             @relation("FolderOriginChangeSet", fields: [sourceChangeSetId, spaceId], references: [id, spaceId], onDelete: NoAction)
-  lastModifiedByUser  User?                  @relation("FolderLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
-  lastModifiedByAgent Agent?                 @relation("FolderLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
+  sourceChangeSet            ChangeSet?                  @relation("FolderOriginChangeSet", fields: [sourceChangeSetId, spaceId], references: [id, spaceId], onDelete: NoAction)
+  lastModifiedByUser         User?                       @relation("FolderLastModifiedByUser", fields: [lastModifiedByUserId], references: [id], onDelete: SetNull)
+  lastModifiedByAgent        Agent?                      @relation("FolderLastModifiedByAgent", fields: [lastModifiedByAgentId], references: [id], onDelete: SetNull)
   /// Physical batch deletion is blocked while a Folder retains deletion/restore evidence.
-  deletionBatch       ContentDeletionBatch?  @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
-  rootDeletionBatches ContentDeletionBatch[] @relation("ContentDeletionBatchRootFolder")
+  deletionBatch              ContentDeletionBatch?       @relation(fields: [deletionBatchId, spaceId], references: [id, spaceId], onDelete: NoAction)
+  rootDeletionBatches        ContentDeletionBatch[]      @relation("ContentDeletionBatchRootFolder")
+  templateInstantiationNodes TemplateInstantiationNode[]
+  templateInstantiations     TemplateInstantiation[]     @relation("TemplateInstantiationTargetParent")
 
   @@unique([id, spaceId])
   @@index([spaceId, parentId, deletedAt, sortOrder, id])
@@ -592,19 +614,24 @@ model PageTemplate {
 }
 
 model PageTemplateVersion {
-  id           String   @id @default(cuid())
-  templateId   String
-  version      Int
-  contentI18n  Json
-  sourcePageId String?
-  contentHash  String
-  createdById  String?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  templateId     String
+  version        Int
+  contentI18n    Json
+  sourcePageId   String?
+  contentHash    String
+  definition     Json?
+  schemaVersion  Int?
+  definitionHash String?
+  createdById    String?
+  createdAt      DateTime @default(now())
 
-  template   PageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  sourcePage Page?        @relation("PageTemplateVersionSourcePage", fields: [sourcePageId], references: [id], onDelete: SetNull)
-  createdBy  User?        @relation("PageTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  pages      Page[]       @relation("PageSourceTemplateVersion")
+  template               PageTemplate            @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sourcePage             Page?                   @relation("PageTemplateVersionSourcePage", fields: [sourcePageId], references: [id], onDelete: SetNull)
+  createdBy              User?                   @relation("PageTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  pages                  Page[]                  @relation("PageSourceTemplateVersion")
+  templateInstantiations TemplateInstantiation[]
+  collaborationRuns      CollaborationRun[]      @relation("CompositeTemplateVersionRuns")
 
   @@unique([templateId, version])
   @@index([templateId, createdAt])
@@ -645,8 +672,10 @@ model PageVersion {
   syncPathKey      String?
   migrationBatchId String?
 
-  page   Page? @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  page                          Page?                      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  author                        User?                      @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  collaborationAttemptBaselines CollaborationTaskAttempt[]
+  collaborationTaskBaselines    CollaborationRunTask[]     @relation("CollaborationRunTaskBasePageVersion")
 
   createdAt DateTime @default(now())
 
@@ -833,34 +862,35 @@ model Evidence {
 }
 
 model ChangeSet {
-  id                      String                  @id @default(cuid())
-  title                   String
-  status                  String                  @default("draft")
-  space                   Space                   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  spaceId                 String
-  run                     IngestRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
-  runId                   String?                 @unique
-  createdByUser           User?                   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdByUserId         String?
-  createdByAgent          Agent?                  @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
-  createdByAgentId        String?
-  items                   ChangeItem[]
-  approvals               Approval[]
-  knowledgeSubmission     KnowledgeSubmission?    @relation("ChangeSetKnowledgeSubmission")
-  knowledgeRevisions      SpaceKnowledgeRevision[] @relation("ChangeSetKnowledgeRevision")
-  originPages             Page[]                  @relation("PageOriginChangeSet")
-  changedPages            Page[]                  @relation("PageLastChangeSet")
-  originFolders           Folder[]                @relation("FolderOriginChangeSet")
-  relations               KnowledgeRelation[]
-  createdAt               DateTime                @default(now())
-  updatedAt               DateTime                @updatedAt
-  reviewedAt              DateTime?
-  publishedAt             DateTime?
-  revertedAt              DateTime?
-  origin                  String                  @default("review")
-  humanDeviceCredentialId String?
-  confirmationHash        String?
-  baseRevisionId          String?
+  id                        String                              @id @default(cuid())
+  title                     String
+  status                    String                              @default("draft")
+  space                     Space                               @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  spaceId                   String
+  run                       IngestRun?                          @relation(fields: [runId], references: [id], onDelete: SetNull)
+  runId                     String?                             @unique
+  createdByUser             User?                               @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUserId           String?
+  createdByAgent            Agent?                              @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
+  createdByAgentId          String?
+  items                     ChangeItem[]
+  approvals                 Approval[]
+  knowledgeSubmission       KnowledgeSubmission?                @relation("ChangeSetKnowledgeSubmission")
+  knowledgeRevisions        SpaceKnowledgeRevision[]            @relation("ChangeSetKnowledgeRevision")
+  originPages               Page[]                              @relation("PageOriginChangeSet")
+  changedPages              Page[]                              @relation("PageLastChangeSet")
+  originFolders             Folder[]                            @relation("FolderOriginChangeSet")
+  relations                 KnowledgeRelation[]
+  collaborationArtifactLink CollaborationArtifactChangeSetLink?
+  createdAt                 DateTime                            @default(now())
+  updatedAt                 DateTime                            @updatedAt
+  reviewedAt                DateTime?
+  publishedAt               DateTime?
+  revertedAt                DateTime?
+  origin                    String                              @default("review")
+  humanDeviceCredentialId   String?
+  confirmationHash          String?
+  baseRevisionId            String?
 
   humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
 
@@ -974,17 +1004,17 @@ model SpaceKnowledgeRevision {
   sourceChangeSetId          String?
   createdAt                  DateTime  @default(now())
 
-  space                 Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  appliedSubmission     KnowledgeSubmission?   @relation("AppliedKnowledgeRevision")
-  sourceChangeSet       ChangeSet?             @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
-  createdByUser         User?                  @relation("RevisionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  humanDeviceCredential HumanDeviceCredential? @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
+  space                 Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  appliedSubmission     KnowledgeSubmission?        @relation("AppliedKnowledgeRevision")
+  sourceChangeSet       ChangeSet?                  @relation("ChangeSetKnowledgeRevision", fields: [sourceChangeSetId], references: [id], onDelete: SetNull)
+  createdByUser         User?                       @relation("RevisionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  humanDeviceCredential HumanDeviceCredential?      @relation(fields: [humanDeviceCredentialId], references: [id], onDelete: SetNull)
   attachmentRows        SyncRevisionAttachmentRow[]
 
   @@unique([spaceId, sequence])
   @@unique([id, spaceId])
-  @@index([spaceId, contentHash])
   @@unique([spaceId, migrationBatchId])
+  @@index([spaceId, contentHash])
   @@index([sourceChangeSetId])
   @@index([spaceId, createdAt])
 }
@@ -1373,34 +1403,45 @@ model CollaborationTemplate {
 }
 
 model CollaborationRun {
-  id               String                 @id @default(cuid())
-  spaceId          String
-  templateId       String
-  templateVersion  Int
-  templateSnapshot Json
-  snapshotHash     String
-  name             String
-  status           CollaborationRunStatus @default(draft)
-  version          Int                    @default(1)
-  inputs           Json
-  startedById      String
-  pauseReason      String?
-  eventSequence    Int                    @default(0)
-  startedAt        DateTime?
-  finishedAt       DateTime?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+  id                         String                     @id @default(cuid())
+  spaceId                    String
+  sourceKind                 CollaborationRunSourceKind @default(legacy)
+  templateId                 String?
+  compositeTemplateVersionId String?
+  templateInstantiationId    String?
+  templateVersion            Int
+  templateSnapshot           Json
+  snapshotHash               String
+  name                       String
+  status                     CollaborationRunStatus     @default(draft)
+  version                    Int                        @default(1)
+  inputs                     Json
+  startedById                String
+  pauseReason                String?
+  eventSequence              Int                        @default(0)
+  startedAt                  DateTime?
+  finishedAt                 DateTime?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
 
-  template     CollaborationTemplate         @relation(fields: [templateId], references: [id])
-  space        Space                         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  startedBy    User                          @relation("CollaborationRunStartedBy", fields: [startedById], references: [id], onDelete: Restrict)
-  roleBindings CollaborationRoleBinding[]
-  tasks        CollaborationRunTask[]
-  dependencies CollaborationTaskDependency[]
-  reviews      CollaborationReview[]
-  events       CollaborationRunEvent[]
+  template                 CollaborationTemplate?               @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  compositeTemplateVersion PageTemplateVersion?                 @relation("CompositeTemplateVersionRuns", fields: [compositeTemplateVersionId], references: [id], onDelete: Restrict)
+  templateInstantiation    TemplateInstantiation?               @relation(fields: [templateInstantiationId, compositeTemplateVersionId, spaceId], references: [id, compositeTemplateVersionId, spaceId], onDelete: Restrict)
+  space                    Space                                @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  startedBy                User                                 @relation("CollaborationRunStartedBy", fields: [startedById], references: [id], onDelete: Restrict)
+  roleBindings             CollaborationRoleBinding[]
+  tasks                    CollaborationRunTask[]
+  dependencies             CollaborationTaskDependency[]
+  reviews                  CollaborationReview[]
+  events                   CollaborationRunEvent[]
+  artifactChangeSetLinks   CollaborationArtifactChangeSetLink[]
+  targetSpaceTasks         CollaborationRunTask[]               @relation("CollaborationRunTaskTargetRunSpace")
 
+  @@unique([id, spaceId])
+  @@unique([templateInstantiationId])
+  @@unique([templateInstantiationId, compositeTemplateVersionId, spaceId])
   @@index([spaceId, status, updatedAt])
+  @@index([compositeTemplateVersionId])
 }
 
 model CollaborationRoleBinding {
@@ -1439,21 +1480,33 @@ model CollaborationRunTask {
   repairBudget        Int                         @default(0)
   nextAttemptAt       DateTime?
   completedAt         DateTime?
+  targetPageId        String?
+  targetSpaceId       String?
+  basePageVersionId   String?
+  basePageUpdatedAt   DateTime?
+  baseContentHash     String?
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
 
-  run             CollaborationRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
-  assignee        Agent                       @relation(fields: [assigneeAgentId], references: [id], onDelete: Restrict)
+  run             CollaborationRun                     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  targetRunSpace  CollaborationRun?                    @relation("CollaborationRunTaskTargetRunSpace", fields: [runId, targetSpaceId], references: [id, spaceId], onDelete: Cascade)
+  assignee        Agent                                @relation(fields: [assigneeAgentId], references: [id], onDelete: Restrict)
   todos           CollaborationTaskTodo[]
   attempts        CollaborationTaskAttempt[]
   artifacts       CollaborationTaskArtifact[]
-  sourceReviews   CollaborationReview[]       @relation("CollaborationReviewSourceTask")
-  revisionReviews CollaborationReview[]       @relation("CollaborationReviewRevisionTask")
+  sourceReviews   CollaborationReview[]                @relation("CollaborationReviewSourceTask")
+  revisionReviews CollaborationReview[]                @relation("CollaborationReviewRevisionTask")
+  targetPage      Page?                                @relation("CollaborationRunTaskTargetPage", fields: [targetPageId, targetSpaceId], references: [id, spaceId], onDelete: Restrict)
+  basePageVersion PageVersion?                         @relation("CollaborationRunTaskBasePageVersion", fields: [basePageVersionId], references: [id], onDelete: Restrict)
+  changeSetLinks  CollaborationArtifactChangeSetLink[]
 
   @@unique([id, runId])
   @@unique([runId, nodeId])
+  @@unique([id, runId, targetPageId, targetSpaceId])
   @@index([runId, assigneeAgentId, status, ordinal])
   @@index([status, nextAttemptAt])
+  @@index([targetPageId])
+  @@index([basePageVersionId])
 }
 
 model CollaborationTaskTodo {
@@ -1507,17 +1560,22 @@ model CollaborationTaskAttempt {
   failureCode         String?
   repairCount         Int                        @default(0)
   finishedAt          DateTime?
+  basePageVersionId   String?
+  basePageUpdatedAt   DateTime?
+  baseContentHash     String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
 
-  runTask   CollaborationRunTask        @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
-  agent     Agent                       @relation(fields: [agentId], references: [id], onDelete: Restrict)
-  artifacts CollaborationTaskArtifact[]
+  runTask         CollaborationRunTask        @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
+  agent           Agent                       @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  artifacts       CollaborationTaskArtifact[]
+  basePageVersion PageVersion?                @relation(fields: [basePageVersionId], references: [id], onDelete: Restrict)
 
   @@unique([taskId, generation, attemptNumber])
   @@unique([id, taskId, runId, generation])
   @@index([runId, agentId, status])
   @@index([status, leaseExpiresAt], map: "CollaborationTaskAttempt_lease_scan")
+  @@index([basePageVersionId])
 }
 
 model CollaborationTaskArtifact {
@@ -1534,13 +1592,148 @@ model CollaborationTaskArtifact {
   acceptedAt DateTime?
   createdAt  DateTime                    @default(now())
 
-  task    CollaborationRunTask     @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
-  attempt CollaborationTaskAttempt @relation(fields: [attemptId, taskId, runId, generation], references: [id, taskId, runId, generation], onDelete: Restrict)
-  reviews CollaborationReview[]
+  task          CollaborationRunTask                @relation(fields: [taskId, runId], references: [id, runId], onDelete: Cascade)
+  attempt       CollaborationTaskAttempt            @relation(fields: [attemptId, taskId, runId, generation], references: [id, taskId, runId, generation], onDelete: Restrict)
+  reviews       CollaborationReview[]
+  changeSetLink CollaborationArtifactChangeSetLink?
 
   @@unique([id, taskId, runId, generation])
+  @@unique([id, taskId, runId])
   @@unique([taskId, generation, version])
   @@index([taskId, generation, status, version])
+}
+
+model TemplateInstantiation {
+  id                         String    @id @default(cuid())
+  spaceId                    String
+  compositeTemplateVersionId String
+  createdByUserId            String
+  targetParentFolderId       String?
+  idempotencyKey             String
+  requestHash                String
+  treeRevision               BigInt
+  status                     String    @default("completed")
+  result                     Json
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+  completedAt                DateTime?
+
+  space                    Space                       @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  compositeTemplateVersion PageTemplateVersion         @relation(fields: [compositeTemplateVersionId], references: [id], onDelete: Restrict)
+  createdBy                User                        @relation("TemplateInstantiationCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  targetParentFolder       Folder?                     @relation("TemplateInstantiationTargetParent", fields: [targetParentFolderId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  nodes                    TemplateInstantiationNode[]
+  collaborationRun         CollaborationRun?
+  effectJobs               TemplateEffectJob[]
+
+  @@unique([id, spaceId])
+  @@unique([id, compositeTemplateVersionId, spaceId])
+  @@unique([spaceId, createdByUserId, idempotencyKey])
+  @@index([compositeTemplateVersionId])
+  @@index([targetParentFolderId])
+}
+
+model TemplateInstantiationNode {
+  id              String   @id @default(cuid())
+  instantiationId String
+  spaceId         String
+  templateNodeId  String
+  kind            String
+  folderId        String?
+  pageId          String?
+  createdAt       DateTime @default(now())
+
+  instantiation TemplateInstantiation @relation(fields: [instantiationId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  folder        Folder?               @relation(fields: [folderId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  page          Page?                 @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Restrict)
+
+  @@unique([instantiationId, templateNodeId])
+  @@index([spaceId, folderId])
+  @@index([spaceId, pageId])
+}
+
+model PageAgentBinding {
+  id               String   @id @default(cuid())
+  pageId           String   @unique
+  spaceId          String
+  agentId          String
+  roleSlotKey      String?
+  assignedByUserId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  page       Page  @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  space      Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  agent      Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  assignedBy User  @relation("PageAgentBindingAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([pageId, spaceId])
+  @@index([spaceId, agentId])
+}
+
+model PageAgentBindingEvent {
+  id                String   @id @default(cuid())
+  pageId            String
+  spaceId           String
+  beforeAgentId     String?
+  afterAgentId      String?
+  beforeRoleSlotKey String?
+  afterRoleSlotKey  String?
+  actorUserId       String
+  createdAt         DateTime @default(now())
+
+  page      Page  @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  space     Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  actorUser User  @relation("PageAgentBindingEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([pageId, createdAt])
+  @@index([spaceId, createdAt])
+}
+
+model CollaborationArtifactChangeSetLink {
+  id          String   @id @default(cuid())
+  artifactId  String   @unique
+  changeSetId String   @unique
+  runId       String
+  taskId      String
+  spaceId     String
+  pageId      String
+  createdAt   DateTime @default(now())
+
+  artifact  CollaborationTaskArtifact @relation(fields: [artifactId, taskId, runId], references: [id, taskId, runId], onDelete: Restrict)
+  changeSet ChangeSet                 @relation(fields: [changeSetId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  run       CollaborationRun          @relation(fields: [runId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  task      CollaborationRunTask      @relation(fields: [taskId, runId, pageId, spaceId], references: [id, runId, targetPageId, targetSpaceId], onDelete: Restrict)
+  page      Page                      @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Restrict)
+  space     Space                     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([changeSetId, spaceId])
+  @@unique([artifactId, taskId, runId])
+  @@index([runId, pageId])
+  @@index([taskId, runId])
+}
+
+model TemplateEffectJob {
+  id              String    @id @default(cuid())
+  instantiationId String
+  spaceId         String
+  effectKey       String
+  kind            String
+  payload         Json
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  availableAt     DateTime  @default(now())
+  lockedAt        DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  instantiation TemplateInstantiation @relation(fields: [instantiationId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  space         Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([instantiationId, effectKey])
+  @@index([status, availableAt])
+  @@index([spaceId, status])
 }
 
 model CollaborationReview {

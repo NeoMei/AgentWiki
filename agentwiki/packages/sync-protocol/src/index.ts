@@ -2,6 +2,7 @@ export * from "./agent-access-role.js";
 export * from "./batching.js";
 export * from "./canonical.js";
 export * from "./collaboration.js";
+export * from "./composite-template.js";
 export * from "./hash.js";
 export * from "./normalize.js";
 export * from "./parse.js";
