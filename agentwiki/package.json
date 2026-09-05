@@ -52,6 +52,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.7.0",
     "playwright": "^1.62.1",
+    "semver": "7.8.5",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.64.0"
   }

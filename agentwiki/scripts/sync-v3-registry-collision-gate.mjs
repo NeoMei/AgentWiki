@@ -1,5 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import semver from 'semver';
+
+function isPlainObject(value) {
+  return value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
 
 function explicitRegistryUrl(value) {
   if (typeof value !== 'string' || value.length === 0) {
@@ -40,17 +48,18 @@ async function publishedVersions(registry, candidate, fetchImpl) {
       cause: error,
     });
   }
+  const versions = isPlainObject(metadata) && isPlainObject(metadata.versions)
+    ? Object.keys(metadata.versions)
+    : [];
   if (
-    !metadata
-    || typeof metadata !== 'object'
-    || Array.isArray(metadata)
-    || !metadata.versions
-    || typeof metadata.versions !== 'object'
-    || Array.isArray(metadata.versions)
+    !isPlainObject(metadata)
+    || (metadata.name !== undefined && metadata.name !== candidate.name)
+    || versions.length === 0
+    || !versions.some((version) => semver.valid(version) === version)
   ) {
     throw new Error(`Registry did not return valid registry metadata for ${candidate.name}`);
   }
-  return Object.keys(metadata.versions);
+  return versions;
 }
 
 export async function assertNpmReleaseCandidatesAvailable({

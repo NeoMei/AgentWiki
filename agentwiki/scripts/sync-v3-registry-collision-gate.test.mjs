@@ -36,6 +36,7 @@ test('release manifests and the explicit registry command use the unoccupied can
   assert.equal(protocol.version, '0.5.1');
   assert.equal(localSync.version, '0.8.0');
   assert.equal(localSync.dependencies[protocol.name], '0.5.1');
+  assert.equal(root.devDependencies.semver, '7.8.5');
   assert.equal(
     root.scripts['test:release:sync-v3-registry'],
     'node scripts/sync-v3-registry-collision-gate.mjs --registry=https://registry.npmjs.org/',
@@ -94,6 +95,68 @@ test('registry collision gate fails closed on malformed metadata', async () => {
       /valid registry metadata/u,
     );
   });
+});
+
+async function assertMetadataRejected(metadata) {
+  const { assertNpmReleaseCandidatesAvailable } = await loadGate();
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => metadata,
+  });
+  await assert.rejects(
+    assertNpmReleaseCandidatesAvailable({
+      registryUrl: 'https://registry.example.test/',
+      candidates: [candidates[0]],
+      fetchImpl,
+    }),
+    /valid registry metadata/u,
+  );
+}
+
+test('registry collision gate rejects metadata without a versions object', async () => {
+  await assertMetadataRejected({});
+});
+
+test('registry collision gate rejects an empty versions object', async () => {
+  await assertMetadataRejected({ versions: {} });
+});
+
+test('registry collision gate rejects a versions object without a strict semver key', async () => {
+  await assertMetadataRejected({ versions: { 'not-semver': {} } });
+});
+
+test('registry collision gate accepts metadata with at least one strict semver key', async () => {
+  const { assertNpmReleaseCandidatesAvailable } = await loadGate();
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ versions: { 'not-semver': {}, '0.5.0': {} } }),
+  });
+  const result = await assertNpmReleaseCandidatesAvailable({
+    registryUrl: 'https://registry.example.test/',
+    candidates: [candidates[0]],
+    fetchImpl,
+  });
+  assert.deepEqual(result.candidates, [candidates[0]]);
+});
+
+test('registry collision gate rejects metadata for a different package name', async () => {
+  await assertMetadataRejected({
+    name: '@neomei/not-the-requested-package',
+    versions: { '0.5.0': {} },
+  });
+});
+
+test('registry collision gate rejects null and array versions values', async () => {
+  await assertMetadataRejected({ versions: null });
+  await assertMetadataRejected({ versions: ['0.5.0'] });
+});
+
+test('registry collision gate rejects a prototype-trick versions object', async () => {
+  const inheritedVersions = Object.create({ '0.5.0': {} });
+  inheritedVersions['0.4.0'] = {};
+  await assertMetadataRejected({ versions: inheritedVersions });
 });
 
 test('registry collision gate fails closed on network errors and an omitted registry URL', async () => {
