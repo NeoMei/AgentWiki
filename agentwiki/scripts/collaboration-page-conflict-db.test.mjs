@@ -13,7 +13,9 @@ const { ExecutionService } = requireFromServer('./dist/collaboration-workflows/e
 const { PageResultService } = requireFromServer('./dist/collaboration-workflows/page-result.service.js');
 const { ProgressionService } = requireFromServer('./dist/collaboration-workflows/progression.service.js');
 const { ReviewService } = requireFromServer('./dist/collaboration-workflows/review.service.js');
+const { RunService } = requireFromServer('./dist/collaboration-workflows/run.service.js');
 const { RunEventStore } = requireFromServer('./dist/collaboration-workflows/run-event.store.js');
+const { HistoryCursorService } = requireFromServer('./dist/collaboration-workflows/history-cursor.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
@@ -240,6 +242,54 @@ test('two database clients publish one same-Page Run and permit only one concurr
   });
 });
 
+test('Run cancellation invalidates a pending Page candidate without rewriting a published one', {
+  timeout: 180_000,
+}, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = createServices(prisma);
+    try {
+      const fixture = await createFixture(prisma);
+      const run = await createRun(prisma, fixture);
+      const pending = await claimAndSubmit(services, fixture, run, '# Pending candidate', 'cancel-pending');
+      const published = await createPublishedCandidate(prisma, fixture, run);
+
+      await services.runs.cancelRun(run.runId, {
+        reason: 'cancel mixed publication run', idempotencyKey: 'cancel-mixed-publication-1',
+      }, fixture.humanPrincipals[0], fixture.spaceId);
+
+      assert.deepEqual(
+        await prisma.changeSet.findMany({
+          where: { id: { in: [pending.changeSetId, published.changeSetId] } },
+          orderBy: { id: 'asc' }, select: { id: true, status: true },
+        }),
+        [
+          { id: pending.changeSetId, status: 'superseded' },
+          { id: published.changeSetId, status: 'published' },
+        ].sort((left, right) => left.id.localeCompare(right.id)),
+      );
+      assert.equal(
+        (await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: pending.artifactId } })).status,
+        'superseded',
+      );
+      assert.equal(
+        (await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: published.artifactId } })).status,
+        'accepted',
+      );
+      assert.equal(
+        (await prisma.collaborationReview.findUniqueOrThrow({ where: { id: pending.reviewId } })).status,
+        'superseded',
+      );
+      assert.equal(
+        (await prisma.collaborationReview.findUniqueOrThrow({ where: { id: published.reviewId } })).status,
+        'approved',
+      );
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
 function createServices(prisma) {
   const config = { get: (key) => key === 'JWT_SECRET' ? 'page-conflict-db-test-secret' : undefined };
   const notifications = new CollaborationEventsService(prisma, { publish: async () => undefined });
@@ -260,7 +310,64 @@ function createServices(prisma) {
     reviews: new ReviewService(
       prisma, authorization, events, progression, notifications, publication, pageResults,
     ),
+    runs: new RunService(
+      prisma, authorization, events, progression, notifications,
+      new HistoryCursorService(config), {},
+    ),
   };
+}
+
+async function createPublishedCandidate(prisma, fixture, run) {
+  const suffix = randomUUID().replaceAll('-', '');
+  const taskId = `published_task_${suffix}`;
+  const attemptId = `published_attempt_${suffix}`;
+  const artifactId = `published_artifact_${suffix}`;
+  const changeSetId = `published_change_set_${suffix}`;
+  const reviewId = `published_review_${suffix}`;
+  const now = new Date();
+  const page = await prisma.page.findUniqueOrThrow({ where: { id: fixture.pageId } });
+  await prisma.collaborationRunTask.create({ data: {
+    id: taskId, runId: run.runId, nodeId: `published-node-${suffix}`, ordinal: 1,
+    name: 'Published Page task', objective: 'Already published', roleSlotId: 'writer',
+    assigneeAgentId: fixture.agentId, status: 'completed', generation: 1, dependencyMode: 'all',
+    outputContract: { key: 'published-page', kind: 'markdown' }, requiredEvidence: [],
+    humanAcceptance: true, leaseSeconds: 300, maxExecutionSeconds: 3600,
+    retryBudget: 1, repairBudget: 1, targetPageId: fixture.pageId, targetSpaceId: fixture.spaceId,
+    basePageVersionId: null, basePageUpdatedAt: page.updatedAt, baseContentHash: hash(page.content),
+    completedAt: now,
+  } });
+  await prisma.collaborationTaskAttempt.create({ data: {
+    id: attemptId, runId: run.runId, taskId, generation: 1, agentId: fixture.agentId,
+    attemptNumber: 1, status: 'completed', claimIdempotencyKey: `published-claim-${suffix}`,
+    leaseTokenHash: hash(`published-lease-${suffix}`), leaseStartedAt: now,
+    leaseExpiresAt: new Date(now.getTime() + 300_000), maxExecutionAt: new Date(now.getTime() + 3_600_000),
+    finishedAt: now, basePageUpdatedAt: page.updatedAt, baseContentHash: hash(page.content),
+  } });
+  await prisma.collaborationTaskArtifact.create({ data: {
+    id: artifactId, runId: run.runId, taskId, attemptId, generation: 1, version: 1,
+    kind: 'markdown', status: 'accepted', payload: { markdown: '# Already published' },
+    evidence: [], acceptedAt: now,
+  } });
+  await prisma.changeSet.create({ data: {
+    id: changeSetId, spaceId: fixture.spaceId, title: 'Published candidate', origin: 'collaboration',
+    status: 'published', createdByAgentId: fixture.agentId, reviewedAt: now, publishedAt: now,
+    items: { create: {
+      type: 'update_page', status: 'published', publishedResourceId: fixture.pageId,
+      payload: { pageId: fixture.pageId, changes: { content: '# Already published' } },
+    } },
+  } });
+  await prisma.collaborationArtifactChangeSetLink.create({ data: {
+    artifactId, changeSetId, runId: run.runId, taskId,
+    spaceId: fixture.spaceId, pageId: fixture.pageId,
+  } });
+  await prisma.collaborationReview.create({ data: {
+    id: reviewId, runId: run.runId, nodeId: `published-review-${suffix}`, revision: 1,
+    generation: 1, sourceTaskId: taskId, artifactId, revisionTaskId: taskId,
+    minimumRole: 'editor', reviewerUserIds: [], allowTerminate: true,
+    status: 'approved', reviewerUserId: fixture.humanPrincipals[0].userId,
+    reason: 'Previously published', decidedAt: now,
+  } });
+  return { taskId, artifactId, changeSetId, reviewId };
 }
 
 async function createFixture(prisma) {

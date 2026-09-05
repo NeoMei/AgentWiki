@@ -389,21 +389,31 @@ describe('RunService', () => {
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({
       role: 'owner', userId: 'starter-1', spaceId: 'space-1',
     });
+    tx.collaborationArtifactChangeSetLink.findMany.mockResolvedValue([
+      { artifactId: 'artifact-pending', changeSetId: 'change-set-pending' },
+    ]);
 
     await service.cancelRun('run-1', {
       reason: 'cancel publication', idempotencyKey: 'cancel-publish-1',
     }, starterPrincipal);
 
     expect(tx.collaborationArtifactChangeSetLink.findMany).toHaveBeenCalledWith({
-      where: { runId: 'run-1' }, select: { artifactId: true, changeSetId: true },
+      where: {
+        runId: 'run-1',
+        changeSet: {
+          origin: 'collaboration', status: { in: ['draft', 'pending_review', 'approved'] },
+        },
+      },
+      select: { artifactId: true, changeSetId: true },
     });
     expect(tx.changeSet.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: { status: 'superseded' },
     }));
     expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: { in: ['artifact-page-1'] } }),
+      where: expect.objectContaining({ id: { in: ['artifact-pending'] } }),
       data: { status: 'superseded' },
     }));
+    expect(JSON.stringify(tx.collaborationTaskArtifact.updateMany.mock.calls)).not.toContain('artifact-published');
   });
 
   it('does not let generic resume clear an unresolved Page version conflict', async () => {

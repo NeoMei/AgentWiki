@@ -24,6 +24,10 @@ export async function supersedeRunPagePublicationsLocked(
     where: {
       runId: input.runId,
       ...(input.taskIds ? { taskId: { in: [...new Set(input.taskIds)] } } : {}),
+      changeSet: {
+        origin: 'collaboration',
+        status: { in: ['draft', 'pending_review', 'approved'] },
+      },
     },
     select: { artifactId: true, changeSetId: true },
   });

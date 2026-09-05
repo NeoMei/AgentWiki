@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { Principal } from '../core/authorization/authorization.service';
 import { PageResultService } from './page-result.service';
-import { supersedePendingPagePublicationsLocked } from './page-publication-invalidation';
+import {
+  supersedePendingPagePublicationsLocked,
+  supersedeRunPagePublicationsLocked,
+} from './page-publication-invalidation';
 import { ReviewService } from './review.service';
 
 const principal: Principal = { userId: 'reviewer-1' };
@@ -150,7 +153,12 @@ describe('Page result conflict recovery', () => {
       where: { id: 'task-1' }, data: expect.objectContaining({ generation: 2 }),
     }));
     expect(tx.collaborationArtifactChangeSetLink.findMany).toHaveBeenCalledWith({
-      where: { runId: 'run-1', taskId: { in: ['task-1'] } },
+      where: {
+        runId: 'run-1', taskId: { in: ['task-1'] },
+        changeSet: {
+          origin: 'collaboration', status: { in: ['draft', 'pending_review', 'approved'] },
+        },
+      },
       select: { artifactId: true, changeSetId: true },
     });
   });
@@ -210,5 +218,40 @@ describe('pending Page publication lifecycle invalidation', () => {
     });
     expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
     expect(tx.collaborationTaskArtifact.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('derives Artifact and Review invalidation only from still-pending publication candidates', async () => {
+    const allLinks = [
+      { artifactId: 'artifact-published', changeSetId: 'change-set-published' },
+      { artifactId: 'artifact-pending', changeSetId: 'change-set-pending' },
+    ];
+    const findMany = jest.fn(async ({ where }: any) => (
+      where.changeSet ? [allLinks[1]] : allLinks
+    ));
+    const tx = {
+      collaborationArtifactChangeSetLink: { findMany },
+      collaborationReview: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      collaborationTaskArtifact: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      changeItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    } as any;
+
+    await supersedeRunPagePublicationsLocked(tx, { runId: 'run-1' });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        runId: 'run-1',
+        changeSet: {
+          origin: 'collaboration', status: { in: ['draft', 'pending_review', 'approved'] },
+        },
+      },
+      select: { artifactId: true, changeSetId: true },
+    });
+    expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['artifact-pending'] } }),
+    }));
+    expect(tx.collaborationReview.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ artifactId: { in: ['artifact-pending'] } }),
+    }));
   });
 });
