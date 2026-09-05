@@ -27,8 +27,8 @@ Result: exit 0, six of six browser journeys passed, zero unexpected console issu
 
 | Journey | Real UI action | Authoritative result | Evidence |
 | --- | --- | --- | --- |
-| Collaboration off | Pages entry selected the project template, previewed the nested tree, created and opened the group, then edited a Page | 11-node tree, seven Pages, zero Runs, zero Page bindings, one tree-revision advance, persisted edit | `01`–`03`, trace |
-| Collaboration on | Pages entry configured inputs, roles and enabled tasks, then created the group and Run | seven tasks, two deduplicated participants, frozen role/task assignments; separate group and Run destinations | `04`–`06`, trace |
+| Collaboration off | Pages entry selected the project template, previewed the nested tree, created and opened the group, then edited a Page | 11-node tree, seven Pages, zero Runs, zero Page bindings, one tree-revision advance, persisted edit | `01`–`04`, trace |
+| Collaboration on | Pages entry configured inputs, roles and enabled tasks, then created the group and Run | seven tasks, two deduplicated participants, frozen role/task assignments; separate group and Run destinations | `05`–`06`, trace |
 | Historical Page binding | Page editor saved a durable binding, started a single-Page Run, replaced and unbound the owner | active assignee remained frozen; four immutable binding events; no AgentGrant mutation; outside bound Agent absent from participants/instructions | `13`, `14`, trace |
 | Saved Folder template | Folder UI pruned a Folder descendant and one Page, abstracted roles, encountered an exact source-body conflict, refreshed and saved, then instantiated elsewhere | exact nested parent/relative-order tree and Markdown matched real Folder/Page rows; seven retained nodes, four Pages, four abstract roles; no concrete Agent IDs | `15`, `16`, trace |
 | Concurrent Page conflict | Browser edited the current Page and attempted approval twice; UI chose regenerate and adopt-current | two exact `409 PAGE_VERSION_CONFLICT` responses; paused/pending/no-overwrite; generation 2 rebased; both stale candidates superseded; adopted PageVersion equals the human Page | `17`–`19`, trace |
@@ -55,7 +55,7 @@ External-client execution is preserved from reviewed Task 13b1 evidence and is d
 - Persisted Artifact, ChangeSet, Approval and before/after PageVersion evidence was recorded for both client fixtures. A human browser, never an Agent, performed approval.
 - Claude returned HTTP 401 and OAuth fallback did not establish access. Those attempts are failure history, not a passing third client and not an account/configuration change.
 
-The Codex and OpenCode results therefore prove two actual client types across distinct fresh fixtures. They are combined with the current browser evidence only as explicitly named immutable-code evidence; no old receipt metadata is injected into the compat12 Run, whose `ACCEPTANCE_PARTIAL` status remains truthful.
+The Codex and OpenCode results therefore prove two actual client types across distinct fresh fixtures. They are combined with the current browser evidence only as explicitly named immutable-code evidence; no old receipt metadata is injected into the compat12 Run, whose `ACCEPTANCE_PARTIAL` status remains truthful. The external routes and receipt parser are unchanged from Task 13b1 base `3375334`; the compat12 browser content is represented by product commit `64c9952` and harness commit `97f201f` (with later commits documentation-only).
 
 ## Compatibility interpretation
 
@@ -68,7 +68,7 @@ Full existing `source=composite` execution/publication is covered independently 
 
 ## Final verification
 
-Final same-code typecheck, lint, build, full repository tests, named database gates, migration dry run, public inventory, and cleanup are recorded in the Task 13b2 implementation report. This document is updated only with fresh command results; a browser screenshot or a passing focused test is not a substitute for those gates.
+On the final implementation content, `pnpm typecheck`, `pnpm lint`, and `pnpm build` exited 0. `pnpm test:full` also exited 0: runtime 233 passed / one explicitly gated CodeGraph E2E skip, database 163/163 with zero skips, server 2231 passed / one Windows-only skip, client 1236/1236, protocol 102/102, and local-sync 877 passed / one Windows-only skip. The nine named composite database files passed 14/14 with zero skips, including isolated migration preservation and startup cleanup. The protected public inventory digest remained `887e5d38ed14a3945866940b88cb74236e4f56f7636235f53d289095ba0ef73b`; no `mac_e2e_*` schema or acceptance child process remained. Exact commands, log paths, skip names, migration evidence, and cleanup queries are recorded in the Task 13b2 implementation report.
 
 ## Non-goals and unchanged surfaces
 
