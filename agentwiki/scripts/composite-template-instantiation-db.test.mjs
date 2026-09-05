@@ -476,6 +476,39 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
         await collaborationService.close();
       }
 
+      const overrideFixture = await createFixture(
+        prisma, `${schemaName.slice(-8)}_collab_override`, collaborationDefinition,
+      );
+      const defaultAgent = await prepareAgent(prisma, overrideFixture, `${schemaName.slice(-8)}_default`);
+      const runAgent = await prepareAgent(prisma, overrideFixture, `${schemaName.slice(-8)}_run`);
+      const overrideService = await createService(prisma, null);
+      try {
+        const result = await overrideService.service.instantiate(
+          overrideFixture.spaceId,
+          overrideFixture.templateId,
+          collaborationRequest('collaboration-override-0001', defaultAgent, {
+            roleBindings: [
+              { kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: defaultAgent },
+              { kind: 'role_override', roleSlotId: 'writer', agentId: runAgent },
+            ],
+          }),
+          { userId: overrideFixture.userId, platformRole: 'user' },
+        );
+        const [pageBinding, run] = await Promise.all([
+          prisma.pageAgentBinding.findUniqueOrThrow({ where: { pageId: result.pageIds[0] } }),
+          prisma.collaborationRun.findUniqueOrThrow({
+            where: { id: result.runId }, include: { roleBindings: true, tasks: true },
+          }),
+        ]);
+        assert.equal(pageBinding.agentId, defaultAgent);
+        assert.equal(run.roleBindings.length, 1);
+        assert.equal(run.roleBindings[0].agentId, runAgent);
+        assert.equal(run.tasks.length, 1);
+        assert.equal(run.tasks[0].assigneeAgentId, runAgent);
+      } finally {
+        await overrideService.close();
+      }
+
       const legacyFixture = await createLegacyFixture(prisma, `${schemaName.slice(-8)}_legacy`);
       const legacyVersionBefore = await prisma.pageTemplateVersion.findUniqueOrThrow({
         where: { id: legacyFixture.versionId },

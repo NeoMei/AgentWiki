@@ -293,7 +293,7 @@ describe('TemplateInstantiationService', () => {
     expect(h.tx.page.create).toHaveBeenCalledTimes(3);
   });
 
-  it('creates Page bindings and a started composite Run inside the instantiation transaction', async () => {
+  it('keeps a task default as the Page binding while passing a role override to the started Run', async () => {
     const h = makeHarness();
     h.catalog.resolve.mockResolvedValue({
       definition: collaborationDefinition,
@@ -304,7 +304,10 @@ describe('TemplateInstantiationService', () => {
     const result = await h.service.instantiate('space-1', 'template-1', input({
       collaborationEnabled: true,
       collaborationInputs: { brief: 'Use the source material' },
-      roleBindings: [{ kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-1' }],
+      roleBindings: [
+        { kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-default' },
+        { kind: 'role_override', roleSlotId: 'writer', agentId: 'agent-run' },
+      ],
       enabledTaskNodeIds: ['draft'],
     }), principal);
 
@@ -312,7 +315,7 @@ describe('TemplateInstantiationService', () => {
     const createdPageId = h.tx.page.create.mock.calls[0][0].data.id;
     expect(h.bindings.setBindings).toHaveBeenCalledWith(h.tx, 'space-1', [{
       pageId: createdPageId,
-      agentId: 'agent-1',
+      agentId: 'agent-default',
       roleSlotKey: 'writer',
       expectedUpdatedAt: null,
     }], principal);
@@ -325,6 +328,10 @@ describe('TemplateInstantiationService', () => {
       },
       definition: collaborationDefinition.collaboration.workflow,
       inputs: { brief: 'Use the source material' },
+      bindings: [
+        { kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-default' },
+        { kind: 'role_override', roleSlotId: 'writer', agentId: 'agent-run' },
+      ],
       taskPageIds: { draft: createdPageId },
     }), principal);
     expect(h.tx.templateEffectJob.createMany).toHaveBeenCalledWith({
@@ -336,6 +343,35 @@ describe('TemplateInstantiationService', () => {
         payload: { runId: 'run-1' },
       }]),
     });
+  });
+
+  it('rejects conflicting defaults for one enabled task even when an override resolves the Run', async () => {
+    const h = makeHarness();
+    h.catalog.resolve.mockResolvedValue({
+      definition: collaborationDefinition,
+      definitionHash: hashCompositeDefinition(collaborationDefinition),
+      locale: 'en',
+    });
+
+    await expect(h.service.instantiate('space-1', 'template-1', input({
+      collaborationEnabled: true,
+      collaborationInputs: { brief: 'Use the source material' },
+      roleBindings: [
+        { kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-default-a' },
+        { kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-default-b' },
+        { kind: 'role_override', roleSlotId: 'writer', agentId: 'agent-run' },
+      ],
+      enabledTaskNodeIds: ['draft'],
+    }), principal)).rejects.toMatchObject({
+      businessCode: 'COLLABORATION_TEMPLATE_INVALID',
+      response: { details: { issues: [{
+        code: 'ROLE_BINDING_CONFLICT', roleSlotId: 'writer', nodeIds: ['draft'],
+        agentIds: ['agent-default-a', 'agent-default-b'],
+      }] } },
+    });
+    expect(h.tx.page.create).not.toHaveBeenCalled();
+    expect(h.bindings.setBindings).not.toHaveBeenCalled();
+    expect(h.expansion.createStarted).not.toHaveBeenCalled();
   });
 
   it('generates a one-task one-review workflow for an ordinary single-Page template', async () => {

@@ -196,6 +196,9 @@ export class TemplateInstantiationService {
     const selected = input.collaborationEnabled
       ? selectCollaboration(resolved.definition, input.enabledTaskNodeIds)
       : null;
+    const pageBindingDefaults = selected
+      ? resolvePageBindingDefaults(selected, input.roleBindings ?? [])
+      : new Map<string, { agentId: string; roleSlotId: string }>();
     await assertCombinedDepth(tx, spaceId, input.targetParentFolderId ?? null, nodes);
     const initialSiblingOrders = await loadInitialSiblingOrders(
       tx, spaceId, input.targetParentFolderId ?? null, nodes,
@@ -326,7 +329,8 @@ export class TemplateInstantiationService {
         return [target.taskNodeId, runtime.id];
       }));
       const bindingEdits = selected.taskTargets.map((target) => {
-        const assignment = assignmentByTask.get(target.taskNodeId)!;
+        const assignment = pageBindingDefaults.get(target.taskNodeId)
+          ?? assignmentByTask.get(target.taskNodeId)!;
         return {
           pageId: taskPageIds[target.taskNodeId],
           agentId: assignment.agentId,
@@ -478,6 +482,39 @@ function selectCollaboration(
     },
     taskTargets: collaboration.taskTargets.filter((target) => selectedTasks.has(target.taskNodeId)),
   };
+}
+
+function resolvePageBindingDefaults(
+  selected: ReturnType<typeof selectCollaboration>,
+  bindings: readonly RunPageSelectionBinding[],
+): Map<string, { agentId: string; roleSlotId: string }> {
+  const tasks = new Map(selected.workflow.nodes.flatMap((node) => (
+    node.kind === 'agent_task' ? [[node.id, node] as const] : []
+  )));
+  const defaults = new Map<string, { agentId: string; roleSlotId: string }>();
+  const issues: Array<{ code: 'ROLE_BINDING_CONFLICT'; roleSlotId: string; nodeIds: string[]; agentIds: string[] }> = [];
+  for (const target of selected.taskTargets) {
+    const task = tasks.get(target.taskNodeId)!;
+    const agentIds = [...new Set(bindings.flatMap((binding) => (
+      binding.kind === 'task_default'
+        && binding.nodeId === task.id
+        && binding.roleSlotId === task.roleSlotId
+        ? [binding.agentId]
+        : []
+    )))].sort();
+    if (agentIds.length > 1) {
+      issues.push({
+        code: 'ROLE_BINDING_CONFLICT', roleSlotId: task.roleSlotId,
+        nodeIds: [task.id], agentIds,
+      });
+    } else if (agentIds.length === 1) {
+      defaults.set(task.id, { agentId: agentIds[0], roleSlotId: task.roleSlotId });
+    }
+  }
+  if (issues.length > 0) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
+  }
+  return defaults;
 }
 
 function ordinarySinglePageCollaboration(definition: CompositeTemplateDefinition) {
