@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -32,6 +32,18 @@ const definition = {
   ],
   collaboration: { workflow: validDefinition, taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page-a' }, { taskNodeId: 'review', pageNodeId: 'page-b' }] },
 };
+
+const definitionWithTitle = (title: string) => ({
+  ...definition,
+  nodes: definition.nodes.map((node) => node.kind === 'page' && node.nodeId === 'page-a'
+    ? { ...node, titleI18n: { en: title } }
+    : node),
+});
+
+const managementDetail = (template = summary, version = template.currentVersion, nextDefinition = definition) => ({
+  ...template, templateId: template.id, version, locale: 'en' as const,
+  definitionHash: 'a'.repeat(64), definition: nextDefinition,
+});
 
 const renderManager = () => {
   localStorage.setItem('agentwiki.language.v1', 'en');
@@ -100,5 +112,77 @@ describe('PageTemplateManager composite catalog', () => {
     expect(screen.queryByRole('button', { name: 'Create new version' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('button', { name: /System group/ })).not.toBeInTheDocument();
+  });
+
+  it('loads the actual current immutable definition after an explicit composite CAS reload', async () => {
+    const headDefinition = definitionWithTitle('Concurrent head');
+    mocks.getCompositeTemplateManagement
+      .mockResolvedValueOnce(managementDetail())
+      .mockResolvedValueOnce({ ...managementDetail(summary, 2), currentVersion: 3 })
+      .mockResolvedValueOnce({ ...managementDetail({ ...summary, currentVersion: 3 }, 3, headDefinition), definitionHash: 'b'.repeat(64) });
+    mocks.createCompositeTemplateVersion.mockRejectedValueOnce({ response: { data: { code: 'PAGE_TEMPLATE_VERSION_CONFLICT' } } });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit structure Project group' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Draft page-a/ }));
+    fireEvent.change(screen.getByLabelText('Page title page-a'), { target: { value: 'Local draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create new version' }));
+
+    await waitFor(() => expect(mocks.createCompositeTemplateVersion).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed/i);
+    expect(await screen.findByLabelText('Page title page-a')).toHaveValue('Local draft');
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload template' }));
+
+    await waitFor(() => expect(mocks.getCompositeTemplateManagement).toHaveBeenCalledTimes(3));
+    expect(mocks.getCompositeTemplateManagement.mock.calls[1].slice(0, 3)).toEqual(['space-1', 'group-1', 2]);
+    expect(mocks.getCompositeTemplateManagement.mock.calls[2].slice(0, 3)).toEqual(['space-1', 'group-1', 3]);
+    fireEvent.click(await screen.findByRole('button', { name: /Concurrent head page-a/ }));
+    expect(screen.getByLabelText('Page title page-a')).toHaveValue('Concurrent head');
+  });
+
+  it('ignores stale composite detail success and failure after close and same-Space template switch', async () => {
+    const other = { ...summary, id: 'group-2', stableKey: 'group-2', name: 'Other group' };
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary, other], total: 2, skip: 0, take: 50, capabilities: { canManage: true } });
+    let resolveFirst!: (value: ReturnType<typeof managementDetail>) => void;
+    let resolveSecond!: (value: ReturnType<typeof managementDetail>) => void;
+    const first = new Promise<ReturnType<typeof managementDetail>>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<ReturnType<typeof managementDetail>>((resolve) => { resolveSecond = resolve; });
+    mocks.getCompositeTemplateManagement.mockImplementation((_spaceId, templateId) => templateId === 'group-1' ? first : second);
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit structure Project group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit structure Other group' }));
+    await act(async () => resolveSecond(managementDetail(other, 2, definitionWithTitle('Other head'))));
+    expect(await screen.findByRole('button', { name: /Other head page-a/ })).toBeVisible();
+
+    await act(async () => resolveFirst(managementDetail(summary, 2, definitionWithTitle('Stale head'))));
+    expect(screen.queryByRole('button', { name: /Stale head page-a/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Other head page-a/ })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    let rejectClosed!: (reason: unknown) => void;
+    mocks.getCompositeTemplateManagement.mockReturnValueOnce(new Promise((_, reject) => { rejectClosed = reject; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit structure Project group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await act(async () => rejectClosed(new Error('stale detail failure')));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the local draft conflicted when the composite head moves during bounded reload', async () => {
+    mocks.getCompositeTemplateManagement
+      .mockResolvedValueOnce(managementDetail())
+      .mockResolvedValueOnce({ ...managementDetail(summary, 2), currentVersion: 3 })
+      .mockResolvedValueOnce({ ...managementDetail({ ...summary, currentVersion: 4 }, 3, definitionWithTitle('Intermediate head')) });
+    mocks.createCompositeTemplateVersion.mockRejectedValueOnce({ response: { data: { code: 'PAGE_TEMPLATE_VERSION_CONFLICT' } } });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit structure Project group' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Draft page-a/ }));
+    fireEvent.change(screen.getByLabelText('Page title page-a'), { target: { value: 'Local draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create new version' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload template' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed again while reloading/i);
+    expect(screen.getByLabelText('Page title page-a')).toHaveValue('Local draft');
+    expect(screen.getByRole('button', { name: 'Reload template' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Create new version' })).toBeDisabled();
   });
 });

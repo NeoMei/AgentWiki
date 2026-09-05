@@ -97,6 +97,8 @@ export const PageTemplateManager: React.FC = () => {
   const sourceRequestIdRef = useRef(0);
   const sourceRetrySkipRef = useRef(0);
   const sourceDialogSpaceIdRef = useRef<string | null>(null);
+  const compositeDialogEpochRef = useRef(0);
+  const compositeDialogKeyRef = useRef<string | null>(null);
   const templatesRef = useRef(EMPTY_TEMPLATES);
   const spaceNextSkipRef = useRef(0);
   const spaceIdRef = useRef(id);
@@ -109,6 +111,8 @@ export const PageTemplateManager: React.FC = () => {
   const visibleTemplates = templatesIdentity === identity ? templates : EMPTY_TEMPLATES;
 
   const invalidateCatalog = useCallback(() => {
+    compositeDialogEpochRef.current += 1;
+    compositeDialogKeyRef.current = null;
     templatesRef.current = EMPTY_TEMPLATES;
     spaceNextSkipRef.current = 0;
     setTemplatesState(EMPTY_TEMPLATES);
@@ -238,6 +242,8 @@ export const PageTemplateManager: React.FC = () => {
     requestIdRef.current += 1;
     sourceRequestIdRef.current += 1;
     sourceDialogSpaceIdRef.current = null;
+    compositeDialogEpochRef.current += 1;
+    compositeDialogKeyRef.current = null;
     templatesRef.current = EMPTY_TEMPLATES;
     spaceNextSkipRef.current = 0;
     setTemplatesState(EMPTY_TEMPLATES);
@@ -279,6 +285,8 @@ export const PageTemplateManager: React.FC = () => {
     setMetadataCategory(template.category);
     setMetadataDefaultTitle(truncateValidatorLength(template.defaultTitle, TEMPLATE_DEFAULT_TITLE_LIMIT));
     sourceDialogSpaceIdRef.current = null;
+    compositeDialogEpochRef.current += 1;
+    compositeDialogKeyRef.current = null;
     setDialogError(null);
     setDialogConflict(false);
     setSourcePagesFailed(false);
@@ -289,23 +297,34 @@ export const PageTemplateManager: React.FC = () => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
     if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
     if (templateKind(template) === 'page_group') {
+      const operationSpaceId = id ?? '';
+      const operationKey = `${operationSpaceId}\u0000${template.id}`;
+      const operationEpoch = ++compositeDialogEpochRef.current;
+      compositeDialogKeyRef.current = operationKey;
       setDialogError(null);
       setDialogConflict(false);
       setCompositeDetail(null);
       setCompositeDraft(null);
       setPendingDialog({ type: 'version', template });
-      const operationSpaceId = id ?? '';
       void getCompositeTemplateManagement(operationSpaceId, template.id, template.currentVersion, language)
         .then((detail) => {
-          if (spaceIdRef.current !== operationSpaceId) return;
+          if (spaceIdRef.current !== operationSpaceId
+            || compositeDialogEpochRef.current !== operationEpoch
+            || compositeDialogKeyRef.current !== operationKey) return;
           setCompositeDetail(detail);
           setCompositeDraft(detail.definition);
         })
         .catch((caught) => {
-          if (spaceIdRef.current === operationSpaceId) setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+          if (spaceIdRef.current === operationSpaceId
+            && compositeDialogEpochRef.current === operationEpoch
+            && compositeDialogKeyRef.current === operationKey) {
+            setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+          }
         });
       return;
     }
+    compositeDialogEpochRef.current += 1;
+    compositeDialogKeyRef.current = null;
     sourceDialogSpaceIdRef.current = id ?? null;
     setDialogError(null);
     setDialogConflict(false);
@@ -316,6 +335,8 @@ export const PageTemplateManager: React.FC = () => {
   const closeDialog = () => {
     if (!submitting && !conflictReloading) {
       sourceDialogSpaceIdRef.current = null;
+      compositeDialogEpochRef.current += 1;
+      compositeDialogKeyRef.current = null;
       setPendingDialog(null);
       setCompositeDetail(null);
       setCompositeDraft(null);
@@ -364,21 +385,37 @@ export const PageTemplateManager: React.FC = () => {
     if (!id || pendingDialog?.type !== 'version' || submitting || !visibleTemplates.capabilities.canManage) return;
     if (templateKind(pendingDialog.template) === 'page_group') {
       if (!compositeDetail || !compositeDraft || definitionReferenceIssues(compositeDraft).length) return;
+      const operationSpaceId = id;
+      const templateId = pendingDialog.template.id;
+      const operationKey = `${operationSpaceId}\u0000${templateId}`;
+      const operationEpoch = compositeDialogEpochRef.current;
       setSubmitting(true);
       setDialogError(null);
       setDialogConflict(false);
       try {
-        const result = await createCompositeTemplateVersion(id, pendingDialog.template.id, {
+        const result = await createCompositeTemplateVersion(id, templateId, {
           expectedCurrentVersion: compositeDetail.currentVersion,
           definition: compositeDraft,
         });
+        if (spaceIdRef.current !== operationSpaceId
+          || compositeDialogEpochRef.current !== operationEpoch
+          || compositeDialogKeyRef.current !== operationKey) return;
         if (result.noChange) { setDialogError(t('pageTemplate.noChange')); return; }
+        setSubmitting(false);
         invalidateCatalog();
         await latestLoadRef.current(true);
       } catch (caught) {
-        setDialogConflict(apiErrorCode(caught) === 'PAGE_TEMPLATE_VERSION_CONFLICT');
-        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createVersionFailed'));
-      } finally { setSubmitting(false); }
+        if (spaceIdRef.current === operationSpaceId
+          && compositeDialogEpochRef.current === operationEpoch
+          && compositeDialogKeyRef.current === operationKey) {
+          setDialogConflict(apiErrorCode(caught) === 'PAGE_TEMPLATE_VERSION_CONFLICT');
+          setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createVersionFailed'));
+        }
+      } finally {
+        if (spaceIdRef.current === operationSpaceId
+          && compositeDialogEpochRef.current === operationEpoch
+          && compositeDialogKeyRef.current === operationKey) setSubmitting(false);
+      }
       return;
     }
     const sourcePage = sourcePages.find((page) => page.id === sourcePageId);
@@ -414,19 +451,28 @@ export const PageTemplateManager: React.FC = () => {
   };
 
   const inspectComposite = (template: PageTemplateSummary) => {
+    const operationSpaceId = id ?? '';
+    const operationKey = `${operationSpaceId}\u0000${template.id}`;
+    const operationEpoch = ++compositeDialogEpochRef.current;
+    compositeDialogKeyRef.current = operationKey;
     setPendingDialog({ type: 'version', template });
     setCompositeDetail(null);
     setCompositeDraft(null);
     setDialogError(null);
-    const operationSpaceId = id ?? '';
     void getCompositeTemplateManagement(operationSpaceId, template.id, template.currentVersion, language)
       .then((detail) => {
-        if (spaceIdRef.current !== operationSpaceId) return;
+        if (spaceIdRef.current !== operationSpaceId
+          || compositeDialogEpochRef.current !== operationEpoch
+          || compositeDialogKeyRef.current !== operationKey) return;
         setCompositeDetail(detail);
         setCompositeDraft(detail.definition);
       })
       .catch((caught) => {
-        if (spaceIdRef.current === operationSpaceId) setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+        if (spaceIdRef.current === operationSpaceId
+          && compositeDialogEpochRef.current === operationEpoch
+          && compositeDialogKeyRef.current === operationKey) {
+          setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+        }
       });
   };
 
@@ -436,13 +482,26 @@ export const PageTemplateManager: React.FC = () => {
     const operationSpaceId = id;
     const operationType = pendingDialog.type;
     const templateId = pendingDialog.template.id;
+    const composite = templateKind(pendingDialog.template) === 'page_group';
+    const operationKey = `${operationSpaceId}\u0000${templateId}`;
+    const operationEpoch = composite ? ++compositeDialogEpochRef.current : 0;
+    if (composite) compositeDialogKeyRef.current = operationKey;
     setConflictReloading(true);
     setDialogError(null);
     try {
-      const latest = templateKind(pendingDialog.template) === 'page_group'
+      let latest = composite
         ? await getCompositeTemplateManagement(id, templateId, pendingDialog.template.currentVersion, language)
         : await getPageTemplate(id, templateId, language);
-      if (spaceIdRef.current !== operationSpaceId || identityRef.current !== operationIdentity) return;
+      if (composite && 'version' in latest && latest.version !== latest.currentVersion) {
+        latest = await getCompositeTemplateManagement(id, templateId, latest.currentVersion, language);
+      }
+      if (spaceIdRef.current !== operationSpaceId || identityRef.current !== operationIdentity
+        || (composite && (compositeDialogEpochRef.current !== operationEpoch
+          || compositeDialogKeyRef.current !== operationKey))) return;
+      if (composite && 'version' in latest && latest.version !== latest.currentVersion) {
+        setDialogError(t('pageTemplate.reloadHeadMoved'));
+        return;
+      }
       const latestSummary: PageTemplateSummary = 'templateId' in latest
         ? latest.scope === 'system'
           ? {
@@ -465,7 +524,7 @@ export const PageTemplateManager: React.FC = () => {
       ));
       if ('definition' in latest) {
         setCompositeDetail(latest);
-        setCompositeDraft((current) => current ?? latest.definition);
+        setCompositeDraft(latest.definition);
       }
       const nextCatalog = {
         ...templatesRef.current,
@@ -475,11 +534,15 @@ export const PageTemplateManager: React.FC = () => {
       setTemplatesState(nextCatalog);
       setDialogConflict(false);
     } catch (caught) {
-      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity) {
+      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity
+        && (!composite || (compositeDialogEpochRef.current === operationEpoch
+          && compositeDialogKeyRef.current === operationKey))) {
         setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
       }
     } finally {
-      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity) {
+      if (spaceIdRef.current === operationSpaceId && identityRef.current === operationIdentity
+        && (!composite || (compositeDialogEpochRef.current === operationEpoch
+          && compositeDialogKeyRef.current === operationKey))) {
         setConflictReloading(false);
       }
     }

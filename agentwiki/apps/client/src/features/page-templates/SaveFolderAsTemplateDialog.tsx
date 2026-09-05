@@ -113,6 +113,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
       return result;
     } catch (caught) {
       if (!controller.signal.aborted && request === requestRef.current && scope === scopeRef.current) {
+        setPreview(null);
         setError(apiErrorMessage(caught, t, 'pageTemplate.folderSave.previewFailed'));
       }
       return null;
@@ -222,7 +223,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
     const nextTargets = { ...legacyTargets, [taskNodeId]: pageId };
     setLegacyTargets(nextTargets);
     const markdownTasks = legacySource.definition.nodes.filter((node) => node.kind === 'agent_task' && node.output.kind === 'markdown');
-    if (markdownTasks.every((task) => nextTargets[task.id])) {
+    if (markdownTasks.every((task) => retainedPageIds.includes(nextTargets[task.id] ?? ''))) {
       previewSelection(buildSelection({ source: {
         kind: 'legacy_workflow', templateId: legacySource.legacyId, version: legacySource.version,
         taskTargets: markdownTasks.map((task) => ({ taskNodeId: task.id, pageId: nextTargets[task.id]! })),
@@ -241,9 +242,24 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
     else target.add(node.sourceNodeId);
     setExcludedFolderIds(nextFolders);
     setExcludedPageIds(nextPages);
-    previewSelection(buildSelection({
+    const nextRetainedPageIds = retainedPageIdsFor(authoritativeNodes, nextFolders, nextPages);
+    const nextLegacyTargets = Object.fromEntries(Object.entries(legacyTargets)
+      .filter(([, pageId]) => nextRetainedPageIds.has(pageId)));
+    setLegacyTargets(nextLegacyTargets);
+    const overrides: Partial<FolderSnapshotSelection> = {
       excludedFolderIds: [...nextFolders], excludedPageIds: [...nextPages],
-    }));
+    };
+    if (sourceKind === 'legacy_workflow' && legacySource) {
+      const markdownTasks = legacyMarkdownTasks(legacySource);
+      if (!markdownTasks.every((task) => nextRetainedPageIds.has(nextLegacyTargets[task.id] ?? ''))) {
+        setPreview(null);
+        setSourceChanged(false);
+        setError(null);
+        return;
+      }
+      overrides.source = legacySelectionSource(legacySource, nextLegacyTargets);
+    }
+    previewSelection(buildSelection(overrides));
   };
 
   const changeDuty = (pageId: string, role: string) => {
@@ -257,12 +273,30 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
 
   const refreshAuthoritative = async () => {
     const oldNodes = authoritativeNodes;
-    const fullSelection: FolderSnapshotSelection = {
-      excludedFolderIds: [], excludedPageIds: [], locale: language, source,
-      ...(sourceKind === 'simple_pages' ? { roleSlotsByPage: [] } : {}),
-    };
-    const full = await requestPreview(fullSelection, { authoritative: true });
-    if (!full) return;
+    const scope = scopeRef.current;
+    const request = ++requestRef.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    setError(null);
+    setPreview(null);
+    let full: FolderSnapshotPreview;
+    try {
+      full = await previewFolderTemplate(spaceId, folderId, {
+        excludedFolderIds: [], excludedPageIds: [], locale: language, source: { kind: 'structure_only' },
+      }, controller.signal);
+      if (!mountedRef.current || controller.signal.aborted || request !== requestRef.current || scope !== scopeRef.current) return;
+    } catch (caught) {
+      if (!controller.signal.aborted && request === requestRef.current && scope === scopeRef.current) {
+        setError(apiErrorMessage(caught, t, 'pageTemplate.folderSave.previewFailed'));
+      }
+      return;
+    } finally {
+      if (request === requestRef.current && scope === scopeRef.current) setLoading(false);
+    }
+    setAuthoritativeNodes(full.sourceNodes);
+    setSourceChanged(false);
     const currentIds = new Set(full.sourceNodes.map((node) => node.sourceNodeId));
     setDisappearedIds(oldNodes.map((node) => node.sourceNodeId).filter((id) => !currentIds.has(id)));
     const nextFolders = new Set([...excludedFolderIds].filter((id) => currentIds.has(id)));
@@ -271,13 +305,22 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
     setExcludedFolderIds(nextFolders);
     setExcludedPageIds(nextPages);
     setDuties(nextDuties);
-    if (nextFolders.size || nextPages.size || Object.keys(nextDuties).length) {
-      const roles = Object.entries(nextDuties).filter(([, value]) => value.trim()).map(([pageId, roleSlotKey]) => ({ pageId, roleSlotKey }));
-      await requestPreview({
-        excludedFolderIds: [...nextFolders], excludedPageIds: [...nextPages], locale: language, source,
-        ...(sourceKind === 'simple_pages' ? { roleSlotsByPage: roles } : {}),
-      });
+    const nextRetainedPageIds = retainedPageIdsFor(full.sourceNodes, nextFolders, nextPages);
+    const nextLegacyTargets = Object.fromEntries(Object.entries(legacyTargets)
+      .filter(([, pageId]) => nextRetainedPageIds.has(pageId)));
+    setLegacyTargets(nextLegacyTargets);
+    if (sourceKind === 'legacy_workflow' && legacySource
+      && !legacyMarkdownTasks(legacySource).every((task) => nextRetainedPageIds.has(nextLegacyTargets[task.id] ?? ''))) {
+      return;
     }
+    const roles = Object.entries(nextDuties).filter(([, value]) => value.trim()).map(([pageId, roleSlotKey]) => ({ pageId, roleSlotKey }));
+    await requestPreview({
+      excludedFolderIds: [...nextFolders], excludedPageIds: [...nextPages], locale: language,
+      source: sourceKind === 'legacy_workflow' && legacySource
+        ? legacySelectionSource(legacySource, nextLegacyTargets)
+        : source,
+      ...(sourceKind === 'simple_pages' ? { roleSlotsByPage: roles } : {}),
+    });
   };
 
   const retainedPageIds = useMemo(() => authoritativeNodes.filter((node) => node.kind === 'page'
@@ -289,7 +332,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
   const advancedSourceComplete = sourceKind === 'template'
     ? !!exactSource
     : sourceKind === 'legacy_workflow'
-      ? !!legacySource && legacySource.definition.nodes.filter((node) => node.kind === 'agent_task' && node.output.kind === 'markdown').every((task) => !!legacyTargets[task.id])
+      ? !!legacySource && legacyMarkdownTasks(legacySource).every((task) => retainedPageIds.includes(legacyTargets[task.id] ?? ''))
       : true;
   const attachmentWarning = preview?.warnings.some((warning) => warning.code === 'ATTACHMENTS_NOT_COPIED') ?? false;
   const canSave = !!preview && !loading && !submitting && !sourceChanged && draft.name.trim() && draft.defaultTitle.trim()
@@ -428,6 +471,33 @@ function hasExcludedAncestor(node: FolderSourceNode, nodes: FolderSourceNode[], 
     parentId = byId.get(parentId)?.parentSourceNodeId ?? null;
   }
   return false;
+}
+
+function retainedPageIdsFor(
+  nodes: FolderSourceNode[],
+  excludedFolderIds: Set<string>,
+  excludedPageIds: Set<string>,
+): Set<string> {
+  return new Set(nodes.filter((node) => node.kind === 'page'
+    && !excludedPageIds.has(node.sourceNodeId)
+    && !hasExcludedAncestor(node, nodes, excludedFolderIds))
+    .map((node) => node.sourceNodeId));
+}
+
+function legacyMarkdownTasks(source: LegacyWorkflowUpgradeSource) {
+  return source.definition.nodes.filter((node) => node.kind === 'agent_task' && node.output.kind === 'markdown');
+}
+
+function legacySelectionSource(
+  source: LegacyWorkflowUpgradeSource,
+  targets: Record<string, string>,
+): FolderWorkflowSource {
+  return {
+    kind: 'legacy_workflow', templateId: source.legacyId, version: source.version,
+    taskTargets: legacyMarkdownTasks(source).flatMap((task) => targets[task.id]
+      ? [{ taskNodeId: task.id, pageId: targets[task.id]! }]
+      : []),
+  };
 }
 
 function isSourcePage(node: FolderSourceNode): node is Extract<FolderSourceNode, { kind: 'page' }> {

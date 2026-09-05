@@ -115,4 +115,47 @@ describe('UpgradeWorkflowTemplateDialog', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('LEGACY_REQUIRED_HUMAN_GATES_MULTIPLE');
     expect(screen.getByRole('button', { name: 'Upgrade template' })).toBeDisabled();
   });
+
+  it('reloads the canonical workflow, preserves only matching task mappings, and surfaces task changes', async () => {
+    const publishTask = {
+      ...validDefinition.nodes[1], id: 'publish', name: 'Publish',
+      upstreamArtifacts: [{ key: 'draft', required: true }],
+      output: { key: 'publish', kind: 'markdown' as const },
+      todos: [{ id: 'publish', name: 'Publish', required: true, evidenceKinds: [] }],
+    };
+    const nextDefinition = {
+      ...validDefinition,
+      nodes: [validDefinition.nodes[0], publishTask],
+      dependencies: [{ from: 'draft', to: 'publish', mode: 'all' as const }],
+      terminalNodeIds: ['publish'],
+    };
+    mocks.getLegacyWorkflowUpgradeSource
+      .mockResolvedValueOnce({ legacyId: 'legacy-1', version: 4, definitionHash: 'a'.repeat(64), definition: validDefinition })
+      .mockResolvedValueOnce({ legacyId: 'legacy-1', version: 5, definitionHash: 'b'.repeat(64), definition: nextDefinition });
+    mocks.previewLegacyWorkflowUpgrade.mockRejectedValueOnce({ response: { data: { code: 'COLLABORATION_TEMPLATE_VERSION_CONFLICT' } } });
+
+    renderDialog();
+    fireEvent.change(await screen.findByLabelText('Source folder'), { target: { value: 'folder-real' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load folder snapshot' }));
+    fireEvent.change(await screen.findByLabelText('Target page for Draft'), { target: { value: 'page-1' } });
+    fireEvent.change(screen.getByLabelText('Target page for Agent review'), { target: { value: 'page-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate upgrade' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload canonical source' }));
+
+    expect(await screen.findByText('Canonical legacy source v5')).toBeVisible();
+    expect(screen.getByText(/New canonical tasks.*Publish.*publish/i)).toBeVisible();
+    expect(screen.getByText(/Removed canonical tasks.*Agent review.*review/i)).toBeVisible();
+    expect(screen.queryByLabelText('Target page for Agent review')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Target page for Draft')).toHaveValue('page-1');
+    expect(screen.getByLabelText('Target page for Publish')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Validate upgrade' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Target page for Publish'), { target: { value: 'page-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate upgrade' }));
+    await waitFor(() => expect(mocks.previewLegacyWorkflowUpgrade).toHaveBeenLastCalledWith('space-1', 'legacy-1', expect.objectContaining({
+      expectedLegacyVersion: 5,
+      expectedLegacyDefinitionHash: 'b'.repeat(64),
+      taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page-1' }, { taskNodeId: 'publish', pageNodeId: 'page-2' }],
+    })));
+  });
 });

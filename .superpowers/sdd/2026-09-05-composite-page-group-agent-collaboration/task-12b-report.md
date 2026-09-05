@@ -110,3 +110,47 @@ pnpm --filter @agentwiki/client exec vitest run \
 - Reviewed manager compatibility: all 39 existing single-Page manager tests pass alongside 4 composite tests; archived exact-version inspection and CAS writes use the Task 12a routes.
 - Self-review found and fixed one localization defect in task-target Page option labels; the focused editor, TypeScript, lint, build, and final focused regression were rerun on the fix.
 - No known functional blocker remains. The build chunk-size warning is pre-existing/non-blocking. Independent code review is requested separately before controller integration.
+
+## Fix round 1 — independent review findings 1–4
+
+Base: `0a85b9ba955709dc19a413d68d3d62ea85853401`. Finding 5 was withdrawn after controller verification because artifact-only/research Markdown tasks may legally remain unmapped in generic composite definitions; no blanket mapping rule was added.
+
+Implemented:
+
+- Folder-save refresh now fetches the full runtime-ID inventory with an independent `structure_only` preview, so a stale legacy mapping cannot prevent reconciliation. Excluding or losing a mapped Page clears that mapping and the stale preview/token; re-including the Page still requires explicit remapping before save.
+- Composite conflict reload follows the stale response's `currentVersion` to its exact immutable definition, replaces the local draft only on that explicit user action, and accepts the result only when `version === currentVersion`. If the head moves again during the bounded two-read reload, the original draft/conflict remains and another explicit reload is required.
+- Composite detail, create-version, and conflict-reload work is guarded by Space + template ID + dialog epoch. Opening/closing/switching dialogs invalidates earlier success/error callbacks, including same-Space A→B races.
+- Legacy canonical reload replaces the read-only workflow with the newly fetched definition, preserves task targets only for matching task IDs, removes stale task targets, and visibly lists added/removed canonical tasks.
+
+TDD evidence:
+
+```text
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/SaveFolderAsTemplateDialog.spec.tsx \
+  src/features/page-templates/PageTemplateManager.composite.spec.tsx \
+  src/features/page-templates/UpgradeWorkflowTemplateDialog.spec.tsx
+
+Initial behavioral RED: 4 failed / 15 passed, one failure per review finding.
+The initial CAS test needed one locator/timing correction (`Reload` -> actual `Reload template`, and await rejected create/rendered conflict) before it represented the intended semantic failure; it then proved the old implementation could pair the stale definition with a newer CAS head.
+Final GREEN: 3 files passed, 20/20 tests passed.
+```
+
+Fresh final verification after all fix-round changes:
+
+- `pnpm --filter @agentwiki/client exec vitest run src/features/page-templates/PageTemplateManager.spec.tsx src/features/page-templates/PageTemplateManager.composite.spec.tsx src/features/page-templates/SaveFolderAsTemplateDialog.spec.tsx src/features/page-templates/UpgradeWorkflowTemplateDialog.spec.tsx src/features/page-templates/compositeDefinitionEditor.spec.tsx src/i18n/messages.spec.ts`
+  - 5 discovered files passed (`src/i18n/messages.spec.ts` does not exist and is not discovered), 63/63 tests passed; this includes all 39 existing single-Page manager tests.
+- `pnpm --filter @agentwiki/client test`
+  - 92 files passed, 1198/1198 tests passed in 12.23s.
+- `pnpm --filter @agentwiki/client exec tsc --noEmit`
+  - exit 0.
+- `pnpm --filter @agentwiki/client lint`
+  - exit 0.
+- `pnpm --filter @agentwiki/client build`
+  - exit 0; 4753 modules transformed, built in 5.18s.
+  - Known warning only: existing Vite warning for minified chunks over 500 kB.
+- `git --work-tree='/Users/neomei/.codex/worktrees/69d8/AgentWiki ' diff --check`
+  - clean before commit.
+
+Fix-round self-review found one local state issue introduced by the epoch guard: successful composite creation invalidated the dialog epoch before `finally` could clear `submitting`. The success path now clears it before catalog invalidation; focused, full-client, type, lint, and build verification above include this correction.
+
+No additional scope or backend API was added. Verification remains code/component tests and static build only; no real Chrome, external-Agent, production, push, or npm acceptance is claimed. Task 12c hooks remain the unified `listCompositeTemplates` catalog and explicit legacy upgrade entry/result.

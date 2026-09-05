@@ -56,9 +56,14 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceConflict, setSourceConflict] = useState(false);
+  const [canonicalChanges, setCanonicalChanges] = useState<{ added: string[]; removed: string[] }>({ added: [], removed: [] });
   const epochRef = useRef(0);
+  const sourceRef = useRef<LegacyWorkflowUpgradeSource | null>(null);
+  const definitionRef = useRef<CompositeTemplateDefinition | null>(null);
   const scopeRef = useRef(`${spaceId}\u0000${legacyTemplate.id}\u0000${language}`);
   scopeRef.current = `${spaceId}\u0000${legacyTemplate.id}\u0000${language}`;
+  sourceRef.current = source;
+  definitionRef.current = definition;
 
   const loadCanonicalSource = useCallback(async (preserveDraft = true) => {
     const scope = scopeRef.current;
@@ -72,6 +77,8 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
         listTreeChildren(spaceId, null),
       ]);
       if (epoch !== epochRef.current || scope !== scopeRef.current) return;
+      const previousSource = sourceRef.current;
+      const previousDefinition = definitionRef.current;
       setSource(nextSource);
       setFolders(tree.data.filter((node): node is ContentTreeFolderNode => node.kind === 'folder'));
       if (!preserveDraft) {
@@ -82,6 +89,21 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
         });
         setFolderId('');
         setDefinition(null);
+        setCanonicalChanges({ added: [], removed: [] });
+      } else if (previousDefinition) {
+        const nextTaskIds = new Set(canonicalMappingTasks(nextSource).map((task) => task.id));
+        const nextTargets = (previousDefinition.collaboration?.taskTargets ?? [])
+          .filter((target) => nextTaskIds.has(target.taskNodeId));
+        setDefinition({
+          ...previousDefinition,
+          collaboration: { workflow: nextSource.definition, taskTargets: nextTargets },
+        });
+        const previousTasks = previousSource ? canonicalMappingTasks(previousSource) : [];
+        const previousTaskIds = new Set(previousTasks.map((task) => task.id));
+        setCanonicalChanges({
+          added: canonicalMappingTasks(nextSource).filter((task) => !previousTaskIds.has(task.id)).map(taskLabel),
+          removed: previousTasks.filter((task) => !nextTaskIds.has(task.id)).map(taskLabel),
+        });
       }
       setValidated(null);
     } catch (caught) {
@@ -197,6 +219,10 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
 
       {loading ? <p className="text-sm text-gray-500">{t('common.loading')}</p> : null}
       {source ? <section className="rounded-[14px] border bg-gray-50 p-4 text-sm"><p className="font-medium">{t('pageTemplate.upgrade.canonical', { version: source.version })}</p><p className="mt-1 break-all text-xs text-gray-500">{source.definitionHash}</p></section> : null}
+      {canonicalChanges.added.length || canonicalChanges.removed.length ? <section role="status" className="rounded-[14px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        {canonicalChanges.added.length ? <p>{t('pageTemplate.upgrade.tasksAdded', { tasks: canonicalChanges.added.join(', ') })}</p> : null}
+        {canonicalChanges.removed.length ? <p className={canonicalChanges.added.length ? 'mt-1' : ''}>{t('pageTemplate.upgrade.tasksRemoved', { tasks: canonicalChanges.removed.join(', ') })}</p> : null}
+      </section> : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-medium">{t('pageTemplate.name')}<input data-modal-autofocus value={draft.name} onChange={(event) => { setDraft((value) => ({ ...value, name: truncateValidatorLength(event.target.value, NAME_LIMIT) })); setValidated(null); }} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" /></label>
@@ -229,3 +255,11 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
     </div>
   </ModalDialog>;
 };
+
+function canonicalMappingTasks(source: LegacyWorkflowUpgradeSource) {
+  return source.definition.nodes.filter((node) => node.kind === 'agent_task' && node.output.kind === 'markdown');
+}
+
+function taskLabel(task: ReturnType<typeof canonicalMappingTasks>[number]): string {
+  return `${task.name} (${task.id})`;
+}

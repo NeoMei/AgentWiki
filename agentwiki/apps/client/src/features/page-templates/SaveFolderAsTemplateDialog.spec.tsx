@@ -183,4 +183,57 @@ describe('SaveFolderAsTemplateDialog', () => {
     expect(screen.queryByPlaceholderText('task-id=page-id')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Legacy workflow version/i)).not.toBeInTheDocument();
   });
+
+  it('invalidates legacy mappings when a mapped Page is excluded or disappears and requires remapping after reinclude', async () => {
+    let structureInventoryRead = 0;
+    const withoutPageB = sourceNodes.filter((node) => node.sourceNodeId !== 'page-b');
+    mocks.previewFolderTemplate.mockImplementation((_spaceId, _folderId, selection) => {
+      if (selection.source.kind === 'structure_only'
+        && selection.excludedFolderIds.length === 0
+        && selection.excludedPageIds.length === 0) {
+        structureInventoryRead += 1;
+        return Promise.resolve(preview(structureInventoryRead === 2 ? withoutPageB : sourceNodes));
+      }
+      if (selection.source.kind === 'legacy_workflow'
+        && selection.source.taskTargets.some((target: { pageId: string }) => selection.excludedPageIds.includes(target.pageId))) {
+        return Promise.reject({ response: { data: { code: 'TEMPLATE_PAGE_TARGET_MISSING' } } });
+      }
+      return Promise.resolve(preview());
+    });
+
+    renderDialog();
+    fireEvent.click(await screen.findByRole('radio', { name: 'Legacy workflow with explicit mapping' }));
+    fireEvent.change(await screen.findByLabelText('Legacy workflow template'), { target: { value: 'legacy-1' } });
+    fireEvent.change(await screen.findByLabelText('Page for Draft'), { target: { value: 'page-a' } });
+    fireEvent.change(screen.getByLabelText('Page for Agent review'), { target: { value: 'page-b' } });
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Include page Brief (page-b)' }));
+
+    expect(screen.getByLabelText('Page for Agent review')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save template' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Include page Brief (page-b)' }));
+    expect(screen.getByLabelText('Page for Agent review')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Page for Agent review'), { target: { value: 'page-b' } });
+    await waitFor(() => expect(screen.getByLabelText('Page for Agent review')).toHaveValue('page-b'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh source' }));
+    await waitFor(() => expect(screen.getByText(/These source IDs disappeared.*page-b/)).toBeVisible());
+    expect(screen.getByLabelText('Page for Agent review')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save template' })).toBeDisabled();
+    expect(mocks.previewFolderTemplate).toHaveBeenLastCalledWith(
+      'space-1', 'root', expect.objectContaining({ source: { kind: 'structure_only' } }), expect.any(AbortSignal),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh source' }));
+    await waitFor(() => expect(screen.getByLabelText('Page for Agent review')).toContainHTML('page-b'));
+    expect(screen.getByLabelText('Page for Agent review')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Page for Agent review'), { target: { value: 'page-b' } });
+
+    await waitFor(() => expect(mocks.previewFolderTemplate).toHaveBeenLastCalledWith(
+      'space-1', 'root', expect.objectContaining({ source: expect.objectContaining({
+        kind: 'legacy_workflow',
+        taskTargets: [{ taskNodeId: 'draft', pageId: 'page-a' }, { taskNodeId: 'review', pageId: 'page-b' }],
+      }) }), expect.any(AbortSignal),
+    ));
+  });
 });
