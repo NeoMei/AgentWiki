@@ -132,6 +132,38 @@ read_attachment_min_free_bytes() {
   esac
 }
 
+validate_attachment_content_roots() {
+  local resolved_root child_name child_path resolved_child
+  resolved_root="\$(readlink -f "\$attachment_storage_path")"
+  if [ -z "\$resolved_root" ] || [ ! -d "\$resolved_root" ]; then
+    echo "Attachment storage root cannot be resolved." >&2
+    return 1
+  fi
+  for child_name in .tmp .locks sha256; do
+    child_path="\$attachment_storage_path/\$child_name"
+    if [ -L "\$child_path" ]; then
+      echo "Attachment content root must not be a symbolic link: \$child_path" >&2
+      return 1
+    fi
+    if [ -e "\$child_path" ] && [ ! -d "\$child_path" ]; then
+      echo "Attachment content root exists but is not a directory: \$child_path" >&2
+      return 1
+    fi
+    if [ ! -d "\$child_path" ]; then
+      install -d -m 0700 -- "\$child_path" || return 1
+    fi
+    resolved_child="\$(readlink -f "\$child_path")"
+    case "\$resolved_child" in
+      "\$resolved_root"/*) ;;
+      *)
+        echo "Attachment content root escaped persistent storage: \$child_path" >&2
+        return 1
+        ;;
+    esac
+    chmod 0700 "\$child_path"
+  done
+}
+
 attachment_storage_path="/var/lib/agentwiki/attachments"
 attachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"
 read_attachment_min_free_bytes
@@ -161,6 +193,7 @@ if [ "\$resolved_attachment_storage_path" != "\$attachment_storage_path" ]; then
   exit 1
 fi
 chmod 0700 -- "\$attachment_storage_path"
+validate_attachment_content_roots
 attachment_storage_mode="\$(stat -c '%a' -- "\$attachment_storage_path")"
 if [ "\$attachment_storage_mode" != 700 ]; then
   echo "Attachment storage must have effective mode 0700." >&2

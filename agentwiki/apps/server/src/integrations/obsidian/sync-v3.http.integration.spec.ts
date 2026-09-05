@@ -25,6 +25,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { AddressInfo } from 'net';
 import { AllExceptionsFilter } from '../../core/filters/all-exceptions.filter';
+import { BusinessException } from '../../core/filters/business-error';
 import { PrismaService } from '../../database/prisma.service';
 import { HumanDeviceGuard } from './human-device.guard';
 import { ObsidianCryptoService } from './obsidian-crypto.service';
@@ -321,6 +322,37 @@ describe('sync v3 HTTP contract', () => {
         protocolVersion: '3', error: { code: 'RATE_LIMITED', retryable: true },
       });
     }
+  });
+
+  it('preserves a route-safe ATTACHMENT_REFERENCED code and redacts BusinessException details', async () => {
+    pushSessions.create.mockRejectedValueOnce(new BusinessException(
+      'ATTACHMENT_REFERENCED',
+      'private archive message',
+      {
+        pages: [{ id: 'page-1', title: 'Visible title', body: 'secret markdown' }],
+        storageKey: `sha256/aa/aa/${hash}`,
+        absolutePath: '/var/lib/agentwiki/attachments/private',
+        credential: 'device-secret',
+      },
+    ));
+    const response = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer device-secret', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        protocolVersion: '3', baseRevision: 'rev-1',
+        idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        capabilitiesHash: hash, confirmationHash: 'd'.repeat(64), confirmationByteLength: 1,
+        changeCount: 1, totalBodyBytes: 0, attachmentCount: 0,
+        transferBlobBytes: 0, blobRequirements: [],
+      }),
+    });
+    const raw = await response.text();
+
+    expect(response.status).toBe(409);
+    expect(SyncV3ErrorEnvelopeSchema.parse(JSON.parse(raw))).toEqual({
+      protocolVersion: '3', error: { code: 'ATTACHMENT_REFERENCED', retryable: false },
+    });
+    expect(raw).not.toMatch(/private|markdown|storage|\/var\/lib|credential|device-secret/iu);
   });
 
   it('serves strict bootstrap preview and confirmation without weakening the writer service', async () => {

@@ -820,6 +820,39 @@ test('direct deployment validates durable storage before stopping services or mi
   assert.doesNotMatch(archiveCommand, /(?:^|\s)\.(?:\s|$)/u, 'archive input must stay an explicit allowlist');
 });
 
+test('deployment validates upload, lease, and verified Blob roots cannot escape persistent storage', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const validator = extractShellFunction(deploy, 'validate_attachment_content_roots');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-attachment-roots-'));
+  const persistentRoot = resolve(sandbox, 'persistent');
+  const outside = resolve(sandbox, 'outside');
+  await mkdir(persistentRoot, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  const execute = () => spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+${validator}
+readlink() {
+  if [ "\$1" = -f ]; then realpath "\$2"; else command readlink "\$@"; fi
+}
+attachment_storage_path="\$1"
+validate_attachment_content_roots
+`, 'contract', persistentRoot], { encoding: 'utf8' });
+
+  try {
+    const accepted = execute();
+    assert.equal(accepted.status, 0, accepted.stderr);
+    for (const child of ['.tmp', '.locks', 'sha256']) {
+      assert.ok(existsSync(resolve(persistentRoot, child)), `missing protected ${child} root`);
+    }
+    await rm(resolve(persistentRoot, '.tmp'), { recursive: true, force: true });
+    await symlink(outside, resolve(persistentRoot, '.tmp'));
+    const escaped = execute();
+    assert.notEqual(escaped.status, 0, 'symlinked upload staging root must fail closed');
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test('deployment contract rejects reordered validation and destructive root mutations', async () => {
   const deploy = deployedShell(await read('deploy.sh'));
   const marker = 'attachment_storage_preflight_complete=1';

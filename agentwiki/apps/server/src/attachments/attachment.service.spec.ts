@@ -80,7 +80,17 @@ function harness() {
     create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(row(data))),
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
   };
-  const tx = { spaceAttachment: attachment } as any;
+  const spaceKnowledgeRevision = { findFirst: jest.fn().mockResolvedValue(null) };
+  const syncRevisionAttachmentRow = { findUnique: jest.fn().mockResolvedValue(null) };
+  const legacyRevisionSidecar = { findUnique: jest.fn().mockResolvedValue(null) };
+  const page = { findMany: jest.fn().mockResolvedValue([]) };
+  const tx = {
+    spaceAttachment: attachment,
+    spaceKnowledgeRevision,
+    syncRevisionAttachmentRow,
+    legacyRevisionSidecar,
+    page,
+  } as any;
   const prisma = {
     spaceAttachment: attachment,
     $transaction: jest.fn(async (work: (db: typeof tx) => unknown) => work(tx)),
@@ -137,7 +147,10 @@ function harness() {
     storage,
     config,
   );
-  return { service, prisma, tx, attachment, authorization, revisionWriter, storage, published };
+  return {
+    service, prisma, tx, attachment, authorization, revisionWriter, storage, published,
+    spaceKnowledgeRevision, syncRevisionAttachmentRow, legacyRevisionSidecar, page,
+  };
 }
 
 describe('AttachmentService', () => {
@@ -570,6 +583,49 @@ describe('AttachmentService', () => {
         expectedUpdatedAt: NOW.toISOString(),
       }, principal())).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
     }
+  });
+
+  it('rejects archive of a current v3 referenced attachment with deduplicated redacted Pages', async () => {
+    const h = harness();
+    h.spaceKnowledgeRevision.findFirst.mockResolvedValue({
+      id: 'revision-3', schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
+    });
+    h.syncRevisionAttachmentRow.findUnique.mockResolvedValue({ attachmentId: 'attachment-1' });
+    h.legacyRevisionSidecar.findUnique.mockResolvedValue({
+      sidecar: {
+        syncV3Revision: {
+          protocolVersion: '3',
+          pageAttachmentIds: [
+            { pageId: 'page-key-1', referencedAttachmentIds: ['attachment-1'] },
+            { pageId: 'page-key-2', referencedAttachmentIds: ['attachment-1'] },
+            { pageId: 'page-key-1', referencedAttachmentIds: ['attachment-1'] },
+          ],
+        },
+      },
+    });
+    h.page.findMany.mockResolvedValue([
+      { id: 'page-2', knowledgeKey: 'page-key-2', title: 'Second', content: 'secret markdown' },
+      { id: 'page-1', knowledgeKey: 'page-key-1', title: 'First', content: 'secret markdown' },
+    ]);
+
+    let rejected: BusinessException | undefined;
+    try {
+      await h.service.archive('space-1', 'attachment-1', {
+        expectedUpdatedAt: NOW.toISOString(),
+      }, principal('editor'));
+    } catch (error) {
+      rejected = error as BusinessException;
+    }
+
+    expect(rejected).toMatchObject({ businessCode: 'ATTACHMENT_REFERENCED', statusCode: 409 });
+    expect(rejected?.getResponse()).toEqual(expect.objectContaining({
+      code: 'ATTACHMENT_REFERENCED',
+      details: { pages: [{ id: 'page-1', title: 'First' }, { id: 'page-2', title: 'Second' }] },
+    }));
+    expect(JSON.stringify(rejected?.getResponse())).not.toMatch(
+      /secret markdown|storageKey|\/var\/lib|credential|sha256/iu,
+    );
+    expect(h.attachment.updateMany).not.toHaveBeenCalled();
   });
 
   it.each(['admin', 'viewer'] as const)('denies %s archive and restore mutations', async (role) => {

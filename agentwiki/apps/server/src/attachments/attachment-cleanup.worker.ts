@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { lstat, opendir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PrismaService } from '../database/prisma.service';
+import { isAttachmentBlobReferenced } from '../core/sync/revision-retention.service';
 import type { AttachmentConfig } from './attachment.config';
 import {
   ATTACHMENT_STORAGE,
@@ -114,13 +115,20 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async runTick(): Promise<void> {
     if (this.shuttingDown) return;
     const now = Date.now();
+    const referenceTime = new Date(now);
     await this.storage.cleanupExpiredTempReservations(
       new Date(now - this.attachmentConfig.orphanGraceMs),
     );
     if (this.shuttingDown) return;
-    await this.cleanupArchived(new Date(now - this.attachmentConfig.retentionMs));
+    await this.cleanupArchived(
+      new Date(now - this.attachmentConfig.retentionMs),
+      referenceTime,
+    );
     if (this.shuttingDown) return;
-    await this.cleanupOrphans(new Date(now - this.attachmentConfig.orphanGraceMs));
+    await this.cleanupOrphans(
+      new Date(now - this.attachmentConfig.orphanGraceMs),
+      referenceTime,
+    );
   }
 
   private async safeTick(): Promise<void> {
@@ -132,7 +140,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async cleanupArchived(cutoff: Date): Promise<void> {
+  private async cleanupArchived(cutoff: Date, referenceTime: Date): Promise<void> {
     if (this.shuttingDown) return;
     const archived = await this.prisma.spaceAttachment.findMany({
       where: { status: 'archived', archivedAt: { lte: cutoff } },
@@ -145,20 +153,36 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     for (const attachment of archived) {
       if (this.shuttingDown) return;
       try {
-        const deleted = await this.prisma.$transaction((tx) =>
-          tx.spaceAttachment.deleteMany({
+        const deleted = await this.prisma.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id
+            FROM "SpaceAttachment"
+            WHERE id = ${attachment.id}
+              AND status = 'archived'::"SpaceAttachmentStatus"
+              AND "archivedAt" <= ${cutoff}
+            FOR UPDATE
+          `;
+          if (locked.length !== 1) return { count: 0 };
+          await tx.attachmentVersion.deleteMany({
+            where: {
+              attachmentId: attachment.id,
+              revisionRows: { none: {} },
+            },
+          });
+          return tx.spaceAttachment.deleteMany({
             where: {
               id: attachment.id,
               status: 'archived',
               archivedAt: { lte: cutoff },
             },
-          }),
-        );
+          });
+        });
         if (deleted.count !== 1) continue;
         if (this.shuttingDown) return;
         await this.removeBlobWhenUnreferenced(
           attachment.storageKey,
           attachment.contentHash,
+          referenceTime,
         );
       } catch (error) {
         this.logger.error(
@@ -168,7 +192,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async cleanupOrphans(cutoff: Date): Promise<void> {
+  private async cleanupOrphans(cutoff: Date, referenceTime: Date): Promise<void> {
     let visited = 0;
     let deletions = 0;
     while (
@@ -199,6 +223,12 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
       const candidate = next.value.candidate;
       if (!candidate) continue;
       try {
+        if (await isAttachmentBlobReferenced(
+          this.prisma,
+          candidate.storageKey,
+          referenceTime,
+          this.attachmentConfig.orphanGraceMs,
+        )) continue;
         let removed = false;
         if (this.shuttingDown) return;
         await this.storage.withContentLock(candidate.contentHash, async (lease) => {
@@ -210,11 +240,14 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
             || !metadata.isFile()
             || metadata.mtimeMs > cutoff.getTime()
           ) return;
-          const references = await this.prisma.spaceAttachment.count({
-            where: { storageKey: candidate.storageKey },
-          });
+          const referenced = await isAttachmentBlobReferenced(
+            this.prisma,
+            candidate.storageKey,
+            referenceTime,
+            this.attachmentConfig.orphanGraceMs,
+          );
           if (this.shuttingDown) return;
-          if (references === 0) {
+          if (!referenced) {
             await this.storage.removeIfUnreferenced(candidate.storageKey, lease);
             removed = true;
           }
@@ -231,15 +264,19 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async removeBlobWhenUnreferenced(
     storageKey: string,
     contentHash: string,
+    referenceTime: Date,
   ): Promise<void> {
     if (this.shuttingDown) return;
     await this.storage.withContentLock(contentHash, async (lease) => {
       if (this.shuttingDown) return;
-      const references = await this.prisma.spaceAttachment.count({
-        where: { storageKey },
-      });
+      const referenced = await isAttachmentBlobReferenced(
+        this.prisma,
+        storageKey,
+        referenceTime,
+        this.attachmentConfig.orphanGraceMs,
+      );
       if (this.shuttingDown) return;
-      if (references === 0) {
+      if (!referenced) {
         await this.storage.removeIfUnreferenced(storageKey, lease);
       }
     });

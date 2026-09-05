@@ -39,10 +39,21 @@ describe('AttachmentCleanupWorker', () => {
       archived?: Array<Record<string, unknown>>;
       referenceCount?: number;
       referenceCountFor?: (storageKey: string) => number;
+      blobReferenceResults?: boolean[];
     } = {},
   ) => {
     const events: string[] = [];
     const tx = {
+      $queryRaw: jest.fn(async () => {
+        events.push('metadata-lock');
+        return [{ id: 'attachment-1' }];
+      }),
+      attachmentVersion: {
+        deleteMany: jest.fn(async () => {
+          events.push('version-delete');
+          return { count: 1 };
+        }),
+      },
       spaceAttachment: {
         deleteMany: jest.fn(async () => {
           events.push('metadata-delete');
@@ -51,6 +62,12 @@ describe('AttachmentCleanupWorker', () => {
       },
     };
     const prisma = {
+      $queryRaw: jest.fn(async (_query: unknown, storageKey: string) => {
+        events.push('reference-check');
+        const referenced = options.blobReferenceResults?.shift()
+          ?? ((options.referenceCountFor?.(storageKey) ?? options.referenceCount ?? 0) > 0)
+        return [{ referenced }];
+      }),
       spaceAttachment: {
         findMany: jest.fn().mockResolvedValue(options.archived ?? []),
         count: jest.fn(async ({ where }: { where: { storageKey: string } }) => {
@@ -205,8 +222,13 @@ describe('AttachmentCleanupWorker', () => {
     expect(tx.spaceAttachment.deleteMany).toHaveBeenCalledWith({
       where: { id: 'attachment-1', status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
     });
+    expect(tx.attachmentVersion.deleteMany).toHaveBeenCalledWith({
+      where: { attachmentId: 'attachment-1', revisionRows: { none: {} } },
+    });
     expect(storage.withContentLock).toHaveBeenCalledWith(hash, expect.any(Function));
     expect(events).toEqual([
+      'metadata-lock',
+      'version-delete',
       'metadata-delete',
       'lock-start',
       'reference-check',
@@ -231,6 +253,72 @@ describe('AttachmentCleanupWorker', () => {
     await worker.tick();
 
     expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'readable retained Revision',
+    'unexpired Push session',
+    'current SpaceAttachment',
+    'AttachmentVersion',
+  ])('retains an old Blob owned by %s', async () => {
+    const root = await createRoot();
+    const hash = '9'.repeat(64);
+    const directory = join(root, 'sha256', '99', '99');
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, hash);
+    await writeFile(path, 'retained');
+    await utimes(path, new Date(now.getTime() - DAY_MS - 1), new Date(now.getTime() - DAY_MS - 1));
+    const { worker, prisma, storage } = createWorker(root, {
+      blobReferenceResults: [true],
+    });
+
+    await worker.tick();
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+    await expect(stat(path)).resolves.toMatchObject({});
+  });
+
+  it('retains an expired-session Blob during grace and collects it after grace', async () => {
+    const root = await createRoot();
+    const hashes = ['7'.repeat(64), '8'.repeat(64)];
+    for (const hash of hashes) {
+      const directory = join(root, 'sha256', hash.slice(0, 2), hash.slice(2, 4));
+      await mkdir(directory, { recursive: true });
+      const path = join(directory, hash);
+      await writeFile(path, hash);
+      await utimes(path, new Date(now.getTime() - DAY_MS - 1), new Date(now.getTime() - DAY_MS - 1));
+    }
+    const { worker, storage } = createWorker(root, {
+      // First candidate is still inside session grace. The second candidate is
+      // outside grace at both the candidate and locked recheck.
+      blobReferenceResults: [true, false, false],
+    });
+
+    await worker.tick();
+
+    expect(storage.removeIfUnreferenced).toHaveBeenCalledTimes(1);
+    await expect(stat(join(root, 'sha256', '77', '77', hashes[0]!))).resolves.toMatchObject({});
+  });
+
+  it('rechecks ownership under the content lease and retains a newly-owned Blob', async () => {
+    const root = await createRoot();
+    const hash = '6'.repeat(64);
+    const directory = join(root, 'sha256', '66', '66');
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, hash);
+    await writeFile(path, 'raced');
+    await utimes(path, new Date(now.getTime() - DAY_MS - 1), new Date(now.getTime() - DAY_MS - 1));
+    const { worker, prisma, storage, events } = createWorker(root, {
+      blobReferenceResults: [false, true],
+    });
+
+    await worker.tick();
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(events).toEqual(expect.arrayContaining(['reference-check', 'lock-start', 'lock-end']));
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+    await expect(stat(path)).resolves.toMatchObject({});
   });
 
   it('only scans old regular non-symlink blobs in validated sha256 paths and bounds orphan cleanup to 100', async () => {
@@ -298,7 +386,7 @@ describe('AttachmentCleanupWorker', () => {
 
     await worker.tick();
 
-    expect(referenceChecks).toBe(101);
+    expect(referenceChecks).toBe(102);
     expect(storage.removeIfUnreferenced).toHaveBeenCalledTimes(1);
     expect(storage.removeIfUnreferenced).toHaveBeenCalledWith(
       expect.stringMatching(/^sha256\/dd\/dd\/d{4}[0-9a-f]{60}$/u),

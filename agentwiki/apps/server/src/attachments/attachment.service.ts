@@ -4,6 +4,7 @@ import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/cli
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
+import { isSyncV3RevisionFormat } from '../core/sync/sync-revision-format';
 import { PrismaService } from '../database/prisma.service';
 import { ATTACHMENT_CONFIG, type AttachmentConfig } from './attachment.config';
 import { type AttachmentListQueryDto, type AttachmentStateDto, type AttachmentSummary } from './attachment.dto';
@@ -398,6 +399,10 @@ export class AttachmentService {
       await this.revisionWriter.lockSpace(tx, spaceId);
       await this.assertWritableHuman(tx, principal, spaceId);
 
+      if (to === SpaceAttachmentStatus.archived) {
+        await this.assertNotReferencedByCurrentV3(tx, spaceId, attachmentId);
+      }
+
       if (to === SpaceAttachmentStatus.active) {
         const candidate = await tx.spaceAttachment.findUnique({
           where: { id: attachmentId },
@@ -433,6 +438,68 @@ export class AttachmentService {
       }
       return summary(updated);
     });
+  }
+
+  private async assertNotReferencedByCurrentV3(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    attachmentId: string,
+  ): Promise<void> {
+    const current = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true, schemaVersion: true, recipeVersion: true },
+    });
+    if (!current || !isSyncV3RevisionFormat(current)) return;
+
+    const revisionReference = await tx.syncRevisionAttachmentRow.findUnique({
+      where: {
+        revisionId_attachmentId: { revisionId: current.id, attachmentId },
+      },
+      select: { attachmentId: true },
+    });
+    if (!revisionReference) return;
+
+    const sidecar = await tx.legacyRevisionSidecar.findUnique({
+      where: { revisionId: current.id },
+      select: { sidecar: true },
+    });
+    const record = sidecar?.sidecar;
+    const syncV3 = record && typeof record === 'object' && !Array.isArray(record)
+      ? (record as Record<string, unknown>).syncV3Revision
+      : undefined;
+    const rawPageReferences = syncV3 && typeof syncV3 === 'object' && !Array.isArray(syncV3)
+      ? (syncV3 as Record<string, unknown>).pageAttachmentIds
+      : undefined;
+    const pageKeys = new Set<string>();
+    if (Array.isArray(rawPageReferences)) {
+      for (const entry of rawPageReferences) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const pageId = (entry as Record<string, unknown>).pageId;
+        const referencedAttachmentIds = (entry as Record<string, unknown>).referencedAttachmentIds;
+        if (
+          typeof pageId === 'string'
+          && Array.isArray(referencedAttachmentIds)
+          && referencedAttachmentIds.includes(attachmentId)
+        ) pageKeys.add(pageId);
+      }
+    }
+    const pages = pageKeys.size === 0 ? [] : await tx.page.findMany({
+      where: {
+        spaceId,
+        deletedAt: null,
+        knowledgeKey: { in: [...pageKeys] },
+      },
+      select: { id: true, title: true },
+    });
+    const safePages = [...new Map(
+      pages.map((page) => [page.id, { id: page.id, title: page.title }]),
+    ).values()].sort((left, right) => left.id.localeCompare(right.id));
+    throw new BusinessException(
+      'ATTACHMENT_REFERENCED',
+      undefined,
+      { pages: safePages },
+    );
   }
 
   private async assertWritableHuman(

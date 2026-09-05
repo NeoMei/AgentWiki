@@ -33,6 +33,10 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   SPACE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Space not found' },
   RESOURCE_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Resource not found' },
   RESOURCE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Resource conflict' },
+  ATTACHMENT_REFERENCED: {
+    status: HttpStatus.CONFLICT,
+    message: 'Attachment is referenced by the current revision',
+  },
   SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Source is invalid' },
   SOURCE_TOO_LARGE: { status: HttpStatus.BAD_REQUEST, message: 'Source exceeds size limit' },
   KNOWLEDGE_BUNDLE_INVALID: { status: HttpStatus.BAD_REQUEST, message: "Knowledge bundle is invalid or violates schema constraints" },
