@@ -224,41 +224,21 @@ CREATE TRIGGER "CollaborationRun_composite_template_space"
 BEFORE INSERT OR UPDATE OF "compositeTemplateVersionId", "spaceId" ON "CollaborationRun"
 FOR EACH ROW EXECUTE FUNCTION "enforce_composite_template_version_space"();
 
-CREATE FUNCTION "protect_composite_template_scope"()
+CREATE FUNCTION "reject_page_template_ownership_update"()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF (NEW."scope" IS DISTINCT FROM OLD."scope" OR NEW."spaceId" IS DISTINCT FROM OLD."spaceId")
-    AND EXISTS (
-      SELECT 1
-      FROM "PageTemplateVersion" AS version
-      LEFT JOIN "TemplateInstantiation" AS instantiation
-        ON instantiation."compositeTemplateVersionId" = version."id"
-      LEFT JOIN "CollaborationRun" AS run
-        ON run."compositeTemplateVersionId" = version."id"
-      WHERE version."templateId" = OLD."id"
-        AND (
-          (instantiation."id" IS NOT NULL AND NOT (
-            (NEW."scope" = 'system' AND NEW."spaceId" IS NULL)
-            OR (NEW."scope" = 'space' AND NEW."spaceId" = instantiation."spaceId")
-          ))
-          OR
-          (run."id" IS NOT NULL AND NOT (
-            (NEW."scope" = 'system' AND NEW."spaceId" IS NULL)
-            OR (NEW."scope" = 'space' AND NEW."spaceId" = run."spaceId")
-          ))
-        )
-    )
+  IF NEW."scope" IS DISTINCT FROM OLD."scope"
+    OR NEW."spaceId" IS DISTINCT FROM OLD."spaceId"
   THEN
-    RAISE EXCEPTION 'PageTemplate scope change would invalidate a composite template Space reference'
-      USING ERRCODE = '23503';
+    RAISE EXCEPTION 'PageTemplate scope and Space ownership are immutable';
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER "PageTemplate_protect_composite_scope"
+CREATE TRIGGER "PageTemplate_ownership_immutable"
 BEFORE UPDATE OF "scope", "spaceId" ON "PageTemplate"
-FOR EACH ROW EXECUTE FUNCTION "protect_composite_template_scope"();
+FOR EACH ROW EXECUTE FUNCTION "reject_page_template_ownership_update"();
 
 CREATE FUNCTION "enforce_collaboration_attempt_baseline_page"()
 RETURNS TRIGGER AS $$
@@ -282,48 +262,35 @@ CREATE TRIGGER "CollaborationTaskAttempt_baseline_page"
 BEFORE INSERT OR UPDATE OF "basePageVersionId", "taskId", "runId" ON "CollaborationTaskAttempt"
 FOR EACH ROW EXECUTE FUNCTION "enforce_collaboration_attempt_baseline_page"();
 
-CREATE FUNCTION "protect_collaboration_attempt_baseline_from_task_retarget"()
+CREATE FUNCTION "reject_collaboration_task_target_update"()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW."targetPageId" IS DISTINCT FROM OLD."targetPageId" AND EXISTS (
-    SELECT 1
-    FROM "CollaborationTaskAttempt" AS attempt
-    JOIN "PageVersion" AS version ON version."id" = attempt."basePageVersionId"
-    WHERE attempt."taskId" = OLD."id" AND attempt."runId" = OLD."runId"
-      AND version."pageId" IS DISTINCT FROM NEW."targetPageId"
-  ) THEN
-    RAISE EXCEPTION 'CollaborationRunTask target Page cannot invalidate an Attempt baseline'
-      USING ERRCODE = '23503';
+  IF NEW."targetPageId" IS DISTINCT FROM OLD."targetPageId"
+    OR NEW."targetSpaceId" IS DISTINCT FROM OLD."targetSpaceId"
+  THEN
+    RAISE EXCEPTION 'CollaborationRunTask target Page and Space are immutable';
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER "CollaborationRunTask_protect_attempt_baseline"
-BEFORE UPDATE OF "targetPageId" ON "CollaborationRunTask"
-FOR EACH ROW EXECUTE FUNCTION "protect_collaboration_attempt_baseline_from_task_retarget"();
+CREATE TRIGGER "CollaborationRunTask_target_immutable"
+BEFORE UPDATE OF "targetPageId", "targetSpaceId" ON "CollaborationRunTask"
+FOR EACH ROW EXECUTE FUNCTION "reject_collaboration_task_target_update"();
 
-CREATE FUNCTION "protect_collaboration_attempt_baseline_from_version_retarget"()
+CREATE FUNCTION "reject_page_version_ownership_update"()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW."pageId" IS DISTINCT FROM OLD."pageId" AND EXISTS (
-    SELECT 1
-    FROM "CollaborationTaskAttempt" AS attempt
-    JOIN "CollaborationRunTask" AS task
-      ON task."id" = attempt."taskId" AND task."runId" = attempt."runId"
-    WHERE attempt."basePageVersionId" = OLD."id"
-      AND task."targetPageId" IS DISTINCT FROM NEW."pageId"
-  ) THEN
-    RAISE EXCEPTION 'PageVersion Page cannot invalidate a CollaborationTaskAttempt baseline'
-      USING ERRCODE = '23503';
+  IF NEW."pageId" IS DISTINCT FROM OLD."pageId" THEN
+    RAISE EXCEPTION 'PageVersion Page ownership is immutable';
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER "PageVersion_protect_attempt_baseline"
+CREATE TRIGGER "PageVersion_ownership_immutable"
 BEFORE UPDATE OF "pageId" ON "PageVersion"
-FOR EACH ROW EXECUTE FUNCTION "protect_collaboration_attempt_baseline_from_version_retarget"();
+FOR EACH ROW EXECUTE FUNCTION "reject_page_version_ownership_update"();
 
 CREATE UNIQUE INDEX "TemplateInstantiation_id_spaceId_key" ON "TemplateInstantiation"("id", "spaceId");
 CREATE UNIQUE INDEX "TemplateInstantiation_id_compositeTemplateVersionId_spaceId_key" ON "TemplateInstantiation"("id", "compositeTemplateVersionId", "spaceId");
