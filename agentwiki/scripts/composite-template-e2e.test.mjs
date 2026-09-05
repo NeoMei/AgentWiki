@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -11,6 +12,7 @@ import {
   assertSavedFolderTemplatePersistence,
   assertCompatibilityPersistence,
   assertConcurrentPageConflictPersistence,
+  createBrowserFailureCollector,
   partitionExpectedConsoleIssues,
   assertExternalAgentSuccessfulSequence,
   assertExternalAgentReceipt,
@@ -225,13 +227,21 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     { templateNodeId: 'page-1', parentTemplateNodeId: 'folder-2', sourceNodeId: 'drop-child', parentSourceNodeId: 'drop-folder', kind: 'page', title: 'Drop child', content: 'drop', order: 0 },
     { templateNodeId: 'page-2', parentTemplateNodeId: 'folder-1', sourceNodeId: 'drop-page', parentSourceNodeId: 'root', kind: 'page', title: 'Drop page', content: 'drop explicit', order: 0 },
     { templateNodeId: 'page-3', parentTemplateNodeId: 'folder-1', sourceNodeId: 'keep-page', parentSourceNodeId: 'root', kind: 'page', title: 'Keep page', content: '# updated body', order: 1 },
+    { templateNodeId: 'folder-3', parentTemplateNodeId: 'folder-1', sourceNodeId: 'keep-folder', parentSourceNodeId: 'root', kind: 'folder', name: 'Keep folder', order: 2 },
   ];
   const definition = {
     nodes: [
       { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, nameI18n: { 'zh-CN': 'Root' } },
       { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, titleI18n: { 'zh-CN': 'Keep page' }, contentI18n: { 'zh-CN': '# updated body' }, roleSlotKey: 'page-3-owner' },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 2, nameI18n: { 'zh-CN': 'Keep folder' } },
     ],
-    collaboration: { workflow: { roleSlots: [{ id: 'page-3-owner', name: 'Owner' }] } },
+    collaboration: {
+      workflow: {
+        roleSlots: [{ id: 'page-3-owner', name: 'Owner' }],
+        nodes: [{ id: 'write-page-3', kind: 'agent_task', roleSlotId: 'page-3-owner' }],
+      },
+      taskTargets: [{ taskNodeId: 'write-page-3', pageNodeId: 'page-3' }],
+    },
   };
   assert.deepEqual(assertSavedFolderTemplatePersistence({
     sourceNodes,
@@ -242,13 +252,14 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     instantiatedNodes: [
       { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
       { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 2, name: 'Keep folder' },
     ],
     concreteAgentIds: ['agent-a', 'agent-b'],
   }), {
-    retainedNodeCount: 2,
+    retainedNodeCount: 3,
     retainedPageCount: 1,
     roleCount: 1,
-    instantiatedNodeCount: 2,
+    instantiatedNodeCount: 3,
   });
   assert.throws(() => assertSavedFolderTemplatePersistence({
     sourceNodes,
@@ -268,6 +279,7 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     instantiatedNodes: [
       { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
       { nodeId: 'page-3', parentNodeId: null, kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 2, name: 'Keep folder' },
     ],
     concreteAgentIds: [],
   }), /tree structure/u);
@@ -282,6 +294,66 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     ],
     concreteAgentIds: [],
   }), /tree structure/u);
+  assert.throws(() => assertSavedFolderTemplatePersistence({
+    sourceNodes,
+    excludedFolderIds: ['drop-folder'],
+    excludedPageIds: ['drop-page'],
+    definition: {
+      ...definition,
+      nodes: definition.nodes.map((node) => node.nodeId === 'page-3'
+        ? { ...node, order: 2 }
+        : node.nodeId === 'folder-3' ? { ...node, order: 1 } : node),
+    },
+    instantiatedRootName: 'Created Root',
+    instantiatedNodes: [
+      { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 1, name: 'Keep folder' },
+      { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 2, title: 'Keep page', content: '# updated body' },
+    ],
+    concreteAgentIds: [],
+  }), /source sibling order/u);
+  for (const invalidCollaboration of [
+    {
+      ...definition.collaboration,
+      workflow: { ...definition.collaboration.workflow, roleSlots: [{ id: 'unrelated', name: 'Unrelated' }] },
+    },
+    {
+      ...definition.collaboration,
+      workflow: {
+        ...definition.collaboration.workflow,
+        roleSlots: [...definition.collaboration.workflow.roleSlots, { id: 'unrelated', name: 'Unrelated' }],
+      },
+    },
+    {
+      ...definition.collaboration,
+      workflow: {
+        ...definition.collaboration.workflow,
+        roleSlots: [...definition.collaboration.workflow.roleSlots, { id: 'page-3-owner', name: 'Duplicate' }],
+      },
+    },
+    { ...definition.collaboration, taskTargets: [] },
+    {
+      ...definition.collaboration,
+      workflow: {
+        ...definition.collaboration.workflow,
+        nodes: [{ id: 'write-page-3', kind: 'agent_task', roleSlotId: 'unrelated' }],
+      },
+    },
+  ]) {
+    assert.throws(() => assertSavedFolderTemplatePersistence({
+      sourceNodes,
+      excludedFolderIds: ['drop-folder'],
+      excludedPageIds: ['drop-page'],
+      definition: { ...definition, collaboration: invalidCollaboration },
+      instantiatedRootName: 'Created Root',
+      instantiatedNodes: [
+        { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
+        { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+        { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 2, name: 'Keep folder' },
+      ],
+      concreteAgentIds: [],
+    }), /Page.role.task abstraction/u);
+  }
 });
 
 test('compatibility proof keeps legacy and existing composite state while new composite creation is disabled', () => {
@@ -340,43 +412,124 @@ test('compatibility proof keeps legacy and existing composite state while new co
   }), /execute.*publish.*PageVersion/u);
 });
 
-test('console classification consumes only the exact expected SOURCE_CHANGED browser error', () => {
+test('console classification requires each exact domain conflict console event to carry response provenance', () => {
   const conflict = 'error: Failed to load resource: the server responded with a status of 409 (Conflict)';
   const expectedResponse = {
-    method: 'POST', pathname: '/api/spaces/space-1/templates/from-folder',
-    status: 409, code: 'SOURCE_CHANGED',
+    action: 'saved-folder-source-change', pageId: 'page-primary', method: 'POST', pathname: '/api/spaces/space-1/templates/from-folder',
+    url: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder', status: 409, code: 'SOURCE_CHANGED',
   };
   assert.deepEqual(partitionExpectedConsoleIssues(
-    [conflict, 'warning: unrelated warning'],
+    [{ action: 'saved-folder-source-change', pageId: 'page-primary', type: 'error', text: conflict.slice('error: '.length),
+      locationUrl: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder' },
+    { pageId: 'page-primary', type: 'warning', text: 'unrelated warning', locationUrl: '' }],
     [expectedResponse],
-  ), { expected: [conflict], unexpected: ['warning: unrelated warning'] });
-  assert.deepEqual(partitionExpectedConsoleIssues([conflict, conflict], [expectedResponse]), {
-    expected: [conflict], unexpected: [conflict],
+  ), { expected: [{ action: 'saved-folder-source-change', pageId: 'page-primary', type: 'error', text: conflict.slice('error: '.length),
+    locationUrl: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder' }],
+  unexpected: [{ pageId: 'page-primary', type: 'warning', text: 'unrelated warning', locationUrl: '' }],
+  unexpectedResponses: [] });
+  assert.deepEqual(partitionExpectedConsoleIssues([
+    { pageId: 'page-other', type: 'error', text: conflict.slice('error: '.length),
+      locationUrl: 'http://127.0.0.1/api/spaces/space-1/unrelated' },
+  ], [expectedResponse]), {
+    expected: [], unexpected: [{ pageId: 'page-other', type: 'error', text: conflict.slice('error: '.length),
+      locationUrl: 'http://127.0.0.1/api/spaces/space-1/unrelated' }], unexpectedResponses: [],
+  });
+  const wrongActionIssue = {
+    action: 'unrelated-action', pageId: 'page-primary', type: 'error', text: conflict.slice('error: '.length),
+    locationUrl: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder',
+  };
+  assert.deepEqual(partitionExpectedConsoleIssues([wrongActionIssue], [expectedResponse]), {
+    expected: [], unexpected: [wrongActionIssue], unexpectedResponses: [],
   });
   for (const response of [
     { ...expectedResponse, pathname: '/api/spaces/space-1/other' },
     { ...expectedResponse, status: 500 },
     { ...expectedResponse, code: 'OTHER_CONFLICT' },
   ]) {
-    assert.deepEqual(partitionExpectedConsoleIssues([conflict], [response]), {
-      expected: [], unexpected: [conflict],
-    });
+    const issue = { action: 'saved-folder-source-change', pageId: 'page-primary', type: 'error', text: conflict.slice('error: '.length),
+      locationUrl: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder' };
+    assert.throws(() => partitionExpectedConsoleIssues([issue], [response]), /not an allowed domain conflict/u);
   }
   const serverError = 'error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)';
-  assert.deepEqual(partitionExpectedConsoleIssues([serverError], [expectedResponse]), {
-    expected: [], unexpected: [serverError],
+  const serverIssue = { action: 'saved-folder-source-change', pageId: 'page-primary', type: 'error', text: serverError.slice('error: '.length),
+    locationUrl: 'http://127.0.0.1/api/spaces/space-1/templates/from-folder' };
+  assert.deepEqual(partitionExpectedConsoleIssues([serverIssue], [expectedResponse]), {
+    expected: [], unexpected: [serverIssue], unexpectedResponses: [],
   });
   const pageConflictResponse = {
+    action: 'review-decision-page-conflict',
+    pageId: 'page-primary',
     method: 'POST',
     pathname: '/api/spaces/space-1/collaboration/runs/run-1/reviews/review-1/decision',
+    url: 'http://127.0.0.1/api/spaces/space-1/collaboration/runs/run-1/reviews/review-1/decision',
     status: 409, code: 'PAGE_VERSION_CONFLICT',
   };
-  assert.deepEqual(partitionExpectedConsoleIssues([conflict, conflict], [expectedResponse, pageConflictResponse]), {
-    expected: [conflict, conflict], unexpected: [],
+  const pageConflictIssue = { action: 'review-decision-page-conflict', pageId: 'page-primary', type: 'error', text: conflict.slice('error: '.length),
+    locationUrl: 'http://127.0.0.1/api/spaces/space-1/collaboration/runs/run-1/reviews/review-1/decision' };
+  assert.deepEqual(partitionExpectedConsoleIssues([pageConflictIssue], [expectedResponse, pageConflictResponse]), {
+    expected: [pageConflictIssue], unexpected: [], unexpectedResponses: [],
   });
-  assert.deepEqual(partitionExpectedConsoleIssues([conflict], [expectedResponse, pageConflictResponse]), {
-    expected: [], unexpected: [conflict],
+  const unrelatedSameUrl = { ...expectedResponse, code: 'SOME_OTHER_FAILURE' };
+  assert.deepEqual(partitionExpectedConsoleIssues(
+    [{ ...pageConflictIssue, action: 'saved-folder-source-change', locationUrl: expectedResponse.url }],
+    [expectedResponse, unrelatedSameUrl],
+    [expectedResponse],
+  ), {
+    expected: [{ ...pageConflictIssue, action: 'saved-folder-source-change', locationUrl: expectedResponse.url }],
+    unexpected: [], unexpectedResponses: [unrelatedSameUrl],
   });
+  assert.throws(() => partitionExpectedConsoleIssues(
+    [{ ...pageConflictIssue, action: 'saved-folder-source-change', locationUrl: expectedResponse.url }],
+    [unrelatedSameUrl],
+    [expectedResponse],
+  ), /not centrally observed/u);
+});
+
+test('browser failure collector captures a second context Page before its first console or page error', async () => {
+  class FakePage extends EventEmitter {
+    constructor(url) {
+      super();
+      this.currentUrl = url;
+    }
+
+    url() { return this.currentUrl; }
+
+    isClosed() { return false; }
+
+    locator() { return { count: async () => 0 }; }
+  }
+  const context = new EventEmitter();
+  const collector = createBrowserFailureCollector(context);
+  const primary = new FakePage('http://127.0.0.1/primary');
+  const editor = new FakePage('http://127.0.0.1/editor');
+  context.emit('page', primary);
+  context.emit('page', editor);
+  await collector.runAction(editor, 'editor-save', async () => {
+    editor.emit('console', {
+      type: () => 'warning', text: () => 'second-page-warning',
+      location: () => ({ url: 'http://127.0.0.1/editor.js' }),
+    });
+    context.emit('response', {
+      status: () => 409,
+      url: () => 'http://127.0.0.1/api/editor-save',
+      json: async () => ({ code: 'EDITOR_CONFLICT' }),
+      request: () => ({ method: () => 'POST', frame: () => ({ page: () => editor }) }),
+    });
+  });
+  editor.emit('pageerror', new Error('second-page-crash'));
+  await collector.settleResponses();
+  await collector.assertPageNoFrameworkOverlay(primary);
+  assert.equal(collector.pageId(primary), 'page-1');
+  assert.equal(collector.pageId(editor), 'page-2');
+  assert.deepEqual(collector.consoleIssues, [{
+    action: 'editor-save', pageId: 'page-2', type: 'warning', text: 'second-page-warning',
+    locationUrl: 'http://127.0.0.1/editor.js', pageUrl: 'http://127.0.0.1/editor',
+  }]);
+  assert.deepEqual(collector.failedResponses, [{
+    action: 'editor-save', pageId: 'page-2', method: 'POST', pathname: '/api/editor-save',
+    url: 'http://127.0.0.1/api/editor-save', status: 409, code: 'EDITOR_CONFLICT',
+  }]);
+  assert.throws(() => collector.assertNoPageErrors(), /page-2.*second-page-crash/u);
 });
 
 test('concurrent Page conflict proof preserves both human edits and supersedes both stale candidates', () => {

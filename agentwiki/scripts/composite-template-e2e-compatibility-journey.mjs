@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
-import { assertCompatibilityPersistence } from './composite-template-e2e-support.mjs';
+import {
+  assertCompatibilityPersistence,
+  createBrowserFailureCollector,
+} from './composite-template-e2e-support.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -71,11 +74,9 @@ export async function runFeatureOffCompatibilityJourney({
   const { chromium } = requireFromClient('@playwright/test');
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const browserFailures = createBrowserFailureCollector(context);
   const page = await context.newPage();
-  const consoleIssues = [];
-  page.on('console', (message) => {
-    if (['error', 'warning'].includes(message.type())) consoleIssues.push(`${message.type()}: ${message.text()}`);
-  });
+  browserFailures.labelPage(page, 'feature-off-primary');
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
   try {
@@ -92,6 +93,7 @@ export async function runFeatureOffCompatibilityJourney({
     await page.getByTestId('dashboard-section-reviews').waitFor();
     assert.equal(await page.title(), 'AgentWiki');
     assert.equal((await page.locator('body').innerText()).trim().length > 50, true);
+    await browserFailures.assertPageNoFrameworkOverlay(page);
 
     const execution = await executeExistingRunWhileFeatureOff({
       page,
@@ -102,6 +104,7 @@ export async function runFeatureOffCompatibilityJourney({
       runId: enabledCompatibility.featureOffExecutableRunId,
       artifactsDirectory,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
 
     const catalog = await request(apiUrl, `/spaces/${fixture.space.id}/templates?locale=en&scope=all&archived=active&skip=0&take=100`, {
       token: fixture.owner.access_token,
@@ -128,6 +131,7 @@ export async function runFeatureOffCompatibilityJourney({
     await page.getByRole('heading', { name: 'Agent collaboration' }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Create page group collaboration' }).count(), 0);
     await page.getByRole('link', { name: 'Start run' }).first().waitFor();
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     await page.goto(`${webOrigin}/spaces/${fixture.space.id}`);
     const newPage = page.getByRole('button', { name: 'New page' });
     await newPage.click();
@@ -135,6 +139,7 @@ export async function runFeatureOffCompatibilityJourney({
     await dialog.getByText(/Composite page groups are not enabled/u).waitFor();
     await dialog.getByRole('button', { name: /Blank page/u }).waitFor();
     await page.screenshot({ path: join(artifactsDirectory, '24-feature-off-existing-state.png'), fullPage: true });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     await page.keyboard.press('Escape');
 
     const afterCounts = await persistedCounts(prisma, fixture.space.id);
@@ -156,8 +161,18 @@ export async function runFeatureOffCompatibilityJourney({
       folder: enabledCompatibility.folder,
       featureOff,
     });
-    assert.deepEqual(consoleIssues, []);
-    return { ...featureOff, ...proof, consoleIssues: 0 };
+    await browserFailures.settleResponses();
+    browserFailures.assertNoPageErrors();
+    await browserFailures.assertAllOpenPagesNoFrameworkOverlay();
+    assert.deepEqual(browserFailures.consoleIssues, []);
+    assert.deepEqual(browserFailures.failedResponses, []);
+    return {
+      ...featureOff,
+      ...proof,
+      consoleIssues: 0,
+      pagesObservedForBrowserFailures: browserFailures.pages.length,
+      pageErrors: browserFailures.pageErrors.length,
+    };
   } finally {
     await context.tracing.stop({ path: join(artifactsDirectory, 'feature-off-chrome-trace.zip') }).catch(() => undefined);
     await context.close();

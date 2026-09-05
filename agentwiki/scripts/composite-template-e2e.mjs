@@ -25,6 +25,7 @@ import {
   assertCollaborationOffPersistence,
   assertExternalAgentReceipt,
   assertPublishedPageVersionPair,
+  createBrowserFailureCollector,
   partitionExpectedConsoleIssues,
   buildExternalAgentStagePrompt,
   collectContentTree,
@@ -205,14 +206,12 @@ async function acceptanceArtifactsDirectory() {
 async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory }) {
   const { chromium } = requireFromClient('@playwright/test');
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
-  const consoleIssues = [];
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const browserFailures = createBrowserFailureCollector(context);
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
   const page = await context.newPage();
-  page.on('console', (message) => {
-    if (['error', 'warning'].includes(message.type())) consoleIssues.push(`${message.type()}: ${message.text()}`);
-  });
+  browserFailures.labelPage(page, 'page-primary');
   try {
     await page.addInitScript(({ token, user }) => {
       localStorage.setItem('token', token);
@@ -223,6 +222,7 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     await page.getByRole('heading', { name: fixture.space.name }).waitFor();
     assert.equal(await page.title(), 'AgentWiki');
     assert.equal(await page.locator('body').innerText().then((text) => text.trim().length > 50), true);
+    await browserFailures.assertPageNoFrameworkOverlay(page);
 
     const newPage = page.getByRole('button', { name: '新建页面' });
     await newPage.click();
@@ -294,10 +294,12 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     await editor.waitFor();
     assert.match(await editor.innerText(), /浏览器持久化编辑/u);
     await page.screenshot({ path: join(artifactsDirectory, '04-collaboration-off-edit-reloaded.png'), fullPage: true });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     const externalStageSelection = process.env.COMPOSITE_TEMPLATE_E2E_EXTERNAL_STAGES ?? 'all';
     const collaborationOn = await runCollaborationOnJourney({
       page, webOrigin, apiUrl, fixture, artifactsDirectory, externalStageSelection,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     const externalAgents = await runRealExternalAgentJourney({
       page,
       webOrigin,
@@ -310,25 +312,36 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     const historicalPageBinding = await runHistoricalPageBindingJourney({
       page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     const savedFolderTemplate = await runSavedFolderTemplateJourney({
-      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory, browserFailures,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     const concurrentPageConflict = await runConcurrentPageConflictJourney({
-      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory, browserFailures,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     const compatibility = await runEnabledCompatibilityJourney({
       page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
       existingCompositeRunId: concurrentPageConflict.runId,
       featureOffExecutableRunId: historicalPageBinding.runId,
     });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
+    await browserFailures.settleResponses();
+    const expectedConflictResponses = [
+      savedFolderTemplate.sourceChangedResponse,
+      ...concurrentPageConflict.expectedConflictResponses,
+    ];
     const classifiedConsole = partitionExpectedConsoleIssues(
-      consoleIssues, [
-        savedFolderTemplate.sourceChangedResponse,
-        ...concurrentPageConflict.expectedConflictResponses,
-      ],
+      browserFailures.consoleIssues,
+      browserFailures.failedResponses,
+      expectedConflictResponses,
     );
     assert.equal(classifiedConsole.expected.length, 3);
     assert.deepEqual(classifiedConsole.unexpected, []);
+    assert.deepEqual(classifiedConsole.unexpectedResponses, []);
+    browserFailures.assertNoPageErrors();
+    await browserFailures.assertAllOpenPagesNoFrameworkOverlay();
     await assertNoOverflow(page);
     return {
       browser: 'Chrome',
@@ -349,6 +362,9 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
       externalAgents,
       consoleIssues: classifiedConsole.unexpected.length,
       expectedSourceChangedConsoleIssues: classifiedConsole.expected.length,
+      expectedFailedResponses: expectedConflictResponses.length,
+      pagesObservedForBrowserFailures: browserFailures.pages.length,
+      pageErrors: browserFailures.pageErrors.length,
     };
   } finally {
     await context.tracing.stop({ path: join(artifactsDirectory, 'chrome-trace.zip') }).catch(() => undefined);

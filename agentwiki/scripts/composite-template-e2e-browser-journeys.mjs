@@ -128,6 +128,7 @@ export async function runSavedFolderTemplateJourney({
   databaseUrl,
   fixture,
   artifactsDirectory,
+  browserFailures,
 }) {
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   try {
@@ -203,12 +204,19 @@ export async function runSavedFolderTemplateJourney({
     await editor.fill(`${changedPage.content.trimEnd()}\n\n${bodyMarker}`);
     await editorPage.getByRole('button', { name: '保存', exact: true }).click();
     await editorPage.getByRole('status').filter({ hasText: '保存成功' }).waitFor();
+    await browserFailures.assertPageNoFrameworkOverlay(editorPage);
     await editorPage.close();
 
     const sourceChangedResponsePromise = page.waitForResponse((response) => response.request().method() === 'POST'
       && new URL(response.url()).pathname === `/api/spaces/${fixture.space.id}/templates/from-folder`);
-    await saveTemplate.click();
-    const sourceChangedResponse = await sourceChangedResponsePromise;
+    const sourceChangedResponse = await browserFailures.runAction(
+      page,
+      'saved-folder-source-change',
+      async () => {
+        await saveTemplate.click();
+        return sourceChangedResponsePromise;
+      },
+    );
     const sourceChangedBody = await sourceChangedResponse.json();
     assert.equal(sourceChangedResponse.status(), 409);
     assert.equal(sourceChangedBody.code, 'SOURCE_CHANGED');
@@ -299,15 +307,29 @@ export async function runSavedFolderTemplateJourney({
         content: actualPage?.content,
       };
     });
-    const currentSourcePages = await prisma.page.findMany({
-      where: { id: { in: sourceNodes.filter((node) => node.kind === 'page').map((node) => node.sourceNodeId) } },
-      select: { id: true, content: true },
-    });
+    const [currentSourceFolders, currentSourcePages] = await Promise.all([
+      prisma.folder.findMany({
+        where: { id: { in: sourceNodes.filter((node) => node.kind === 'folder').map((node) => node.sourceNodeId) } },
+        select: { id: true, sortOrder: true },
+      }),
+      prisma.page.findMany({
+        where: { id: { in: sourceNodes.filter((node) => node.kind === 'page').map((node) => node.sourceNodeId) } },
+        select: { id: true, content: true, sortOrder: true },
+      }),
+    ]);
     const contents = new Map(currentSourcePages.map((item) => [item.id, item.content]));
+    const sourceOrder = new Map([
+      ...currentSourceFolders.map((item) => [item.id, item.sortOrder]),
+      ...currentSourcePages.map((item) => [item.id, item.sortOrder]),
+    ]);
     const proof = assertSavedFolderTemplatePersistence({
-      sourceNodes: sourceNodes.map((node) => node.kind === 'page'
-        ? { ...node, content: contents.get(node.sourceNodeId) }
-        : node),
+      sourceNodes: sourceNodes.map((node) => {
+        const order = sourceOrder.get(node.sourceNodeId);
+        assert.equal(Number.isInteger(order), true, `source node ${node.sourceNodeId} needs its real database order`);
+        return node.kind === 'page'
+          ? { ...node, content: contents.get(node.sourceNodeId), order }
+          : { ...node, order };
+      }),
       excludedFolderIds: [folderToExclude.sourceNodeId],
       excludedPageIds: [pageToExclude.sourceNodeId],
       definition,
@@ -323,8 +345,11 @@ export async function runSavedFolderTemplateJourney({
       excludedPageId: pageToExclude.sourceNodeId,
       sourceChangeMarker: bodyMarker,
       sourceChangedResponse: {
+        action: 'saved-folder-source-change',
+        pageId: browserFailures.pageId(page),
         method: sourceChangedResponse.request().method(),
         pathname: new URL(sourceChangedResponse.url()).pathname,
+        url: sourceChangedResponse.url(),
         status: sourceChangedResponse.status(),
         code: sourceChangedBody.code,
       },

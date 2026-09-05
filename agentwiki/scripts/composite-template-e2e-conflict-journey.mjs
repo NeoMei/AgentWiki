@@ -17,6 +17,7 @@ export async function runConcurrentPageConflictJourney({
   databaseUrl,
   fixture,
   artifactsDirectory,
+  browserFailures,
 }) {
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   let client;
@@ -46,6 +47,7 @@ export async function runConcurrentPageConflictJourney({
     const firstConflictResponse = await attemptApprovalConflict({
       page, webOrigin, fixture, runId: run.id, reviewId: first.reviewId,
       reason: '验证并发修改不被候选覆盖',
+      browserFailures,
     });
     const firstConflictRows = await conflictRows(prisma, run.id, first);
     assert.equal(firstConflictRows.page.content, humanFirst);
@@ -53,6 +55,7 @@ export async function runConcurrentPageConflictJourney({
     await loadLatestPageComparison(page);
     await page.getByText('页面在本次执行基线后发生了变化，通过操作不会覆盖它。', { exact: true }).waitFor();
     await page.screenshot({ path: join(artifactsDirectory, '17-page-conflict-persisted.png'), fullPage: true });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
 
     const regenerateResponsePromise = page.waitForResponse((response) => response.request().method() === 'POST'
       && new URL(response.url()).pathname === `/api/spaces/${fixture.space.id}/collaboration/runs/${run.id}/tasks/${readyTask.id}/page-conflict`);
@@ -78,6 +81,7 @@ export async function runConcurrentPageConflictJourney({
     const secondConflictResponse = await attemptApprovalConflict({
       page, webOrigin, fixture, runId: run.id, reviewId: regeneratedAttempt.reviewId,
       reason: '再次验证并发修改并采纳人工版本',
+      browserFailures,
     });
     const secondConflictRows = await conflictRows(prisma, run.id, regeneratedAttempt);
     assert.equal(secondConflictRows.page.content, humanChosen);
@@ -85,6 +89,7 @@ export async function runConcurrentPageConflictJourney({
     await loadLatestPageComparison(page);
     await page.getByText('页面在本次执行基线后发生了变化，通过操作不会覆盖它。', { exact: true }).waitFor();
     await page.screenshot({ path: join(artifactsDirectory, '18-page-conflict-before-adopt.png'), fullPage: true });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
 
     const adoptResponsePromise = page.waitForResponse((response) => response.request().method() === 'POST'
       && new URL(response.url()).pathname === `/api/spaces/${fixture.space.id}/collaboration/runs/${run.id}/tasks/${readyTask.id}/page-conflict`);
@@ -142,6 +147,7 @@ export async function runConcurrentPageConflictJourney({
       },
     });
     await page.screenshot({ path: join(artifactsDirectory, '19-page-conflict-adopted.png'), fullPage: true });
+    await browserFailures.assertPageNoFrameworkOverlay(page);
     return {
       transport: 'protocol fixture APIs; no model execution',
       runId: run.id,
@@ -218,7 +224,9 @@ async function editPageThroughBrowser(page, webOrigin, pageId, content) {
   await page.getByRole('status').filter({ hasText: '保存成功' }).waitFor();
 }
 
-async function attemptApprovalConflict({ page, webOrigin, fixture, runId, reviewId, reason }) {
+async function attemptApprovalConflict({
+  page, webOrigin, fixture, runId, reviewId, reason, browserFailures,
+}) {
   await page.goto(`${webOrigin}/spaces/${fixture.space.id}/collaboration/runs/${runId}`);
   await page.getByRole('heading', { name: '协作运行' }).waitFor();
   await loadLatestPageComparison(page);
@@ -228,8 +236,14 @@ async function attemptApprovalConflict({ page, webOrigin, fixture, runId, review
   const pathname = `/api/spaces/${fixture.space.id}/collaboration/runs/${runId}/reviews/${reviewId}/decision`;
   const responsePromise = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === pathname);
-  await actionDialog.getByRole('button', { name: '确认 通过' }).click();
-  const response = await responsePromise;
+  const response = await browserFailures.runAction(
+    page,
+    'review-decision-page-conflict',
+    async () => {
+      await actionDialog.getByRole('button', { name: '确认 通过' }).click();
+      return responsePromise;
+    },
+  );
   const body = await response.json();
   assert.equal(response.status(), 409);
   assert.equal(body.code, 'PAGE_VERSION_CONFLICT');
@@ -239,7 +253,15 @@ async function attemptApprovalConflict({ page, webOrigin, fixture, runId, review
     return run.status === 'paused' && run.pauseReason === 'page_version_conflict';
   });
   await waitForEnabled(actionDialog.getByRole('button', { name: '确认 通过' }));
-  return { method: response.request().method(), pathname, status: response.status(), code: body.code };
+  return {
+    action: 'review-decision-page-conflict',
+    pageId: browserFailures.pageId(page),
+    method: response.request().method(),
+    pathname,
+    url: response.url(),
+    status: response.status(),
+    code: body.code,
+  };
 }
 
 async function loadLatestPageComparison(page) {

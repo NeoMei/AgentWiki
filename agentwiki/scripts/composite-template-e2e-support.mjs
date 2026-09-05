@@ -235,10 +235,35 @@ export function assertSavedFolderTemplatePersistence({
     visit(null, '');
     return paths.sort();
   };
+  const compareTreeOrder = (left, right) => left.order - right.order
+    || (left.kind === right.kind ? 0 : left.kind === 'folder' ? 1 : -1)
+    || left.nodeId.localeCompare(right.nodeId);
+  const logicalSiblingOrder = (nodes) => {
+    const byParent = new Map();
+    for (const node of nodes) {
+      const siblings = byParent.get(node.parentNodeId) ?? [];
+      siblings.push(node);
+      byParent.set(node.parentNodeId, siblings);
+    }
+    const rows = [];
+    const visit = (parentNodeId, parentPath) => {
+      const siblings = [...(byParent.get(parentNodeId) ?? [])].sort(compareTreeOrder);
+      rows.push({
+        parentPath,
+        children: siblings.map((node) => `${node.kind}:${node.label}`),
+      });
+      for (const node of siblings) {
+        visit(node.nodeId, `${parentPath}/${node.kind}:${node.label}`);
+      }
+    };
+    visit(null, '');
+    return rows.sort((left, right) => left.parentPath.localeCompare(right.parentPath));
+  };
   const expectedTree = retained.map((node) => ({
     nodeId: node.sourceNodeId,
     parentNodeId: node.parentSourceNodeId,
     kind: node.kind,
+    order: node.order,
     label: node.kind === 'folder' ? node.name : node.title,
   }));
   const sortTree = (nodes) => [...nodes].sort((left, right) => left.nodeId.localeCompare(right.nodeId));
@@ -257,6 +282,9 @@ export function assertSavedFolderTemplatePersistence({
   if (!isDeepStrictEqual(logicalPaths(definitionTree), logicalPaths(expectedTree))) {
     throw new Error('Saved Folder template must preserve the exact pruned tree structure');
   }
+  if (!isDeepStrictEqual(logicalSiblingOrder(definitionTree), logicalSiblingOrder(expectedTree))) {
+    throw new Error('Saved Folder template must preserve source sibling order after pruning');
+  }
   const instantiatedTree = sortTree(instantiatedNodes.map((node) => ({
     nodeId: node.nodeId,
     parentNodeId: node.parentNodeId,
@@ -274,9 +302,7 @@ export function assertSavedFolderTemplatePersistence({
       byParent.set(node.parentNodeId, siblings);
     }
     for (const siblings of byParent.values()) {
-      siblings.sort((left, right) => left.order - right.order
-        || (left.kind === right.kind ? 0 : left.kind === 'folder' ? 1 : -1)
-        || left.nodeId.localeCompare(right.nodeId));
+      siblings.sort(compareTreeOrder);
       siblings.forEach((node, index) => ranked.set(node.nodeId, index));
     }
     return sortTree(nodes.map((node) => ({ ...node, order: ranked.get(node.nodeId) })));
@@ -303,10 +329,36 @@ export function assertSavedFolderTemplatePersistence({
   if (!isDeepStrictEqual(instantiatedPages, expectedPages)) {
     throw new Error('Saved Folder re-instantiation must reproduce retained Page titles and Markdown');
   }
-  const roleCount = definition.collaboration?.workflow?.roleSlots?.length ?? 0;
-  if (roleCount !== retainedPages.length) {
-    throw new Error('Saved Folder role abstraction must cover each retained Page exactly once');
+  const collaboration = definition.collaboration;
+  const roleSlots = collaboration?.workflow?.roleSlots ?? [];
+  const agentTasks = collaboration?.workflow?.nodes?.filter((node) => node.kind === 'agent_task') ?? [];
+  const taskTargets = collaboration?.taskTargets ?? [];
+  const roleIds = roleSlots.map((role) => role.id);
+  const pageRoleIds = definitionPages.map((page) => page.roleSlotKey);
+  const taskById = new Map(agentTasks.map((task) => [task.id, task]));
+  const targetsByPage = new Map();
+  for (const target of taskTargets) {
+    const targets = targetsByPage.get(target.pageNodeId) ?? [];
+    targets.push(target);
+    targetsByPage.set(target.pageNodeId, targets);
   }
+  const pageRoleTaskValid = roleIds.length === definitionPages.length
+    && new Set(roleIds).size === roleIds.length
+    && pageRoleIds.every((roleId) => typeof roleId === 'string' && roleIds.includes(roleId))
+    && new Set(pageRoleIds).size === definitionPages.length
+    && roleIds.every((roleId) => pageRoleIds.includes(roleId))
+    && agentTasks.length === definitionPages.length
+    && taskTargets.length === definitionPages.length
+    && new Set(taskTargets.map((target) => target.taskNodeId)).size === definitionPages.length
+    && definitionPages.every((page) => {
+      const targets = targetsByPage.get(page.nodeId) ?? [];
+      const task = targets.length === 1 ? taskById.get(targets[0].taskNodeId) : undefined;
+      return task?.roleSlotId === page.roleSlotKey;
+    });
+  if (!pageRoleTaskValid) {
+    throw new Error('Saved Folder Page-role-task abstraction must cover each retained Page exactly once');
+  }
+  const roleCount = roleSlots.length;
   return {
     retainedNodeCount: retained.length,
     retainedPageCount: retainedPages.length,
@@ -414,25 +466,160 @@ export function assertCompatibilityPersistence({ oldPage, legacy, folder, featur
   };
 }
 
-export function partitionExpectedConsoleIssues(consoleIssues, sourceChangedResponses) {
-  const exactConflict = 'error: Failed to load resource: the server responded with a status of 409 (Conflict)';
+export function partitionExpectedConsoleIssues(consoleIssues, failedResponses, expectedResponses = failedResponses) {
+  const exactConflict = 'Failed to load resource: the server responded with a status of 409 (Conflict)';
   const expectedDomainConflict = (response) => response.method === 'POST' && response.status === 409 && (
-    (response.code === 'SOURCE_CHANGED'
+    (response.action === 'saved-folder-source-change' && response.code === 'SOURCE_CHANGED'
       && /^\/api\/spaces\/[^/]+\/templates\/from-folder$/u.test(response.pathname))
-    || (response.code === 'PAGE_VERSION_CONFLICT'
+    || (response.action === 'review-decision-page-conflict' && response.code === 'PAGE_VERSION_CONFLICT'
       && /^\/api\/spaces\/[^/]+\/collaboration\/runs\/[^/]+\/reviews\/[^/]+\/decision$/u.test(response.pathname))
   );
-  const matchedResponses = sourceChangedResponses.filter(expectedDomainConflict);
+  const sameFailure = (actual, expectedResponse) => actual.action === expectedResponse.action
+    && actual.pageId === expectedResponse.pageId
+    && actual.method === expectedResponse.method
+    && actual.pathname === expectedResponse.pathname
+    && actual.url === expectedResponse.url
+    && actual.status === expectedResponse.status
+    && actual.code === expectedResponse.code;
+  const remainingFailures = [...failedResponses];
+  for (const expectedResponse of expectedResponses) {
+    if (!expectedDomainConflict(expectedResponse)) {
+      throw new Error(`Expected browser failure is not an allowed domain conflict: ${JSON.stringify(expectedResponse)}`);
+    }
+    const index = remainingFailures.findIndex((actual) => sameFailure(actual, expectedResponse));
+    if (index < 0) {
+      throw new Error(`Expected browser failure was not centrally observed: ${JSON.stringify(expectedResponse)}`);
+    }
+    remainingFailures.splice(index, 1);
+  }
+  const matchedResponses = [...expectedResponses];
   const expected = [];
   const unexpected = [];
   for (const issue of consoleIssues) {
-    if (issue === exactConflict && expected.length < matchedResponses.length) expected.push(issue);
-    else unexpected.push(issue);
+    const responseIndex = matchedResponses.findIndex((response) => response !== null
+      && issue.type === 'error'
+      && issue.text === exactConflict
+      && issue.action === response.action
+      && issue.pageId === response.pageId
+      && issue.locationUrl === response.url);
+    if (responseIndex < 0) unexpected.push(issue);
+    else {
+      expected.push(issue);
+      matchedResponses[responseIndex] = null;
+    }
   }
-  if (expected.length !== matchedResponses.length) {
-    return { expected: [], unexpected: [...consoleIssues] };
-  }
-  return { expected, unexpected };
+  return { expected, unexpected, unexpectedResponses: remainingFailures };
+}
+
+export function createBrowserFailureCollector(context) {
+  const pageIds = new WeakMap();
+  const pages = [];
+  const consoleIssues = [];
+  const pageErrors = [];
+  const failedResponses = [];
+  const pendingResponseReads = new Set();
+  const activeActions = new WeakMap();
+  const pageId = (page) => pageIds.get(page);
+  const register = (page) => {
+    if (pageIds.has(page)) return;
+    pageIds.set(page, `page-${pages.length + 1}`);
+    pages.push(page);
+    page.on('console', (message) => {
+      if (!['error', 'warning'].includes(message.type())) return;
+      consoleIssues.push({
+        action: activeActions.get(page) ?? null,
+        pageId: pageId(page),
+        type: message.type(),
+        text: message.text(),
+        locationUrl: message.location()?.url ?? '',
+        pageUrl: page.url(),
+      });
+    });
+    page.on('pageerror', (error) => {
+      pageErrors.push({ pageId: pageId(page), pageUrl: page.url(), message: error.message });
+    });
+  };
+  for (const page of context.pages?.() ?? []) register(page);
+  context.on('page', register);
+  context.on('response', (response) => {
+    if (response.status() < 400) return;
+    let responsePage;
+    try {
+      responsePage = response.request().frame().page();
+    } catch {
+      responsePage = undefined;
+    }
+    const responseAction = responsePage ? activeActions.get(responsePage) ?? null : null;
+    const read = (async () => {
+      let code = null;
+      try {
+        const body = await response.json();
+        code = typeof body?.code === 'string' ? body.code : null;
+      } catch {
+        // Non-JSON failures remain observable and therefore fail closed.
+      }
+      const url = response.url();
+      failedResponses.push({
+        action: responseAction,
+        pageId: responsePage ? pageId(responsePage) ?? null : null,
+        method: response.request().method(),
+        pathname: new URL(url).pathname,
+        url,
+        status: response.status(),
+        code,
+      });
+    })();
+    pendingResponseReads.add(read);
+    void read.finally(() => pendingResponseReads.delete(read));
+  });
+  return {
+    consoleIssues,
+    pageErrors,
+    failedResponses,
+    pageId,
+    pages,
+    labelPage(page, label) {
+      if (!pageIds.has(page)) register(page);
+      pageIds.set(page, label);
+    },
+    async runAction(page, action, callback) {
+      if (activeActions.has(page)) throw new Error(`Browser action already active for ${pageId(page)}`);
+      activeActions.set(page, action);
+      try {
+        const result = await callback();
+        await new Promise((resolve) => setImmediate(resolve));
+        return result;
+      } finally {
+        activeActions.delete(page);
+      }
+    },
+    async settleResponses() {
+      await Promise.all([...pendingResponseReads]);
+    },
+    assertNoPageErrors() {
+      if (pageErrors.length > 0) {
+        throw new Error(`Browser page errors: ${pageErrors.map((error) => (
+          `${error.pageId} ${error.pageUrl} ${error.message}`
+        )).join('; ')}`);
+      }
+    },
+    async assertPageNoFrameworkOverlay(page) {
+      if (page.isClosed()) return;
+      const overlaySelectors = [
+        '#webpack-dev-server-client-overlay',
+        'vite-error-overlay',
+        '[data-nextjs-dialog-overlay]',
+      ];
+      for (const selector of overlaySelectors) {
+        if (await page.locator(selector).count() > 0) {
+          throw new Error(`Framework error overlay found on ${pageId(page) ?? 'unregistered-page'}: ${selector}`);
+        }
+      }
+    },
+    async assertAllOpenPagesNoFrameworkOverlay() {
+      for (const page of pages) await this.assertPageNoFrameworkOverlay(page);
+    },
+  };
 }
 
 export function buildExternalAgentStagePrompt({ client, runId, stage }) {
