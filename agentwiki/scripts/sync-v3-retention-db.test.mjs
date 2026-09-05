@@ -30,6 +30,26 @@ async function exists(path) {
   }
 }
 
+async function withProcessClockSkew(skewMs, action) {
+  const RealDate = globalThis.Date;
+  class SkewedDate extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) super(RealDate.now() + skewMs);
+      else super(...args);
+    }
+
+    static now() {
+      return RealDate.now() + skewMs;
+    }
+  }
+  globalThis.Date = SkewedDate;
+  try {
+    return await action();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
 function collectPlanNodes(node, result = []) {
   if (!node || typeof node !== 'object') return result;
   if (node['Node Type']) {
@@ -368,6 +388,156 @@ test('archived cleanup claims one leased fixed-tail sweep across workers and cra
         'the next epoch wraps and revisits the failed first page despite a growing tail',
       );
       await release(firstWorker, wrappedClaim);
+    } finally {
+      await Promise.all([firstPrisma.$disconnect(), secondPrisma.$disconnect()]);
+    }
+  });
+});
+
+test('archived cleanup lease acquisition and fencing use PostgreSQL time under process skew', {
+  skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
+  timeout: 180_000,
+}, async () => {
+  await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
+    applySyncV3AttachmentCleanupCursorMigration,
+    applySyncV3BlobReferenceIndexMigration,
+    applySyncV3Migration,
+    applySyncV3PushOrdinalMigration,
+    databaseUrl,
+    schemaName,
+  }) => {
+    await applySyncV3Migration();
+    await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
+    await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
+    const firstPrisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    const secondPrisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    const suffix = schemaName.slice(-10);
+    const userId = `clock-user-${suffix}`;
+    const spaceId = `clock-space-${suffix}`;
+    const cutoff = new Date('2026-07-01T00:00:00.000Z');
+    const archivedAt = new Date('2026-06-01T00:00:00.000Z');
+    const storage = {
+      cleanupExpiredTempReservations: async () => 0,
+      withContentLock: async (_hash, work) => work(Object.freeze({})),
+      removeIfUnreferenced: async () => undefined,
+    };
+    const config = {
+      storagePath: '/tmp/unused-sync-v3-clock-storage',
+      maxFileBytes: 1n, maxSpaceBytes: 1n, maxDimension: 1, maxPixels: 1n,
+      minFreeBytes: 1n, retentionMs: DAY, orphanGraceMs: DAY,
+      contentLockTimeoutMs: 5_000,
+    };
+    const firstWorker = new AttachmentCleanupWorker(
+      firstPrisma, { get: () => 'worker' }, storage, config,
+    );
+    const secondWorker = new AttachmentCleanupWorker(
+      secondPrisma, { get: () => 'worker' }, storage, config,
+    );
+    const resetCursor = () => firstPrisma.attachmentCleanupCursor.update({
+      where: { key: 'archived-attachments-v1' },
+      data: {
+        archivedAt: null, attachmentId: null,
+        sweepArchivedAt: null, sweepAttachmentId: null,
+        leaseOwner: null, leaseExpiresAt: null,
+      },
+    });
+    const leaseSeconds = async () => {
+      const [row] = await firstPrisma.$queryRaw`
+        SELECT EXTRACT(EPOCH FROM ("leaseExpiresAt" - clock_timestamp()))::float8 AS seconds
+        FROM "AttachmentCleanupCursor"
+        WHERE key = 'archived-attachments-v1'
+      `;
+      return row.seconds;
+    };
+    const release = async (worker, claim) => {
+      if (claim) await worker.releaseArchivedLease(claim.ownerToken);
+    };
+    try {
+      await Promise.all([firstPrisma.$connect(), secondPrisma.$connect()]);
+      await firstPrisma.user.create({ data: { id: userId, email: `${userId}@retention-v3.test` } });
+      await firstPrisma.space.create({ data: { id: spaceId, name: 'DB clock lease', slug: spaceId } });
+      const hash = '6'.repeat(64);
+      await firstPrisma.spaceAttachment.create({ data: {
+        id: `clock-attachment-${suffix}`, spaceId, displayName: 'clock.png', nameKey: 'clock.png',
+        contentHash: hash, storageKey: storageKey(hash), mimeType: 'image/png', sizeBytes: 1n,
+        width: 1, height: 1, status: 'archived', archivedAt, uploadedByUserId: userId,
+      } });
+
+      await resetCursor();
+      const healthyClaim = await firstWorker.claimArchivedPage(cutoff);
+      const healthyLeaseSeconds = await leaseSeconds();
+      const stolenHealthyClaim = await withProcessClockSkew(
+        120_000,
+        () => secondWorker.claimArchivedPage(cutoff),
+      );
+      await release(secondWorker, stolenHealthyClaim);
+      await release(firstWorker, healthyClaim);
+
+      await resetCursor();
+      const fastClaim = await withProcessClockSkew(
+        120_000,
+        () => firstWorker.claimArchivedPage(cutoff),
+      );
+      const fastLeaseSeconds = await leaseSeconds();
+      await release(firstWorker, fastClaim);
+
+      await resetCursor();
+      const slowClaim = await withProcessClockSkew(
+        -120_000,
+        () => firstWorker.claimArchivedPage(cutoff),
+      );
+      const slowLeaseSeconds = await leaseSeconds();
+      const stolenSlowClaim = await secondWorker.claimArchivedPage(cutoff);
+      await release(secondWorker, stolenSlowClaim);
+      await release(firstWorker, slowClaim);
+
+      await resetCursor();
+      const renewalClaim = await firstWorker.claimArchivedPage(cutoff);
+      const fastRenewed = await withProcessClockSkew(
+        120_000,
+        () => firstWorker.renewArchivedLease(renewalClaim.ownerToken),
+      );
+      const renewedLeaseSeconds = await leaseSeconds();
+      await release(firstWorker, renewalClaim);
+
+      await resetCursor();
+      const slowRenewalClaim = await firstWorker.claimArchivedPage(cutoff);
+      const slowRenewed = await withProcessClockSkew(
+        -120_000,
+        () => firstWorker.renewArchivedLease(slowRenewalClaim.ownerToken),
+      );
+      const slowRenewedLeaseSeconds = await leaseSeconds();
+      const stolenAfterSlowRenewal = await secondWorker.claimArchivedPage(cutoff);
+      await release(secondWorker, stolenAfterSlowRenewal);
+      await release(firstWorker, slowRenewalClaim);
+
+      await resetCursor();
+      await firstPrisma.$executeRaw`
+        UPDATE "AttachmentCleanupCursor"
+        SET "leaseOwner" = 'ttl-owner',
+            "leaseExpiresAt" = clock_timestamp() + INTERVAL '100 milliseconds'
+        WHERE key = 'archived-attachments-v1'
+      `;
+      const beforeDatabaseExpiry = await secondWorker.claimArchivedPage(cutoff);
+      await firstPrisma.$executeRaw`SELECT pg_sleep(0.15)`;
+      const afterDatabaseExpiry = await secondWorker.claimArchivedPage(cutoff);
+      await release(secondWorker, afterDatabaseExpiry);
+
+      assert.equal(stolenHealthyClaim, null, 'fast process time cannot steal a healthy DB lease');
+      assert.ok(healthyLeaseSeconds >= 55 && healthyLeaseSeconds <= 65);
+      assert.ok(fastLeaseSeconds >= 55 && fastLeaseSeconds <= 65);
+      assert.ok(slowLeaseSeconds >= 55 && slowLeaseSeconds <= 65);
+      assert.equal(stolenSlowClaim, null, 'slow process time cannot create an already-expired lease');
+      assert.equal(fastRenewed, true);
+      assert.ok(renewedLeaseSeconds >= 55 && renewedLeaseSeconds <= 65);
+      assert.equal(slowRenewed, true);
+      assert.ok(slowRenewedLeaseSeconds >= 55 && slowRenewedLeaseSeconds <= 65);
+      assert.equal(stolenAfterSlowRenewal, null);
+      assert.equal(beforeDatabaseExpiry, null);
+      assert.notEqual(afterDatabaseExpiry, null, 'takeover follows elapsed PostgreSQL time');
     } finally {
       await Promise.all([firstPrisma.$disconnect(), secondPrisma.$disconnect()]);
     }

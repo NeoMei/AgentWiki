@@ -19,7 +19,6 @@ import {
 import { ATTACHMENT_CONFIG } from './attachment.config';
 
 const ARCHIVED_SCAN_VISIT_LIMIT = 100;
-const ARCHIVED_CLAIM_LEASE_MS = 60_000;
 const ARCHIVED_CLAIM_HEARTBEAT_MS = 15_000;
 const ARCHIVED_CURSOR_KEY = 'archived-attachments-v1';
 const ORPHAN_SCAN_VISIT_LIMIT = 100;
@@ -173,15 +172,16 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         try {
           if (await this.hasRevisionOwner(this.prisma, attachment)) continue;
           const deleted = await this.prisma.$transaction(async (tx) => {
-            const lease = await tx.attachmentCleanupCursor.updateMany({
-              where: {
-                key: ARCHIVED_CURSOR_KEY,
-                leaseOwner: claim.ownerToken,
-                leaseExpiresAt: { gt: new Date() },
-              },
-              data: { leaseExpiresAt: this.nextArchivedLeaseExpiry() },
-            });
-            if (lease.count !== 1) return { count: 0, leaseLost: true };
+            const lease = await tx.$queryRaw<Array<{ key: string }>>`
+              UPDATE "AttachmentCleanupCursor"
+              SET "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+                  "updatedAt" = clock_timestamp()
+              WHERE key = ${ARCHIVED_CURSOR_KEY}
+                AND "leaseOwner" = ${claim.ownerToken}
+                AND "leaseExpiresAt" > clock_timestamp()
+              RETURNING key
+            `;
+            if (lease.length !== 1) return { count: 0, leaseLost: true };
             const locked = await tx.$queryRaw<Array<{ id: string }>>`
               SELECT id
               FROM "SpaceAttachment"
@@ -248,13 +248,19 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         leaseOwner: string | null;
         leaseExpiresAt: Date | null;
       }>>`
-        SELECT "archivedAt", "attachmentId", "sweepArchivedAt", "sweepAttachmentId",
-               "leaseOwner", "leaseExpiresAt"
-        FROM "AttachmentCleanupCursor"
+        UPDATE "AttachmentCleanupCursor"
+        SET "leaseOwner" = ${ownerToken},
+            "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+            "updatedAt" = clock_timestamp()
         WHERE key = ${ARCHIVED_CURSOR_KEY}
-        FOR UPDATE
+          AND (
+            "leaseOwner" IS NULL
+            OR "leaseExpiresAt" <= clock_timestamp()
+          )
+        RETURNING "archivedAt", "attachmentId", "sweepArchivedAt", "sweepAttachmentId",
+                  "leaseOwner", "leaseExpiresAt"
       `;
-      const now = new Date();
+      if (positions.length === 0) return null;
       const position = positions[0];
       if (
         positions.length !== 1
@@ -263,11 +269,6 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         || ((position.sweepArchivedAt === null) !== (position.sweepAttachmentId === null))
         || ((position.leaseOwner === null) !== (position.leaseExpiresAt === null))
       ) throw new Error('ATTACHMENT_CLEANUP_CURSOR_INVALID');
-      if (
-        position.leaseOwner
-        && position.leaseExpiresAt
-        && position.leaseExpiresAt > now
-      ) return null;
 
       const select = {
         id: true,
@@ -350,7 +351,13 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         sweep = { archivedAt: tail.archivedAt, attachmentId: tail.id };
         page = await findPage(current, sweep);
       }
-      if (page.length === 0) return null;
+      if (page.length === 0) {
+        await tx.attachmentCleanupCursor.updateMany({
+          where: { key: ARCHIVED_CURSOR_KEY, leaseOwner: ownerToken },
+          data: { leaseOwner: null, leaseExpiresAt: null },
+        });
+        return null;
+      }
       const last = page[page.length - 1];
       await tx.attachmentCleanupCursor.update({
         where: { key: ARCHIVED_CURSOR_KEY },
@@ -359,28 +366,23 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
           attachmentId: last!.id,
           sweepArchivedAt: sweep.archivedAt,
           sweepAttachmentId: sweep.attachmentId,
-          leaseOwner: ownerToken,
-          leaseExpiresAt: this.nextArchivedLeaseExpiry(),
         },
       });
       return { ownerToken, attachments: page };
     });
   }
 
-  private nextArchivedLeaseExpiry(): Date {
-    return new Date(Date.now() + ARCHIVED_CLAIM_LEASE_MS);
-  }
-
   private async renewArchivedLease(ownerToken: string): Promise<boolean> {
-    const renewed = await this.prisma.attachmentCleanupCursor.updateMany({
-      where: {
-        key: ARCHIVED_CURSOR_KEY,
-        leaseOwner: ownerToken,
-        leaseExpiresAt: { gt: new Date() },
-      },
-      data: { leaseExpiresAt: this.nextArchivedLeaseExpiry() },
-    });
-    return renewed.count === 1;
+    const renewed = await this.prisma.$queryRaw<Array<{ key: string }>>`
+      UPDATE "AttachmentCleanupCursor"
+      SET "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+          "updatedAt" = clock_timestamp()
+      WHERE key = ${ARCHIVED_CURSOR_KEY}
+        AND "leaseOwner" = ${ownerToken}
+        AND "leaseExpiresAt" > clock_timestamp()
+      RETURNING key
+    `;
+    return renewed.length === 1;
   }
 
   private async releaseArchivedLease(ownerToken: string): Promise<void> {
