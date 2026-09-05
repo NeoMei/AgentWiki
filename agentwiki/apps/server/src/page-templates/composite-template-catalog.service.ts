@@ -243,16 +243,16 @@ export class CompositeTemplateCatalogService {
     return this.pageTemplates.createCompositeVersion(spaceId, templateId, body, principal);
   }
 
-  updateMetadata(...args: Parameters<PageTemplateService['updateMetadata']>) {
-    return this.pageTemplates.updateMetadata(...args);
+  updateMetadata(...args: Parameters<PageTemplateService['updateCompositeMetadata']>) {
+    return this.pageTemplates.updateCompositeMetadata(...args);
   }
 
-  archive(...args: Parameters<PageTemplateService['archive']>) {
-    return this.pageTemplates.archive(...args);
+  archive(...args: Parameters<PageTemplateService['archiveComposite']>) {
+    return this.pageTemplates.archiveComposite(...args);
   }
 
-  restore(...args: Parameters<PageTemplateService['restore']>) {
-    return this.pageTemplates.restore(...args);
+  restore(...args: Parameters<PageTemplateService['restoreComposite']>) {
+    return this.pageTemplates.restoreComposite(...args);
   }
 
   private async validateCatalogPage(

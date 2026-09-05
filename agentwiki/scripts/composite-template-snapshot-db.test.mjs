@@ -151,15 +151,31 @@ test('folder snapshot detects body-only changes, prunes full subtrees, and persi
         }),
         /immutable|constraint/iu,
       );
-      const archived = await pageTemplates.archive(
-        spaceId, created.id, { expectedUpdatedAt: String(created.updatedAt) }, principal,
+      const updated = await pageTemplates.updateCompositeMetadata(
+        spaceId, created.id, {
+          name: '目录 快照 更新', description: '数据库快照更新', category: 'knowledge',
+          defaultTitle: '目录快照更新', expectedUpdatedAt: String(created.updatedAt),
+        }, principal,
+      );
+      assert.equal(updated.name, '目录 快照 更新');
+      assert.deepEqual(updated.definition, created.definition);
+      assert.equal(updated.definitionHash, created.definitionHash);
+      assert.equal('content' in updated, false);
+      const archived = await pageTemplates.archiveComposite(
+        spaceId, created.id, { expectedUpdatedAt: String(updated.updatedAt) }, principal,
       );
       assert.ok(archived.archivedAt);
-      const restored = await pageTemplates.restore(
+      assert.deepEqual(archived.definition, created.definition);
+      assert.equal(archived.definitionHash, created.definitionHash);
+      assert.equal('content' in archived, false);
+      const restored = await pageTemplates.restoreComposite(
         spaceId, created.id, { expectedUpdatedAt: String(archived.updatedAt) }, principal,
       );
       assert.equal(restored.archivedAt, null);
       assert.equal(restored.currentVersion, 1);
+      assert.deepEqual(restored.definition, created.definition);
+      assert.equal(restored.definitionHash, created.definitionHash);
+      assert.equal('content' in restored, false);
     } finally {
       await prisma.$disconnect();
     }

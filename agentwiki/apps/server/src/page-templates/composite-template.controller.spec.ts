@@ -81,13 +81,28 @@ describe('CompositeTemplateController', () => {
     }
   });
 
-  it('delegates composite management, canonical legacy source, and Folder provenance reads', async () => {
+  it('returns composite records for all management writes and delegates source reads', async () => {
     const metadata = {
       name: 'Renamed', description: '', category: 'other', defaultTitle: 'Root',
       expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
     } as any;
+    const state = { expectedUpdatedAt: '2026-09-05T00:00:00.000Z' };
+    const compositeRecord = {
+      id: 'template-1', currentVersion: 1, definition: { schemaVersion: 1, kind: 'page_group' },
+      definitionHash: 'a'.repeat(64),
+    };
+    services.catalog.updateMetadata.mockResolvedValue({ ...compositeRecord, archivedAt: null });
+    services.catalog.archive.mockResolvedValue({
+      ...compositeRecord, archivedAt: new Date('2026-09-05T03:00:00.000Z'),
+    });
+    services.catalog.restore.mockResolvedValue({ ...compositeRecord, archivedAt: null });
     await (controller as any).managementDetail(request, 'space-1', 'template-1', { locale: 'en', version: 1 });
-    await (controller as any).updateTemplate(request, 'space-1', 'template-1', metadata);
+    await expect((controller as any).updateTemplate(request, 'space-1', 'template-1', metadata))
+      .resolves.toMatchObject({ definition: compositeRecord.definition, definitionHash: compositeRecord.definitionHash });
+    await expect((controller as any).archiveTemplate(request, 'space-1', 'template-1', state))
+      .resolves.toMatchObject({ definition: compositeRecord.definition, definitionHash: compositeRecord.definitionHash });
+    await expect((controller as any).restoreTemplate(request, 'space-1', 'template-1', state))
+      .resolves.toMatchObject({ definition: compositeRecord.definition, definitionHash: compositeRecord.definitionHash });
     await (controller as any).legacyUpgradeSource(request, 'space-1', 'legacy-1');
     await (controller as any).discoverFolderSource(request, 'space-1', 'folder-1');
     expect(services.catalog.managementDetail).toHaveBeenCalledWith(
@@ -95,6 +110,12 @@ describe('CompositeTemplateController', () => {
     );
     expect(services.catalog.updateMetadata).toHaveBeenCalledWith(
       'space-1', 'template-1', metadata, request.user,
+    );
+    expect(services.catalog.archive).toHaveBeenCalledWith(
+      'space-1', 'template-1', state, request.user,
+    );
+    expect(services.catalog.restore).toHaveBeenCalledWith(
+      'space-1', 'template-1', state, request.user,
     );
     expect(services.upgrades.source).toHaveBeenCalledWith('space-1', 'legacy-1', request.user);
     expect(services.orchestration.discoverFolderSource).toHaveBeenCalledWith(

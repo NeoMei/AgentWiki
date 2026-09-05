@@ -973,6 +973,78 @@ describe('PageTemplateService', () => {
     });
   });
 
+  it.each([
+    ['updateCompositeMetadata', false, {
+      name: 'Weekly Report', category: 'reporting', defaultTitle: 'Weekly report',
+      expectedUpdatedAt: templateTimestamp,
+    }],
+    ['archiveComposite', false, { expectedUpdatedAt: templateTimestamp }],
+    ['restoreComposite', true, { expectedUpdatedAt: templateTimestamp }],
+  ] as const)('returns the composite definition from %s inside the mutation transaction', async (
+    method, startsArchived, body,
+  ) => {
+    const current = spaceTemplate({
+      archivedAt: startsArchived ? new Date('2026-08-25T12:00:00.000Z') : null,
+    });
+    pageTemplate.findFirst.mockImplementation(async ({ where }: any) =>
+      where.id === 'template-1' ? current : null);
+    let transactionActive = false;
+    prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => {
+      transactionActive = true;
+      try {
+        return await callback(prisma);
+      } finally {
+        transactionActive = false;
+      }
+    });
+    pageTemplate.findUnique.mockImplementation(async () => {
+      expect(transactionActive).toBe(true);
+      return spaceTemplate({ archivedAt: method === 'archiveComposite' ? new Date() : null });
+    });
+    const definitionHash = hashCompositeDefinition(compositeDefinition);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 3, contentI18n: { en: '' }, sourcePageId: null,
+      definition: compositeDefinition, definitionHash,
+    });
+
+    const result = await (service as any)[method]('space-1', 'template-1', body, principal);
+
+    expect(result).toMatchObject({
+      id: 'template-1', currentVersion: 3, definition: compositeDefinition, definitionHash,
+      sourcePageId: null,
+    });
+    expect(result).not.toHaveProperty('content');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['updateMetadata', false, {
+      name: 'Weekly Report', category: 'reporting', defaultTitle: 'Weekly report',
+      expectedUpdatedAt: templateTimestamp,
+    }],
+    ['archive', false, { expectedUpdatedAt: templateTimestamp }],
+    ['restore', true, { expectedUpdatedAt: templateTimestamp }],
+  ] as const)('preserves the legacy managed record from %s', async (method, startsArchived, body) => {
+    const current = spaceTemplate({
+      archivedAt: startsArchived ? new Date('2026-08-25T12:00:00.000Z') : null,
+    });
+    pageTemplate.findFirst.mockImplementation(async ({ where }: any) =>
+      where.id === 'template-1' ? current : null);
+    pageTemplate.findUnique.mockResolvedValue(spaceTemplate({
+      archivedAt: method === 'archive' ? new Date() : null,
+    }));
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 3,
+      contentI18n: { en: '# Legacy current' }, sourcePageId: 'page-1',
+    });
+
+    const result = await (service as any)[method]('space-1', 'template-1', body, principal);
+
+    expect(result).toMatchObject({ content: '# Legacy current', contentLocale: 'en', sourcePageId: 'page-1' });
+    expect(result).not.toHaveProperty('definition');
+    expect(result).not.toHaveProperty('definitionHash');
+  });
+
   it('rejects archived templates before duplicate-name lookup or metadata writes', async () => {
     pageTemplate.findFirst.mockResolvedValue(spaceTemplate({
       archivedAt: new Date('2026-08-25T12:00:00.000Z'),

@@ -475,6 +475,25 @@ export class PageTemplateService implements OnModuleInit {
     body: UpdatePageTemplateDto,
     principal: Principal,
   ) {
+    return this.updateMetadataWithRecord(spaceId, templateId, body, principal, 'legacy');
+  }
+
+  async updateCompositeMetadata(
+    spaceId: string,
+    templateId: string,
+    body: UpdatePageTemplateDto,
+    principal: Principal,
+  ) {
+    return this.updateMetadataWithRecord(spaceId, templateId, body, principal, 'composite');
+  }
+
+  private async updateMetadataWithRecord(
+    spaceId: string,
+    templateId: string,
+    body: UpdatePageTemplateDto,
+    principal: Principal,
+    recordKind: 'legacy' | 'composite',
+  ) {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
@@ -500,7 +519,9 @@ export class PageTemplateService implements OnModuleInit {
         },
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
-      return this.getManagedRecord(tx, templateId, locale);
+      return recordKind === 'composite'
+        ? this.getManagedCompositeRecord(tx, templateId, locale)
+        : this.getManagedRecord(tx, templateId, locale);
     });
   }
 
@@ -629,6 +650,25 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
+    return this.archiveWithRecord(spaceId, templateId, body, principal, 'legacy');
+  }
+
+  async archiveComposite(
+    spaceId: string,
+    templateId: string,
+    body: PageTemplateStateDto,
+    principal: Principal,
+  ) {
+    return this.archiveWithRecord(spaceId, templateId, body, principal, 'composite');
+  }
+
+  private async archiveWithRecord(
+    spaceId: string,
+    templateId: string,
+    body: PageTemplateStateDto,
+    principal: Principal,
+    recordKind: 'legacy' | 'composite',
+  ) {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
@@ -641,7 +681,9 @@ export class PageTemplateService implements OnModuleInit {
         data: { archivedAt: new Date(), updatedById: principal.userId },
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
-      return this.getManagedRecord(tx, templateId, locale);
+      return recordKind === 'composite'
+        ? this.getManagedCompositeRecord(tx, templateId, locale)
+        : this.getManagedRecord(tx, templateId, locale);
     });
   }
 
@@ -650,6 +692,25 @@ export class PageTemplateService implements OnModuleInit {
     templateId: string,
     body: PageTemplateStateDto,
     principal: Principal,
+  ) {
+    return this.restoreWithRecord(spaceId, templateId, body, principal, 'legacy');
+  }
+
+  async restoreComposite(
+    spaceId: string,
+    templateId: string,
+    body: PageTemplateStateDto,
+    principal: Principal,
+  ) {
+    return this.restoreWithRecord(spaceId, templateId, body, principal, 'composite');
+  }
+
+  private async restoreWithRecord(
+    spaceId: string,
+    templateId: string,
+    body: PageTemplateStateDto,
+    principal: Principal,
+    recordKind: 'legacy' | 'composite',
   ) {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
@@ -668,7 +729,9 @@ export class PageTemplateService implements OnModuleInit {
         data: { archivedAt: null, updatedById: principal.userId },
       });
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
-      return this.getManagedRecord(tx, templateId, locale);
+      return recordKind === 'composite'
+        ? this.getManagedCompositeRecord(tx, templateId, locale)
+        : this.getManagedRecord(tx, templateId, locale);
     });
   }
 

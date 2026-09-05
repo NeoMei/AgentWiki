@@ -63,6 +63,7 @@ describe('CompositeTemplateCatalogService', () => {
   const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
   const pageTemplates = {
     createCompositeSpaceTemplate: jest.fn(), createCompositeVersion: jest.fn(),
+    updateCompositeMetadata: jest.fn(), archiveComposite: jest.fn(), restoreComposite: jest.fn(),
     updateMetadata: jest.fn(), archive: jest.fn(), restore: jest.fn(),
   } as any;
   let service: CompositeTemplateCatalogService;
@@ -290,6 +291,38 @@ describe('CompositeTemplateCatalogService', () => {
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
       tx, principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'],
     );
+  });
+
+  it('returns composite managed records from metadata, archive, and restore wrappers', async () => {
+    const definitionHash = hashCompositeDefinition(definition);
+    pageTemplates.updateCompositeMetadata.mockResolvedValue({
+      id: 'template-1', currentVersion: 2, archivedAt: null, definition, definitionHash,
+    });
+    pageTemplates.archiveComposite.mockResolvedValue({
+      id: 'template-1', currentVersion: 2,
+      archivedAt: new Date('2026-09-05T03:00:00.000Z'), definition, definitionHash,
+    });
+    pageTemplates.restoreComposite.mockResolvedValue({
+      id: 'template-1', currentVersion: 2, archivedAt: null, definition, definitionHash,
+    });
+    pageTemplates.updateMetadata.mockResolvedValue({ id: 'template-1', content: '# legacy' });
+    pageTemplates.archive.mockResolvedValue({ id: 'template-1', content: '# legacy' });
+    pageTemplates.restore.mockResolvedValue({ id: 'template-1', content: '# legacy' });
+    const metadata = {
+      name: 'Workspace', category: 'planning' as const, defaultTitle: 'Workspace',
+      expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
+    };
+    const state = { expectedUpdatedAt: '2026-09-05T00:00:00.000Z' };
+
+    await expect(service.updateMetadata('space-1', 'template-1', metadata, principal))
+      .resolves.toMatchObject({ definition, definitionHash });
+    await expect(service.archive('space-1', 'template-1', state, principal))
+      .resolves.toMatchObject({ definition, definitionHash, archivedAt: expect.any(Date) });
+    await expect(service.restore('space-1', 'template-1', state, principal))
+      .resolves.toMatchObject({ definition, definitionHash, archivedAt: null });
+    expect(pageTemplates.updateMetadata).not.toHaveBeenCalled();
+    expect(pageTemplates.archive).not.toHaveBeenCalled();
+    expect(pageTemplates.restore).not.toHaveBeenCalled();
   });
 
   it('returns an archived immutable version only through live Owner/Admin management detail', async () => {
